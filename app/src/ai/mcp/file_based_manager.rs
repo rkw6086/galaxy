@@ -235,7 +235,7 @@ impl FileBasedMCPManager {
     /// config location.
     ///
     /// "Global" means the installation was detected outside of a user repository:
-    /// - For `MCPProvider::Warp`: `warp_data_dir()` (i.e. `~/.warp/.mcp.json`).
+    /// - For `MCPProvider::Warp`: `warp_data_dir()` (i.e. `~/.warp-core/.mcp.json`).
     /// - For any other provider: the user's home directory (e.g. `~/.claude.json`).
     ///
     /// Project-scoped installations (those detected inside a repo) are not considered
@@ -409,11 +409,11 @@ impl FileBasedMCPManager {
     /// when its config does not specify `working_directory`.
     ///
     /// The spawn root is the directory the config was discovered in, with one
-    /// exception: global Warp installs are discovered in `~/.warp/` (Warp's data
+    /// exception: global Warp installs are discovered in `~/.warp-core/` (Warp's data
     /// dir) which isn't a useful cwd for spawned processes, so they are remapped
     /// to the home directory instead.
     /// - Project-scoped installations: the repo root.
-    /// - Global installations (`~/.warp/.mcp.json`, `~/.claude.json`, etc.): the
+    /// - Global installations (`~/.warp-core/.mcp.json`, `~/.claude.json`, etc.): the
     ///   home directory.
     ///
     /// If the installation is referenced from multiple roots, the lexicographically
@@ -429,7 +429,7 @@ impl FileBasedMCPManager {
             .sorted()
             .next()?;
 
-        // Global Warp installs live under `~/.warp/`, which is internal Warp state
+        // Global Warp installs live under `~/.warp-core/`, which is internal Warp state
         // rather than a meaningful working directory. Map them to the home dir so
         // all global installs (Warp and third-party) share a consistent cwd.
         if discovery_root == warp_data_dir() {

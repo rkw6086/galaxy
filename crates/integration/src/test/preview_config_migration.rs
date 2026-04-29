@@ -47,21 +47,20 @@ pub fn test_preview_config_dir_migration() -> Builder {
                 .add_named_assertion(
                     "new directory exists and is a real directory",
                     |_app, _window_id| {
-                        let new_dir = home_dir().join(".warp-preview");
+                        let new_dir = home_dir().join(".warp-core-preview");
 
                         if !new_dir.is_dir() {
                             return AssertionOutcome::failure(
-                                ".warp-preview should be a directory".to_string(),
+                                ".warp-core-preview should be a directory".to_string(),
                             );
                         }
-                        // It should be a real directory, not a symlink.
                         let is_symlink = new_dir
                             .symlink_metadata()
                             .map(|m| m.file_type().is_symlink())
                             .unwrap_or(false);
                         if is_symlink {
                             return AssertionOutcome::failure(
-                                ".warp-preview should not itself be a symlink".to_string(),
+                                ".warp-core-preview should not itself be a symlink".to_string(),
                             );
                         }
                         AssertionOutcome::Success
@@ -71,8 +70,8 @@ pub fn test_preview_config_dir_migration() -> Builder {
                     "expected entries are symlinks pointing to old dir",
                     |_app, _window_id| {
                         let home = home_dir();
-                        let old_dir = home.join(".warp");
-                        let new_dir = home.join(".warp-preview");
+                        let old_dir = home.join(".warp-core");
+                        let new_dir = home.join(".warp-core-preview");
 
                         for name in ["keybindings.yaml", "themes", "workflows", ".mcp.json"] {
                             let link = new_dir.join(name);
@@ -110,7 +109,7 @@ pub fn test_preview_config_dir_migration() -> Builder {
                     },
                 )
                 .add_named_assertion("excluded files were not symlinked", |_app, _window_id| {
-                    let new_dir = home_dir().join(".warp-preview");
+                    let new_dir = home_dir().join(".warp-core-preview");
 
                     for name in [".DS_Store", "._somefile", "settings.toml"] {
                         if new_dir.join(name).exists() {

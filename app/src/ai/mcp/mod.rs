@@ -92,7 +92,7 @@ impl MCPProvider {
     /// Returns the path of the provider's config file relative to the home directory.
     pub fn home_config_path(&self) -> &'static Path {
         match self {
-            MCPProvider::Warp => Path::new(".warp/.mcp.json"),
+            MCPProvider::Warp => Path::new(".warp-core/.mcp.json"),
             MCPProvider::Claude => Path::new(".claude.json"),
             MCPProvider::Codex => Path::new(".codex/config.toml"),
             MCPProvider::Agents => Path::new(".agents/.mcp.json"),
@@ -102,7 +102,7 @@ impl MCPProvider {
     /// Returns the path of the provider's config file relative to a project root.
     pub fn project_config_path(&self) -> &'static Path {
         match self {
-            MCPProvider::Warp => Path::new(".warp/.mcp.json"),
+            MCPProvider::Warp => Path::new(".warp-core/.mcp.json"),
             MCPProvider::Claude => Path::new(".mcp.json"),
             MCPProvider::Codex => Path::new(".codex/config.toml"),
             MCPProvider::Agents => Path::new(".agents/.mcp.json"),

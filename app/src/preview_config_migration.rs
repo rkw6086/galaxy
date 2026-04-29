@@ -1,9 +1,9 @@
 //! One-time migration that gives the Preview channel its own config
-//! directory (`~/.warp-preview`) on macOS.
+//! directory (`~/.warp-core-preview`) on macOS.
 //!
-//! Historically, Stable and Preview shared `~/.warp` on macOS. To give
+//! Historically, Stable and Preview shared `~/.warp-core` on macOS. To give
 //! Preview its own directory without breaking existing users, this migration
-//! symlinks each top-level entry from `~/.warp` into `~/.warp-preview` on
+//! symlinks each top-level entry from `~/.warp-core` into `~/.warp-core-preview` on
 //! first launch, so existing configuration (keybindings, themes, workflows,
 //! etc.) remains available to Preview.
 //!

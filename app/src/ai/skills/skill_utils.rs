@@ -60,7 +60,7 @@ fn try_insert_skill(
 ///
 /// Two skills are considered duplicates only when they share the same owning directory
 /// **and** identical content — which is the common case when a tool like `npx skills`
-/// symlinks the same skill under `~/.agents/skills/`, `~/.warp/skills/`, `~/.claude/skills/`, etc.
+/// symlinks the same skill under `~/.agents/skills/`, `~/.warp-core/skills/`, `~/.claude/skills/`, etc.
 ///
 /// Each element of `skill_paths` is a `(dir_path, skill_file_path)` tuple where
 /// `dir_path` is the directory that owns the skill.

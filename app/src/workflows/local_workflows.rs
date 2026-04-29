@@ -82,7 +82,7 @@ impl LocalWorkflows {
         })
     }
 
-    /// Returns an iterator over file-based workflows loaded from the `.warp/workflows` directory in
+    /// Returns an iterator over file-based workflows loaded from the `.warp-core/workflows` directory in
     /// the `working_directory`.
     ///
     /// The loaded workflows vector is cached.

@@ -93,9 +93,9 @@ pub fn run() -> Result<()> {
 
 /// Returns a vector of validated plugin directory paths in the plugins directory.
 ///
-/// This assumes that all plugins are located in ~/.warp/plugins.
+/// This assumes that all plugins are located in ~/.warp-core/plugins.
 fn plugin_paths() -> Vec<PathBuf> {
-    const PLUGIN_PATH_SUFFIX: &str = ".warp/plugins";
+    const PLUGIN_PATH_SUFFIX: &str = ".warp-core/plugins";
 
     dirs::home_dir()
         .map(|home_dir| home_dir.join(PLUGIN_PATH_SUFFIX))
