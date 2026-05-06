@@ -511,7 +511,7 @@ impl UserWorkspaces {
         )
     }
 
-    pub fn is_aws_bedrock_credentials_enabled(&self, app: &AppContext) -> bool {
+    pub fn is_bedrock_enabled(&self, app: &AppContext) -> bool {
         // i.e. did the admin go and toggle on aws bedrock in the admin panel?
         if !self.is_aws_bedrock_available_from_workspace() {
             return false;
@@ -520,7 +520,7 @@ impl UserWorkspaces {
         match self.aws_bedrock_host_enablement_setting() {
             HostEnablementSetting::Enforce => true,
             HostEnablementSetting::RespectUserSetting => *AISettings::as_ref(app)
-                .aws_bedrock_credentials_enabled
+                .bedrock_enabled
                 .value(),
         }
     }

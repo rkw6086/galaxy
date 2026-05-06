@@ -8,15 +8,20 @@ use warp_multi_agent_api::response_event;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
 use crate::{
-    ai::agent::{
-        api::{self, generate_multi_agent_output, ConvertToAPITypeError},
-        conversation::AIConversationId,
-        AIIdentifiers, CancellationReason,
+    ai::{
+        agent::{
+            api::{self, generate_multi_agent_output, ConvertToAPITypeError},
+            conversation::AIConversationId,
+            AIIdentifiers, CancellationReason,
+        },
+        bedrock::{client::BedrockClientConfig, models::is_bedrock_model},
     },
     network::NetworkStatus,
     report_error, send_telemetry_from_ctx,
     server::server_api::ServerApiProvider,
+    settings::ai::AISettings,
 };
+use settings::Setting;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ResponseStreamId(String);
@@ -79,6 +84,30 @@ pub struct ResponseStream {
 }
 
 impl ResponseStream {
+    fn bedrock_config_if_applicable(
+        model_id: &str,
+        ctx: &ModelContext<Self>,
+    ) -> Option<BedrockClientConfig> {
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.bedrock_enabled.value() {
+            return None;
+        }
+        let configured_models = settings.bedrock_models.value().clone();
+        if !is_bedrock_model(model_id, &configured_models) {
+            return None;
+        }
+        let auth_method = *settings.bedrock_auth_method.value();
+        Some(BedrockClientConfig {
+            auth_method,
+            profile: settings.bedrock_profile.value().clone(),
+            region: settings.bedrock_region.value().clone(),
+            access_key_id: settings.bedrock_access_key_id.value().clone(),
+            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            fallback_to_warp: *settings.bedrock_fallback_to_warp.value(),
+        })
+    }
+
     pub fn new(
         params: api::RequestParams,
         ai_identifiers: AIIdentifiers,
@@ -90,11 +119,12 @@ impl ResponseStream {
         let start_time = Local::now();
 
         let request_id = Uuid::new_v4();
+        let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
         let params_clone = params.clone();
         let _ =
             ctx.spawn(
                 async move {
-                    generate_multi_agent_output(server_api, params_clone, cancellation_rx).await
+                    generate_multi_agent_output(server_api, bedrock_config, params_clone, cancellation_rx).await
                 },
                 move |me, stream, ctx| {
                     me.handle_response_stream_result(request_id, stream, ctx);
@@ -155,9 +185,10 @@ impl ResponseStream {
         let request_id = Uuid::new_v4();
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
+        let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
         let server_api = ServerApiProvider::as_ref(ctx).get();
         let _ = ctx.spawn(
-            async move { generate_multi_agent_output(server_api, params, cancellation_rx).await },
+            async move { generate_multi_agent_output(server_api, bedrock_config, params, cancellation_rx).await },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
             },

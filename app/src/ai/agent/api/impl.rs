@@ -5,12 +5,14 @@ use futures_util::StreamExt;
 use warp_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
+use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
 use crate::server::server_api::ServerApi;
 
 use super::{convert_to::convert_input, ConvertToAPITypeError, RequestParams, ResponseStream};
 
 pub async fn generate_multi_agent_output(
     server_api: Arc<ServerApi>,
+    bedrock_config: Option<BedrockClientConfig>,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
@@ -128,6 +130,101 @@ pub async fn generate_multi_agent_output(
             .map(|suggestions| suggestions.into()),
         mcp_context: params.mcp_context.map(Into::into),
     };
+
+    if let Some(config) = bedrock_config {
+        let model_id_for_fallback_check = request
+            .settings
+            .as_ref()
+            .and_then(|s| s.model_config.as_ref())
+            .map(|mc| mc.base.clone())
+            .unwrap_or_default();
+        let is_arn = model_id_for_fallback_check.starts_with("arn:");
+        let fallback_to_warp = config.fallback_to_warp && !is_arn;
+        if is_arn && config.fallback_to_warp {
+            log::info!("[bedrock] Fallback disabled for ARN-based model (not available on Warp server)");
+        }
+        match BedrockClient::from_config(config).await {
+            Ok(bedrock) => {
+                let task_id = params.root_task_id.clone().unwrap_or_else(|| {
+                    request
+                        .task_context
+                        .as_ref()
+                        .and_then(|tc| tc.tasks.first())
+                        .map(|t| t.id.clone())
+                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+                });
+
+                log::info!("[bedrock] Starting stream with task_id={task_id}");
+
+                let model_id = request
+                    .settings
+                    .as_ref()
+                    .and_then(|s| s.model_config.as_ref())
+                    .map(|mc| mc.base.clone())
+                    .unwrap_or_default();
+
+                log::info!("[bedrock] Model: {model_id}");
+
+                let messages =
+                    crate::ai::bedrock::convert_request::extract_messages_from_request(&request);
+                let system_prompt =
+                    crate::ai::bedrock::convert_request::extract_system_prompt(&request);
+                let tools = crate::ai::bedrock::convert_request::extract_tools(&request);
+
+                log::info!(
+                    "[bedrock] Sending {} messages, system_prompt={}, tools={}",
+                    messages.len(),
+                    system_prompt.is_some(),
+                    tools.len()
+                );
+
+                match bedrock
+                    .converse_stream(
+                        &model_id,
+                        &task_id,
+                        messages,
+                        system_prompt,
+                        tools,
+                        8192,
+                        None,
+                        true,
+                    )
+                    .await
+                {
+                    Ok(stream) => {
+                        let output_stream = stream.take_until(cancellation_rx);
+                        return Ok(Box::pin(output_stream));
+                    }
+                    Err(e) => {
+                        if fallback_to_warp {
+                            log::warn!("Bedrock stream failed, falling back to server: {e}");
+                        } else {
+                            let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                                stream_type: "bedrock_converse",
+                                source: anyhow::anyhow!("{e}"),
+                            });
+                            let (tx, rx) = async_channel::unbounded();
+                            let _ = tx.send(Err(err)).await;
+                            return Ok(Box::pin(rx));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if fallback_to_warp {
+                    log::warn!("Bedrock client creation failed, falling back to server: {e}");
+                } else {
+                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                        stream_type: "bedrock_converse",
+                        source: anyhow::anyhow!("{e}"),
+                    });
+                    let (tx, rx) = async_channel::unbounded();
+                    let _ = tx.send(Err(err)).await;
+                    return Ok(Box::pin(rx));
+                }
+            }
+        }
+    }
 
     let response_stream = server_api.generate_multi_agent_output(&request).await;
     match response_stream {

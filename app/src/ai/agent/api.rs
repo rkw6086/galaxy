@@ -124,6 +124,9 @@ pub struct RequestParams {
     pub research_agent_enabled: bool,
     pub orchestration_enabled: bool,
     pub supported_tools_override: Option<Vec<warp_multi_agent_api::ToolType>>,
+    /// The root task ID for the conversation — needed for direct Bedrock streaming
+    /// since optimistic tasks don't appear in the proto task_context.
+    pub root_task_id: Option<String>,
     /// The conversation ID of the parent agent that spawned this child agent, if any.
     pub parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
@@ -235,7 +238,7 @@ impl RequestParams {
         let user_workspaces = UserWorkspaces::as_ref(app);
         let api_keys = ApiKeyManager::as_ref(app).api_keys_for_request(
             user_workspaces.is_byo_api_key_enabled(),
-            user_workspaces.is_aws_bedrock_credentials_enabled(app),
+            user_workspaces.is_bedrock_enabled(app),
         );
         let allow_use_of_warp_credits_with_byok =
             *AISettings::as_ref(app).can_use_warp_credits_with_byok;
@@ -307,6 +310,11 @@ impl RequestParams {
             research_agent_enabled,
             orchestration_enabled,
             supported_tools_override: request_input.supported_tools_override.clone(),
+            root_task_id: request_input
+                .input_messages
+                .keys()
+                .next()
+                .map(|id| id.to_string()),
             parent_agent_id: None,
             agent_name: None,
         }

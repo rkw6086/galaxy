@@ -254,7 +254,7 @@ fn test_aws_bedrock_credentials_default_off_when_admin_respects_user_setting() {
 
         app.read(|ctx| {
             assert!(
-                !UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx),
+                !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx),
                 "respect-user-setting should default the local Bedrock credentials toggle to off"
             );
             assert!(
@@ -303,13 +303,13 @@ fn test_aws_bedrock_credentials_respect_user_setting() {
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             let _ = settings
-                .aws_bedrock_credentials_enabled
+                .bedrock_enabled
                 .set_value(false, ctx);
         });
 
         app.read(|ctx| {
             assert!(
-                !UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx),
+                !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx),
                 "respect-user-setting should honor the local Bedrock credentials toggle"
             );
             assert!(
@@ -358,13 +358,13 @@ fn test_aws_bedrock_credentials_enforced_by_admin() {
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             let _ = settings
-                .aws_bedrock_credentials_enabled
+                .bedrock_enabled
                 .set_value(false, ctx);
         });
 
         app.read(|ctx| {
             assert!(
-                UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx),
+                UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx),
                 "enforced Bedrock host policy should ignore the local Bedrock credentials toggle"
             );
             assert!(

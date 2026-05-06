@@ -17,14 +17,14 @@ impl ByoLlmAuthBannerSessionState {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         // Initialize from the persisted permanent dismissal setting
         let dismissed = *AISettings::as_ref(ctx)
-            .aws_bedrock_login_banner_dismissed
+            .bedrock_login_banner_dismissed
             .value();
 
         // Subscribe to changes in the permanent dismissal setting
         ctx.subscribe_to_model(&AISettings::handle(ctx), |state, event, ctx| {
-            if let AISettingsChangedEvent::AwsBedrockLoginBannerDismissed { .. } = event {
+            if let AISettingsChangedEvent::BedrockLoginBannerDismissed { .. } = event {
                 let permanently_dismissed = *AISettings::as_ref(ctx)
-                    .aws_bedrock_login_banner_dismissed
+                    .bedrock_login_banner_dismissed
                     .value();
                 if permanently_dismissed && !state.dismissed {
                     state.dismissed = true;

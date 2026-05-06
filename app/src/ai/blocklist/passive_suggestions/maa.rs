@@ -174,7 +174,7 @@ impl PassiveSuggestionsModel {
         let stream_handle = ctx.spawn(
             async move {
                 let stream_result =
-                    generate_multi_agent_output(server_api, request_params, cancellation_rx).await;
+                    generate_multi_agent_output(server_api, None, request_params, cancellation_rx).await;
                 extract_suggestion_from_stream(stream_result).await
             },
             move |me, result, ctx| {

@@ -3607,8 +3607,8 @@ impl AIBlock {
         }
 
         let ai_settings = AISettings::as_ref(ctx);
-        let login_command = ai_settings.aws_bedrock_auth_refresh_command.value().clone();
-        let auto_login_enabled = *ai_settings.aws_bedrock_auto_login.value();
+        let login_command = ai_settings.bedrock_auth_refresh_command.value().clone();
+        let auto_login_enabled = *ai_settings.bedrock_auto_login.value();
 
         // If auto-login is enabled, run the login command automatically
         if auto_login_enabled {
@@ -5646,7 +5646,7 @@ pub enum AIBlockAction {
     ToggleReferencesSection,
     ToggleAutoexecuteReadonlyCommandsSpeedbumpCheckbox,
     ToggleAutoreadFilesSpeedbumpCheckbox,
-    ToggleAwsBedrockAutoLogin,
+    ToggleBedrockAutoLogin,
     ToggleCodebaseSearchSpeedbump(Option<usize>),
     StartNewConversationButtonClicked {
         action_id: AIAgentActionId,
@@ -6246,11 +6246,11 @@ impl TypedActionView for AIBlock {
             AIBlockAction::RunAwsLoginCommand => {
                 ctx.emit(AIBlockEvent::RunAwsLoginCommand);
             }
-            AIBlockAction::ToggleAwsBedrockAutoLogin => {
+            AIBlockAction::ToggleBedrockAutoLogin => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let current = *settings.aws_bedrock_auto_login.value();
+                    let current = *settings.bedrock_auto_login.value();
                     let new_value = !current;
-                    report_if_error!(settings.aws_bedrock_auto_login.set_value(new_value, ctx));
+                    report_if_error!(settings.bedrock_auto_login.set_value(new_value, ctx));
                 });
             }
             AIBlockAction::ConfigureAwsLoginCommand => {

@@ -1,4 +1,4 @@
-use crate::ai::llms::{is_using_api_key_for_provider, DisableReason, LLMId, LLMInfo};
+use crate::ai::llms::{is_using_api_key_for_provider, DisableReason, LLMId, LLMInfo, LLMProvider};
 use crate::menu::{MenuItem, MenuItemFields, MenuTooltipPosition};
 use itertools::Itertools;
 use std::sync::Arc;
@@ -80,6 +80,7 @@ fn make_item_fields<A: Action + Clone>(
         llm.menu_display_name()
     };
     let is_using_api_key = is_using_api_key_for_provider(&llm.provider, app);
+    let is_bedrock = llm.provider == LLMProvider::Bedrock;
 
     let mut item = if let Some(position_id_fn) = position_id_fn {
         let position_id = position_id_fn(&llm.id);
@@ -89,7 +90,11 @@ fn make_item_fields<A: Action + Clone>(
                     Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
 
                 let icon_container = Container::new(
-                    ConstrainedBox::new(if is_using_api_key {
+                    ConstrainedBox::new(if is_bedrock {
+                        Icon::BedrockLogo
+                            .to_warpui_icon(appearance.theme().foreground())
+                            .finish()
+                    } else if is_using_api_key {
                         Icon::Key
                             .to_warpui_icon(appearance.theme().foreground())
                             .finish()

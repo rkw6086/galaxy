@@ -16,10 +16,16 @@ use crate::{
     network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind},
     report_error,
     server::server_api::ServerApiProvider,
+    settings::ai::{AISettings, AISettingsChangedEvent, BedrockModelConfig},
     workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent},
 };
 
+use settings::Setting;
+
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
+
+#[cfg(not(target_family = "wasm"))]
+use super::bedrock::models::get_effective_models;
 
 pub use ai::LLMId;
 
@@ -36,6 +42,7 @@ pub fn is_using_api_key_for_provider(provider: &LLMProvider, app: &AppContext) -
         LLMProvider::OpenAI => api_keys.is_some_and(|keys| keys.openai.is_some()),
         LLMProvider::Anthropic => api_keys.is_some_and(|keys| keys.anthropic.is_some()),
         LLMProvider::Google => api_keys.is_some_and(|keys| keys.google.is_some()),
+        LLMProvider::Bedrock => true,
         _ => false,
     }
 }
@@ -89,6 +96,7 @@ pub enum LLMProvider {
     Anthropic,
     Google,
     Xai,
+    Bedrock,
     Unknown,
 }
 
@@ -99,6 +107,7 @@ impl LLMProvider {
             LLMProvider::OpenAI => Some(Icon::OpenAILogo),
             LLMProvider::Anthropic => Some(Icon::ClaudeLogo),
             LLMProvider::Google => Some(Icon::GeminiLogo),
+            LLMProvider::Bedrock => Some(Icon::BedrockLogo),
             LLMProvider::Xai => None,
             LLMProvider::Unknown => None,
         }
@@ -498,11 +507,9 @@ struct AvailableLLMsUpdate {
 pub struct LLMPreferences {
     models_by_feature: ModelsByFeature,
     last_update: Option<AvailableLLMsUpdate>,
-    // Stores temporary model overrides for a given terminal view.
-    // NOTE: We only store an override if the model selected by the user is different
-    // from the base LLM for the active profile. This means that if the user selects the
-    // profile's default model and changes their profile, the model will update to that profile's default.
     base_llm_for_terminal_view: HashMap<EntityId, LLMId>,
+    #[cfg(not(target_family = "wasm"))]
+    bedrock_models_fetched: bool,
 }
 
 impl LLMPreferences {
@@ -534,12 +541,34 @@ impl LLMPreferences {
             }
         });
 
+        #[cfg(not(target_family = "wasm"))]
+        ctx.subscribe_to_model(&AISettings::handle(ctx), |me, event, ctx| {
+            if matches!(
+                event,
+                AISettingsChangedEvent::BedrockEnabled { .. }
+                    | AISettingsChangedEvent::BedrockModels { .. }
+                    | AISettingsChangedEvent::BedrockCrossRegionInference { .. }
+                    | AISettingsChangedEvent::BedrockRegion { .. }
+            ) {
+                if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
+                    let enabled = *AISettings::as_ref(ctx).bedrock_enabled.value();
+                    if enabled && !me.bedrock_models_fetched {
+                        me.trigger_bedrock_discovery(ctx);
+                    }
+                }
+                me.inject_bedrock_models(ctx);
+                ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            }
+        });
+
         let base_llm_for_terminal_view = HashMap::new();
 
-        let me = Self {
+        let mut me = Self {
             models_by_feature,
             last_update: None,
             base_llm_for_terminal_view,
+            #[cfg(not(target_family = "wasm"))]
+            bedrock_models_fetched: false,
         };
 
         // In agent mode eval builds, eagerly kick off a fetch of the model list from the server
@@ -549,7 +578,101 @@ impl LLMPreferences {
         #[cfg(feature = "agent_mode_evals")]
         me.refresh_available_models(ctx);
 
+        #[cfg(not(target_family = "wasm"))]
+        {
+            me.inject_bedrock_models(ctx);
+            if *AISettings::as_ref(ctx).bedrock_enabled.value() {
+                me.trigger_bedrock_discovery(ctx);
+            }
+        }
+
         me
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn trigger_bedrock_discovery(&mut self, ctx: &mut ModelContext<Self>) {
+        use crate::ai::bedrock::client::BedrockClientConfig;
+        use crate::ai::bedrock::discovery::discover_inference_profiles;
+
+        self.bedrock_models_fetched = true;
+
+        let settings = AISettings::as_ref(ctx);
+        let config = BedrockClientConfig {
+            auth_method: settings.bedrock_auth_method.value().clone(),
+            profile: settings.bedrock_profile.value().clone(),
+            region: settings.bedrock_region.value().clone(),
+            access_key_id: settings.bedrock_access_key_id.value().clone(),
+            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            fallback_to_warp: *settings.bedrock_fallback_to_warp.value(),
+        };
+
+        ctx.spawn(
+            async move { discover_inference_profiles(&config).await },
+            |me, result, ctx| match result {
+                Ok(models) => {
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        let _ = settings.bedrock_models.set_value(models, ctx);
+                    });
+                    me.inject_bedrock_models(ctx);
+                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+                }
+                Err(e) => {
+                    log::error!("Failed to discover Bedrock inference profiles: {e}");
+                }
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn inject_bedrock_models(&mut self, ctx: &AppContext) {
+        self.models_by_feature
+            .agent_mode
+            .choices
+            .retain(|m| m.provider != LLMProvider::Bedrock);
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.bedrock_enabled.value() {
+            return;
+        }
+
+        let user_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
+        let region = settings.bedrock_region.value().clone();
+        let cross_region = *settings.bedrock_cross_region_inference.value();
+
+        let effective = get_effective_models(&user_models);
+        for model in effective {
+            let model_id = if cross_region && !region.is_empty() {
+                super::bedrock::models::apply_cross_region_prefix(&model.model_id, &region)
+            } else {
+                model.model_id.clone()
+            };
+
+            let llm_info = LLMInfo {
+                id: LLMId::from(model_id.as_str()),
+                display_name: model.display_name.clone(),
+                base_model_name: model.display_name.clone(),
+                reasoning_level: None,
+                usage_metadata: LLMUsageMetadata {
+                    request_multiplier: 1,
+                    credit_multiplier: None,
+                },
+                description: Some("AWS Bedrock".to_string()),
+                disable_reason: None,
+                vision_supported: model.vision_supported,
+                spec: None,
+                provider: LLMProvider::Bedrock,
+                host_configs: HashMap::from([(
+                    LLMModelHost::AwsBedrock,
+                    RoutingHostConfig {
+                        enabled: true,
+                        model_routing_host: LLMModelHost::AwsBedrock,
+                    },
+                )]),
+                discount_percentage: None,
+            };
+            self.models_by_feature.agent_mode.choices.push(llm_info);
+        }
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.
@@ -923,6 +1046,9 @@ impl LLMPreferences {
                 log::error!("Failed to serialize LLMs for cache: {e}");
             }
         }
+
+        #[cfg(not(target_family = "wasm"))]
+        self.inject_bedrock_models(ctx);
 
         // Clear any model selections where the model is no longer supported.
         let profiles_model = AIExecutionProfilesModel::handle(ctx);

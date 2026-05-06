@@ -3950,8 +3950,8 @@ impl TerminalView {
         }
 
         ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, ai_settings_event, ctx| {
-            if let AISettingsChangedEvent::AwsBedrockCredentialsEnabled { .. } = ai_settings_event {
-                if !UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx) {
+            if let AISettingsChangedEvent::BedrockEnabled { .. } = ai_settings_event {
+                if !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx) {
                     me.remove_aws_bedrock_login_banner(ctx);
                 }
             }
@@ -9318,7 +9318,7 @@ impl TerminalView {
             AwsBedrockLoginBannerAction::DontShowAgain => {
                 AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
                     report_if_error!(ai_settings
-                        .aws_bedrock_login_banner_dismissed
+                        .bedrock_login_banner_dismissed
                         .set_value(true, ctx));
                 });
             }
@@ -9338,7 +9338,7 @@ impl TerminalView {
     /// user interaction (e.g. "do you want to override X profile? y/n" is common)
     fn run_aws_login_command(&mut self, ctx: &mut ViewContext<Self>) {
         let login_command = AISettings::as_ref(ctx)
-            .aws_bedrock_auth_refresh_command
+            .bedrock_auth_refresh_command
             .value()
             .clone();
 
@@ -9377,7 +9377,7 @@ impl TerminalView {
         }
 
         // Check if AWS Bedrock is available in the workspace
-        if !UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx) {
+        if !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx) {
             return;
         }
 

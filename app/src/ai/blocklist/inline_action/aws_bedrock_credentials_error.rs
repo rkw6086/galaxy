@@ -78,7 +78,7 @@ impl AwsBedrockCredentialsErrorView {
 
         // Subscribe to AISettings changes to update checkbox state
         ctx.subscribe_to_model(&AISettings::handle(ctx), |_me, _, event, ctx| {
-            if matches!(event, AISettingsChangedEvent::AwsBedrockAutoLogin { .. }) {
+            if matches!(event, AISettingsChangedEvent::BedrockAutoLogin { .. }) {
                 ctx.notify();
             }
         });
@@ -125,7 +125,7 @@ impl View for AwsBedrockCredentialsErrorView {
                 .finish();
         }
 
-        let auto_login_enabled = *AISettings::as_ref(app).aws_bedrock_auto_login.value();
+        let auto_login_enabled = *AISettings::as_ref(app).bedrock_auto_login.value();
 
         // Helper closures to create elements (since Box<dyn Element> can't be cloned)
         let make_alert_icon = || {
@@ -280,8 +280,8 @@ impl TypedActionView for AwsBedrockCredentialsErrorView {
             }
             AwsBedrockCredentialsErrorAction::ToggleAutoLogin => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let current = *settings.aws_bedrock_auto_login.value();
-                    report_if_error!(settings.aws_bedrock_auto_login.set_value(!current, ctx));
+                    let current = *settings.bedrock_auto_login.value();
+                    report_if_error!(settings.bedrock_auto_login.set_value(!current, ctx));
                 });
                 ctx.notify();
             }

@@ -1,5 +1,3 @@
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::aws_credentials::refresh_aws_credentials;
 use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
     AgentToolbarEditorMode, AgentToolbarInlineEditor,
 };
@@ -25,8 +23,9 @@ use crate::settings::InputSettings;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
-    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, AwsBedrockAutoLogin,
-    AwsBedrockCredentialsEnabled, CanUseWarpCreditsWithByok, CodeSettings, CodebaseContextEnabled,
+    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
+    BedrockAuthMethod, BedrockCrossRegionInference, BedrockEnabled, BedrockFallbackToWarp,
+    CanUseWarpCreditsWithByok, CodeSettings, CodebaseContextEnabled,
     FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory,
     IntelligentAutosuggestionsEnabled, MemoryEnabled, NLDInTerminalEnabled,
     NaturalLanguageAutosuggestionsEnabled, OrchestrationEnabled, RuleSuggestionsEnabled,
@@ -53,7 +52,7 @@ use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::color::internal_colors;
 use warpui::elements::{
-    Border, ChildView, ConstrainedBox, CornerRadius, CrossAxisAlignment, Expanded, Fill,
+    ChildView, ConstrainedBox, CornerRadius, CrossAxisAlignment, Fill,
     HyperlinkLens, MainAxisAlignment, MainAxisSize, MouseStateHandle, Radius, Shrinkable, Text,
 };
 use warpui::fonts::{Properties, Weight};
@@ -99,6 +98,8 @@ pub enum AISubpage {
     Knowledge,
     /// Third-party CLI agent settings.
     ThirdPartyCLIAgents,
+    /// AWS Bedrock direct provider configuration.
+    Bedrock,
 }
 
 impl AISubpage {
@@ -108,6 +109,7 @@ impl AISubpage {
             SettingsSection::AgentProfiles => Some(Self::Profiles),
             SettingsSection::Knowledge => Some(Self::Knowledge),
             SettingsSection::ThirdPartyCLIAgents => Some(Self::ThirdPartyCLIAgents),
+            SettingsSection::Bedrock => Some(Self::Bedrock),
             // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
             _ => None,
         }
@@ -1468,7 +1470,6 @@ impl AISettingsPageView {
                 }
                 widgets.push(Box::new(CLIAgentWidget::default()));
                 widgets.push(Box::new(ApiKeysWidget::new(ctx)));
-                widgets.push(Box::new(AwsBedrockWidget::new(ctx)));
                 widgets.push(Box::new(AgentAttributionWidget::default()));
                 widgets.push(Box::new(OtherAIWidget::default()));
                 if FeatureFlag::AgentModeComputerUse.is_enabled() {
@@ -1508,7 +1509,6 @@ impl AISettingsPageView {
                     widgets.push(Box::new(VoiceWidget::default()));
                 }
                 widgets.push(Box::new(ApiKeysWidget::new(ctx)));
-                widgets.push(Box::new(AwsBedrockWidget::new(ctx)));
                 widgets.push(Box::new(AgentAttributionWidget::default()));
                 widgets.push(Box::new(OtherAIWidget::default()));
                 if FeatureFlag::AgentModeComputerUse.is_enabled() {
@@ -1528,6 +1528,9 @@ impl AISettingsPageView {
             }
             Some(AISubpage::ThirdPartyCLIAgents) => {
                 widgets.push(Box::new(CLIAgentWidget::default()));
+            }
+            Some(AISubpage::Bedrock) => {
+                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
             }
         }
 
@@ -2107,9 +2110,13 @@ pub enum AISettingsPageAction {
     RemoveFromMCPDenylist(uuid::Uuid),
     CreateProfile,
     SignupAnonymousUser,
-    ToggleAwsBedrockAutoLogin,
-    ToggleAwsBedrockCredentialsEnabled,
-    RefreshAwsBedrockCredentials,
+    ToggleBedrockAutoLogin,
+    ToggleBedrockEnabled,
+    RefreshAwsBedrock,
+    SetBedrockAuthMethod(BedrockAuthMethod),
+    SetBedrockProfile(String),
+    ToggleBedrockCrossRegionInference,
+    ToggleBedrockFallbackToWarp,
     ToggleCloudAgentComputerUse,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
@@ -2753,24 +2760,81 @@ impl TypedActionView for AISettingsPageView {
             AISettingsPageAction::SignupAnonymousUser => {
                 ctx.emit(AISettingsPageEvent::SignupAnonymousUser);
             }
-            AISettingsPageAction::ToggleAwsBedrockAutoLogin => {
+            AISettingsPageAction::ToggleBedrockAutoLogin => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.aws_bedrock_auto_login.toggle_and_save_value(ctx));
+                    report_if_error!(settings.bedrock_auto_login.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
-            AISettingsPageAction::ToggleAwsBedrockCredentialsEnabled => {
+            AISettingsPageAction::ToggleBedrockEnabled => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings
-                        .aws_bedrock_credentials_enabled
+                        .bedrock_enabled
                         .toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
-            AISettingsPageAction::RefreshAwsBedrockCredentials => {
+            AISettingsPageAction::RefreshAwsBedrock => {
                 #[cfg(not(target_family = "wasm"))]
-                ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                    drop(refresh_aws_credentials(manager, ctx));
+                {
+                    use crate::ai::bedrock::client::BedrockClientConfig;
+                    use crate::ai::bedrock::discovery::discover_inference_profiles;
+                    use settings::Setting;
+
+                    let ai_settings = AISettings::as_ref(ctx);
+                    let config = BedrockClientConfig {
+                        auth_method: ai_settings.bedrock_auth_method.value().clone(),
+                        profile: ai_settings.bedrock_profile.value().clone(),
+                        region: ai_settings.bedrock_region.value().clone(),
+                        access_key_id: ai_settings.bedrock_access_key_id.value().clone(),
+                        secret_access_key: ai_settings.bedrock_secret_access_key.value().clone(),
+                        cross_region_inference: *ai_settings.bedrock_cross_region_inference.value(),
+                        fallback_to_warp: *ai_settings.bedrock_fallback_to_warp.value(),
+                    };
+
+                    ctx.spawn(
+                        async move { discover_inference_profiles(&config).await },
+                        |_me, result, ctx| match result {
+                            Ok(models) => {
+                                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                                    let _ = settings.bedrock_models.set_value(models, ctx);
+                                });
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Failed to discover Bedrock inference profiles: {e}"
+                                );
+                            }
+                        },
+                    );
+                }
+                ctx.notify();
+            }
+            AISettingsPageAction::SetBedrockAuthMethod(method) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.bedrock_auth_method.set_value(*method, ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::SetBedrockProfile(profile) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.bedrock_profile.set_value(profile.clone(), ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::ToggleBedrockCrossRegionInference => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings
+                        .bedrock_cross_region_inference
+                        .toggle_and_save_value(ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::ToggleBedrockFallbackToWarp => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings
+                        .bedrock_fallback_to_warp
+                        .toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -6301,25 +6365,85 @@ impl SettingsWidget for ApiKeysWidget {
     }
 }
 
-struct AwsBedrockWidget {
-    aws_auth_refresh_command_editor: ViewHandle<EditorView>,
-    aws_auth_refresh_profile_editor: ViewHandle<EditorView>,
-    credentials_enabled_toggle: SwitchStateHandle,
+struct BedrockSettingsWidget {
+    enabled_toggle: SwitchStateHandle,
+    cross_region_toggle: SwitchStateHandle,
+    fallback_toggle: SwitchStateHandle,
     auto_login_toggle: SwitchStateHandle,
-    refresh_credentials_button: ViewHandle<ActionButton>,
+    auth_method_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
+    profile_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
+    region_editor: ViewHandle<EditorView>,
+    auth_refresh_command_editor: ViewHandle<EditorView>,
+    access_key_editor: ViewHandle<EditorView>,
+    secret_key_editor: ViewHandle<EditorView>,
+    refresh_button: ViewHandle<ActionButton>,
 }
 
-impl AwsBedrockWidget {
+impl BedrockSettingsWidget {
     fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
         let ai_settings = AISettings::as_ref(ctx);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(ctx);
+        let is_enabled = *ai_settings.bedrock_enabled.value();
 
-        let aws_auth_refresh_command = ai_settings.aws_bedrock_auth_refresh_command.value().clone();
-        let aws_auth_refresh_profile = ai_settings.aws_bedrock_profile.value().clone();
-        let is_usage_enabled = is_any_ai_enabled
-            && UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx);
+        let region_val = ai_settings.bedrock_region.value().clone();
+        let auth_cmd_val = ai_settings.bedrock_auth_refresh_command.value().clone();
+        let access_key_val = ai_settings.bedrock_access_key_id.value().clone();
+        let secret_key_val = ai_settings.bedrock_secret_access_key.value().clone();
 
-        let aws_auth_refresh_command_editor = ctx.add_typed_action_view(move |ctx| {
+        let auth_method_dropdown = ctx.add_typed_action_view(|ctx| {
+            let mut dropdown = Dropdown::new(ctx);
+            let methods = [
+                BedrockAuthMethod::Profile,
+                BedrockAuthMethod::StaticKeys,
+                BedrockAuthMethod::Sso,
+            ];
+            let current = AISettings::as_ref(ctx).bedrock_auth_method.value().clone();
+            let selected_index = methods
+                .iter()
+                .position(|m| *m == current)
+                .unwrap_or(0);
+            dropdown.add_items(
+                methods
+                    .into_iter()
+                    .map(|m| {
+                        DropdownItem::new(
+                            m.display_name(),
+                            AISettingsPageAction::SetBedrockAuthMethod(m),
+                        )
+                    })
+                    .collect(),
+                ctx,
+            );
+            dropdown.set_selected_by_index(selected_index, ctx);
+            dropdown
+        });
+
+        let profile_dropdown = ctx.add_typed_action_view(|ctx| {
+            use crate::ai::bedrock::discovery::list_aws_profiles;
+
+            let mut dropdown = Dropdown::new(ctx);
+            let profiles = list_aws_profiles();
+            let current_profile = AISettings::as_ref(ctx).bedrock_profile.value().clone();
+            let items: Vec<_> = profiles
+                .iter()
+                .map(|p| {
+                    DropdownItem::new(
+                        p.as_str(),
+                        AISettingsPageAction::SetBedrockProfile(p.clone()),
+                    )
+                })
+                .collect();
+            let selected_index = profiles
+                .iter()
+                .position(|p| *p == current_profile)
+                .unwrap_or(0);
+            dropdown.add_items(items, ctx);
+            if !profiles.is_empty() {
+                dropdown.set_selected_by_index(selected_index, ctx);
+            }
+            dropdown
+        });
+
+        let region_editor = ctx.add_typed_action_view(move |ctx| {
             let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
                 is_password: false,
@@ -6336,38 +6460,20 @@ impl AwsBedrockWidget {
                 ..Default::default()
             };
             let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("aws login", ctx);
-            editor.set_buffer_text(&aws_auth_refresh_command, ctx);
+            editor.set_placeholder_text("auto-detect from profile", ctx);
+            editor.set_buffer_text(&region_val, ctx);
             editor
         });
-        AISettingsPageView::update_editor_interaction_state(
-            aws_auth_refresh_command_editor.clone(),
-            is_usage_enabled,
-            ctx,
-        );
-        ctx.subscribe_to_view(&aws_auth_refresh_command_editor, |_, editor, event, ctx| {
+        ctx.subscribe_to_view(&region_editor, |_, editor, event, ctx| {
             if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let buffer_text = editor.as_ref(ctx).buffer_text(ctx);
-                let should_reset = buffer_text.trim().is_empty();
-                let value = if should_reset {
-                    "aws login".to_string()
-                } else {
-                    buffer_text
-                };
+                let value = editor.as_ref(ctx).buffer_text(ctx);
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings
-                        .aws_bedrock_auth_refresh_command
-                        .set_value(value, ctx);
+                    let _ = settings.bedrock_region.set_value(value, ctx);
                 });
-                if should_reset {
-                    editor.update(ctx, |editor, ctx| {
-                        editor.set_buffer_text("aws login", ctx);
-                    });
-                }
             }
         });
 
-        let aws_auth_refresh_profile_editor = ctx.add_typed_action_view(move |ctx| {
+        let auth_refresh_command_editor = ctx.add_typed_action_view(move |ctx| {
             let appearance = Appearance::as_ref(ctx);
             let options = SingleLineEditorOptions {
                 is_password: false,
@@ -6384,330 +6490,201 @@ impl AwsBedrockWidget {
                 ..Default::default()
             };
             let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("default", ctx);
-            editor.set_buffer_text(&aws_auth_refresh_profile, ctx);
+            editor.set_placeholder_text("aws sso login", ctx);
+            editor.set_buffer_text(&auth_cmd_val, ctx);
             editor
         });
-        AISettingsPageView::update_editor_interaction_state(
-            aws_auth_refresh_profile_editor.clone(),
-            is_usage_enabled,
-            ctx,
-        );
-        ctx.subscribe_to_view(&aws_auth_refresh_profile_editor, |_, editor, event, ctx| {
+        ctx.subscribe_to_view(&auth_refresh_command_editor, |_, editor, event, ctx| {
             if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
                 let buffer_text = editor.as_ref(ctx).buffer_text(ctx);
-                let should_reset = buffer_text.trim().is_empty();
-                let value = if should_reset {
-                    "default".to_string()
+                let value = if buffer_text.trim().is_empty() {
+                    "aws sso login".to_string()
                 } else {
                     buffer_text
                 };
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.aws_bedrock_profile.set_value(value, ctx);
+                    let _ = settings.bedrock_auth_refresh_command.set_value(value, ctx);
                 });
-                if should_reset {
-                    editor.update(ctx, |editor, ctx| {
-                        editor.set_buffer_text("default", ctx);
-                    });
-                }
             }
         });
 
-        let refresh_credentials_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Refresh", SecondaryTheme)
+        let access_key_editor = ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password: false,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text("AKIA...", ctx);
+            editor.set_buffer_text(&access_key_val, ctx);
+            editor
+        });
+        ctx.subscribe_to_view(&access_key_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let _ = settings.bedrock_access_key_id.set_value(value, ctx);
+                });
+            }
+        });
+
+        let secret_key_editor = ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password: true,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text("wJalr...", ctx);
+            editor.set_buffer_text(&secret_key_val, ctx);
+            editor
+        });
+        ctx.subscribe_to_view(&secret_key_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let _ = settings.bedrock_secret_access_key.set_value(value, ctx);
+                });
+            }
+        });
+
+        let refresh_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Refresh AWS Bedrock", SecondaryTheme)
                 .with_icon(Icon::RefreshCw04)
                 .with_size(ButtonSize::Small)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAwsBedrockCredentials);
+                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAwsBedrock);
                 })
         });
-        refresh_credentials_button.update(ctx, |button, ctx| {
-            button.set_disabled(!is_usage_enabled, ctx);
+        refresh_button.update(ctx, |button, ctx| {
+            button.set_disabled(!is_enabled, ctx);
         });
 
-        // Keep enablement in sync with the Global AI toggle.
-        let aws_auth_refresh_command_editor_clone = aws_auth_refresh_command_editor.clone();
-        let aws_auth_refresh_profile_editor_clone = aws_auth_refresh_profile_editor.clone();
-        let refresh_credentials_button_clone = refresh_credentials_button.clone();
+        let profile_dropdown_clone = profile_dropdown.clone();
+        let region_editor_clone = region_editor.clone();
+        let auth_refresh_command_editor_clone = auth_refresh_command_editor.clone();
+        let access_key_editor_clone = access_key_editor.clone();
+        let secret_key_editor_clone = secret_key_editor.clone();
+        let refresh_button_clone = refresh_button.clone();
         ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
-            if matches!(
-                event,
-                AISettingsChangedEvent::IsAnyAIEnabled { .. }
-                    | AISettingsChangedEvent::AwsBedrockCredentialsEnabled { .. }
-            ) {
-                let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-                let is_usage_enabled = is_any_ai_enabled
-                    && UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx);
-
-                AISettingsPageView::update_editor_interaction_state(
-                    aws_auth_refresh_command_editor_clone.clone(),
-                    is_usage_enabled,
-                    ctx,
-                );
-                AISettingsPageView::update_editor_interaction_state(
-                    aws_auth_refresh_profile_editor_clone.clone(),
-                    is_usage_enabled,
-                    ctx,
-                );
-                refresh_credentials_button_clone.update(ctx, |button, ctx| {
-                    button.set_disabled(!is_usage_enabled, ctx);
+            if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
+                let is_enabled = *AISettings::as_ref(ctx).bedrock_enabled.value();
+                profile_dropdown_clone.update(ctx, |dropdown, ctx| {
+                    if is_enabled {
+                        dropdown.set_enabled(ctx);
+                    } else {
+                        dropdown.set_disabled(ctx);
+                    }
                 });
-
+                AISettingsPageView::update_editor_interaction_state(
+                    region_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                AISettingsPageView::update_editor_interaction_state(
+                    auth_refresh_command_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                AISettingsPageView::update_editor_interaction_state(
+                    access_key_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                AISettingsPageView::update_editor_interaction_state(
+                    secret_key_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                refresh_button_clone.update(ctx, |button, ctx| {
+                    button.set_disabled(!is_enabled, ctx);
+                });
                 ctx.notify();
             }
         });
 
-        let aws_auth_refresh_command_editor_clone = aws_auth_refresh_command_editor.clone();
-        let aws_auth_refresh_profile_editor_clone = aws_auth_refresh_profile_editor.clone();
-        let refresh_credentials_button_clone = refresh_credentials_button.clone();
-        ctx.subscribe_to_model(
-            &UserWorkspaces::handle(ctx),
-            move |_, workspace, event, ctx| {
-                if let UserWorkspacesEvent::TeamsChanged = event {
-                    let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-                    let is_usage_enabled = is_any_ai_enabled
-                        && workspace
-                            .as_ref(ctx)
-                            .is_aws_bedrock_credentials_enabled(ctx);
-
-                    AISettingsPageView::update_editor_interaction_state(
-                        aws_auth_refresh_command_editor_clone.clone(),
-                        is_usage_enabled,
-                        ctx,
-                    );
-                    AISettingsPageView::update_editor_interaction_state(
-                        aws_auth_refresh_profile_editor_clone.clone(),
-                        is_usage_enabled,
-                        ctx,
-                    );
-                    refresh_credentials_button_clone.update(ctx, |button, ctx| {
-                        button.set_disabled(!is_usage_enabled, ctx);
-                    });
-
-                    ctx.notify();
-                }
-            },
-        );
-
         Self {
-            aws_auth_refresh_command_editor,
-            aws_auth_refresh_profile_editor,
-            credentials_enabled_toggle: SwitchStateHandle::default(),
+            enabled_toggle: SwitchStateHandle::default(),
+            cross_region_toggle: SwitchStateHandle::default(),
+            fallback_toggle: SwitchStateHandle::default(),
             auto_login_toggle: SwitchStateHandle::default(),
-            refresh_credentials_button,
+            auth_method_dropdown,
+            profile_dropdown,
+            region_editor,
+            auth_refresh_command_editor,
+            access_key_editor,
+            secret_key_editor,
+            refresh_button,
         }
     }
 
-    fn render_aws_bedrock_section(
-        &self,
+    fn render_input(
         appearance: &Appearance,
+        label: &'static str,
+        editor: ViewHandle<EditorView>,
+        is_enabled: bool,
         app: &AppContext,
-        is_bedrock_available: bool,
     ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let user_workspaces = UserWorkspaces::as_ref(app);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-        let is_section_enabled = is_any_ai_enabled && is_bedrock_available;
-        let is_admin_enforced = matches!(
-            user_workspaces.aws_bedrock_host_enablement_setting(),
-            crate::workspaces::workspace::HostEnablementSetting::Enforce
-        );
-        let is_toggleable =
-            is_section_enabled && user_workspaces.is_aws_bedrock_credentials_toggleable();
-        let are_credentials_enabled = user_workspaces.is_aws_bedrock_credentials_enabled(app);
-        let is_usage_enabled = is_section_enabled && are_credentials_enabled;
-        let toggle_description = if is_admin_enforced {
-            "Warp loads and sends local AWS CLI credentials for Bedrock-supported models. This setting is managed by your organization.".to_string()
-        } else {
-            "Warp loads and sends local AWS CLI credentials for Bedrock-supported models."
-                .to_string()
+        let padding = Some(Coords {
+            top: 10.,
+            bottom: 10.,
+            left: 16.,
+            right: 16.,
+        });
+        let editor_style = UiComponentStyles {
+            padding,
+            background: Some(appearance.theme().surface_2().into()),
+            ..Default::default()
         };
 
-        let mut column = Flex::column().with_spacing(16.).with_child(
-            Flex::column()
-                .with_child(render_ai_setting_toggle::<AwsBedrockCredentialsEnabled>(
-                    "Use AWS Bedrock credentials",
-                    AISettingsPageAction::ToggleAwsBedrockCredentialsEnabled,
-                    are_credentials_enabled,
-                    is_toggleable,
-                    self.credentials_enabled_toggle.clone(),
-                    &RefCell::new(HashMap::new()),
-                    app,
-                ))
-                .with_child(render_ai_setting_description(
-                    toggle_description,
-                    is_section_enabled,
-                    app,
-                ))
-                .finish(),
-        );
-
-        /// Helper function to render the UI for an input field.
-        fn render_input(
-            appearance: &Appearance,
-            label: &'static str,
-            editor: ViewHandle<EditorView>,
-            is_enabled: bool,
-            app: &AppContext,
-        ) -> Box<dyn Element> {
-            let padding = Some(Coords {
-                top: 10.,
-                bottom: 10.,
-                left: 16.,
-                right: 16.,
-            });
-            let editor_style = UiComponentStyles {
-                padding,
-                background: Some(appearance.theme().surface_2().into()),
-                ..Default::default()
-            };
-
-            let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                .with_color(styles::header_font_color(is_enabled, app).into())
-                .finish();
-
-            let input = appearance
-                .ui_builder()
-                .text_input(editor)
-                .with_style(editor_style)
-                .build()
-                .finish();
-
-            Flex::column()
-                .with_spacing(8.)
-                .with_child(label)
-                .with_child(input)
-                .finish()
-        }
-
-        fn render_credential_status_card(
-            refresh_button: &ViewHandle<ActionButton>,
-            appearance: &Appearance,
-            are_credentials_enabled: bool,
-            app: &AppContext,
-        ) -> Box<dyn Element> {
-            let (title_color, detail_color) = (
-                styles::header_font_color(are_credentials_enabled, app),
-                styles::description_font_color(are_credentials_enabled, app),
-            );
-            let (title_text, detail_text, icon) = ApiKeyManager::as_ref(app)
-                .aws_credentials_state()
-                .user_facing_components();
-
-            let icon = Container::new(
-                ConstrainedBox::new(icon.to_warpui_icon(title_color).finish())
-                    .with_width(16.)
-                    .with_height(16.)
-                    .finish(),
-            )
-            .with_horizontal_padding(4.)
+        let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+            .with_color(styles::header_font_color(is_enabled, app).into())
             .finish();
 
-            let text_column = Flex::column()
-                .with_cross_axis_alignment(CrossAxisAlignment::Start)
-                .with_spacing(4.)
-                .with_child(
-                    Text::new_inline(title_text, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                        .with_style(Properties::default().weight(Weight::Semibold))
-                        .with_color(title_color.into())
-                        .finish(),
-                )
-                .with_child(
-                    Text::new(detail_text, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                        .with_color(detail_color.into())
-                        .soft_wrap(true)
-                        .finish(),
-                );
+        let input = appearance
+            .ui_builder()
+            .text_input(editor)
+            .with_style(editor_style)
+            .build()
+            .finish();
 
-            Container::new(
-                Flex::row()
-                    .with_main_axis_size(MainAxisSize::Max)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_spacing(12.)
-                    .with_child(
-                        Expanded::new(
-                            1.,
-                            Flex::row()
-                                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                                .with_spacing(12.)
-                                .with_child(icon)
-                                .with_child(Expanded::new(1., text_column.finish()).finish())
-                                .finish(),
-                        )
-                        .finish(),
-                    )
-                    .with_child(ChildView::new(refresh_button).finish())
-                    .finish(),
-            )
-            .with_uniform_padding(12.)
-            .with_background(appearance.theme().surface_2())
-            .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+        Flex::column()
+            .with_spacing(8.)
+            .with_child(label)
+            .with_child(input)
             .finish()
-        }
-
-        column.add_child(
-            Container::new(render_credential_status_card(
-                &self.refresh_credentials_button,
-                appearance,
-                are_credentials_enabled,
-                app,
-            ))
-            .with_margin_top(-styles::DESCRIPTION_MARGIN_BOTTOM)
-            .finish(),
-        );
-        column.add_child(render_input(
-            appearance,
-            "Login Command",
-            self.aws_auth_refresh_command_editor.clone(),
-            is_usage_enabled,
-            app,
-        ));
-        column.add_child(render_input(
-            appearance,
-            "AWS Profile",
-            self.aws_auth_refresh_profile_editor.clone(),
-            is_usage_enabled,
-            app,
-        ));
-
-        let auto_login_enabled = *AISettings::as_ref(app).aws_bedrock_auto_login.value();
-
-        let toggle = render_ai_setting_toggle::<AwsBedrockAutoLogin>(
-            "Automatically run login command",
-            AISettingsPageAction::ToggleAwsBedrockAutoLogin,
-            auto_login_enabled,
-            is_usage_enabled,
-            self.auto_login_toggle.clone(),
-            &RefCell::new(HashMap::new()),
-            app,
-        );
-        let description = render_ai_setting_description(
-            "When enabled, the login command will run automatically when AWS Bedrock credentials expire.",
-            is_usage_enabled,
-            app,
-        );
-        column.add_child(
-            Flex::column()
-                .with_child(toggle)
-                .with_child(description)
-                .finish(),
-        );
-
-        column.finish()
     }
 }
 
-impl SettingsWidget for AwsBedrockWidget {
+impl SettingsWidget for BedrockSettingsWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "aws bedrock amazon credentials login profile"
+        "aws bedrock amazon credentials login profile region sso static keys"
     }
 
-    fn should_render(&self, app: &AppContext) -> bool {
-        // Only show if admin has enabled AWS Bedrock for the workspace
-        UserWorkspaces::as_ref(app).is_aws_bedrock_available_from_workspace()
+    fn should_render(&self, _app: &AppContext) -> bool {
+        true
     }
 
     fn render(
@@ -6717,26 +6694,167 @@ impl SettingsWidget for AwsBedrockWidget {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let ai_settings = AISettings::as_ref(app);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-        let is_bedrock_available =
-            UserWorkspaces::as_ref(app).is_aws_bedrock_available_from_workspace();
+        let is_enabled = *ai_settings.bedrock_enabled.value();
+        let auth_method = ai_settings.bedrock_auth_method.value().clone();
+        let cross_region = *ai_settings.bedrock_cross_region_inference.value();
+        let fallback = *ai_settings.bedrock_fallback_to_warp.value();
+        let auto_login = *ai_settings.bedrock_auto_login.value();
 
-        let column = Flex::column()
-            .with_child(render_separator(appearance))
-            .with_child(
-                build_sub_header(
-                    appearance,
-                    "AWS Bedrock",
-                    Some(styles::header_font_color(is_any_ai_enabled, app)),
-                )
-                .with_padding_bottom(HEADER_PADDING)
+        let mut column = Flex::column().with_spacing(16.);
+
+        column.add_child(render_ai_setting_toggle::<BedrockEnabled>(
+            "Enable AWS Bedrock",
+            AISettingsPageAction::ToggleBedrockEnabled,
+            is_enabled,
+            true,
+            self.enabled_toggle.clone(),
+            &RefCell::new(HashMap::new()),
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Route AI requests directly through AWS Bedrock using your own credentials.",
+            true,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        let auth_label = Text::new_inline(
+            "Authentication Method",
+            appearance.ui_font_family(),
+            CONTENT_FONT_SIZE,
+        )
+        .with_color(styles::header_font_color(is_enabled, app).into())
+        .finish();
+        column.add_child(
+            Flex::column()
+                .with_spacing(8.)
+                .with_child(auth_label)
+                .with_child(ChildView::new(&self.auth_method_dropdown).finish())
                 .finish(),
-            )
-            .with_child(self.render_aws_bedrock_section(appearance, app, is_bedrock_available));
+        );
 
-        Container::new(column.finish())
-            .with_margin_bottom(HEADER_PADDING)
-            .finish()
+        match auth_method {
+            BedrockAuthMethod::Profile | BedrockAuthMethod::Sso => {
+                let profile_label = Text::new_inline(
+                    "AWS Profile",
+                    appearance.ui_font_family(),
+                    CONTENT_FONT_SIZE,
+                )
+                .with_color(styles::header_font_color(is_enabled, app).into())
+                .finish();
+                column.add_child(
+                    Flex::column()
+                        .with_spacing(8.)
+                        .with_child(profile_label)
+                        .with_child(ChildView::new(&self.profile_dropdown).finish())
+                        .finish(),
+                );
+                if auth_method == BedrockAuthMethod::Sso {
+                    column.add_child(Self::render_input(
+                        appearance,
+                        "Login Command",
+                        self.auth_refresh_command_editor.clone(),
+                        is_enabled,
+                        app,
+                    ));
+
+                    column.add_child(
+                        Flex::column()
+                            .with_child(render_ai_setting_toggle::<BedrockAutoLogin>(
+                                "Auto-run login on expiry",
+                                AISettingsPageAction::ToggleBedrockAutoLogin,
+                                auto_login,
+                                is_enabled,
+                                self.auto_login_toggle.clone(),
+                                &RefCell::new(HashMap::new()),
+                                app,
+                            ))
+                            .with_child(render_ai_setting_description(
+                                "Automatically run the login command when credentials expire.",
+                                is_enabled,
+                                app,
+                            ))
+                            .finish(),
+                    );
+                }
+            }
+            BedrockAuthMethod::StaticKeys => {
+                column.add_child(Self::render_input(
+                    appearance,
+                    "Access Key ID",
+                    self.access_key_editor.clone(),
+                    is_enabled,
+                    app,
+                ));
+                column.add_child(Self::render_input(
+                    appearance,
+                    "Secret Access Key",
+                    self.secret_key_editor.clone(),
+                    is_enabled,
+                    app,
+                ));
+            }
+        }
+
+        column.add_child(render_separator(appearance));
+
+        column.add_child(Self::render_input(
+            appearance,
+            "Region",
+            self.region_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Leave empty to auto-detect from your AWS profile/config.",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(
+            Flex::column()
+                .with_child(render_ai_setting_toggle::<BedrockCrossRegionInference>(
+                    "Cross-region inference",
+                    AISettingsPageAction::ToggleBedrockCrossRegionInference,
+                    cross_region,
+                    is_enabled,
+                    self.cross_region_toggle.clone(),
+                    &RefCell::new(HashMap::new()),
+                    app,
+                ))
+                .with_child(render_ai_setting_description(
+                    "Automatically add geographic prefixes to model IDs for higher availability.",
+                    is_enabled,
+                    app,
+                ))
+                .finish(),
+        );
+
+        column.add_child(
+            Flex::column()
+                .with_child(render_ai_setting_toggle::<BedrockFallbackToWarp>(
+                    "Fallback to Warp server",
+                    AISettingsPageAction::ToggleBedrockFallbackToWarp,
+                    fallback,
+                    is_enabled,
+                    self.fallback_toggle.clone(),
+                    &RefCell::new(HashMap::new()),
+                    app,
+                ))
+                .with_child(render_ai_setting_description(
+                    "When enabled, requests will route through the Warp server if Bedrock credentials are invalid.",
+                    is_enabled,
+                    app,
+                ))
+                .finish(),
+        );
+
+        column.add_child(render_separator(appearance));
+
+        column.add_child(ChildView::new(&self.refresh_button).finish());
+
+        column.finish()
     }
 }
 

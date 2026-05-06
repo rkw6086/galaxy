@@ -394,6 +394,65 @@ impl ThinkingDisplayMode {
     }
 }
 
+/// Authentication method for AWS Bedrock.
+#[derive(
+    Default,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Copy,
+    Clone,
+    EnumIter,
+    schemars::JsonSchema,
+    settings_value::SettingsValue,
+)]
+#[schemars(
+    description = "Authentication method for AWS Bedrock.",
+    rename_all = "snake_case"
+)]
+pub enum BedrockAuthMethod {
+    #[default]
+    Profile,
+    StaticKeys,
+    Sso,
+}
+
+settings::macros::implement_setting_for_enum!(
+    BedrockAuthMethod,
+    AISettings,
+    SupportedPlatforms::DESKTOP,
+    SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+    private: false,
+    toml_path: "ai.bedrock.auth_method",
+    description: "Authentication method for AWS Bedrock.",
+);
+
+impl BedrockAuthMethod {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            BedrockAuthMethod::Profile => "AWS Profile",
+            BedrockAuthMethod::StaticKeys => "Static Keys",
+            BedrockAuthMethod::Sso => "SSO",
+        }
+    }
+}
+
+/// Configuration for a single Bedrock model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(description = "Configuration for a single AWS Bedrock model.")]
+pub struct BedrockModelConfig {
+    #[schemars(description = "The Bedrock model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0).")]
+    pub model_id: String,
+    #[schemars(description = "Display name shown in the model picker.")]
+    pub display_name: String,
+    #[serde(default)]
+    #[schemars(description = "Whether the model supports image/vision input.")]
+    pub vision_supported: bool,
+}
+
+impl settings_value::SettingsValue for BedrockModelConfig {}
+
 /// Tracks the state of the quota reset banner
 #[derive(
     Debug,
@@ -1007,53 +1066,106 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     }
-    // Whether to use locally loaded AWS credentials for Bedrock-enabled requests.
-    aws_bedrock_credentials_enabled: AwsBedrockCredentialsEnabled {
+    // Whether direct Bedrock integration is enabled (client calls Bedrock API directly).
+    bedrock_enabled: BedrockEnabled {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
-        toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_credentials_enabled",
-        description: "Whether Warp should use your local AWS credentials for Bedrock-enabled requests.",
+        toml_path: "ai.bedrock.enabled",
+        description: "Whether to use AWS Bedrock directly for AI requests.",
     }
-    // Whether to automatically run the AWS login command when Bedrock credentials are expired.
-    //
-    // When true, the configured login command will be run automatically without asking.
-    // When false (default), a prompt will be shown asking for permission.
-    aws_bedrock_auto_login: AwsBedrockAutoLogin {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_auto_login",
-        description: "Whether to automatically run the AWS login command when Bedrock credentials expire.",
-    }
-    // Command to run to refresh AWS credentials when using Bedrock auto-login.
-    aws_bedrock_auth_refresh_command: AwsBedrockAuthRefreshCommand {
-        type: String,
-        default: "aws login".to_string(),
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_auth_refresh_command",
-        description: "The command to run to refresh AWS credentials for Bedrock.",
-    }
-    // AWS profile name to use when loading credentials from the local AWS credential/config chain.
-    aws_bedrock_profile: AwsBedrockProfile {
+    // Authentication method for Bedrock: "profile", "static_keys", or "sso".
+    bedrock_auth_method: BedrockAuthMethod,
+    // AWS profile name to use when auth_method is Profile or SSO.
+    bedrock_profile: BedrockProfile {
         type: String,
         default: "default".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
-        toml_path: "cloud_platform.third_party_api_keys.aws_bedrock_profile",
+        toml_path: "ai.bedrock.profile",
         description: "The AWS profile name to use for Bedrock credentials.",
     }
-    // Whether the AWS Bedrock login banner has been permanently dismissed.
-    //
-    // Not a user-visible setting - we model it as a setting so we can track state.
-    aws_bedrock_login_banner_dismissed: AwsBedrockLoginBannerDismissed {
+    // AWS region for Bedrock API calls. Empty string means auto-detect from profile/config.
+    bedrock_region: BedrockRegion {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.region",
+        description: "AWS region for Bedrock API calls. Leave empty to auto-detect from profile.",
+    }
+    // Whether to automatically add cross-region inference prefixes to model IDs.
+    bedrock_cross_region_inference: BedrockCrossRegionInference {
+        type: bool,
+        default: true,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.cross_region_inference",
+        description: "Whether to automatically add cross-region inference prefixes to model IDs.",
+    }
+    // Whether to fall back to routing through the Warp server when Bedrock credentials fail.
+    bedrock_fallback_to_warp: BedrockFallbackToWarp {
+        type: bool,
+        default: true,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.fallback_to_warp",
+        description: "Whether to fall back to the Warp server when Bedrock credentials are invalid.",
+    }
+    // Custom Bedrock model configurations.
+    bedrock_models: BedrockModels {
+        type: Vec<BedrockModelConfig>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.models",
+        description: "Custom AWS Bedrock model configurations.",
+    }
+    // Whether to automatically run the login command when Bedrock credentials expire.
+    bedrock_auto_login: BedrockAutoLogin {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.auto_login",
+        description: "Whether to automatically run the login command when Bedrock credentials expire.",
+    }
+    // Command to run to refresh AWS credentials (e.g. "aws sso login").
+    bedrock_auth_refresh_command: BedrockAuthRefreshCommand {
+        type: String,
+        default: "aws sso login".to_string(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.bedrock.auth_refresh_command",
+        description: "The command to run to refresh AWS credentials for Bedrock.",
+    }
+    // AWS access key ID for static key authentication (stored in OS keychain).
+    bedrock_access_key_id: BedrockAccessKeyId {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: true,
+    }
+    // AWS secret access key for static key authentication (stored in OS keychain).
+    bedrock_secret_access_key: BedrockSecretAccessKey {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: true,
+    }
+    // Whether the Bedrock login banner has been permanently dismissed.
+    bedrock_login_banner_dismissed: BedrockLoginBannerDismissed {
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,

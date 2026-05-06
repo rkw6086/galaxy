@@ -189,7 +189,7 @@ impl AwsCredentialRefresher for ApiKeyManager {
                 ..
             }) = event
             {
-                let auth_command = &AISettings::as_ref(ctx).aws_bedrock_auth_refresh_command;
+                let auth_command = &AISettings::as_ref(ctx).bedrock_auth_refresh_command;
                 if command.trim().starts_with(auth_command.trim()) {
                     log::debug!("Detected AWS auth command completion, refreshing credentials");
                     drop(refresh_aws_credentials(manager, ctx));
@@ -215,9 +215,9 @@ impl AwsCredentialRefresher for ApiKeyManager {
         ctx.subscribe_to_model(&AISettings::handle(ctx), |manager, event, ctx| {
             if matches!(
                 event,
-                AISettingsChangedEvent::AwsBedrockProfile { .. }
-                    | AISettingsChangedEvent::AwsBedrockAuthRefreshCommand { .. }
-                    | AISettingsChangedEvent::AwsBedrockCredentialsEnabled { .. }
+                AISettingsChangedEvent::BedrockProfile { .. }
+                    | AISettingsChangedEvent::BedrockAuthRefreshCommand { .. }
+                    | AISettingsChangedEvent::BedrockEnabled { .. }
             ) {
                 drop(refresh_aws_credentials(manager, ctx));
             }
@@ -248,14 +248,14 @@ fn refresh_aws_credentials_local_chain(
     manager: &mut ApiKeyManager,
     ctx: &mut ModelContext<ApiKeyManager>,
 ) -> BoxFuture<'static, Result<(), String>> {
-    let is_available = UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_enabled(ctx);
+    let is_available = UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx);
 
     if !is_available {
         manager.set_aws_credentials_state(AwsCredentialsState::Disabled, ctx);
         return Box::pin(async { Ok(()) });
     }
 
-    let profile = (*AISettings::as_ref(ctx).aws_bedrock_profile).clone();
+    let profile = (*AISettings::as_ref(ctx).bedrock_profile).clone();
 
     manager.set_aws_credentials_state(AwsCredentialsState::Refreshing, ctx);
 

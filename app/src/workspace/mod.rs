@@ -198,9 +198,9 @@ pub fn init(app: &mut AppContext) {
                 )
                 .with_context_predicate(id!("Workspace")),
                 EditableBinding::new(
-                    "workspace:debug_reset_aws_bedrock_login_banner_dismissed",
+                    "workspace:debug_reset_bedrock_login_banner_dismissed",
                     "[Debug] Un-dismiss AWS login banner",
-                    WorkspaceAction::DebugResetAwsBedrockLoginBannerDismissed,
+                    WorkspaceAction::DebugResetBedrockLoginBannerDismissed,
                 )
                 .with_context_predicate(id!("Workspace")),
                 EditableBinding::new(
