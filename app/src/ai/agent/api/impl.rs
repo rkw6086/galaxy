@@ -252,7 +252,7 @@ pub async fn generate_multi_agent_output(
                         messages,
                         system_prompt,
                         tools,
-                        8192,
+                        64000,
                         None,
                         true,
                         diagnostic_logger,

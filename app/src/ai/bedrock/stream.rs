@@ -50,12 +50,10 @@ pub fn bedrock_stream_to_response_events(
         let mut current_tool_use_id = String::new();
         let mut current_tool_name = String::new();
         let mut current_tool_input_json = String::new();
-        let mut has_tool_calls = false;
+        let mut _has_tool_calls = false;
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(stream_finished::Done {});
-
-        const TEXT_FLUSH_THRESHOLD: usize = 20;
 
         loop {
             match output.stream.recv().await {
@@ -65,10 +63,12 @@ pub fn bedrock_stream_to_response_events(
                         if let Some(start) = block_start.start() {
                             match start {
                                 ContentBlockStart::ToolUse(tool_start) => {
-                                    has_tool_calls = true;
-                                    if !text_flushed && !buffered_text.is_empty() {
-                                        if buffered_text.len() >= TEXT_FLUSH_THRESHOLD {
-                                            let msg_id = Uuid::new_v4().to_string();
+                                    _has_tool_calls = true;
+                                    if !buffered_text.is_empty() {
+                                        let msg_id = current_text_message_id
+                                            .clone()
+                                            .unwrap_or_else(|| Uuid::new_v4().to_string());
+                                        if !text_flushed {
                                             current_text_message_id = Some(msg_id.clone());
                                             text_flushed = true;
                                             log::debug!("[bedrock] Flushing buffered text ({} chars) before tool call", buffered_text.len());
@@ -79,7 +79,13 @@ pub fn bedrock_stream_to_response_events(
                                             );
                                             yield Ok(add_msg);
                                         } else {
-                                            log::debug!("[bedrock] Discarding short text fragment ({} chars) before tool call: {:?}", buffered_text.len(), &buffered_text);
+                                            log::debug!("[bedrock] Flushing remaining buffered text ({} chars) as append before tool call", buffered_text.len());
+                                            let append = build_append_text(
+                                                &task_id,
+                                                &msg_id,
+                                                &buffered_text,
+                                            );
+                                            yield Ok(append);
                                         }
                                         buffered_text.clear();
                                     }
@@ -95,7 +101,7 @@ pub fn bedrock_stream_to_response_events(
                         if let Some(d) = delta.delta() {
                             match d {
                                 ContentBlockDelta::Text(text) => {
-                                    log::trace!("[bedrock] Text delta ({} chars): {:?}", text.len(), &text[..text.len().min(100)]);
+                                    log::trace!("[bedrock] Text delta ({} chars)", text.len());
                                     if text_flushed {
                                         let msg_id = current_text_message_id.as_ref().unwrap();
                                         let append = build_append_text(
@@ -106,11 +112,10 @@ pub fn bedrock_stream_to_response_events(
                                         yield Ok(append);
                                     } else {
                                         buffered_text.push_str(text);
-                                        if buffered_text.len() >= TEXT_FLUSH_THRESHOLD {
+                                        if buffered_text.len() >= 1 {
                                             let msg_id = Uuid::new_v4().to_string();
                                             current_text_message_id = Some(msg_id.clone());
                                             text_flushed = true;
-                                            log::debug!("[bedrock] Text reached flush threshold, creating message msg_id={msg_id}");
                                             let add_msg = build_add_agent_output_message(
                                                 &task_id,
                                                 &msg_id,
@@ -187,6 +192,19 @@ pub fn bedrock_stream_to_response_events(
                     if let Some(ref logger) = diagnostic_logger {
                         logger.log_stream_error(&format!("{e}"));
                     }
+                    if !buffered_text.is_empty() {
+                        let msg_id = current_text_message_id
+                            .clone()
+                            .unwrap_or_else(|| Uuid::new_v4().to_string());
+                        if !text_flushed {
+                            let add_msg = build_add_agent_output_message(&task_id, &msg_id, &buffered_text);
+                            yield Ok(add_msg);
+                        } else {
+                            let append = build_append_text(&task_id, &msg_id, &buffered_text);
+                            yield Ok(append);
+                        }
+                        buffered_text.clear();
+                    }
                     yield Err(Arc::new(AIApiError::Stream {
                         stream_type: "bedrock_converse",
                         source: anyhow::anyhow!("Bedrock stream error: {}", e),
@@ -196,13 +214,18 @@ pub fn bedrock_stream_to_response_events(
             }
         }
 
-        if !text_flushed && !buffered_text.is_empty() && !has_tool_calls {
-            let msg_id = Uuid::new_v4().to_string();
+        if !buffered_text.is_empty() {
+            let msg_id = current_text_message_id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
             log::debug!("[bedrock] Flushing remaining buffered text ({} chars) at stream end", buffered_text.len());
-            let add_msg = build_add_agent_output_message(&task_id, &msg_id, &buffered_text);
-            yield Ok(add_msg);
-        } else if !text_flushed && !buffered_text.is_empty() && has_tool_calls {
-            log::debug!("[bedrock] Discarding short unflushed text ({} chars) - stream ended with tool calls", buffered_text.len());
+            if !text_flushed {
+                let add_msg = build_add_agent_output_message(&task_id, &msg_id, &buffered_text);
+                yield Ok(add_msg);
+            } else {
+                let append = build_append_text(&task_id, &msg_id, &buffered_text);
+                yield Ok(append);
+            }
         }
 
         log::info!("[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");

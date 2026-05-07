@@ -27,6 +27,7 @@ pub enum AuthViewVariant {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum AuthViewEvent {
     Close,
 }
@@ -67,8 +68,10 @@ impl TypedActionView for AuthView {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum LoginFailureReason {
     InvalidRedirectUrl { was_pasted: bool },
 }
 
+#[allow(dead_code)]
 pub fn init(_app: &mut AppContext) {}

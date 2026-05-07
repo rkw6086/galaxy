@@ -9,6 +9,7 @@ pub enum AuthOverrideWarningModalVariant {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum AuthOverrideWarningModalEvent {
     Close,
     BulkExport,

@@ -51,9 +51,11 @@ use crate::{persistence, GlobalResourceHandlesProvider};
 use crate::{report_if_error, send_telemetry_sync_from_app_ctx};
 
 /// Prefix for API keys used in authentication
+#[allow(dead_code)]
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub const API_KEY_PREFIX: &str = "wk-";
 
+#[allow(dead_code)]
 pub fn init(_app: &mut AppContext) {}
 
 /// If the app has running processes or dirty objects, we'll show a confirmation modal before logging out.

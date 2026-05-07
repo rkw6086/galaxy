@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub(super) mod user_persistence;
 
 use std::result::Result as StdResult;
@@ -9,9 +10,11 @@ use settings::Setting as _;
 use uuid::Uuid;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
+#[allow(unused_imports)]
 use galaxy_graphql::mutations::create_anonymous_user::{
     AnonymousUserType, CreateAnonymousUserResult,
 };
+#[allow(unused_imports)]
 use galaxyui::{clipboard::ClipboardContent, Entity, ModelContext, SingletonEntity, UpdateModel};
 
 use super::auth_state::{AuthState, PersistAction};
@@ -55,6 +58,7 @@ use url::Url;
 use user_persistence::PersistedUser;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum AuthManagerEvent {
     /// Successfully authenticated a user with no errors.
     AuthComplete,
@@ -102,6 +106,7 @@ pub struct AuthManager {
     pending_auth_state: Option<String>,
 }
 
+#[allow(dead_code)]
 impl AuthManager {
     /// Creates a new instance of the AuthManager. The auth state must already be initialized through
     /// [`AuthStateProvider`].

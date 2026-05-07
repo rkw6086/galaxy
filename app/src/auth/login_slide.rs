@@ -9,6 +9,7 @@ pub enum LoginSlideSource {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum LoginSlideEvent {
     BackToOnboarding,
     LoginLaterConfirmed,

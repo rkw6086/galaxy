@@ -1,6 +1,7 @@
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum PasteAuthTokenModalEvent {
     Cancelled,
 }

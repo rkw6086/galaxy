@@ -54,6 +54,7 @@ pub struct FetchUserResult {
     pub llms: crate::ai::llms::ModelsByFeature,
 }
 
+#[allow(dead_code)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
@@ -272,6 +273,7 @@ pub type OAuth2Client = oauth2::basic::BasicClient<
 >;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 /// Error type when retrieving a user and validating it against Firebase.
 pub enum UserAuthenticationError {
     /// The user's refresh token is invalid. This could occur if the user authed through
@@ -330,6 +332,7 @@ impl From<FirebaseError> for UserAuthenticationError {
 }
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 /// Error type when creating anonymous users
 pub enum AnonymousUserCreationError {
     #[error("The network request to create the anonymous user failed")]
@@ -347,6 +350,7 @@ pub enum AnonymousUserCreationError {
 }
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 /// Error type when minting a new custom token for an anonymous user
 pub enum MintCustomTokenError {
     #[error("Received a user facing error: {0}")]

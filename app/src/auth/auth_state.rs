@@ -87,6 +87,7 @@ impl AuthState {
         state
     }
 
+    #[allow(dead_code)]
     fn should_use_test_user() -> bool {
         cfg!(any(test, feature = "skip_login")) || ChannelState::channel() == Channel::Integration
     }
@@ -131,6 +132,7 @@ impl AuthState {
     }
 
     /// Applies a deserialized PersistedUser, splitting it into User and Credentials.
+    #[allow(dead_code)]
     fn apply_persisted_user(&self, persisted: PersistedUser) {
         let user = User {
             is_onboarded: persisted.is_onboarded,
@@ -171,6 +173,7 @@ impl AuthState {
 
     /// Updates the Firebase auth tokens within the current credentials.
     /// Reports an error if the current credentials are not Firebase.
+    #[allow(dead_code)]
     pub(crate) fn update_firebase_tokens(&self, new_auth_tokens: FirebaseAuthTokens) {
         let mut write_lock = self.credentials.write();
         if let Some(Credentials::Firebase(tokens)) = write_lock.as_mut() {

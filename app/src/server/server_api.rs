@@ -18,8 +18,10 @@ use crate::ai::predict::generate_am_query_suggestions;
 use crate::ai::predict::generate_am_query_suggestions::GenerateAMQuerySuggestionsRequest;
 use crate::ai::predict::predict_am_queries::{PredictAMQueriesRequest, PredictAMQueriesResponse};
 use crate::ai::voice::transcribe::{TranscribeRequest, TranscribeResponse};
+#[allow(unused_imports)]
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::auth_state::AuthState;
+#[allow(unused_imports)]
 use crate::server::graphql::default_request_options;
 use crate::server::server_api::presigned_upload::HttpStatusError;
 use ai::AIClient;
@@ -357,6 +359,7 @@ cfg_if::cfg_if! {
 /// Most errors should be handled in callbacks to individual APIs, rather than sent over the
 /// server API channel.
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum ServerApiEvent {
     /// We made a staging API call that was blocked, which may indicate a firewall misconfiguration.
     StagingAccessBlocked,
@@ -399,8 +402,10 @@ pub struct ServerApi {
     telemetry_api: TelemetryApi,
     last_server_time: Arc<Mutex<Option<ServerTime>>>,
     // We technically use OAuth2 for headless device authentication.
+    #[allow(dead_code)]
     oauth_client: self::auth::OAuth2Client,
     /// Cached ambient workload token for requests from ambient agents.
+    #[allow(dead_code)]
     ambient_workload_token: Arc<Mutex<Option<galaxy_isolation_platform::WorkloadToken>>>,
     /// The ambient agent task ID for requests from cloud agents.
     ambient_agent_task_id: Arc<RwLock<Option<AmbientAgentTaskId>>>,
