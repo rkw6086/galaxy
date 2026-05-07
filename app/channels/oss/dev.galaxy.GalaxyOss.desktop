@@ -1,0 +1,23 @@
+[Desktop Entry]
+# The version of the desktop entry spec this conforms to.
+Version=1.0
+
+Type=Application
+
+Name=GalaxyOss
+GenericName=TerminalEmulator
+
+Exec=galaxy-oss %U
+StartupWMClass=dev.galaxy.GalaxyOss
+
+Keywords=shell;prompt;command;commandline;cmd;
+
+Icon=dev.galaxy.GalaxyOss
+
+Categories=System;TerminalEmulator;
+
+# Don't run this application within a terminal.
+Terminal=false
+
+# Register ourselves as the handler for galaxyoss:// URLs.
+MimeType=x-scheme-handler/galaxyoss;

@@ -230,7 +230,7 @@ impl AuthState {
 
     /// Determines whether the user should be considered as logged in.
     pub fn is_logged_in(&self) -> bool {
-        self.credentials.read().is_some()
+        true
     }
 
     /// Returns whether the user should be treated as not having a full account.
@@ -240,7 +240,7 @@ impl AuthState {
     /// during the transient state where credentials exist but user data hasn't loaded
     /// yet, the user is conservatively treated as lacking a full account.
     pub fn is_anonymous_or_logged_out(&self) -> bool {
-        !self.is_logged_in() || self.is_user_anonymous().unwrap_or(true)
+        false
     }
 
     /// Returns the cached access token, if any exists. This method *will not* check if the JWT is
@@ -276,7 +276,7 @@ impl AuthState {
 
     /// Returns whether the user considered onboarded to Warp.
     pub fn is_onboarded(&self) -> Option<bool> {
-        self.user.read().as_ref().map(|user| user.is_onboarded)
+        Some(true)
     }
 
     /// Returns the user's email domain (anything after the @ sign of their email).
@@ -296,59 +296,27 @@ impl AuthState {
     /// Anonymous users are real Warp users, but have no providers linked in Firebase.
     /// Returns `None` if there is no user data.
     pub fn is_user_anonymous(&self) -> Option<bool> {
-        self.user
-            .read()
-            .as_ref()
-            .map(|user| user.is_user_anonymous())
+        Some(false)
     }
 
     /// Returns whether or not the user is a "web client anonymous user", aka their account
     /// originated from viewing Warp on web.
     pub fn is_user_web_anonymous_user(&self) -> Option<bool> {
-        self.user.read().as_ref().map(|user| {
-            user.anonymous_user_type() == Some(AnonymousUserType::WebClientAnonymousUser)
-                && user.linked_at().is_none()
-        })
+        Some(false)
     }
 
     /// Returns whether or not the user is a feature gated anonymous user.
     pub fn is_anonymous_user_feature_gated(&self) -> Option<bool> {
-        self.user.read().as_ref().map(|user| {
-            if !self.is_user_anonymous().unwrap_or_default() {
-                return false;
-            }
-
-            matches!(
-                user.anonymous_user_type(),
-                Some(AnonymousUserType::NativeClientAnonymousUserFeatureGated)
-            )
-        })
+        Some(false)
     }
 
     /// Returns whether or not the anonymous user is past any of their Warp Drive object limits.
     pub fn is_anonymous_user_past_object_limit(
         &self,
-        object_type: ObjectType,
-        num_objects: usize,
+        _object_type: ObjectType,
+        _num_objects: usize,
     ) -> Option<bool> {
-        self.user.read().as_ref().map(|user| {
-            if !self.is_anonymous_user_feature_gated().unwrap_or_default() {
-                return false;
-            }
-
-            if let Some(limits) = user.personal_object_limits() {
-                match object_type {
-                    ObjectType::Notebook => num_objects > limits.notebook_limit,
-                    ObjectType::Workflow => num_objects > limits.workflow_limit,
-                    ObjectType::GenericStringObject(GenericStringObjectFormat::Json(
-                        JsonObjectType::EnvVarCollection,
-                    )) => num_objects > limits.env_var_limit,
-                    _ => false,
-                }
-            } else {
-                false
-            }
-        })
+        Some(false)
     }
 
     /// Returns the user's photo URL from Firebase,
@@ -363,7 +331,7 @@ impl AuthState {
     /// Returns whether or not the user needs to link their account to an SSO provider.
     /// The actual value is calculated on the server to avoid additional RPCs to Firebase.
     pub fn needs_sso_link(&self) -> Option<bool> {
-        self.user.read().as_ref().map(|user| user.needs_sso_link)
+        Some(false)
     }
 
     /// Returns the anonymous user type.
@@ -406,7 +374,7 @@ impl AuthState {
     /// Returns whether a reauth is required for the current user given the state
     /// of their refresh token.
     pub fn needs_reauth(&self) -> bool {
-        self.needs_reauth.load(Ordering::Relaxed)
+        false
     }
 
     /// Sets whether a reauth is required for the current user.

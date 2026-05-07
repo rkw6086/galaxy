@@ -1,14 +1,9 @@
 pub mod anonymous_id;
 pub mod auth_manager;
-mod auth_override_warning_body;
 pub mod auth_override_warning_modal;
 pub mod auth_state;
-mod auth_view_body;
 pub mod auth_view_modal;
-mod auth_view_shared_helpers;
 pub mod credentials;
-mod login_error_modal;
-mod login_failure_notification;
 pub mod login_slide;
 pub mod needs_sso_link_view;
 pub mod paste_auth_token_modal;
@@ -31,7 +26,7 @@ use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
 use itertools::Itertools;
-pub use login_failure_notification::LoginFailureReason;
+pub use auth_view_modal::LoginFailureReason;
 pub use user_uid::UserUid;
 use galaxyui::modals::{AlertDialogWithCallbacks, ModalButton};
 
@@ -59,13 +54,7 @@ use crate::{report_if_error, send_telemetry_sync_from_app_ctx};
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub const API_KEY_PREFIX: &str = "wk-";
 
-pub fn init(app: &mut AppContext) {
-    auth_view_modal::init(app);
-    auth_view_body::init(app);
-    auth_override_warning_body::init(app);
-    login_slide::init(app);
-    paste_auth_token_modal::init(app);
-}
+pub fn init(_app: &mut AppContext) {}
 
 /// If the app has running processes or dirty objects, we'll show a confirmation modal before logging out.
 /// If the user aborts, the user will not be logged out.

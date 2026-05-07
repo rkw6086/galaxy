@@ -552,12 +552,7 @@ impl AuthManager {
     /// NOTE: You probably want to call auth::log_out instead; this only manages the auth state,
     /// it doesn't shut down any other user-dependent parts of the app.
     /// TODO(jeff): Can we move those pieces in here?
-    pub(super) fn log_out(&mut self, ctx: &mut ModelContext<Self>) {
-        // Clear any dangling CSRF token from an auth flow that was started but never
-        // completed before this logout, so it can't be replayed against the next session
-        // in the same process.
-        self.pending_auth_state = None;
-        self.set_and_persist(None, None, ctx);
+    pub(super) fn log_out(&mut self, _ctx: &mut ModelContext<Self>) {
     }
 
     /// Sets whether or not this user's Firebase credentials are invalid and thus needs to reauth.
@@ -572,20 +567,9 @@ impl AuthManager {
 
     pub fn create_anonymous_user(
         &self,
-        referral_code: Option<String>,
-        ctx: &mut ModelContext<Self>,
+        _referral_code: Option<String>,
+        _ctx: &mut ModelContext<Self>,
     ) {
-        let anonymous_user_type = AnonymousUserType::NativeClientAnonymousUserFeatureGated;
-
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move {
-                auth_client
-                    .create_anonymous_user(referral_code, anonymous_user_type)
-                    .await
-            },
-            Self::on_create_anonymous_user,
-        );
     }
 
     fn on_create_anonymous_user(
@@ -634,26 +618,13 @@ impl AuthManager {
 
     pub fn attempt_login_gated_feature(
         &self,
-        feature: LoginGatedFeature,
-        auth_view_variant: AuthViewVariant,
-        ctx: &mut ModelContext<Self>,
+        _feature: LoginGatedFeature,
+        _auth_view_variant: AuthViewVariant,
+        _ctx: &mut ModelContext<Self>,
     ) {
-        if self.auth_state.is_anonymous_or_logged_out() {
-            send_telemetry_from_ctx!(
-                TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { feature },
-                ctx
-            );
-            ctx.emit(AuthManagerEvent::AttemptedLoginGatedFeature { auth_view_variant });
-        };
     }
 
-    pub fn anonymous_user_hit_drive_object_limit(&self, ctx: &mut ModelContext<Self>) {
-        if self.auth_state.is_anonymous_or_logged_out() {
-            send_telemetry_from_ctx!(TelemetryEvent::AnonymousUserHitCloudObjectLimit, ctx);
-            ctx.emit(AuthManagerEvent::AttemptedLoginGatedFeature {
-                auth_view_variant: AuthViewVariant::HitDriveObjectLimitCloseable,
-            });
-        };
+    pub fn anonymous_user_hit_drive_object_limit(&self, _ctx: &mut ModelContext<Self>) {
     }
 
     pub fn initiate_anonymous_user_linking(
