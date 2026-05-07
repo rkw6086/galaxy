@@ -268,91 +268,6 @@ impl AuthClient for ServerApi {
     }
 }
 
-/// Exchange a long-lived token for fresh [`Credentials`].
-async fn exchange_credentials(
-    client: Arc<http_client::Client>,
-    token: LoginToken,
-) -> StdResult<Credentials, UserAuthenticationError> {
-    match token {
-        LoginToken::Firebase(firebase_token) => {
-            let tokens = fetch_auth_tokens(client, firebase_token).await?;
-            Ok(Credentials::Firebase(tokens))
-        }
-        LoginToken::ApiKey(key) => Ok(Credentials::ApiKey {
-            key,
-            owner_type: None,
-        }),
-        LoginToken::SessionCookie => Ok(Credentials::SessionCookie),
-    }
-}
-
-fn fetch_auth_tokens(
-    client: Arc<http_client::Client>,
-    token: FirebaseToken,
-) -> BoxFuture<'static, StdResult<FirebaseAuthTokens, UserAuthenticationError>> {
-    Box::pin(async move {
-        let firebase_api_key = ChannelState::firebase_api_key();
-        let url = token.access_token_url(&firebase_api_key);
-        let request_body = token.access_token_request_body();
-        let proxy_url = token.proxy_url(&ChannelState::server_root_url(), &firebase_api_key);
-        let response = match client
-            .post(&url)
-            .form(&request_body)
-            .timeout(FETCH_ACCESS_TOKEN_TIMEOUT)
-            .send()
-            .await
-        {
-            Ok(response) => match response.error_for_status_ref() {
-                Ok(_) => Ok(response),
-                Err(error) => {
-                    log::warn!(
-                        "Request to firebase to fetch access token completed, but was unsuccessful: {error:?}"
-                    );
-
-                    fetch_access_token_via_proxy(client, &request_body, proxy_url).await
-                }
-            },
-            Err(error) => {
-                log::warn!("Failed to make response to firebase to fetch access token: {error:?}");
-
-                fetch_access_token_via_proxy(client, &request_body, proxy_url).await
-            }
-        }?;
-
-        let response = response
-            .json::<FetchAccessTokenResponse>()
-            .await
-            .map_err(anyhow::Error::from)?;
-        match response {
-            FetchAccessTokenResponse::Success {
-                id_token,
-                expires_in,
-                refresh_token,
-            } => Ok(FirebaseAuthTokens::from_response(
-                id_token,
-                refresh_token,
-                expires_in,
-            )?),
-            FetchAccessTokenResponse::Error { error } => Err(error.into()),
-        }
-    })
-}
-
-fn fetch_access_token_via_proxy<'a>(
-    client: Arc<http_client::Client>,
-    request_body: &'a [(&'a str, &'a str)],
-    proxy_url: String,
-) -> BoxFuture<'a, Result<http_client::Response>> {
-    Box::pin(async move {
-        client
-            .post(&proxy_url)
-            .form(request_body)
-            .send()
-            .await
-            .map_err(anyhow::Error::from)
-    })
-}
-
 /// The [`oauth2::Client`] type, specialized to the endpoints that we require.
 pub type OAuth2Client = oauth2::basic::BasicClient<
     oauth2::EndpointNotSet, // HasAuthUrl
@@ -361,71 +276,6 @@ pub type OAuth2Client = oauth2::basic::BasicClient<
     oauth2::EndpointNotSet, // HasRevocationUrl
     oauth2::EndpointSet,    // HasTokenUrl
 >;
-
-/// Intermediate type produced by converting a [`GqlUserOutput`] from the server.
-struct UserProperties {
-    user: User,
-    server_experiments: Vec<ServerExperiment>,
-    llms: crate::ai::llms::ModelsByFeature,
-    api_key_owner_type: Option<OwnerType>,
-}
-
-impl From<GqlUserOutput> for UserProperties {
-    fn from(user_output: GqlUserOutput) -> Self {
-        let principal_type = user_output
-            .principal_type
-            .map(|pt| pt.into())
-            .unwrap_or_default();
-        let user_properties = user_output.user;
-
-        let is_on_work_domain = user_properties.is_on_work_domain;
-        let is_onboarded = user_properties.is_onboarded;
-        let api_key_owner_type = user_output.api_key_owner_type;
-
-        let linked_at = user_properties
-            .anonymous_user_info
-            .as_ref()
-            .and_then(|info| info.linked_at);
-
-        let anonymous_user_type = user_properties
-            .anonymous_user_info
-            .as_ref()
-            .map(|info| info.anonymous_user_type.clone());
-        let personal_object_limits = user_properties
-            .anonymous_user_info
-            .and_then(|info| info.personal_object_limits.clone());
-        let user_profile = user_properties.profile;
-        let local_id = UserUid::new(user_profile.uid.as_str());
-        let needs_sso_link = user_profile.needs_sso_link;
-
-        let server_experiments: Vec<ServerExperiment> = user_properties
-            .experiments
-            .and_then(|experiments| convert_to_server_experiment!(experiments))
-            .unwrap_or_default();
-
-        // Convert LLM model choices from GraphQL response
-        let llms = user_properties.llms.try_into().unwrap_or_default();
-
-        let user = User {
-            is_onboarded,
-            local_id,
-            metadata: user_profile.into(),
-            needs_sso_link,
-            anonymous_user_type: anonymous_user_type.and_then(|t| t.try_into().ok()),
-            is_on_work_domain,
-            linked_at,
-            personal_object_limits: personal_object_limits.and_then(|t| t.try_into().ok()),
-            principal_type,
-        };
-
-        UserProperties {
-            user,
-            server_experiments,
-            llms,
-            api_key_owner_type,
-        }
-    }
-}
 
 #[derive(Error, Debug)]
 /// Error type when retrieving a user and validating it against Firebase.
@@ -478,16 +328,10 @@ register_error!(UserAuthenticationError);
 
 impl From<FirebaseError> for UserAuthenticationError {
     fn from(error: FirebaseError) -> Self {
-        if FETCH_ACCESS_TOKEN_SOFT_ERROR_MESSAGES.contains(&error.message.as_str()) {
-            UserAuthenticationError::DeniedAccessToken(error)
-        } else if FETCH_ACCESS_TOKEN_HARD_ERROR_MESSAGES.contains(&error.message.as_str()) {
-            UserAuthenticationError::UserAccountDisabled(error)
-        } else {
-            UserAuthenticationError::Unexpected(
-                anyhow::Error::from(error)
-                    .context("Failed to exchange refresh token with access token."),
-            )
-        }
+        UserAuthenticationError::Unexpected(
+            anyhow::Error::from(error)
+                .context("Firebase error (server auth disabled)"),
+        )
     }
 }
 
