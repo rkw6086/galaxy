@@ -16,21 +16,15 @@ use galaxy_graphql::mutations::create_anonymous_user::{
 };
 use galaxy_graphql::mutations::generate_api_key::GenerateApiKeyResult;
 use galaxy_graphql::mutations::mint_custom_token::MintCustomTokenResult;
-use galaxy_graphql::object_permissions::OwnerType;
 use galaxy_graphql::queries::api_keys::ApiKeyProperties;
 use galaxy_graphql::queries::get_user::UserOutput as GqlUserOutput;
 
-use crate::auth::UserUid;
 use crate::server::ids::ApiKeyUid;
 use crate::server::server_api::register_error;
 use crate::settings::PrivacySettingsSnapshot;
-use crate::{
-    auth::{
-        credentials::{AuthToken, Credentials, FirebaseToken, LoginToken},
-        user::User,
-    },
-    server::experiments::ServerExperiment,
-};
+use crate::auth::credentials::{AuthToken, Credentials, FirebaseToken, LoginToken};
+use crate::auth::user::User;
+use crate::server::experiments::ServerExperiment;
 
 use super::ServerApi;
 

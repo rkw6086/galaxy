@@ -25,6 +25,10 @@ REPOS=(
   "yaml-rust:warpdotdev/yaml-rust"
   "tink-rust:warpdotdev/tink-rust"
   "jemallocator:warpdotdev/jemallocator"
+  "difflib:warpdotdev/difflib"
+  "rust-email_address:warpdotdev/rust-email_address"
+  "cosmic-text:warpdotdev/cosmic-text"
+  "dwrote-rs:warpdotdev/dwrote-rs"
 )
 
 for entry in "${REPOS[@]}"; do

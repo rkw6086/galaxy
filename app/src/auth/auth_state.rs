@@ -12,7 +12,7 @@ use galaxy_graphql::object_permissions::OwnerType;
 use galaxyui::{AppContext, Entity, SingletonEntity};
 
 use crate::{
-    cloud_object::{GenericStringObjectFormat, JsonObjectType, ObjectType},
+    cloud_object::ObjectType,
     report_error,
 };
 
@@ -21,7 +21,7 @@ use super::{
     auth_manager::user_persistence::PersistedUser,
     credentials::Credentials,
     user::{AnonymousUserType, FirebaseAuthTokens, PersonalObjectLimits, PrincipalType, User},
-    UserUid, API_KEY_PREFIX,
+    UserUid,
 };
 
 const ANONYMOUS_USER_NOTIFICATION_BLOCK_TIMER: Duration = Duration::days(7);
@@ -79,57 +79,11 @@ impl AuthState {
     /// 3. WARP_USER_SECRET environment variable
     /// 4. Persisted user from secure storage
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub fn initialize(ctx: &AppContext, api_key: Option<String>) -> Self {
+    pub fn initialize(ctx: &AppContext, _api_key: Option<String>) -> Self {
         let state = Self::new(ctx);
-
-        if Self::should_use_test_user() {
-            state.set_user(Some(User::test()));
-            #[cfg(any(test, feature = "integration_tests", feature = "skip_login"))]
-            state.set_credentials(Some(Credentials::Test));
-            return state;
-        }
-
-        if let Some(api_key_value) = api_key {
-            log::info!("Authenticating via API key");
-            let formatted = if api_key_value.starts_with(API_KEY_PREFIX) {
-                api_key_value
-            } else {
-                format!("{API_KEY_PREFIX}{api_key_value}")
-            };
-            state.set_credentials(Some(Credentials::ApiKey {
-                key: formatted,
-                owner_type: None,
-            }));
-            return state;
-        }
-
-        // Try WARP_USER_SECRET environment variable.
-        if let Some(persisted) = option_env!("WARP_USER_SECRET")
-            .and_then(|s| serde_json::from_str::<PersistedUser>(s).ok())
-        {
-            state.apply_persisted_user(persisted);
-            return state;
-        }
-
-        // Try reading from secure storage.
-        match PersistedUser::from_secure_storage(ctx) {
-            Ok(persisted) => {
-                if persisted.auth_tokens.refresh_token.is_empty() {
-                    log::warn!(
-                        "Found persisted user with empty refresh token; clearing secure storage entry"
-                    );
-                    let _ = PersistedUser::remove_from_secure_storage(ctx).map_err(|err| {
-                        log::warn!("Unable to clear invalid user from secure storage: {err:?}");
-                    });
-                } else {
-                    state.apply_persisted_user(persisted);
-                }
-            }
-            Err(err) => {
-                log::info!("Unable to read user from secure storage: {err:?}");
-            }
-        }
-
+        state.set_user(Some(User::test()));
+        #[cfg(any(test, feature = "integration_tests", feature = "skip_login"))]
+        state.set_credentials(Some(Credentials::Test));
         state
     }
 

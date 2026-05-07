@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use galaxy_graphql::scalars::time::ServerTimestamp;
 use galaxyui::AppContext;
-use galaxyui_extras::secure_storage::{self, AppContextExt};
+use galaxyui_extras::secure_storage;
 
 use crate::auth::{
     user::{AnonymousUserType, FirebaseAuthTokens, PersonalObjectLimits, UserMetadata},
@@ -62,20 +62,18 @@ pub enum UserPersistenceError {
 }
 
 impl PersistedUser {
-    pub fn from_secure_storage(ctx: &AppContext) -> Result<PersistedUser, UserPersistenceError> {
-        let value = ctx.secure_storage().read_value(USER_STORAGE_KEY)?;
-        Ok(serde_json::from_str::<PersistedUser>(&value)?)
+    pub fn from_secure_storage(_ctx: &AppContext) -> Result<PersistedUser, UserPersistenceError> {
+        Err(UserPersistenceError::SecureStorageError(
+            secure_storage::Error::NotFound,
+        ))
     }
 
-    pub fn write_to_secure_storage(&self, ctx: &AppContext) -> Result<(), UserPersistenceError> {
-        let serialized_user = serde_json::to_string(self)?;
-        Ok(ctx
-            .secure_storage()
-            .write_value(USER_STORAGE_KEY, &serialized_user)?)
+    pub fn write_to_secure_storage(&self, _ctx: &AppContext) -> Result<(), UserPersistenceError> {
+        Ok(())
     }
 
-    pub fn remove_from_secure_storage(ctx: &AppContext) -> Result<(), UserPersistenceError> {
-        Ok(ctx.secure_storage().remove_value(USER_STORAGE_KEY)?)
+    pub fn remove_from_secure_storage(_ctx: &AppContext) -> Result<(), UserPersistenceError> {
+        Ok(())
     }
 }
 
