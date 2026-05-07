@@ -16,21 +16,21 @@ use onboarding::slides::{layout, slide_content};
 use onboarding::{OnboardingIntention, AI_FEATURES, WARP_DRIVE_FEATURES};
 use pathfinder_color::ColorU;
 use ui_components::{button, Component as _, Options as _};
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::color::internal_colors;
-use warp_core::ui::Icon;
-use warpui::clipboard::ClipboardContent;
-use warpui::elements::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::Icon;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::{
     Align, Border, CacheOption, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Dismiss, Fill, Flex, FormattedTextElement, HighlightedHyperlink, Image,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, Radius,
     Shrinkable, Stack,
 };
-use warpui::fonts::Weight;
-use warpui::keymap::{FixedBinding, Keystroke};
-use warpui::text_layout::TextAlignment;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::{FixedBinding, Keystroke};
+use galaxyui::text_layout::TextAlignment;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
     actions::StandardAction, AppContext, Element, Entity, FocusContext, SingletonEntity,
     TypedActionView, UpdateModel, View, ViewContext, ViewHandle,
 };
@@ -38,7 +38,7 @@ use warpui::{
 use std::cell::Cell;
 
 use pathfinder_geometry::vector::vec2f;
-use warpui::elements::{ChildAnchor, ParentAnchor, ParentOffsetBounds};
+use galaxyui::elements::{ChildAnchor, ParentAnchor, ParentOffsetBounds};
 
 const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 
@@ -47,7 +47,7 @@ const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 // ---------------------------------------------------------------------------
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([
         FixedBinding::new(
@@ -758,7 +758,7 @@ impl LoginSlideView {
             } else {
                 // First call (narrow layout fallback): placeholder.
                 editor_rendered.set(true);
-                Container::new(warpui::elements::Empty::new().finish())
+                Container::new(galaxyui::elements::Empty::new().finish())
                     .with_padding_top(12.)
                     .with_padding_bottom(12.)
                     .with_padding_left(16.)
@@ -955,7 +955,7 @@ impl LoginSlideView {
             AI_FEATURES
         };
         for &item in feature_items {
-            let icon_el = ConstrainedBox::new(Icon::X.to_warpui_icon(feature_x_fill).finish())
+            let icon_el = ConstrainedBox::new(Icon::X.to_galaxyui_icon(feature_x_fill).finish())
                 .with_width(16.)
                 .with_height(16.)
                 .finish();
@@ -1109,13 +1109,13 @@ impl View for LoginSlideView {
             );
             let overlay_opacity = (100u8).saturating_sub(img.opacity);
             stack.add_child(
-                warpui::elements::Rect::new()
+                galaxyui::elements::Rect::new()
                     .with_background(theme.background().with_opacity(overlay_opacity))
                     .finish(),
             );
         } else {
             stack.add_child(
-                Container::new(warpui::elements::Empty::new().finish())
+                Container::new(galaxyui::elements::Empty::new().finish())
                     .with_background(theme.background())
                     .finish(),
             );

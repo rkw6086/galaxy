@@ -1,5 +1,5 @@
 use pathfinder_color::ColorU;
-use warpui::{
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, Element, Empty, Flex, MouseStateHandle, ParentElement,
         Shrinkable,

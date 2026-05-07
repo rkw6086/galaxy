@@ -2,10 +2,11 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{ai::agent::redaction, terminal::model::session::SessionType};
 use futures_util::StreamExt;
-use warp_core::features::FeatureFlag;
+use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
 use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
+use crate::ai::bedrock::diagnostic::BedrockDiagnosticLogger;
 use crate::server::server_api::ServerApi;
 
 use super::{convert_to::convert_input, ConvertToAPITypeError, RequestParams, ResponseStream};
@@ -141,7 +142,9 @@ pub async fn generate_multi_agent_output(
         let is_arn = model_id_for_fallback_check.starts_with("arn:");
         let fallback_to_warp = config.fallback_to_warp && !is_arn;
         if is_arn && config.fallback_to_warp {
-            log::info!("[bedrock] Fallback disabled for ARN-based model (not available on Warp server)");
+            log::info!(
+                "[bedrock] Fallback disabled for ARN-based model (not available on Warp server)"
+            );
         }
         match BedrockClient::from_config(config).await {
             Ok(bedrock) => {
@@ -156,6 +159,14 @@ pub async fn generate_multi_agent_output(
 
                 log::info!("[bedrock] Starting stream with task_id={task_id}");
 
+                let needs_create_task = request
+                    .task_context
+                    .as_ref()
+                    .map(|tc| tc.tasks.is_empty())
+                    .unwrap_or(true);
+
+                log::info!("[bedrock] needs_create_task={needs_create_task}");
+
                 let model_id = request
                     .settings
                     .as_ref()
@@ -164,6 +175,13 @@ pub async fn generate_multi_agent_output(
                     .unwrap_or_default();
 
                 log::info!("[bedrock] Model: {model_id}");
+
+                let diagnostic_logger =
+                    BedrockDiagnosticLogger::try_new(&model_id, "", "", &task_id).map(Arc::new);
+
+                if let Some(ref logger) = diagnostic_logger {
+                    logger.log_protobuf_input(&request);
+                }
 
                 let messages =
                     crate::ai::bedrock::convert_request::extract_messages_from_request(&request);
@@ -178,16 +196,66 @@ pub async fn generate_multi_agent_output(
                     tools.len()
                 );
 
+                for (i, msg) in messages.iter().enumerate() {
+                    let content_desc = match &msg.content {
+                        crate::ai::bedrock::convert::MessageContent::Text(t) => {
+                            format!("Text({}chars)", t.len())
+                        }
+                        crate::ai::bedrock::convert::MessageContent::ToolUse {
+                            tool_use_id,
+                            name,
+                            ..
+                        } => {
+                            format!("ToolUse(name={}, id={})", name, tool_use_id)
+                        }
+                        crate::ai::bedrock::convert::MessageContent::ToolResult {
+                            tool_use_id,
+                            is_error,
+                            ..
+                        } => {
+                            format!("ToolResult(id={}, is_error={})", tool_use_id, is_error)
+                        }
+                        crate::ai::bedrock::convert::MessageContent::MultiPart(parts) => {
+                            let part_descs: Vec<String> = parts
+                                .iter()
+                                .map(|p| match p {
+                                    crate::ai::bedrock::convert::ContentPart::Text(t) => {
+                                        format!("Text({})", t.len())
+                                    }
+                                    crate::ai::bedrock::convert::ContentPart::ToolUse {
+                                        name,
+                                        tool_use_id,
+                                        ..
+                                    } => format!("ToolUse({},{})", name, tool_use_id),
+                                    crate::ai::bedrock::convert::ContentPart::ToolResult {
+                                        tool_use_id,
+                                        ..
+                                    } => format!("ToolResult({})", tool_use_id),
+                                })
+                                .collect();
+                            format!("MultiPart[{}]", part_descs.join(", "))
+                        }
+                    };
+                    log::debug!(
+                        "[bedrock] msg[{}]: role={:?}, content={}",
+                        i,
+                        msg.role,
+                        content_desc
+                    );
+                }
+
                 match bedrock
                     .converse_stream(
                         &model_id,
                         &task_id,
+                        needs_create_task,
                         messages,
                         system_prompt,
                         tools,
                         8192,
                         None,
                         true,
+                        diagnostic_logger,
                     )
                     .await
                 {

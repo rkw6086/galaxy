@@ -1,4 +1,4 @@
-use warpui::{
+use galaxyui::{
     elements::MouseStateHandle,
     fonts::Weight,
     platform::Cursor,

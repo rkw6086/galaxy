@@ -2,7 +2,7 @@
 
 use settings::Setting as _;
 use version_compare::Cmp;
-use warp::{
+use galaxy::{
     cmd_or_ctrl_shift,
     integration_testing::{
         input::{
@@ -24,7 +24,7 @@ use warp::{
     terminal::shell::{self, ShellType},
     workspace::Workspace,
 };
-use warpui::{
+use galaxyui::{
     async_assert, async_assert_eq, clipboard::ClipboardContent, integration::TestStep, ViewHandle,
 };
 

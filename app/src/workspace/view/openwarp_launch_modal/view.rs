@@ -3,17 +3,17 @@ use markdown_parser::{
 };
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
-use warpui::assets::asset_cache::AssetSource;
-use warpui::elements::{
+use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::elements::{
     Align, CacheOption, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Expanded, Flex, FormattedTextElement, HighlightedHyperlink, Image,
     MainAxisSize, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
     Stack, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::keymap::FixedBinding;
-use warpui::{
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::FixedBinding;
+use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
@@ -69,7 +69,7 @@ const FEATURE_ITEMS: &[FeatureItem] = &[
 ];
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "escape",
@@ -295,7 +295,7 @@ impl OpenWarpLaunchModal {
     fn render_feature_row(item: &FeatureItem, appearance: &Appearance) -> Box<dyn Element> {
         let icon_el = ConstrainedBox::new(
             item.icon
-                .to_warpui_icon(Fill::Solid(
+                .to_galaxyui_icon(Fill::Solid(
                     PhenomenonStyle::modal_feature_description_text(),
                 ))
                 .finish(),
@@ -370,7 +370,7 @@ impl View for OpenWarpLaunchModal {
         "OpenWarpLaunchModal"
     }
 
-    fn on_focus(&mut self, _focus_ctx: &warpui::FocusContext, ctx: &mut ViewContext<Self>) {
+    fn on_focus(&mut self, _focus_ctx: &galaxyui::FocusContext, ctx: &mut ViewContext<Self>) {
         ctx.focus_self();
     }
 

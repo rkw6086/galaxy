@@ -10,17 +10,17 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::{cmp, ops::Range, vec};
 use warp_command_signatures::IconType;
-use warp_completer::completer::{
+use galaxy_completer::completer::{
     MatchType, PathSeparators, Suggestion, SuggestionResults, SuggestionType,
 };
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::AnsiColorIdentifier;
-use warpui::elements::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxyui::elements::{
     ChildAnchor, DispatchEventResult, Expanded, Hoverable, MouseStateHandle, ParentAnchor,
     ParentOffsetBounds, ScrollbarWidth,
 };
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
     elements::{
         Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -810,7 +810,7 @@ impl InputSuggestions {
                                     Properties::default()
                                         .weight(appearance.monospace_font_weight()),
                                 )
-                                .autosize_text(warp_core::ui::builder::MIN_FONT_SIZE)
+                                .autosize_text(galaxy_core::ui::builder::MIN_FONT_SIZE)
                                 .with_color(main_text);
 
                                 let matches = item.matches.clone();

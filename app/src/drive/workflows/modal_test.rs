@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::{platform::WindowStyle, App, SingletonEntity, ViewHandle};
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{platform::WindowStyle, App, SingletonEntity, ViewHandle};
 
 use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-use warpui::{App, SingletonEntity};
+use galaxyui::{App, SingletonEntity};
 
 use crate::{
     auth::UserUid,

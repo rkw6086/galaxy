@@ -1,8 +1,8 @@
 //! Module to attribute AI-generated requested commands
 //! to known documents (e.g. Warp Drive objects).
 
-use warpui::AppContext;
-use warpui::SingletonEntity;
+use galaxyui::AppContext;
+use galaxyui::SingletonEntity;
 
 use crate::env_vars::EnvVarCollection;
 use crate::env_vars::EnvVarValue;

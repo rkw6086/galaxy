@@ -27,7 +27,7 @@ use comfy_table::Cell;
 use futures::{future, StreamExt};
 use serde::Serialize;
 
-use warp_cli::{
+use galaxy_cli::{
     agent::{Harness, OutputFormat, Prompt, RunCloudArgs},
     json_filter::JsonOutput,
     task::{
@@ -37,10 +37,10 @@ use warp_cli::{
     },
     GlobalOptions,
 };
-use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
-use warpui::r#async::Timer;
-use warpui::{
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::r#async::Timer;
+use galaxyui::{
     platform::TerminationMode, r#async::Spawnable, AppContext, ModelContext, SingletonEntity,
 };
 
@@ -1240,7 +1240,7 @@ impl AmbientAgentRunner {
     }
 }
 
-impl warpui::Entity for AmbientAgentRunner {
+impl galaxyui::Entity for AmbientAgentRunner {
     type Event = ();
 }
 

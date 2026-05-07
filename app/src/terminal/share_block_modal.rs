@@ -37,10 +37,10 @@ use pathfinder_geometry::{
 };
 use serde::Serialize;
 use std::{ops::RangeInclusive, sync::Arc};
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::Fill;
-use warpui::r#async::SpawnedFutureHandle;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
         try_rect_with_z, Align, Border, ConstrainedBox, Container, CornerRadius,
@@ -157,7 +157,7 @@ pub enum ShareBlockModalAction {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings(vec![
         FixedBinding::custom(
@@ -670,7 +670,7 @@ impl ShareBlockModal {
             } else {
                 text_label.to_string()
             },
-            icon.to_warpui_icon(appearance.theme().active_ui_text_color()),
+            icon.to_galaxyui_icon(appearance.theme().active_ui_text_color()),
             MainAxisSize::Max,
             MainAxisAlignment::Center,
             vec2f(16., 16.),
@@ -797,7 +797,7 @@ impl ShareBlockModal {
         let text_and_icon = TextAndIcon::new(
             TextAndIconAlignment::TextFirst,
             "Copy".to_string(),
-            Icon::Copy.to_warpui_icon(appearance.theme().active_ui_text_color()),
+            Icon::Copy.to_galaxyui_icon(appearance.theme().active_ui_text_color()),
             MainAxisSize::Max,
             MainAxisAlignment::Center,
             vec2f(16., 16.),

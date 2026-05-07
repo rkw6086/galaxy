@@ -2,16 +2,16 @@ use std::time::Duration;
 
 use crate::modal::Modal;
 use crate::ui_components::blended_colors;
-use warp_core::ui::appearance::Appearance;
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
     ChildView, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::platform::Cursor;
-use warpui::r#async::Timer;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::r#async::Timer;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 

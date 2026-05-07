@@ -1,4 +1,4 @@
-use warpui::{
+use galaxyui::{
     windowing::{StateEvent, WindowManager},
     Entity, ModelContext, SingletonEntity,
 };

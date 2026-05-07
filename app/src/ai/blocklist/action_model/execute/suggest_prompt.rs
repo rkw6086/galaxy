@@ -1,6 +1,6 @@
 use futures::{channel::oneshot, future::BoxFuture, FutureExt};
-use warp_core::features::FeatureFlag;
-use warpui::{Entity, ModelContext};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{Entity, ModelContext};
 
 use crate::{
     ai::{

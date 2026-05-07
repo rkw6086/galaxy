@@ -1,8 +1,8 @@
-use warp_core::features::FeatureFlag;
-use warpui::{elements::ScrollOffset, units::Pixels, ViewContext, ViewHandle};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{elements::ScrollOffset, units::Pixels, ViewContext, ViewHandle};
 
 #[cfg(not(target_family = "wasm"))]
-use warpui::{AppContext, WeakViewHandle};
+use galaxyui::{AppContext, WeakViewHandle};
 
 #[cfg(not(target_family = "wasm"))]
 use super::FILE_HEADER_HEIGHT;

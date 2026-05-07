@@ -58,10 +58,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashSet};
-use warp_core::ui::theme::color::internal_colors;
-use warpui::FocusContext;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::FocusContext;
 
-use warpui::{
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
         Align, Border, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container,
@@ -1798,7 +1798,7 @@ impl TeamsWidget {
         let currency_icon = Container::new(
             ConstrainedBox::new(
                 Icon::CoinsStacked
-                    .to_warpui_icon(appearance.theme().active_ui_text_color().with_opacity(90))
+                    .to_galaxyui_icon(appearance.theme().active_ui_text_color().with_opacity(90))
                     .finish(),
             )
             .with_max_height(20.)
@@ -2063,7 +2063,7 @@ impl TeamsWidget {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     "Contact support",
-                    Icon::Phone.to_warpui_icon(appearance.theme().accent()),
+                    Icon::Phone.to_galaxyui_icon(appearance.theme().accent()),
                     MainAxisSize::Min,
                     MainAxisAlignment::Center,
                     vec2f(14., 14.),
@@ -2092,7 +2092,7 @@ impl TeamsWidget {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     "Manage billing",
-                    Icon::CoinsStacked.to_warpui_icon(appearance.theme().accent()),
+                    Icon::CoinsStacked.to_galaxyui_icon(appearance.theme().accent()),
                     MainAxisSize::Min,
                     MainAxisAlignment::Center,
                     vec2f(14., 14.),
@@ -2123,7 +2123,7 @@ impl TeamsWidget {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     "Open admin panel",
-                    Icon::Users.to_warpui_icon(appearance.theme().accent()),
+                    Icon::Users.to_galaxyui_icon(appearance.theme().accent()),
                     MainAxisSize::Min,
                     MainAxisAlignment::Center,
                     vec2f(14., 14.),
@@ -3254,7 +3254,7 @@ impl TeamsWidget {
                                 Hoverable::new(handle.clone(), move |_mouse_state| {
                                     Container::new(
                                         ConstrainedBox::new(
-                                            icon.to_warpui_icon(
+                                            icon.to_galaxyui_icon(
                                                 appearance
                                                     .theme()
                                                     .active_ui_text_color()
@@ -3287,7 +3287,7 @@ impl TeamsWidget {
                             Container::new(
                                 ConstrainedBox::new(
                                     Icon::DotsVertical
-                                        .to_warpui_icon(
+                                        .to_galaxyui_icon(
                                             appearance
                                                 .theme()
                                                 .active_ui_text_color()
@@ -3872,7 +3872,7 @@ impl TeamsWidget {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     text.to_string(),
-                    Icon::CoinsStacked.to_warpui_icon(icon_color),
+                    Icon::CoinsStacked.to_galaxyui_icon(icon_color),
                     MainAxisSize::Min,
                     MainAxisAlignment::Center,
                     vec2f(14., 14.),

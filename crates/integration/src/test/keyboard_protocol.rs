@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use warp::features::FeatureFlag;
-use warp::integration_testing::{
+use galaxy::features::FeatureFlag;
+use galaxy::integration_testing::{
     step::new_step_with_default_assertions,
     terminal::{
         assert_long_running_block_executing_for_single_terminal_in_tab,
@@ -9,10 +9,10 @@ use warp::integration_testing::{
     },
     view_getters::single_terminal_view_for_tab,
 };
-use warpui::event::{KeyEventDetails, KeyState};
-use warpui::keymap::Keystroke;
-use warpui::platform::keyboard::KeyCode;
-use warpui::{async_assert, integration::TestStep, Event};
+use galaxyui::event::{KeyEventDetails, KeyState};
+use galaxyui::keymap::Keystroke;
+use galaxyui::platform::keyboard::KeyCode;
+use galaxyui::{async_assert, integration::TestStep, Event};
 
 use crate::Builder;
 
@@ -50,7 +50,7 @@ fn wait_for_protocol_enabled() -> TestStep {
 fn assert_output_contains(
     expected: &'static str,
     description: &'static str,
-) -> impl FnMut(&mut warpui::App, warpui::WindowId) -> warpui::integration::AssertionOutcome {
+) -> impl FnMut(&mut galaxyui::App, galaxyui::WindowId) -> galaxyui::integration::AssertionOutcome {
     move |app, window_id| {
         let terminal_view = single_terminal_view_for_tab(app, window_id, 0);
         terminal_view.read(app, |view, _ctx| {

@@ -17,10 +17,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
-use warp_core::features::FeatureFlag;
+use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
-use warpui::r#async::Timer;
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::r#async::Timer;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 /// Backoff schedule (seconds) reused for the post-restore
 /// `get_ambient_agent_task` retry: 1s, 2s, 5s, then 10s max.

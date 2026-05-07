@@ -34,9 +34,9 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 use chrono::Utc;
 use parking_lot::FairMutex;
 use serde_json::json;
-use warp_core::features::FeatureFlag;
-use warpui::r#async::{FutureExt as AsyncFutureExt, SpawnedFutureHandle, Timer};
-use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::r#async::{FutureExt as AsyncFutureExt, SpawnedFutureHandle, Timer};
+use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 const NUM_TOP_BLOCK_LINES: usize = 100;
 const NUM_BOTTOM_BLOCK_LINES: usize = 200;

@@ -4,19 +4,19 @@ use crate::view_components::action_button::{ActionButton, ActionButtonTheme};
 use asset_macro::bundled_or_fetched_asset;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::Fill;
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{
     Align, Border, CacheOption, ChildAnchor, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DropShadow, Flex, FormattedTextElement, Image, MainAxisAlignment,
     MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Radius, Stack, Text,
 };
-use warpui::fonts::Weight;
-use warpui::keymap::FixedBinding;
-use warpui::presenter::ChildView;
-use warpui::ui_components::components::UiComponent;
-use warpui::{
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
@@ -48,7 +48,7 @@ const LEFT_PANEL_WIDTH: f32 = 330.;
 const RIGHT_PANEL_WIDTH: f32 = 325.;
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "escape",

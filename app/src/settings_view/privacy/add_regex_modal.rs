@@ -5,9 +5,9 @@ use crate::{
     editor::{EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions},
 };
 use regex::Regex;
-use warp_editor::editor::NavigationKey;
-use warpui::elements::{CrossAxisAlignment, Expanded, MainAxisSize};
-use warpui::{
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::elements::{CrossAxisAlignment, Expanded, MainAxisSize};
+use galaxyui::{
     elements::{ChildView, Container, Empty, Flex, MouseStateHandle, ParentElement, Text},
     ui_components::{
         button::ButtonVariant,

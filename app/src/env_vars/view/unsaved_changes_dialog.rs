@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::{Container, MouseStateHandle},
     fonts::Weight,
     platform::Cursor,

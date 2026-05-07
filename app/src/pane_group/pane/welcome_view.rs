@@ -3,15 +3,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use warp_core::context_flag::ContextFlag;
-use warp_core::ui::appearance::Appearance;
-use warpui::elements::{
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
     Align, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, Icon, ParentElement,
 };
-use warpui::keymap::EditableBinding;
-use warpui::platform::FilePickerConfiguration;
-use warpui::ViewHandle;
-use warpui::{
+use galaxyui::keymap::EditableBinding;
+use galaxyui::platform::FilePickerConfiguration;
+use galaxyui::ViewHandle;
+use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext, WindowId,
 };
@@ -30,7 +30,7 @@ use crate::view_components::DismissibleToast;
 use crate::workspace::{ToastStack, Workspace};
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_editable_bindings([
         EditableBinding::new(

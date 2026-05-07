@@ -9,21 +9,21 @@ use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use thousands::Separable;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::Fill;
-use warp_graphql::billing::StripeSubscriptionPlan;
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::Fill;
+use galaxy_graphql::billing::StripeSubscriptionPlan;
+use galaxyui::elements::{
     Align, CacheOption, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DropShadow, Expanded, Flex, FormattedTextElement, HighlightedHyperlink, Image,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, Stack,
 };
-use warpui::fonts::Weight;
-use warpui::keymap::FixedBinding;
-use warpui::platform::Cursor;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::send_telemetry_from_ctx;
 use crate::TelemetryEvent;
@@ -43,7 +43,7 @@ pub enum CloudAgentCapacityModalVariant {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "escape",
@@ -243,7 +243,7 @@ impl CloudAgentCapacityModal {
                                 Container::new(
                                     ConstrainedBox::new(
                                         Icon::CheckCircleBroken
-                                            .to_warpui_icon(Fill::Solid(theme.ansi_fg_green()))
+                                            .to_galaxyui_icon(Fill::Solid(theme.ansi_fg_green()))
                                             .finish(),
                                     )
                                     .with_width(14.)

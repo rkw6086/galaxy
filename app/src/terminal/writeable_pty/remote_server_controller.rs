@@ -5,8 +5,8 @@ use remote_server::auth::RemoteServerAuthContext;
 use settings::Setting;
 use std::path::PathBuf;
 use std::sync::Arc;
-use warp_core::SessionId;
-use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
+use galaxy_core::SessionId;
+use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 
 use crate::terminal::warpify::settings::SshExtensionInstallMode;
 

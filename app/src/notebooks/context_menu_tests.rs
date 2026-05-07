@@ -1,8 +1,8 @@
 use pathfinder_geometry::vector::vec2f;
 use string_offset::ByteOffset;
-use warp_core::ui::appearance::Appearance;
-use warp_editor::model::CoreEditorModel;
-use warpui::{platform::WindowStyle, App};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_editor::model::CoreEditorModel;
+use galaxyui::{platform::WindowStyle, App};
 
 use crate::search::files::model::FileSearchModel;
 

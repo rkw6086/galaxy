@@ -70,12 +70,12 @@ use crate::{
 use instant::Instant;
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
-use warp_core::{
+use galaxy_core::{
     features::FeatureFlag,
     ui::{appearance::Appearance, theme::Fill, Icon as CoreIcon},
 };
-use warpui::elements::shimmering_text::ShimmeringTextStateHandle;
-use warpui::{
+use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
+use galaxyui::{
     elements::{Border, Container, Empty, Flex, MouseStateHandle, ParentElement, Text},
     keymap::Keystroke,
     presenter::ChildView,
@@ -83,7 +83,7 @@ use warpui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, View, ViewContext,
     ViewHandle,
 };
-use warpui::{r#async::Timer, TypedActionView};
+use galaxyui::{r#async::Timer, TypedActionView};
 
 pub fn init(app: &mut AppContext) {
     summarization_cancel_dialog::init(app);
@@ -990,7 +990,7 @@ fn latest_model_used_before_exchange<V: View>(
 fn render_agent_tip(tip: &AgentTip, app: &AppContext) -> Box<dyn Element> {
     use crate::ai::agent_tips::AITip;
     use markdown_parser::{FormattedTextFragment, FormattedTextLine};
-    use warpui::text_layout::ClipConfig;
+    use galaxyui::text_layout::ClipConfig;
 
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
@@ -1010,7 +1010,7 @@ fn render_agent_tip(tip: &AgentTip, app: &AppContext) -> Box<dyn Element> {
 
     let formatted_text =
         markdown_parser::FormattedText::new(vec![FormattedTextLine::Line(fragments)]);
-    warpui::elements::FormattedTextElement::new(
+    galaxyui::elements::FormattedTextElement::new(
         formatted_text,
         appearance.monospace_font_size() - 3.,
         appearance.ui_font_family(),
@@ -1022,7 +1022,7 @@ fn render_agent_tip(tip: &AgentTip, app: &AppContext) -> Box<dyn Element> {
     .set_selectable(true)
     .with_clip(ClipConfig::ellipsis())
     .register_default_click_handlers_with_action_support(move |link, evt, app| {
-        use warpui::elements::HyperlinkLens;
+        use galaxyui::elements::HyperlinkLens;
         match link {
             HyperlinkLens::Url(url) => {
                 send_telemetry_from_app_ctx!(
@@ -1130,7 +1130,7 @@ impl View for BlocklistAIStatusBar {
         "BlocklistAIStatusBar"
     }
 
-    fn render(&self, app: &AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &AppContext) -> Box<dyn galaxyui::Element> {
         let appearance = Appearance::as_ref(app);
         let agent_view_controller = self.agent_view_controller.as_ref(app);
         if let Some(cloud_mode_setup_terminal_message) =

@@ -39,30 +39,30 @@ use settings::Setting as _;
 use std::collections::HashSet;
 use std::ops::Range;
 use std::time::Duration;
-use warp_core::features::FeatureFlag;
-use warpui::elements::ConstrainedBox;
-use warpui::elements::CrossAxisAlignment;
-use warpui::elements::Empty;
-use warpui::elements::Fill;
-use warpui::elements::Hoverable;
-use warpui::elements::MouseStateHandle;
-use warpui::elements::ScrollStateHandle;
-use warpui::elements::Scrollable;
-use warpui::elements::ScrollableElement;
-use warpui::elements::ScrollbarWidth;
-use warpui::elements::UniformList;
-use warpui::elements::UniformListState;
-use warpui::elements::{
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::ConstrainedBox;
+use galaxyui::elements::CrossAxisAlignment;
+use galaxyui::elements::Empty;
+use galaxyui::elements::Fill;
+use galaxyui::elements::Hoverable;
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::elements::ScrollStateHandle;
+use galaxyui::elements::Scrollable;
+use galaxyui::elements::ScrollableElement;
+use galaxyui::elements::ScrollbarWidth;
+use galaxyui::elements::UniformList;
+use galaxyui::elements::UniformListState;
+use galaxyui::elements::{
     AnchorPair, Border, ChildView, Container, CornerRadius, Dismiss, Flex, Icon, OffsetPositioning,
     OffsetType, ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius,
     SavePosition, Shrinkable, Stack, Text, XAxisAnchor, YAxisAnchor,
 };
 
-use warpui::platform::Cursor;
-use warpui::windowing::WindowManager;
-use warpui::SingletonEntity;
-use warpui::View;
-use warpui::{
+use galaxyui::platform::Cursor;
+use galaxyui::windowing::WindowManager;
+use galaxyui::SingletonEntity;
+use galaxyui::View;
+use galaxyui::{
     AppContext, Element, Entity, ModelHandle, TypedActionView, ViewContext, ViewHandle,
     WeakViewHandle,
 };

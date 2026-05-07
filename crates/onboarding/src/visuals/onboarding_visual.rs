@@ -1,10 +1,10 @@
 use pathfinder_color::ColorU;
-use warp_core::ui::Icon;
-use warpui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
-use warpui::geometry::rect::RectF;
-use warpui::geometry::vector::{vec2f, Vector2F};
-use warpui::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
-use warpui::{
+use galaxy_core::ui::Icon;
+use galaxyui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
+use galaxyui::geometry::rect::RectF;
+use galaxyui::geometry::vector::{vec2f, Vector2F};
+use galaxyui::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
+use galaxyui::{
     elements::{CornerRadius, Fill, Point, Radius},
     event::DispatchedEvent,
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext,

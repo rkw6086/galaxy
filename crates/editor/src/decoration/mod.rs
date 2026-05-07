@@ -1,4 +1,4 @@
-use warpui::ModelContext;
+use galaxyui::ModelContext;
 
 use crate::content::{buffer::BufferSnapshot, edit::PreciseDelta, version::BufferVersion};
 

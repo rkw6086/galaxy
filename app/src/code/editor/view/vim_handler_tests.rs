@@ -16,15 +16,15 @@ use crate::{
 use std::sync::Arc;
 use unindent::Unindent;
 use vim::vim::{MotionType, VimMode};
-use warp_core::{features::FeatureFlag, settings::Setting, ui::appearance::Appearance};
-use warp_editor::model::CoreEditorModel;
-use warp_editor::{
+use galaxy_core::{features::FeatureFlag, settings::Setting, ui::appearance::Appearance};
+use galaxy_editor::model::CoreEditorModel;
+use galaxy_editor::{
     content::buffer::{InitialBufferState, ToBufferCharOffset, ToBufferPoint},
     render::element::VerticalExpansionBehavior,
 };
-use warp_util::user_input::UserInput;
-use warpui::text::point::Point;
-use warpui::{
+use galaxy_util::user_input::UserInput;
+use galaxyui::text::point::Point;
+use galaxyui::{
     keymap::Keystroke, platform::WindowStyle, App, SingletonEntity, TypedActionView, UpdateModel,
     ViewHandle,
 };

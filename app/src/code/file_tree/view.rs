@@ -13,22 +13,22 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use warp_util::path::LineAndColumnArg;
-use warp_util::standardized_path::StandardizedPath;
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::standardized_path::StandardizedPath;
 
 use repo_metadata::repositories::DetectedRepositories;
-use warp_core::send_telemetry_from_ctx;
-use warpui::elements::{
+use galaxy_core::send_telemetry_from_ctx;
+use galaxyui::elements::{
     AcceptedByDropTarget, Align, Clipped, ConstrainedBox, Container, Dismiss, Draggable,
     DraggableState, Empty, FormattedTextElement, MainAxisAlignment, Percentage, Rect, SavePosition,
     Scrollable, Shrinkable,
 };
-use warpui::fonts::Style;
-use warpui::keymap::FixedBinding;
-use warpui::platform::Cursor;
-use warpui::text_layout::TextAlignment;
-use warpui::{clipboard::ClipboardContent, id, ViewContext, WeakViewHandle};
-use warpui::{
+use galaxyui::fonts::Style;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::platform::Cursor;
+use galaxyui::text_layout::TextAlignment;
+use galaxyui::{clipboard::ClipboardContent, id, ViewContext, WeakViewHandle};
+use galaxyui::{
     elements::{
         ChildAnchor, ChildView, CrossAxisAlignment, Flex, Hoverable, MainAxisSize,
         MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds,
@@ -39,7 +39,7 @@ use warpui::{
     AppContext, Element, Entity, EventContext, SingletonEntity as _, TypedActionView, View,
     ViewHandle,
 };
-use warpui::{BlurContext, ModelHandle};
+use galaxyui::{BlurContext, ModelHandle};
 
 use crate::code::active_file::{ActiveFileEvent, ActiveFileModel};
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;
@@ -64,10 +64,10 @@ use crate::{
     view_components::DismissibleToast,
     workspace::ToastStack,
 };
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::{color::internal_colors, Fill};
-use warp_core::HostId;
-use warpui::ui_components::components::UiComponent;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::{color::internal_colors, Fill};
+use galaxy_core::HostId;
+use galaxyui::ui_components::components::UiComponent;
 
 mod editing;
 mod render;
@@ -985,8 +985,8 @@ impl FileTreeView {
             .collect();
 
         // Ancestor-dedup only local inputs. Shared with `GlobalSearchView`
-        // via `warp_util::path::group_roots_by_common_ancestor`.
-        let grouping = warp_util::path::group_roots_by_common_ancestor(&local_inputs);
+        // via `galaxy_util::path::group_roots_by_common_ancestor`.
+        let grouping = galaxy_util::path::group_roots_by_common_ancestor(&local_inputs);
 
         // Final displayed order: local surviving roots (in input order),
         // followed by preserved remote roots (in their existing order).
@@ -1786,7 +1786,7 @@ impl FileTreeView {
         let expand_icon = match expand_icon {
             Some(icon) => {
                 let chevron_icon_color = item_highlight_state.text_and_icon_color(appearance);
-                icon.to_warpui_icon(chevron_icon_color.into()).finish()
+                icon.to_galaxyui_icon(chevron_icon_color.into()).finish()
             }
             None => Empty::new().finish(),
         };
@@ -1805,7 +1805,7 @@ impl FileTreeView {
         // Add the icon for the item.
         let icon_color = item_highlight_state.text_and_icon_color(appearance);
         let icon = match render_state.icon {
-            ImageOrIcon::Icon(icon) => icon.to_warpui_icon(icon_color.into()).finish(),
+            ImageOrIcon::Icon(icon) => icon.to_galaxyui_icon(icon_color.into()).finish(),
             ImageOrIcon::Image(image) => image,
         };
         header_row.add_child(
@@ -2637,7 +2637,7 @@ impl FileTreeView {
                         ScrollbarWidth::Auto,
                         theme.nonactive_ui_detail().into(),
                         theme.active_ui_detail().into(),
-                        warpui::elements::Fill::None,
+                        galaxyui::elements::Fill::None,
                     )
                     .with_overlayed_scrollbar()
                     .finish(),
@@ -2684,7 +2684,7 @@ impl FileTreeView {
                 Container::new(
                     ConstrainedBox::new(
                         Icon::AlertTriangle
-                            .to_warpui_icon(Fill::Solid(internal_colors::neutral_6(theme)))
+                            .to_galaxyui_icon(Fill::Solid(internal_colors::neutral_6(theme)))
                             .finish(),
                     )
                     .with_width(24.)
@@ -2749,7 +2749,7 @@ impl FileTreeView {
 
         // Create loading icon
         let loading_icon = Icon::Loading
-            .to_warpui_icon(warp_core::ui::theme::Fill::Solid(
+            .to_galaxyui_icon(galaxy_core::ui::theme::Fill::Solid(
                 internal_colors::neutral_6(theme),
             ))
             .finish();
@@ -2771,7 +2771,7 @@ impl FileTreeView {
         header_row.add_child(loading_icon);
 
         let folder_icon = Icon::Folder
-            .to_warpui_icon(warp_core::ui::theme::Fill::Solid(
+            .to_galaxyui_icon(galaxy_core::ui::theme::Fill::Solid(
                 internal_colors::neutral_6(theme),
             ))
             .finish();

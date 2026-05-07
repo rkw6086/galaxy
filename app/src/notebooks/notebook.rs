@@ -6,16 +6,16 @@ use regex::Regex;
 use settings::Setting as _;
 use std::{sync::Arc, time::Duration};
 use url::Url;
-use warp_core::context_flag::ContextFlag;
+use galaxy_core::context_flag::ContextFlag;
 
 #[cfg(target_family = "wasm")]
 use crate::uri::web_intent_parser::open_url_on_desktop;
 
-use warp_editor::{
+use galaxy_editor::{
     editor::NavigationKey,
     model::{CoreEditorModel, RichTextEditorModel},
 };
-use warpui::{
+use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
     clipboard::ClipboardContent,
     elements::{
@@ -156,7 +156,7 @@ lazy_static! {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_editable_bindings([
         EditableBinding::new(
@@ -1443,7 +1443,7 @@ impl NotebookView {
             );
         }
 
-        if !warpui::platform::is_mobile_device()
+        if !galaxyui::platform::is_mobile_device()
             && !ContextFlag::HideOpenOnDesktopButton.is_enabled()
             && *UserAppInstallDetectionSettings::as_ref(ctx)
                 .user_app_installation_detected
@@ -1943,7 +1943,7 @@ impl NotebookView {
                     .with_children([
                         ConstrainedBox::new(
                             icons::Icon::Trash
-                                .to_warpui_icon(appearance.theme().foreground())
+                                .to_galaxyui_icon(appearance.theme().foreground())
                                 .finish(),
                         )
                         .with_width(16.)
@@ -2203,7 +2203,7 @@ impl View for NotebookView {
         }
     }
 
-    fn render(&self, app: &AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &AppContext) -> Box<dyn galaxyui::Element> {
         let mut content = Flex::column();
         content.extend(self.render_trash_banner(app));
         content.add_child(self.render_title(app));
@@ -2256,7 +2256,7 @@ impl View for NotebookView {
         SavePosition::new(stack.finish(), &self.view_position_id).finish()
     }
 
-    fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
+    fn keymap_context(&self, app: &AppContext) -> galaxyui::keymap::Context {
         let mut context = Self::default_keymap_context();
 
         match self.mode_app_ctx(app) {

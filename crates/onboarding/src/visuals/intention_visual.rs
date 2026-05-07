@@ -1,6 +1,6 @@
 use pathfinder_color::ColorU;
-use warpui::elements::Align;
-use warpui::Element;
+use galaxyui::elements::Align;
+use galaxyui::Element;
 
 use super::onboarding_visual::{OnboardingVisual, Pill, RectPct};
 

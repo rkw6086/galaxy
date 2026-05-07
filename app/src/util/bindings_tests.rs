@@ -1,5 +1,5 @@
-use warpui::platform::OperatingSystem;
-use warpui::{
+use galaxyui::platform::OperatingSystem;
+use galaxyui::{
     keymap::{EditableBinding, Keystroke, Trigger},
     App,
 };

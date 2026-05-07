@@ -5,8 +5,8 @@ use repo_metadata::{repositories::DetectedRepositories, DirectoryWatcher, RepoMe
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use tempfile::TempDir;
-use warp_core::channel::ChannelState;
-use warpui::App;
+use galaxy_core::channel::ChannelState;
+use galaxyui::App;
 use watcher::HomeDirectoryWatcher;
 
 // ============================================================================
@@ -79,7 +79,7 @@ fn get_skills_for_working_directory_scopes_subdirectory_skills() {
 
         // Register the repo root so get_root_for_path returns Some.
         let canonical_repo =
-            warp_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo)
+            galaxy_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo)
                 .unwrap();
         repo_handle.update(&mut app, |repos, _ctx| {
             repos.insert_test_repo_root(canonical_repo);
@@ -201,7 +201,7 @@ fn get_skills_for_working_directory_name_collision_returns_both() {
 
         // Register the repo root so get_root_for_path returns Some.
         let canonical_repo =
-            warp_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo)
+            galaxy_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo)
                 .unwrap();
         repo_handle.update(&mut app, |repos, _ctx| {
             repos.insert_test_repo_root(canonical_repo);
@@ -296,7 +296,7 @@ fn cloud_environment_skills_always_included() {
         let skill_manager_handle = app.add_singleton_model(SkillManager::new);
 
         let canonical_repo_a =
-            warp_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo_a)
+            galaxy_util::standardized_path::StandardizedPath::from_local_canonicalized(&repo_a)
                 .unwrap();
         repo_handle.update(&mut app, |repos, _ctx| {
             repos.insert_test_repo_root(canonical_repo_a);
@@ -355,7 +355,7 @@ name: test-skill
 description: Test skill with variables
 ---
 
-Run `{{warp_cli_binary_name}}` to connect to {{warp_server_url}}.
+Run `{{galaxy_cli_binary_name}}` to connect to {{warp_server_url}}.
 "#,
     )
     .unwrap();
@@ -388,7 +388,7 @@ name: test-skill
 description: Test skill with mixed variables
 ---
 
-Use {{other_var}} and {{warp_cli_binary_name}} together.
+Use {{other_var}} and {{galaxy_cli_binary_name}} together.
 "#,
     )
     .unwrap();
@@ -440,7 +440,7 @@ fn test_build_bundled_skill_context() {
     // settings_schema_path is only present when bundled_resources_dir() returns Some.
     assert!(context.len() >= 4);
     assert!(context.contains_key("warp_server_url"));
-    assert!(context.contains_key("warp_cli_binary_name"));
+    assert!(context.contains_key("galaxy_cli_binary_name"));
     assert!(context.contains_key("warp_url_scheme"));
     assert!(context.contains_key("settings_file_path"));
 
@@ -449,7 +449,7 @@ fn test_build_bundled_skill_context() {
         &ChannelState::server_root_url().to_string()
     );
     assert_eq!(
-        context.get("warp_cli_binary_name").unwrap(),
+        context.get("galaxy_cli_binary_name").unwrap(),
         ChannelState::channel().cli_command_name()
     );
     assert_eq!(

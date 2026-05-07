@@ -8,23 +8,23 @@ use crate::ui_components::icons::Icon as UiIcon;
 use markdown_parser::FormattedText;
 use markdown_parser::FormattedTextFragment;
 use markdown_parser::FormattedTextLine;
-use warp_core::channel::ChannelState;
-use warp_core::ui::theme::WarpTheme;
-use warpui::elements::HighlightedHyperlink;
-use warpui::elements::Hoverable;
-use warpui::elements::Icon;
-use warpui::elements::MainAxisAlignment;
-use warpui::elements::MainAxisSize;
-use warpui::elements::MouseStateHandle;
-use warpui::keymap::FixedBinding;
-use warpui::platform::Cursor;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::UiComponent;
-use warpui::ui_components::components::UiComponentStyles;
-use warpui::AppContext;
-use warpui::BlurContext;
-use warpui::FocusContext;
-use warpui::{
+use galaxy_core::channel::ChannelState;
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::elements::HighlightedHyperlink;
+use galaxyui::elements::Hoverable;
+use galaxyui::elements::Icon;
+use galaxyui::elements::MainAxisAlignment;
+use galaxyui::elements::MainAxisSize;
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::ui_components::components::UiComponentStyles;
+use galaxyui::AppContext;
+use galaxyui::BlurContext;
+use galaxyui::FocusContext;
+use galaxyui::{
     elements::{Border, Container, CrossAxisAlignment, Flex, ParentElement},
     Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
@@ -118,7 +118,7 @@ pub struct SshErrorBlock {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([
         FixedBinding::new(

@@ -31,7 +31,7 @@ use crate::settings::{
     respect_system_theme, AIFontName, AppEditorSettings, CursorBlink, CursorBlinkEnabled,
     EnforceMinimumContrast, FocusPaneOnHover, FontSettings, FontSettingsChangedEvent, InputBoxType,
     InputModeSettings, InputModeState, MonospaceFontName, PaneSettings, ShouldDimInactivePanes,
-    ThemeSettings, UseSystemTheme, DEFAULT_MONOSPACE_FONT_NAME,
+    ThemeSettings, UIFontName, UseSystemTheme, DEFAULT_MONOSPACE_FONT_NAME, DEFAULT_UI_FONT_NAME,
 };
 use crate::settings::{CursorDisplayType, GPUSettings, InputSettings, InputSettingsChangedEvent};
 use crate::terminal::block_list_viewport::InputMode;
@@ -74,25 +74,25 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
-use warp_core::ui::theme::color::internal_colors;
-use warp_util::path::user_friendly_path;
-use warpui::elements::{
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_util::path::user_friendly_path;
+use galaxyui::elements::{
     Clipped, Empty, FormattedTextElement, MainAxisAlignment, MainAxisSize, Text, Wrap,
 };
-use warpui::fonts::{FamilyId, FontInfo, Weight};
-use warpui::keymap::{ContextPredicate, FixedBinding};
-use warpui::platform::{Cursor, FilePickerConfiguration, GraphicsBackend};
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::ui_components::radio_buttons::{
+use galaxyui::fonts::{FamilyId, FontInfo, Weight};
+use galaxyui::keymap::{ContextPredicate, FixedBinding};
+use galaxyui::platform::{Cursor, FilePickerConfiguration, GraphicsBackend};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::ui_components::radio_buttons::{
     RadioButtonItem, RadioButtonLayout, RadioButtonStateHandle,
 };
-use warpui::ui_components::slider::SliderStateHandle;
-use warpui::ui_components::switch::SwitchStateHandle;
-use warpui::units::IntoPixels;
+use galaxyui::ui_components::slider::SliderStateHandle;
+use galaxyui::ui_components::switch::SwitchStateHandle;
+use galaxyui::units::IntoPixels;
 
-use warpui::id;
-use warpui::{
+use galaxyui::id;
+use galaxyui::{
     elements::{
         Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         Dismiss, Element, Fill, Flex, Hoverable, MouseStateHandle, ParentElement, Radius,
@@ -100,8 +100,8 @@ use warpui::{
     },
     rendering::ThinStrokes,
 };
-use warpui::{platform::SystemTheme, Action};
-use warpui::{
+use galaxyui::{platform::SystemTheme, Action};
+use galaxyui::{
     AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, UpdateModel, View,
     ViewContext, ViewHandle, WindowId,
 };
@@ -121,6 +121,8 @@ const MIN_FONT_SIZE: usize = 1;
 const MAX_FONT_SIZE: usize = 120;
 const MIN_LINE_SPACING: f32 = 0.1;
 const MAX_LINE_SPACING: f32 = 5.;
+const SAMSUNG_BRAND_THEME_DARK: ThemeKind = ThemeKind::SamsungDark;
+const SAMSUNG_BRAND_THEME_LIGHT: ThemeKind = ThemeKind::SamsungLight;
 
 const INPUT_MODE_DROPDOWN_WIDTH: f32 = 225.;
 
@@ -134,6 +136,10 @@ fn default_font_label(is_ai_font: bool) -> String {
     } else {
         format!("{} (default)", MonospaceFontName::default_value())
     }
+}
+
+fn default_ui_font_label() -> String {
+    "Default (system)".to_string()
 }
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
@@ -427,7 +433,9 @@ pub enum AppearancePageAction {
     OpacitySliderDragged(f32),
     BlurSliderDragged(f32),
     SetFontFamily(String),
+    SetUIFontFamily(String),
     SetAIFontFamily(String),
+    ApplySamsungBrandPreset,
     SetThinStrokes(ThinStrokes),
     SetInputMode {
         new_mode: InputMode,
@@ -481,6 +489,7 @@ pub struct AppearanceSettingsPageView {
     line_height_editor: ViewHandle<EditorView>,
     notebook_font_size_editor: ViewHandle<EditorView>,
     ai_font_family_dropdown: ViewHandle<FilterableDropdown<AppearancePageAction>>,
+    ui_font_family_dropdown: ViewHandle<FilterableDropdown<AppearancePageAction>>,
     new_window_columns_editor: ViewHandle<EditorView>,
     valid_new_window_columns: bool,
     new_window_rows_editor: ViewHandle<EditorView>,
@@ -544,6 +553,7 @@ impl TypedActionView for AppearanceSettingsPageView {
             SetOpacity(value) => self.set_opacity(*value, true, ctx),
             SetBlur(value) => self.set_blur(*value, true, ctx),
             SetFontFamily(name) => self.set_font_family(name, ctx),
+            SetUIFontFamily(name) => self.set_ui_font_family(name, ctx),
             SetAIFontFamily(name) => {
                 self.set_ai_font_family(name, ctx);
                 FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
@@ -667,6 +677,7 @@ impl TypedActionView for AppearanceSettingsPageView {
                 });
                 ctx.notify();
             }
+            ApplySamsungBrandPreset => self.apply_samsung_brand_preset(ctx),
         }
     }
 }
@@ -816,6 +827,9 @@ impl AppearanceSettingsPageView {
                         );
                     });
                     ctx.notify();
+                }
+                FontSettingsChangedEvent::UIFontName { .. } => {
+                    me.update_font_dropdown(ctx);
                 }
                 _ => {}
             },
@@ -975,7 +989,7 @@ impl AppearanceSettingsPageView {
             // `all_system_fonts` API doesn't exist.
             #[cfg(not(target_family = "wasm"))]
             {
-                let all_system_fonts = warpui::fonts::Cache::handle(ctx)
+                let all_system_fonts = galaxyui::fonts::Cache::handle(ctx)
                     .update(ctx, |font_cache, ctx| font_cache.all_system_fonts(ctx));
                 ctx.spawn(all_system_fonts, Self::set_system_fonts);
             }
@@ -987,6 +1001,14 @@ impl AppearanceSettingsPageView {
 
             // Initialize dropdown with the default font in case system fonts failed to load.
             dropdown.add_items(vec![Self::default_font_item(ctx, false)], ctx);
+            dropdown.set_selected_by_index(0, ctx);
+            dropdown
+        });
+        let ui_font_family_dropdown = ctx.add_typed_action_view(|ctx| {
+            let mut dropdown = FilterableDropdown::new(ctx);
+            dropdown.set_top_bar_max_width(FONT_FAMILY_DROPDOWN_WIDTH);
+            dropdown.set_menu_width(FONT_FAMILY_DROPDOWN_WIDTH, ctx);
+            dropdown.add_items(vec![Self::default_ui_font_item(ctx)], ctx);
             dropdown.set_selected_by_index(0, ctx);
             dropdown
         });
@@ -1193,6 +1215,7 @@ impl AppearanceSettingsPageView {
             window_id: ctx.window_id(),
             local_only_icon_tooltip_states: Default::default(),
             ai_font_family_dropdown,
+            ui_font_family_dropdown,
             notebook_font_size_editor,
             font_size_editor,
             line_height_editor,
@@ -1238,6 +1261,7 @@ impl AppearanceSettingsPageView {
             vec![
                 Box::new(CreateCustomThemeWidget::default()),
                 Box::new(ThemeSelectWidget::default()),
+                Box::new(BrandPresetWidget::default()),
             ],
         )];
 
@@ -1321,6 +1345,7 @@ impl AppearanceSettingsPageView {
         let font_settings = FontSettings::as_ref(ctx);
         let mut text_settings_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
             Box::new(TerminalFontWidget::default()),
+            Box::new(UIFontWidget::default()),
             Box::new(AIFontWidget::default()),
             Box::new(NotebookFontSizeWidget::default()),
         ];
@@ -1499,6 +1524,16 @@ impl AppearanceSettingsPageView {
         }
 
         initial_dropdown_item
+    }
+
+    fn default_ui_font_item<V>(_: &mut ViewContext<V>) -> DropdownItem<AppearancePageAction>
+    where
+        V: View,
+    {
+        DropdownItem::new(
+            default_ui_font_label(),
+            AppearancePageAction::SetUIFontFamily(DEFAULT_UI_FONT_NAME.to_string()),
+        )
     }
 
     fn input_mode_dropdown_item_label(val: InputMode) -> &'static str {
@@ -1988,6 +2023,36 @@ impl AppearanceSettingsPageView {
             }
         });
 
+        self.ui_font_family_dropdown.update(ctx, |dropdown, ctx| {
+            let selected_ui_font = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+            let mut items = self
+                .available_families
+                .iter()
+                .map(|(name, (family, _font_type))| {
+                    let mut item = DropdownItem::new(
+                        name,
+                        AppearancePageAction::SetUIFontFamily(name.clone()),
+                    );
+                    if cfg!(not(target_os = "linux")) {
+                        if let Some(family_id) = family {
+                            item = item.with_font_override(*family_id);
+                        }
+                    }
+                    item
+                })
+                .collect::<Vec<_>>();
+
+            items.sort_by(|a, b| a.display_text.cmp(&b.display_text));
+            items.insert(0, Self::default_ui_font_item(ctx));
+            dropdown.set_items(items, ctx);
+
+            if selected_ui_font.is_empty() {
+                dropdown.set_selected_by_name(default_ui_font_label(), ctx);
+            } else {
+                dropdown.set_selected_by_name(selected_ui_font, ctx);
+            }
+        });
+
         ctx.notify();
     }
 
@@ -2053,6 +2118,74 @@ impl AppearanceSettingsPageView {
         FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
             report_if_error!(font_settings.ai_font_name.set_value(name.to_string(), ctx))
         });
+    }
+
+    pub fn set_ui_font_family(&mut self, name: &str, ctx: &mut ViewContext<Self>) {
+        let ui_font_name = if name == default_ui_font_label() {
+            DEFAULT_UI_FONT_NAME.to_string()
+        } else {
+            name.to_string()
+        };
+        FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
+            report_if_error!(font_settings
+                .ui_font_name
+                .set_value(ui_font_name.clone(), ctx));
+        });
+    }
+
+    fn resolve_samsung_ui_font_name(&self) -> String {
+        const SAMSUNG_UI_FONT_CANDIDATES: &[&str] = &[
+            "SamsungOne",
+            "Samsung One",
+            "One UI Sans",
+            "Inter",
+            "Helvetica Neue",
+            "Arial",
+        ];
+        SAMSUNG_UI_FONT_CANDIDATES
+            .iter()
+            .find_map(|candidate| {
+                self.available_families
+                    .keys()
+                    .find(|name| name.eq_ignore_ascii_case(candidate))
+                    .cloned()
+            })
+            .unwrap_or_else(|| DEFAULT_UI_FONT_NAME.to_string())
+    }
+
+    pub fn apply_samsung_brand_preset(&mut self, ctx: &mut ViewContext<Self>) {
+        ThemeSettings::handle(ctx).update(ctx, |theme_settings, ctx| {
+            report_if_error!(theme_settings
+                .theme_kind
+                .set_value(SAMSUNG_BRAND_THEME_DARK, ctx));
+            report_if_error!(theme_settings.selected_system_themes.set_value(
+                SelectedSystemThemes {
+                    light: SAMSUNG_BRAND_THEME_LIGHT,
+                    dark: SAMSUNG_BRAND_THEME_DARK,
+                },
+                ctx,
+            ));
+            report_if_error!(theme_settings.use_system_theme.set_value(true, ctx));
+        });
+
+        let ui_font_name = self.resolve_samsung_ui_font_name();
+        FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
+            report_if_error!(font_settings
+                .monospace_font_name
+                .set_value(DEFAULT_MONOSPACE_FONT_NAME.to_string(), ctx));
+            report_if_error!(font_settings
+                .ai_font_name
+                .set_value(DEFAULT_MONOSPACE_FONT_NAME.to_string(), ctx));
+            report_if_error!(font_settings
+                .match_ai_font_to_terminal_font
+                .set_value(true, ctx));
+            report_if_error!(font_settings
+                .ui_font_name
+                .set_value(ui_font_name.clone(), ctx));
+        });
+
+        self.update_font_dropdown(ctx);
+        ctx.notify();
     }
 
     fn set_thin_strokes(&mut self, value: &ThinStrokes, ctx: &mut ViewContext<Self>) {
@@ -3770,6 +3903,101 @@ impl SettingsWidget for AIFontWidget {
         );
 
         ai_font_row.finish()
+    }
+}
+
+#[derive(Default)]
+struct UIFontWidget {}
+
+impl SettingsWidget for UIFontWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "text ui font family"
+    }
+
+    fn render(
+        &self,
+        view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        Flex::column()
+            .with_child(render_body_item_label::<AppearancePageAction>(
+                "UI font".to_string(),
+                None,
+                None,
+                LocalOnlyIconState::for_setting(
+                    UIFontName::storage_key(),
+                    UIFontName::sync_to_cloud(),
+                    &mut view.local_only_icon_tooltip_states.borrow_mut(),
+                    app,
+                ),
+                ToggleState::Enabled,
+                appearance,
+            ))
+            .with_child(
+                Container::new(ChildView::new(&view.ui_font_family_dropdown).finish())
+                    .with_margin_bottom(10.)
+                    .finish(),
+            )
+            .finish()
+    }
+}
+
+#[derive(Default)]
+struct BrandPresetWidget {
+    button_mouse_state: MouseStateHandle,
+}
+
+impl SettingsWidget for BrandPresetWidget {
+    type View = AppearanceSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "samsung brand preset one-click"
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        _app: &AppContext,
+    ) -> Box<dyn Element> {
+        let button = Hoverable::new(self.button_mouse_state.clone(), |hover_state| {
+            let border_width = if hover_state.is_hovered() { 1.0 } else { 0.0 };
+            Container::new(
+                Text::new(
+                    "Apply Samsung-style preset",
+                    appearance.ui_font_family(),
+                    appearance.ui_font_size(),
+                )
+                .with_color(appearance.theme().active_ui_text_color().into())
+                .finish(),
+            )
+            .with_background(appearance.theme().surface_2())
+            .with_border(Border::all(border_width).with_border_fill(appearance.theme().accent()))
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+            .with_padding_top(8. - border_width)
+            .with_padding_bottom(8. - border_width)
+            .with_padding_left(12. - border_width)
+            .with_padding_right(12. - border_width)
+            .finish()
+        })
+        .with_cursor(Cursor::PointingHand)
+        .on_click(move |ctx, _, _| {
+            ctx.dispatch_typed_action(AppearancePageAction::ApplySamsungBrandPreset);
+        })
+        .finish();
+
+        render_body_item::<AppearancePageAction>(
+            "Brand preset".into(),
+            None,
+            LocalOnlyIconState::Hidden,
+            ToggleState::Enabled,
+            appearance,
+            button,
+            Some("Apply Samsung-inspired themes and font defaults.".to_string()),
+        )
     }
 }
 

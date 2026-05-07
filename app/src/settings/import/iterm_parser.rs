@@ -6,8 +6,8 @@ use itertools::Itertools;
 use palette::Srgba;
 use pathfinder_color::ColorU;
 use plist::{Dictionary, Value};
-use warp_core::ui::theme::{AnsiColors, TerminalColors, WarpTheme};
-use warpui::{
+use galaxy_core::ui::theme::{AnsiColors, TerminalColors, WarpTheme};
+use galaxyui::{
     fonts::FontInfo, keymap::Keystroke, platform::mac::utils::unicode_char_to_key, DisplayIdx,
 };
 

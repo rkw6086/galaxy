@@ -7,30 +7,30 @@ use anyhow::{anyhow, Result};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use url::Url;
-use warp_core::errors::ErrorExt;
-use warp_core::features::FeatureFlag;
-use warpui::elements::ChildAnchor;
-use warpui::elements::Container;
-use warpui::elements::Fill;
-use warpui::elements::HighlightedHyperlink;
-use warpui::elements::MouseStateHandle;
-use warpui::elements::OffsetPositioning;
-use warpui::elements::ParentAnchor;
-use warpui::elements::ParentElement;
-use warpui::elements::ParentOffsetBounds;
-use warpui::elements::Stack;
-use warpui::keymap::FixedBinding;
-use warpui::AppContext;
-use warpui::FocusContext;
-use warpui::SingletonEntity;
-use warpui::TypedActionView;
+use galaxy_core::errors::ErrorExt;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::ChildAnchor;
+use galaxyui::elements::Container;
+use galaxyui::elements::Fill;
+use galaxyui::elements::HighlightedHyperlink;
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::elements::OffsetPositioning;
+use galaxyui::elements::ParentAnchor;
+use galaxyui::elements::ParentElement;
+use galaxyui::elements::ParentOffsetBounds;
+use galaxyui::elements::Stack;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::AppContext;
+use galaxyui::FocusContext;
+use galaxyui::SingletonEntity;
+use galaxyui::TypedActionView;
 
 use crate::auth::auth_view_body::AuthViewBody;
 use crate::modal::Modal;
 use std::collections::HashMap;
-use warpui::elements::ChildView;
-use warpui::ui_components::components::{Coords, UiComponentStyles};
-use warpui::{Element, Entity, View, ViewContext, ViewHandle};
+use galaxyui::elements::ChildView;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
+use galaxyui::{Element, Entity, View, ViewContext, ViewHandle};
 
 use super::auth_manager::AuthManager;
 use super::auth_manager::AuthManagerEvent;
@@ -39,10 +39,10 @@ use super::auth_view_body::AuthViewBodyEvent;
 use super::credentials::RefreshToken;
 use super::login_failure_notification::{self, LoginFailureReason};
 use super::UserUid;
-use warpui::actions::StandardAction;
+use galaxyui::actions::StandardAction;
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([
         // Bindings for paste require the StandardAction and CustomAction binding to work on all platforms.

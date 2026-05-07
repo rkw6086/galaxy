@@ -26,32 +26,32 @@ use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use std::sync::{Arc, Mutex};
-use warp_core::features::FeatureFlag;
-use warp_core::ui::icons::Icon;
-use warp_core::{channel::ChannelState, context_flag::ContextFlag};
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::{channel::ChannelState, context_flag::ContextFlag};
+use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{Border, Empty, MainAxisAlignment, MainAxisSize},
     id,
     platform::Cursor,
     ui_components::switch::SwitchStateHandle,
 };
-use warpui::{
+use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Flex,
         MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
     },
     Action, AppContext,
 };
-use warpui::{
+use galaxyui::{
     elements::{CacheOption, Image},
     ui_components::{
         button::{ButtonVariant, TextAndIcon, TextAndIconAlignment},
         components::{Coords, UiComponent, UiComponentStyles},
     },
 };
-use warpui::{fonts::Weight, keymap::ContextPredicate};
-use warpui::{
+use galaxyui::{fonts::Weight, keymap::ContextPredicate};
+use galaxyui::{
     Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
@@ -365,7 +365,7 @@ impl AccountWidget {
                         TextAndIcon::new(
                             TextAndIconAlignment::IconFirst,
                             "Compare plans",
-                            Icon::CoinsStacked.to_warpui_icon(appearance.theme().accent()),
+                            Icon::CoinsStacked.to_galaxyui_icon(appearance.theme().accent()),
                             MainAxisSize::Min,
                             MainAxisAlignment::Center,
                             vec2f(14., 14.),
@@ -621,7 +621,7 @@ impl SettingsWidget for AccountWidget {
             self.render_anonymous_account_info(view.auth_state.as_ref(), appearance)
         } else {
             let profile_image_source = view.auth_state.user_photo_url().map(|url| {
-                asset_cache::url_source_with_persistence(url, &warp_core::paths::cache_dir())
+                asset_cache::url_source_with_persistence(url, &galaxy_core::paths::cache_dir())
             });
             self.render_account_info(
                 profile_image_source.as_ref(),

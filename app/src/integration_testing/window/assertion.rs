@@ -1,4 +1,4 @@
-use warpui::{
+use galaxyui::{
     async_assert_eq,
     integration::{AssertionCallback, AssertionOutcome, StepData},
     windowing::WindowManager,

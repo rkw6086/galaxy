@@ -36,21 +36,21 @@ use inheritance::{InheritanceDetails, InheritanceState};
 use itertools::Itertools;
 use pathfinder_geometry::vector::vec2f;
 use session_sharing_protocol::common::{Guest, PendingGuest, SessionId, TeamAclData};
-use warp_core::ui::appearance::Appearance;
-use warp_editor::editor::NavigationKey;
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::elements::{
     Align, ChildAnchor, ChildView, Fill, Highlight, MainAxisSize, MouseStateHandle,
     OffsetPositioning, ParentAnchor, PositionedElementAnchor, PositionedElementOffsetBounds,
     SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Shrinkable,
     Stack, UniformList, UniformListState,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::platform::Cursor;
-use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
-use warpui::ui_components::components::Coords;
-use warpui::FocusContext;
-use warpui::WeakViewHandle;
-use warpui::{
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui::ui_components::components::Coords;
+use galaxyui::FocusContext;
+use galaxyui::WeakViewHandle;
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
         Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss, Empty, Flex,
@@ -198,7 +198,7 @@ pub enum SharingDialogAction {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "escape",
@@ -2425,7 +2425,7 @@ impl SharingDialog {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     "Copy link",
-                    Icon::Link.to_warpui_icon(copy_button_foreground),
+                    Icon::Link.to_galaxyui_icon(copy_button_foreground),
                     MainAxisSize::Min,
                     MainAxisAlignment::SpaceBetween,
                     vec2f(12., 12.),

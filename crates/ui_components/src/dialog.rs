@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
-use warp_core::ui::{Icon, appearance::Appearance, theme::color::internal_colors};
-use warpui::{
+use galaxy_core::ui::{Icon, appearance::Appearance, theme::color::internal_colors};
+use galaxyui::{
     AppContext, EventContext,
     elements::{
         Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss, Element,

@@ -1,4 +1,4 @@
-use warpui::keymap::{BindingDescription, PerPlatformKeystroke};
+use galaxyui::keymap::{BindingDescription, PerPlatformKeystroke};
 
 use super::StaticCommand;
 

@@ -1,4 +1,4 @@
-use warpui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle};
+use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle};
 
 use crate::{
     ai::ai_document_view::{AIDocumentEvent, AIDocumentView},

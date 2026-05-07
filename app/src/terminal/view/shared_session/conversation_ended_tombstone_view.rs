@@ -14,20 +14,20 @@ use crate::view_components::action_button::{ActionButton, PrimaryTheme};
 use crate::workspace::WorkspaceAction;
 use std::path::Path;
 #[cfg(not(target_family = "wasm"))]
-use warp_cli::agent::Harness;
-use warp_core::paths::home_relative_path;
+use galaxy_cli::agent::Harness;
+use galaxy_core::paths::home_relative_path;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::ambient_agents::AmbientAgentTask;
-use warp_core::send_telemetry_from_ctx;
-use warp_core::ui::icons::Icon;
-use warp_core::ui::theme::{AnsiColorIdentifier, Fill};
-use warpui::elements::{
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
+use galaxyui::elements::{
     Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
     MainAxisSize, Padding, ParentElement, Radius, Shrinkable, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::{
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::{
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
@@ -263,7 +263,7 @@ impl ConversationEndedTombstoneView {
                         ctx
                     );
                     ctx.clipboard()
-                        .write(warpui::clipboard::ClipboardContent::plain_text(
+                        .write(galaxyui::clipboard::ClipboardContent::plain_text(
                             branch.clone(),
                         ));
                 }
@@ -349,7 +349,7 @@ impl ConversationEndedTombstoneView {
             Fill::Solid(theme.ansi_fg_green())
         };
         let icon_element = Container::new(
-            ConstrainedBox::new(icon.to_warpui_icon(icon_color).finish())
+            ConstrainedBox::new(icon.to_galaxyui_icon(icon_color).finish())
                 .with_height(14.)
                 .with_width(14.)
                 .finish(),
@@ -496,7 +496,7 @@ impl ConversationEndedTombstoneView {
         #[cfg(target_family = "wasm")]
         {
             // Don't show on mobile devices - they can't use the desktop app
-            if !warpui::platform::wasm::is_mobile_device() {
+            if !galaxyui::platform::wasm::is_mobile_device() {
                 if let Some(ref open_in_warp_button) = self.open_in_warp_button {
                     row.add_child(ChildView::new(open_in_warp_button).finish());
                     has_button = true;

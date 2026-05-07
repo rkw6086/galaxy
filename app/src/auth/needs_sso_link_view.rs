@@ -1,9 +1,9 @@
 use super::auth_manager::AuthManager;
 use crate::{appearance::Appearance, auth::login_error_modal::LoginErrorModal};
-use warpui::elements::{Align, MouseStateHandle, Shrinkable};
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use galaxyui::elements::{Align, MouseStateHandle, Shrinkable};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 #[derive(Debug)]
 pub enum NeedsSsoLinkViewAction {

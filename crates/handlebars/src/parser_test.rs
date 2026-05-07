@@ -1,4 +1,4 @@
-use warpui::App;
+use galaxyui::App;
 
 use crate::parser::{ParsedArgument, ParsedArgumentResult, ParsedArgumentsIterator};
 

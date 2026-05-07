@@ -1,4 +1,4 @@
-use warpui::App;
+use galaxyui::App;
 
 use super::{ObjectAction, ObjectActionSubtype, ObjectActionType, ObjectActions};
 

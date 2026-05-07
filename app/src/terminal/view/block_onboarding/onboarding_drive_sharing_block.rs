@@ -1,6 +1,6 @@
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::{
         Border, Container, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement,
         Text,
@@ -118,7 +118,7 @@ impl View for OnboardingDriveSharingBlock {
                 TextAndIcon::new(
                     TextAndIconAlignment::IconFirst,
                     button_label,
-                    Icon::Share.to_warpui_icon(appearance.theme().background()),
+                    Icon::Share.to_galaxyui_icon(appearance.theme().background()),
                     MainAxisSize::Min,
                     MainAxisAlignment::SpaceEvenly,
                     vec2f(BUTTON_FONT_SIZE, BUTTON_FONT_SIZE),

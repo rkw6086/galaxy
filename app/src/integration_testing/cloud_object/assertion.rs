@@ -1,4 +1,4 @@
-use warpui::{async_assert, integration::AssertionCallback};
+use galaxyui::{async_assert, integration::AssertionCallback};
 
 use crate::{
     cloud_object::{model::persistence::CloudModel, CloudModelType, GenericCloudObject, Revision},

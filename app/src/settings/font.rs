@@ -1,14 +1,15 @@
-use warp_core::ui::builder::MIN_FONT_SIZE;
-use warpui::{fonts::Weight, rendering::ThinStrokes, AppContext, SingletonEntity};
+use galaxy_core::ui::builder::MIN_FONT_SIZE;
+use galaxyui::{fonts::Weight, rendering::ThinStrokes, AppContext, SingletonEntity};
 
 use settings::{
     macros::define_settings_group, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
 };
-use warpui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
+use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
 
 use super::EnforceMinimumContrast as EnforceMinimumContrastEnum;
 
 pub const DEFAULT_MONOSPACE_FONT_NAME: &str = "Hack";
+pub const DEFAULT_UI_FONT_NAME: &str = "";
 pub const DEFAULT_MONOSPACE_FONT_SIZE: f32 = 13.0;
 pub const DEFAULT_MONOSPACE_FONT_WEIGHT: Weight = Weight::Normal;
 
@@ -23,6 +24,16 @@ define_settings_group!(FontSettings,
             storage_key: "FontName",
             toml_path: "appearance.text.font_name",
             description: "The monospace font used in the terminal.",
+        },
+        ui_font_name: UIFontName {
+            type: String,
+            default: DEFAULT_UI_FONT_NAME.to_string(),
+            supported_platforms: SupportedPlatforms::ALL,
+            sync_to_cloud: SyncToCloud::Never,
+            private: false,
+            storage_key: "UIFontName",
+            toml_path: "appearance.text.ui_font_name",
+            description: "The font used for UI chrome text.",
         },
         monospace_font_size: MonospaceFontSize {
             type: f32,

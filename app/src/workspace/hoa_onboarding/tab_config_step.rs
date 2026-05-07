@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use warpui::elements::{
+use galaxyui::elements::{
     Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::geometry::vector::Vector2F;
-use warpui::Element;
-use warpui::EventContext;
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::geometry::vector::Vector2F;
+use galaxyui::Element;
+use galaxyui::EventContext;
 
 use crate::appearance::Appearance;
 use crate::tab_configs::session_config::SessionType;

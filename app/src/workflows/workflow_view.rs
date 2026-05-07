@@ -82,9 +82,9 @@ use crate::{
     FeatureFlag, UserWorkspaces,
 };
 
-use warp_core::{context_flag::ContextFlag, settings::Setting, ui::theme::AnsiColorIdentifier};
-use warp_editor::editor::NavigationKey;
-use warpui::{
+use galaxy_core::{context_flag::ContextFlag, settings::Setting, ui::theme::AnsiColorIdentifier};
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
         Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle,
@@ -120,7 +120,7 @@ pub mod env_var_selector;
 mod syntax_highlightable;
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::id;
+    use galaxyui::keymap::macros::id;
     app.register_editable_bindings([EditableBinding::new(
         "workflowview:save",
         "Save workflow",
@@ -2064,7 +2064,7 @@ impl WorkflowView {
                 } else {
                     Icon::Workflow
                 }
-                .to_warpui_icon(
+                .to_galaxyui_icon(
                     warp_drive_icon_color(
                         appearance,
                         if self.is_for_agent_mode {
@@ -2219,7 +2219,7 @@ impl WorkflowView {
                 let mut stack = Stack::new().with_child(
                     ConstrainedBox::new(
                         Icon::HelpCircle
-                            .to_warpui_icon(
+                            .to_galaxyui_icon(
                                 appearance
                                     .theme()
                                     .sub_text_color(appearance.theme().background()),
@@ -2370,7 +2370,7 @@ impl WorkflowView {
                 let text_and_icon = TextAndIcon::new(
                     alignment,
                     label,
-                    icon.to_warpui_icon(appearance.theme().active_ui_text_color()),
+                    icon.to_galaxyui_icon(appearance.theme().active_ui_text_color()),
                     MainAxisSize::Min,
                     MainAxisAlignment::Center,
                     vec2f(10., 10.),
@@ -2843,7 +2843,7 @@ impl WorkflowView {
                     .with_children([
                         ConstrainedBox::new(
                             Icon::Trash
-                                .to_warpui_icon(appearance.theme().foreground())
+                                .to_galaxyui_icon(appearance.theme().foreground())
                                 .finish(),
                         )
                         .with_width(16.)
@@ -3059,7 +3059,7 @@ impl View for WorkflowView {
                 SCROLLBAR_WIDTH,
                 theme.nonactive_ui_detail().into(),
                 theme.active_ui_detail().into(),
-                warpui::elements::Fill::None,
+                galaxyui::elements::Fill::None,
             )
             .finish(),
         );

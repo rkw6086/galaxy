@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use settings::Setting as _;
-use warp::integration_testing::terminal::util::current_shell_starter_and_version;
-use warp::integration_testing::view_getters::single_input_view_for_tab;
-use warp::root_view::SubshellCommandArg;
-use warp::terminal::shell::ShellType;
-use warp::{
+use galaxy::integration_testing::terminal::util::current_shell_starter_and_version;
+use galaxy::integration_testing::view_getters::single_input_view_for_tab;
+use galaxy::root_view::SubshellCommandArg;
+use galaxy::terminal::shell::ShellType;
+use galaxy::{
     integration_testing::{
         step::new_step_with_default_assertions,
         subshell::{
@@ -18,10 +18,10 @@ use warp::{
     },
     terminal::warpify::settings::AddedSubshellCommands,
 };
-use warpui::integration::{AssertionOutcome, TestStep};
-use warpui::windowing::state::ApplicationStage;
-use warpui::windowing::WindowManager;
-use warpui::{async_assert, UpdateModel};
+use galaxyui::integration::{AssertionOutcome, TestStep};
+use galaxyui::windowing::state::ApplicationStage;
+use galaxyui::windowing::WindowManager;
+use galaxyui::{async_assert, UpdateModel};
 
 use crate::util::skip_if_powershell_core_2303;
 

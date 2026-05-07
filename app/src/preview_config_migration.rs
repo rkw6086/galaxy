@@ -11,8 +11,8 @@
 
 use std::path::Path;
 
-use warp_core::channel::{Channel, ChannelState};
-use warp_core::paths::{data_dir, WARP_CONFIG_DIR};
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::paths::{data_dir, WARP_CONFIG_DIR};
 
 /// Files that should not be symlinked during the Preview config directory
 /// migration. These are intentionally kept separate between Stable and

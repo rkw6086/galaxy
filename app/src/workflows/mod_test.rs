@@ -1,4 +1,4 @@
-use warpui::App;
+use galaxyui::App;
 
 use crate::server::ids::SyncId;
 

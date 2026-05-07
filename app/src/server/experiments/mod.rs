@@ -14,11 +14,11 @@
 use crate::features::FeatureFlag;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
-use warpui::AppContext;
+use galaxyui::AppContext;
 #[cfg(not(test))]
-use warpui::SingletonEntity as _;
+use galaxyui::SingletonEntity as _;
 #[cfg(test)]
-use warpui::SingletonEntity;
+use galaxyui::SingletonEntity;
 
 mod convert;
 mod model;

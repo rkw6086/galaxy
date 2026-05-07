@@ -4,15 +4,15 @@ use std::rc::Rc;
 use crate::ai::blocklist::inline_action::code_diff_view::DiffSessionType;
 use ai::diff_validation::DiffType;
 #[cfg(not(target_family = "wasm"))]
-use warp_files::{FileModel, FileModelEvent};
-use warp_util::file::FileId;
+use galaxy_files::{FileModel, FileModelEvent};
+use galaxy_util::file::FileId;
 #[cfg(not(target_family = "wasm"))]
-use warp_util::file::FileSaveError;
-use warp_util::standardized_path::StandardizedPath;
-use warpui::elements::ChildView;
+use galaxy_util::file::FileSaveError;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::elements::ChildView;
 #[cfg(not(target_family = "wasm"))]
-use warpui::SingletonEntity;
-use warpui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::SingletonEntity;
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 use super::diff_viewer::DiffViewer;
 use super::diff_viewer::DisplayMode;

@@ -16,11 +16,11 @@ use markdown_parser::{FormattedText, FormattedTextInline, TableAlignment};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use std::sync::Arc;
-use warp_core::{
+use galaxy_core::{
     features::FeatureFlag,
     ui::{appearance::Appearance, color::blend::Blend, theme::color::internal_colors},
 };
-use warpui::{
+use galaxyui::{
     assets::asset_cache::{AssetCache, AssetSource, AssetState},
     elements::{
         new_scrollable::{ScrollableAppearance, SingleAxisConfig},
@@ -113,13 +113,13 @@ use crate::{
     search::slash_command_menu::static_commands::commands,
     settings::{FontSettings, InputSettings},
 };
-use warp_core::channel::ChannelState;
-use warp_editor::content::{
+use galaxy_core::channel::ChannelState;
+use galaxy_editor::content::{
     edit::resolve_asset_source_relative_to_directory, mermaid_diagram::mermaid_asset_source,
 };
-use warp_util::path::to_relative_path;
-use warpui::elements::shimmering_text::ShimmeringTextStateHandle;
-use warpui::elements::{Highlight, HighlightedRange};
+use galaxy_util::path::to_relative_path;
+use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
+use galaxyui::elements::{Highlight, HighlightedRange};
 
 pub const STATUS_ICON_SIZE_DELTA: f32 = 4.;
 pub const STATUS_FOOTER_VERTICAL_PADDING: f32 = 4.;
@@ -854,7 +854,7 @@ fn render_queue_next_prompt_button(
     };
     let icon_size = get_icon_size(appearance);
     let icon = Container::new(
-        ConstrainedBox::new(Icon::ClockPlus.to_warpui_icon(icon_color).finish())
+        ConstrainedBox::new(Icon::ClockPlus.to_galaxyui_icon(icon_color).finish())
             .with_height(icon_size)
             .with_width(icon_size)
             .finish(),
@@ -889,7 +889,7 @@ fn render_auto_approve_button(props: ButtonProps, appearance: &Appearance) -> Bo
     let icon_size = get_icon_size(appearance);
     let icon = Container::new(
         ConstrainedBox::new(
-            icon.to_warpui_icon(appearance.theme().active_ui_text_color())
+            icon.to_galaxyui_icon(appearance.theme().active_ui_text_color())
                 .finish(),
         )
         .with_height(icon_size)
@@ -1009,7 +1009,7 @@ where
         .with_child(content)
         .with_spacing(4.0);
 
-    if !warpui::platform::is_mobile_device() {
+    if !galaxyui::platform::is_mobile_device() {
         let keybinding_string = keybinding.map(|k| k.displayed()).unwrap_or_default();
         let keybinding_label = Text::new_inline(
             keybinding_string,
@@ -2183,8 +2183,8 @@ fn render_visual_markdown_block<A: Action>(
             tooltip,
             mouse_state,
             content,
-            warpui::elements::ParentAnchor::TopMiddle,
-            warpui::elements::ChildAnchor::BottomMiddle,
+            galaxyui::elements::ParentAnchor::TopMiddle,
+            galaxyui::elements::ChildAnchor::BottomMiddle,
             // Small negative Y offset keeps a hairline gap between the
             // tooltip's bottom edge and the image's top edge without
             // floating noticeably above the image.
@@ -2232,7 +2232,7 @@ fn render_visual_card(
     let theme = appearance.theme();
     let header_background = theme.surface_2();
     let header_text_color = blended_colors::text_main(theme, header_background);
-    let header_icon = ConstrainedBox::new(icon.to_warpui_icon(header_text_color.into()).finish())
+    let header_icon = ConstrainedBox::new(icon.to_galaxyui_icon(header_text_color.into()).finish())
         .with_width(16.)
         .with_height(16.)
         .finish();
@@ -2444,7 +2444,7 @@ fn render_table_section(
             row_dividers: table_appearance.row_dividers,
             cell_padding,
             header_background: table_appearance.header_background,
-            row_background: warpui::elements::RowBackground {
+            row_background: galaxyui::elements::RowBackground {
                 primary: table_appearance.cell_background,
                 alternating: table_appearance.alternate_row_background,
             },
@@ -2548,7 +2548,7 @@ fn render_table_cell(props: TableCellProps, app: &AppContext) -> Box<dyn Element
 struct TableCellProps {
     cell: FormattedTextInline,
     alignment: TableAlignment,
-    font_family: warpui::fonts::FamilyId,
+    font_family: galaxyui::fonts::FamilyId,
     font_size: f32,
     font_weight: Weight,
     text_color: ColorU,
@@ -2907,7 +2907,7 @@ pub(crate) fn resolve_absolute_file_path(
     shell_launch_data: Option<&ShellLaunchData>,
     home_dir: PathBuf,
 ) -> Option<PathBuf> {
-    use warp_util::path::CleanPathResult;
+    use galaxy_util::path::CleanPathResult;
 
     use crate::util::file::{absolute_path_if_valid, ShellPathType};
 
@@ -3015,7 +3015,7 @@ pub fn render_failed_output(props: FailedOutputProps, app: &AppContext) -> Box<d
         .with_child(
             Container::new(
                 ConstrainedBox::new(
-                    warpui::elements::Icon::new(
+                    galaxyui::elements::Icon::new(
                         Icon::AlertTriangle.into(),
                         error_color(appearance.theme()),
                     )
@@ -3066,7 +3066,7 @@ fn render_invalid_api_key_error(
 
     let alert_icon = ConstrainedBox::new(
         Icon::AlertTriangle
-            .to_warpui_icon(error_color(appearance.theme()).into())
+            .to_galaxyui_icon(error_color(appearance.theme()).into())
             .finish(),
     )
     .with_width(icon_size(app))
@@ -3100,7 +3100,7 @@ fn render_invalid_api_key_error(
     let settings_button = appearance
         .ui_builder()
         .button(
-            warpui::ui_components::button::ButtonVariant::Outlined,
+            galaxyui::ui_components::button::ButtonVariant::Outlined,
             state_handle.clone(),
         )
         .with_style(UiComponentStyles {
@@ -3245,7 +3245,7 @@ pub(crate) fn render_debug_footer<V: View>(
             appearance
                 .ui_builder()
                 .button(
-                    warpui::ui_components::button::ButtonVariant::Text,
+                    galaxyui::ui_components::button::ButtonVariant::Text,
                     props.submit_issue_button_handle,
                 )
                 .with_centered_text_label("Send Feedback".to_string())
@@ -3311,8 +3311,8 @@ pub(crate) fn render_debug_footer<V: View>(
         "Copy debug ID".to_string(),
         props.debug_copy_button_handle,
         copy_button,
-        warpui::elements::ParentAnchor::TopRight,
-        warpui::elements::ChildAnchor::BottomRight,
+        galaxyui::elements::ParentAnchor::TopRight,
+        galaxyui::elements::ChildAnchor::BottomRight,
         vec2f(0., -8.),
     );
 

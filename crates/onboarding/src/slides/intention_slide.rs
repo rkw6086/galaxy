@@ -4,11 +4,11 @@ use crate::slides::{bottom_nav, layout, slide_content};
 use crate::visuals::{intention_terminal_visual, intention_visual};
 use crate::{OnboardingIntention, AI_FEATURES};
 use ui_components::{button, Component as _, Options as _};
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::{appearance::Appearance, theme::color::internal_colors, Icon};
-use warpui::prelude::Align;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, Icon};
+use galaxyui::prelude::Align;
+use galaxyui::{
     elements::{
         Border, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
         CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize,
@@ -73,7 +73,7 @@ impl IntentionSlide {
         let theme = appearance.theme();
 
         let logo_fill = internal_colors::fg_overlay_4(theme);
-        let logo = ConstrainedBox::new(Icon::WarpLogoLight.to_warpui_icon(logo_fill).finish())
+        let logo = ConstrainedBox::new(Icon::WarpLogoLight.to_galaxyui_icon(logo_fill).finish())
             .with_width(64.)
             .with_height(64.)
             .finish();
@@ -216,7 +216,7 @@ impl IntentionSlide {
                 .iter()
                 .enumerate()
             {
-                let el = ConstrainedBox::new(icon.to_warpui_icon(icon_fill).finish())
+                let el = ConstrainedBox::new(icon.to_galaxyui_icon(icon_fill).finish())
                     .with_width(16.)
                     .with_height(16.)
                     .finish();
@@ -260,7 +260,7 @@ impl IntentionSlide {
                 .with_main_axis_size(MainAxisSize::Min)
                 .with_cross_axis_alignment(CrossAxisAlignment::Start);
             for &item in items {
-                let icon_el = ConstrainedBox::new(Icon::Check.to_warpui_icon(check_fill).finish())
+                let icon_el = ConstrainedBox::new(Icon::Check.to_galaxyui_icon(check_fill).finish())
                     .with_width(16.)
                     .with_height(16.)
                     .finish();

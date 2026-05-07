@@ -1,7 +1,7 @@
 use crate::telemetry::OnboardingEvent;
 use crate::OnboardingIntention;
-use warp_core::send_telemetry_from_ctx;
-use warpui::{Entity, ModelContext};
+use galaxy_core::send_telemetry_from_ctx;
+use galaxyui::{Entity, ModelContext};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FinalState {

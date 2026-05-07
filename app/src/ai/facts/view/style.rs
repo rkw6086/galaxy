@@ -1,5 +1,5 @@
-use warp_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use warpui::{
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
+use galaxyui::{
     elements::{CornerRadius, Radius},
     fonts::Weight,
     ui_components::components::{Coords, UiComponentStyles},

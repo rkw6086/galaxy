@@ -1,4 +1,4 @@
-use warpui::{
+use galaxyui::{
     async_assert,
     integration::{AssertionCallback, TestStep},
 };

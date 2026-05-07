@@ -1,7 +1,7 @@
 //! Components for the notebook header.
 
-use warp_core::features::FeatureFlag;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{
     elements::{
         Container, CrossAxisAlignment, Flex, Highlight, MainAxisAlignment, MainAxisSize,
         MouseStateHandle, ParentElement, Shrinkable,

@@ -3,9 +3,9 @@ use crate::appearance::Appearance;
 use crate::coding_entrypoints::glowing_editor::{GlowingEditor, GlowingEditorEvent};
 use crate::settings::PrivacySettings;
 use crate::TelemetryEvent;
-use warp_core::{send_telemetry_from_ctx, ui::icons::Icon};
-use warpui::elements::{ChildView, Expanded, Fill, MainAxisAlignment, MainAxisSize};
-use warpui::{
+use galaxy_core::{send_telemetry_from_ctx, ui::icons::Icon};
+use galaxyui::elements::{ChildView, Expanded, Fill, MainAxisAlignment, MainAxisSize};
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
         MouseStateHandle, ParentElement as _, Radius, Text,
@@ -129,7 +129,7 @@ impl CreateProjectView {
             .with_main_axis_size(MainAxisSize::Max)
             .with_children([
                 Container::new(
-                    ConstrainedBox::new(icon.to_warpui_icon(icon_color).finish())
+                    ConstrainedBox::new(icon.to_galaxyui_icon(icon_color).finish())
                         .with_height(font_size)
                         .with_width(font_size)
                         .finish(),

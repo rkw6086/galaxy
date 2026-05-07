@@ -30,8 +30,8 @@ use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use serde_json::json;
 use std::{any::Any, sync::Arc};
-use warp_core::ui::builder;
-use warpui::{
+use galaxy_core::ui::builder;
+use galaxyui::{
     elements::{ConstrainedBox, Container, Text},
     AppContext, Element, SingletonEntity,
 };
@@ -75,7 +75,7 @@ impl SearchItem for WarpAISearchItem {
 
         let icon = if FeatureFlag::AgentMode.is_enabled() {
             UIIcon::Oz
-                .to_warpui_icon(
+                .to_galaxyui_icon(
                     appearance
                         .theme()
                         .main_text_color(appearance.theme().accent()),
@@ -86,7 +86,7 @@ impl SearchItem for WarpAISearchItem {
                 item_background_color.into_solid(),
                 MinimumAllowedContrast::NonText,
             );
-            UIIcon::AiAssistant.to_warpui_icon(color.into()).finish()
+            UIIcon::AiAssistant.to_galaxyui_icon(color.into()).finish()
         };
 
         Container::new(

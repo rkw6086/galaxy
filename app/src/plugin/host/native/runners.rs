@@ -6,8 +6,8 @@ use std::{
 use async_channel::Receiver;
 use futures::channel::oneshot;
 use parking_lot::Mutex;
-use warp_js::JsFunctionId;
-use warpui::r#async::executor::Background;
+use galaxy_js::JsFunctionId;
+use galaxyui::r#async::executor::Background;
 
 use super::{
     plugin::{AppServiceCallers, PluginRequest, PluginResponse},

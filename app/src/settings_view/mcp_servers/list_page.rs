@@ -59,10 +59,10 @@ use std::cmp::Ordering;
 use std::{collections::HashMap, path::PathBuf};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
-use warp_core::features::FeatureFlag;
-use warp_core::send_telemetry_from_ctx;
-use warp_core::ui::{appearance::AppearanceEvent, theme::color::internal_colors, Icon};
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::{appearance::AppearanceEvent, theme::color::internal_colors, Icon};
+use galaxyui::{
     elements::{
         Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         Expanded, Fill, Flex, FormattedTextElement, HighlightedHyperlink, MainAxisAlignment,

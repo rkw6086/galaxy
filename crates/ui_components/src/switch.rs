@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::{MouseStateHandle, Rect},
     prelude::{stack::*, *},
 };

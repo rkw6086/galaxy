@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use warp_core::channel::{Channel, ChannelState};
+use galaxy_core::channel::{Channel, ChannelState};
 
 /// State machine for the remote server install → launch → initialize flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,9 +124,7 @@ pub fn remote_server_dir() -> String {
         Channel::Preview => ".warp-core-preview",
         Channel::Dev | Channel::Integration => ".warp-core-dev",
         Channel::Local => ".warp-core-local",
-        Channel::Oss => {
-            ".warp-core-dev"
-        }
+        Channel::Oss => ".warp-core-dev",
     };
     format!("~/{warp_dir}/remote-server")
 }

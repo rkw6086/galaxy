@@ -11,7 +11,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use anyhow::Result;
-use warpui::r#async::executor;
+use galaxyui::r#async::executor;
 
 use remote_server::auth::RemoteServerAuthContext;
 use remote_server::client::RemoteServerClient;
@@ -188,7 +188,7 @@ impl RemoteTransport for SshTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use warpui::r#async::BoxFuture;
+    use galaxyui::r#async::BoxFuture;
     fn static_auth_context() -> Arc<RemoteServerAuthContext> {
         Arc::new(RemoteServerAuthContext::new(
             || -> BoxFuture<'static, Option<String>> { Box::pin(async { None }) },

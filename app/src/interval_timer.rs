@@ -1,1 +1,1 @@
-pub use warp_core::interval_timer::IntervalTimer;
+pub use galaxy_core::interval_timer::IntervalTimer;

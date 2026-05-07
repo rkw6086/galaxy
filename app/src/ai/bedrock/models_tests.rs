@@ -20,7 +20,10 @@ fn test_cross_region_prefix_eu_west() {
 #[test]
 fn test_cross_region_prefix_ap_northeast_1() {
     assert_eq!(
-        apply_cross_region_prefix("anthropic.claude-3-5-sonnet-20241022-v1:0", "ap-northeast-1"),
+        apply_cross_region_prefix(
+            "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "ap-northeast-1"
+        ),
         "jp.anthropic.claude-3-5-sonnet-20241022-v1:0"
     );
 }
@@ -28,7 +31,10 @@ fn test_cross_region_prefix_ap_northeast_1() {
 #[test]
 fn test_cross_region_prefix_ap_southeast_2() {
     assert_eq!(
-        apply_cross_region_prefix("anthropic.claude-3-5-sonnet-20241022-v1:0", "ap-southeast-2"),
+        apply_cross_region_prefix(
+            "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "ap-southeast-2"
+        ),
         "au.anthropic.claude-3-5-sonnet-20241022-v1:0"
     );
 }
@@ -36,7 +42,10 @@ fn test_cross_region_prefix_ap_southeast_2() {
 #[test]
 fn test_cross_region_prefix_ap_southeast_1() {
     assert_eq!(
-        apply_cross_region_prefix("anthropic.claude-3-5-sonnet-20241022-v1:0", "ap-southeast-1"),
+        apply_cross_region_prefix(
+            "anthropic.claude-3-5-sonnet-20241022-v1:0",
+            "ap-southeast-1"
+        ),
         "apac.anthropic.claude-3-5-sonnet-20241022-v1:0"
     );
 }
@@ -131,8 +140,7 @@ fn test_is_bedrock_model_arn() {
 
 #[test]
 fn test_cross_region_prefix_skips_arn() {
-    let arn =
-        "arn:aws:bedrock:us-east-1:156729649053:application-inference-profile/fma5bsw4oxhy";
+    let arn = "arn:aws:bedrock:us-east-1:156729649053:application-inference-profile/fma5bsw4oxhy";
     assert_eq!(apply_cross_region_prefix(arn, "us-east-1"), arn);
 }
 

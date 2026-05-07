@@ -7,8 +7,8 @@ use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use ordered_float::OrderedFloat;
 use std::collections::HashSet;
 use std::time::Duration;
-use warpui::r#async::Timer;
-use warpui::{App, AppContext, Element};
+use galaxyui::r#async::Timer;
+use galaxyui::{App, AppContext, Element};
 
 #[derive(Clone, Debug, PartialEq)]
 struct TestAction {

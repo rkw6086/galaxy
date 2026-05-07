@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use warpui::{
+use galaxyui::{
     elements::{MouseStateHandle, Text},
     Element,
 };

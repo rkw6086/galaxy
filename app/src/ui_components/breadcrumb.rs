@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use itertools::{Itertools, Position};
-use warpui::{
+use galaxyui::{
     elements::{
         CrossAxisAlignment, Flex, Hoverable, MainAxisSize, MouseStateHandle, ParentElement,
         Shrinkable,

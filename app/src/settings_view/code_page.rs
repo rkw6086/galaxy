@@ -48,14 +48,14 @@ use pathfinder_color::ColorU;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use warp_core::{
+use galaxy_core::{
     features::FeatureFlag,
     report_if_error,
     settings::ToggleableSetting as _,
     ui::theme::{AnsiColorIdentifier, Fill as ThemeFill},
 };
-use warp_util::path::user_friendly_path;
-use warpui::{
+use galaxy_util::path::user_friendly_path;
+use galaxyui::{
     elements::{
         ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Empty,
         Expanded, Fill, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement,
@@ -1342,15 +1342,15 @@ impl CodePageWidget {
                     ..Default::default()
                 })
                 .with_text_and_icon_label(
-                    warpui::ui_components::button::TextAndIcon::new(
-                        warpui::ui_components::button::TextAndIconAlignment::IconFirst,
+                    galaxyui::ui_components::button::TextAndIcon::new(
+                        galaxyui::ui_components::button::TextAndIconAlignment::IconFirst,
                         "Open project rules",
-                        warpui::elements::Icon::new(
+                        galaxyui::elements::Icon::new(
                             "bundled/svg/file-code-02.svg",
                             theme.foreground(),
                         ),
-                        warpui::elements::MainAxisSize::Min,
-                        warpui::elements::MainAxisAlignment::Center,
+                        galaxyui::elements::MainAxisSize::Min,
+                        galaxyui::elements::MainAxisAlignment::Center,
                         pathfinder_geometry::vector::vec2f(14., 14.),
                     )
                     .with_inner_padding(4.),
@@ -1456,7 +1456,7 @@ impl CodePageWidget {
                         Container::new(
                             ConstrainedBox::new(
                                 Icon::SlashCircle
-                                    .to_warpui_icon(ThemeFill::Solid(status_color))
+                                    .to_galaxyui_icon(ThemeFill::Solid(status_color))
                                     .finish(),
                             )
                             .with_width(STATUS_ICON_SIZE)
@@ -1541,7 +1541,7 @@ impl CodePageWidget {
             label_row.add_child(
                 Container::new(
                     ConstrainedBox::new(
-                        status_icon.to_warpui_icon(ThemeFill::Solid(color)).finish(),
+                        status_icon.to_galaxyui_icon(ThemeFill::Solid(color)).finish(),
                     )
                     .with_width(STATUS_ICON_SIZE)
                     .with_height(STATUS_ICON_SIZE)
@@ -1823,7 +1823,7 @@ impl CodePageWidget {
         &self,
         workspace_path: &Path,
         server_type: LSPServerType,
-        server_model: Option<&warpui::ModelHandle<LspServerModel>>,
+        server_model: Option<&galaxyui::ModelHandle<LspServerModel>>,
         is_enabled: bool,
         mouse_states: LspServerRowMouseStates,
         appearance: &Appearance,
@@ -2012,9 +2012,9 @@ impl CodePageWidget {
     /// Gets the status color and text for an LSP server.
     fn get_lsp_status_info(
         &self,
-        server_model: Option<&warpui::ModelHandle<LspServerModel>>,
+        server_model: Option<&galaxyui::ModelHandle<LspServerModel>>,
         app: &AppContext,
-        theme: &warp_core::ui::theme::WarpTheme,
+        theme: &galaxy_core::ui::theme::WarpTheme,
     ) -> (ColorU, &'static str) {
         match server_model {
             Some(model) => {

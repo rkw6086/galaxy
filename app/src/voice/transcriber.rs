@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use warpui::{Entity, SingletonEntity};
+use galaxyui::{Entity, SingletonEntity};
 
 use crate::server::server_api::TranscribeError;
 

@@ -1,4 +1,4 @@
-use warpui::{
+use galaxyui::{
     elements::{
         Border, Clipped, Container, CornerRadius, Dismiss, Empty, Flex, MainAxisSize,
         MouseStateHandle, ParentElement, Radius, Shrinkable, Text,

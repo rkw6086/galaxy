@@ -23,8 +23,8 @@ use crate::{
 use futures::{pin_mut, FutureExt as _};
 use itertools::Itertools;
 use settings::Setting as _;
-use warp_completer::completer::{CommandExitStatus, CommandOutput};
-use warp_core::user_preferences::GetUserPreferences;
+use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
+use galaxy_core::user_preferences::GetUserPreferences;
 
 use super::ChipResult;
 use super::{
@@ -47,12 +47,12 @@ use std::hash::{Hash as _, Hasher as _};
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(feature = "local_fs")]
-use warpui::WeakModelHandle;
-use warpui::{
+use galaxyui::WeakModelHandle;
+use galaxyui::{
     r#async::{SpawnedFutureHandle, Timer},
     AppContext, ViewHandle,
 };
-use warpui::{Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity};
+use galaxyui::{Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity};
 
 #[cfg(test)]
 #[path = "current_prompt_test.rs"]
@@ -592,7 +592,7 @@ impl CurrentPrompt {
         current_dir_path: Option<String>,
         environment_variables: Option<HashMap<String, String>>,
         timeout: Option<Duration>,
-    ) -> (Option<warp_completer::completer::CommandOutput>, bool) {
+    ) -> (Option<galaxy_completer::completer::CommandOutput>, bool) {
         let command_future = session
             .execute_command(
                 &command,
@@ -1217,7 +1217,7 @@ impl CurrentPrompt {
     #[cfg(test)]
     pub fn await_generators(
         &self,
-        ctx: &mut warpui::AppContext,
+        ctx: &mut galaxyui::AppContext,
     ) -> futures_util::future::BoxFuture<'static, ()> {
         use futures_util::FutureExt;
         use itertools::Itertools;

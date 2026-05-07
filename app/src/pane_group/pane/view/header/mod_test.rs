@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::Empty, platform::WindowStyle, App, AppContext, Element, Entity, TypedActionView,
     View, ViewContext,
 };

@@ -1,6 +1,6 @@
 use hex;
-use warp_core::command::ExitCode;
-use warpui::color::ColorU;
+use galaxy_core::command::ExitCode;
+use galaxyui::color::ColorU;
 
 use super::*;
 use crate::terminal::model::index::VisibleRow;

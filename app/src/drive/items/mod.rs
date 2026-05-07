@@ -1,4 +1,4 @@
-use warpui::{elements::MouseStateHandle, AppContext, Element};
+use galaxyui::{elements::MouseStateHandle, AppContext, Element};
 
 use crate::{
     appearance::Appearance,
@@ -44,7 +44,7 @@ pub trait WarpDriveItem {
     fn icon(&self, appearance: &Appearance, color: Option<Fill>) -> Option<Box<dyn Element>> {
         let object_type = self.object_type()?;
         let icon_fill = color.unwrap_or(warp_drive_icon_color(appearance, object_type).into());
-        Some(Icon::from(object_type).to_warpui_icon(icon_fill).finish())
+        Some(Icon::from(object_type).to_galaxyui_icon(icon_fill).finish())
     }
 
     /// If implemented, returns a string that summarizes the primary action history. For example, "Run 2 times in the last week"

@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
-use warp_core::ui::{
+use galaxy_core::ui::{
     appearance::Appearance,
     theme::{color::internal_colors, Fill},
 };
-use warpui::{
+use galaxyui::{
     color::ColorU,
     elements::{CornerRadius, Radius},
     fonts::Weight,

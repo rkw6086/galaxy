@@ -53,7 +53,7 @@ use crate::uri::browser_url_handler::update_browser_url;
 use crate::util::openable_file_type::FileTarget;
 use crate::view_components::ToastFlavor;
 use crate::workflows::workflow::Workflow;
-use warp_terminal::shell::{ShellName, ShellType};
+use galaxy_terminal::shell::{ShellName, ShellType};
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -78,26 +78,26 @@ use tree::DEFAULT_FLEX_VALUE;
 use typed_path::TypedPath;
 use url::Url;
 use uuid::Uuid;
-use warp_cli::agent::Harness;
-use warp_core::command::ExitCode;
-use warp_core::context_flag::ContextFlag;
-use warp_core::HostId;
-use warp_util::path::convert_wsl_to_windows_host_path;
+use galaxy_cli::agent::Harness;
+use galaxy_core::command::ExitCode;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::HostId;
+use galaxy_util::path::convert_wsl_to_windows_host_path;
 #[cfg(feature = "local_fs")]
-use warp_util::path::LineAndColumnArg;
-use warpui::elements::{
+use galaxy_util::path::LineAndColumnArg;
+use galaxyui::elements::{
     Clipped, CrossAxisAlignment, DispatchEventResult, EventHandler, Flex, MainAxisSize, Shrinkable,
     Stack,
 };
-use warpui::keymap::{Context, EditableBinding, FixedBinding};
-use warpui::notification::NotificationSendError;
+use galaxyui::keymap::{Context, EditableBinding, FixedBinding};
+use galaxyui::notification::NotificationSendError;
 
-use warpui::windowing::WindowManager;
-use warpui::{
+use galaxyui::windowing::WindowManager;
+use galaxyui::{
     elements::{ChildView, Element, ParentElement},
     AppContext, Entity, EntityId, ModelHandle, TypedActionView, View, ViewHandle, WindowId,
 };
-use warpui::{SingletonEntity, ViewContext};
+use galaxyui::{SingletonEntity, ViewContext};
 
 use crate::ai::blocklist::SerializedBlockListItem;
 use crate::ai_assistant::AskAIType;
@@ -297,7 +297,7 @@ enum PaneRemovalReason {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
     app.register_binding_validator::<PaneGroup>(is_binding_pty_compliant);
 
     self::pane::init(app);

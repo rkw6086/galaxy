@@ -11,11 +11,11 @@ mod package_installers;
 pub(crate) use history::UpArrowHistoryConfig;
 pub use view::Event;
 pub use view::TerminalView;
-pub use warp_terminal::shell::{self, ShellLaunchData};
-use warpui::geometry::vector::Vector2F;
-use warpui::units::{IntoPixels, Lines, Pixels};
-use warpui::AppContext;
-use warpui::WindowId;
+pub use galaxy_terminal::shell::{self, ShellLaunchData};
+use galaxyui::geometry::vector::Vector2F;
+use galaxyui::units::{IntoPixels, Lines, Pixels};
+use galaxyui::AppContext;
+use galaxyui::WindowId;
 pub use {history::History, history::HistoryEntry, history::HistoryEvent, history::ShellHost};
 mod block_list_settings;
 

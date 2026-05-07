@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use uuid::Uuid;
-use warpui::{
+use galaxyui::{
     elements::{ChildView, Container},
     ui_components::components::{Coords, UiComponentStyles},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,

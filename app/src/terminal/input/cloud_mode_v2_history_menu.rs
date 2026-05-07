@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use pathfinder_color::ColorU;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::color::internal_colors;
-use warp_core::ui::theme::Fill;
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{
     Align, Border, ConstrainedBox, Container, CornerRadius, DropShadow, Radius, Text,
 };
-use warpui::{
+use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, View, ViewContext,
     ViewHandle,
 };

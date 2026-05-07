@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.warp.WarpDockTilePlugin</string>
+    <string>com.samsung.GalaxyAIDockTilePlugin</string>
     <key>CFBundleExecutable</key>
     <string>WarpDockTilePlugin</string>
     <key>CFBundleName</key>
-    <string>WarpDockTilePlugin</string>
+    <string>GalaxyAIDockTilePlugin</string>
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>

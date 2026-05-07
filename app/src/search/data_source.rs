@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::any::Any;
 use std::{collections::HashSet, sync::Arc};
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::Fill;
-use warpui::{Action, AppContext, Element, Entity, ModelHandle};
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::{Action, AppContext, Element, Entity, ModelHandle};
 
 use super::mixer::{AsyncDataSource, BoxFuture};
 use super::{item::SearchItem, mixer::DataSourceRunErrorWrapper};
@@ -307,7 +307,7 @@ impl QueryFilter {
             QueryFilter::Sessions => "sessions",
             QueryFilter::Conversations => "conversations",
             QueryFilter::LaunchConfigurations => "launch configurations",
-            QueryFilter::Drive => "Warp Drive",
+            QueryFilter::Drive => "Galaxy Drive",
             QueryFilter::EnvironmentVariables => "environment variables",
             QueryFilter::PromptHistory => "prompt history",
             QueryFilter::Files => "files",

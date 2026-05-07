@@ -1,5 +1,5 @@
 use crate::ChannelState;
-use warpui::fonts::ExternalFontFamily;
+use galaxyui::fonts::ExternalFontFamily;
 
 use std::sync::Arc;
 

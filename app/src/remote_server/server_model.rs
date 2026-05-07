@@ -5,16 +5,16 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use warp_core::channel::ChannelState;
-use warp_core::SessionId;
-use warp_util::standardized_path::StandardizedPath;
-use warpui::platform::TerminationMode;
-use warpui::r#async::{Spawnable, SpawnableOutput, SpawnedFutureHandle};
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::SessionId;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::platform::TerminationMode;
+use galaxyui::r#async::{Spawnable, SpawnableOutput, SpawnedFutureHandle};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
-use warp_files::{FileModel, FileModelEvent};
-use warp_util::content_version::ContentVersion;
-use warp_util::file::FileId;
+use galaxy_files::{FileModel, FileModelEvent};
+use galaxy_util::content_version::ContentVersion;
+use galaxy_util::file::FileId;
 
 use super::proto::{
     client_message, delete_file_response, run_command_response, server_message,

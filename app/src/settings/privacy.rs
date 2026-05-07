@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use regex::Regex;
-use warp_core::features::FeatureFlag;
-use warp_core::report_if_error;
-use warp_core::user_preferences::GetUserPreferences as _;
-use warpui::{AppContext, Entity, ModelContext, SingletonEntity, UpdateModel};
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::report_if_error;
+use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, UpdateModel};
 
 use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;
 use crate::auth::auth_state::AuthState;

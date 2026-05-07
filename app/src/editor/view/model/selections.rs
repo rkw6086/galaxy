@@ -4,8 +4,8 @@ use pathfinder_geometry::vector::Vector2F;
 use serde::{Deserialize, Serialize};
 use string_offset::{ByteOffset, CharOffset};
 use vec1::Vec1;
-use warpui::text::point::Point;
-use warpui::AppContext;
+use galaxyui::text::point::Point;
+use galaxyui::AppContext;
 
 use super::{
     buffer::{Anchor, Buffer, LamportValue, ToBufferOffset, ToCharOffset, ToPoint},

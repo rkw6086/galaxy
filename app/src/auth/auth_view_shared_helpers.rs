@@ -1,13 +1,13 @@
 use pathfinder_color::ColorU;
-use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
-use warp_core::ui::{
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::{
     appearance::Appearance,
     builder::UiBuilder,
     color::{darken, lighten},
     theme::ColorScheme,
 };
-use warpui::{
+use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{
         Border, CacheOption, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill,

@@ -25,8 +25,8 @@ use crate::workspaces::workspace::{
 use mockall::Sequence;
 use settings::{PrivatePreferences, PublicPreferences};
 use std::time::Duration;
-use warpui::{AddSingletonModel, App};
-use warpui_extras::user_preferences;
+use galaxyui::{AddSingletonModel, App};
+use galaxyui_extras::user_preferences;
 
 use super::*;
 
@@ -170,7 +170,7 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         });
 
         // Spend time waiting for the initial load to finish etc.
-        warpui::r#async::Timer::after(Duration::from_secs(1)).await;
+        galaxyui::r#async::Timer::after(Duration::from_secs(1)).await;
 
         // Lets go offline
         NetworkStatus::handle(&app).update(&mut app, |network_status, ctx| {
@@ -183,7 +183,7 @@ fn test_loading_all_spaces_after_switching_from_offline() {
         });
 
         // Spend time waiting for the load to finish etc.
-        warpui::r#async::Timer::after(Duration::from_secs(1)).await;
+        galaxyui::r#async::Timer::after(Duration::from_secs(1)).await;
 
         // We also ensure that UserWorkspaces stores a team
         UserWorkspaces::handle(&app).read(&app, |teams, _| {
@@ -302,9 +302,7 @@ fn test_aws_bedrock_credentials_respect_user_setting() {
         );
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .bedrock_enabled
-                .set_value(false, ctx);
+            let _ = settings.bedrock_enabled.set_value(false, ctx);
         });
 
         app.read(|ctx| {
@@ -357,9 +355,7 @@ fn test_aws_bedrock_credentials_enforced_by_admin() {
         );
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            let _ = settings
-                .bedrock_enabled
-                .set_value(false, ctx);
+            let _ = settings.bedrock_enabled.set_value(false, ctx);
         });
 
         app.read(|ctx| {

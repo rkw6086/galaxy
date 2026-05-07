@@ -10,8 +10,8 @@ use repo_metadata::{
     TargetFile,
 };
 use tempfile::TempDir;
-use warp_util::standardized_path::StandardizedPath;
-use warpui::App;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::App;
 
 use super::SkillWatcher;
 

@@ -7,12 +7,12 @@ use std::cmp::{Ordering, PartialEq};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::Icon;
-use warp_editor::render::element::VerticalExpansionBehavior;
-use warpui::elements::{ConstrainedBox, ScrollbarWidth};
-use warpui::ui_components::components::UiComponent as _;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::Icon;
+use galaxy_editor::render::element::VerticalExpansionBehavior;
+use galaxyui::elements::{ConstrainedBox, ScrollbarWidth};
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{
     elements::{
         Align, Border, ChildView, Clipped, Container, CornerRadius, CrossAxisAlignment, Expanded,
         Flex, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, Radius,
@@ -24,7 +24,7 @@ use warpui::{
 };
 
 use crate::ai::agent::{AIAgentActionResult, AIAgentActionType};
-use warpui::{EntityId, EventContext};
+use galaxyui::{EntityId, EventContext};
 
 use crate::ai::agent::RequestCommandOutputResult;
 use crate::ai::agent::{icons, AIAgentActionResultType};
@@ -120,7 +120,7 @@ lazy_static! {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([
         FixedBinding::new(
@@ -752,7 +752,7 @@ impl RequestedCommandView {
                     Container::new(
                         ConstrainedBox::new(
                             Icon::Info
-                                .to_warpui_icon(
+                                .to_galaxyui_icon(
                                     blended_colors::text_sub(theme, theme.surface_1()).into(),
                                 )
                                 .finish(),
@@ -1545,9 +1545,9 @@ impl View for RequestedCommandView {
                 OffsetPositioning::offset_from_save_position_element(
                     Self::get_position_id_for_accept_split_button(&self.position_id_prefix),
                     vec2f(0., 8.),
-                    warpui::elements::PositionedElementOffsetBounds::WindowByPosition,
-                    warpui::elements::PositionedElementAnchor::BottomRight,
-                    warpui::elements::ChildAnchor::TopRight,
+                    galaxyui::elements::PositionedElementOffsetBounds::WindowByPosition,
+                    galaxyui::elements::PositionedElementAnchor::BottomRight,
+                    galaxyui::elements::ChildAnchor::TopRight,
                 ),
             );
         }

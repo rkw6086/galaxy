@@ -29,12 +29,12 @@ use crate::{
 use anyhow::Result;
 use regex::Regex;
 use std::sync::Arc;
-use warp_core::{
+use galaxy_core::{
     features::FeatureFlag,
     settings::{ChangeEventReason, Setting},
 };
-use warp_graphql::workspace::FeatureModelChoice;
-use warpui::{AppContext, Entity, ModelContext, SingletonEntity, Tracked};
+use galaxy_graphql::workspace::FeatureModelChoice;
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, Tracked};
 
 #[cfg(test)]
 use crate::server::server_api::{team::MockTeamClient, workspace::MockWorkspaceClient};
@@ -122,7 +122,7 @@ pub struct WorkspacesMetadataResponse {
 // independent queries.
 pub struct WorkspacesMetadataWithPricing {
     pub metadata: WorkspacesMetadataResponse,
-    pub pricing_info: Option<warp_graphql::billing::PricingInfo>,
+    pub pricing_info: Option<galaxy_graphql::billing::PricingInfo>,
 }
 
 pub struct CreateTeamResponse {
@@ -519,9 +519,9 @@ impl UserWorkspaces {
 
         match self.aws_bedrock_host_enablement_setting() {
             HostEnablementSetting::Enforce => true,
-            HostEnablementSetting::RespectUserSetting => *AISettings::as_ref(app)
-                .bedrock_enabled
-                .value(),
+            HostEnablementSetting::RespectUserSetting => {
+                *AISettings::as_ref(app).bedrock_enabled.value()
+            }
         }
     }
 

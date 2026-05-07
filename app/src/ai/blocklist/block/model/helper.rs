@@ -1,4 +1,4 @@
-use warpui::{AppContext, EntityId, ModelHandle, SingletonEntity};
+use galaxyui::{AppContext, EntityId, ModelHandle, SingletonEntity};
 
 use crate::{
     ai::{

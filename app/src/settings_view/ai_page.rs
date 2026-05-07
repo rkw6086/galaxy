@@ -23,16 +23,15 @@ use crate::settings::InputSettings;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
-    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
-    BedrockAuthMethod, BedrockCrossRegionInference, BedrockEnabled, BedrockFallbackToWarp,
-    CanUseWarpCreditsWithByok, CodeSettings, CodebaseContextEnabled,
-    FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory,
-    IntelligentAutosuggestionsEnabled, MemoryEnabled, NLDInTerminalEnabled,
-    NaturalLanguageAutosuggestionsEnabled, OrchestrationEnabled, RuleSuggestionsEnabled,
-    SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
-    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState, ShowAgentTips,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VoiceInputEnabled,
-    WarpDriveContextEnabled,
+    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAuthMethod,
+    BedrockAutoLogin, BedrockCrossRegionInference, BedrockEnabled, BedrockFallbackToWarp,
+    CanUseWarpCreditsWithByok, CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
+    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled,
+    MemoryEnabled, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
+    OrchestrationEnabled, RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled,
+    ShouldRenderCLIAgentToolbar, ShouldRenderUseAgentToolbarForUserCommands,
+    ShouldShowOzUpdatesInZeroState, ShowAgentTips, ShowConversationHistory, ShowHintText,
+    ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
 };
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::CLIAgent;
@@ -47,18 +46,18 @@ use itertools::Itertools;
 use regex::Regex;
 use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
-use warp_core::channel::ChannelState;
-use warp_core::context_flag::ContextFlag;
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::color::internal_colors;
-use warpui::elements::{
-    ChildView, ConstrainedBox, CornerRadius, CrossAxisAlignment, Fill,
-    HyperlinkLens, MainAxisAlignment, MainAxisSize, MouseStateHandle, Radius, Shrinkable, Text,
+use galaxy_core::channel::ChannelState;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{
+    ChildView, ConstrainedBox, CornerRadius, CrossAxisAlignment, Fill, HyperlinkLens,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, Radius, Shrinkable, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::id;
-use warpui::keymap::ContextPredicate;
-use warpui::{
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::id;
+use galaxyui::keymap::ContextPredicate;
+use galaxyui::{
     elements::{
         Container, Flex, FormattedTextElement, HighlightedHyperlink, HyperlinkUrl, ParentElement,
     },
@@ -295,7 +294,7 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     );
     {
         use crate::settings::ThinkingDisplayMode;
-        use warpui::keymap::FixedBinding;
+        use galaxyui::keymap::FixedBinding;
 
         let ai_context = context.clone() & id!(flags::IS_ANY_AI_ENABLED);
         let mode_bindings: Vec<FixedBinding> = ThinkingDisplayMode::iter()
@@ -2038,7 +2037,7 @@ impl View for AISettingsPageView {
         "AISettingsPage"
     }
 
-    fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         self.page.render(self, app)
     }
 }
@@ -2768,9 +2767,7 @@ impl TypedActionView for AISettingsPageView {
             }
             AISettingsPageAction::ToggleBedrockEnabled => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .bedrock_enabled
-                        .toggle_and_save_value(ctx));
+                    report_if_error!(settings.bedrock_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -2801,9 +2798,7 @@ impl TypedActionView for AISettingsPageView {
                                 });
                             }
                             Err(e) => {
-                                log::error!(
-                                    "Failed to discover Bedrock inference profiles: {e}"
-                                );
+                                log::error!("Failed to discover Bedrock inference profiles: {e}");
                             }
                         },
                     );
@@ -2832,9 +2827,7 @@ impl TypedActionView for AISettingsPageView {
             }
             AISettingsPageAction::ToggleBedrockFallbackToWarp => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .bedrock_fallback_to_warp
-                        .toggle_and_save_value(ctx));
+                    report_if_error!(settings.bedrock_fallback_to_warp.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -3154,7 +3147,7 @@ impl SettingsWidget for GlobalAIWidget {
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_child(
                 Text::new_inline(
-                    "Warp Agent",
+                    "Galaxy Agent",
                     appearance.ui_font_family(),
                     PRIMARY_HEADER_FONT_SIZE,
                 )
@@ -3269,13 +3262,13 @@ impl UsageWidget {
         is_unlimited: bool,
         workspace_is_delinquent_due_to_payment_issue: bool,
         appearance: &Appearance,
-    ) -> Box<dyn warpui::Element> {
+    ) -> Box<dyn galaxyui::Element> {
         let mut row = Flex::row();
         if used >= limit || workspace_is_delinquent_due_to_payment_issue {
             row.add_child(
                 ConstrainedBox::new(
                     Icon::AlertTriangle
-                        .to_warpui_icon(appearance.theme().ui_error_color().into())
+                        .to_galaxyui_icon(appearance.theme().ui_error_color().into())
                         .finish(),
                 )
                 .with_height(16.)
@@ -3334,7 +3327,7 @@ impl UsageWidget {
         is_unlimited: bool,
         workspace_is_delinquent_due_to_payment_issue: bool,
         appearance: &Appearance,
-    ) -> Box<dyn warpui::Element> {
+    ) -> Box<dyn galaxyui::Element> {
         let request_usage_details = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::End)
             .with_child(self.render_request_usage_count(
@@ -3612,8 +3605,8 @@ impl ActiveAIWidget {
     fn render_next_command_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
 
@@ -3640,8 +3633,8 @@ impl ActiveAIWidget {
     fn render_prompt_suggestions_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
         Flex::column()
@@ -3667,8 +3660,8 @@ impl ActiveAIWidget {
     fn render_suggested_code_banners_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
         Flex::column()
@@ -3694,8 +3687,8 @@ impl ActiveAIWidget {
     fn render_natural_language_autosuggestions_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
         Flex::column()
@@ -3721,8 +3714,8 @@ impl ActiveAIWidget {
     fn render_shared_block_title_generation_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
         Flex::column()
@@ -3748,8 +3741,8 @@ impl ActiveAIWidget {
     fn render_git_operations_autogen_section(
         &self,
         view: &AISettingsPageView,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_active_ai_enabled(app);
         Flex::column()
@@ -4182,7 +4175,7 @@ impl AgentsWidget {
         dropdown_menu: &ViewHandle<Dropdown<AISettingsPageAction>>,
         ai_settings: &AISettings,
         appearance: &Appearance,
-        app: &warpui::AppContext,
+        app: &galaxyui::AppContext,
     ) -> Box<dyn Element> {
         let header = Container::new(render_body_item_label_with_icon::<AISettingsPageAction>(
             header_text.into(),
@@ -4202,7 +4195,7 @@ impl AgentsWidget {
         let alert_icon = Container::new(
             ConstrainedBox::new(
                 Icon::AlertCircle
-                    .to_warpui_icon(
+                    .to_galaxyui_icon(
                         appearance
                             .theme()
                             .sub_text_color(appearance.theme().surface_2()),
@@ -4410,7 +4403,7 @@ impl AgentsWidget {
         view: &AISettingsPageView,
         ai_settings: &AISettings,
         appearance: &Appearance,
-        app: &warpui::AppContext,
+        app: &galaxyui::AppContext,
     ) -> Box<dyn Element> {
         let code_settings = CodeSettings::as_ref(app);
         let toggle = render_ai_setting_toggle::<CodebaseContextEnabled>(
@@ -4772,8 +4765,8 @@ impl AIInputWidget {
         view: &AISettingsPageView,
         ai_settings: &AISettings,
         appearance: &Appearance,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let is_toggleable = ai_settings.is_any_ai_enabled(app);
         let is_nld_enabled = *ai_settings.ai_autodetection_enabled_internal.value();
 
@@ -5084,7 +5077,7 @@ impl AIFactWidget {
         view: &AISettingsPageView,
         ai_settings: &AISettings,
         appearance: &Appearance,
-        app: &warpui::AppContext,
+        app: &galaxyui::AppContext,
     ) -> Box<dyn Element> {
         let toggle = render_ai_setting_toggle::<MemoryEnabled>(
             "Rules",
@@ -5135,7 +5128,7 @@ impl AIFactWidget {
         &self,
         view: &AISettingsPageView,
         ai_settings: &AISettings,
-        app: &warpui::AppContext,
+        app: &galaxyui::AppContext,
     ) -> Box<dyn Element> {
         let toggle = render_ai_setting_toggle::<RuleSuggestionsEnabled>(
             "Suggested Rules",
@@ -5163,10 +5156,10 @@ impl AIFactWidget {
         &self,
         view: &AISettingsPageView,
         ai_settings: &AISettings,
-        app: &warpui::AppContext,
+        app: &galaxyui::AppContext,
     ) -> Box<dyn Element> {
         let toggle = render_ai_setting_toggle::<WarpDriveContextEnabled>(
-            "Warp Drive as agent context",
+            "Galaxy Drive as agent context",
             AISettingsPageAction::ToggleWarpDriveContext,
             *ai_settings.warp_drive_context_enabled,
             ai_settings.is_any_ai_enabled(app),
@@ -5176,7 +5169,7 @@ impl AIFactWidget {
         );
 
         let description = render_ai_setting_description(
-            "The Warp Agent can leverage your Warp Drive Contents to tailor responses to your personal and team developer workflows and environments. This includes any Workflows, Notebooks, and Environment Variables.",
+            "The Galaxy Agent can leverage your Galaxy Drive Contents to tailor responses to your personal and team developer workflows and environments. This includes any Workflows, Notebooks, and Environment Variables.",
             ai_settings.is_any_ai_enabled(app),
             app,
         );
@@ -5250,8 +5243,8 @@ impl VoiceWidget {
         &self,
         view: &AISettingsPageView,
         appearance: &Appearance,
-        app: &warpui::AppContext,
-    ) -> Box<dyn warpui::Element> {
+        app: &galaxyui::AppContext,
+    ) -> Box<dyn galaxyui::Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_toggleable = ai_settings.is_any_ai_enabled(app);
         let mut column = Flex::column().with_child(render_ai_setting_toggle::<VoiceInputEnabled>(
@@ -6397,10 +6390,7 @@ impl BedrockSettingsWidget {
                 BedrockAuthMethod::Sso,
             ];
             let current = AISettings::as_ref(ctx).bedrock_auth_method.value().clone();
-            let selected_index = methods
-                .iter()
-                .position(|m| *m == current)
-                .unwrap_or(0);
+            let selected_index = methods.iter().position(|m| *m == current).unwrap_or(0);
             dropdown.add_items(
                 methods
                     .into_iter()
@@ -6859,8 +6849,8 @@ impl SettingsWidget for BedrockSettingsWidget {
 }
 
 mod styles {
-    use warp_core::ui::{appearance::Appearance, theme::Fill};
-    use warpui::{AppContext, SingletonEntity};
+    use galaxy_core::ui::{appearance::Appearance, theme::Fill};
+    use galaxyui::{AppContext, SingletonEntity};
 
     // Apply a negative margin to the description text so it appears closer to the main
     // settings option text.

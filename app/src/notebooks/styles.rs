@@ -1,6 +1,6 @@
 //! Shared styles for notebooks.
 
-use warpui::{
+use galaxyui::{
     elements::{
         Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment, MouseStateHandle,
         ParentElement,

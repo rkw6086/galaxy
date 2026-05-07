@@ -27,12 +27,12 @@ use enum_iterator::Sequence;
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use vec1::Vec1;
-use warp_core::semantic_selection::SemanticSelection;
-use warp_core::ui::builder::UiBuilder;
-use warp_core::ui::theme::AnsiColorIdentifier;
-use warp_util::user_input::UserInput;
-use warpui::platform::Cursor;
-use warpui::text::SelectionType;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::ui::builder::UiBuilder;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxy_util::user_input::UserInput;
+use galaxyui::platform::Cursor;
+use galaxyui::text::SelectionType;
 
 use pathfinder_color::ColorU;
 use session_sharing_protocol::common::{ParticipantId, Selection};
@@ -43,25 +43,25 @@ use std::ops::{Deref, Range, RangeInclusive};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
-use warpui::elements::{
+use galaxyui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
+use galaxyui::elements::{
     Axis, Border, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
     Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Point, Radius, ScrollData, ScrollableElement, Stack, Text, ZIndex,
 };
-use warpui::event::{KeyState, ModifiersState};
-use warpui::fonts::{FamilyId, Properties, Weight};
-use warpui::geometry::rect::RectF;
-use warpui::geometry::vector::{vec2f, Vector2F};
-use warpui::platform::keyboard::KeyCode;
-use warpui::ui_components::components::UiComponent;
-use warpui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use warpui::{elements::Icon, ClipBounds};
-use warpui::{
+use galaxyui::event::{KeyState, ModifiersState};
+use galaxyui::fonts::{FamilyId, Properties, Weight};
+use galaxyui::geometry::rect::RectF;
+use galaxyui::geometry::vector::{vec2f, Vector2F};
+use galaxyui::platform::keyboard::KeyCode;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
+use galaxyui::{elements::Icon, ClipBounds};
+use galaxyui::{
     elements::SavePosition, event::DispatchedEvent, AfterLayoutContext, AppContext, Element, Event,
     EventContext, LayoutContext, PaintContext, SizeConstraint,
 };
-use warpui::{EntityId, ModelHandle, SingletonEntity as _};
+use galaxyui::{EntityId, ModelHandle, SingletonEntity as _};
 
 use super::block_list_viewport::{ClampingMode, InputMode, ScrollPosition, ViewportState};
 use super::blockgrid_renderer::GridRenderParams;
@@ -1140,11 +1140,11 @@ impl BlockListElement {
             let icon = Container::new(
                 ConstrainedBox::new(if FeatureFlag::AgentView.is_enabled() {
                     UIIcon::Icon::Paperclip
-                        .to_warpui_icon(icon_color.into())
+                        .to_galaxyui_icon(icon_color.into())
                         .finish()
                 } else if FeatureFlag::AgentMode.is_enabled() {
                     UIIcon::Icon::Stars
-                        .to_warpui_icon(icon_color.into())
+                        .to_galaxyui_icon(icon_color.into())
                         .finish()
                 } else {
                     Icon::new(AI_ASSISTANT_SVG_PATH, icon_color).finish()
@@ -1207,7 +1207,7 @@ impl BlockListElement {
             let icon = Container::new(
                 ConstrainedBox::new(
                     ui_components::icons::Icon::Save
-                        .to_warpui_icon(icon_color.into())
+                        .to_galaxyui_icon(icon_color.into())
                         .finish(),
                 )
                 .with_height(16.)
@@ -1282,7 +1282,7 @@ impl BlockListElement {
     }
 
     /// We only want to process control characters here and return `false` for everything else.
-    /// That way, we'll receive a `warpui::Event::TypedCharacters` event for printable characters.
+    /// That way, we'll receive a `galaxyui::Event::TypedCharacters` event for printable characters.
     /// So `TerminalAction::KeyDown` is for control characters only while
     /// `TerminalAction::TypedCharacters` is for characters that can go into the editor.
     fn key_down(&mut self, chars: &str, ctx: &mut EventContext) -> bool {
@@ -1576,7 +1576,7 @@ impl BlockListElement {
                                 .is_some_and(|block| block.is_active_and_long_running());
 
                             // On mobile, request soft keyboard so users can input
-                            if warpui::platform::is_mobile_device() && on_long_running_block {
+                            if galaxyui::platform::is_mobile_device() && on_long_running_block {
                                 ctx.request_soft_keyboard();
                             }
 
@@ -4113,7 +4113,7 @@ impl Element for BlockListElement {
                                 None => 0.,
                             },
                             // Otherwise, we need to measure the prompt grid(s). Grids
-                            // aren't warpui::Elements, and hence their width isn't
+                            // aren't galaxyui::Elements, and hence their width isn't
                             // straightforward to measure. We'll use the column index of the
                             // right-most non-empty cell as a proxy for width.
                             None => {

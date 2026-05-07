@@ -93,36 +93,36 @@ use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 use url::Url;
-use warp_core::context_flag::ContextFlag;
-use warp_core::user_preferences::GetUserPreferences as _;
-use warpui::clipboard::ClipboardContent;
-use warpui::keymap::{EditableBinding, FixedBinding};
-use warpui::windowing::WindowManager;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::keymap::{EditableBinding, FixedBinding};
+use galaxyui::windowing::WindowManager;
 
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::ai::onboarding::{
     apply_free_tier_default_model_override, build_onboarding_models, current_onboarding_auth_state,
 };
 use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
-use warp_graphql::billing::StripeSubscriptionPlan;
+use galaxy_graphql::billing::StripeSubscriptionPlan;
 
-use warpui::elements::{
+use galaxyui::elements::{
     Border, ChildAnchor, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Stack,
 };
-use warpui::rendering::OnGPUDeviceSelected;
-use warpui::{id, AddWindowOptions, DisplayId, SingletonEntity};
-use warpui::{
+use galaxyui::rendering::OnGPUDeviceSelected;
+use galaxyui::{id, AddWindowOptions, DisplayId, SingletonEntity};
+use galaxyui::{
     platform::{WindowBounds, WindowStyle},
     presenter::ChildView,
     AppContext, Element, Entity, EntityId, TypedActionView, View, ViewContext, ViewHandle,
     WindowId,
 };
-use warpui::{FocusContext, NextNewWindowsHasThisWindowsBoundsUponClose};
+use galaxyui::{FocusContext, NextNewWindowsHasThisWindowsBoundsUponClose};
 
 #[cfg(target_family = "wasm")]
 use crate::auth::web_handoff::{WebHandoffEvent, WebHandoffView};
 
-const WINDOW_TITLE: &str = "Warp";
+const WINDOW_TITLE: &str = "Galaxy AI";
 
 lazy_static! {
     static ref FALLBACK_WINDOW_SIZE: Vector2F = vec2f(800.0, 600.0);
@@ -280,11 +280,11 @@ impl CreateEnvironmentArg {
                 // Accept valid URLs (e.g., https://github.com/user/repo)
                 Url::parse(repo).is_ok()
                     // Or valid POSIX portable pathnames (e.g., user/repo)
-                    || warp_util::path::is_posix_portable_pathname(repo)
+                    || galaxy_util::path::is_posix_portable_pathname(repo)
                     // Or absolute POSIX paths with portable components (e.g., /Users/me/repo)
                     || repo
                         .strip_prefix('/')
-                        .is_some_and(warp_util::path::is_posix_portable_pathname)
+                        .is_some_and(galaxy_util::path::is_posix_portable_pathname)
             })
             .join(" ");
 
@@ -1451,7 +1451,7 @@ fn toggle_quake_mode_window(global_resource_handles: &GlobalResourceHandles, ctx
                     background_blur_texture: *window_settings.background_blur_texture,
                     // Ignore the quake window for positioning the next window
                     anchor_new_windows_from_closed_position:
-                        warpui::NextNewWindowsHasThisWindowsBoundsUponClose::No,
+                        galaxyui::NextNewWindowsHasThisWindowsBoundsUponClose::No,
                     on_gpu_driver_selected: on_gpu_driver_selected_callback(),
                     window_instance: Some(ChannelState::app_id().to_string() + "-hotkey"),
                     ..Default::default()
@@ -1831,7 +1831,7 @@ impl RootView {
                 // the default if it's not already set and the user is logging in.
                 #[cfg(target_os = "macos")]
                 {
-                    use warpui_extras::user_preferences::UserPreferences;
+                    use galaxyui_extras::user_preferences::UserPreferences;
 
                     // Make sure we're interacting with user defaults instead
                     // of some other preferences store.  Apple implements some
@@ -1839,7 +1839,7 @@ impl RootView {
                     // defaults (like press-and-hold being either accented
                     // characters or key repeat), so we need to make sure we're
                     // interacting with the user defaults system.
-                    let user_defaults = warpui_extras::user_preferences::user_defaults::UserDefaultsPreferencesStorage::new(None);
+                    let user_defaults = galaxyui_extras::user_preferences::user_defaults::UserDefaultsPreferencesStorage::new(None);
                     if user_defaults
                         .read_value("ApplePressAndHoldEnabled")
                         .unwrap_or_default()
@@ -3231,12 +3231,12 @@ impl RootView {
     #[cfg(feature = "voice_input")]
     fn maybe_stop_active_voice_input(
         &mut self,
-        key_code: &warpui::platform::keyboard::KeyCode,
+        key_code: &galaxyui::platform::keyboard::KeyCode,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
         use crate::settings::AISettings;
         use voice_input::{VoiceInput, VoiceInputState, VoiceInputToggledFrom};
-        use warpui::event::KeyState;
+        use galaxyui::event::KeyState;
 
         // Check that the released key matches the configured voice input toggle key.
         let ai_settings = AISettings::as_ref(ctx);
@@ -3422,10 +3422,10 @@ impl View for RootView {
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "voice_input")] {
-                use warpui::elements::{EventHandler, DispatchEventResult};
+                use galaxyui::elements::{EventHandler, DispatchEventResult};
                 EventHandler::new(stack.finish())
                     .on_modifier_state_changed(|ctx, _app, key_code, key_state| {
-                        if matches!(key_state, warpui::event::KeyState::Released) {
+                        if matches!(key_state, galaxyui::event::KeyState::Released) {
                             ctx.dispatch_action("root_view:maybe_stop_active_voice_input", *key_code);
                         }
                         DispatchEventResult::PropagateToParent
@@ -3437,7 +3437,7 @@ impl View for RootView {
         }
     }
 
-    fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
+    fn keymap_context(&self, app: &AppContext) -> galaxyui::keymap::Context {
         let mut context = Self::default_keymap_context();
         if quake_mode_window_is_open() {
             context.set.insert(flags::QUAKE_WINDOW_OPEN_FLAG);

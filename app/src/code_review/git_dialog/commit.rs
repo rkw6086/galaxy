@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::{
         ChildView, ClippedScrollStateHandle, Container, CornerRadius, CrossAxisAlignment, Element,
         Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Text,

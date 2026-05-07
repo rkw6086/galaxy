@@ -2,12 +2,12 @@
 use std::sync::mpsc::SyncSender;
 
 #[cfg(feature = "local_tty")]
-use warpui::geometry::vector::Vector2F;
+use galaxyui::geometry::vector::Vector2F;
 #[cfg(feature = "local_tty")]
-use warpui::ModelHandle;
-use warpui::ViewContext;
+use galaxyui::ModelHandle;
+use galaxyui::ViewContext;
 #[cfg(not(target_family = "wasm"))]
-use warpui::{SingletonEntity, View, ViewHandle};
+use galaxyui::{SingletonEntity, View, ViewHandle};
 
 #[cfg(feature = "local_tty")]
 use crate::pane_group::TerminalViewResources;
@@ -35,9 +35,9 @@ use crate::terminal::local_tty::docker_sandbox::DOCKER_SANDBOX_HOME_DIR;
 #[cfg(feature = "remote_tty")]
 use crate::terminal::remote_tty::TerminalManager as RemoteTtyTerminalManager;
 #[cfg(not(target_family = "wasm"))]
-use warp_cli::agent::Harness;
+use galaxy_cli::agent::Harness;
 #[cfg(not(target_family = "wasm"))]
-use warpui::r#async::FutureExt;
+use galaxyui::r#async::FutureExt;
 
 use super::TerminalView;
 

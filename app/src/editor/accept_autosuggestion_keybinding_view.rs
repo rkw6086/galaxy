@@ -13,24 +13,24 @@ use crate::util::bindings::{
 use crate::workspace::WorkspaceAction;
 use lazy_static::lazy_static;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::theme::Fill;
-use warpui::elements::{Border, ChildView, Flex, ParentElement};
-use warpui::elements::{
+use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{Border, ChildView, Flex, ParentElement};
+use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Radius, DEFAULT_UI_LINE_HEIGHT_RATIO,
 };
-use warpui::keymap::Keystroke;
-use warpui::platform::Cursor;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::ui_components::keyboard_shortcut::KeyboardShortcut;
-use warpui::ViewContext;
-use warpui::{
+use galaxyui::keymap::Keystroke;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::ui_components::keyboard_shortcut::KeyboardShortcut;
+use galaxyui::ViewContext;
+use galaxyui::{
     elements::{
         ChildAnchor, CornerRadius, Element, Hoverable, MouseStateHandle, OffsetPositioning,
         ParentAnchor, ParentOffsetBounds, Stack,
     },
     AppContext, SingletonEntity,
 };
-use warpui::{Entity, TypedActionView, View, ViewHandle};
+use galaxyui::{Entity, TypedActionView, View, ViewHandle};
 
 use super::EditorElement;
 
@@ -310,7 +310,7 @@ impl View for AcceptAutosuggestionKeybinding {
             let chevron_down = Container::new(
                 ConstrainedBox::new(
                     Icon::ArrowDropDown
-                        .to_warpui_icon(Fill::Solid(font_color))
+                        .to_galaxyui_icon(Fill::Solid(font_color))
                         .finish(),
                 )
                 .with_height(height_without_border)

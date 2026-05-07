@@ -1,12 +1,12 @@
 //! Renders the AI block "header", which includes a version of the AI "prompt" as it was rendered
 //! when the query was submitted.
-use warp_core::features::FeatureFlag;
-use warp_util::path::user_friendly_path;
-use warpui::elements::MouseStateHandle;
-use warpui::elements::{ChildView, Hoverable, SavePosition};
-use warpui::platform::Cursor;
-use warpui::EntityId;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_util::path::user_friendly_path;
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::elements::{ChildView, Hoverable, SavePosition};
+use galaxyui::platform::Cursor;
+use galaxyui::EntityId;
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisAlignment,
         MainAxisSize, ParentElement, Radius, Text,
@@ -26,7 +26,7 @@ use crate::terminal::view::{TerminalAction, WARP_PROMPT_HEIGHT_LINES};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::ActionButton;
-use warpui::elements::Icon as ElementIcon;
+use galaxyui::elements::Icon as ElementIcon;
 
 /// Data required to render the AI block header.
 pub(super) struct Props<'a> {
@@ -163,7 +163,7 @@ fn render_attached_context_chip(
                         Container::new(
                             ConstrainedBox::new(
                                 Icon::Paperclip
-                                    .to_warpui_icon(block_count_color.into())
+                                    .to_galaxyui_icon(block_count_color.into())
                                     .finish(),
                             )
                             .with_height(font_size)

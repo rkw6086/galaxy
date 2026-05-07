@@ -14,19 +14,19 @@ use crate::view_components::action_button::{ActionButton, DisabledSecondaryTheme
 use crate::view_components::find::FindDirection;
 use crate::{features::FeatureFlag, settings::AppEditorSettings};
 use pathfinder_color::ColorU;
-use warp_editor::editor::NavigationKey;
-use warp_editor::search::{SearchEvent, Searcher};
-use warpui::elements::MainAxisAlignment;
-use warpui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, Shrinkable};
-use warpui::keymap::EditableBinding;
-use warpui::ui_components::components::UiComponent;
-pub use warpui::{
+use galaxy_editor::editor::NavigationKey;
+use galaxy_editor::search::{SearchEvent, Searcher};
+use galaxyui::elements::MainAxisAlignment;
+use galaxyui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, Shrinkable};
+use galaxyui::keymap::EditableBinding;
+use galaxyui::ui_components::components::UiComponent;
+pub use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
     elements::{ParentElement as _, Stack},
     geometry::vector::vec2f,
     AppContext,
 };
-use warpui::{
+use galaxyui::{
     elements::{
         Align, Border, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         DropShadow, Element, Flex, Hoverable, MouseStateHandle, ParentAnchor, ParentOffsetBounds,
@@ -34,8 +34,8 @@ use warpui::{
     },
     Entity, SingletonEntity, TypedActionView, View,
 };
-use warpui::{presenter::ChildView, ViewContext, ViewHandle};
-use warpui::{FocusContext, ModelHandle};
+use galaxyui::{presenter::ChildView, ViewContext, ViewHandle};
+use galaxyui::{FocusContext, ModelHandle};
 
 pub const FIND_BAR_WIDTH: f32 = 500.;
 const ICON_PADDING: f32 = 4.;
@@ -104,7 +104,7 @@ pub enum FindAction {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
     app.register_editable_bindings([
         EditableBinding::new(
             "find:find_next_occurrence",
@@ -490,7 +490,7 @@ impl CodeEditorFind {
             };
             let icon = Container::new(
                 ConstrainedBox::new(
-                    icon.to_warpui_icon(appearance.theme().active_ui_text_color())
+                    icon.to_galaxyui_icon(appearance.theme().active_ui_text_color())
                         .finish(),
                 )
                 .with_height(size)
@@ -554,7 +554,7 @@ impl CodeEditorFind {
             appearance.theme().active_ui_text_color()
         };
         Container::new(
-            ConstrainedBox::new(match_icon.to_warpui_icon(icon_color).finish())
+            ConstrainedBox::new(match_icon.to_galaxyui_icon(icon_color).finish())
                 .with_height(height)
                 .with_width(height)
                 .finish(),
@@ -581,7 +581,7 @@ impl CodeEditorFind {
             appearance.theme().active_ui_text_color()
         };
         Container::new(
-            ConstrainedBox::new(Icon::Search.to_warpui_icon(icon_color).finish())
+            ConstrainedBox::new(Icon::Search.to_galaxyui_icon(icon_color).finish())
                 .with_height(height)
                 .with_width(height)
                 .finish(),
@@ -608,7 +608,7 @@ impl CodeEditorFind {
         };
         Container::new(
             ConstrainedBox::new(
-                icon.to_warpui_icon(appearance.theme().active_ui_text_color())
+                icon.to_galaxyui_icon(appearance.theme().active_ui_text_color())
                     .finish(),
             )
             .with_height(height)
@@ -964,7 +964,7 @@ impl View for CodeEditorFind {
         }
     }
 
-    fn on_blur(&mut self, _blur_ctx: &warpui::BlurContext, ctx: &mut ViewContext<Self>) {
+    fn on_blur(&mut self, _blur_ctx: &galaxyui::BlurContext, ctx: &mut ViewContext<Self>) {
         // Check if the currently focused view is one of our child components
         let focused_view_id = ctx.focused_view_id(ctx.window_id());
         let is_focus_within_find_bar = [

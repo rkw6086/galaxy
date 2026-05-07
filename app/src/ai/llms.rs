@@ -4,9 +4,9 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, OnceLock},
 };
-use warp_core::ui::icons::Icon;
-use warp_core::user_preferences::GetUserPreferences;
-use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::user_preferences::GetUserPreferences;
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 
 use crate::{
     auth::{
@@ -630,6 +630,13 @@ impl LLMPreferences {
             .agent_mode
             .choices
             .retain(|m| m.provider != LLMProvider::Bedrock);
+        self.models_by_feature
+            .coding
+            .choices
+            .retain(|m| m.provider != LLMProvider::Bedrock);
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock);
+        }
 
         let settings = AISettings::as_ref(ctx);
         if !*settings.bedrock_enabled.value() {
@@ -671,7 +678,14 @@ impl LLMPreferences {
                 )]),
                 discount_percentage: None,
             };
-            self.models_by_feature.agent_mode.choices.push(llm_info);
+            self.models_by_feature
+                .agent_mode
+                .choices
+                .push(llm_info.clone());
+            self.models_by_feature.coding.choices.push(llm_info.clone());
+            if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                cli.choices.push(llm_info);
+            }
         }
     }
 

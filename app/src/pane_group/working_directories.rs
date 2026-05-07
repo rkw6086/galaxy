@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 #[cfg(feature = "local_fs")]
-use warpui::{AppContext, SingletonEntity as _};
-use warpui::{Entity, EntityId, ModelContext};
-use warpui::{ModelHandle, ViewHandle};
+use galaxyui::{AppContext, SingletonEntity as _};
+use galaxyui::{Entity, EntityId, ModelContext};
+use galaxyui::{ModelHandle, ViewHandle};
 
 #[cfg(feature = "local_fs")]
 use crate::code::file_tree::FileTreeView;

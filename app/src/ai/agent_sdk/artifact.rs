@@ -2,12 +2,12 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use warp_cli::agent::OutputFormat;
-use warp_cli::artifact::{
+use galaxy_cli::agent::OutputFormat;
+use galaxy_cli::artifact::{
     ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs,
 };
-use warp_cli::GlobalOptions;
-use warpui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
+use galaxy_cli::GlobalOptions;
+use galaxyui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
 
 use crate::ai::artifact_download::{download_artifact_bytes, download_destination};
 #[cfg(test)]
@@ -129,7 +129,7 @@ impl ArtifactCommandRunner {
     }
 }
 
-impl warpui::Entity for ArtifactCommandRunner {
+impl galaxyui::Entity for ArtifactCommandRunner {
     type Event = ();
 }
 

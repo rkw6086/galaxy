@@ -1,4 +1,4 @@
-use warpui::{elements::MouseStateHandle, Element};
+use galaxyui::{elements::MouseStateHandle, Element};
 
 use crate::{appearance::Appearance, terminal::view::TerminalAction};
 

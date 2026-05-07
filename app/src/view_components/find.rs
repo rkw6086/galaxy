@@ -11,16 +11,16 @@ use serde::Serialize;
 
 use crate::themes::theme::Fill;
 use pathfinder_color::ColorU;
-use warpui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, Shrinkable};
-use warpui::keymap::EditableBinding;
-use warpui::ui_components::components::UiComponent;
-pub use warpui::{
+use galaxyui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, Shrinkable};
+use galaxyui::keymap::EditableBinding;
+use galaxyui::ui_components::components::UiComponent;
+pub use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
     elements::{ParentElement as _, Stack},
     geometry::vector::vec2f,
     AppContext,
 };
-use warpui::{
+use galaxyui::{
     elements::{
         Align, Border, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         DropShadow, Element, Flex, Hoverable, MouseStateHandle, ParentAnchor, ParentOffsetBounds,
@@ -28,8 +28,8 @@ use warpui::{
     },
     Entity, SingletonEntity, TypedActionView, View,
 };
-use warpui::{presenter::ChildView, ViewContext, ViewHandle};
-use warpui::{FocusContext, ModelHandle};
+use galaxyui::{presenter::ChildView, ViewContext, ViewHandle};
+use galaxyui::{FocusContext, ModelHandle};
 
 pub const FIND_BAR_WIDTH: f32 = 500.;
 const ICON_PADDING: f32 = 4.;
@@ -125,7 +125,7 @@ pub enum FindAction {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_editable_bindings([
         EditableBinding::new(
@@ -359,7 +359,7 @@ impl<T: FindModel + Entity<Event = FindEvent> + 'static> Find<T> {
             };
             let icon = Container::new(
                 ConstrainedBox::new(
-                    icon.to_warpui_icon(appearance.theme().active_ui_text_color())
+                    icon.to_galaxyui_icon(appearance.theme().active_ui_text_color())
                         .finish(),
                 )
                 .with_height(size)
@@ -423,7 +423,7 @@ impl<T: FindModel + Entity<Event = FindEvent> + 'static> Find<T> {
             appearance.theme().active_ui_text_color()
         };
         Container::new(
-            ConstrainedBox::new(match_icon.to_warpui_icon(icon_color).finish())
+            ConstrainedBox::new(match_icon.to_galaxyui_icon(icon_color).finish())
                 .with_height(height)
                 .with_width(height)
                 .finish(),
@@ -450,7 +450,7 @@ impl<T: FindModel + Entity<Event = FindEvent> + 'static> Find<T> {
         Container::new(
             ConstrainedBox::new(
                 Icon::X
-                    .to_warpui_icon(appearance.theme().active_ui_text_color())
+                    .to_galaxyui_icon(appearance.theme().active_ui_text_color())
                     .finish(),
             )
             .with_height(height)

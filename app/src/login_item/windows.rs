@@ -10,8 +10,8 @@ use crate::report_if_error;
 use crate::terminal::general_settings::GeneralSettings;
 use ::settings::Setting;
 use std::path::{Path, PathBuf};
-use warp_core::channel::ChannelState;
-use warpui::{AppContext, SingletonEntity};
+use galaxy_core::channel::ChannelState;
+use galaxyui::{AppContext, SingletonEntity};
 use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
 use winreg::RegKey;
 

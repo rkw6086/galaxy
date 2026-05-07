@@ -3,7 +3,7 @@ use crate::{
     drive::{folders::CloudFolder, items::WarpDriveItemId, CloudObjectTypeAndId},
     ui_components::breadcrumb::Breadcrumb,
 };
-use warpui::AppContext;
+use galaxyui::AppContext;
 
 // Encapsulates an object that can contain other objects, and keeps
 // information necessary to show breadcrumbs.

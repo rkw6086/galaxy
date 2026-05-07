@@ -1,8 +1,8 @@
 use crate::ui_components::icons::Icon as UiIcon;
 use ordered_float::OrderedFloat;
 use std::sync::Arc;
-use warp_core::ui::builder;
-use warpui::{
+use galaxy_core::ui::builder;
+use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon,
         MainAxisAlignment, MainAxisSize, ParentElement, Shrinkable, Text,

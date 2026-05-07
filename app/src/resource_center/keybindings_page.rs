@@ -1,10 +1,10 @@
 use enum_iterator::{all, Sequence};
 use itertools::{Either, Itertools};
-use warpui::elements::CornerRadius;
-use warpui::presenter::ChildView;
-use warpui::units::Pixels;
-use warpui::FocusContext;
-use warpui::{
+use galaxyui::elements::CornerRadius;
+use galaxyui::presenter::ChildView;
+use galaxyui::units::Pixels;
+use galaxyui::FocusContext;
+use galaxyui::{
     elements::{
         Align, Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
         CrossAxisAlignment, Element, Fill, Flex, MainAxisSize, MouseStateHandle, ParentElement,
@@ -25,7 +25,7 @@ use crate::{
     util::bindings::filter_bindings_including_keystroke,
     workspace::WorkspaceAction,
 };
-use warpui::ModelHandle;
+use galaxyui::ModelHandle;
 
 use crate::{
     editor::{

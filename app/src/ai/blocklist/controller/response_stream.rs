@@ -5,7 +5,7 @@ use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use crate::{
     ai::{
@@ -121,15 +121,20 @@ impl ResponseStream {
         let request_id = Uuid::new_v4();
         let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
         let params_clone = params.clone();
-        let _ =
-            ctx.spawn(
-                async move {
-                    generate_multi_agent_output(server_api, bedrock_config, params_clone, cancellation_rx).await
-                },
-                move |me, stream, ctx| {
-                    me.handle_response_stream_result(request_id, stream, ctx);
-                },
-            );
+        let _ = ctx.spawn(
+            async move {
+                generate_multi_agent_output(
+                    server_api,
+                    bedrock_config,
+                    params_clone,
+                    cancellation_rx,
+                )
+                .await
+            },
+            move |me, stream, ctx| {
+                me.handle_response_stream_result(request_id, stream, ctx);
+            },
+        );
         Self {
             id: ResponseStreamId(Uuid::new_v4().to_string()),
             params: params.clone(),
@@ -188,7 +193,10 @@ impl ResponseStream {
         let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
         let server_api = ServerApiProvider::as_ref(ctx).get();
         let _ = ctx.spawn(
-            async move { generate_multi_agent_output(server_api, bedrock_config, params, cancellation_rx).await },
+            async move {
+                generate_multi_agent_output(server_api, bedrock_config, params, cancellation_rx)
+                    .await
+            },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
             },

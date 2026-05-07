@@ -1,6 +1,6 @@
-use warp_core::ui::theme::{Fill, WarpTheme};
-use warp_core::ui::Icon;
-use warpui::Element;
+use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::Icon;
+use galaxyui::Element;
 
 pub mod conversation_usage_view;
 
@@ -44,5 +44,5 @@ pub fn render_context_window_usage_icon(
         color_override.unwrap_or_else(|| theme.main_text_color(theme.background()))
     };
 
-    icon.to_warpui_icon(fill).finish()
+    icon.to_galaxyui_icon(fill).finish()
 }

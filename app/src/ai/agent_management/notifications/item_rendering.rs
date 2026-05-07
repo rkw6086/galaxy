@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
 use pathfinder_color::ColorU;
-use warp_core::ui::icons::Icon;
-use warp_core::ui::theme::{Fill, WarpTheme};
-use warpui::clipboard::ClipboardContent;
-use warpui::elements::{
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::{
     ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
     Element, EventHandler, Flex, MainAxisAlignment, MainAxisSize, ParentElement, Radius, Rect,
     Shrinkable,
 };
-use warpui::fonts::Weight;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::{View, ViewContext, ViewHandle};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{View, ViewContext, ViewHandle};
 
-use warp_core::ui::appearance::Appearance as CoreAppearance;
-use warp_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::appearance::Appearance as CoreAppearance;
+use galaxy_core::ui::theme::color::internal_colors;
 
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent_management::notifications::item::NotificationSourceAgent;
@@ -85,7 +85,7 @@ impl ActionButtonTheme for NotificationArtifactButtonTheme {
 }
 
 /// Callback invoked when the user clicks the expand/collapse affordance on a clamped message.
-pub(crate) type OnExpandClick = Box<dyn Fn(&mut warpui::EventContext)>;
+pub(crate) type OnExpandClick = Box<dyn Fn(&mut galaxyui::EventContext)>;
 
 /// Renders the inner content of a notification item.
 /// Dispatches to the rich layout (with branch row) or simple layout based on `item.branch`.
@@ -258,7 +258,7 @@ fn render_branch_label(branch: &str, appearance: &Appearance) -> Box<dyn Element
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(2.)
             .with_child(
-                ConstrainedBox::new(Icon::GitBranch.to_warpui_icon(color).finish())
+                ConstrainedBox::new(Icon::GitBranch.to_galaxyui_icon(color).finish())
                     .with_width(10.)
                     .with_height(10.)
                     .finish(),
@@ -339,7 +339,7 @@ fn render_expand_chevron(
         Icon::ChevronRight
     };
     let chevron = ConstrainedBox::new(
-        icon.to_warpui_icon(theme.disabled_text_color(theme.surface_1()))
+        icon.to_galaxyui_icon(theme.disabled_text_color(theme.surface_1()))
             .finish(),
     )
     .with_width(12.)

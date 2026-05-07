@@ -1,12 +1,12 @@
-use warpui::elements::{
+use galaxyui::elements::{
     Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle, ParentElement, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::platform::Cursor;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::ui_components::text::Span;
-use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::ui_components::text::Span;
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;

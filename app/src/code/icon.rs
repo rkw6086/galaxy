@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{CacheOption, Icon, Image},
     Element,

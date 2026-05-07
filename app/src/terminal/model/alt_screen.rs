@@ -32,10 +32,10 @@ use parking_lot::Mutex;
 use pathfinder_color::ColorU;
 use std::sync::Arc;
 use vec1::Vec1;
-use warp_core::semantic_selection::SemanticSelection;
-use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
-use warpui::text::SelectionType;
-use warpui::units::Lines;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
+use galaxyui::text::SelectionType;
+use galaxyui::units::Lines;
 
 pub struct AltScreen {
     grid_handler: GridHandler,

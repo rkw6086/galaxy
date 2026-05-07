@@ -1,7 +1,7 @@
 use ai::skills::SkillReference;
 use input_classifier::InputType;
-use warp_core::features::FeatureFlag;
-use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use crate::ai::blocklist::{BlocklistAIInputEvent, BlocklistAIInputModel};
 use crate::ai::skills::SkillManager;

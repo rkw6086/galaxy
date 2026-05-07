@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::{fs, io};
 use std::{io::Write as _, time::Duration};
 use tempfile::TempPath;
-use warp_core::channel::{Channel, ChannelState};
-use warpui::AppContext;
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxyui::AppContext;
 
 use super::{release_assets_directory_url, DownloadReady};
 use crate::util::windows::install_dir;
@@ -74,7 +74,7 @@ pub(super) async fn download_update_and_cleanup(
 const UPDATE_LOG_FILENAME: &str = "warp_update.log";
 
 fn autoupdate_log_file() -> Result<PathBuf> {
-    warp_logging::log_directory().map(|dir| dir.join(UPDATE_LOG_FILENAME))
+    galaxy_logging::log_directory().map(|dir| dir.join(UPDATE_LOG_FILENAME))
 }
 
 /// Checks the autoupdate log file from a previous update attempt.
@@ -254,11 +254,11 @@ fn installer_file_name() -> Result<String> {
 
 fn app_name_prefix(channel: Channel) -> &'static str {
     match channel {
-        Channel::Stable => "Warp",
-        Channel::Preview => "WarpPreview",
-        Channel::Local => "warp",
+        Channel::Stable => "GalaxyAI",
+        Channel::Preview => "GalaxyAIPreview",
+        Channel::Local => "galaxy-ai",
         Channel::Integration => "integration",
-        Channel::Dev => "WarpDev",
-        Channel::Oss => "warp-oss",
+        Channel::Dev => "GalaxyAIDev",
+        Channel::Oss => "galaxy-ai-oss",
     }
 }

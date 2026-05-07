@@ -2,15 +2,15 @@
 
 use fuzzy_match::FuzzyMatchResult;
 use ordered_float::OrderedFloat;
-use warp_core::ui::color::coloru_with_opacity;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::Icon;
-use warpui::elements::{ConstrainedBox, Container, Highlight, ParentElement, Shrinkable, Text};
-use warpui::fonts::{Properties, Style, Weight};
-use warpui::prelude::{Align, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize};
-use warpui::scene::{CornerRadius, Radius};
-use warpui::text_layout::ClipConfig;
-use warpui::{AppContext, Element, SingletonEntity};
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::{ConstrainedBox, Container, Highlight, ParentElement, Shrinkable, Text};
+use galaxyui::fonts::{Properties, Style, Weight};
+use galaxyui::prelude::{Align, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize};
+use galaxyui::scene::{CornerRadius, Radius};
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::{AppContext, Element, SingletonEntity};
 
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
 use crate::ai::agent::conversation::ConversationStatus;
@@ -76,7 +76,7 @@ impl SearchItem for ConversationSearchItem {
                     .theme()
                     .sub_text_color(appearance.theme().background());
                 Container::new(
-                    ConstrainedBox::new(Icon::History.to_warpui_icon(icon_color).finish())
+                    ConstrainedBox::new(Icon::History.to_galaxyui_icon(icon_color).finish())
                         .with_width(icon_size)
                         .with_height(icon_size)
                         .finish(),

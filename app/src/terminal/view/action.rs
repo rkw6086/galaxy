@@ -8,11 +8,11 @@ use command_corrections::Correction;
 use pathfinder_geometry::vector::Vector2F;
 use session_sharing_protocol::common::Role;
 use session_sharing_protocol::sharer::RoleUpdateReason;
-use warp_util::user_input::UserInput;
-use warpui::elements::HyperlinkUrl;
-use warpui::event::ModifiersState;
-use warpui::units::Lines;
-use warpui::EntityId;
+use galaxy_util::user_input::UserInput;
+use galaxyui::elements::HyperlinkUrl;
+use galaxyui::event::ModifiersState;
+use galaxyui::units::Lines;
+use galaxyui::EntityId;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;
@@ -281,7 +281,7 @@ pub enum TerminalAction {
     OpenCodeInWarp {
         path: PathBuf,
         layout: crate::util::file::external_editor::settings::EditorLayout,
-        line_col: Option<warp_util::path::LineAndColumnArg>,
+        line_col: Option<galaxy_util::path::LineAndColumnArg>,
     },
     OpenWorkflowModal,
     OpenWorkflowModalForAIWorkflow(Workflow),

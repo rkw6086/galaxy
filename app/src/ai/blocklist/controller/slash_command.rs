@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use warp_core::features::FeatureFlag;
-use warpui::{AppContext, ModelContext, SingletonEntity};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, ModelContext, SingletonEntity};
 
 use crate::{
     ai::{

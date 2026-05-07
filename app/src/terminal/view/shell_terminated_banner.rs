@@ -1,11 +1,11 @@
 use std::{borrow::Cow, cell::RefCell};
 
-use warp_core::ui::{
+use galaxy_core::ui::{
     appearance::Appearance,
     builder::UiBuilder,
     theme::{color::internal_colors, WarpTheme},
 };
-use warpui::{
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::*,
     text_layout::ClipConfig,
@@ -152,7 +152,7 @@ impl TerminationType {
         Container::new(
             ConstrainedBox::new(
                 icon_type
-                    .to_warpui_icon(appearance.theme().background())
+                    .to_galaxyui_icon(appearance.theme().background())
                     .finish(),
             )
             .with_width(ICON_SIZE)

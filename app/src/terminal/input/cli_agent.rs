@@ -11,11 +11,11 @@ use crate::{
     features::FeatureFlag,
     terminal::{cli_agent_sessions::CLIAgentSessionsModel, view::TerminalAction},
 };
-use warp_core::ui::{
+use galaxy_core::ui::{
     color::{contrast::MinimumAllowedContrast, ContrastingColor},
     theme::color::internal_colors,
 };
-use warpui::{
+use galaxyui::{
     elements::{
         Border, Clipped, ConstrainedBox, Container, DispatchEventResult, DropTarget, Element,
         EventHandler, Flex, Hoverable, ParentElement, SavePosition, Stack,

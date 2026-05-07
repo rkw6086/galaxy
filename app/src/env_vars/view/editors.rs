@@ -1,5 +1,5 @@
-use warp_editor::editor::NavigationKey;
-use warpui::{
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, Flex, ParentElement, SavePosition, Shrinkable, Stack,
     },

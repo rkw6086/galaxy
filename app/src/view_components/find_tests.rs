@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use warp_core::ui::appearance::Appearance;
-use warpui::{platform::WindowStyle, App};
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{platform::WindowStyle, App};
 
 use crate::auth::AuthStateProvider;
 use crate::server::server_api::{team::MockTeamClient, workspace::MockWorkspaceClient};
@@ -15,7 +15,7 @@ use super::{Find, FindDirection, FindEvent, FindModel};
 
 struct MockFindModel;
 
-impl warpui::Entity for MockFindModel {
+impl galaxyui::Entity for MockFindModel {
     type Event = FindEvent;
 }
 
@@ -26,7 +26,7 @@ impl FindModel for MockFindModel {
     fn match_count(&self) -> usize {
         0
     }
-    fn default_find_direction(&self, _app: &warpui::AppContext) -> FindDirection {
+    fn default_find_direction(&self, _app: &galaxyui::AppContext) -> FindDirection {
         FindDirection::Down
     }
 }

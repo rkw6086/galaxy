@@ -8,9 +8,9 @@
 #[cfg(feature = "local_fs")]
 use std::path::Path;
 
-use warp_core::HostId;
-use warp_util::standardized_path::StandardizedPath;
-use warpui::{AppContext, ModelContext, ModelHandle, SingletonEntity};
+use galaxy_core::HostId;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::{AppContext, ModelContext, ModelHandle, SingletonEntity};
 
 use crate::file_tree_store::FileTreeState;
 use crate::file_tree_update::RepoMetadataUpdate;
@@ -356,7 +356,7 @@ impl RepoMetadataModel {
     }
 }
 
-impl warpui::Entity for RepoMetadataModel {
+impl galaxyui::Entity for RepoMetadataModel {
     type Event = RepoMetadataEvent;
 }
 

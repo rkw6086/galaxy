@@ -19,13 +19,13 @@ use crate::input_suggestions::{
     LABEL_PADDING as InputSuggestionsLabelPadding,
 };
 use crate::themes::theme::WarpTheme;
-use warpui::elements::{
+use galaxyui::elements::{
     Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragBarSide,
     DropShadow, Element, Empty, Flex, ParentElement, Radius, Resizable, Shrinkable,
     SizeConstraintCondition, SizeConstraintSwitch, Text,
 };
-use warpui::presenter::ChildView;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 
 enum SuggestionsResizeConfig {
     WidthAndHeight,

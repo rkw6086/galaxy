@@ -34,10 +34,10 @@ use prost::Message;
 use referral::ReferralsClient;
 use team::TeamClient;
 use url::Url;
-use warp_core::context_flag::ContextFlag;
-use warp_core::errors::{register_error, AnyhowErrorExt, ErrorExt};
-use warp_managed_secrets::client::ManagedSecretsClient;
-use warpui::{r#async::BoxFuture, ModelContext};
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::errors::{register_error, AnyhowErrorExt, ErrorExt};
+use galaxy_managed_secrets::client::ManagedSecretsClient;
+use galaxyui::{r#async::BoxFuture, ModelContext};
 use workspace::WorkspaceClient;
 
 use crate::server::telemetry::TelemetryApi;
@@ -58,9 +58,9 @@ use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use warp_core::telemetry::TelemetryEvent;
-use warpui::Entity;
-use warpui::SingletonEntity;
+use galaxy_core::telemetry::TelemetryEvent;
+use galaxyui::Entity;
+use galaxyui::SingletonEntity;
 
 use super::experiments::ServerExperiment;
 use super::experiments::ServerExperiments;
@@ -401,7 +401,7 @@ pub struct ServerApi {
     // We technically use OAuth2 for headless device authentication.
     oauth_client: self::auth::OAuth2Client,
     /// Cached ambient workload token for requests from ambient agents.
-    ambient_workload_token: Arc<Mutex<Option<warp_isolation_platform::WorkloadToken>>>,
+    ambient_workload_token: Arc<Mutex<Option<galaxy_isolation_platform::WorkloadToken>>>,
     /// The ambient agent task ID for requests from cloud agents.
     ambient_agent_task_id: Arc<RwLock<Option<AmbientAgentTaskId>>>,
     /// The source of agent runs (e.g. CLI, GitHub Action). Set once at startup and immutable.
@@ -491,8 +491,9 @@ impl ServerApi {
     }
 
     fn create_oauth_client() -> self::auth::OAuth2Client {
-        let server_root =
-            Url::parse(&ChannelState::server_root_url()).expect("Server root URL must be valid");
+        let server_root_str = ChannelState::server_root_url();
+        let server_root = Url::parse(&server_root_str)
+            .unwrap_or_else(|_| Url::parse("http://localhost").unwrap());
 
         let token_url = server_root
             .join("/api/v1/oauth/token")
@@ -507,7 +508,7 @@ impl ServerApi {
             .set_device_authorization_url(oauth2::DeviceAuthorizationUrl::from_url(device_url))
     }
 
-    pub fn send_graphql_request<'a, QF, O: warp_graphql::client::Operation<QF> + Send + 'a>(
+    pub fn send_graphql_request<'a, QF, O: galaxy_graphql::client::Operation<QF> + Send + 'a>(
         &'a self,
         operation: O,
         timeout: Option<Duration>,
@@ -541,7 +542,7 @@ impl ServerApi {
                 headers.insert(name.to_string(), value);
             }
 
-            let options = warp_graphql::client::RequestOptions {
+            let options = galaxy_graphql::client::RequestOptions {
                 auth_token: auth_token.bearer_token(),
                 timeout,
                 headers,

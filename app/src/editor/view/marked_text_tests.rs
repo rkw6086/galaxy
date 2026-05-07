@@ -1,6 +1,6 @@
 use vim::vim::VimMode;
-use warp_core::features::FeatureFlag;
-use warpui::{keymap::Keystroke, platform::WindowStyle, App};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{keymap::Keystroke, platform::WindowStyle, App};
 
 use crate::editor::{DisplayPoint, EditorOptions, EditorView};
 

@@ -1,6 +1,6 @@
 use chrono::Utc;
 use serde_json::json;
-use warpui::telemetry::{Event, EventPayload};
+use galaxyui::telemetry::{Event, EventPayload};
 
 use super::*;
 

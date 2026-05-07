@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::io;
 
-use warp_terminal::model::ansi::control_sequence_parameters::*;
-use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
-use warpui::color::ColorU;
+use galaxy_terminal::model::ansi::control_sequence_parameters::*;
+use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
+use galaxyui::color::ColorU;
 
 use super::dcs_hooks::*;
 use super::ProcessorInput;

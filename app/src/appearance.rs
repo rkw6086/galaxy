@@ -1,5 +1,5 @@
 use settings::Setting as _;
-use warpui::{
+use galaxyui::{
     fonts::FamilyId, AddSingletonModel, AppContext, AssetProvider, Entity, ModelContext,
     SingletonEntity,
 };
@@ -12,8 +12,8 @@ mod macos_app_icon {
         base::{id, nil},
     };
     pub use objc::{class, msg_send, sel, sel_impl};
-    pub use warp_core::channel::{Channel, ChannelState};
-    pub use warpui::platform::mac::{make_nsstring, AutoreleasePoolGuard};
+    pub use galaxy_core::channel::{Channel, ChannelState};
+    pub use galaxyui::platform::mac::{make_nsstring, AutoreleasePoolGuard};
 
     pub use crate::settings::app_icon::{AppIcon, AppIconSettings, AppIconSettingsChangedEvent};
 }
@@ -31,7 +31,7 @@ use crate::{
 
 use anyhow::anyhow;
 
-pub use warp_core::ui::appearance::{Appearance, AppearanceEvent};
+pub use galaxy_core::ui::appearance::{Appearance, AppearanceEvent};
 
 /// Manages the state of the app-wide Appearance settings, it is responsible
 /// for 1) listening to settings changes and update the underlying Appearance
@@ -112,6 +112,22 @@ impl AppearanceManager {
                             appearance.set_ai_font_family(new_family, ctx)
                         });
                     }
+                }
+                FontSettingsChangedEvent::UIFontName { .. } => {
+                    let ui_font_name = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+                    let ui_font_family = load_default_ui_font_family(ctx)
+                        .expect("unable to load default ui font family");
+                    let ui_font_family_from_settings = if ui_font_name.is_empty() {
+                        None
+                    } else {
+                        get_or_load_font_family(&ui_font_name, ctx)
+                    };
+                    Appearance::handle(ctx).update(ctx, |appearance, ctx| {
+                        appearance.set_ui_font_family(
+                            ui_font_family_from_settings.unwrap_or(ui_font_family),
+                            ctx,
+                        )
+                    });
                 }
                 FontSettingsChangedEvent::MatchAIFontToTerminalFont { .. } => {
                     let settings = FontSettings::as_ref(ctx);
@@ -275,7 +291,7 @@ impl Entity for AppearanceManager {
 impl SingletonEntity for AppearanceManager {}
 
 fn load_default_monospace_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
-    warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
+    galaxyui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
         let default_monospace_font_family = font_cache.load_family_from_bytes(
             "Hack",
             vec![
@@ -302,7 +318,7 @@ fn load_default_monospace_font_family(ctx: &mut AppContext) -> anyhow::Result<Fa
 }
 
 fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
-    warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
+    galaxyui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
         let roboto = font_cache.load_family_from_bytes(
             "Roboto",
             vec![
@@ -339,7 +355,7 @@ fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId>
 }
 
 fn load_password_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
-    warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
+    galaxyui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
         font_cache.load_family_from_bytes(
             "PasswordCircle",
             vec![ASSETS.get("bundled/fonts/password.ttf")?.to_vec()],
@@ -359,10 +375,10 @@ fn get_or_load_font_family(_font_name: &str, _ctx: &mut AppContext) -> Option<Fa
 /// the font cache in case we are using a pre-bundled font like Hack.
 /// Then we fall back to loading a system font.
 fn get_or_load_font_family(font_name: &str, ctx: &mut AppContext) -> Option<FamilyId> {
-    warpui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
+    galaxyui::fonts::Cache::handle(ctx).update(ctx, |font_cache, _| {
         match font_cache.get_or_load_system_font(font_name) {
             Ok(family) => {
-                let font_id = font_cache.select_font(family, warpui::fonts::Properties::default());
+                let font_id = font_cache.select_font(family, galaxyui::fonts::Properties::default());
 
                 // Validate that the font contains the `m` glyph since this is assumed in
                 // various parts of the code. We already do this when surfacing fonts in the font
@@ -401,6 +417,12 @@ fn build_appearance(ctx: &mut AppContext) -> Appearance {
 
     let ui_font_family =
         load_default_ui_font_family(ctx).expect("unable to load default ui font family");
+    let ui_font_name = FontSettings::as_ref(ctx).ui_font_name.value().clone();
+    let ui_font_family_from_settings = if ui_font_name.is_empty() {
+        None
+    } else {
+        get_or_load_font_family(&ui_font_name, ctx)
+    };
 
     let am_font_family_from_settings = get_or_load_font_family(&am_font_name, ctx);
 
@@ -423,7 +445,7 @@ fn build_appearance(ctx: &mut AppContext) -> Appearance {
         monospace_font_family_from_settings.unwrap_or(default_monospace_font_family),
         monospace_font_size,
         monospace_font_weight,
-        ui_font_family,
+        ui_font_family_from_settings.unwrap_or(ui_font_family),
         line_height_ratio,
         am_font_family_from_settings.unwrap_or(default_monospace_font_family),
         password_font_family,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use warp_util::path::LineAndColumnArg;
+use galaxy_util::path::LineAndColumnArg;
 
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
@@ -32,11 +32,11 @@ use crate::workspace::PaneViewLocator;
 use session_sharing_protocol::common::SessionId;
 
 use ui_components::lightbox;
-use warpui::accessibility::AccessibilityVerbosity;
-use warpui::geometry::rect::RectF;
-use warpui::geometry::vector::Vector2F;
-use warpui::platform::Cursor;
-use warpui::{EntityId, WeakViewHandle, WindowId};
+use galaxyui::accessibility::AccessibilityVerbosity;
+use galaxyui::geometry::rect::RectF;
+use galaxyui::geometry::vector::Vector2F;
+use galaxyui::platform::Cursor;
+use galaxyui::{EntityId, WeakViewHandle, WindowId};
 
 use super::global_actions::{ForkFromExchange, ForkedConversationDestination};
 use super::tab_settings::{

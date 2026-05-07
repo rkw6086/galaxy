@@ -1,4 +1,4 @@
-use warpui::elements::{DraggableState, MouseStateHandle};
+use galaxyui::elements::{DraggableState, MouseStateHandle};
 
 use super::FileTreeItem;
 use crate::code::icon_from_file_path;

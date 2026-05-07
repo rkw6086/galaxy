@@ -10,11 +10,11 @@ use sha2::Digest;
 use std::path::{Path, PathBuf};
 use std::{env, fs, process::Command};
 use walkdir::WalkDir;
-use warp_util::assets::{
+use galaxy_util::assets::{
     ASSETS_DIR, ASYNC_ASSETS_DIR, CONPTY_DLL_FILE, DXCOMPILER_DLL_FILE, DXIL_DLL_FILE,
     OPEN_CONSOLE_EXE_FILE, REMOTE_ASSETS_DIR, WINDOWS_ASSETS_DIR,
 };
-use warp_util::path::app_target_dir;
+use galaxy_util::path::app_target_dir;
 
 fn main() -> Result<()> {
     cfg_aliases! {
@@ -385,7 +385,7 @@ fn copy_async_assets() {
                 let mut hasher = sha2::Sha256::new();
                 hasher.update(&contents);
                 let hash: [u8; 32] = hasher.finalize().into();
-                let new_relative_path = warp_util::assets::hashed_asset_path(
+                let new_relative_path = galaxy_util::assets::hashed_asset_path(
                     asset_path
                         .strip_prefix(&asset_dir)
                         .expect("asset in unexpected location"),
@@ -496,13 +496,13 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",      "Denver Technologies, Inc\0"
+            VALUE "CompanyName",      "Samsung Electronics of America, Inc."
             VALUE "FileDescription",  "{app_name}\0"
             VALUE "FileVersion",      "{version}\0"
-            VALUE "LegalCopyright",   "© 2025, Denver Technologies, Inc\0"
+            VALUE "LegalCopyright",   "© 2026, Samsung Electronics Co., Ltd.\0"
             VALUE "InternalName",     "\0"
             VALUE "OriginalFilename", "\0"
-            VALUE "ProductName",      "Warp\0"
+            VALUE "ProductName",      "Galaxy AI\0"
             VALUE "ProductVersion",   "{version}\0"
         END
     END

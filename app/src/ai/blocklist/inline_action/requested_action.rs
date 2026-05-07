@@ -16,13 +16,13 @@ use markdown_parser::FormattedTextLine;
 use pathfinder_color::ColorU;
 use std::borrow::Cow;
 use std::rc::Rc;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::color::internal_colors::neutral_2;
-use warpui::elements::Align;
-use warpui::elements::Clipped;
-use warpui::elements::FormattedTextElement;
-use warpui::fonts::FamilyId;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors::neutral_2;
+use galaxyui::elements::Align;
+use galaxyui::elements::Clipped;
+use galaxyui::elements::FormattedTextElement;
+use galaxyui::fonts::FamilyId;
+use galaxyui::{
     elements::{
         Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
         Hoverable, MainAxisAlignment, MouseStateHandle, ParentElement, Radius, Shrinkable,

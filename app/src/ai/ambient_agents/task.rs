@@ -3,17 +3,17 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use warp_cli::agent::Harness;
-use warp_core::report_error;
-use warp_core::ui::theme::WarpTheme;
-use warpui::color::ColorU;
+use galaxy_cli::agent::Harness;
+use galaxy_core::report_error;
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::color::ColorU;
 
 use crate::ai::artifacts::{deserialize_artifacts, Artifact};
 use crate::server::server_api::ServerApiProvider;
 use crate::ui_components::icons::Icon;
 use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
-use warpui::{SingletonEntity, View, ViewContext};
+use galaxyui::{SingletonEntity, View, ViewContext};
 
 use super::AmbientAgentTaskId;
 

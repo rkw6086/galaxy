@@ -1,8 +1,8 @@
 use pathfinder_geometry::vector::Vector2F;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use warpui::prelude::Align;
-use warpui::{
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
+use galaxyui::prelude::Align;
+use galaxyui::{
     elements::{
         Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
         FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,

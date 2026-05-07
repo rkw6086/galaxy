@@ -4,12 +4,12 @@ use std::time::Duration;
 
 use async_channel::Sender;
 use string_offset::ByteOffset;
-use warp_completer::completer::SuggestionTypeName;
-use warp_completer::signatures::CommandRegistry;
-use warp_core::ui::theme::AnsiColorIdentifier;
-use warpui::r#async::SpawnedFutureHandle;
-use warpui::ViewHandle;
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxy_completer::completer::SuggestionTypeName;
+use galaxy_completer::signatures::CommandRegistry;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::ViewHandle;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;

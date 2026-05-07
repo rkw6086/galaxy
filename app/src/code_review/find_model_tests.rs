@@ -20,22 +20,22 @@ use repo_metadata::repositories::DetectedRepositories;
 use std::path::PathBuf;
 use std::sync::Arc;
 use string_offset::CharOffset;
-use warp_core::ui::appearance::Appearance;
-use warp_editor::content::buffer::InitialBufferState;
-use warp_editor::render::element::VerticalExpansionBehavior;
-use warpui::elements::Empty;
-use warpui::platform::WindowStyle;
-use warpui::{App, Element as _, ModelHandle, ViewHandle};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_editor::content::buffer::InitialBufferState;
+use galaxy_editor::render::element::VerticalExpansionBehavior;
+use galaxyui::elements::Empty;
+use galaxyui::platform::WindowStyle;
+use galaxyui::{App, Element as _, ModelHandle, ViewHandle};
 
 #[derive(Default)]
 struct TestView;
 
-impl warpui::Entity for TestView {
+impl galaxyui::Entity for TestView {
     type Event = ();
 }
 
-impl warpui::View for TestView {
-    fn render(&self, _: &warpui::AppContext) -> Box<dyn warpui::Element> {
+impl galaxyui::View for TestView {
+    fn render(&self, _: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         Empty::new().finish()
     }
 
@@ -44,7 +44,7 @@ impl warpui::View for TestView {
     }
 }
 
-impl warpui::TypedActionView for TestView {
+impl galaxyui::TypedActionView for TestView {
     type Action = ();
 }
 

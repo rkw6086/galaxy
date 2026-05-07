@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use crate::util::sync::Condition;
 

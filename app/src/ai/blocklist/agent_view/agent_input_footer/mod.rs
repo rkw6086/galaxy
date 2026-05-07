@@ -56,7 +56,7 @@ use crate::{
     workspaces::user_workspaces::UserWorkspaces,
 };
 use toolbar_item::AgentToolbarItemKind;
-use warp_cli::agent::Harness;
+use galaxy_cli::agent::Harness;
 
 use std::sync::Arc;
 
@@ -83,7 +83,7 @@ use tokio::fs;
 #[cfg(feature = "voice_input")]
 use voice_input::{StartListeningError, VoiceSessionResult};
 
-use warp_core::{
+use galaxy_core::{
     context_flag::ContextFlag,
     report_if_error,
     ui::{
@@ -92,8 +92,8 @@ use warp_core::{
     },
 };
 #[cfg(feature = "voice_input")]
-use warpui::r#async::SpawnedFutureHandle;
-use warpui::{
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::{
     elements::{
         Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
         CrossAxisAlignment, DispatchEventResult, Element, EventHandler, Expanded, Flex,
@@ -106,7 +106,7 @@ use warpui::{
 };
 
 #[cfg(not(target_family = "wasm"))]
-use warpui::r#async::Timer;
+use galaxyui::r#async::Timer;
 
 pub(crate) use self::environment_selector::{EnvironmentSelector, EnvironmentSelectorEvent};
 #[cfg(not(target_family = "wasm"))]
@@ -874,7 +874,7 @@ impl AgentInputFooter {
     fn select_cli_file(&mut self, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         let view_id = ctx.view_id();
-        let file_picker_config = warpui::platform::FilePickerConfiguration::new();
+        let file_picker_config = galaxyui::platform::FilePickerConfiguration::new();
 
         ctx.open_file_picker(
             move |result, ctx| match result {
@@ -1364,7 +1364,7 @@ impl AgentInputFooter {
                     .unwrap_or_else(|| appearance.theme().foreground().into_solid());
                 left_buttons.add_child(
                     Container::new(
-                        ConstrainedBox::new(icon.to_warpui_icon(Fill::Solid(icon_color)).finish())
+                        ConstrainedBox::new(icon.to_galaxyui_icon(Fill::Solid(icon_color)).finish())
                             .with_width(cli_icon_size)
                             .with_height(cli_icon_size)
                             .finish(),
@@ -1571,8 +1571,8 @@ impl AgentInputFooter {
         // For key-based toggling, validate the key state against current voice state.
         if let voice_input::VoiceInputToggledFrom::Key { state } = source {
             match (&self.cli_voice_input_state, state) {
-                (CLIVoiceInputState::Stopped, warpui::event::KeyState::Released) => return,
-                (CLIVoiceInputState::Listening, warpui::event::KeyState::Pressed) => return,
+                (CLIVoiceInputState::Stopped, galaxyui::event::KeyState::Released) => return,
+                (CLIVoiceInputState::Listening, galaxyui::event::KeyState::Pressed) => return,
                 _ => {}
             }
         }
@@ -1936,7 +1936,7 @@ impl View for AgentInputFooter {
         "AgentViewFooter"
     }
 
-    fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         if self.should_render_cloud_mode_v2(app) {
             return self.render_cloud_mode_v2_footer(app);
         }
@@ -2098,7 +2098,7 @@ fn render_ftu_callout(
         .with_child(
             ConstrainedBox::new(
                 Icon::CalloutTriangleBorderDown
-                    .to_warpui_icon(Fill::Solid(theme.accent().into_solid()))
+                    .to_galaxyui_icon(Fill::Solid(theme.accent().into_solid()))
                     .finish(),
             )
             .with_width(24.)
@@ -2108,7 +2108,7 @@ fn render_ftu_callout(
         .with_child(
             ConstrainedBox::new(
                 Icon::CalloutTriangleFillDown
-                    .to_warpui_icon(background)
+                    .to_galaxyui_icon(background)
                     .finish(),
             )
             .with_width(24.)
@@ -2155,7 +2155,7 @@ pub enum AgentInputFooterAction {
 impl TypedActionView for AgentInputFooter {
     type Action = AgentInputFooterAction;
 
-    fn handle_action(&mut self, action: &Self::Action, ctx: &mut warpui::ViewContext<Self>) {
+    fn handle_action(&mut self, action: &Self::Action, ctx: &mut galaxyui::ViewContext<Self>) {
         match action {
             #[cfg(feature = "voice_input")]
             AgentInputFooterAction::ToggleVoiceInput => {
@@ -2433,10 +2433,10 @@ impl ActionButtonTheme for AgentInputButtonTheme {
         true
     }
 
-    fn font_properties(&self) -> Option<warpui::fonts::Properties> {
+    fn font_properties(&self) -> Option<galaxyui::fonts::Properties> {
         if crate::features::FeatureFlag::CloudModeInputV2.is_enabled() {
-            Some(warpui::fonts::Properties {
-                weight: warpui::fonts::Weight::Semibold,
+            Some(galaxyui::fonts::Properties {
+                weight: galaxyui::fonts::Weight::Semibold,
                 ..Default::default()
             })
         } else {
@@ -2478,7 +2478,7 @@ impl ActionButtonTheme for ActiveMicButtonTheme {
         true
     }
 
-    fn font_properties(&self) -> Option<warpui::fonts::Properties> {
+    fn font_properties(&self) -> Option<galaxyui::fonts::Properties> {
         AgentInputButtonTheme.font_properties()
     }
 }

@@ -1,19 +1,19 @@
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
-use warpui::assets::asset_cache::AssetSource;
-use warpui::elements::{
+use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::elements::{
     CacheOption, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Expanded, Flex, Image, MainAxisSize, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, Stack, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::Element;
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::Element;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::ActionButton;
 
-use warpui::ViewHandle;
+use galaxyui::ViewHandle;
 
 const BANNER_WIDTH: f32 = 420.;
 const HERO_HEIGHT: f32 = 92.;
@@ -114,7 +114,7 @@ pub fn render_welcome_banner(
     for item in FEATURE_ITEMS {
         let icon_el = ConstrainedBox::new(
             item.icon
-                .to_warpui_icon(Fill::Solid(PhenomenonStyle::modal_feature_title_text()))
+                .to_galaxyui_icon(Fill::Solid(PhenomenonStyle::modal_feature_title_text()))
                 .finish(),
         )
         .with_width(16.)

@@ -26,19 +26,19 @@ use std::{
     ops::Range,
     sync::Arc,
 };
-use warp_completer::completer::Description;
-use warpui::text::point::Point;
+use galaxy_completer::completer::Description;
+use galaxyui::text::point::Point;
 
 use string_offset::ByteOffset;
 
-use warpui::fonts::{FamilyId, Properties};
-use warpui::platform::LineStyle;
-use warpui::text_layout::{
+use galaxyui::fonts::{FamilyId, Properties};
+use galaxyui::platform::LineStyle;
+use galaxyui::text_layout::{
     default_compute_baseline_position_fn, ClipConfig, ComputeBaselinePositionFn, StyleAndFont,
     TextAlignment, TextStyle, DEFAULT_TOP_BOTTOM_RATIO,
 };
-use warpui::EntityId;
-use warpui::{
+use galaxyui::EntityId;
+use galaxyui::{
     fonts::Cache as FontCache,
     text_layout::{self, LayoutCache},
     AppContext, ModelHandle,

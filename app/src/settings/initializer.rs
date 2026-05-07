@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use warp_core::{features::FeatureFlag, settings::Setting};
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxy_core::{features::FeatureFlag, settings::Setting};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use crate::settings::{AISettings, FontSettings, ThinkingDisplayMode};
 use crate::{
@@ -132,7 +132,7 @@ impl SettingsInitializer {
         //
         // TODO(jefflloyd): Remove this approximately 6 weeks from 3/19/26.
         {
-            use warp_core::user_preferences::GetUserPreferences as _;
+            use galaxy_core::user_preferences::GetUserPreferences as _;
 
             AISettings::handle(ctx).update(ctx, |ai_settings, ctx| {
                 // If the new setting already has a value in preferences, the

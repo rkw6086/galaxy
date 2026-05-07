@@ -11,14 +11,14 @@ use crate::ui_components::icons::Icon as UiIcon;
 use crate::workspace::WorkspaceAction;
 use channel_versions::overrides::TargetOS;
 use parking_lot::RwLock;
-use warp_core::semantic_selection::SemanticSelection;
-use warp_core::ui::theme::WarpTheme;
-use warpui::elements::{
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::elements::{
     CrossAxisAlignment, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, SelectableArea,
     SelectionHandle, Text,
 };
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{
     elements::{Border, Container, Flex, ParentElement},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };

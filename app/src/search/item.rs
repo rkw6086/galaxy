@@ -1,6 +1,6 @@
 use ordered_float::OrderedFloat;
-use warp_core::ui::theme::Fill;
-use warpui::{Action, AppContext, Element};
+use galaxy_core::ui::theme::Fill;
+use galaxyui::{Action, AppContext, Element};
 
 use crate::appearance::Appearance;
 

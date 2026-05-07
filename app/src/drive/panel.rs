@@ -1,5 +1,5 @@
 use futures::Future;
-use warpui::{
+use galaxyui::{
     elements::{Align, Flex, Hoverable, MouseStateHandle, ParentElement, SavePosition, Shrinkable},
     presenter::ChildView,
     windowing::{StateEvent, WindowManager},
@@ -683,7 +683,7 @@ impl View for DrivePanel {
         }
     }
 
-    fn render(&self, _app: &warpui::AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, _app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         let body = Hoverable::new(
             self.mouse_state_handles.focus_panel_mouse_state.clone(),
             |_| {
@@ -705,7 +705,7 @@ impl View for DrivePanel {
 
         let mut col = Flex::column();
         col.add_child(Shrinkable::new(1., body).finish());
-        col.with_main_axis_size(warpui::elements::MainAxisSize::Max)
+        col.with_main_axis_size(galaxyui::elements::MainAxisSize::Max)
             .finish()
     }
 }

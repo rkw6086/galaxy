@@ -14,13 +14,13 @@ use fuzzy_match::FuzzyMatchResult;
 use ordered_float::OrderedFloat;
 use pathfinder_color::ColorU;
 use std::sync::Arc;
-use warpui::elements::{
+use galaxyui::elements::{
     Align, ConstrainedBox, Container, Flex, Highlight, ParentElement, Shrinkable, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::keymap::{DescriptionContext, Keystroke};
-use warpui::ui_components::components::UiComponent;
-use warpui::{AppContext, Element, SingletonEntity};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::{DescriptionContext, Keystroke};
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{AppContext, Element, SingletonEntity};
 
 /// A matched binding from a search query.
 #[derive(Debug)]

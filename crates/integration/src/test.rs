@@ -75,7 +75,7 @@ use pathfinder_geometry::{rect::RectF, vector::Vector2F};
 use rust_embed::RustEmbed;
 use settings::Setting as _;
 use shell::ShellType;
-use warpui::{
+use galaxyui::{
     async_assert, async_assert_eq,
     integration::{AssertionOutcome, StepData, TestStep},
     keymap::{Keystroke, Trigger},
@@ -84,11 +84,11 @@ use warpui::{
     AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle,
 };
 
-use warp::{terminal::find::TerminalFindModel, util::bindings::CustomAction, AgentModeEntrypoint};
+use galaxy::{terminal::find::TerminalFindModel, util::bindings::CustomAction, AgentModeEntrypoint};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use version_compare::Cmp;
-use warpui::units::Lines;
+use galaxyui::units::Lines;
 
 use crate::util::{skip_if_powershell_core_2303, ShellRcType};
 
@@ -96,19 +96,19 @@ use crate::builder::cargo_target_tmpdir;
 use crate::user_defaults;
 use crate::Builder;
 use sum_tree::SeekBias;
-use warp::integration_testing::terminal::assert_focused_editor_in_tab;
-use warp::integration_testing::{
+use galaxy::integration_testing::terminal::assert_focused_editor_in_tab;
+use galaxy::integration_testing::{
     settings::assert_theme_chooser_contains,
     tab::{assert_pane_title, assert_tab_title},
 };
-use warp::settings::CtrlTabBehavior;
-use warp::terminal::keys_settings::KeysSettings;
-use warp::terminal::{
+use galaxy::settings::CtrlTabBehavior;
+use galaxy::terminal::keys_settings::KeysSettings;
+use galaxy::terminal::{
     model::{blocks::BlockHeightSummary, terminal_model::BlockIndex},
     view::TerminalViewState,
 };
-use warp::workflows::categories::CategoriesView;
-use warp::{
+use galaxy::workflows::categories::CategoriesView;
+use galaxy::{
     appearance::Appearance,
     cmd_or_ctrl_shift,
     integration_testing::{
@@ -168,8 +168,8 @@ use warp::{
     },
 };
 
-use warp::terminal::view::ALIAS_EXPANSION_BANNER_SEEN_KEY;
-use warp::{
+use galaxy::terminal::view::ALIAS_EXPANSION_BANNER_SEEN_KEY;
+use galaxy::{
     features::FeatureFlag,
     integration_testing::{
         find::{Find, FindWithinBlockState},
@@ -180,13 +180,13 @@ use warp::{
         window::add_and_save_window,
     },
 };
-use warp::{
+use galaxy::{
     integration_testing::warp_drive::{
         assert_is_left_panel_open, assert_warp_drive_is_closed, assert_warp_drive_is_open,
     },
     settings::CompletionsOpenWhileTyping,
 };
-use warp::{
+use galaxy::{
     integration_testing::{
         self,
         input::{input_contains_string, input_is_empty},
@@ -196,11 +196,11 @@ use warp::{
     },
     settings::MonospaceFontSize,
 };
-use warp::{
+use galaxy::{
     integration_testing::{assertions::join_a_workspace, view_getters::single_terminal_view},
     terminal::view::TerminalAction,
 };
-use warp::{
+use galaxy::{
     integration_testing::{
         command_palette::{
             close_command_palette, open_command_palette, open_command_palette_and_run_action,
@@ -210,11 +210,11 @@ use warp::{
     },
     pane_group::AGENT_MODE_PANE_DEFAULT_MINIMUM_WIDTH,
 };
-use warp::{
+use galaxy::{
     integration_testing::{terminal::util::ExactLine, workspace::assert_tab_count},
     terminal::available_shells::AvailableShells,
 };
-use warp::{
+use galaxy::{
     integration_testing::{
         terminal::{
             assert_active_block_output, assert_alt_grid_active, assert_alt_screen_output,
@@ -225,8 +225,8 @@ use warp::{
     },
     workspace::WorkspaceAction,
 };
-use warp::{settings_view::SettingsAction, terminal::block_list_viewport::ScrollLines};
-use warp::{
+use galaxy::{settings_view::SettingsAction, terminal::block_list_viewport::ScrollLines};
+use galaxy::{
     settings_view::{keybindings::KeybindingsView, SettingsSection, SettingsView},
     terminal::{
         input::{Input, InputSuggestionsMode},
@@ -239,9 +239,9 @@ use warp::{
     },
     workspace::{Workspace, NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID},
 };
-use warpui::event::KeyState;
-use warpui::keymap::PerPlatformKeystroke;
-use warpui::platform::keyboard::KeyCode;
+use galaxyui::event::KeyState;
+use galaxyui::keymap::PerPlatformKeystroke;
+use galaxyui::platform::keyboard::KeyCode;
 
 const ADD_NEXT_OCCURRENCE_KEYBINDING: &str = "ctrl-g";
 
@@ -270,7 +270,7 @@ fn new_builder() -> Builder {
 pub fn test_add_workflows_to_warp_config() -> Builder {
     new_builder()
         .with_setup(move |utils| {
-            utils.set_env("WARP_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
+            utils.set_env("GALAXY_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
 
             std::fs::create_dir_all(integration_testing::workflow::workflows_dir())
                 .expect("Should be able to create workflows dir");
@@ -324,7 +324,7 @@ pub fn test_add_workflows_to_warp_config() -> Builder {
 pub fn test_launch_warp_with_theme_in_warp_config() -> Builder {
     new_builder()
         .with_setup(move |utils| {
-            utils.set_env("WARP_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
+            utils.set_env("GALAXY_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
 
             integration_testing::create_file_from_assets(
                 TEST_ONLY_ASSETS,
@@ -340,7 +340,7 @@ pub fn test_launch_warp_with_theme_in_warp_config() -> Builder {
 pub fn test_add_theme_to_warp_config() -> Builder {
     new_builder()
         .with_setup(move |utils| {
-            utils.set_env("WARP_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
+            utils.set_env("GALAXY_CONFIG_WATCHER_DELAY_MS", Some((10).to_string()));
 
             std::fs::create_dir_all(integration_testing::themes::themes_dir())
                 .expect("Should be able to create themes dir");
@@ -2053,7 +2053,7 @@ pub fn test_add_and_close_session() -> Builder {
                                     .expect("pane at index 0 is a terminal pane")
                                     .as_ref(ctx)
                                     .as_any()
-                                    .downcast_ref::<warp::terminal::local_tty::TerminalManager>()
+                                    .downcast_ref::<galaxy::terminal::local_tty::TerminalManager>()
                                     .expect("terminal pane at index 0 contains a local session")
                                     .pid()
                                     .expect("shell should be spawned")
@@ -3419,14 +3419,14 @@ pub fn test_warp_auto_title_disabled() -> Builder {
             write_rc_files_for_test(
                 &dir,
                 r#"
-WARP_DISABLE_AUTO_TITLE="1"
+GALAXY_DISABLE_AUTO_TITLE="1"
 "#,
                 [ShellRcType::Bash],
             );
             write_rc_files_for_test(
                 &dir,
                 r#"
-WARP_DISABLE_AUTO_TITLE="true"
+GALAXY_DISABLE_AUTO_TITLE="true"
 "#,
                 [ShellRcType::Zsh],
             );

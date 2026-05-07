@@ -1,6 +1,6 @@
-use warp_core::ui::Icon;
-use warpui::assets::asset_cache::AssetSource;
-use warpui::elements::MouseStateHandle;
+use galaxy_core::ui::Icon;
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::elements::MouseStateHandle;
 
 use super::{ChipHorizontalAlignment, MessageItem};
 

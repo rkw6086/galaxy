@@ -1,9 +1,9 @@
 use settings::Setting;
-use warp_core::send_telemetry_from_ctx;
-use warp_core::ui::{appearance::Appearance, Icon};
-use warpui::prelude::Empty;
-use warpui::AppContext;
-use warpui::{
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::{appearance::Appearance, Icon};
+use galaxyui::prelude::Empty;
+use galaxyui::AppContext;
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisSize,
         MouseStateHandle, ParentElement, Shrinkable, Text,
@@ -132,7 +132,7 @@ impl AmbientAgentEntryBlock {
         &self,
         appearance: &Appearance,
         app: &AppContext,
-    ) -> Box<dyn warpui::Element> {
+    ) -> Box<dyn galaxyui::Element> {
         let theme = appearance.theme();
 
         let view_model = self.ambient_agent_view_model(app);
@@ -155,7 +155,7 @@ impl AmbientAgentEntryBlock {
         };
 
         Container::new(
-            ConstrainedBox::new(icon.to_warpui_icon(color.into()).finish())
+            ConstrainedBox::new(icon.to_galaxyui_icon(color.into()).finish())
                 .with_width(STATUS_ICON_SIZE)
                 .with_height(STATUS_ICON_SIZE)
                 .finish(),
@@ -191,7 +191,7 @@ impl View for AmbientAgentEntryBlock {
                 )
                 .with_color(theme.main_text_color(theme.background()).into_solid())
                 .with_style(Properties {
-                    weight: warpui::fonts::Weight::Bold,
+                    weight: galaxyui::fonts::Weight::Bold,
                     ..Default::default()
                 })
                 .soft_wrap(false)
@@ -232,7 +232,7 @@ impl View for AmbientAgentEntryBlock {
             .with_child(
                 ConstrainedBox::new(
                     Icon::ChevronRight
-                        .to_warpui_icon(theme.sub_text_color(theme.background()))
+                        .to_galaxyui_icon(theme.sub_text_color(theme.background()))
                         .finish(),
                 )
                 .with_height(20.)

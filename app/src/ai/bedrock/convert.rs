@@ -15,16 +15,19 @@ pub struct ConvertedRequest {
     pub tool_config: Option<ToolConfiguration>,
 }
 
+#[derive(Clone)]
 pub struct ConversationMessage {
     pub role: MessageRole,
     pub content: MessageContent,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum MessageRole {
     User,
     Assistant,
 }
 
+#[derive(Clone, Debug)]
 pub enum MessageContent {
     Text(String),
     ToolUse {
@@ -40,6 +43,7 @@ pub enum MessageContent {
     MultiPart(Vec<ContentPart>),
 }
 
+#[derive(Clone, Debug)]
 pub enum ContentPart {
     Text(String),
     ToolUse {
@@ -54,6 +58,7 @@ pub enum ContentPart {
     },
 }
 
+#[derive(Clone)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -96,9 +101,7 @@ fn json_to_document(value: JsonValue) -> Document {
             }
         }
         JsonValue::String(s) => Document::String(s),
-        JsonValue::Array(arr) => {
-            Document::Array(arr.into_iter().map(json_to_document).collect())
-        }
+        JsonValue::Array(arr) => Document::Array(arr.into_iter().map(json_to_document).collect()),
         JsonValue::Object(obj) => {
             let map: HashMap<String, Document> = obj
                 .into_iter()

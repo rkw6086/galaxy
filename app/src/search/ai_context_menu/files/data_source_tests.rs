@@ -17,11 +17,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::tempdir;
-use warpui::platform::WindowStyle;
-use warpui::r#async::block_on;
-use warpui::windowing::WindowManager;
-use warpui::SingletonEntity;
-use warpui::{elements::Empty, App, AppContext, Element, Entity, TypedActionView, View};
+use galaxyui::platform::WindowStyle;
+use galaxyui::r#async::block_on;
+use galaxyui::windowing::WindowManager;
+use galaxyui::SingletonEntity;
+use galaxyui::{elements::Empty, App, AppContext, Element, Entity, TypedActionView, View};
 struct TestView;
 
 impl Entity for TestView {

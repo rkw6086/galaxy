@@ -9,7 +9,7 @@
 mod warpify;
 
 pub use warpify::*;
-use warpui::{
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, Hoverable, MouseState, MouseStateHandle,
         ParentElement, Radius, Stack,

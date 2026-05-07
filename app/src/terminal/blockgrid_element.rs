@@ -6,12 +6,12 @@ use crate::terminal::model::grid::Dimensions;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::{color, SizeInfo};
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use warpui::elements::{
+use galaxyui::elements::{
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext, Point,
     SizeConstraint,
 };
-use warpui::event::DispatchedEvent;
-use warpui::geometry::rect::RectF;
+use galaxyui::event::DispatchedEvent;
+use galaxyui::geometry::rect::RectF;
 
 use super::blockgrid_renderer::GridRenderParams;
 

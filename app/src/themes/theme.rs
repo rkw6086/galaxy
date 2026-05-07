@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::path::PathBuf;
-use warp_core::ui::color::pick_foreground_color;
-use warpui::assets::asset_cache::AssetSource;
-use warpui::{
+use galaxy_core::ui::color::pick_foreground_color;
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::{
     color::ColorU,
     elements::{
         Align, Border, ConstrainedBox, Container, Element, Empty, Flex, ParentElement, Rect,
@@ -17,8 +17,8 @@ use warpui::{
 
 use super::theme_creator::{pick_accent_color_from_options, top_colors_for_image};
 
-pub use warp_core::ui::color::blend::Blend;
-pub use warp_core::ui::theme::*;
+pub use galaxy_core::ui::color::blend::Blend;
+pub use galaxy_core::ui::theme::*;
 
 const THUMBNAIL_MARGIN: f32 = 10.;
 
@@ -49,6 +49,10 @@ pub enum ThemeKind {
     ReceivedReferralReward,
     #[schemars(description = "Adeberry")]
     Adeberry,
+    #[schemars(description = "Samsung Dark")]
+    SamsungDark,
+    #[schemars(description = "Samsung Light")]
+    SamsungLight,
     #[schemars(description = "Phenomenon")]
     Phenomenon,
     #[default]
@@ -133,6 +137,8 @@ impl std::fmt::Display for ThemeKind {
             ThemeKind::Phenomenon => "Phenomenon",
             ThemeKind::SolarFlare => "Solar Flare",
             ThemeKind::Adeberry => "Adeberry",
+            ThemeKind::SamsungDark => "Samsung Dark",
+            ThemeKind::SamsungLight => "Samsung Light",
             ThemeKind::SentReferralReward => "Warp Referral",
             ThemeKind::ReceivedReferralReward => "Referred to Warp",
             ThemeKind::Custom(custom_theme) => custom_theme.name.as_str(),
@@ -321,6 +327,8 @@ impl WarpThemeConfig {
             (ThemeKind::Phenomenon, phenomenon()),
             (ThemeKind::SolarFlare, solar_flare()),
             (ThemeKind::Adeberry, adeberry()),
+            (ThemeKind::SamsungDark, samsung_dark()),
+            (ThemeKind::SamsungLight, samsung_light()),
         ]);
         WarpThemeConfig { theme_map }
     }
@@ -517,9 +525,9 @@ pub fn render_preview(
         thumbnail.add_child(
             Shrinkable::new(
                 1.,
-                warpui::elements::Image::new(
+                galaxyui::elements::Image::new(
                     background_image.source(),
-                    warpui::elements::CacheOption::BySize,
+                    galaxyui::elements::CacheOption::BySize,
                 )
                 .cover()
                 .finish(),

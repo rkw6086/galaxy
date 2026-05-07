@@ -33,10 +33,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
-use warpui::notification::UserNotification;
-use warpui::{platform::TerminationMode, SingletonEntity as _, TypedActionView};
+use galaxyui::notification::UserNotification;
+use galaxyui::{platform::TerminationMode, SingletonEntity as _, TypedActionView};
 
-use warpui::{AppContext, EntityId, ViewHandle, WindowId};
+use galaxyui::{AppContext, EntityId, ViewHandle, WindowId};
 
 use self::docker::open_docker_container;
 

@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 use comfy_table::Cell;
 use futures::future;
 use serde::Serialize;
-use warp_cli::schedule::{
+use galaxy_cli::schedule::{
     CreateScheduleArgs, DeleteScheduleArgs, GetScheduleArgs, PauseScheduleArgs, ScheduleCommand,
     ScheduleSubcommand, UnpauseScheduleArgs, UpdateScheduleArgs,
 };
-use warp_cli::{agent::OutputFormat, GlobalOptions};
-use warp_graphql::queries::get_scheduled_agent_history::ScheduledAgentHistory;
-use warpui::platform::TerminationMode;
-use warpui::{AppContext, SingletonEntity};
+use galaxy_cli::{agent::OutputFormat, GlobalOptions};
+use galaxy_graphql::queries::get_scheduled_agent_history::ScheduledAgentHistory;
+use galaxyui::platform::TerminationMode;
+use galaxyui::{AppContext, SingletonEntity};
 
 use crate::ai::ambient_agents::scheduled::{
     CloudScheduledAmbientAgent, ScheduledAgentManager, ScheduledAmbientAgent, UpdateScheduleParams,

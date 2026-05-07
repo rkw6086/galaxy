@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use warpui::elements::resizable_state_handle;
-use warpui::elements::ResizableStateHandle;
-use warpui::Entity;
-use warpui::SingletonEntity;
-use warpui::WindowId;
+use galaxyui::elements::resizable_state_handle;
+use galaxyui::elements::ResizableStateHandle;
+use galaxyui::Entity;
+use galaxyui::SingletonEntity;
+use galaxyui::WindowId;
 
 use crate::app_state::WindowSnapshot;
 

@@ -1,5 +1,5 @@
-use warp_core::telemetry::{TelemetryContextModel, TelemetryContextProvider};
-use warpui::{AppContext, ModelContext};
+use galaxy_core::telemetry::{TelemetryContextModel, TelemetryContextProvider};
+use galaxyui::{AppContext, ModelContext};
 
 /// A mock telemetry context provider for the onboarding binary that logs events
 /// instead of sending them to a server.

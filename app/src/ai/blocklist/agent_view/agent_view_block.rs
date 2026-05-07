@@ -1,7 +1,7 @@
 use pathfinder_color::ColorU;
 use settings::Setting;
-use warp_core::ui::{appearance::Appearance, Icon};
-use warpui::{
+use galaxy_core::ui::{appearance::Appearance, Icon};
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CrossAxisAlignment, Empty, Flex, Hoverable, MainAxisSize,
         MouseStateHandle, ParentElement, Shrinkable, Text,
@@ -197,7 +197,7 @@ impl View for AgentViewEntryBlock {
         "EnterAgentBlock"
     }
 
-    fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         if self.agent_view_controller.as_ref(app).is_fullscreen() {
             return Empty::new().finish();
         }
@@ -321,7 +321,7 @@ impl View for AgentViewEntryBlock {
         row.add_child(
             ConstrainedBox::new(
                 Icon::ChevronRight
-                    .to_warpui_icon(
+                    .to_galaxyui_icon(
                         blended_colors::text_sub(
                             appearance.theme(),
                             appearance.theme().background(),

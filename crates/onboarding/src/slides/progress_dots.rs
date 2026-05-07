@@ -1,5 +1,5 @@
-use warp_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use warpui::{
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, Empty, Flex, MainAxisSize, ParentElement, Radius,
     },

@@ -16,14 +16,14 @@ default-members = [
   "crates/graphql",
   "crates/markdown_parser",
   "crates/sum_tree",
-  "crates/warpui",
-  "crates/warp_completer",
-  "crates/warp_terminal",
-  "crates/warp_util",
+  "crates/galaxyui",
+  "crates/galaxy_completer",
+  "crates/galaxy_terminal",
+  "crates/galaxy_util",
 ]
 
 [workspace.package]
-authors = ["Warp Team <dev@warp.dev>"]
+authors = ["Ryan Ward <ryan.ward@samsung.com>"]
 license = "AGPL-3.0-only"
 publish = false
 
@@ -67,28 +67,28 @@ ui_components = { path = "crates/ui_components" }
 vim = { path = "crates/vim" }
 virtual-fs = { path = "crates/virtual_fs" }
 voice_input = { path = "crates/voice_input" }
-warp = { path = "app" }
-warp_cli = { path = "crates/warp_cli" }
-warp_completer = { path = "crates/warp_completer" }
-warp_core = { path = "crates/warp_core" }
-warp_editor = { path = "crates/editor" }
-warp_features = { path = "crates/warp_features" }
+galaxy = { path = "app" }
+galaxy_cli = { path = "crates/galaxy_cli" }
+galaxy_completer = { path = "crates/galaxy_completer" }
+galaxy_core = { path = "crates/galaxy_core" }
+galaxy_editor = { path = "crates/editor" }
+galaxy_features = { path = "crates/galaxy_features" }
 remote_server = { path = "crates/remote_server" }
-warp_files = { path = "crates/warp_files" }
-warp_graphql = { path = "crates/graphql" }
-warp_graphql_schema = { path = "crates/warp_graphql_schema" }
-warp_isolation_platform = { path = "crates/isolation_platform" }
-warp_js = { path = "crates/warp_js" }
-warp_logging = { path = "crates/warp_logging" }
-warp_managed_secrets = { path = "crates/managed_secrets" }
-warp_ripgrep = { path = "crates/warp_ripgrep" }
-warp_server_client = { path = "crates/warp_server_client" }
-warp_terminal = { path = "crates/warp_terminal" }
-warp_util = { path = "crates/warp_util" }
-warp_web_event_bus = { path = "crates/warp_web_event_bus" }
-warpui = { path = "crates/warpui" }
-warpui_core = { path = "crates/warpui_core" }
-warpui_extras = { path = "crates/warpui_extras", default-features = false }
+galaxy_files = { path = "crates/galaxy_files" }
+galaxy_graphql = { path = "crates/graphql" }
+galaxy_graphql_schema = { path = "crates/galaxy_graphql_schema" }
+galaxy_isolation_platform = { path = "crates/isolation_platform" }
+galaxy_js = { path = "crates/galaxy_js" }
+galaxy_logging = { path = "crates/galaxy_logging" }
+galaxy_managed_secrets = { path = "crates/managed_secrets" }
+galaxy_ripgrep = { path = "crates/galaxy_ripgrep" }
+galaxy_server_client = { path = "crates/galaxy_server_client" }
+galaxy_terminal = { path = "crates/galaxy_terminal" }
+galaxy_util = { path = "crates/galaxy_util" }
+galaxy_web_event_bus = { path = "crates/galaxy_web_event_bus" }
+galaxyui = { path = "crates/galaxyui" }
+galaxyui_core = { path = "crates/galaxyui_core" }
+galaxyui_extras = { path = "crates/galaxyui_extras", default-features = false }
 watcher = { path = "crates/watcher" }
 websocket = { path = "crates/websocket" }
 

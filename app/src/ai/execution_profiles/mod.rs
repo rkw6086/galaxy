@@ -19,9 +19,9 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
-use warpui::{AppContext, SingletonEntity};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, SingletonEntity};
 
 use super::llms::LLMId;
 

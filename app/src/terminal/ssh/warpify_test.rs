@@ -1,4 +1,4 @@
-use warpui::{assets::asset_cache::AssetSource, App};
+use galaxyui::{assets::asset_cache::AssetSource, App};
 
 use crate::{
     terminal::ssh::util::convert_script_to_one_line,

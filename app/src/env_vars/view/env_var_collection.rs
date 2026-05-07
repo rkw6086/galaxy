@@ -1,7 +1,7 @@
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 
-use warp_core::features::FeatureFlag;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
         Align, AnchorPair, ChildAnchor, Clipped, ClippedScrollStateHandle, ClippedScrollable,
@@ -1292,7 +1292,7 @@ impl View for EnvVarCollectionView {
         }
     }
 
-    fn render(&self, app: &AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &AppContext) -> Box<dyn galaxyui::Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let mut content = Flex::column();

@@ -6,28 +6,28 @@ use std::time::Duration;
 
 use pathfinder_geometry::vector::vec2f;
 
-use warp_core::ui::theme::color::internal_colors;
-use warpui::r#async::{SpawnedFutureHandle, Timer};
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 
 use regex::Regex;
 use settings::Setting as _;
-use warp_core::context_flag::ContextFlag;
-use warp_core::features::FeatureFlag;
-use warp_core::ui::theme::WarpTheme;
-use warpui::elements::{
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::elements::{
     Align, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect, Shrinkable,
     Stack, Text,
 };
-use warpui::keymap::ContextPredicate;
-use warpui::platform::Cursor;
-use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
-use warpui::ui_components::{
+use galaxyui::keymap::ContextPredicate;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui::ui_components::{
     components::{Coords, UiComponent, UiComponentStyles},
     switch::{SwitchStateHandle, TooltipConfig},
 };
-use warpui::{
+use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
     UpdateModel, View, ViewContext, ViewHandle,
 };
@@ -69,7 +69,7 @@ use super::{
 };
 
 use crate::modal::{Modal, ModalEvent, ModalViewState};
-use warpui::fonts::Weight;
+use galaxyui::fonts::Weight;
 
 const FONT_SIZE: f32 = 12.;
 
@@ -1087,7 +1087,7 @@ impl SecretRedactionWidget {
         let info_icon = Container::new(
             ConstrainedBox::new(
                 Icon::Info
-                    .to_warpui_icon(
+                    .to_galaxyui_icon(
                         appearance
                             .theme()
                             .hint_text_color(appearance.theme().background()),
@@ -1127,7 +1127,7 @@ impl SecretRedactionWidget {
         TextAndIcon::new(
             TextAndIconAlignment::IconFirst,
             text,
-            Icon::Plus.to_warpui_icon(appearance.theme().active_ui_text_color()),
+            Icon::Plus.to_galaxyui_icon(appearance.theme().active_ui_text_color()),
             MainAxisSize::Min,
             MainAxisAlignment::SpaceBetween,
             vec2f(16., 16.),
@@ -2040,6 +2040,6 @@ mod styles {
     pub const DESCRIPTION_LINE_MARGIN_BOTTOM: f32 = 6.;
 }
 
-fn description_text_color(theme: &WarpTheme) -> warp_core::ui::theme::Fill {
+fn description_text_color(theme: &WarpTheme) -> galaxy_core::ui::theme::Fill {
     theme.sub_text_color(theme.surface_2())
 }

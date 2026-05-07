@@ -6,17 +6,17 @@ use std::sync::Arc;
 use chrono::Utc;
 use itertools::Itertools as _;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::context_flag::ContextFlag;
-use warp_core::features::FeatureFlag;
-use warpui::elements::{
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::{
     Border, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
     Container, CornerRadius, Fill, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     ParentElement, Radius, SavePosition, Shrinkable,
 };
-use warpui::platform::Cursor;
-use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
-use warpui::ui_components::components::UiComponent as _;
-use warpui::{
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{
     units::{IntoPixels, Pixels},
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
     ViewContext, ViewHandle,
@@ -161,7 +161,7 @@ impl TypedActionView for WelcomePalette {
     }
 }
 
-impl warpui::View for WelcomePalette {
+impl galaxyui::View for WelcomePalette {
     fn ui_name() -> &'static str {
         "WelcomePalette"
     }
@@ -704,7 +704,7 @@ impl WelcomePalette {
                     Some(keystroke) => format!("Add repository {keystroke}"),
                     None => "Add repository".to_string(),
                 },
-                Icon::Plus.to_warpui_icon(theme.foreground()),
+                Icon::Plus.to_galaxyui_icon(theme.foreground()),
                 MainAxisSize::Max,
                 MainAxisAlignment::Center,
                 vec2f(16., 16.),
@@ -727,7 +727,7 @@ impl WelcomePalette {
                     Some(keystroke) => format!("Terminal session {keystroke}"),
                     None => "Terminal session".to_string(),
                 },
-                Icon::Terminal.to_warpui_icon(theme.foreground()),
+                Icon::Terminal.to_galaxyui_icon(theme.foreground()),
                 MainAxisSize::Max,
                 MainAxisAlignment::Center,
                 vec2f(16., 16.),
@@ -832,11 +832,11 @@ impl WelcomePalette {
         }
     }
 
-    /// Dispatches `action` to the correct window and [`warpui::View`] by using the current state of
+    /// Dispatches `action` to the correct window and [`galaxyui::View`] by using the current state of
     /// the [`BindingSource`] model.
     fn dispatch_typed_action_on_view(
         &self,
-        action: &dyn warpui::Action,
+        action: &dyn galaxyui::Action,
         ctx: &mut ViewContext<Self>,
     ) {
         send_telemetry_from_ctx!(

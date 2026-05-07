@@ -1,4 +1,4 @@
-use warpui::EntityId;
+use galaxyui::EntityId;
 
 use super::*;
 use crate::ai::agent::conversation::AIConversationId;

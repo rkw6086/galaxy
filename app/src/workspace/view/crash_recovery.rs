@@ -1,5 +1,5 @@
-use warp_cli::RecoveryMechanism;
-use warpui::{AppContext, SingletonEntity as _, ViewContext};
+use galaxy_cli::RecoveryMechanism;
+use galaxyui::{AppContext, SingletonEntity as _, ViewContext};
 
 use crate::crash_recovery::CrashRecovery;
 

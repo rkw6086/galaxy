@@ -11,20 +11,20 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting as _;
 use thousands::Separable;
-use warp_core::ui::appearance::Appearance;
-use warp_core::ui::theme::Fill;
-use warp_graphql::billing::{AddonCreditsOption, StripeSubscriptionPlan};
-use warpui::elements::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::Fill;
+use galaxy_graphql::billing::{AddonCreditsOption, StripeSubscriptionPlan};
+use galaxyui::elements::{
     Align, Border, CacheOption, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DropShadow, Flex, FormattedTextElement, HighlightedHyperlink, Image,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack,
 };
-use warpui::fonts::{FamilyId, Weight};
-use warpui::platform::Cursor;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::fonts::{FamilyId, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
@@ -282,7 +282,7 @@ impl BuildPlanMigrationModal {
             ChildView::new(&self.reload_denominations_dropdown).finish()
         } else {
             // Match dropdown height to prevent layout shift (dropdown is typically ~28-32px)
-            ConstrainedBox::new(warpui::elements::Empty::new().finish())
+            ConstrainedBox::new(galaxyui::elements::Empty::new().finish())
                 .with_width(DROPDOWN_WIDTH)
                 .with_height(28.)
                 .finish()

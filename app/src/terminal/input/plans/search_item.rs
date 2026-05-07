@@ -3,13 +3,13 @@
 use ai::document::AIDocumentId;
 use fuzzy_match::FuzzyMatchResult;
 use ordered_float::OrderedFloat;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::Icon;
-use warpui::elements::{ConstrainedBox, Container, Highlight, ParentElement, Shrinkable, Text};
-use warpui::fonts::{Properties, Weight};
-use warpui::prelude::{Align, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize};
-use warpui::text_layout::ClipConfig;
-use warpui::{AppContext, Element, SingletonEntity};
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::{ConstrainedBox, Container, Highlight, ParentElement, Shrinkable, Text};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::prelude::{Align, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize};
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::{AppContext, Element, SingletonEntity};
 
 use crate::ai::document::ai_document_model::{AIDocument, AIDocumentVersion};
 use crate::appearance::Appearance;
@@ -68,7 +68,7 @@ impl SearchItem for PlanSearchItem {
             .sub_text_color(appearance.theme().background());
 
         let icon = Container::new(
-            ConstrainedBox::new(Icon::Compass.to_warpui_icon(icon_color).finish())
+            ConstrainedBox::new(Icon::Compass.to_galaxyui_icon(icon_color).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish(),

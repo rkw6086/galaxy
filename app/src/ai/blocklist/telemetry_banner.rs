@@ -5,7 +5,7 @@ use crate::{
     workspaces::{user_workspaces::UserWorkspaces, workspace::UgcCollectionEnablementSetting},
     Appearance, FeatureFlag, WorkspaceAction,
 };
-use warpui::{
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
         MouseStateHandle, ParentElement, Shrinkable, Text,
@@ -64,7 +64,7 @@ impl View for TelemetryBanner {
                 Container::new(
                     ConstrainedBox::new(
                         Icon::Info
-                            .to_warpui_icon(theme.active_ui_text_color())
+                            .to_galaxyui_icon(theme.active_ui_text_color())
                             .finish(),
                     )
                     .with_height(20.)

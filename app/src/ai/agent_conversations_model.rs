@@ -29,15 +29,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use session_sharing_protocol::common::SessionId;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use warp_cli::agent::Harness;
-use warp_core::execution_mode::AppExecutionMode;
-use warp_core::features::FeatureFlag;
-use warp_core::report_error;
-use warp_core::ui::theme::{color::internal_colors, WarpTheme};
-use warpui::color::ColorU;
-use warpui::r#async::Timer;
-use warpui::windowing::{StateEvent, WindowManager};
-use warpui::{
+use galaxy_cli::agent::Harness;
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::report_error;
+use galaxy_core::ui::theme::{color::internal_colors, WarpTheme};
+use galaxyui::color::ColorU;
+use galaxyui::r#async::Timer;
+use galaxyui::windowing::{StateEvent, WindowManager};
+use galaxyui::{
     duration_with_jitter, AppContext, Entity, EntityId, ModelContext, RequestState,
     SingletonEntity, WindowId,
 };

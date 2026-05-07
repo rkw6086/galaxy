@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::{platform::WindowStyle, App, View};
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{platform::WindowStyle, App, View};
 
 use crate::{menu::MenuVariant, ui_components::icons::Icon};
 

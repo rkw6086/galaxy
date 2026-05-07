@@ -178,3 +178,12 @@ if FeatureFlag::YourNewFeature.is_enabled() {
 ### Exhaustive Matching
 
 When adding/editing match statements, avoid using the wildcard _ when at all possible. Exhaustive matching is helpful for ensuring that all variants are handled, especially when adding new variants to enums in the future.
+
+### Appearance Settings Notes
+
+- Samsung-inspired built-in themes are available as `SamsungDark` and `SamsungLight`.
+- UI font selection is persisted in `appearance.text.ui_font_name` and uses an empty string as the system-default sentinel.
+- The one-click Samsung brand preset is implemented in `app/src/settings_view/appearance_page.rs` and applies:
+  - Samsung dark/light theme mapping
+  - terminal + AI font defaults
+  - a best-available Samsung-style UI font fallback

@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::ParentElement,
     prelude::{Container, Empty, Flex, Text},
     AppContext, Element, Entity, ModelHandle, SingletonEntity, View, ViewContext,

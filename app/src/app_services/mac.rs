@@ -1,6 +1,6 @@
 #[allow(deprecated)]
 use cocoa::base::id;
-use warpui::platform::mac::make_nsstring;
+use galaxyui::platform::mac::make_nsstring;
 
 use crate::channel::ChannelState;
 

@@ -29,7 +29,14 @@ fn test_build_stream_finished_done_reason() {
             ));
             assert!(!finished.should_refresh_model_config);
             let metadata = finished.conversation_usage_metadata.unwrap();
-            assert_eq!(metadata.byok_token_usage.get("bedrock").unwrap().total_tokens, 150);
+            assert_eq!(
+                metadata
+                    .byok_token_usage
+                    .get("bedrock")
+                    .unwrap()
+                    .total_tokens,
+                150
+            );
         }
         other => panic!("Expected Finished event, got {:?}", other),
     }
@@ -37,8 +44,7 @@ fn test_build_stream_finished_done_reason() {
 
 #[test]
 fn test_build_stream_finished_max_token_limit() {
-    let reason =
-        stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {});
+    let reason = stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {});
     let event = build_stream_finished(reason, 200, 100);
 
     match event.r#type {
@@ -65,5 +71,42 @@ fn test_build_stream_finished_other_reason() {
             ));
         }
         other => panic!("Expected Finished event, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_build_create_task_event() {
+    let event = super::stream::build_create_task("task-abc-123");
+
+    match event.r#type {
+        Some(api::response_event::Type::ClientActions(actions)) => {
+            assert_eq!(actions.actions.len(), 1);
+            match &actions.actions[0].action {
+                Some(api::client_action::Action::CreateTask(create)) => {
+                    let task = create.task.as_ref().unwrap();
+                    assert_eq!(task.id, "task-abc-123");
+                    assert!(task.messages.is_empty());
+                    assert!(task.description.is_empty());
+                    assert!(task.dependencies.is_none());
+                }
+                other => panic!("Expected CreateTask action, got {:?}", other),
+            }
+        }
+        other => panic!("Expected ClientActions event, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_build_create_task_has_no_parent() {
+    let event = super::stream::build_create_task("root-task-id");
+
+    if let Some(api::response_event::Type::ClientActions(actions)) = event.r#type {
+        if let Some(api::client_action::Action::CreateTask(create)) = &actions.actions[0].action {
+            let task = create.task.as_ref().unwrap();
+            assert!(
+                task.dependencies.is_none(),
+                "Root task CreateTask must have no dependencies (no parent_id)"
+            );
+        }
     }
 }

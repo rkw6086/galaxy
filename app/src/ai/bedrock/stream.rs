@@ -13,25 +13,49 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 use crate::ai::agent::api::Event;
 use crate::server::server_api::AIApiError;
 
+use super::diagnostic::BedrockDiagnosticLogger;
+
 pub fn bedrock_stream_to_response_events(
     mut output: ConverseStreamOutput,
     task_id: String,
+    needs_create_task: bool,
+    diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
 ) -> BoxStream<'static, Event> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
 
+    if let Some(ref logger) = diagnostic_logger {
+        logger.set_ids(&conversation_id, &request_id);
+    }
+
     let stream = async_stream::stream! {
-        log::info!("[bedrock] Stream started: task_id={task_id}, request_id={request_id}");
+        log::info!("[bedrock] Stream started: task_id={task_id}, request_id={request_id}, needs_create_task={needs_create_task}");
+
+        if let Some(ref logger) = diagnostic_logger {
+            logger.log_stream_event(&format!("StreamInit: request_id={request_id}, conversation_id={conversation_id}"));
+        }
+
         let init_event = build_stream_init(&request_id, &conversation_id);
         yield Ok(init_event);
 
+        if needs_create_task {
+            log::debug!("[bedrock] Emitting CreateTask to upgrade optimistic root task");
+            let create_task_event = build_create_task(&task_id);
+            yield Ok(create_task_event);
+        }
+
         let mut current_text_message_id: Option<String> = None;
+        let mut buffered_text = String::new();
+        let mut text_flushed = false;
         let mut current_tool_use_id = String::new();
         let mut current_tool_name = String::new();
         let mut current_tool_input_json = String::new();
+        let mut has_tool_calls = false;
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(stream_finished::Done {});
+
+        const TEXT_FLUSH_THRESHOLD: usize = 20;
 
         loop {
             match output.stream.recv().await {
@@ -41,6 +65,24 @@ pub fn bedrock_stream_to_response_events(
                         if let Some(start) = block_start.start() {
                             match start {
                                 ContentBlockStart::ToolUse(tool_start) => {
+                                    has_tool_calls = true;
+                                    if !text_flushed && !buffered_text.is_empty() {
+                                        if buffered_text.len() >= TEXT_FLUSH_THRESHOLD {
+                                            let msg_id = Uuid::new_v4().to_string();
+                                            current_text_message_id = Some(msg_id.clone());
+                                            text_flushed = true;
+                                            log::debug!("[bedrock] Flushing buffered text ({} chars) before tool call", buffered_text.len());
+                                            let add_msg = build_add_agent_output_message(
+                                                &task_id,
+                                                &msg_id,
+                                                &buffered_text,
+                                            );
+                                            yield Ok(add_msg);
+                                        } else {
+                                            log::debug!("[bedrock] Discarding short text fragment ({} chars) before tool call: {:?}", buffered_text.len(), &buffered_text);
+                                        }
+                                        buffered_text.clear();
+                                    }
                                     current_tool_use_id = tool_start.tool_use_id().to_string();
                                     current_tool_name = tool_start.name().to_string();
                                     current_tool_input_json.clear();
@@ -54,17 +96,7 @@ pub fn bedrock_stream_to_response_events(
                             match d {
                                 ContentBlockDelta::Text(text) => {
                                     log::trace!("[bedrock] Text delta ({} chars): {:?}", text.len(), &text[..text.len().min(100)]);
-                                    if current_text_message_id.is_none() {
-                                        let msg_id = Uuid::new_v4().to_string();
-                                        current_text_message_id = Some(msg_id.clone());
-                                        log::debug!("[bedrock] First text chunk, creating message msg_id={msg_id}");
-                                        let add_msg = build_add_agent_output_message(
-                                            &task_id,
-                                            &msg_id,
-                                            text,
-                                        );
-                                        yield Ok(add_msg);
-                                    } else {
+                                    if text_flushed {
                                         let msg_id = current_text_message_id.as_ref().unwrap();
                                         let append = build_append_text(
                                             &task_id,
@@ -72,30 +104,26 @@ pub fn bedrock_stream_to_response_events(
                                             text,
                                         );
                                         yield Ok(append);
+                                    } else {
+                                        buffered_text.push_str(text);
+                                        if buffered_text.len() >= TEXT_FLUSH_THRESHOLD {
+                                            let msg_id = Uuid::new_v4().to_string();
+                                            current_text_message_id = Some(msg_id.clone());
+                                            text_flushed = true;
+                                            log::debug!("[bedrock] Text reached flush threshold, creating message msg_id={msg_id}");
+                                            let add_msg = build_add_agent_output_message(
+                                                &task_id,
+                                                &msg_id,
+                                                &buffered_text,
+                                            );
+                                            yield Ok(add_msg);
+                                            buffered_text.clear();
+                                        }
                                     }
                                 }
                                 ContentBlockDelta::ReasoningContent(reasoning) => {
                                     if let ReasoningContentBlockDelta::Text(text) = reasoning {
-                                        log::trace!("[bedrock] Reasoning delta ({} chars)", text.len());
-                                        if current_text_message_id.is_none() {
-                                            let msg_id = Uuid::new_v4().to_string();
-                                            current_text_message_id = Some(msg_id.clone());
-                                            log::debug!("[bedrock] First reasoning chunk, creating message msg_id={msg_id}");
-                                            let add_msg = build_add_agent_output_message(
-                                                &task_id,
-                                                &msg_id,
-                                                text,
-                                            );
-                                            yield Ok(add_msg);
-                                        } else {
-                                            let msg_id = current_text_message_id.as_ref().unwrap();
-                                            let append = build_append_text(
-                                                &task_id,
-                                                msg_id,
-                                                text,
-                                            );
-                                            yield Ok(append);
-                                        }
+                                        log::trace!("[bedrock] Reasoning delta ({} chars) - not displayed to user", text.len());
                                     }
                                 }
                                 ContentBlockDelta::ToolUse(tool_delta) => {
@@ -108,6 +136,12 @@ pub fn bedrock_stream_to_response_events(
                     StreamEvent::ContentBlockStop(_) => {
                         if !current_tool_use_id.is_empty() {
                             log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
+                            if let Some(ref logger) = diagnostic_logger {
+                                logger.log_stream_event(&format!(
+                                    "ToolCall: name={}, id={}, input={}",
+                                    current_tool_name, current_tool_use_id, current_tool_input_json
+                                ));
+                            }
                             let tool_msg = build_tool_call_message(
                                 &task_id,
                                 &current_tool_use_id,
@@ -150,6 +184,9 @@ pub fn bedrock_stream_to_response_events(
                 }
                 Err(e) => {
                     log::error!("[bedrock] Stream error: {e}");
+                    if let Some(ref logger) = diagnostic_logger {
+                        logger.log_stream_error(&format!("{e}"));
+                    }
                     yield Err(Arc::new(AIApiError::Stream {
                         stream_type: "bedrock_converse",
                         source: anyhow::anyhow!("Bedrock stream error: {}", e),
@@ -159,12 +196,54 @@ pub fn bedrock_stream_to_response_events(
             }
         }
 
+        if !text_flushed && !buffered_text.is_empty() && !has_tool_calls {
+            let msg_id = Uuid::new_v4().to_string();
+            log::debug!("[bedrock] Flushing remaining buffered text ({} chars) at stream end", buffered_text.len());
+            let add_msg = build_add_agent_output_message(&task_id, &msg_id, &buffered_text);
+            yield Ok(add_msg);
+        } else if !text_flushed && !buffered_text.is_empty() && has_tool_calls {
+            log::debug!("[bedrock] Discarding short unflushed text ({} chars) - stream ended with tool calls", buffered_text.len());
+        }
+
         log::info!("[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");
+        if let Some(ref logger) = diagnostic_logger {
+            let stop_reason_str = match &stop_reason {
+                stream_finished::Reason::Done(_) => "EndTurn",
+                stream_finished::Reason::MaxTokenLimit(_) => "MaxTokens",
+                _ => "Other",
+            };
+            logger.log_result_success(input_tokens, output_tokens, stop_reason_str);
+        }
         let finished_event = build_stream_finished(stop_reason, input_tokens, output_tokens);
         yield Ok(finished_event);
     };
 
     Box::pin(stream)
+}
+
+pub(crate) fn build_create_task(task_id: &str) -> ResponseEvent {
+    let task = api::Task {
+        id: task_id.to_string(),
+        description: String::new(),
+        dependencies: None,
+        messages: vec![],
+        summary: String::new(),
+        server_data: String::new(),
+    };
+
+    let action = ClientAction {
+        action: Some(api::client_action::Action::CreateTask(
+            api::client_action::CreateTask { task: Some(task) },
+        )),
+    };
+
+    ResponseEvent {
+        r#type: Some(api::response_event::Type::ClientActions(
+            api::response_event::ClientActions {
+                actions: vec![action],
+            },
+        )),
+    }
 }
 
 pub(super) fn build_stream_init(request_id: &str, conversation_id: &str) -> ResponseEvent {
@@ -304,22 +383,153 @@ fn build_tool_call_message(
     tool_name: &str,
     tool_input_json: &str,
 ) -> ResponseEvent {
-    let _tool_use_id = tool_use_id.to_string();
-    let _tool_name = tool_name.to_string();
-    let _tool_input_json = tool_input_json.to_string();
+    let input: serde_json::Value =
+        serde_json::from_str(tool_input_json).unwrap_or(serde_json::json!({}));
 
-    let message = api::Message {
-        id: Uuid::new_v4().to_string(),
-        task_id: task_id.to_string(),
-        request_id: String::new(),
-        timestamp: None,
-        server_message_data: String::new(),
-        citations: vec![],
-        message: Some(api::message::Message::AgentOutput(
-            api::message::AgentOutput {
-                text: format!("[Tool call: {} ({})]", _tool_name, _tool_use_id),
-            },
-        )),
+    let tool = match tool_name {
+        "run_shell_command" => {
+            let command = input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::RunShellCommand(
+                api::message::tool_call::RunShellCommand {
+                    command,
+                    is_read_only: false,
+                    uses_pager: false,
+                    citations: vec![],
+                    is_risky: false,
+                    risk_category: 0,
+                    wait_until_complete_value: None,
+                },
+            ))
+        }
+        "read_files" => {
+            let files = input
+                .get("files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|f| f.as_str())
+                        .map(|name| api::message::tool_call::read_files::File {
+                            name: name.to_string(),
+                            line_ranges: vec![],
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(api::message::tool_call::Tool::ReadFiles(
+                api::message::tool_call::ReadFiles { files },
+            ))
+        }
+        "apply_file_diffs" => {
+            let diffs = input
+                .get("diffs")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|d| {
+                            Some(api::message::tool_call::apply_file_diffs::FileDiff {
+                                file_path: d.get("file_path")?.as_str()?.to_string(),
+                                search: d
+                                    .get("search")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                replace: d
+                                    .get("replace")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(api::message::tool_call::Tool::ApplyFileDiffs(
+                api::message::tool_call::ApplyFileDiffs {
+                    summary: String::new(),
+                    diffs,
+                    new_files: vec![],
+                    deleted_files: vec![],
+                    v4a_updates: vec![],
+                },
+            ))
+        }
+        "grep" => {
+            let queries = input
+                .get("queries")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|q| q.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::Grep(
+                api::message::tool_call::Grep { queries, path },
+            ))
+        }
+        "file_glob" => {
+            let patterns = input
+                .get("patterns")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|p| p.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            #[allow(deprecated)]
+            Some(api::message::tool_call::Tool::FileGlob(
+                api::message::tool_call::FileGlob {
+                    patterns,
+                    path: String::new(),
+                },
+            ))
+        }
+        _ => {
+            log::warn!("[bedrock] Unknown tool name: {tool_name}, emitting as text");
+            None
+        }
+    };
+
+    let message = if let Some(tool_variant) = tool {
+        api::Message {
+            id: tool_use_id.to_string(),
+            task_id: task_id.to_string(),
+            request_id: String::new(),
+            timestamp: None,
+            server_message_data: String::new(),
+            citations: vec![],
+            message: Some(api::message::Message::ToolCall(api::message::ToolCall {
+                tool_call_id: tool_use_id.to_string(),
+                tool: Some(tool_variant),
+            })),
+        }
+    } else {
+        api::Message {
+            id: Uuid::new_v4().to_string(),
+            task_id: task_id.to_string(),
+            request_id: String::new(),
+            timestamp: None,
+            server_message_data: String::new(),
+            citations: vec![],
+            message: Some(api::message::Message::AgentOutput(
+                api::message::AgentOutput {
+                    text: format!(
+                        "[Tool call: {} ({})]\nInput: {}",
+                        tool_name, tool_use_id, tool_input_json
+                    ),
+                },
+            )),
+        }
     };
 
     let action = ClientAction {
@@ -339,5 +549,3 @@ fn build_tool_call_message(
         )),
     }
 }
-
-

@@ -1,7 +1,7 @@
 use session_sharing_protocol::common::{ParticipantId, Role, RoleRequestId};
-use warpui::elements::Empty;
-use warpui::presenter::ChildView;
-use warpui::{
+use galaxyui::elements::Empty;
+use galaxyui::presenter::ChildView;
+use galaxyui::{
     ui_components::components::{Coords, UiComponentStyles},
     AppContext, Element, Entity, View, ViewContext, ViewHandle,
 };

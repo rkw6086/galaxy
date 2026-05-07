@@ -1,5 +1,5 @@
 use crate::Builder;
-use warp::integration_testing::{
+use galaxy::integration_testing::{
     step::new_step_with_default_assertions,
     terminal::{
         assert_selected_block_index_is_last_renderable, execute_command_for_single_terminal_in_tab,
@@ -7,7 +7,7 @@ use warp::integration_testing::{
     },
     view_getters::ai_assistant_panel_view,
 };
-use warpui::async_assert;
+use galaxyui::async_assert;
 
 use super::new_builder;
 

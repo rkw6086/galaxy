@@ -2,7 +2,7 @@
 mod channel_config;
 
 use anyhow::Result;
-use warp_core::{
+use galaxy_core::{
     channel::{Channel, ChannelState},
     features,
 };
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
 
     ChannelState::set(state);
 
-    warp::run()
+    galaxy::run()
 }
 
 // If we're not using an external plist, embed the following as the Info.plist.
@@ -35,15 +35,15 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleDisplayName</key>
-    <string>WarpLocal</string>
+    <string>Galaxy AI</string>
     <key>CFBundleExecutable</key>
-    <string>warp</string>
+    <string>galaxy-ai</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.warp.Warp-Local</string>
+    <string>com.samsung.GalaxyAI-Local</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>WarpLocal</string>
+    <string>Galaxy AI</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -55,9 +55,9 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>UIDesignRequiresCompatibility</key>
     <true/>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>Custom App</string><key>CFBundleURLSchemes</key><array><string>warplocal</string></array></dict></array>
+    <array><dict><key>CFBundleURLName</key><string>Galaxy AI</string><key>CFBundleURLSchemes</key><array><string>galaxyai</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026, Denver Technologies, Inc</string>
+    <string>© 2026, Samsung Electronics Co., Ltd.</string>
     </dict>
     </plist>
 "#.as_bytes());

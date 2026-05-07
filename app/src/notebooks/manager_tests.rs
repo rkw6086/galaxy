@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     platform::WindowStyle, AddSingletonModel, App, EntityId, ModelHandle, ViewContext, ViewHandle,
 };
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use parking_lot::FairMutex;
 use pathfinder_geometry::vector::Vector2F;
-use warpui::{AppContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
+use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
 
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::{
@@ -133,7 +133,7 @@ impl TerminalManager for MockTerminalManager {
 
 #[cfg(test)]
 mod testing {
-    use warpui::{platform::WindowStyle, App, Element, SingletonEntity};
+    use galaxyui::{platform::WindowStyle, App, Element, SingletonEntity};
 
     use crate::{
         server::server_api::ServerApiProvider,
@@ -149,21 +149,21 @@ mod testing {
         terminal_view: ViewHandle<TerminalView>,
     }
 
-    impl warpui::Entity for TerminalRootView {
+    impl galaxyui::Entity for TerminalRootView {
         type Event = ();
     }
 
-    impl warpui::View for TerminalRootView {
+    impl galaxyui::View for TerminalRootView {
         fn ui_name() -> &'static str {
             "TerminalRootView"
         }
 
-        fn render(&self, _app: &warpui::AppContext) -> Box<dyn warpui::Element> {
-            warpui::elements::ChildView::new(&self.terminal_view).finish()
+        fn render(&self, _app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
+            galaxyui::elements::ChildView::new(&self.terminal_view).finish()
         }
     }
 
-    impl warpui::TypedActionView for TerminalRootView {
+    impl galaxyui::TypedActionView for TerminalRootView {
         type Action = ();
     }
 

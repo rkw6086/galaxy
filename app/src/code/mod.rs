@@ -2,9 +2,9 @@ use pathfinder_geometry::rect::RectF;
 use std::any::Any;
 use std::fmt::Debug;
 use std::ops::AddAssign;
-use warp_util::file::FileSaveError;
-use warpui::elements::DropTargetData;
-use warpui::AppContext;
+use galaxy_util::file::FileSaveError;
+use galaxyui::elements::DropTargetData;
+use galaxyui::AppContext;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod find_references_view;

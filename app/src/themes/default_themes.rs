@@ -1,6 +1,6 @@
 use asset_macro::bundled_or_fetched_asset;
 use pathfinder_color::ColorU;
-use warp_core::ui::{
+use galaxy_core::ui::{
     color::{blend::Blend, coloru_with_opacity, OPAQUE},
     theme::{
         color::CustomDetails, AnsiColor, AnsiColors, Details, Fill, HorizontalGradient, Image,
@@ -111,6 +111,47 @@ const DRACULA_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
     AnsiColor::from_u32(0xFF79C6FF),
     AnsiColor::from_u32(0x8BE9FDFF),
     AnsiColor::from_u32(0xFFFFFFFF),
+);
+const SAMSUNG_DARK_NORMAL_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x1C1E25FF),
+    AnsiColor::from_u32(0xF05767FF),
+    AnsiColor::from_u32(0x4FB37FFF),
+    AnsiColor::from_u32(0xE2B44FFF),
+    AnsiColor::from_u32(0x3E6FF4FF),
+    AnsiColor::from_u32(0xA680F2FF),
+    AnsiColor::from_u32(0x4EAEDCFF),
+    AnsiColor::from_u32(0xE9ECF3FF),
+);
+const SAMSUNG_DARK_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x343944FF),
+    AnsiColor::from_u32(0xFF7D8BFF),
+    AnsiColor::from_u32(0x73C99CFF),
+    AnsiColor::from_u32(0xF0C971FF),
+    AnsiColor::from_u32(0x5F8EFFFF),
+    AnsiColor::from_u32(0xB99CFFFF),
+    AnsiColor::from_u32(0x70C5EBFF),
+    AnsiColor::from_u32(0xFFFFFFFF),
+);
+
+const SAMSUNG_LIGHT_NORMAL_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0xD8DEE8FF),
+    AnsiColor::from_u32(0xB93E4DFF),
+    AnsiColor::from_u32(0x2D8C5DFF),
+    AnsiColor::from_u32(0xA87D2EFF),
+    AnsiColor::from_u32(0x0056D8FF),
+    AnsiColor::from_u32(0x7858C7FF),
+    AnsiColor::from_u32(0x2D7EA4FF),
+    AnsiColor::from_u32(0x1A1F2BFF),
+);
+const SAMSUNG_LIGHT_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0xC4CDDCFF),
+    AnsiColor::from_u32(0xD35765FF),
+    AnsiColor::from_u32(0x3FA472FF),
+    AnsiColor::from_u32(0xC2983FFF),
+    AnsiColor::from_u32(0x2674F4FF),
+    AnsiColor::from_u32(0x9372DEFF),
+    AnsiColor::from_u32(0x4297C1FF),
+    AnsiColor::from_u32(0x04080FFF),
 );
 
 const PHENOMENON_NORMAL_COLORS: AnsiColors = AnsiColors::new(
@@ -256,6 +297,14 @@ pub(super) fn solarflare_colors() -> TerminalColors {
 
 pub(super) fn adeberry_colors() -> TerminalColors {
     TerminalColors::new(ADEBERRY_NORMAL_COLORS, ADEBERRY_BRIGHT_COLORS)
+}
+
+pub(super) fn samsung_dark_colors() -> TerminalColors {
+    TerminalColors::new(SAMSUNG_DARK_NORMAL_COLORS, SAMSUNG_DARK_BRIGHT_COLORS)
+}
+
+pub(super) fn samsung_light_colors() -> TerminalColors {
+    TerminalColors::new(SAMSUNG_LIGHT_NORMAL_COLORS, SAMSUNG_LIGHT_BRIGHT_COLORS)
 }
 
 /// Default bundled themes
@@ -614,6 +663,31 @@ pub(super) fn adeberry() -> WarpTheme {
     )
 }
 
+pub(super) fn samsung_dark() -> WarpTheme {
+    WarpTheme::new(
+        Fill::Solid(ColorU::from_u32(0x0C0F16FF)),
+        ColorU::from_u32(0xEEF2FAFF),
+        Fill::Solid(ColorU::from_u32(0x1F6FFFFF)),
+        None,
+        Some(Details::Darker),
+        samsung_dark_colors(),
+        None,
+        Some("Samsung Dark".to_string()),
+    )
+}
+
+pub(super) fn samsung_light() -> WarpTheme {
+    WarpTheme::new(
+        Fill::Solid(ColorU::from_u32(0xF7F9FCFF)),
+        ColorU::from_u32(0x10131BFF),
+        Fill::Solid(ColorU::from_u32(0x034AE5FF)),
+        None,
+        Some(Details::Lighter),
+        samsung_light_colors(),
+        None,
+        Some("Samsung Light".to_string()),
+    )
+}
 pub(super) fn received_referral_reward() -> WarpTheme {
     WarpTheme::new(
         Fill::Solid(ColorU::from_u32(0xFFFFFFFF)),

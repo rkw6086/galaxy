@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use warp_core::ui::icons::Icon;
-use warp_core::ui::theme::AnsiColorIdentifier;
-use warpui::elements::{ChildView, Element, Empty, ParentElement, Wrap};
-use warpui::{AppContext, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxyui::elements::{ChildView, Element, Empty, ParentElement, Wrap};
+use galaxyui::{AppContext, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 use crate::notebooks::NotebookId;
 use crate::terminal::input::MenuPositioning;

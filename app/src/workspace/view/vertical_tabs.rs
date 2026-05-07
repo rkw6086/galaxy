@@ -56,15 +56,15 @@ use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use settings::Setting as _;
 use std::path::{Path, PathBuf};
-use warp_core::context_flag::ContextFlag;
-use warp_core::telemetry::TelemetryEvent as _;
-use warp_core::ui::color::blend::Blend;
-use warp_core::ui::color::coloru_with_opacity;
-use warp_core::ui::theme::color::internal_colors;
-use warp_core::ui::theme::{AnsiColorIdentifier, Fill as WarpThemeFill, WarpTheme};
-use warp_core::ui::Icon as WarpIcon;
-use warpui::elements::DispatchEventResult;
-use warpui::elements::{
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::telemetry::TelemetryEvent as _;
+use galaxy_core::ui::color::blend::Blend;
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as WarpThemeFill, WarpTheme};
+use galaxy_core::ui::Icon as WarpIcon;
+use galaxyui::elements::DispatchEventResult;
+use galaxyui::elements::{
     resizable_state_handle, Border, ChildAnchor, Clipped, ClippedScrollStateHandle,
     ClippedScrollable, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragAxis,
     DragBarSide, Draggable, DropShadow, DropTarget, Element, Empty, EventHandler, Expanded,
@@ -73,13 +73,13 @@ use warpui::elements::{
     PositionedElementOffsetBounds, Radius, Resizable, ResizableStateHandle, SavePosition,
     ScrollTarget, ScrollToPositionMode, ScrollbarWidth, Shrinkable, Stack, Text,
 };
-use warpui::fonts::{Properties, Weight};
-use warpui::platform::Cursor;
-use warpui::prelude::{Align, MainAxisAlignment};
-use warpui::text_layout::ClipConfig;
-use warpui::ui_components::components::{UiComponent, UiComponentStyles};
-use warpui::ui_components::text_input::TextInput;
-use warpui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::prelude::{Align, MainAxisAlignment};
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::ui_components::text_input::TextInput;
+use galaxyui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
 
 const PANEL_WIDTH: f32 = 248.;
 const MIN_PANEL_WIDTH: f32 = 200.;
@@ -1166,7 +1166,7 @@ fn render_control_bar(
     let theme = appearance.theme();
     let sub_text = theme.sub_text_color(theme.background());
 
-    let search_icon = ConstrainedBox::new(WarpIcon::Search.to_warpui_icon(sub_text).finish())
+    let search_icon = ConstrainedBox::new(WarpIcon::Search.to_galaxyui_icon(sub_text).finish())
         .with_width(SEARCH_ICON_SIZE)
         .with_height(SEARCH_ICON_SIZE)
         .finish();
@@ -1228,7 +1228,7 @@ fn render_detail_kind_badge_icon(
                     .and_then(|session| session.agent.brand_color())
                     .map(WarpThemeFill::Solid)
                     .unwrap_or_else(|| theme.accent());
-                return icon.to_warpui_icon(color).finish();
+                return icon.to_galaxyui_icon(color).finish();
             }
 
             let icon = if terminal_view.is_ambient_agent_session(app) {
@@ -1246,10 +1246,10 @@ fn render_detail_kind_badge_icon(
                 WarpIcon::Terminal => disabled_text,
                 _ => sub_text,
             };
-            icon.to_warpui_icon(color).finish()
+            icon.to_galaxyui_icon(color).finish()
         }
         TypedPane::Code(_) => icon_from_file_path(&props.title, appearance)
-            .unwrap_or_else(|| WarpIcon::Code2.to_warpui_icon(sub_text).finish()),
+            .unwrap_or_else(|| WarpIcon::Code2.to_galaxyui_icon(sub_text).finish()),
         typed => {
             let fill = typed
                 .warp_drive_object_type()
@@ -1257,7 +1257,7 @@ fn render_detail_kind_badge_icon(
                     WarpThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
                 })
                 .unwrap_or(sub_text);
-            typed.icon().to_warpui_icon(fill).finish()
+            typed.icon().to_galaxyui_icon(fill).finish()
         }
     }
 }
@@ -1277,7 +1277,7 @@ fn render_settings_button(
         move |hover_state| {
             let icon = ConstrainedBox::new(
                 WarpIcon::Settings
-                    .to_warpui_icon(if is_popup_open { main_text } else { sub_text })
+                    .to_galaxyui_icon(if is_popup_open { main_text } else { sub_text })
                     .finish(),
             )
             .with_width(16.)
@@ -2090,7 +2090,7 @@ fn render_group_action_buttons(
 
     let kebab_button = Hoverable::new(kebab_mouse_state, move |button_state| {
         let mut container = Container::new(
-            ConstrainedBox::new(WarpIcon::DotsVertical.to_warpui_icon(meta_color).finish())
+            ConstrainedBox::new(WarpIcon::DotsVertical.to_galaxyui_icon(meta_color).finish())
                 .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .finish(),
@@ -2113,7 +2113,7 @@ fn render_group_action_buttons(
 
     let close_button = Hoverable::new(close_mouse_state, move |button_state| {
         let mut container = Container::new(
-            ConstrainedBox::new(WarpIcon::X.to_warpui_icon(meta_color).finish())
+            ConstrainedBox::new(WarpIcon::X.to_galaxyui_icon(meta_color).finish())
                 .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .finish(),
@@ -2344,7 +2344,7 @@ const INDICATOR_DOT_SIZE: f32 = 8.;
 fn render_title_indicator(theme: &WarpTheme) -> Box<dyn Element> {
     ConstrainedBox::new(
         WarpIcon::CircleFilled
-            .to_warpui_icon(theme.accent())
+            .to_galaxyui_icon(theme.accent())
             .finish(),
     )
     .with_width(INDICATOR_DOT_SIZE)
@@ -2594,7 +2594,7 @@ fn pane_display_title_and_subtitle(
             .unwrap_or_default();
         let home_dir = dirs::home_dir();
         let home_str = home_dir.as_ref().and_then(|path| path.to_str());
-        let parent = warp_util::path::user_friendly_path(&parent_raw, home_str).to_string();
+        let parent = galaxy_util::path::user_friendly_path(&parent_raw, home_str).to_string();
         (filename, parent)
     } else {
         (
@@ -3341,7 +3341,7 @@ fn render_git_branch_text(
         .with_cross_axis_alignment(CrossAxisAlignment::Center)
         .with_spacing(2.)
         .with_child(
-            ConstrainedBox::new(UiIcon::GitBranch.to_warpui_icon(text_color).finish())
+            ConstrainedBox::new(UiIcon::GitBranch.to_galaxyui_icon(text_color).finish())
                 .with_width(font_size - 2.)
                 .with_height(font_size - 2.)
                 .finish(),
@@ -3634,7 +3634,7 @@ fn render_summary_pane_kind_icon_circle(
                 WarpIcon::Oz
             };
             (
-                icon.to_warpui_icon(oz_icon_fill(theme)).finish(),
+                icon.to_galaxyui_icon(oz_icon_fill(theme)).finish(),
                 theme.background().into(),
             )
         }
@@ -3643,12 +3643,12 @@ fn render_summary_pane_kind_icon_circle(
             let icon_element = agent
                 .icon()
                 .map(|icon| {
-                    icon.to_warpui_icon(WarpThemeFill::Solid(icon_color))
+                    icon.to_galaxyui_icon(WarpThemeFill::Solid(icon_color))
                         .finish()
                 })
                 .unwrap_or_else(|| {
                     WarpIcon::Terminal
-                        .to_warpui_icon(theme.sub_text_color(theme.background()))
+                        .to_galaxyui_icon(theme.sub_text_color(theme.background()))
                         .finish()
                 });
             (
@@ -3664,7 +3664,7 @@ fn render_summary_pane_kind_icon_circle(
         SummaryPaneKind::Code { title } => (
             icon_from_file_path(&title, appearance).unwrap_or_else(|| {
                 WarpIcon::Code2
-                    .to_warpui_icon(theme.sub_text_color(theme.background()))
+                    .to_galaxyui_icon(theme.sub_text_color(theme.background()))
                     .finish()
             }),
             internal_colors::fg_overlay_2(theme).into(),
@@ -3683,7 +3683,7 @@ fn render_summary_pane_kind_icon_circle(
         | SummaryPaneKind::Other => {
             let (icon, icon_color) = summary_pane_kind_icon(kind, appearance);
             (
-                icon.to_warpui_icon(icon_color).finish(),
+                icon.to_galaxyui_icon(icon_color).finish(),
                 internal_colors::fg_overlay_2(theme).into(),
             )
         }
@@ -3871,7 +3871,7 @@ fn render_terminal_primary_line(
             .with_child(
                 ConstrainedBox::new(
                     UiIcon::AlertTriangle
-                        .to_warpui_icon(error_color.into())
+                        .to_galaxyui_icon(error_color.into())
                         .finish(),
                 )
                 .with_width(BADGE_ICON_SIZE)
@@ -4154,7 +4154,7 @@ fn render_pull_request_badge_content(label: &str, appearance: &Appearance) -> Bo
         .with_cross_axis_alignment(CrossAxisAlignment::Center)
         .with_spacing(4.)
         .with_child(
-            ConstrainedBox::new(UiIcon::Github.to_warpui_icon(main_text_color).finish())
+            ConstrainedBox::new(UiIcon::Github.to_galaxyui_icon(main_text_color).finish())
                 .with_width(BADGE_ICON_SIZE)
                 .with_height(BADGE_ICON_SIZE)
                 .finish(),
@@ -4716,7 +4716,7 @@ fn render_compact_subtitle_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_warpui_icon(main_text).finish())
+            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4769,7 +4769,7 @@ fn render_tab_item_mode_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_warpui_icon(main_text).finish())
+            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4822,7 +4822,7 @@ fn render_primary_info_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_warpui_icon(main_text).finish())
+            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4889,7 +4889,7 @@ fn render_show_toggle_option(
 
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_enabled {
-            ConstrainedBox::new(WarpIcon::Check.to_warpui_icon(main_text).finish())
+            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4912,7 +4912,7 @@ fn render_show_toggle_option(
         {
             let builder = ui_builder.clone();
             let info_icon = Hoverable::new(info_ms, move |info_hover| {
-                let icon = ConstrainedBox::new(UiIcon::Info.to_warpui_icon(info_color).finish())
+                let icon = ConstrainedBox::new(UiIcon::Info.to_galaxyui_icon(info_color).finish())
                     .with_width(INFO_ICON_SIZE)
                     .with_height(INFO_ICON_SIZE)
                     .finish();
@@ -4977,7 +4977,7 @@ fn render_popup_segment(
 
         Container::new(
             Align::new(
-                ConstrainedBox::new(icon.to_warpui_icon(icon_color).finish())
+                ConstrainedBox::new(icon.to_galaxyui_icon(icon_color).finish())
                     .with_width(COMPACT_ICON_SIZE)
                     .with_height(COMPACT_ICON_SIZE)
                     .finish(),
@@ -5244,7 +5244,7 @@ fn render_detail_status_pill(
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(4.)
             .with_child(
-                ConstrainedBox::new(icon.to_warpui_icon(WarpThemeFill::Solid(color)).finish())
+                ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
                     .with_width(12.)
                     .with_height(12.)
                     .finish(),

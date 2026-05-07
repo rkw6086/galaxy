@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     fonts::Weight,
     ui_components::components::{Coords, UiComponentStyles},
 };

@@ -16,16 +16,16 @@ pub use agent_view_block::*;
 pub use controller::*;
 pub use ephemeral_message_model::*;
 pub use inline_agent_view_header::*;
-use warpui::fonts::Properties;
+use galaxyui::fonts::Properties;
 pub use zero_state_block::*;
 
 use std::sync::LazyLock;
 
 use pathfinder_color::ColorU;
-use warp_core::ui::theme::Fill;
-use warp_core::ui::{appearance::Appearance, color::blend::Blend};
-use warpui::keymap::Keystroke;
-use warpui::{AppContext, SingletonEntity};
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::{appearance::Appearance, color::blend::Blend};
+use galaxyui::keymap::Keystroke;
+use galaxyui::{AppContext, SingletonEntity};
 
 use crate::view_components::action_button::ActionButtonTheme;
 

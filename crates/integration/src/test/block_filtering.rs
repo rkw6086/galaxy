@@ -13,21 +13,21 @@ use crate::test::integration_testing::terminal::{
 use crate::test::new_step_with_default_assertions;
 use crate::test::toggle_setting;
 use crate::test::TestStep;
-use warp::cmd_or_ctrl_shift;
-use warp::integration_testing::terminal::util::current_shell_starter_and_version;
-use warp::integration_testing::terminal::{
+use galaxy::cmd_or_ctrl_shift;
+use galaxy::integration_testing::terminal::util::current_shell_starter_and_version;
+use galaxy::integration_testing::terminal::{
     assert_context_menu_is_open, initialize_secret_regexes,
     wait_until_bootstrapped_single_pane_for_tab,
 };
-use warp::integration_testing::view_getters::single_terminal_view_for_tab;
+use galaxy::integration_testing::view_getters::single_terminal_view_for_tab;
 
-use warp::settings_view::PrivacyPageAction;
-use warp::settings_view::SettingsAction;
-use warp::terminal::model::index::Point;
-use warp::terminal::model::terminal_model::{BlockIndex, WithinBlock, WithinModel};
-use warp::terminal::shell::ShellType;
-use warp::terminal::GridType;
-use warpui::{async_assert, async_assert_eq};
+use galaxy::settings_view::PrivacyPageAction;
+use galaxy::settings_view::SettingsAction;
+use galaxy::terminal::model::index::Point;
+use galaxy::terminal::model::terminal_model::{BlockIndex, WithinBlock, WithinModel};
+use galaxy::terminal::shell::ShellType;
+use galaxy::terminal::GridType;
+use galaxyui::{async_assert, async_assert_eq};
 
 use crate::Builder;
 

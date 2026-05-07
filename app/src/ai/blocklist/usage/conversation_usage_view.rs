@@ -8,10 +8,10 @@ use crate::persistence::model::{
 use crate::ui_components::blended_colors;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use warp_core::ui::theme::color::internal_colors;
-use warp_core::ui::Icon;
-use warpui::elements::ConstrainedBox;
-use warpui::{
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::ConstrainedBox;
+use galaxyui::{
     elements::{
         Border, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, MainAxisSize,
         MouseStateHandle, ParentElement, Radius, Text,
@@ -232,7 +232,7 @@ impl ConversationUsageView {
 
                 if *is_byok {
                     model_elements.push(
-                        ConstrainedBox::new(Icon::Key.to_warpui_icon(text_color.into()).finish())
+                        ConstrainedBox::new(Icon::Key.to_galaxyui_icon(text_color.into()).finish())
                             .with_width(font_size)
                             .with_height(font_size)
                             .finish(),

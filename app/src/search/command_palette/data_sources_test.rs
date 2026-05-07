@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use settings::manager::SettingsManager;
-use warpui::{App, SingletonEntity};
+use galaxyui::{App, SingletonEntity};
 
 use super::*;
 use crate::auth::AuthStateProvider;

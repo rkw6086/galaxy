@@ -1,12 +1,12 @@
 use crate::appearance::Appearance;
 use crate::search::QueryFilter;
-use warp_core::ui::theme::color::internal_colors;
-use warpui::elements::{
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable, Icon,
     MouseStateHandle, ParentElement, Radius, Text,
 };
-use warpui::platform::Cursor;
-use warpui::{Element, EventContext};
+use galaxyui::platform::Cursor;
+use galaxyui::{Element, EventContext};
 
 /// Trait to render a filter chip.
 pub trait FilterChipRenderer {

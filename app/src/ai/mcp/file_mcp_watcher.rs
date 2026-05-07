@@ -11,8 +11,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::LazyLock;
-use warp_core::safe_warn;
-use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity};
+use galaxy_core::safe_warn;
+use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use watcher::HomeDirectoryWatcherEvent;
 
 use crate::ai::mcp::{
@@ -286,7 +286,7 @@ impl FileMCPWatcher {
         }
 
         let Ok(std_path) =
-            warp_util::standardized_path::StandardizedPath::from_local_canonicalized(subdir_path)
+            galaxy_util::standardized_path::StandardizedPath::from_local_canonicalized(subdir_path)
         else {
             return;
         };

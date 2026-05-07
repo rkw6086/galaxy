@@ -30,11 +30,11 @@ use std::{
 };
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use warp_core::features::FeatureFlag;
-use warpui::elements::ListIndentLevel;
-use warpui::text::BlockHeaderSize as HeaderSize;
-use warpui::text::point::Point;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::ListIndentLevel;
+use galaxyui::text::BlockHeaderSize as HeaderSize;
+use galaxyui::text::point::Point;
+use galaxyui::{
     AppContext,
     fonts::{Properties, Style, Weight},
 };

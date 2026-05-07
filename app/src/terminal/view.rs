@@ -45,7 +45,7 @@ mod tooltips;
 pub mod use_agent_footer;
 mod zero_state_block;
 
-use warpui::clipboard_utils::get_image_filepaths_from_paths;
+use galaxyui::clipboard_utils::get_image_filepaths_from_paths;
 
 use std::ops::Deref as _;
 
@@ -187,10 +187,10 @@ use session_sharing_protocol::common::LongRunningCommandAgentInteractionState;
 use session_sharing_protocol::sharer::{RoleUpdateReason, SessionEndedReason, SessionSourceType};
 use ssh_file_upload::{FileUpload, FileUploadEvent};
 use uuid::Uuid;
-use warp_core::channel::ChannelState;
-use warpui::elements::{shimmering_text::ShimmeringTextStateHandle, Border, ChildView};
-use warpui::fonts::Properties;
-use warpui::{ViewHandle, WeakModelHandle};
+use galaxy_core::channel::ChannelState;
+use galaxyui::elements::{shimmering_text::ShimmeringTextStateHandle, Border, ChildView};
+use galaxyui::fonts::Properties;
+use galaxyui::{ViewHandle, WeakModelHandle};
 
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 
@@ -378,35 +378,35 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use sum_tree::SeekBias;
 use vec1::vec1;
-use warp_core::context_flag::ContextFlag;
-use warp_core::user_preferences::GetUserPreferences as _;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::user_preferences::GetUserPreferences as _;
 #[cfg(feature = "local_fs")]
-use warp_util::path::LineAndColumnArg;
-use warp_util::path::ShellFamily;
-use warpui::clipboard::ClipboardContent;
-use warpui::elements::new_scrollable::{
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::path::ShellFamily;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::new_scrollable::{
     AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
     ScrollableAppearance, SingleAxisConfig,
 };
-use warpui::elements::{
+use galaxyui::elements::{
     get_rich_content_position_id, ChildAnchor, ClippedScrollStateHandle, Container,
     CrossAxisAlignment, DispatchEventResult, DropTarget, DropTargetData, Empty, EventHandler,
     Expanded, Flex, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
     ScrollableElement, ScrollbarWidth, Shrinkable, Text,
 };
-use warpui::event::ModifiersState;
-use warpui::keymap::Keystroke;
-use warpui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
-use warpui::platform::{Cursor, OperatingSystem};
-use warpui::r#async::executor::Background;
-use warpui::r#async::{SpawnedFutureHandle, Timer};
-use warpui::windowing::WindowManager;
+use galaxyui::event::ModifiersState;
+use galaxyui::keymap::Keystroke;
+use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
+use galaxyui::platform::{Cursor, OperatingSystem};
+use galaxyui::r#async::executor::Background;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::windowing::WindowManager;
 
-use warpui::assets::asset_cache::{AssetCache, AssetCacheEvent};
-use warpui::image_cache::ImageType;
-use warpui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use warpui::{
+use galaxyui::assets::asset_cache::{AssetCache, AssetCacheEvent};
+use galaxyui::image_cache::ImageType;
+use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
+use galaxyui::{
     accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
     elements::SavePosition,
     elements::{
@@ -418,14 +418,14 @@ use warpui::{
     AccessibilityData, AppContext, BlurContext, Element, Entity, FocusContext, ModelHandle,
     TypedActionView, UpdateView, View, ViewAsRef, ViewContext, WeakViewHandle,
 };
-use warpui::{
+use galaxyui::{
     elements::Stack,
     end_trace_after_next,
     geometry::vector::{vec2f, Vector2F},
     record_trace_event, WindowId,
 };
 
-use warpui::{windowing, CursorInfo, EntityId, EventContext, ModelAsRef, SingletonEntity, Tracked};
+use galaxyui::{windowing, CursorInfo, EntityId, EventContext, ModelAsRef, SingletonEntity, Tracked};
 
 use crate::ai_assistant::{AskAIType, ASK_AI_ASSISTANT_TEXT};
 use crate::appearance::{Appearance, AppearanceEvent};
@@ -510,8 +510,8 @@ use crate::terminal::{
 };
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
 use settings::{Setting, ToggleableSetting};
-use warp_core::semantic_selection::SemanticSelection;
-use warpui::text::SelectionType;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxyui::text::SelectionType;
 
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::server::telemetry::{BlockLatencyInfo, BootstrappingInfo};
@@ -578,7 +578,7 @@ use inline_banner::{
     AwsCliNotInstalledBannerAction, AwsCliNotInstalledBannerState, ByoLlmAuthBannerSessionState,
     OpenInWarpBannerState, SSHBannerAction, SSHBannerState, VimModeBannerAction,
 };
-use warp_core::command::ExitCode;
+use galaxy_core::command::ExitCode;
 
 lazy_static! {
     // A set of commands that perform minimal work that we use as a baseline to measure the latency of blocks.
@@ -2561,14 +2561,14 @@ pub struct TerminalView {
     ///   2. Whether this View's window is the active window.
     ///
     /// We need to derive and cache this state on this View in order to correctly implement focus
-    /// reporting. Because focus is window-scoped, i.e. warpui does not consider activating a
+    /// reporting. Because focus is window-scoped, i.e. galaxyui does not consider activating a
     /// different window as blurring the focused View in the previously active window, we cannot
-    /// simply rely on the warpui::View::on_blur and on_focus methods to report focus-in/out to the
+    /// simply rely on the galaxyui::View::on_blur and on_focus methods to report focus-in/out to the
     /// PTY, as those methods will not trigger when changing active windows. The singleton model
-    /// [`warpui::windowing::State`] will allow us to subscribe to active window change. So, we can
+    /// [`galaxyui::windowing::State`] will allow us to subscribe to active window change. So, we can
     /// subscribe to that and have that callback also report focus-in/out. However, that will still
     /// leave cases for potential double-reporting, as a single click can trigger both
-    /// [`warpui::View::on_focus`] and emit a [`warpui::windowing::StateEvent`]. This field will
+    /// [`galaxyui::View::on_focus`] and emit a [`galaxyui::windowing::StateEvent`]. This field will
     /// guard against that double- reporting case, though it needs to be kept in sync with the
     /// focused view and active window.
     is_focused_and_active: bool,
@@ -2749,9 +2749,9 @@ pub struct TerminalView {
     /// Mouse state handle for the cloud mode details panel toggle button in the pane header.
     /// Only available on non-WASM platforms (WASM uses a per-window button instead).
     #[cfg(not(target_arch = "wasm32"))]
-    cloud_mode_details_panel_toggle_mouse_state: warpui::elements::MouseStateHandle,
+    cloud_mode_details_panel_toggle_mouse_state: galaxyui::elements::MouseStateHandle,
     /// Mouse state handle for the ambient agent cancel button in the pane header.
-    ambient_agent_cancel_mouse_state: warpui::elements::MouseStateHandle,
+    ambient_agent_cancel_mouse_state: galaxyui::elements::MouseStateHandle,
 
     /// First-time cloud agent setup view (full-screen overlay for creating initial environment).
     first_time_cloud_agent_setup_view: ViewHandle<ambient_agent::FirstTimeCloudAgentSetupView>,
@@ -6429,7 +6429,7 @@ impl TerminalView {
     }
 
     #[cfg(any(test, feature = "integration_tests"))]
-    pub fn sessions<'a, A: warpui::ModelAsRef>(&self, ctx: &'a A) -> &'a Sessions {
+    pub fn sessions<'a, A: galaxyui::ModelAsRef>(&self, ctx: &'a A) -> &'a Sessions {
         self.sessions.as_ref(ctx)
     }
 
@@ -7413,7 +7413,7 @@ impl TerminalView {
         });
     }
 
-    /// Receiving the warpui::Event::KeyDown event from a child element.
+    /// Receiving the galaxyui::Event::KeyDown event from a child element.
     /// Generally, this should be control characters rather than printable characters.
     fn keydown_on_terminal(&mut self, characters: &str, ctx: &mut ViewContext<Self>) {
         if self.is_long_running() {
@@ -7457,7 +7457,7 @@ impl TerminalView {
 
         was_bootstrap_script_echoed || is_shared_session_executor
     }
-    /// Receiving a warpui::Event::TypedCharacters event from a child element.
+    /// Receiving a galaxyui::Event::TypedCharacters event from a child element.
     /// We can assume `characters` consists of all printable characters, and therefore,
     /// can go into the input box.
     fn typed_characters_on_terminal(&mut self, characters: &str, ctx: &mut ViewContext<Self>) {
@@ -9857,7 +9857,7 @@ impl TerminalView {
         };
         let escape_char = session.shell_family().escape_char();
         let Some(top_level_command) =
-            warp_completer::parsers::simple::top_level_command(command, escape_char)
+            galaxy_completer::parsers::simple::top_level_command(command, escape_char)
         else {
             return false;
         };
@@ -10562,7 +10562,7 @@ impl TerminalView {
                 if self.is_login_shell_bootstrapped {
                     let _ = ctx.spawn(
                         async move {
-                            warpui::r#async::Timer::after(EXECUTE_PENDING_COMMAND_DELAY).await;
+                            galaxyui::r#async::Timer::after(EXECUTE_PENDING_COMMAND_DELAY).await;
                         },
                         Self::execute_pending_command,
                     );
@@ -11110,7 +11110,7 @@ impl TerminalView {
 
                 ctx.spawn(
                     async {
-                        warpui::r#async::Timer::after(*TRIGGER_RC_FILE_SUBSHELL_BOOTSTRAP_DELAY)
+                        galaxyui::r#async::Timer::after(*TRIGGER_RC_FILE_SUBSHELL_BOOTSTRAP_DELAY)
                             .await
                     },
                     move |me, _, ctx| {
@@ -14379,7 +14379,7 @@ impl TerminalView {
     fn start_bootstrap_timer(&self, duration: Duration, ctx: &mut ViewContext<Self>) {
         let _ = ctx.spawn(
             async move {
-                warpui::r#async::Timer::after(duration).await;
+                galaxyui::r#async::Timer::after(duration).await;
             },
             Self::on_bootstrap_failed_timer_complete,
         );
@@ -21409,11 +21409,11 @@ impl TerminalView {
         let icon = Container::new(
             ConstrainedBox::new(if has_active_filter {
                 icons::Icon::FilterFunnelFilled
-                    .to_warpui_icon(appearance.theme().accent())
+                    .to_galaxyui_icon(appearance.theme().accent())
                     .finish()
             } else {
                 icons::Icon::FilterFunnel
-                    .to_warpui_icon(
+                    .to_galaxyui_icon(
                         appearance
                             .theme()
                             .sub_text_color(appearance.theme().surface_2()),
@@ -23710,7 +23710,7 @@ impl TerminalView {
                 && session.shell_family() == ShellFamily::Posix
                 && is_in_long_running_command;
             if is_msys2_long_running {
-                let input = warpui::clipboard_utils::escaped_paths_str(paths, None);
+                let input = galaxyui::clipboard_utils::escaped_paths_str(paths, None);
                 self.typed_characters_on_terminal(&input, ctx);
                 return;
             }
@@ -23721,7 +23721,7 @@ impl TerminalView {
             let paths = if session.is_wsl() {
                 paths_converted = paths
                     .iter()
-                    .map(|p| warp_util::path::convert_windows_path_to_wsl(p))
+                    .map(|p| galaxy_util::path::convert_windows_path_to_wsl(p))
                     .collect::<Vec<_>>();
                 paths_converted.as_slice()
             } else {
@@ -23729,7 +23729,7 @@ impl TerminalView {
             };
 
             let input =
-                warpui::clipboard_utils::escaped_paths_str(paths, Some(self.shell_family(ctx)));
+                galaxyui::clipboard_utils::escaped_paths_str(paths, Some(self.shell_family(ctx)));
             self.typed_characters_on_terminal(&input, ctx);
         }
     }
@@ -23872,7 +23872,7 @@ impl TerminalView {
                 let active_block_id = self.model.lock().block_list().active_block_id().clone();
                 ctx.spawn(
                     async {
-                        warpui::r#async::Timer::after(Duration::from_secs(3)).await;
+                        galaxyui::r#async::Timer::after(Duration::from_secs(3)).await;
                         active_block_id
                     },
                     move |terminal_view, active_block_id, _| {
@@ -25938,7 +25938,7 @@ impl View for TerminalView {
 
             Container::new(
                 Flex::row()
-                    .with_main_axis_size(warpui::elements::MainAxisSize::Max)
+                    .with_main_axis_size(galaxyui::elements::MainAxisSize::Max)
                     .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .with_child(Shrinkable::new(1., final_element).finish())
                     .with_child(panel_with_background)
@@ -25977,7 +25977,7 @@ impl View for TerminalView {
         }
     }
 
-    fn keymap_context(&self, app: &AppContext) -> warpui::keymap::Context {
+    fn keymap_context(&self, app: &AppContext) -> galaxyui::keymap::Context {
         let mut context = Self::default_keymap_context();
         context.map.insert(
             "TerminalView_BlockSelectionCardinality",

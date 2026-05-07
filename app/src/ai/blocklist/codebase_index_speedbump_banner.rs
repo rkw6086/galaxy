@@ -4,10 +4,10 @@ use crate::appearance::Appearance;
 use crate::terminal::view::{InlineBannerId, TerminalAction};
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use warpui::elements::{Align, ConstrainedBox};
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::Coords;
-use warpui::{
+use galaxyui::elements::{Align, ConstrainedBox};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::Coords;
+use galaxyui::{
     elements::{
         Container, CrossAxisAlignment, Flex, MainAxisSize, MouseStateHandle, ParentElement,
         Shrinkable,
@@ -150,7 +150,7 @@ impl CodebaseIndexSpeedbumpBannerState {
         let info_icon = Container::new(
             ConstrainedBox::new(
                 Icon::Info
-                    .to_warpui_icon(theme.active_ui_text_color())
+                    .to_galaxyui_icon(theme.active_ui_text_color())
                     .finish(),
             )
             .with_width(appearance.ui_font_size() * 1.2)

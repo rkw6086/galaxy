@@ -1,5 +1,5 @@
 use pathfinder_geometry::{rect::RectF, vector::Vector2F};
-use warpui::{
+use galaxyui::{
     elements::{
         AcceptedByDropTarget, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
         CrossAxisAlignment, Draggable, DraggableState, DropShadow, Empty, Flex, Hoverable,
@@ -110,7 +110,7 @@ impl WarpDriveItemStyles {
                 .set_font_size(ITEM_FONT_SIZE)
                 .set_font_color(theme.foreground().into())
                 .set_background(
-                    warp_core::ui::theme::color::internal_colors::fg_overlay_4(theme).into(),
+                    galaxy_core::ui::theme::color::internal_colors::fg_overlay_4(theme).into(),
                 )
                 .set_border_color(theme.accent().into()),
             hovered: UiComponentStyles::default()
@@ -118,7 +118,7 @@ impl WarpDriveItemStyles {
                 .set_font_size(ITEM_FONT_SIZE)
                 .set_font_color(blended_colors::text_main(theme, background))
                 .set_background(
-                    warp_core::ui::theme::color::internal_colors::fg_overlay_2(theme).into(),
+                    galaxy_core::ui::theme::color::internal_colors::fg_overlay_2(theme).into(),
                 ),
         }
     }
@@ -461,7 +461,7 @@ impl<'a> WarpDriveRow<'a> {
         let text_color = appearance.theme().sub_text_color(background);
 
         let icon = Container::new(
-            ConstrainedBox::new(Icon::Users.to_warpui_icon(text_color).finish())
+            ConstrainedBox::new(Icon::Users.to_galaxyui_icon(text_color).finish())
                 .with_height(15.)
                 .with_width(15.)
                 .finish(),
@@ -509,7 +509,7 @@ impl<'a> WarpDriveRow<'a> {
                             Container::new(
                                 ConstrainedBox::new(
                                     Icon::Clock
-                                        .to_warpui_icon(
+                                        .to_galaxyui_icon(
                                             appearance
                                                 .theme()
                                                 .sub_text_color(appearance.theme().surface_2()),
@@ -587,7 +587,7 @@ impl<'a> WarpDriveRow<'a> {
             });
 
             Container::new(
-                ConstrainedBox::new(chevron_icon.to_warpui_icon(icon_color.into()).finish())
+                ConstrainedBox::new(chevron_icon.to_galaxyui_icon(icon_color.into()).finish())
                     .with_width(16.)
                     .with_height(16.)
                     .finish(),

@@ -1,8 +1,8 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use settings::{Setting, ToggleableSetting};
-use warp_core::features::FeatureFlag;
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{
     elements::{Flex, MouseStateHandle, ParentElement},
     ui_components::{components::UiComponent, switch::SwitchStateHandle},
     Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
@@ -275,7 +275,7 @@ impl View for ExternalEditorView {
         "ExternalEditorView"
     }
 
-    fn render(&self, app: &warpui::AppContext) -> Box<dyn warpui::Element> {
+    fn render(&self, app: &galaxyui::AppContext) -> Box<dyn galaxyui::Element> {
         let appearance = Appearance::as_ref(app);
 
         let default_editor = render_dropdown_item(

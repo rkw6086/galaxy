@@ -1,21 +1,21 @@
 use crate::appearance::Appearance;
 use crate::util::color::lighten;
-use warp_core::ui::builder::UiBuilder;
-use warp_core::ui::color::darken;
-use warpui::keymap::FixedBinding;
+use galaxy_core::ui::builder::UiBuilder;
+use galaxy_core::ui::color::darken;
+use galaxyui::keymap::FixedBinding;
 
 use crate::modal::MODAL_CORNER_RADIUS;
-use warp_core::ui::color::blend::Blend;
-use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
-use warpui::color::ColorU;
-use warpui::elements::{
+use galaxy_core::ui::color::blend::Blend;
+use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::color::ColorU;
+use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex, Icon,
     MouseStateHandle, ParentElement, Radius, Shrinkable,
 };
-use warpui::fonts::Weight;
-use warpui::ui_components::button::ButtonVariant;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::{
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
 };
 
@@ -64,7 +64,7 @@ pub struct AuthOverrideWarningBody {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "enter",

@@ -6,10 +6,10 @@ use crate::visuals::theme_picker_visual;
 use crate::OnboardingIntention;
 use pathfinder_color::ColorU;
 use ui_components::{button, Component as _, Options as _};
-use warp_core::features::FeatureFlag;
-use warp_core::send_telemetry_from_ctx;
-use warp_core::ui::{appearance::Appearance, theme::color::internal_colors, theme::WarpTheme};
-use warpui::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, theme::WarpTheme};
+use galaxyui::{
     elements::{
         Border, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
         CrossAxisAlignment, Empty, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,

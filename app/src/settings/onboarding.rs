@@ -9,8 +9,8 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 use onboarding::slides::{AgentAutonomy, AgentDevelopmentSettings};
 use onboarding::{SelectedSettings, SessionDefault, UICustomizationSettings};
 use settings::Setting as _;
-use warp_core::features::FeatureFlag;
-use warpui::{AppContext, SingletonEntity as _};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, SingletonEntity as _};
 
 /// Applies onboarding settings based on the user's selected mode.
 pub fn apply_onboarding_settings(selected_settings: &SelectedSettings, app: &mut AppContext) {

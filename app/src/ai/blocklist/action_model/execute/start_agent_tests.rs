@@ -7,8 +7,8 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use ai::agent::action_result::StartAgentVersion;
-use warp_core::features::FeatureFlag;
-use warpui::{App, EntityId};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{App, EntityId};
 fn build_start_agent_action(
     version: StartAgentVersion,
     execution_mode: StartAgentExecutionMode,

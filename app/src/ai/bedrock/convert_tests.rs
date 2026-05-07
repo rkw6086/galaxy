@@ -158,7 +158,8 @@ fn test_system_prompt_separated_from_messages() {
 
 #[test]
 fn test_empty_system_prompt_produces_empty_vec() {
-    let result = build_converse_request(vec![], Some("".to_string()), vec![], 4096, None, None, None);
+    let result =
+        build_converse_request(vec![], Some("".to_string()), vec![], 4096, None, None, None);
     assert!(result.system.is_empty());
 
     let result2 = build_converse_request(vec![], None, vec![], 4096, None, None, None);
@@ -235,7 +236,10 @@ fn test_multipart_content_produces_multiple_blocks() {
     let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages[0].content().len(), 2);
-    assert!(matches!(&result.messages[0].content()[0], ContentBlock::Text(_)));
+    assert!(matches!(
+        &result.messages[0].content()[0],
+        ContentBlock::Text(_)
+    ));
     assert!(matches!(
         &result.messages[0].content()[1],
         ContentBlock::ToolUse(_)

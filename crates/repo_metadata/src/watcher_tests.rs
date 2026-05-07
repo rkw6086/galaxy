@@ -12,9 +12,9 @@ use crate::{CanonicalizedPath, RepoMetadataError, Repository, RepositoryUpdate};
 use futures::channel::mpsc;
 use futures::StreamExt as _;
 use virtual_fs::{Stub, VirtualFS};
-use warp_util::standardized_path::StandardizedPath;
-use warpui::r#async::Timer;
-use warpui::{App, ModelContext, ModelHandle};
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::r#async::Timer;
+use galaxyui::{App, ModelContext, ModelHandle};
 
 #[test]
 fn test_add_repository_success() {

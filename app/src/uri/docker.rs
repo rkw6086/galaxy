@@ -5,8 +5,8 @@ use crate::{
 };
 use regex::Regex;
 use url::Url;
-use warp_util::path::{is_posix_portable_pathname, ShellFamily};
-use warpui::AppContext;
+use galaxy_util::path::{is_posix_portable_pathname, ShellFamily};
+use galaxyui::AppContext;
 
 use crate::root_view::SubshellCommandArg;
 

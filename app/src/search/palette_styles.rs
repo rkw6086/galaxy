@@ -1,5 +1,5 @@
-use warp_core::ui::appearance::Appearance;
-use warpui::elements::{Border, CornerRadius, DropShadow, Radius, ScrollbarWidth};
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{Border, CornerRadius, DropShadow, Radius, ScrollbarWidth};
 
 use crate::search::result_renderer::QueryResultRendererStyles;
 

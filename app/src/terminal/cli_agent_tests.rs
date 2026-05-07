@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use chrono::Local;
 use smol_str::SmolStr;
-use warp_editor::render::model::LineCount;
-use warp_util::path::EscapeChar;
-use warpui::App;
+use galaxy_editor::render::model::LineCount;
+use galaxy_util::path::EscapeChar;
+use galaxyui::App;
 
 use super::{
     build_diff_hunk_prompt, build_review_prompt, build_selection_line_range_prompt,

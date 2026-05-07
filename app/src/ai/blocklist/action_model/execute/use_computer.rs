@@ -1,6 +1,6 @@
 use ai::agent::action_result::AIAgentActionResultType;
 use futures::{future::BoxFuture, FutureExt};
-use warpui::{Entity, ModelContext};
+use galaxyui::{Entity, ModelContext};
 
 use crate::ai::agent::{AIAgentActionType, UseComputerResult};
 

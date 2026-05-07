@@ -12,10 +12,10 @@ use crate::ai::agent::{
 };
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
-use warp_core::features::FeatureFlag;
-use warp_core::send_telemetry_from_ctx;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::send_telemetry_from_ctx;
 use warp_multi_agent_api as api;
-use warpui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 const MAX_RETRY_ATTEMPTS: i32 = 3;
 const MAX_PENDING_LIFECYCLE_EVENTS_PER_TARGET: usize = 200;

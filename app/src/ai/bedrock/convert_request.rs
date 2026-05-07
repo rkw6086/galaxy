@@ -74,12 +74,185 @@ pub fn extract_messages_from_request(request: &api::Request) -> Vec<Conversation
                         });
                     }
                 }
+                api::request::input::Type::InitProjectRules(_) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(
+                            "Initialize this project. Analyze the codebase structure and files, \
+                             generate an AGENTS.md file documenting project conventions and setup \
+                             instructions, and offer to create a development environment configuration. \
+                             Use the available tools to inspect the project before responding."
+                                .to_string(),
+                        ),
+                    });
+                }
+                api::request::input::Type::CreateEnvironment(env) => {
+                    let repo_info = if env.repo_paths.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" Repositories: {}", env.repo_paths.join(", "))
+                    };
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(format!(
+                            "Create a development environment for this project. \
+                             Set up necessary dependencies, configuration files, and tooling.{}",
+                            repo_info
+                        )),
+                    });
+                }
+                api::request::input::Type::CreateNewProject(project) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(format!(
+                            "Create a new project: {}",
+                            project.query
+                        )),
+                    });
+                }
+                api::request::input::Type::CloneRepository(repo) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(format!(
+                            "Clone the repository at {} and set it up for development.",
+                            repo.url
+                        )),
+                    });
+                }
+                api::request::input::Type::AutoCodeDiffQuery(diff) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(format!(
+                            "Apply code changes: {}",
+                            diff.query
+                        )),
+                    });
+                }
+                api::request::input::Type::ResumeConversation(_) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(
+                            "Continue where we left off. Review the conversation history and proceed with the next steps."
+                                .to_string(),
+                        ),
+                    });
+                }
+                api::request::input::Type::QueryWithCannedResponse(canned) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(canned.query.clone()),
+                    });
+                }
+                api::request::input::Type::CodeReview(_) => {
+                    messages.push(ConversationMessage {
+                        role: MessageRole::User,
+                        content: MessageContent::Text(
+                            "Review the following code changes and provide detailed feedback on correctness, style, and potential issues."
+                                .to_string(),
+                        ),
+                    });
+                }
                 _ => {}
             }
         }
     }
 
+    ensure_starts_with_user_message(&mut messages);
+    ensure_tool_results_paired(&mut messages);
     messages
+}
+
+fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {
+    if messages.is_empty() {
+        messages.push(ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Please proceed with the requested task.".to_string()),
+        });
+        return;
+    }
+
+    if messages[0].role != MessageRole::User {
+        messages.insert(
+            0,
+            ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text(
+                    "Please proceed with the requested task.".to_string(),
+                ),
+            },
+        );
+    }
+}
+
+fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
+    let mut tool_use_ids: Vec<String> = Vec::new();
+    let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for msg in messages.iter() {
+        match &msg.content {
+            MessageContent::ToolUse { tool_use_id, .. } => {
+                tool_use_ids.push(tool_use_id.clone());
+            }
+            MessageContent::ToolResult { tool_use_id, .. } => {
+                tool_result_ids.insert(tool_use_id.clone());
+            }
+            MessageContent::MultiPart(parts) => {
+                for part in parts {
+                    match part {
+                        super::convert::ContentPart::ToolUse { tool_use_id, .. } => {
+                            tool_use_ids.push(tool_use_id.clone());
+                        }
+                        super::convert::ContentPart::ToolResult { tool_use_id, .. } => {
+                            tool_result_ids.insert(tool_use_id.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let orphaned: Vec<String> = tool_use_ids
+        .into_iter()
+        .filter(|id| !tool_result_ids.contains(id))
+        .collect();
+
+    if orphaned.is_empty() {
+        return;
+    }
+
+    log::debug!(
+        "[bedrock] Synthesizing {} missing toolResult messages for orphaned tool calls",
+        orphaned.len()
+    );
+
+    for orphaned_id in &orphaned {
+        let insert_idx = messages
+            .iter()
+            .rposition(|m| match &m.content {
+                MessageContent::ToolUse { tool_use_id, .. } => tool_use_id == orphaned_id,
+                MessageContent::MultiPart(parts) => parts.iter().any(|p| matches!(
+                    p,
+                    super::convert::ContentPart::ToolUse { tool_use_id, .. } if tool_use_id == orphaned_id
+                )),
+                _ => false,
+            })
+            .map(|i| i + 1)
+            .unwrap_or(messages.len());
+
+        messages.insert(
+            insert_idx,
+            ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::ToolResult {
+                    tool_use_id: orphaned_id.clone(),
+                    content: "Tool executed successfully.".to_string(),
+                    is_error: false,
+                },
+            },
+        );
+    }
 }
 
 pub fn extract_system_prompt(_request: &api::Request) -> Option<String> {
@@ -109,7 +282,10 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
             match input_type {
                 api::request::input::Type::UserInputs(user_inputs) => {
                     for user_input in &user_inputs.inputs {
-                        if let Some(api::request::input::user_inputs::user_input::Input::ToolCallResult(_)) = &user_input.input {
+                        if let Some(
+                            api::request::input::user_inputs::user_input::Input::ToolCallResult(_),
+                        ) = &user_input.input
+                        {
                             break;
                         }
                     }
@@ -131,6 +307,10 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
         if has_tool_content {
             tools = default_tool_definitions();
         }
+    }
+
+    if tools.is_empty() {
+        tools = default_tool_definitions();
     }
 
     tools
@@ -232,7 +412,7 @@ fn convert_proto_message(msg: &api::Message) -> Option<ConversationMessage> {
             Some(ConversationMessage {
                 role: MessageRole::Assistant,
                 content: MessageContent::ToolUse {
-                    tool_use_id: msg.id.clone(),
+                    tool_use_id: tool_call.tool_call_id.clone(),
                     name,
                     input,
                 },
@@ -296,14 +476,12 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
         match result_type {
             api::request::input::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
-                    Some(
-                        api::run_shell_command_result::Result::CommandFinished(finished),
-                    ) => finished.output.clone(),
-                    Some(
-                        api::run_shell_command_result::Result::LongRunningCommandSnapshot(
-                            snapshot,
-                        ),
-                    ) => snapshot.output.clone(),
+                    Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
+                        finished.output.clone()
+                    }
+                    Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
+                        snapshot,
+                    )) => snapshot.output.clone(),
                     _ => "Command completed.".to_string(),
                 }
             }
@@ -341,19 +519,15 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
         match result_type {
             api::message::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
-                    Some(
-                        api::run_shell_command_result::Result::CommandFinished(finished),
-                    ) => {
+                    Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
                         format!(
                             "Exit code: {}\nOutput: {}",
                             finished.exit_code, finished.output
                         )
                     }
-                    Some(
-                        api::run_shell_command_result::Result::LongRunningCommandSnapshot(
-                            snapshot,
-                        ),
-                    ) => {
+                    Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
+                        snapshot,
+                    )) => {
                         format!("Output (running): {}", snapshot.output)
                     }
                     _ => "Command completed.".to_string(),

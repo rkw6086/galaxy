@@ -7,15 +7,15 @@ use crate::ui_components::icons::Icon;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
 use std::default::Default;
-use warp_core::ui::appearance::Appearance;
-use warpui::fonts::Weight;
-use warpui::keymap::FixedBinding;
-use warpui::presenter::ChildView;
-use warpui::ui_components::components::{Coords, UiComponentStyles};
-use warpui::AppContext;
-use warpui::SingletonEntity;
-use warpui::ViewHandle;
-use warpui::{Element, Entity, TypedActionView, View, ViewContext};
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
+use galaxyui::AppContext;
+use galaxyui::SingletonEntity;
+use galaxyui::ViewHandle;
+use galaxyui::{Element, Entity, TypedActionView, View, ViewContext};
 
 use super::shared_objects_creation_denied_body::{
     SharedObjectsCreationDeniedBody, SharedObjectsCreationDeniedBodyEvent,
@@ -39,7 +39,7 @@ pub enum SharedObjectsCreationDeniedModalEvent {
 }
 
 pub fn init(app: &mut AppContext) {
-    use warpui::keymap::macros::*;
+    use galaxyui::keymap::macros::*;
 
     app.register_fixed_bindings([FixedBinding::new(
         "escape",

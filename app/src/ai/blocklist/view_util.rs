@@ -3,8 +3,8 @@ use std::sync::LazyLock;
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::ui::appearance::Appearance;
-use warpui::{
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{
     elements::{
         ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
         MouseStateHandle, ParentElement,
@@ -23,12 +23,12 @@ use crate::{
     ui_components::icons::Icon,
 };
 
-use warpui::elements::ChildAnchor;
-use warpui::elements::Hoverable;
-use warpui::elements::OffsetPositioning;
-use warpui::elements::ParentAnchor;
-use warpui::elements::ParentOffsetBounds;
-use warpui::elements::Stack;
+use galaxyui::elements::ChildAnchor;
+use galaxyui::elements::Hoverable;
+use galaxyui::elements::OffsetPositioning;
+use galaxyui::elements::ParentAnchor;
+use galaxyui::elements::ParentOffsetBounds;
+use galaxyui::elements::Stack;
 
 const PROVIDER_BUTTON_ICON_SIZE: f32 = 14.;
 const PROVIDER_BUTTON_ICON_TEXT_GAP: f32 = 8.;
@@ -93,7 +93,7 @@ pub fn render_ai_follow_up_icon(
                 .tool_tip("Follow up with existing conversation".to_owned())
                 .with_style(UiComponentStyles {
                     font_size: Some(12.),
-                    background: Some(warpui::elements::Fill::Solid(tooltip_background)),
+                    background: Some(galaxyui::elements::Fill::Solid(tooltip_background)),
                     font_color: Some(appearance.theme().background().into_solid()),
                     ..Default::default()
                 });
@@ -118,7 +118,7 @@ fn render_input_icon(icon: Icon, color: Fill, app: &AppContext) -> Box<dyn Eleme
     // height.
     let icon_size = ai_indicator_height(app);
     ConstrainedBox::new(
-        Container::new(icon.to_warpui_icon(color).finish())
+        Container::new(icon.to_galaxyui_icon(color).finish())
             .with_uniform_padding(icon_size / 8.)
             .finish(),
     )
@@ -182,7 +182,7 @@ where
 {
     let theme = appearance.theme();
     let font_color = theme.foreground().into_solid();
-    let mut label_children = vec![ConstrainedBox::new(icon.to_warpui_icon(color).finish())
+    let mut label_children = vec![ConstrainedBox::new(icon.to_galaxyui_icon(color).finish())
         .with_width(PROVIDER_BUTTON_ICON_SIZE)
         .with_height(PROVIDER_BUTTON_ICON_SIZE)
         .finish()];

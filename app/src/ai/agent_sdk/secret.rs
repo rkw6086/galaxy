@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use comfy_table::Cell;
 use inquire::{Confirm, InquireError, Password};
 use serde::Serialize;
-use warp_cli::{
+use galaxy_cli::{
     agent::OutputFormat,
     scope::ObjectScope,
     secret::{
@@ -17,13 +17,13 @@ use warp_cli::{
     },
     GlobalOptions,
 };
-use warp_core::features::FeatureFlag;
-use warp_graphql::{
+use galaxy_core::features::FeatureFlag;
+use galaxy_graphql::{
     managed_secrets::{ManagedSecret, ManagedSecretType},
     object::SpaceType,
 };
-use warp_managed_secrets::{client::SecretOwner, ManagedSecretManager, ManagedSecretValue};
-use warpui::{platform::TerminationMode, AppContext, SingletonEntity as _};
+use galaxy_managed_secrets::{client::SecretOwner, ManagedSecretManager, ManagedSecretValue};
+use galaxyui::{platform::TerminationMode, AppContext, SingletonEntity as _};
 
 use crate::{
     auth::UserUid, cloud_object::Owner, server::ids::ServerId,
