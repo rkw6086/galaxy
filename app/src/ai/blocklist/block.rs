@@ -1688,6 +1688,14 @@ impl AIBlock {
         let status = self.model.status(ctx);
         let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
 
+        log::info!("[bedrock-debug] on_output_status_update: status={}", match &status {
+            AIBlockOutputStatus::Pending => "Pending".to_string(),
+            AIBlockOutputStatus::PartiallyReceived { output } => format!("PartiallyReceived(messages={})", output.get().messages.len()),
+            AIBlockOutputStatus::Complete { output } => format!("Complete(messages={})", output.get().messages.len()),
+            AIBlockOutputStatus::Cancelled { .. } => "Cancelled".to_string(),
+            AIBlockOutputStatus::Failed { .. } => "Failed".to_string(),
+        });
+
         match status {
             AIBlockOutputStatus::Pending => {
                 self.requested_action_ids.clear();

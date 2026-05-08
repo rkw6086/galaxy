@@ -55,11 +55,17 @@ pub fn bedrock_stream_to_response_events(
         let mut output_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(stream_finished::Done {});
 
+        let mut event_count: u32 = 0;
         loop {
             match output.stream.recv().await {
-                Ok(Some(event)) => match event {
-                    StreamEvent::MessageStart(_) => {}
+                Ok(Some(event)) => {
+                    event_count += 1;
+                    match event {
+                    StreamEvent::MessageStart(_) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: MessageStart");
+                    }
                     StreamEvent::ContentBlockStart(block_start) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStart");
                         if let Some(start) = block_start.start() {
                             match start {
                                 ContentBlockStart::ToolUse(tool_start) => {
@@ -98,10 +104,11 @@ pub fn bedrock_stream_to_response_events(
                         }
                     }
                     StreamEvent::ContentBlockDelta(delta) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockDelta");
                         if let Some(d) = delta.delta() {
                             match d {
                                 ContentBlockDelta::Text(text) => {
-                                    log::trace!("[bedrock] Text delta ({} chars)", text.len());
+                                    log::info!("[bedrock-debug] Event #{event_count}: TextDelta ({} chars): {:?}", text.len(), &text[..text.len().min(80)]);
                                     if text_flushed {
                                         let msg_id = current_text_message_id.as_ref().unwrap();
                                         let append = build_append_text(
@@ -139,6 +146,7 @@ pub fn bedrock_stream_to_response_events(
                         }
                     }
                     StreamEvent::ContentBlockStop(_) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
                         if !current_tool_use_id.is_empty() {
                             log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
                             if let Some(ref logger) = diagnostic_logger {
@@ -160,6 +168,7 @@ pub fn bedrock_stream_to_response_events(
                         }
                     }
                     StreamEvent::MessageStop(stop) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: MessageStop (reason={:?})", stop.stop_reason());
                         stop_reason = match stop.stop_reason() {
                             StopReason::EndTurn => {
                                 stream_finished::Reason::Done(stream_finished::Done {})
@@ -176,19 +185,23 @@ pub fn bedrock_stream_to_response_events(
                         };
                     }
                     StreamEvent::Metadata(metadata) => {
+                        log::info!("[bedrock-debug] Event #{event_count}: Metadata");
                         if let Some(usage) = metadata.usage() {
                             input_tokens = usage.input_tokens();
                             output_tokens = usage.output_tokens();
                         }
                     }
-                    _ => {}
-                },
+                    _ => {
+                        log::info!("[bedrock-debug] Event #{event_count}: Unknown/Other event");
+                    }
+                }
+                }
                 Ok(None) => {
-                    log::info!("[bedrock] Stream ended normally");
+                    log::info!("[bedrock-debug] Stream ended normally after {event_count} events");
                     break;
                 }
                 Err(e) => {
-                    log::error!("[bedrock] Stream error: {e}");
+                    log::error!("[bedrock-debug] Stream error after {event_count} events: {e}");
                     if let Some(ref logger) = diagnostic_logger {
                         logger.log_stream_error(&format!("{e}"));
                     }
@@ -378,7 +391,7 @@ fn build_append_text(task_id: &str, message_id: &str, text_delta: &str) -> Respo
     };
 
     let mask = prost_types::FieldMask {
-        paths: vec!["message.agent_output.text".to_string()],
+        paths: vec!["agent_output.text".to_string()],
     };
 
     let action = ClientAction {

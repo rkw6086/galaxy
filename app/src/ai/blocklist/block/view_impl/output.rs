@@ -220,8 +220,17 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
         | AIBlockOutputStatus::Complete { .. }
         | AIBlockOutputStatus::Cancelled { .. }
         | AIBlockOutputStatus::Failed { .. } => {
-            if let Some(output) = status.output_to_render() {
+             if let Some(output) = status.output_to_render() {
                 let output = output.get();
+                let total_text_len: usize = output.messages.iter().map(|m| match &m.message {
+                    AIAgentOutputMessageType::Text(t) => t.sections.iter().map(|s| match s {
+                        AIAgentTextSection::PlainText { text } => text.text().len(),
+                        AIAgentTextSection::Code { code, .. } => code.len(),
+                        _ => 0,
+                    }).sum::<usize>(),
+                    _ => 0,
+                }).sum();
+                log::info!("[bedrock-debug] render output: messages={}, total_text_len={}", output.messages.len(), total_text_len);
                 let is_complete = matches!(status, AIBlockOutputStatus::Complete { .. });
                 let is_output_for_static_prompt_suggestions =
                     props.model.contains_static_prompt_suggestion_input(app);

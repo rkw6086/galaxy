@@ -766,6 +766,12 @@ impl Task {
                 .apply()
                 .map_err(UpdateTaskError::from)?;
 
+        let text_len = updated_message.message.as_ref().map(|m| match m {
+            api::message::Message::AgentOutput(o) => o.text.len(),
+            _ => 0,
+        }).unwrap_or(0);
+        log::info!("[bedrock-debug] append_to_message_content: accumulated text_len={}", text_len);
+
         let id = self.id.clone();
         let exchange_to_update = self
             .exchange_mut(exchange_id)

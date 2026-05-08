@@ -101,11 +101,12 @@ fn apply_path(
     let field_desc = match target.descriptor().get_field_by_name(field_name) {
         Some(f) => f,
         None => {
-            // Applying a field mask on unknown fields are a no-op.
-            //
-            // This implies the client's API version is outdated with respect
-            // to the server response. Adding fields is backwards-compatible
-            // in protobuf, where expected behavior is to no-op.
+            log::warn!("[field_mask] Unknown field '{}' in message '{}' (path: {:?}). Available fields: {:?}",
+                field_name,
+                target.descriptor().full_name(),
+                path_segments,
+                target.descriptor().fields().map(|f| f.name().to_string()).collect::<Vec<_>>()
+            );
             return Ok(());
         }
     };

@@ -2477,20 +2477,38 @@ impl AIConversation {
                 mask: Some(mask),
             }) => {
                 let task_id = TaskId::new(task_id);
-                let exchange_id = self
+                log::info!("[bedrock-debug] AppendToMessageContent: task_id={:?}, message_id={:?}", task_id, message.id);
+                let exchange_id = match self
                     .added_exchanges_by_response
                     .get(response_stream_id)
-                    .ok_or(UpdateConversationError::NoPendingRequest)?
-                    .iter()
-                    .find_map(|new_exchange| {
-                        (new_exchange.task_id == task_id).then_some(new_exchange.exchange_id)
-                    })
-                    .ok_or(UpdateConversationError::ExchangeNotFound)?;
+                {
+                    Some(exchanges) => {
+                        log::info!("[bedrock-debug] AppendToMessageContent: found {} exchanges for stream", exchanges.len());
+                        for ex in exchanges.iter() {
+                            log::info!("[bedrock-debug]   exchange: task_id={:?}, exchange_id={:?}", ex.task_id, ex.exchange_id);
+                        }
+                        match exchanges.iter().find_map(|new_exchange| {
+                            (new_exchange.task_id == task_id).then_some(new_exchange.exchange_id)
+                        }) {
+                            Some(id) => id,
+                            None => {
+                                log::error!("[bedrock-debug] AppendToMessageContent: ExchangeNotFound - no exchange with matching task_id");
+                                return Err(UpdateConversationError::ExchangeNotFound);
+                            }
+                        }
+                    }
+                    None => {
+                        log::error!("[bedrock-debug] AppendToMessageContent: NoPendingRequest - no exchanges for this stream_id");
+                        return Err(UpdateConversationError::NoPendingRequest);
+                    }
+                };
+
+                log::info!("[bedrock-debug] AppendToMessageContent: found exchange_id={:?}", exchange_id);
 
                 let current_todo_list = self.todo_lists.last().cloned();
                 let current_comment_state = self.code_review.as_ref().cloned();
                 // Update the message and get the updated todos op, if any.
-                let todos_op = self
+                let todos_op = match self
                     .task_store
                     .modify_task(&task_id, |task| {
                         task.append_to_message_content(
@@ -2501,8 +2519,24 @@ impl AIConversation {
                             mask,
                         )
                         .map(|msg| msg.todos_op().cloned())
-                    })
-                    .ok_or(UpdateConversationError::TaskNotFound)??;
+                    }) {
+                    Some(result) => {
+                        match result {
+                            Ok(todos_op) => {
+                                log::info!("[bedrock-debug] AppendToMessageContent: append succeeded");
+                                todos_op
+                            }
+                            Err(e) => {
+                                log::error!("[bedrock-debug] AppendToMessageContent: append_to_message_content failed: {e:?}");
+                                return Err(e.into());
+                            }
+                        }
+                    }
+                    None => {
+                        log::error!("[bedrock-debug] AppendToMessageContent: TaskNotFound in task_store");
+                        return Err(UpdateConversationError::TaskNotFound);
+                    }
+                };
                 // Update todo list if needed
                 if let Some(todos_op) = todos_op {
                     update_todo_list_from_todo_op(&mut self.todo_lists, todos_op);

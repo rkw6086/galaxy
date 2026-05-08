@@ -255,12 +255,26 @@ impl ResponseStream {
         ctx: &mut ModelContext<Self>,
     ) {
         if self.current_request_id.is_none_or(|id| id != request_id) {
+            log::info!("[bedrock-debug] handle_response_stream_event: stale request_id, dropping event");
             return;
         }
         self.time_to_latest_event = Local::now().signed_duration_since(self.start_time);
 
         match &event {
             Ok(response_event) => {
+                let event_type_name = match &response_event.r#type {
+                    Some(warp_multi_agent_api::response_event::Type::Init(_)) => "Init",
+                    Some(warp_multi_agent_api::response_event::Type::ClientActions(a)) => {
+                        log::info!("[bedrock-debug] ResponseStream received ClientActions with {} actions", a.actions.len());
+                        "ClientActions"
+                    }
+                    Some(warp_multi_agent_api::response_event::Type::Finished(f)) => {
+                        log::info!("[bedrock-debug] ResponseStream received Finished (reason={:?})", f.reason.as_ref().map(|r| format!("{r:?}")).unwrap_or("None".into()));
+                        "Finished"
+                    }
+                    None => "None",
+                };
+                log::info!("[bedrock-debug] ResponseStream emitting event type={event_type_name}");
                 if let Some(event_type) = &response_event.r#type {
                     match event_type {
                         warp_multi_agent_api::response_event::Type::Init(init_event) => {
@@ -300,6 +314,7 @@ impl ResponseStream {
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
             }
             Err(e) => {
+                log::info!("[bedrock-debug] ResponseStream received ERROR: {e:?}");
                 // Store original error if this is the first error
                 if self.retry_count == 0 {
                     self.original_error = Some(format!("{e:?}"));
@@ -378,7 +393,9 @@ impl ResponseStream {
     }
 
     fn on_response_stream_complete(&mut self, request_id: Uuid, ctx: &mut ModelContext<Self>) {
+        log::info!("[bedrock-debug] on_response_stream_complete called (request_id={request_id})");
         if self.current_request_id.is_none_or(|id| id != request_id) {
+            log::info!("[bedrock-debug] on_response_stream_complete: stale request_id, ignoring");
             return;
         }
         ctx.emit(ResponseStreamEvent::AfterStreamFinished { cancellation: None });

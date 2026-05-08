@@ -203,6 +203,7 @@ where
         let exchange_id = self.exchange_id;
         let conversation_id = self.conversation_id;
         let history_model = BlocklistAIHistoryModel::handle(ctx);
+        log::info!("[bedrock-debug] on_updated_output: subscribing for exchange_id={:?}", exchange_id);
         ctx.subscribe_to_model(&history_model, move |me, _, event, ctx| {
             let BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                 exchange_id: event_exchange_id,
@@ -213,6 +214,7 @@ where
                 return;
             };
             if *event_exchange_id == exchange_id {
+                log::info!("[bedrock-debug] on_updated_output: callback fired for matching exchange_id={:?}", exchange_id);
                 callback(me, ctx);
             } else if *event_conversation_id == conversation_id {
                 ctx.notify();
