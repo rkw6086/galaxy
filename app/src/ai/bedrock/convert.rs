@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, InferenceConfiguration, Message as BedrockMessage,
-    SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema, ToolResultBlock,
-    ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    CachePointBlock, CachePointType, ContentBlock, ConversationRole, InferenceConfiguration,
+    Message as BedrockMessage, SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema,
+    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
 };
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
@@ -15,7 +15,7 @@ pub struct ConvertedRequest {
     pub tool_config: Option<ToolConfiguration>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ConversationMessage {
     pub role: MessageRole,
     pub content: MessageContent,
@@ -208,7 +208,30 @@ fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
         result.push(message);
     }
 
-    coalesce_consecutive_roles(result)
+    let mut messages = coalesce_consecutive_roles(result);
+
+    // Add a cache point to the second-to-last message (the conversation prefix
+    // that is stable between requests). This allows Bedrock to cache all prior
+    // context and only process the latest message as new input tokens.
+    if messages.len() >= 2 {
+        let cache_idx = messages.len() - 2;
+        let msg = messages.remove(cache_idx);
+        let mut content = msg.content().to_vec();
+        content.push(ContentBlock::CachePoint(
+            CachePointBlock::builder()
+                .r#type(CachePointType::Default)
+                .build()
+                .expect("valid cache point"),
+        ));
+        let cached_msg = BedrockMessage::builder()
+            .role(msg.role().clone())
+            .set_content(Some(content))
+            .build()
+            .expect("valid message with cache point");
+        messages.insert(cache_idx, cached_msg);
+    }
+
+    messages
 }
 
 fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessage> {
@@ -245,7 +268,15 @@ fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessa
 fn convert_system_prompt(system_prompt: Option<String>) -> Vec<SystemContentBlock> {
     match system_prompt {
         Some(prompt) if !prompt.is_empty() => {
-            vec![SystemContentBlock::Text(prompt)]
+            vec![
+                SystemContentBlock::Text(prompt),
+                SystemContentBlock::CachePoint(
+                    CachePointBlock::builder()
+                        .r#type(CachePointType::Default)
+                        .build()
+                        .expect("valid cache point"),
+                ),
+            ]
         }
         _ => vec![],
     }
@@ -277,7 +308,7 @@ fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
         return None;
     }
 
-    let tool_specs: Vec<Tool> = tools
+    let mut tool_specs: Vec<Tool> = tools
         .into_iter()
         .map(|tool| {
             let input_schema_doc = json_to_document(tool.input_schema);
@@ -291,6 +322,13 @@ fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
             )
         })
         .collect();
+
+    tool_specs.push(Tool::CachePoint(
+        CachePointBlock::builder()
+            .r#type(CachePointType::Default)
+            .build()
+            .expect("valid cache point"),
+    ));
 
     Some(
         ToolConfiguration::builder()

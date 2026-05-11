@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use futures::StreamExt;
 use serde_json::json;
 
@@ -62,6 +64,7 @@ async fn collect_stream_output(
             8192,
             None,
             false,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("converse_stream should succeed");

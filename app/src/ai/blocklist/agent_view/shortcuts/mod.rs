@@ -13,7 +13,6 @@ use galaxyui::{
     AppContext, Element, SingletonEntity,
 };
 
-use crate::ai::blocklist::agent_view::ENTER_CLOUD_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE;
 use crate::{
     ai::blocklist::agent_view::ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
     cmd_or_ctrl_shift,
@@ -193,16 +192,9 @@ pub fn render_agent_shortcuts_view(
         app,
     ));
 
-    // Use cloud keystroke (cmd+opt+enter) for cloud mode, regular keystroke (cmd+enter) otherwise.
-    let new_conversation_keystroke = if context.is_cloud_agent {
-        ENTER_CLOUD_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE.clone()
-    } else {
-        ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE.clone()
-    };
-
     shortcuts.push(render_shortcut(
         ShortcutProps {
-            keystroke: new_conversation_keystroke.clone(),
+            keystroke: ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE.clone(),
             text: "start a new conversation".into(),
             ..Default::default()
         },

@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use futures::StreamExt;
 use serde_json::json;
 use std::path::PathBuf;
@@ -553,6 +555,7 @@ impl AgentSimulation {
                 8192,
                 None,
                 false,
+                Arc::new(Mutex::new(Vec::new())),
             )
             .await
             .expect("converse_stream should succeed");
@@ -1137,6 +1140,7 @@ async fn test_reasoning_model_produces_substantial_output() {
             8192,
             None,
             false,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("converse_stream should succeed");
@@ -1257,6 +1261,7 @@ async fn test_event_sequence_matches_controller_expectations() {
             100,
             None,
             false,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("should connect");
@@ -1369,6 +1374,7 @@ async fn test_followup_turn_does_not_send_create_task() {
             100,
             None,
             false,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("should connect");
@@ -1446,6 +1452,7 @@ async fn run_slash_command_test(
             4096,
             None,
             true,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("stream should connect");
@@ -1671,6 +1678,7 @@ async fn test_slash_resume_conversation() {
             256,
             None,
             true,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("stream should connect");
@@ -1780,6 +1788,7 @@ async fn test_empty_messages_safety_check() {
             100,
             None,
             true,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await
         .expect("safety fallback message should work");
@@ -1929,6 +1938,7 @@ async fn test_full_proto_round_trip_with_tool_history() {
             1024,
             None,
             true,
+            Arc::new(Mutex::new(Vec::new())),
         )
         .await;
 

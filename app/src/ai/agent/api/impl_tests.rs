@@ -40,6 +40,8 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
         root_task_id: None,
         parent_agent_id: None,
         agent_name: None,
+        bedrock_message_history: Vec::new(),
+        bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     }
 }
 

@@ -131,6 +131,13 @@ pub struct RequestParams {
     pub parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
     pub agent_name: Option<String>,
+    /// Full Bedrock conversation history for direct Bedrock calls.
+    /// When present, the Bedrock path uses this instead of extracting from task_context.
+    pub bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    /// Populated by the Bedrock path after building the message list.
+    /// Contains the full messages sent (old history + new input) so the controller
+    /// can store them back into the conversation for the next request cycle.
+    pub bedrock_messages_sent: std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
 }
 
 pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
@@ -317,6 +324,8 @@ impl RequestParams {
                 .map(|id| id.to_string()),
             parent_agent_id: None,
             agent_name: None,
+            bedrock_message_history: Vec::new(),
+            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 }

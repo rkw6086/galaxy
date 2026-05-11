@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamOutput;
 use aws_sdk_bedrockruntime::types::{
@@ -13,6 +13,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 use crate::ai::agent::api::Event;
 use crate::server::server_api::AIApiError;
 
+use super::convert::{ContentPart, MessageContent, MessageRole, ConversationMessage};
 use super::diagnostic::BedrockDiagnosticLogger;
 
 pub fn bedrock_stream_to_response_events(
@@ -20,6 +21,7 @@ pub fn bedrock_stream_to_response_events(
     task_id: String,
     needs_create_task: bool,
     diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
+    messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
 ) -> BoxStream<'static, Event> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
@@ -54,6 +56,10 @@ pub fn bedrock_stream_to_response_events(
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(stream_finished::Done {});
+
+        // Track full assistant text and tool calls for bedrock_message_history
+        let mut history_text = String::new();
+        let mut history_tool_calls: Vec<ContentPart> = Vec::new();
 
         let mut event_count: u32 = 0;
         loop {
@@ -109,6 +115,7 @@ pub fn bedrock_stream_to_response_events(
                             match d {
                                 ContentBlockDelta::Text(text) => {
                                     log::info!("[bedrock-debug] Event #{event_count}: TextDelta ({} chars): {:?}", text.len(), &text[..text.len().min(80)]);
+                                    history_text.push_str(text);
                                     if text_flushed {
                                         let msg_id = current_text_message_id.as_ref().unwrap();
                                         let append = build_append_text(
@@ -149,6 +156,14 @@ pub fn bedrock_stream_to_response_events(
                         log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
                         if !current_tool_use_id.is_empty() {
                             log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
+                            // Track for bedrock_message_history
+                            let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            history_tool_calls.push(ContentPart::ToolUse {
+                                tool_use_id: current_tool_use_id.clone(),
+                                name: current_tool_name.clone(),
+                                input: input_json,
+                            });
                             if let Some(ref logger) = diagnostic_logger {
                                 logger.log_stream_event(&format!(
                                     "ToolCall: name={}, id={}, input={}",
@@ -242,6 +257,49 @@ pub fn bedrock_stream_to_response_events(
         }
 
         log::info!("[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");
+
+        // Build and store the assistant message into bedrock_messages_sent
+        // so the controller can persist it as part of conversation history.
+        {
+            let mut parts: Vec<ContentPart> = Vec::new();
+            if !history_text.is_empty() {
+                parts.push(ContentPart::Text(history_text));
+            }
+            parts.extend(history_tool_calls);
+
+            if !parts.is_empty() {
+                let assistant_msg = if parts.len() == 1 {
+                    match parts.remove(0) {
+                        ContentPart::Text(t) => ConversationMessage {
+                            role: MessageRole::Assistant,
+                            content: MessageContent::Text(t),
+                        },
+                        ContentPart::ToolUse { tool_use_id, name, input } => ConversationMessage {
+                            role: MessageRole::Assistant,
+                            content: MessageContent::ToolUse { tool_use_id, name, input },
+                        },
+                        other => ConversationMessage {
+                            role: MessageRole::Assistant,
+                            content: MessageContent::MultiPart(vec![other]),
+                        },
+                    }
+                } else {
+                    ConversationMessage {
+                        role: MessageRole::Assistant,
+                        content: MessageContent::MultiPart(parts),
+                    }
+                };
+
+                if let Ok(mut sent) = messages_sent.lock() {
+                    sent.push(assistant_msg);
+                    log::info!(
+                        "[bedrock] Stored assistant message in history. Total messages: {}",
+                        sent.len()
+                    );
+                }
+            }
+        }
+
         if let Some(ref logger) = diagnostic_logger {
             let stop_reason_str = match &stop_reason {
                 stream_finished::Reason::Done(_) => "EndTurn",

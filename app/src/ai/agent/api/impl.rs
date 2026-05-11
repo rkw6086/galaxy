@@ -59,7 +59,7 @@ pub async fn generate_multi_agent_output(
         api_keys.allow_use_of_warp_credits = params.allow_use_of_warp_credits_with_byok;
     }
 
-    let request = api::Request {
+    let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
             tasks: params.tasks,
         }),
@@ -183,8 +183,22 @@ pub async fn generate_multi_agent_output(
                     logger.log_protobuf_input(&request);
                 }
 
-                let messages =
-                    crate::ai::bedrock::convert_request::extract_messages_from_request(&request);
+                // Build message list from bedrock_message_history + new input messages.
+                // The history contains all prior messages. We extract only NEW messages
+                // from the current request input and append them.
+                let new_input_messages =
+                    crate::ai::bedrock::convert_request::extract_new_input_messages(&request);
+
+                let mut messages = params.bedrock_message_history.clone();
+                if !new_input_messages.is_empty() {
+                    log::info!(
+                        "[bedrock] Appending {} new input messages to history of {}",
+                        new_input_messages.len(),
+                        messages.len()
+                    );
+                    messages.extend(new_input_messages);
+                }
+
                 let system_prompt =
                     crate::ai::bedrock::convert_request::extract_system_prompt(&request);
                 let tools = crate::ai::bedrock::convert_request::extract_tools(&request);
@@ -249,17 +263,23 @@ pub async fn generate_multi_agent_output(
                         &model_id,
                         &task_id,
                         needs_create_task,
-                        messages,
+                        messages.clone(),
                         system_prompt,
                         tools,
                         64000,
                         None,
                         true,
                         diagnostic_logger,
+                        params.bedrock_messages_sent.clone(),
                     )
                     .await
                 {
                     Ok(stream) => {
+                        // Store the input messages we sent so the controller can
+                        // persist them. The stream will append the assistant response.
+                        if let Ok(mut sent) = params.bedrock_messages_sent.lock() {
+                            *sent = messages;
+                        }
                         let output_stream = stream.take_until(cancellation_rx);
                         return Ok(Box::pin(output_stream));
                     }

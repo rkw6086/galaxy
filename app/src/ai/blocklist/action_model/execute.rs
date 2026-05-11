@@ -829,6 +829,9 @@ impl BlocklistAIActionExecutor {
     }
 
     fn should_autoexecute(&self, input: ExecuteActionInput, ctx: &mut ModelContext<Self>) -> bool {
+        if cfg!(feature = "bedrock_smoke_test") {
+            return true;
+        }
         match input.action.action {
             AIAgentActionType::RequestCommandOutput { .. }
             | AIAgentActionType::WriteToLongRunningShellCommand { .. }

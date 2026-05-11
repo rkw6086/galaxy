@@ -4,6 +4,8 @@
 mod ai;
 mod alloc;
 mod antivirus;
+#[cfg(feature = "bedrock_smoke_test")]
+mod bedrock_smoke_test;
 #[cfg(target_os = "macos")]
 mod app_menus;
 mod app_services;

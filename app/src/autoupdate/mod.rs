@@ -126,26 +126,7 @@ impl AutoupdateState {
     }
 
     pub fn register(ctx: &mut AppContext, server_api: Arc<ServerApi>) {
-        ctx.add_singleton_model(move |ctx| {
-            let state_handle = WindowManager::handle(ctx);
-            let mut me = Self::new(server_api);
-            if FeatureFlag::Autoupdate.is_enabled()
-                && AppExecutionMode::as_ref(ctx).can_autoupdate()
-            {
-                // Initiate the polling loop
-                me.poll_for_update(ctx);
-                // Queue a possible update check when the app gets activated, i.e. focused.
-                ctx.subscribe_to_model(&state_handle, |me, event, ctx| {
-                    let windowing::StateEvent::ValueChanged { current, previous } = event;
-                    if previous.stage == ApplicationStage::Inactive
-                        && current.stage == ApplicationStage::Active
-                    {
-                        me.enqueue_request(RequestType::DailyCheck, ctx);
-                    }
-                });
-            }
-            me
-        });
+        ctx.add_singleton_model(move |_ctx| Self::new(server_api));
     }
 
     /// Check if any requests are pending. If there are and we're ready to submit a new request,

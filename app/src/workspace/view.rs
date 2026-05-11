@@ -3174,6 +3174,11 @@ impl Workspace {
             registry.register(window_id, weak_handle);
         });
 
+        #[cfg(feature = "bedrock_smoke_test")]
+        {
+            crate::bedrock_smoke_test::schedule(ctx);
+        }
+
         ws
     }
 
@@ -17340,8 +17345,17 @@ impl Workspace {
         }
 
         if FeatureFlag::AvatarInTabBar.is_enabled() {
+            let resource_center_closed = !self.current_workspace_state.is_resource_center_open;
+            if resource_center_closed && ContextFlag::WarpEssentials.is_enabled() {
+                target.add_child(
+                    Container::new(self.render_resource_center_button(appearance, ctx))
+                        .with_margin_left(TAB_BAR_PADDING_LEFT)
+                        .finish(),
+                );
+            }
+
             target.add_child(
-                Container::new(self.render_avatar_button(appearance, ctx))
+                Container::new(self.render_settings_button(appearance))
                     .with_margin_left(TAB_BAR_PADDING_LEFT)
                     .finish(),
             );

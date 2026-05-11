@@ -1904,6 +1904,7 @@ impl BlocklistAIController {
             active_tasks,
             parent_agent_id,
             agent_name,
+            bedrock_history,
         ) = {
             let Some(conversation) = history_model
                 .as_ref(ctx)
@@ -1926,6 +1927,7 @@ impl BlocklistAIController {
                 active_tasks,
                 conversation.parent_agent_id().map(str::to_string),
                 conversation.agent_name().map(str::to_string),
+                conversation.bedrock_message_history().to_vec(),
             )
         };
 
@@ -1992,6 +1994,7 @@ impl BlocklistAIController {
         );
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
+        request_params.bedrock_message_history = bedrock_history;
 
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
@@ -2299,6 +2302,26 @@ impl BlocklistAIController {
                                     did_input_contain_user_query,
                                     ctx,
                                 );
+
+                                // After the stream finishes, persist the full message
+                                // history (input + assistant response) from the Arc back
+                                // into the conversation for the next request cycle.
+                                let messages_sent_arc = response_stream.as_ref(ctx).bedrock_messages_sent().clone();
+                                let new_history = messages_sent_arc.lock().ok().and_then(|sent| {
+                                    if sent.is_empty() { None } else { Some(sent.clone()) }
+                                });
+                                if let Some(new_history) = new_history {
+                                    let history_model = BlocklistAIHistoryModel::handle(ctx);
+                                    history_model.update(ctx, |history_model, _| {
+                                        if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                                            *conversation.bedrock_message_history_mut() = new_history;
+                                            log::info!(
+                                                "[bedrock] Updated conversation bedrock history: {} messages",
+                                                conversation.bedrock_message_history().len()
+                                            );
+                                        }
+                                    });
+                                }
                             }
                             warp_multi_agent_api::response_event::Type::ClientActions(actions) => {
                                 let client_actions = actions.actions;

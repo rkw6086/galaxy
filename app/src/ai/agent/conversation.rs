@@ -228,6 +228,12 @@ pub struct AIConversation {
     /// event log. Used on restore to resume event delivery without
     /// re-delivering already-processed events.
     last_event_sequence: Option<i64>,
+
+    /// Accumulated message history for direct Bedrock conversations.
+    /// Contains the full ordered sequence of user messages, assistant responses,
+    /// tool calls, and tool results sent to/received from Bedrock across all
+    /// request cycles. This is the source of truth for what Bedrock sees.
+    bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
 }
 
 pub(crate) fn artifact_from_fork_proto(
@@ -278,6 +284,7 @@ impl AIConversation {
             parent_conversation_id: None,
             is_remote_child: false,
             last_event_sequence: None,
+            bedrock_message_history: Vec::new(),
         }
     }
 
@@ -459,11 +466,24 @@ impl AIConversation {
             parent_conversation_id,
             is_remote_child: false,
             last_event_sequence,
+            bedrock_message_history: Vec::new(),
         })
     }
 
     pub fn id(&self) -> AIConversationId {
         self.id
+    }
+
+    pub fn bedrock_message_history(&self) -> &[crate::ai::bedrock::convert::ConversationMessage] {
+        &self.bedrock_message_history
+    }
+
+    pub fn bedrock_message_history_mut(&mut self) -> &mut Vec<crate::ai::bedrock::convert::ConversationMessage> {
+        &mut self.bedrock_message_history
+    }
+
+    pub fn append_to_bedrock_history(&mut self, messages: Vec<crate::ai::bedrock::convert::ConversationMessage>) {
+        self.bedrock_message_history.extend(messages);
     }
 
     /// Assigns fresh exchange IDs to all exchanges in this conversation.

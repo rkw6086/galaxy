@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use aws_config::BehaviorVersion;
@@ -113,6 +113,7 @@ impl BedrockClient {
         temperature: Option<f32>,
         cross_region_inference: bool,
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
+        messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     ) -> Result<ResponseStream, BedrockError> {
         let effective_model_id = if cross_region_inference {
             apply_cross_region_prefix(model_id, &self.region)
@@ -192,6 +193,7 @@ impl BedrockClient {
             task_id.to_string(),
             needs_create_task,
             diagnostic_logger,
+            messages_sent,
         )))
     }
 

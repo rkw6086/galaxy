@@ -155,6 +155,10 @@ impl ResponseStream {
         &self.id
     }
 
+    pub fn bedrock_messages_sent(&self) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>> {
+        &self.params.bedrock_messages_sent
+    }
+
     /// Returns true if we should attempt to resume the conversation after the stream finishes.
     pub fn should_resume_conversation_after_stream_finished(&self) -> bool {
         self.should_resume_conversation_after_stream_finished
