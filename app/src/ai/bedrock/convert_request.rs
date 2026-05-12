@@ -624,6 +624,7 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
     prompt.push_str("- When asked about a project, start by listing files with `file_glob` or `run_shell_command`.\n");
     prompt.push_str("- Read relevant files before making claims about code structure or behavior.\n");
     prompt.push_str("- Be concise and direct in responses.\n");
+    prompt.push_str("- IMPORTANT: After EVERY response, you MUST call `suggest_next_prompt` to suggest a relevant follow-up action or question the user might want to take next.\n");
 
     Some(prompt)
 }

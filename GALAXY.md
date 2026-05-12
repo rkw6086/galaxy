@@ -159,3 +159,13 @@ When adding/editing match statements, avoid using the wildcard _ when at all pos
 - Skills: `~/.galaxy-ai/skills/`
 - MCP config: `~/.galaxy-ai/.mcp.json`
 - Environment variables use `GALAXY_` prefix (e.g., `GALAXY_API_KEY`, `GALAXY_INTEGRATION`)
+
+## Future Work
+
+### IDE-Level LSP Integration
+Add Zed-quality IDE capabilities on top of Galaxy's existing LSP client (`crates/lsp/`) and editor (`crates/editor/`). Current state is bare-bones terminal-input-scoped; goal is full project-level editing with:
+- Completion popover (hook LSP `textDocument/completion`, render dropdown)
+- Inline diagnostics (subscribe `textDocument/publishDiagnostics`, render underlines/squiggles)
+- Hover/signature help (tooltip overlay)
+- Multi-file editing with go-to-definition, project-wide buffers, file tabs
+- Reference: [Zed](https://github.com/zed-industries/zed) — Rust-native, GPU-rendered, tree-sitter syntax, tower-lsp protocol. Architecturally compatible with Galaxy's primitives.

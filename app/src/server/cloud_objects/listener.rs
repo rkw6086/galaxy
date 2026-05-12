@@ -280,11 +280,9 @@ impl Listener {
         }
     }
 
-    fn start_listener(&mut self, ctx: &mut ModelContext<Self>) {
-        if !self.should_subscribe_to_updates {
-            self.should_subscribe_to_updates = true;
-            self.get_warp_drive_updates(ctx);
-        }
+    fn start_listener(&mut self, _ctx: &mut ModelContext<Self>) {
+        // Galaxy: cloud sync disabled — no server to connect to
+        log::info!("CloudObjects::Listener: start_listener called but cloud sync is disabled");
     }
 
     /// Cancels any pending delayed refresh that was scheduled after a reconnection.

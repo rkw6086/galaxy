@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 use std::sync::Arc;
 
 use super::super::controller::{BlocklistAIController, BlocklistAIControllerEvent};
@@ -147,168 +149,11 @@ impl PassiveSuggestionsModel {
     /// with passive conversations.
     fn send_request(
         &mut self,
-        followup_conversation_id: Option<AIConversationId>,
-        trigger: PassiveSuggestionTrigger,
-        supported_tools: Vec<warp_multi_agent_api::ToolType>,
-        ctx: &mut ModelContext<Self>,
+        _followup_conversation_id: Option<AIConversationId>,
+        _trigger: PassiveSuggestionTrigger,
+        _supported_tools: Vec<warp_multi_agent_api::ToolType>,
+        _ctx: &mut ModelContext<Self>,
     ) {
-        // Capture before the call — `Some` means there's a real conversation
-        // the user can continue in; `None` means ephemeral.
-        let continuable_conversation_id = followup_conversation_id;
-        let Ok((conversation_id, request_params)) =
-            self.ai_controller.update(ctx, |controller, ctx| {
-                controller.build_passive_suggestions_request_params(
-                    followup_conversation_id,
-                    trigger.clone(),
-                    supported_tools,
-                    ctx,
-                )
-            })
-        else {
-            return;
-        };
-
-        let server_api = ServerApiProvider::as_ref(ctx).get();
-        let (cancellation_tx, cancellation_rx) = futures::channel::oneshot::channel();
-
-        let stream_handle = ctx.spawn(
-            async move {
-                let stream_result =
-                    generate_multi_agent_output(server_api, None, request_params, cancellation_rx).await;
-                extract_suggestion_from_stream(stream_result).await
-            },
-            move |me, result, ctx| {
-                let Some(latest_request) = &me.latest_request else {
-                    return;
-                };
-                if latest_request.conversation_id != conversation_id {
-                    return;
-                }
-                if !me.is_suggestion_still_valid(ctx) {
-                    return;
-                }
-                let Some(extracted) = result else {
-                    return;
-                };
-
-                let request_duration_ms = Utc::now()
-                    .signed_duration_since(latest_request.start_ts)
-                    .num_milliseconds()
-                    .max(0) as u64;
-                let trigger = latest_request.trigger.clone();
-
-                let StreamExtractionResult {
-                    suggestion: extracted,
-                    server_request_token,
-                } = extracted;
-                match extracted {
-                    ExtractedSuggestion::Prompt {
-                        prompt,
-                        label,
-                        is_trigger_irrelevant,
-                    } => {
-                        if prompt.is_empty() {
-                            return;
-                        }
-                        let trigger = if is_trigger_irrelevant {
-                            log::debug!("[passive-suggestions] trigger marked irrelevant, omitting from prompt suggestion event");
-                            None
-                        } else {
-                            Some(trigger)
-                        };
-                        ctx.emit(PassiveSuggestionsEvent::NewPromptSuggestion {
-                            prompt,
-                            label,
-                            request_duration_ms,
-                            trigger,
-                            conversation_id: continuable_conversation_id,
-                            server_request_token,
-                        });
-                    }
-                    ExtractedSuggestion::CodeDiff { apply_file_diffs } => {
-                        let AIAgentActionType::RequestFileEdits { file_edits, title } =
-                            AIAgentActionType::from(apply_file_diffs)
-                        else {
-                            unreachable!()
-                        };
-
-                        let edit_format_kind = classify_edit_format(&file_edits);
-                        let original_edits = file_edits_to_passive_diffs(&file_edits);
-
-                        let session_context =
-                            SessionContext::from_session(me.active_session.as_ref(ctx), ctx);
-                        let identifiers = AIIdentifiers::default();
-                        let background_executor = ctx.background_executor();
-                        let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-
-                        ctx.spawn(
-                            async move {
-                                apply_edits(
-                                    file_edits,
-                                    &session_context,
-                                    &identifiers,
-                                    background_executor,
-                                    auth_state,
-                                    true,
-                                    |path| async move {
-                                        FileReadResult::from(std::fs::read_to_string(path))
-                                    },
-                                )
-                                .await
-                            },
-                            move |me: &mut Self, applied_diffs: Result<Vec<ai::diff_validation::AIRequestedCodeDiff>, _>, ctx: &mut ModelContext<Self>| {
-                                let Ok(applied_diffs) = applied_diffs else {
-                                    log::warn!("[passive-code-diff] apply_edits failed");
-                                    return;
-                                };
-                                if applied_diffs.is_empty() {
-                                    log::warn!("[passive-code-diff] no diffs generated");
-                                    return;
-                                }
-
-                                let cwd = me
-                                    .active_session
-                                    .as_ref(ctx)
-                                    .current_working_directory()
-                                    .cloned();
-                                let shell = me.active_session.as_ref(ctx).shell_launch_data(ctx);
-
-                                let diffs: Vec<FileDiff> = applied_diffs
-                                    .into_iter()
-                                    .map(|diff: ai::diff_validation::AIRequestedCodeDiff| {
-                                        let path = host_native_absolute_path(
-                                            diff.file_name.as_str(),
-                                            &shell,
-                                            &cwd,
-                                        );
-                                        FileDiff::new(diff.original_content, path, diff.diff_type)
-                                    })
-                                    .collect();
-
-                                ctx.emit(PassiveSuggestionsEvent::NewCodeDiffSuggestion {
-                                    diffs,
-                                    edit_format_kind,
-                                    title,
-                                    original_edits: original_edits.clone(),
-                                    conversation_id: continuable_conversation_id,
-                                    request_duration_ms,
-                                    trigger,
-                                    server_request_token: server_request_token.clone(),
-                                });
-                            },
-                        );
-                    }
-                }
-            },
-        );
-
-        self.latest_request = Some(Request {
-            _stream_handle: stream_handle,
-            _cancellation_tx: cancellation_tx,
-            conversation_id,
-            trigger,
-            start_ts: Utc::now(),
-        });
     }
 
     /// Returns true if the current suggestion context is still valid.
