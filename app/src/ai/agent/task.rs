@@ -999,6 +999,13 @@ impl AIAgentExchange {
                 .iter()
                 .position(|m| m.id.0 == task_message.id);
 
+            let proto_text = task_message.message.as_ref().map(|m| match m {
+                api::message::Message::AgentOutput(o) => format!("AgentOutput(text_len={})", o.text.len()),
+                api::message::Message::ToolCall(t) => format!("ToolCall(id={})", t.tool_call_id),
+                other => format!("{:?}", std::mem::discriminant(other)),
+            }).unwrap_or_else(|| "None".to_string());
+            log::info!("[bedrock-debug] upsert_output_for_message: id={}, proto_type={}", task_message.id, proto_text);
+
             match task_message
                 .clone()
                 .to_client_output_message(ConversionParams {
@@ -1007,9 +1014,8 @@ impl AIAgentExchange {
                     task_id,
                 })? {
                 MaybeAIAgentOutputMessage::Message(m) => {
-                    // Extract citations from the message and add to the output citations
+                    log::info!("[bedrock-debug] upsert_output_for_message: client_message_type={:?}", std::mem::discriminant(&m.message));
                     output.extend_citations(m.citations.clone());
-                    // Upsert behavior: update the message if it exists, otherwise add it to the end of the list.
                     if let Some(message_idx) = message_idx {
                         output.messages[message_idx] = m;
                     } else {
@@ -1018,7 +1024,7 @@ impl AIAgentExchange {
                 }
                 MaybeAIAgentOutputMessage::NoClientRepresentation => {
                     log::warn!(
-                        "Tried to update output for message which no longer has a client representation"
+                        "[bedrock-debug] upsert_output_for_message: NoClientRepresentation for msg_id={}", task_message.id
                     );
                 }
             }

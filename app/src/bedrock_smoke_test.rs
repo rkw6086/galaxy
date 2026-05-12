@@ -12,17 +12,19 @@ use crate::BlocklistAIHistoryModel;
 
 const TARGET_DIR: &str = "~/GIT/stitcher/stitcher";
 
-const FILE_VISIBILITY_QUERY: &str = r#"/agent Okay, let's try again. Can you see files now? List the files in the current directory using your tools. Then respond with EXACTLY this structured format:
+const FILE_VISIBILITY_QUERY: &str = r#"/agent Please review the hls stream server code and tell me how we inject ads? Use your tools to explore the codebase first. Then respond with EXACTLY this structured format at the end of your response:
 
-results: yes
-file_count: <number of files/directories you found>
+Answered: YES
+Results: <your summary of how ads are injected into HLS streams>
+Files evaluated: <number of files you read>
 
-If you cannot see any files or your tools fail, respond with:
+If you cannot find the answer or cannot see files, respond with:
 
-results: no
-file_count: 0
+Answered: NO
+Results: <explanation of what went wrong>
+Files evaluated: 0
 
-You MUST use the file_glob or run_shell_command tool to check the directory contents first, then provide the structured response."#;
+You MUST use tools (file_glob, read_files, grep, run_shell_command) to explore the codebase before answering."#;
 
 #[allow(dead_code)]
 const AGENT_QUERY: &str = r#"/agent Analyze this project and respond with EXACTLY this structured format at the end of your response:
@@ -101,27 +103,28 @@ fn poll_file_visibility(
             if let Some(full_text) = get_finished_text(ctx, &terminal_view) {
                 log::info!("[smoke-test] === FILE VISIBILITY RESULT ({:.1}s) ===", elapsed.as_secs_f64());
 
-                let results = extract_field(&full_text, "results:");
-                let file_count = extract_field(&full_text, "file_count:");
+                let answered = extract_field(&full_text, "Answered:");
+                let results = extract_field(&full_text, "Results:");
+                let files_evaluated = extract_field(&full_text, "Files evaluated:");
 
-                match (&results, &file_count) {
-                    (Some(r), Some(c)) => {
-                        log::info!("[smoke-test] results: {}", r);
-                        log::info!("[smoke-test] file_count: {}", c);
+                match (&answered, &results, &files_evaluated) {
+                    (Some(a), Some(r), Some(f)) => {
+                        log::info!("[smoke-test] Answered: {}", a);
+                        log::info!("[smoke-test] Results: {}", r);
+                        log::info!("[smoke-test] Files evaluated: {}", f);
 
-                        if *r == "yes" {
-                            let count: u32 = c.parse().unwrap_or(0);
+                        if a.to_uppercase().contains("YES") {
+                            let count: u32 = f.trim().parse().unwrap_or(0);
                             if count > 0 {
-                                log::info!("[smoke-test] === FILE VISIBILITY TEST PASSED (found {} files) ===", count);
-                                log::info!("[smoke-test] LLM can see files. Proceeding to main test...");
+                                log::info!("[smoke-test] === TEST PASSED (evaluated {} files) ===", count);
                                 std::process::exit(0);
                             } else {
-                                log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (results=yes but file_count=0) ===");
+                                log::error!("[smoke-test] === TEST FAILED (Answered=YES but Files evaluated=0) ===");
                                 std::process::exit(1);
                             }
                         } else {
-                            log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (results=no) ===");
-                            log::error!("[smoke-test] The LLM cannot see files in {}", TARGET_DIR);
+                            log::error!("[smoke-test] === TEST FAILED (Answered=NO) ===");
+                            log::error!("[smoke-test] The LLM could not answer the question about {}", TARGET_DIR);
                             log::error!("[smoke-test] Full response:");
                             for line in full_text.lines() {
                                 log::error!("[smoke-test]   {}", line);
@@ -130,7 +133,7 @@ fn poll_file_visibility(
                         }
                     }
                     _ => {
-                        log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (missing structured fields) ===");
+                        log::error!("[smoke-test] === TEST FAILED (missing structured fields) ===");
                         log::error!("[smoke-test] Full response:");
                         for line in full_text.lines() {
                             log::error!("[smoke-test]   {}", line);
@@ -245,7 +248,6 @@ fn get_finished_text(
         let conv = history.active_conversation(view_id)?;
 
         if conv.status().is_in_progress() {
-            log::info!("[smoke-test] Still running...");
             return None;
         }
 
@@ -293,7 +295,26 @@ fn get_finished_text(
 
         if all_text.is_empty() {
             log::warn!("[smoke-test] Conversation finished but no text output found");
-            return None;
+            log::warn!("[smoke-test] Conversation status: {:?}", conv.status());
+            log::warn!("[smoke-test] Number of exchanges: {}", conv.exchanges_reversed().count());
+            for (i, exchange) in conv.exchanges_reversed().enumerate() {
+                match &exchange.output_status {
+                    AIAgentOutputStatus::Finished {
+                        finished_output: FinishedAIAgentOutput::Success { output },
+                    } => {
+                        let o = output.get();
+                        log::warn!("[smoke-test] Exchange {}: Finished/Success, messages={}", i, o.messages.len());
+                        for (j, msg) in o.messages.iter().enumerate() {
+                            log::warn!("[smoke-test]   msg[{}]: type={:?}", j, std::mem::discriminant(&msg.message));
+                        }
+                    }
+                    other => {
+                        log::warn!("[smoke-test] Exchange {}: {:?}", i, std::mem::discriminant(other));
+                    }
+                }
+            }
+            log::error!("[smoke-test] === TEST FAILED (no text in finished conversation) ===");
+            std::process::exit(1);
         }
 
         Some(all_text)

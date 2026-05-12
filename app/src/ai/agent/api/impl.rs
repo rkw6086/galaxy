@@ -167,12 +167,16 @@ pub async fn generate_multi_agent_output(
 
                 log::info!("[bedrock] needs_create_task={needs_create_task}");
 
-                let model_id = request
+                let mut model_id = request
                     .settings
                     .as_ref()
                     .and_then(|s| s.model_config.as_ref())
                     .map(|mc| mc.base.clone())
                     .unwrap_or_default();
+
+                if model_id.is_empty() || model_id == "auto" {
+                    model_id = "us.anthropic.claude-sonnet-4-20250514-v1:0".to_string();
+                }
 
                 log::info!("[bedrock] Model: {model_id}");
 

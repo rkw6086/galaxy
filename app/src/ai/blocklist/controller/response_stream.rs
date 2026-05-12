@@ -14,7 +14,7 @@ use crate::{
             conversation::AIConversationId,
             AIIdentifiers, CancellationReason,
         },
-        bedrock::{client::BedrockClientConfig, models::is_bedrock_model},
+        bedrock::client::BedrockClientConfig,
     },
     network::NetworkStatus,
     report_error, send_telemetry_from_ctx,
@@ -85,15 +85,11 @@ pub struct ResponseStream {
 
 impl ResponseStream {
     fn bedrock_config_if_applicable(
-        model_id: &str,
+        _model_id: &str,
         ctx: &ModelContext<Self>,
     ) -> Option<BedrockClientConfig> {
         let settings = AISettings::as_ref(ctx);
         if !*settings.bedrock_enabled.value() {
-            return None;
-        }
-        let configured_models = settings.bedrock_models.value().clone();
-        if !is_bedrock_model(model_id, &configured_models) {
             return None;
         }
         let auth_method = *settings.bedrock_auth_method.value();

@@ -1071,7 +1071,7 @@ define_settings_group!(AISettings, settings: [
     // Whether direct Bedrock integration is enabled (client calls Bedrock API directly).
     bedrock_enabled: BedrockEnabled {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
@@ -1113,7 +1113,7 @@ define_settings_group!(AISettings, settings: [
     // Whether to fall back to routing through the Warp server when Bedrock credentials fail.
     bedrock_fallback_to_warp: BedrockFallbackToWarp {
         type: bool,
-        default: true,
+        default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
