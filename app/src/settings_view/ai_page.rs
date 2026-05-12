@@ -25,7 +25,7 @@ use crate::settings::{
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAuthMethod,
     BedrockAutoLogin, BedrockCrossRegionInference, BedrockEnabled, BedrockFallbackToWarp,
-    CanUseWarpCreditsWithByok, CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
+    CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
     GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled,
     MemoryEnabled, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
     RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled,
@@ -40,7 +40,7 @@ use crate::view_components::{
     FilterableDropdown, SubmittableTextInput, SubmittableTextInputEvent,
 };
 use crate::workspaces::user_workspaces::UserWorkspacesEvent;
-use ::ai::api_keys::{ApiKeyManager, ApiKeys};
+use ::ai::api_keys::ApiKeyManager;
 use enum_iterator::all;
 use itertools::Itertools;
 use regex::Regex;
@@ -138,7 +138,6 @@ use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 

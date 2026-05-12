@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use super::{
     settings_page::{
         render_page_title, MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle,

@@ -1,4 +1,3 @@
-use self::telemetry::SettingsTelemetryEvent;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::server::telemetry::MCPServerCollectionPaneEntrypoint;
 use crate::settings_view::mcp_servers_page::MCPServersSettingsPage;
@@ -14,7 +13,6 @@ use crate::{
     pane_group::{
         pane::view, BackingView, Direction, PaneConfiguration, PaneEvent, SplitPaneState,
     },
-    server::server_api::ServerApiProvider,
     settings::{AISettings, BlockVisibilitySettings, SettingsFileError},
     settings_view::mcp_servers_page::MCPServersSettingsPageEvent,
     terminal::{model::blockgrid::BlockGrid, SizeInfo},
@@ -1753,7 +1751,7 @@ impl SettingsView {
         if self.settings_page(page_section).is_none() {
             return;
         }
-        let previous_section = self.current_settings_page;
+        let _previous_section = self.current_settings_page;
 
         ctx.enable_key_bindings_dispatching();
 

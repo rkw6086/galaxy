@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use crate::{
     appearance::Appearance,
     editor::{EditorOptions, EditorView, Event as EditorEvent, TextOptions},

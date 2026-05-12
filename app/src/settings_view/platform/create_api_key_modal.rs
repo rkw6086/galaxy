@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use crate::editor::Event as EditorEvent;
 use crate::modal::{Modal, ModalViewState};
 use crate::server::server_api::auth::AuthClient;

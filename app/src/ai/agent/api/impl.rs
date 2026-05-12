@@ -59,7 +59,7 @@ pub async fn generate_multi_agent_output(
         api_keys.allow_use_of_warp_credits = params.allow_use_of_warp_credits_with_byok;
     }
 
-    let mut request = api::Request {
+    let request = api::Request {
         task_context: Some(api::request::TaskContext {
             tasks: params.tasks,
         }),

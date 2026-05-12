@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use pathfinder_color::ColorU;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{

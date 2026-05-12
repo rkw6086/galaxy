@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 mod changelog;
 mod channel_versions;
 #[cfg(target_os = "linux")]

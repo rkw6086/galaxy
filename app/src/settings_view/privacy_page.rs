@@ -12,7 +12,7 @@ use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use regex::Regex;
 use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::features::FeatureFlag;
+
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::{
     Align, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -46,7 +46,7 @@ use crate::{
     channel::ChannelState,
     report_if_error, send_telemetry_from_ctx,
     server::telemetry::TelemetryEvent,
-    settings::{AISettings, PrivacySettings},
+    settings::PrivacySettings,
     terminal::safe_mode_settings::{SafeModeEnabled, SafeModeSettings},
     ui_components::icons::Icon,
     workspaces::{

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use galaxyui::{
     elements::{Align, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text},
     ui_components::{

@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;
 use crate::auth::AuthStateProvider;

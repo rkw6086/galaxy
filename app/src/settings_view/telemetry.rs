@@ -5,6 +5,7 @@ use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc
 
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]
+#[allow(dead_code)]
 pub enum SettingsTelemetryEvent {
     EnvironmentsPageOpened,
 }

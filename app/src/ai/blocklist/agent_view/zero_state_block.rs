@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use itertools::Itertools as _;
 use markdown_parser::{parse_markdown, FormattedText, FormattedTextFragment, FormattedTextLine};
 use parking_lot::FairMutex;

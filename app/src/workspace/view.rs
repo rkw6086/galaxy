@@ -17650,6 +17650,7 @@ impl Workspace {
         .finish()
     }
 
+    #[allow(dead_code)]
     fn render_avatar_button(&self, appearance: &Appearance, ctx: &AppContext) -> Box<dyn Element> {
         let is_anonymous = self.auth_state.is_anonymous_or_logged_out();
         let display_name = self

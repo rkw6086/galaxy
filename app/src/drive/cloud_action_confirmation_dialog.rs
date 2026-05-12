@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use galaxyui::{
     elements::{CornerRadius, Dismiss, MouseStateHandle, Radius},
     fonts::Weight,

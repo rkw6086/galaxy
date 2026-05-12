@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables, deprecated)]
 use warp_multi_agent_api as api;
 
 use super::convert::{ConversationMessage, ContentPart, MessageContent, MessageRole, ToolDefinition};

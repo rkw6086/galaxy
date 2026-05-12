@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 use super::admin_actions::AdminActions;
 use super::settings_page::{render_customer_type_badge, MatchData, PageType, SettingsWidget};
 use super::transfer_ownership_confirmation_modal::{

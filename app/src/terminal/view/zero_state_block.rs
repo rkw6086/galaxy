@@ -45,6 +45,7 @@ pub enum TerminalViewZeroStateAction {
 }
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct StateHandles {
     dismiss_button: MouseStateHandle,
     start_new_conversation: MouseStateHandle,
