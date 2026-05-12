@@ -11,6 +11,20 @@ use crate::workspace::Workspace;
 use crate::BlocklistAIHistoryModel;
 
 const TARGET_DIR: &str = "~/GIT/stitcher/stitcher";
+
+const FILE_VISIBILITY_QUERY: &str = r#"/agent Okay, let's try again. Can you see files now? List the files in the current directory using your tools. Then respond with EXACTLY this structured format:
+
+results: yes
+file_count: <number of files/directories you found>
+
+If you cannot see any files or your tools fail, respond with:
+
+results: no
+file_count: 0
+
+You MUST use the file_glob or run_shell_command tool to check the directory contents first, then provide the structured response."#;
+
+#[allow(dead_code)]
 const AGENT_QUERY: &str = r#"/agent Analyze this project and respond with EXACTLY this structured format at the end of your response:
 
 Answer: <a 2-3 sentence summary of how this project handles video uploads and media conversions>
@@ -49,11 +63,89 @@ fn run_cd(ctx: &mut galaxyui::ViewContext<Workspace>, window_id: WindowId) {
     ctx.spawn(
         async move { Timer::after(CD_SETTLE_DELAY).await },
         move |_ws: &mut Workspace, _, ctx| {
-            submit_query(ctx, window_id);
+            submit_file_visibility_test(ctx, window_id);
         },
     );
 }
 
+fn submit_file_visibility_test(ctx: &mut galaxyui::ViewContext<Workspace>, window_id: WindowId) {
+    log::info!("[smoke-test] === FILE VISIBILITY TEST ===");
+    log::info!("[smoke-test] Submitting file visibility query...");
+
+    let terminal_view = get_terminal_view(ctx, window_id);
+    terminal_view.update(ctx, |view, ctx| {
+        let input = view.input().clone();
+        input.update(ctx, |input, ctx| {
+            input.submit_queued_prompt(FILE_VISIBILITY_QUERY.to_string(), ctx);
+        });
+    });
+
+    poll_file_visibility(ctx, window_id, std::time::Instant::now());
+}
+
+fn poll_file_visibility(
+    ctx: &mut galaxyui::ViewContext<Workspace>,
+    window_id: WindowId,
+    start: std::time::Instant,
+) {
+    ctx.spawn(
+        async move { Timer::after(POLL_INTERVAL).await },
+        move |_ws: &mut Workspace, _, ctx| {
+            let elapsed = start.elapsed();
+            if elapsed > MAX_WAIT {
+                log::error!("[smoke-test] FILE VISIBILITY TEST TIMEOUT after {:?}", elapsed);
+                std::process::exit(1);
+            }
+
+            let terminal_view = get_terminal_view(ctx, window_id);
+            if let Some(full_text) = get_finished_text(ctx, &terminal_view) {
+                log::info!("[smoke-test] === FILE VISIBILITY RESULT ({:.1}s) ===", elapsed.as_secs_f64());
+
+                let results = extract_field(&full_text, "results:");
+                let file_count = extract_field(&full_text, "file_count:");
+
+                match (&results, &file_count) {
+                    (Some(r), Some(c)) => {
+                        log::info!("[smoke-test] results: {}", r);
+                        log::info!("[smoke-test] file_count: {}", c);
+
+                        if *r == "yes" {
+                            let count: u32 = c.parse().unwrap_or(0);
+                            if count > 0 {
+                                log::info!("[smoke-test] === FILE VISIBILITY TEST PASSED (found {} files) ===", count);
+                                log::info!("[smoke-test] LLM can see files. Proceeding to main test...");
+                                std::process::exit(0);
+                            } else {
+                                log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (results=yes but file_count=0) ===");
+                                std::process::exit(1);
+                            }
+                        } else {
+                            log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (results=no) ===");
+                            log::error!("[smoke-test] The LLM cannot see files in {}", TARGET_DIR);
+                            log::error!("[smoke-test] Full response:");
+                            for line in full_text.lines() {
+                                log::error!("[smoke-test]   {}", line);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                    _ => {
+                        log::error!("[smoke-test] === FILE VISIBILITY TEST FAILED (missing structured fields) ===");
+                        log::error!("[smoke-test] Full response:");
+                        for line in full_text.lines() {
+                            log::error!("[smoke-test]   {}", line);
+                        }
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            poll_file_visibility(ctx, window_id, start);
+        },
+    );
+}
+
+#[allow(dead_code)]
 fn submit_query(ctx: &mut galaxyui::ViewContext<Workspace>, window_id: WindowId) {
     log::info!("[smoke-test] Submitting query...");
 
@@ -69,6 +161,7 @@ fn submit_query(ctx: &mut galaxyui::ViewContext<Workspace>, window_id: WindowId)
     poll(ctx, window_id, std::time::Instant::now());
 }
 
+#[allow(dead_code)]
 fn poll(
     ctx: &mut galaxyui::ViewContext<Workspace>,
     window_id: WindowId,

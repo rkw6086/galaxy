@@ -1,4 +1,4 @@
-//! AI Assistant has since been renamed to "Galaxy AI" in the product.
+//! AI Assistant has since been renamed to "Galaxy" in the product.
 use std::{collections::HashSet, sync::Arc};
 
 use crate::{
@@ -34,8 +34,8 @@ mod test_util;
 /// This is also roughly the limit at which the editor starts degrading.
 pub const PROMPT_CHARACTER_LIMIT: usize = 1000;
 
-pub const AI_ASSISTANT_FEATURE_NAME: &str = "Galaxy AI";
-pub const ASK_AI_ASSISTANT_TEXT: &str = "Ask Galaxy AI";
+pub const AI_ASSISTANT_FEATURE_NAME: &str = "Galaxy";
+pub const ASK_AI_ASSISTANT_TEXT: &str = "Ask Galaxy";
 
 pub const AI_ASSISTANT_SVG_PATH: &str = "bundled/svg/ai-assistant.svg";
 

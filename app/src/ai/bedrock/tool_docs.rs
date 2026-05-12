@@ -1,4 +1,4 @@
-const CAPABILITIES_DOC: &str = r#"# Galaxy AI — System Capabilities
+const CAPABILITIES_DOC: &str = r#"# Galaxy — System Capabilities
 
 You are Galaxy, an AI coding assistant embedded in a terminal application with direct filesystem and shell access.
 

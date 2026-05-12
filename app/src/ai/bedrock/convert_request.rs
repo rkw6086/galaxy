@@ -551,8 +551,80 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
     }
 }
 
-pub fn extract_system_prompt(_request: &api::Request) -> Option<String> {
-    Some("You are a helpful AI coding assistant. You help users with software engineering tasks including writing code, debugging, and explaining concepts.".to_string())
+pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
+    let mut prompt = String::with_capacity(2048);
+
+    prompt.push_str("You are Galaxy, an AI coding assistant embedded in a terminal application. You help users with software engineering tasks including writing code, debugging, explaining concepts, and navigating codebases.\n\n");
+
+    if let Some(input) = &request.input {
+        if let Some(context) = &input.context {
+            prompt.push_str("## Environment\n");
+            if let Some(dir) = &context.directory {
+                if !dir.pwd.is_empty() {
+                    prompt.push_str(&format!("- Working directory: {}\n", dir.pwd));
+                }
+                if !dir.home.is_empty() {
+                    prompt.push_str(&format!("- Home directory: {}\n", dir.home));
+                }
+            }
+            if let Some(os) = &context.operating_system {
+                if !os.platform.is_empty() {
+                    prompt.push_str(&format!("- OS: {}\n", os.platform));
+                }
+            }
+            if let Some(shell) = &context.shell {
+                if !shell.name.is_empty() {
+                    prompt.push_str(&format!("- Shell: {}", shell.name));
+                    if !shell.version.is_empty() {
+                        prompt.push_str(&format!(" {}", shell.version));
+                    }
+                    prompt.push('\n');
+                }
+            }
+            if let Some(git) = &context.git {
+                if !git.branch.is_empty() {
+                    prompt.push_str(&format!("- Git branch: {}\n", git.branch));
+                }
+            }
+            if let Some(ts) = &context.current_time {
+                prompt.push_str(&format!("- Current time (UTC): {}\n", ts));
+            }
+            prompt.push('\n');
+
+            if !context.project_rules.is_empty() {
+                prompt.push_str("## Project Rules\n");
+                for rules in &context.project_rules {
+                    if !rules.root_path.is_empty() {
+                        prompt.push_str(&format!("### Rules from {}\n", rules.root_path));
+                    }
+                    for file in &rules.active_rule_files {
+                        if !file.content.is_empty() {
+                            prompt.push_str(&file.content);
+                            prompt.push('\n');
+                        }
+                    }
+                }
+                prompt.push('\n');
+            }
+        }
+    }
+
+    prompt.push_str("## Tools\nYou have access to the following tools. Use them proactively to explore codebases and complete tasks:\n");
+    prompt.push_str("- `run_shell_command`: Execute shell commands. Use absolute paths based on the working directory.\n");
+    prompt.push_str("- `read_files`: Read file contents. Pass all files you need in a single call.\n");
+    prompt.push_str("- `apply_file_diffs`: Apply search/replace edits to files.\n");
+    prompt.push_str("- `grep`: Search for patterns in files. Pass all patterns in one call.\n");
+    prompt.push_str("- `file_glob`: Find files matching glob patterns. Pass all patterns in one call.\n");
+    prompt.push_str("- `get_tool_documentation`: Get detailed documentation for any tool or system capabilities.\n\n");
+
+    prompt.push_str("## Guidelines\n");
+    prompt.push_str("- ALWAYS use tools to explore the codebase before answering questions about code.\n");
+    prompt.push_str("- Use absolute paths based on the working directory shown above.\n");
+    prompt.push_str("- When asked about a project, start by listing files with `file_glob` or `run_shell_command`.\n");
+    prompt.push_str("- Read relevant files before making claims about code structure or behavior.\n");
+    prompt.push_str("- Be concise and direct in responses.\n");
+
+    Some(prompt)
 }
 
 pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
@@ -773,7 +845,11 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
             api::request::input::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
                     Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
-                        finished.output.clone()
+                        if finished.output.is_empty() {
+                            format!("Exit code: {}\n(no output)", finished.exit_code)
+                        } else {
+                            format!("Exit code: {}\n{}", finished.exit_code, finished.output)
+                        }
                     }
                     Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
                         snapshot,
@@ -803,6 +879,78 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                     _ => "Failed to read files.".to_string(),
                 }
             }
+            api::request::input::tool_call_result::Result::Grep(grep_result) => {
+                match &grep_result.result {
+                    Some(api::grep_result::Result::Success(success)) => {
+                        if success.matched_files.is_empty() {
+                            "No matches found.".to_string()
+                        } else {
+                            success
+                                .matched_files
+                                .iter()
+                                .map(|f| {
+                                    let lines: String = f
+                                        .matched_lines
+                                        .iter()
+                                        .map(|l| format!("  line {}", l.line_number))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    format!("{} (matches at: {})", f.file_path, lines)
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                    Some(api::grep_result::Result::Error(error)) => {
+                        format!("Grep error: {}", error.message)
+                    }
+                    None => "Grep completed (no result).".to_string(),
+                }
+            }
+            api::request::input::tool_call_result::Result::FileGlobV2(glob_result) => {
+                match &glob_result.result {
+                    Some(api::file_glob_v2_result::Result::Success(success)) => {
+                        if success.matched_files.is_empty() {
+                            "No files matched.".to_string()
+                        } else {
+                            success
+                                .matched_files
+                                .iter()
+                                .map(|f| f.file_path.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                    Some(api::file_glob_v2_result::Result::Error(error)) => {
+                        format!("File glob error: {}", error.message)
+                    }
+                    None => "File glob completed (no result).".to_string(),
+                }
+            }
+            api::request::input::tool_call_result::Result::ApplyFileDiffs(diff_result) => {
+                match &diff_result.result {
+                    Some(api::apply_file_diffs_result::Result::Success(success)) => {
+                        let mut parts = Vec::new();
+                        for f in &success.updated_files_v2 {
+                            if let Some(file) = &f.file {
+                                parts.push(format!("Updated: {}", file.file_path));
+                            }
+                        }
+                        for f in &success.deleted_files {
+                            parts.push(format!("Deleted: {}", f.file_path));
+                        }
+                        if parts.is_empty() {
+                            "Diffs applied successfully.".to_string()
+                        } else {
+                            parts.join("\n")
+                        }
+                    }
+                    Some(api::apply_file_diffs_result::Result::Error(error)) => {
+                        format!("Apply diffs error: {}", error.message)
+                    }
+                    None => "Apply diffs completed.".to_string(),
+                }
+            }
             _ => "Tool completed successfully.".to_string(),
         }
     } else {
@@ -816,10 +964,14 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
             api::message::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
                     Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
-                        format!(
-                            "Exit code: {}\nOutput: {}",
-                            finished.exit_code, finished.output
-                        )
+                        if finished.output.is_empty() {
+                            format!("Exit code: {}\n(no output)", finished.exit_code)
+                        } else {
+                            format!(
+                                "Exit code: {}\n{}",
+                                finished.exit_code, finished.output
+                            )
+                        }
                     }
                     Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
                         snapshot,
@@ -838,6 +990,78 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
                         .collect::<Vec<_>>()
                         .join("\n\n"),
                     _ => "Read files completed.".to_string(),
+                }
+            }
+            api::message::tool_call_result::Result::Grep(grep_result) => {
+                match &grep_result.result {
+                    Some(api::grep_result::Result::Success(success)) => {
+                        if success.matched_files.is_empty() {
+                            "No matches found.".to_string()
+                        } else {
+                            success
+                                .matched_files
+                                .iter()
+                                .map(|f| {
+                                    let lines: String = f
+                                        .matched_lines
+                                        .iter()
+                                        .map(|l| format!("  line {}", l.line_number))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    format!("{} (matches at: {})", f.file_path, lines)
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                    Some(api::grep_result::Result::Error(error)) => {
+                        format!("Grep error: {}", error.message)
+                    }
+                    None => "Grep completed (no result).".to_string(),
+                }
+            }
+            api::message::tool_call_result::Result::FileGlobV2(glob_result) => {
+                match &glob_result.result {
+                    Some(api::file_glob_v2_result::Result::Success(success)) => {
+                        if success.matched_files.is_empty() {
+                            "No files matched.".to_string()
+                        } else {
+                            success
+                                .matched_files
+                                .iter()
+                                .map(|f| f.file_path.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                    }
+                    Some(api::file_glob_v2_result::Result::Error(error)) => {
+                        format!("File glob error: {}", error.message)
+                    }
+                    None => "File glob completed (no result).".to_string(),
+                }
+            }
+            api::message::tool_call_result::Result::ApplyFileDiffs(diff_result) => {
+                match &diff_result.result {
+                    Some(api::apply_file_diffs_result::Result::Success(success)) => {
+                        let mut parts = Vec::new();
+                        for f in &success.updated_files_v2 {
+                            if let Some(file) = &f.file {
+                                parts.push(format!("Updated: {}", file.file_path));
+                            }
+                        }
+                        for f in &success.deleted_files {
+                            parts.push(format!("Deleted: {}", f.file_path));
+                        }
+                        if parts.is_empty() {
+                            "Diffs applied successfully.".to_string()
+                        } else {
+                            parts.join("\n")
+                        }
+                    }
+                    Some(api::apply_file_diffs_result::Result::Error(error)) => {
+                        format!("Apply diffs error: {}", error.message)
+                    }
+                    None => "Apply diffs completed.".to_string(),
                 }
             }
             api::message::tool_call_result::Result::Server(server_result) => {

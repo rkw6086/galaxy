@@ -35,7 +35,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleDisplayName</key>
-    <string>Galaxy AI</string>
+    <string>Galaxy</string>
     <key>CFBundleExecutable</key>
     <string>galaxy-ai</string>
     <key>CFBundleIdentifier</key>
@@ -43,7 +43,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Galaxy AI</string>
+    <string>Galaxy</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -55,7 +55,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>UIDesignRequiresCompatibility</key>
     <true/>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>Galaxy AI</string><key>CFBundleURLSchemes</key><array><string>galaxyai</string></array></dict></array>
+    <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxyai</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026, Samsung Electronics Co., Ltd.</string>
     </dict>

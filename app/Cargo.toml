@@ -934,8 +934,8 @@ cloud_mode_input_v2 = ["cloud_mode"]
 [package.metadata.bundle.bin.warp-oss]
 category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.warp.WarpOss"
-name = "WarpOss"
+identifier = "dev.galaxy.GalaxyOss"
+name = "Galaxy"
 resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]
 short_description = "The open-source, cloud-backed terminal for individuals and teams."
@@ -943,8 +943,8 @@ short_description = "The open-source, cloud-backed terminal for individuals and 
 [package.metadata.bundle.bin.stable]
 category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.warp.Warp-Stable"
-name = "Warp"
+identifier = "dev.galaxy.Galaxy-Stable"
+name = "Galaxy"
 osx_frameworks = [
     "frameworks/default/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
 ]
@@ -954,8 +954,8 @@ short_description = "The cloud-backed terminal for individuals and teams, stable
 [package.metadata.bundle.bin.preview]
 category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.warp.Warp-Preview"
-name = "WarpPreview"
+identifier = "dev.galaxy.Galaxy-Preview"
+name = "GalaxyPreview"
 osx_frameworks = [
     "frameworks/default/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
 ]
@@ -965,8 +965,8 @@ short_description = "The cloud-backed terminal for individuals and teams, featur
 [package.metadata.bundle.bin.dev]
 category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.warp.Warp-Dev"
-name = "WarpDev"
+identifier = "dev.galaxy.Galaxy-Dev"
+name = "GalaxyDev"
 osx_frameworks = [
     "frameworks/dev/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
 ]
@@ -976,8 +976,8 @@ short_description = "The cloud-backed terminal for individuals and teams, develo
 [package.metadata.bundle.bin.warp]
 category = "public.app-category.developer-tools"
 copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.warp.Warp-Local"
-name = "WarpLocal"
+identifier = "dev.galaxy.Galaxy-Local"
+name = "GalaxyLocal"
 resources = ["assets/onboarding"]
 short_description = "The cloud-backed terminal for individuals and teams, developer build."
 
