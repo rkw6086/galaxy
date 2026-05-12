@@ -12,7 +12,7 @@ use crate::server::server_api::ServerApi;
 use super::{convert_to::convert_input, ConvertToAPITypeError, RequestParams, ResponseStream};
 
 pub async fn generate_multi_agent_output(
-    server_api: Arc<ServerApi>,
+    _server_api: Arc<ServerApi>,
     bedrock_config: Option<BedrockClientConfig>,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
@@ -318,18 +318,14 @@ pub async fn generate_multi_agent_output(
         }
     }
 
-    let response_stream = server_api.generate_multi_agent_output(&request).await;
-    match response_stream {
-        Ok(stream) => {
-            let output_stream = stream.take_until(cancellation_rx);
-            Ok(Box::pin(output_stream))
-        }
-        Err(e) => {
-            let (tx, rx) = async_channel::unbounded();
-            let _ = tx.send(Err(e)).await;
-            Ok(Box::pin(rx))
-        }
-    }
+    log::error!("[bedrock] No Bedrock config available and server fallback is disabled. Cannot process request.");
+    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+        stream_type: "bedrock_converse",
+        source: anyhow::anyhow!("No AI backend available. Please configure Bedrock credentials in Settings > AI."),
+    });
+    let (tx, rx) = async_channel::unbounded();
+    let _ = tx.send(Err(err)).await;
+    Ok(Box::pin(rx))
 }
 
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
