@@ -151,7 +151,7 @@ impl ComputerUsePermission {
         let autonomy_setting = UserWorkspaces::as_ref(ctx)
             .ai_autonomy_settings()
             .computer_use_setting;
-        let user_preference = *AISettings::as_ref(ctx).cloud_agent_computer_use_enabled;
+        let user_preference = false;
 
         match autonomy_setting {
             Some(ComputerUsePermission::Never) => CloudAgentComputerUseState {

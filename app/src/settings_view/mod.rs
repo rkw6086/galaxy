@@ -95,6 +95,7 @@ mod privacy;
 mod privacy_page;
 mod settings_file_footer;
 pub(crate) mod settings_page;
+mod show_blocks_view;
 mod tab_menu;
 mod teams_page;
 mod telemetry;
@@ -211,6 +212,17 @@ pub enum SettingsSection {
     // ── Code umbrella subpages ──
     CodeIndexing,
     EditorAndCodeReview,
+    // Dead variants — pages removed from nav but files still reference these
+    #[allow(dead_code)]
+    CloudEnvironments,
+    #[allow(dead_code)]
+    OzCloudAPIKeys,
+    #[allow(dead_code)]
+    Teams,
+    #[allow(dead_code)]
+    SharedBlocks,
+    #[allow(dead_code)]
+    Referrals,
 }
 
 use crate::util::bindings::custom_tag_to_keystroke;
@@ -229,6 +241,7 @@ impl Display for SettingsSection {
             SettingsSection::Knowledge => write!(f, "Knowledge"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Bedrock => write!(f, "AWS Bedrock"),
+            SettingsSection::Warpify => write!(f, "Galaxify"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             _ => write!(f, "{self:?}"),
@@ -307,7 +320,7 @@ impl FromStr for SettingsSection {
             "Features" => Ok(Self::Features),
             "Keyboard shortcuts" => Ok(Self::Keybindings),
             "Privacy" => Ok(Self::Privacy),
-            "Warpify" => Ok(Self::Warpify),
+            "Warpify" | "Galaxify" => Ok(Self::Warpify),
             "WarpDrive" | "Warp Drive" | "Galaxy Drive" => Ok(Self::WarpDrive),
             // This page was called "Oz" at one point, keep for backward compatibility.
             "Oz" | "Warp Agent" | "Galaxy Agent" => Ok(Self::WarpAgent),
@@ -318,6 +331,11 @@ impl FromStr for SettingsSection {
             "AWS Bedrock" | "Bedrock" => Ok(Self::Bedrock),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
+            "CloudEnvironments" | "Environments" => Ok(Self::CloudEnvironments),
+            "OzCloudAPIKeys" => Ok(Self::OzCloudAPIKeys),
+            "Teams" => Ok(Self::Teams),
+            "SharedBlocks" | "Shared Blocks" => Ok(Self::SharedBlocks),
+            "Referrals" => Ok(Self::Referrals),
             _ => Err(()),
         }
     }
@@ -938,6 +956,10 @@ macro_rules! update_page {
             SettingsPageViewHandle::BillingAndUsage(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::MCPServers(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::WarpDrive(handle) => $ctx.update_view(handle, $update),
+            SettingsPageViewHandle::CloudEnvironments(handle) => $ctx.update_view(handle, $update),
+            SettingsPageViewHandle::OzCloudAPIKeys(handle) => $ctx.update_view(handle, $update),
+            SettingsPageViewHandle::Teams(handle) => $ctx.update_view(handle, $update),
+            SettingsPageViewHandle::SharedBlocks(handle) => $ctx.update_view(handle, $update),
         }
     };
 }
@@ -1826,6 +1848,7 @@ impl SettingsView {
             SettingsPageViewHandle::MCPServers(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Code(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::WarpDrive(v) => v.as_ref(app).should_render(app),
+            _ => true,
         }
     }
 

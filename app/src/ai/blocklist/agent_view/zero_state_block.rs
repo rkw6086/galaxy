@@ -208,17 +208,7 @@ impl AgentViewZeroStateBlock {
                 }
             }
         });
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
-            let should_rerender_for_oz_updates_visibility = !me.origin.is_cloud_agent()
-                && matches!(
-                    event,
-                    AISettingsChangedEvent::ShouldShowOzUpdatesInZeroState { .. }
-                )
-                && FeatureFlag::OzChangelogUpdates.is_enabled()
-                && !ChangelogModel::as_ref(ctx).oz_updates.is_empty();
-            if should_rerender_for_oz_updates_visibility {
-                ctx.notify();
-            }
+        ctx.subscribe_to_model(&AISettings::handle(ctx), |_me, _, _event, _ctx| {
         });
 
         let mut state_handles = StateHandles::default();
@@ -253,8 +243,7 @@ impl AgentViewZeroStateBlock {
             should_show_init_callout,
             has_parent_terminal,
             state_handles,
-            is_oz_updates_expanded: !origin.is_cloud_agent()
-                && *AISettings::handle(ctx).as_ref(ctx).should_expand_oz_updates,
+            is_oz_updates_expanded: false,
         }
     }
 
@@ -384,9 +373,9 @@ impl View for AgentViewZeroStateBlock {
 
         let header_props = if self.origin.is_cloud_agent() {
             HeaderProps {
-                title: "New Oz cloud agent conversation".into(),
+                title: "New Galaxy agent conversation".into(),
                 description: AgentViewDescription::CloudModeWithDocsLink,
-                icon: Icon::OzCloud,
+                icon: Icon::Warp,
             }
         } else {
             let mut local_description =
@@ -400,30 +389,15 @@ impl View for AgentViewZeroStateBlock {
             }
 
             HeaderProps {
-                title: "New Oz agent conversation".into(),
+                title: "New Galaxy agent conversation".into(),
                 description: AgentViewDescription::PlainText(vec![local_description.into()]),
-                icon: Icon::Oz,
+                icon: Icon::Warp,
             }
         };
 
         let mut content = Flex::column()
             .with_main_axis_size(MainAxisSize::Min)
             .with_children(render_title_and_description(header_props, app));
-
-        if !self.origin.is_cloud_agent() {
-            if let Some(oz_updates_section) = render_oz_updates(
-                OzUpdatesProps {
-                    is_expanded: self.is_oz_updates_expanded,
-                    state_handles: &self.state_handles,
-                },
-                app,
-            ) {
-                content.add_children([Container::new(oz_updates_section)
-                    .with_margin_top(8.)
-                    .with_margin_bottom(16.)
-                    .finish()]);
-            }
-        }
 
         let active_session = self.active_session(app);
         let body = render_body(
@@ -492,16 +466,7 @@ impl TypedActionView for AgentViewZeroStateBlock {
             AgentViewZeroStateAction::ClickedInitCallout => {
                 ctx.emit(AgentViewZeroStateEvent::ClickedInitCallout);
             }
-            AgentViewZeroStateAction::ToggleOzUpdates => {
-                let is_expanded = self.is_oz_updates_expanded;
-                self.is_oz_updates_expanded = !is_expanded;
-
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .should_expand_oz_updates
-                        .set_value(!is_expanded, ctx));
-                });
-            }
+            AgentViewZeroStateAction::ToggleOzUpdates => {}
             AgentViewZeroStateAction::OpenConversation { conversation_id } => {
                 ctx.emit(AgentViewZeroStateEvent::OpenConversation {
                     conversation_id: *conversation_id,
@@ -965,9 +930,7 @@ fn should_render_oz_updates_section(
 
 fn render_oz_updates(props: OzUpdatesProps<'_>, app: &AppContext) -> Option<Box<dyn Element>> {
     let changelog_model = ChangelogModel::as_ref(app);
-    let should_show_oz_updates = *AISettings::as_ref(app)
-        .should_show_oz_updates_in_zero_state
-        .value();
+    let should_show_oz_updates = false;
     if !should_render_oz_updates_section(
         FeatureFlag::OzChangelogUpdates.is_enabled(),
         should_show_oz_updates,

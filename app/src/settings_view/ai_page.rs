@@ -5824,7 +5824,7 @@ impl SettingsWidget for AgentAttributionWidget {
             )
             .with_child(toggle_row)
             .with_child(render_ai_setting_description(
-                "Oz can add attribution to commit messages and pull requests it creates",
+                "Galaxy can add attribution to commit messages and pull requests it creates",
                 !state.is_disabled,
                 app,
             ))

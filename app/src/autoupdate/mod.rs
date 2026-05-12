@@ -139,22 +139,7 @@ impl AutoupdateState {
 
     /// Check if there are any requests in the queue. Return the next one, but only if there isn't
     /// already a request in-flight.
-    fn get_next_request(&mut self, ctx: &mut ModelContext<Self>) -> Option<RequestType> {
-        if !self.should_start_update_check() {
-            return None;
-        }
-
-        while let Some(request) = self.request_queue.pop_front() {
-            match request {
-                RequestType::ManualCheck => return Some(request),
-                RequestType::Poll | RequestType::DailyCheck => {
-                    if AppExecutionMode::as_ref(ctx).can_autoupdate() {
-                        return Some(request);
-                    }
-                }
-            }
-        }
-
+    fn get_next_request(&mut self, _ctx: &mut ModelContext<Self>) -> Option<RequestType> {
         None
     }
 

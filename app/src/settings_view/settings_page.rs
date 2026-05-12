@@ -11,11 +11,13 @@ use super::{
     appearance_page::AppearanceSettingsPageView,
     billing_and_usage_page::BillingAndUsagePageView,
     code_page::CodeSettingsPageView,
+    environments_page::EnvironmentsPageView,
     features_page::FeaturesPageView,
     keybindings::KeybindingsView,
     main_page::MainSettingsPageView,
     mcp_servers_page::MCPServersSettingsPageView,
     privacy_page::PrivacyPageView,
+    show_blocks_view::ShowBlocksView,
     warp_drive_page::WarpDriveSettingsPageView,
     warpify_page::WarpifyPageView,
     SettingsSection,
@@ -111,6 +113,10 @@ pub enum SettingsPageViewHandle {
     BillingAndUsage(ViewHandle<BillingAndUsagePageView>),
     MCPServers(ViewHandle<MCPServersSettingsPageView>),
     WarpDrive(ViewHandle<WarpDriveSettingsPageView>),
+    CloudEnvironments(ViewHandle<EnvironmentsPageView>),
+    OzCloudAPIKeys(ViewHandle<super::platform_page::PlatformPageView>),
+    Teams(ViewHandle<super::teams_page::TeamsPageView>),
+    SharedBlocks(ViewHandle<ShowBlocksView>),
 }
 
 impl SettingsPageViewHandle {
@@ -129,6 +135,10 @@ impl SettingsPageViewHandle {
             BillingAndUsage(view_handle) => ChildView::new(view_handle).finish(),
             MCPServers(view_handle) => ChildView::new(view_handle).finish(),
             WarpDrive(view_handle) => ChildView::new(view_handle).finish(),
+            CloudEnvironments(view_handle) => ChildView::new(view_handle).finish(),
+            OzCloudAPIKeys(view_handle) => ChildView::new(view_handle).finish(),
+            Teams(view_handle) => ChildView::new(view_handle).finish(),
+            SharedBlocks(view_handle) => ChildView::new(view_handle).finish(),
         }
     }
 }

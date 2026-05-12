@@ -93,7 +93,6 @@ impl SlashCommandDataSource {
             if matches!(
                 event,
                 AISettingsChangedEvent::IsAnyAIEnabled { .. }
-                    | AISettingsChangedEvent::OrchestrationEnabled { .. }
             ) {
                 me.recompute_active_commands(ctx);
             }
