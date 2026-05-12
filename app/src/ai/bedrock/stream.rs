@@ -588,6 +588,28 @@ fn build_tool_call_message(
                 },
             ))
         }
+        "suggest_next_prompt" => {
+            let prompt = input
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let label = input
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::SuggestPrompt(
+                api::message::tool_call::SuggestPrompt {
+                    is_trigger_irrelevant: false,
+                    display_mode: Some(
+                        api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(
+                            api::message::tool_call::suggest_prompt::PromptChip { prompt, label },
+                        ),
+                    ),
+                },
+            ))
+        }
         _ => {
             log::warn!("[bedrock] Unknown tool name: {tool_name}, emitting as text");
             None

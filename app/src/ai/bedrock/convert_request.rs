@@ -615,7 +615,8 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
     prompt.push_str("- `apply_file_diffs`: Apply search/replace edits to files.\n");
     prompt.push_str("- `grep`: Search for patterns in files. Pass all patterns in one call.\n");
     prompt.push_str("- `file_glob`: Find files matching glob patterns. Pass all patterns in one call.\n");
-    prompt.push_str("- `get_tool_documentation`: Get detailed documentation for any tool or system capabilities.\n\n");
+    prompt.push_str("- `get_tool_documentation`: Get detailed documentation for any tool or system capabilities.\n");
+    prompt.push_str("- `suggest_next_prompt`: After completing a task, suggest a follow-up action the user might want.\n\n");
 
     prompt.push_str("## Guidelines\n");
     prompt.push_str("- ALWAYS use tools to explore the codebase before answering questions about code.\n");
@@ -742,6 +743,18 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
                 "required": ["patterns"]
             }),
         },
+        "suggest_next_prompt" => ToolDefinition {
+            name: "suggest_next_prompt".to_string(),
+            description: "After completing a task, suggest a relevant follow-up prompt the user might want to try next. Use this to suggest a natural next step based on what was just accomplished.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "The suggested prompt text that will be sent to the agent if the user accepts" },
+                    "label": { "type": "string", "description": "Short display label for the suggestion chip (keep under 40 chars)" }
+                },
+                "required": ["prompt", "label"]
+            }),
+        },
         _ => ToolDefinition {
             name: name.to_string(),
             description: format!("Tool: {}", name),
@@ -760,6 +773,7 @@ fn default_tool_definitions() -> Vec<ToolDefinition> {
         tool_definition_for_name("apply_file_diffs"),
         tool_definition_for_name("grep"),
         tool_definition_for_name("file_glob"),
+        tool_definition_for_name("suggest_next_prompt"),
     ]
 }
 
@@ -832,6 +846,18 @@ fn extract_tool_call_info(tool_call: &api::message::ToolCall) -> (String, serde_
                 "file_glob".to_string(),
                 serde_json::json!({ "patterns": glob.patterns }),
             ),
+            api::message::tool_call::Tool::SuggestPrompt(sp) => {
+                let (prompt, label) = match &sp.display_mode {
+                    Some(api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(chip)) => {
+                        (chip.prompt.clone(), chip.label.clone())
+                    }
+                    _ => (String::new(), String::new()),
+                };
+                (
+                    "suggest_next_prompt".to_string(),
+                    serde_json::json!({ "prompt": prompt, "label": label }),
+                )
+            }
             _ => ("unknown_tool".to_string(), serde_json::json!({})),
         }
     } else {

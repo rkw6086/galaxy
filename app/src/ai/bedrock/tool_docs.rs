@@ -184,6 +184,25 @@ Get detailed usage documentation for any available tool.
 ## When to use
 Call this tool when you need detailed guidance on how to use a specific tool effectively, especially for complex operations like file editing or understanding the permission model."#;
 
+const SUGGEST_NEXT_PROMPT_DOC: &str = r#"# suggest_next_prompt
+
+Suggest a follow-up action the user might want after completing the current task.
+
+## When to Use
+- After completing a task successfully
+- When there's a natural next step (e.g., "run tests" after writing code, "commit changes" after editing files)
+- Only call this ONCE at the end of your response, alongside your final text output
+
+## Parameters
+- `prompt`: The full prompt text that will be sent to the agent if the user clicks the suggestion
+- `label`: A short display label (under 40 characters) shown as a clickable chip
+
+## Guidelines
+- Keep labels concise and action-oriented (e.g., "Run tests", "Commit changes", "Deploy")
+- The prompt should be specific enough to be useful without further clarification
+- Only suggest actions that are relevant to what was just accomplished
+- Do NOT suggest prompts when the conversation is exploratory or the user is asking questions"#;
+
 pub fn get_tool_documentation(tool_name: &str) -> Option<String> {
     match tool_name {
         "capabilities" => Some(CAPABILITIES_DOC.to_string()),
@@ -193,6 +212,7 @@ pub fn get_tool_documentation(tool_name: &str) -> Option<String> {
         "grep" => Some(GREP_DOC.to_string()),
         "file_glob" => Some(FILE_GLOB_DOC.to_string()),
         "get_tool_documentation" => Some(GET_TOOL_DOCUMENTATION_DOC.to_string()),
+        "suggest_next_prompt" => Some(SUGGEST_NEXT_PROMPT_DOC.to_string()),
         _ => None,
     }
 }
