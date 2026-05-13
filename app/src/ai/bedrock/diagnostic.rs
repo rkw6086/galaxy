@@ -1,16 +1,18 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Write};
-use std::path::PathBuf;
-use std::sync::Mutex;
-
-use chrono::Utc;
+use chrono::{Local, Utc};
 use serde_json::Value as JsonValue;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use super::convert::{ConversationMessage, MessageContent, MessageRole, ToolDefinition};
 
 const ENV_VAR: &str = "GALAXY_BEDROCK_DIAGNOSTICS";
 const LOG_FILENAME: &str = "bedrock-diagnostics.log";
 const MAX_ROTATIONS: usize = 5;
+const ERROR_DUMP_PREFIX: &str = "Error_";
+const MAX_CAPTURED_LINES: usize = 2_000;
+const LOG_TAIL_BYTES: u64 = 200 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Layer {
@@ -62,11 +64,15 @@ impl std::fmt::Display for Status {
 }
 
 pub struct BedrockDiagnosticLogger {
-    writer: Mutex<BufWriter<File>>,
+    writer: Option<Mutex<BufWriter<File>>>,
+    log_path: Option<PathBuf>,
     model_id: String,
     conversation_id: Mutex<String>,
     request_id: Mutex<String>,
     task_id: String,
+    protobuf_input: Mutex<Option<String>>,
+    bedrock_input: Mutex<Option<JsonValue>>,
+    captured_lines: Mutex<Vec<String>>,
 }
 
 impl BedrockDiagnosticLogger {
@@ -76,47 +82,42 @@ impl BedrockDiagnosticLogger {
         request_id: &str,
         task_id: &str,
     ) -> Option<Self> {
-        if !is_enabled() {
-            return None;
-        }
+        let mut writer = None;
+        let mut log_path = None;
 
-        let log_path = match log_file_path() {
-            Some(path) => path,
-            None => {
+        if is_enabled() {
+            if let Some(path) = diagnostic_log_file_path() {
+                if let Some(parent) = path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+
+                rotate_if_needed(&path);
+
+                match OpenOptions::new().create(true).append(true).open(&path) {
+                    Ok(file) => {
+                        writer = Some(Mutex::new(BufWriter::new(file)));
+                        log_path = Some(path.clone());
+                        log::info!("[bedrock-diag] Diagnostic logging enabled -> {path:?}");
+                    }
+                    Err(e) => {
+                        log::warn!("[bedrock-diag] Failed to open log file {path:?}: {e}");
+                    }
+                }
+            } else {
                 log::warn!("[bedrock-diag] Could not determine log directory");
-                return None;
             }
-        };
-
-        if let Some(parent) = log_path.parent() {
-            let _ = fs::create_dir_all(parent);
         }
-
-        rotate_if_needed(&log_path);
-
-        let file = match OpenOptions::new().create(true).append(true).open(&log_path) {
-            Ok(f) => f,
-            Err(e) => {
-                log::warn!(
-                    "[bedrock-diag] Failed to open log file {:?}: {}",
-                    log_path,
-                    e
-                );
-                return None;
-            }
-        };
-
-        log::info!(
-            "[bedrock-diag] Diagnostic logging enabled -> {:?}",
-            log_path
-        );
 
         Some(Self {
-            writer: Mutex::new(BufWriter::new(file)),
+            writer,
+            log_path,
             model_id: model_id.to_string(),
             conversation_id: Mutex::new(conversation_id.to_string()),
             request_id: Mutex::new(request_id.to_string()),
             task_id: task_id.to_string(),
+            protobuf_input: Mutex::new(None),
+            bedrock_input: Mutex::new(None),
+            captured_lines: Mutex::new(Vec::new()),
         })
     }
 
@@ -131,6 +132,9 @@ impl BedrockDiagnosticLogger {
 
     pub fn log_protobuf_input(&self, request: &warp_multi_agent_api::Request) {
         let payload = format!("{:?}", request);
+        if let Ok(mut protobuf_input) = self.protobuf_input.lock() {
+            *protobuf_input = Some(payload.clone());
+        }
         self.write_line(Layer::Protobuf, Direction::Input, Status::Pending, &payload);
     }
 
@@ -155,6 +159,9 @@ impl BedrockDiagnosticLogger {
             "messages": messages_json,
             "tools": tools_json,
         });
+        if let Ok(mut bedrock_input) = self.bedrock_input.lock() {
+            *bedrock_input = Some(payload.clone());
+        }
 
         self.write_line(
             Layer::Bedrock,
@@ -203,6 +210,111 @@ impl BedrockDiagnosticLogger {
         );
     }
 
+    pub fn dump_error_snapshot(&self, error: &str, debug_error: &str) -> Option<PathBuf> {
+        let conversation_id = self
+            .conversation_id
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default();
+        let request_id = self
+            .request_id
+            .lock()
+            .map(|value| value.clone())
+            .unwrap_or_default();
+        let protobuf_input = self
+            .protobuf_input
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
+        let bedrock_input = self
+            .bedrock_input
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
+        let captured_lines = self
+            .captured_lines
+            .lock()
+            .map(|lines| lines.clone())
+            .unwrap_or_default();
+
+        let current_log_path = galaxy_logging::log_file_path().ok();
+        let current_log_tail = current_log_path
+            .as_ref()
+            .and_then(|path| read_file_tail(path, LOG_TAIL_BYTES));
+        let diagnostics_log_tail = self
+            .log_path
+            .as_ref()
+            .and_then(|path| read_file_tail(path, LOG_TAIL_BYTES));
+        let context_window = bedrock_input
+            .as_ref()
+            .and_then(|value| value.get("messages").cloned())
+            .unwrap_or(JsonValue::Null);
+        let tools = bedrock_input
+            .as_ref()
+            .and_then(|value| value.get("tools").cloned())
+            .unwrap_or(JsonValue::Null);
+
+        let payload = serde_json::json!({
+            "timestamp_local": Local::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "timestamp_utc": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "error": {
+                "display": error,
+                "debug": debug_error,
+            },
+            "bedrock": {
+                "model_id": &self.model_id,
+                "task_id": &self.task_id,
+                "conversation_id": conversation_id,
+                "request_id": request_id,
+                "input": bedrock_input,
+                "context_window": context_window,
+                "tools": tools,
+            },
+            "protobuf_request_debug": protobuf_input,
+            "captured_bedrock_lines": captured_lines,
+            "logs": {
+                "warp_log_path": current_log_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+                "warp_log_tail": current_log_tail,
+                "bedrock_diagnostics_log_path": self
+                    .log_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+                "bedrock_diagnostics_log_tail": diagnostics_log_tail,
+            }
+        });
+
+        let file_name = format!(
+            "{ERROR_DUMP_PREFIX}{}.txt",
+            Local::now().format("%Y%m%d_%H%M%S_%3f")
+        );
+        let serialized_payload = match serde_json::to_string_pretty(&payload) {
+            Ok(value) => value,
+            Err(e) => {
+                log::error!("[bedrock] Failed to serialize Bedrock error snapshot: {e}");
+                return None;
+            }
+        };
+
+        let mut attempted_paths = Vec::new();
+        for dump_path in error_dump_paths(&file_name) {
+            match fs::write(&dump_path, &serialized_payload) {
+                Ok(()) => return Some(dump_path),
+                Err(e) => {
+                    attempted_paths.push(format!("{} ({e})", dump_path.display()));
+                }
+            }
+        }
+        log::error!(
+            "[bedrock] Failed to write Bedrock error snapshot. Attempted paths: {}",
+            attempted_paths.join(", ")
+        );
+        None
+    }
+
     fn write_line(&self, layer: Layer, direction: Direction, status: Status, payload: &str) {
         let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
         let conversation_id = self
@@ -228,9 +340,19 @@ impl BedrockDiagnosticLogger {
             payload,
         );
 
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.write_all(line.as_bytes());
-            let _ = writer.flush();
+        if let Ok(mut captured_lines) = self.captured_lines.lock() {
+            captured_lines.push(line.trim_end().to_string());
+            if captured_lines.len() > MAX_CAPTURED_LINES {
+                let overflow = captured_lines.len() - MAX_CAPTURED_LINES;
+                captured_lines.drain(0..overflow);
+            }
+        }
+
+        if let Some(writer) = &self.writer {
+            if let Ok(mut writer) = writer.lock() {
+                let _ = writer.write_all(line.as_bytes());
+                let _ = writer.flush();
+            }
         }
     }
 }
@@ -241,13 +363,45 @@ pub fn is_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn log_file_path() -> Option<PathBuf> {
+fn diagnostic_log_file_path() -> Option<PathBuf> {
     galaxy_logging::log_directory()
         .ok()
         .map(|dir| dir.join(LOG_FILENAME))
 }
 
-fn rotate_if_needed(path: &PathBuf) {
+fn error_dump_directory() -> PathBuf {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .to_path_buf();
+
+    if source_root.is_dir() {
+        source_root
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    }
+}
+
+fn error_dump_paths(file_name: &str) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    push_unique_directory(&mut directories, error_dump_directory());
+    if let Ok(current_dir) = std::env::current_dir() {
+        push_unique_directory(&mut directories, current_dir);
+    }
+    push_unique_directory(&mut directories, std::env::temp_dir());
+
+    directories
+        .into_iter()
+        .map(|directory| directory.join(file_name))
+        .collect()
+}
+
+fn push_unique_directory(directories: &mut Vec<PathBuf>, directory: PathBuf) {
+    if directory.is_dir() && !directories.iter().any(|existing| existing == &directory) {
+        directories.push(directory);
+    }
+}
+fn rotate_if_needed(path: &Path) {
     let metadata = match fs::metadata(path) {
         Ok(m) => m,
         Err(_) => return,
@@ -260,7 +414,7 @@ fn rotate_if_needed(path: &PathBuf) {
 
     for i in (0..MAX_ROTATIONS - 1).rev() {
         let from = if i == 0 {
-            path.clone()
+            path.to_path_buf()
         } else {
             path.with_extension(format!("log.{}", i))
         };
@@ -270,6 +424,25 @@ fn rotate_if_needed(path: &PathBuf) {
 
     let first_rotation = path.with_extension("log.1");
     let _ = fs::rename(path, &first_rotation);
+}
+
+fn read_file_tail(path: &Path, max_bytes: u64) -> Option<String> {
+    let mut file = File::open(path).ok()?;
+    let file_len = file.metadata().ok()?.len();
+    let start = file_len.saturating_sub(max_bytes);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return None;
+    }
+
+    let mut tail = String::from_utf8_lossy(&bytes).to_string();
+    if start > 0 {
+        tail = format!("... log tail truncated to last {max_bytes} bytes ...\n{tail}");
+    }
+    Some(tail)
 }
 
 fn serialize_messages(messages: &[ConversationMessage]) -> JsonValue {

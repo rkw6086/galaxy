@@ -163,16 +163,22 @@ impl BedrockClient {
 
         let output = request.send().await.map_err(|e| {
             let debug_msg = format!("{:?}", e);
-            let display_msg = format!("{}", e);
+            let display_msg = format!("{e}");
             log::error!("[bedrock] API error (display): {display_msg}");
             log::error!("[bedrock] API error (debug): {debug_msg}");
             let msg = if debug_msg.len() > display_msg.len() {
-                debug_msg
+                debug_msg.clone()
             } else {
-                display_msg
+                display_msg.clone()
             };
             if let Some(ref logger) = diagnostic_logger {
                 logger.log_result_fail(&msg);
+                if let Some(path) = logger.dump_error_snapshot(&display_msg, &debug_msg) {
+                    log::error!(
+                        "[bedrock] Wrote Bedrock failure snapshot to {}",
+                        path.display()
+                    );
+                }
             }
             if msg.contains("AccessDenied") || msg.contains("access denied") {
                 BedrockError::AccessDenied(msg)

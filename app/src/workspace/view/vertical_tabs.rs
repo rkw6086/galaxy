@@ -1,22 +1,22 @@
 pub mod telemetry;
 
-use crate::FeatureFlag;
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent_management::AgentNotificationsModel;
 use crate::code::editor::{add_color, remove_color};
 use crate::code::icon_from_file_path;
 use crate::safe_triangle::SafeTriangle;
 use crate::send_telemetry_from_app_ctx;
-use crate::terminal::CLIAgent;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::cli_agent_sessions::listener::agent_supports_rich_status;
+use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::terminal::view::TerminalViewState;
+use crate::terminal::CLIAgent;
 use crate::ui_components::icon_with_status::{
-    IconWithStatusSizing, IconWithStatusVariant, render_icon_with_status,
+    render_icon_with_status, IconWithStatusSizing, IconWithStatusVariant,
 };
 use crate::workspace::view::vertical_tabs::telemetry::{
     VerticalTabsChipEntrypoint, VerticalTabsTelemetryEvent,
 };
+use crate::FeatureFlag;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -24,16 +24,16 @@ use std::sync::{Arc, Mutex};
 use crate::appearance::Appearance;
 use crate::context_chips::display_chip::GitLineChanges;
 use crate::context_chips::github_pr_display_text_from_url;
-use crate::drive::{DriveObjectType, cloud_object_styling::warp_drive_icon_color};
+use crate::drive::{cloud_object_styling::warp_drive_icon_color, DriveObjectType};
 use crate::editor::EditorView;
-use crate::pane_group::TerminalPane;
 use crate::pane_group::pane::IPaneType;
+use crate::pane_group::TerminalPane;
 use crate::pane_group::{
     CodePane, NotebookPane, PaneGroup, PaneId, TabBarHoverIndex, WorkflowPane,
 };
-use crate::tab::{SelectedTabColor, TabData, tab_position_id};
-use crate::terminal::TerminalView;
+use crate::tab::{tab_position_id, SelectedTabColor, TabData};
 use crate::terminal::session_settings::SessionSettings;
+use crate::terminal::TerminalView;
 use crate::themes::theme::Fill as ThemeFill;
 use crate::ui_components::buttons::combo_inner_button;
 use crate::ui_components::icons::Icon as UiIcon;
@@ -53,20 +53,20 @@ use languages::language_by_filename;
 
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::telemetry::TelemetryEvent as _;
-use galaxy_core::ui::Icon as WarpIcon;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as WarpThemeFill, WarpTheme};
+use galaxy_core::ui::Icon as WarpIcon;
 use galaxyui::elements::DispatchEventResult;
 use galaxyui::elements::{
-    Border, ChildAnchor, Clipped, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-    Container, CornerRadius, CrossAxisAlignment, DragAxis, DragBarSide, Draggable, DropShadow,
-    DropTarget, Element, Empty, EventHandler, Expanded, Fill as ElementFill, Flex, Hoverable,
-    MainAxisSize, MouseStateHandle, OffsetPositioning, Padding, ParentAnchor, ParentElement,
-    ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius, Resizable,
-    ResizableStateHandle, SavePosition, ScrollTarget, ScrollToPositionMode, ScrollbarWidth,
-    Shrinkable, Stack, Text, resizable_state_handle,
+    resizable_state_handle, Border, ChildAnchor, Clipped, ClippedScrollStateHandle,
+    ClippedScrollable, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragAxis,
+    DragBarSide, Draggable, DropShadow, DropTarget, Element, Empty, EventHandler, Expanded,
+    Fill as ElementFill, Flex, Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning,
+    Padding, ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
+    PositionedElementOffsetBounds, Radius, Resizable, ResizableStateHandle, SavePosition,
+    ScrollTarget, ScrollToPositionMode, ScrollbarWidth, Shrinkable, Stack, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
@@ -77,7 +77,7 @@ use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{Vector2F, vec2f};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 use settings::Setting as _;
 use std::path::{Path, PathBuf};
 

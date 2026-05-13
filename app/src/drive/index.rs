@@ -1,26 +1,25 @@
 #[cfg(target_family = "wasm")]
 use crate::uri::web_intent_parser::open_url_on_desktop;
 use crate::{
-    ObjectActions,
     ai::{
         document::ai_document_model::AIDocumentId,
         facts::{AIFact, AIMemory},
     },
     appearance::Appearance,
     auth::{
-        AuthStateProvider,
         auth_manager::{AuthManager, LoginGatedFeature},
         auth_state::AuthState,
         auth_view_modal::AuthViewVariant,
+        AuthStateProvider,
     },
     cloud_object::{
-        CloudObject, CloudObjectEventEntrypoint, CloudObjectLocation, CloudObjectSyncStatus,
-        GenericCloudObject, GenericStringObjectFormat, JsonObjectType, NumInFlightRequests,
-        ObjectType, Space,
         model::{
             persistence::{CloudModel, CloudModelEvent},
             view::{CloudViewModel, CloudViewModelEvent, UpdateTimestamp},
         },
+        CloudObject, CloudObjectEventEntrypoint, CloudObjectLocation, CloudObjectSyncStatus,
+        GenericCloudObject, GenericStringObjectFormat, JsonObjectType, NumInFlightRequests,
+        ObjectType, Space,
     },
     editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions},
     env_vars::CloudEnvVarCollection,
@@ -39,8 +38,8 @@ use crate::{
     ui_components::{
         blended_colors,
         buttons::{highlight, icon_button},
-        icons::{ICON_DIMENSIONS, Icon},
-        menu_button::{MenuDirection, icon_button_with_context_menu},
+        icons::{Icon, ICON_DIMENSIONS},
+        menu_button::{icon_button_with_context_menu, MenuDirection},
     },
     util::{color::coloru_with_opacity, sync::Condition},
     view_components::{Dropdown, DropdownItem},
@@ -49,10 +48,10 @@ use crate::{
     workspaces::{
         update_manager::TeamUpdateManager, user_workspaces::UserWorkspaces, workspace::WorkspaceUid,
     },
+    ObjectActions,
 };
 
 use super::{
-    CloudObjectTypeAndId, DriveObjectType, DriveSortOrder,
     cloud_object_naming_dialog::CloudObjectNamingDialog,
     drive_helpers::{
         has_feature_gated_anonymous_user_reached_env_var_limit,
@@ -62,16 +61,17 @@ use super::{
     empty_trash_confirmation_dialog::{EmptyTrashConfirmationDialog, EmptyTrashConfirmationEvent},
     folders::CloudFolder,
     items::{
-        WarpDriveItemId,
         ai_fact_collection::WarpDriveAIFactCollection,
-        item::{ItemStates, WarpDriveRow, tools_panel_menu_direction},
+        item::{tools_panel_menu_direction, ItemStates, WarpDriveRow},
         mcp_server_collection::WarpDriveMCPServerCollection,
+        WarpDriveItemId,
     },
     settings::WarpDriveSettings,
     sharing::{
-        ContentEditability, ShareableObject,
         dialog::{SharingDialog, SharingDialogEvent},
+        ContentEditability, ShareableObject,
     },
+    CloudObjectTypeAndId, DriveObjectType, DriveSortOrder,
 };
 use crate::drive::panel::DrivePanelAction;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
@@ -80,8 +80,6 @@ use galaxy_core::{
     context_flag::ContextFlag, settings::Setting, ui::theme::color::internal_colors,
 };
 use galaxyui::{
-    AppContext, BlurContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
-    UpdateView, View, ViewContext, ViewHandle, WindowId,
     clipboard::ClipboardContent,
     elements::{
         Align, AnchorPair, Border, ChildAnchor, ChildView, ClippedScrollStateHandle,
@@ -100,10 +98,12 @@ use galaxyui::{
         components::{Coords, UiComponent, UiComponentStyles},
     },
     units::IntoPixels,
+    AppContext, BlurContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
+    UpdateView, View, ViewContext, ViewHandle, WindowId,
 };
 use itertools::Itertools;
 use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{Vector2F, vec2f};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 use std::{any::Any, collections::HashMap, sync::Arc};
 use url::Url;
 
@@ -4908,14 +4908,12 @@ impl DriveIndex {
             space: *space,
             offset,
         });
-        let menu_items = vec![
-            MenuItemFields::new("Collapse all")
-                .with_on_select_action(DriveIndexAction::CollapseAllInLocation(
-                    CloudObjectLocation::Space(*space),
-                ))
-                .with_icon(Icon::ListCollapsed)
-                .into_item(),
-        ];
+        let menu_items = vec![MenuItemFields::new("Collapse all")
+            .with_on_select_action(DriveIndexAction::CollapseAllInLocation(
+                CloudObjectLocation::Space(*space),
+            ))
+            .with_icon(Icon::ListCollapsed)
+            .into_item()];
 
         ctx.update_view(&self.menu, |menu, ctx| {
             menu.set_items(menu_items, ctx);

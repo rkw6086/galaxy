@@ -10,25 +10,25 @@ use crate::ai::agent_conversations_model::{AgentConversationsModel, Conversation
 use crate::ai::agent_management::telemetry::{AgentManagementTelemetryEvent, OpenedFrom};
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::appearance::Appearance;
-use crate::drive::sharing::ShareableObject;
 use crate::drive::sharing::dialog::SharingDialog;
+use crate::drive::sharing::ShareableObject;
 use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys,
     PropagateHorizontalNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::server::telemetry::SharingDialogSource;
-use crate::view_components::DismissibleToast;
 use crate::view_components::action_button::{ActionButton, ButtonSize, SecondaryTheme};
-use crate::workspace::ToastStack;
-use crate::workspace::WorkspaceAction;
+use crate::view_components::DismissibleToast;
 use crate::workspace::global_actions::ForkedConversationDestination;
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
 use crate::workspace::tab_settings::TabSettings;
 use crate::workspace::view::conversation_list::item::{
-    ItemProps, ItemState, OverflowMenuDisplay, STATIC_ITEM_MIN_HEIGHT, StaticItemProps,
-    render_item, render_static_item,
+    render_item, render_static_item, ItemProps, ItemState, OverflowMenuDisplay, StaticItemProps,
+    STATIC_ITEM_MIN_HEIGHT,
 };
+use crate::workspace::ToastStack;
+use crate::workspace::WorkspaceAction;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::Icon;
@@ -43,8 +43,8 @@ use galaxyui::elements::{
     ScrollbarWidth, Shrinkable, Stack, Text, UniformList, UniformListState,
 };
 use galaxyui::fonts::{Properties, Weight};
-use galaxyui::keymap::FixedBinding;
 use galaxyui::keymap::macros::*;
+use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::TextAlignment;
 use galaxyui::{
