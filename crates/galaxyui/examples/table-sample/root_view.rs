@@ -1,6 +1,4 @@
 use crate::CaptureConfig;
-use image::ImageEncoder;
-use std::sync::{Arc, Mutex};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container, Empty, Fill, Flex,
@@ -16,6 +14,8 @@ use galaxyui::SingletonEntity as _;
 use galaxyui::{
     AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle, WindowId,
 };
+use image::ImageEncoder;
+use std::sync::{Arc, Mutex};
 
 const TOTAL_DEMOS: usize = 13;
 
@@ -213,7 +213,8 @@ impl TableSampleView {
             if auto_capture && !is_last_demo {
                 ctx.spawn(
                     async {
-                        galaxyui::r#async::Timer::after(std::time::Duration::from_millis(350)).await;
+                        galaxyui::r#async::Timer::after(std::time::Duration::from_millis(350))
+                            .await;
                     },
                     |_, _, ctx| {
                         ctx.dispatch_typed_action(&SampleAction::NextDemo);

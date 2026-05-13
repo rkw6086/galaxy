@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CornerRadius, DropShadow, Radius, Shrinkable,
 };
@@ -6,6 +5,7 @@ use galaxyui::{
     elements::{Flex, ParentElement, Rect},
     AppContext, Element, Entity, TypedActionView, View,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use galaxyui::color::ColorU;
 

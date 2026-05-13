@@ -6,8 +6,6 @@ use crate::view_components::FilterableDropdown;
 use crate::view_components::{Dropdown, SubmittableTextInput};
 use crate::Appearance;
 use crate::TemplatableMCPServerManager;
-use pathfinder_geometry::vector::vec2f;
-use uuid::Uuid;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::Hoverable;
 use galaxyui::elements::MouseStateHandle;
@@ -20,6 +18,8 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::AppContext;
 use galaxyui::{Element, SingletonEntity, ViewHandle};
+use pathfinder_geometry::vector::vec2f;
+use uuid::Uuid;
 
 use super::ExecutionProfileEditorView;
 use super::ExecutionProfileEditorViewAction;

@@ -1,4 +1,6 @@
-use galaxy_editor::{editor::NavigationKey, model::RichTextEditorModel, render::model::RenderState};
+use galaxy_editor::{
+    editor::NavigationKey, model::RichTextEditorModel, render::model::RenderState,
+};
 use galaxyui::{
     elements::{
         AnchorPair, Container, Flex, MouseStateHandle, OffsetPositioning, OffsetType,

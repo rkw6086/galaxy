@@ -16,9 +16,9 @@ pub use codebase_index::{CodebaseIndex, RetrievalID, SyncProgress};
 pub use merkle_tree::{ContentHash, NodeHash};
 
 use fragment_metadata::FragmentMetadata;
+use galaxy_graphql::queries::rerank_fragments::FragmentLocationInput;
 use string_offset::ByteOffset;
 use thiserror::Error;
-use galaxy_graphql::queries::rerank_fragments::FragmentLocationInput;
 
 #[derive(Error, Debug)]
 pub enum Error {

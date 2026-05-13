@@ -3,8 +3,8 @@ use std::borrow::Cow;
 pub mod root_view;
 
 extern crate galaxyui;
-use rust_embed::RustEmbed;
 use galaxyui::{platform, AssetProvider};
+use rust_embed::RustEmbed;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "examples/assets"]

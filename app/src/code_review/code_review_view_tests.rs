@@ -29,10 +29,6 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::NotebookKeybindings;
 use ai::agent::action::InsertReviewComment;
 use chrono::Local;
-use lsp::LspManagerModel;
-use repo_metadata::repositories::DetectedRepositories;
-use std::path::PathBuf;
-use std::sync::Arc;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::content::buffer::InitialBufferState;
@@ -41,6 +37,10 @@ use galaxy_editor::render::model::LineCount;
 use galaxyui::elements::{Empty, MouseStateHandle};
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, ViewHandle};
+use lsp::LspManagerModel;
+use repo_metadata::repositories::DetectedRepositories;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Default)]
 struct TestView;

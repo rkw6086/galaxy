@@ -3,15 +3,15 @@ use crate::search::mixer::{DataSourceRunError, SyncDataSource};
 use crate::search::result_renderer::ItemHighlightState;
 use crate::{appearance::Appearance, ui_components::icons::Icon};
 use enum_iterator::{all, Sequence};
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::{Action, AppContext, Element, Entity, ModelHandle};
 use lazy_static::lazy_static;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::any::Any;
 use std::{collections::HashSet, sync::Arc};
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::theme::Fill;
-use galaxyui::{Action, AppContext, Element, Entity, ModelHandle};
 
 use super::mixer::{AsyncDataSource, BoxFuture};
 use super::{item::SearchItem, mixer::DataSourceRunErrorWrapper};

@@ -12,6 +12,7 @@ pub use home_watcher::{HomeDirectoryWatcher, HomeDirectoryWatcherEvent};
 
 use anyhow::Result;
 use futures::channel::oneshot;
+use galaxyui::{Entity, ModelContext};
 use notify_debouncer_full::{
     new_debouncer_opt,
     notify::{
@@ -21,7 +22,6 @@ use notify_debouncer_full::{
     },
     DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer, NoCache,
 };
-use galaxyui::{Entity, ModelContext};
 
 #[derive(Debug)]
 enum BackgroundFileWatcherCommand {

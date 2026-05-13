@@ -1,12 +1,12 @@
-use itertools::Itertools;
 use galaxy_core::ui::theme::Fill;
+use itertools::Itertools;
 
-use pathfinder_geometry::vector::vec2f;
-use serde::Serialize;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use pathfinder_geometry::vector::vec2f;
+use serde::Serialize;
 
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,

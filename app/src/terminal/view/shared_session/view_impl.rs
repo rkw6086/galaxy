@@ -33,6 +33,8 @@ use crate::{
 };
 use crate::{send_telemetry_from_ctx, TelemetryEvent};
 use chrono::{DateTime, Local};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::r#async::Timer;
 use itertools::Itertools;
 use session_sharing_protocol::common::{
     ParticipantId, Role, RoleRequestId, RoleRequestResponse, SessionId, WindowSize,
@@ -40,10 +42,7 @@ use session_sharing_protocol::common::{
 use session_sharing_protocol::sharer::SessionSourceType;
 use session_sharing_protocol::sharer::{RoleUpdateReason, SessionEndedReason};
 use session_sharing_protocol::viewer::RoleUpdatedReason;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::r#async::Timer;
 
-use settings::Setting as _;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::clipboard::ClipboardContent;
@@ -53,6 +52,7 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::units::IntoLines;
 use galaxyui::{Element, SingletonEntity};
 use galaxyui::{ModelHandle, ViewContext};
+use settings::Setting as _;
 
 use crate::menu::Event as MenuEvent;
 

@@ -6,11 +6,11 @@ use crate::search::mixer::SearchMixer;
 use crate::server::ids::SyncId;
 use crate::util::bindings::CommandBinding;
 use crate::workspace::PaneViewLocator;
-use std::sync::Arc;
-use strum_macros::IntoStaticStr;
 use galaxy_util::path::LineAndColumnArg;
 use galaxyui::keymap::BindingId;
 use galaxyui::{EntityId, WindowId};
+use std::sync::Arc;
+use strum_macros::IntoStaticStr;
 
 pub type CommandPaletteMixer = SearchMixer<CommandPaletteItemAction>;
 

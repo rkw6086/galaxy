@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{
@@ -8,6 +7,7 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::Element;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;

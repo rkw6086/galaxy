@@ -24,8 +24,6 @@ use galaxyui::r#async::Timer;
 use crate::code_review::diff_state::GitDeltaPreference;
 use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
 use anyhow::anyhow;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use galaxy_core::{
     features::FeatureFlag,
     report_error, send_telemetry_from_ctx,
@@ -38,6 +36,8 @@ use galaxy_core::{
         theme::{color::internal_colors, Fill as ThemeFill},
     },
 };
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
 
 use galaxyui::{
     elements::{

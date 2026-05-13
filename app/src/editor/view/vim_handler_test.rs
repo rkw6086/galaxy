@@ -1,10 +1,10 @@
 use super::*;
 use crate::editor::EditorView;
+use galaxyui::platform::WindowStyle;
+use galaxyui::{App, ViewHandle};
 use itertools::Itertools;
 use std::collections::HashSet;
 use unindent::Unindent;
-use galaxyui::platform::WindowStyle;
-use galaxyui::{App, ViewHandle};
 
 /// Helper function for testing vim mode commands.
 /// This creates an editor with the given content and enters Vim Normal mode,

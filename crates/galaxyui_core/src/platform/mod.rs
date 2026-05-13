@@ -13,8 +13,8 @@ pub use file_picker::{
     FilePickerCallback, FilePickerConfiguration, FileType, SaveFilePickerCallback,
     SaveFilePickerConfiguration,
 };
-use serde::{Deserialize, Serialize};
 use galaxy_util::path::ShellFamily;
+use serde::{Deserialize, Serialize};
 
 use crate::fonts::SubpixelAlignment;
 use crate::keymap::Keystroke;

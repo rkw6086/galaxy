@@ -6,9 +6,9 @@
 
 use std::ops::Deref;
 
-use settings::PrivatePreferences;
 use galaxyui::SingletonEntity;
 use galaxyui_extras::user_preferences::UserPreferences;
+use settings::PrivatePreferences;
 
 /// An extension trait on [`galaxyui::AppContext`] for accessing private user
 /// preferences.

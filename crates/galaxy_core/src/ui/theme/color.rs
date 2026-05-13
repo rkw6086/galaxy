@@ -15,9 +15,9 @@ use crate::ui::color::{
     contrast::{pick_best_foreground_color, MinimumAllowedContrast},
     Opacity,
 };
+use galaxyui::color::ColorU;
 use getset::Getters;
 use serde::{Deserialize, Serialize};
-use galaxyui::color::ColorU;
 
 const BLOCK_SELECTION_OPACITY: Opacity = 10;
 

@@ -6,10 +6,10 @@ use anyhow::Result;
 use async_fs::{OpenOptions, create_dir_all};
 use bytes::Bytes;
 use futures::AsyncWriteExt;
-use reqwest::Url;
 use galaxyui_core::assets::asset_cache::{
     Asset, AssetCache, AssetSource, AssetState, AsyncAssetId, AsyncAssetType,
 };
+use reqwest::Url;
 
 /// Namespace marker for URL-based async asset sources without persistence.
 pub struct UrlAssetWithoutPersistence;

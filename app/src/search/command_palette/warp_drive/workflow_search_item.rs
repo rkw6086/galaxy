@@ -10,10 +10,10 @@ use crate::search::result_renderer::ItemHighlightState;
 use crate::search::workflows::fuzzy_match::FuzzyMatchWorkflowResult;
 use crate::ui_components::icons::Icon;
 use crate::workflows::CloudWorkflow;
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{Clipped, Container, Flex, Highlight, ParentElement, Shrinkable, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 /// Search item result for a cloud workflow.
 #[derive(Debug)]

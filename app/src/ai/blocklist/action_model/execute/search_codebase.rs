@@ -4,8 +4,8 @@ use std::{
 };
 
 use futures::{channel::oneshot, future::BoxFuture, FutureExt};
-use itertools::Itertools;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
 
 use crate::{
     ai::{

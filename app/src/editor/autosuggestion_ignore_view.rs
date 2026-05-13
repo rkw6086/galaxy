@@ -3,7 +3,6 @@
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, Hoverable, MouseStateHandle,
@@ -13,6 +12,7 @@ use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{Entity, TypedActionView, View};
 use galaxyui::{SingletonEntity, ViewContext};
+use pathfinder_geometry::vector::vec2f;
 
 use super::EditorElement;
 

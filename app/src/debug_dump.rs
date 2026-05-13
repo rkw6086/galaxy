@@ -61,8 +61,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
         use crate::settings::{
             init_private_user_preferences, PreferLowPowerGPU, PreferredGraphicsBackend,
         };
-        use settings::Setting as _;
         use galaxyui::rendering::GPUPowerPreference;
+        use settings::Setting as _;
 
         let user_preferences = init_private_user_preferences();
 

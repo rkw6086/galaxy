@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::{Container, Element};
 use galaxyui::keymap::Keystroke;
 use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity, View, ViewContext};
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
 
 use super::buffer_model::InputBufferModel;
 use super::message_bar::{

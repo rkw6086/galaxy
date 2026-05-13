@@ -42,8 +42,6 @@ use crate::{
     server::cloud_objects::listener::ObjectUpdateMessage,
 };
 use anyhow::{anyhow, bail};
-use regex::Regex;
-use std::path::PathBuf;
 use galaxy_graphql::workspace::AddonCreditsSettings as GqlAddonCreditsSettings;
 use galaxy_graphql::{
     billing::{
@@ -83,6 +81,8 @@ use galaxy_graphql::{
         WriteToPtyAutonomyValue as GqlWriteToPtyAutonomyValue,
     },
 };
+use regex::Regex;
+use std::path::PathBuf;
 
 pub const PLACEHOLDER_WORKSPACE_UID: &str = "NOT_A_REAL_WORKSPACE_UID";
 
@@ -1082,7 +1082,9 @@ impl TryFrom<galaxy_graphql::workflow::Workflow> for ServerWorkflow {
     }
 }
 
-impl TryFrom<galaxy_graphql::generic_string_object::GenericStringObject> for ServerEnvVarCollection {
+impl TryFrom<galaxy_graphql::generic_string_object::GenericStringObject>
+    for ServerEnvVarCollection
+{
     type Error = anyhow::Error;
 
     fn try_from(
@@ -1223,7 +1225,9 @@ impl TryFrom<galaxy_graphql::generic_string_object::GenericStringObject>
     }
 }
 
-impl TryFrom<galaxy_graphql::generic_string_object::GenericStringObject> for ServerCloudAgentConfig {
+impl TryFrom<galaxy_graphql::generic_string_object::GenericStringObject>
+    for ServerCloudAgentConfig
+{
     type Error = anyhow::Error;
 
     fn try_from(

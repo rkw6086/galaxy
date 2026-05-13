@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use strum::IntoEnumIterator;
-use strum_macros::{EnumIter, IntoStaticStr};
 use galaxy_core::{features::FeatureFlag, ui::appearance::Appearance};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
@@ -18,6 +16,8 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use strum::IntoEnumIterator;
+use strum_macros::{EnumIter, IntoStaticStr};
 
 use crate::{
     cloud_object::{model::persistence::CloudModel, Revision},

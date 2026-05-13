@@ -1,6 +1,6 @@
-use hex;
 use galaxy_core::command::ExitCode;
 use galaxyui::color::ColorU;
+use hex;
 
 use super::*;
 use crate::terminal::model::index::VisibleRow;

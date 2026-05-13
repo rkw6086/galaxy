@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::render::element::VerticalExpansionBehavior;
 use galaxyui::{
@@ -6,6 +5,7 @@ use galaxyui::{
     platform::WindowStyle,
     App, TypedActionView, ViewHandle, WindowId,
 };
+use std::sync::Arc;
 
 use crate::{
     cloud_object::model::persistence::CloudModel,

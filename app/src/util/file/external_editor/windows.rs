@@ -3,11 +3,11 @@
 
 use command::r#async::Command;
 use enum_iterator::{all, cardinality};
+use galaxy_util::path::LineAndColumnArg;
+use galaxyui::AppContext;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use galaxy_util::path::LineAndColumnArg;
-use galaxyui::AppContext;
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 use winreg::RegKey;
 use winreg::HKEY;

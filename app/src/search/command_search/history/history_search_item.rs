@@ -1,6 +1,4 @@
 use crate::ui_components::icons::Icon as UiIcon;
-use ordered_float::OrderedFloat;
-use std::sync::Arc;
 use galaxy_core::ui::builder;
 use galaxyui::{
     elements::{
@@ -11,6 +9,8 @@ use galaxyui::{
     ui_components::components::{Coords, UiComponent, UiComponentStyles},
     AppContext, Element, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
+use std::sync::Arc;
 
 use crate::search::item::SearchItem;
 use crate::search::{

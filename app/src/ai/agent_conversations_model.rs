@@ -23,12 +23,6 @@ use crate::workspaces::user_profiles::UserProfiles;
 use chrono::{DateTime, Utc};
 use clap::ValueEnum;
 use futures::stream::AbortHandle;
-use instant::Instant;
-use itertools::Itertools;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use session_sharing_protocol::common::SessionId;
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
 use galaxy_cli::agent::Harness;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
@@ -41,6 +35,12 @@ use galaxyui::{
     duration_with_jitter, AppContext, Entity, EntityId, ModelContext, RequestState,
     SingletonEntity, WindowId,
 };
+use instant::Instant;
+use itertools::Itertools;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use session_sharing_protocol::common::SessionId;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 const SESSION_EXPIRATION_TIME: chrono::Duration = chrono::Duration::weeks(1);
 const POLLING_INTERVAL: Duration = Duration::from_secs(30);

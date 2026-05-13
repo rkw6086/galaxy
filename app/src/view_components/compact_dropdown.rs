@@ -5,7 +5,6 @@ use crate::{
     themes::theme::Fill,
     ui_components::icons::Icon,
 };
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::{
     elements::{
         Border, ChildAnchor, ConstrainedBox, CornerRadius, CrossAxisAlignment, Flex,
@@ -20,6 +19,7 @@ use galaxyui::{
     Action, AppContext, BlurContext, Element, Entity, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 #[cfg(test)]
 #[path = "compact_dropdown_tests.rs"]
@@ -129,8 +129,9 @@ impl<A: Action + Clone> CompactDropdown<A> {
                 let icon_color = fields
                     .override_icon_color()
                     .unwrap_or_else(|| appearance.theme().active_ui_text_color());
-                button_label
-                    .add_child(self.render_sized_icon(appearance, icon.to_galaxyui_icon(icon_color)));
+                button_label.add_child(
+                    self.render_sized_icon(appearance, icon.to_galaxyui_icon(icon_color)),
+                );
             }
         }
 

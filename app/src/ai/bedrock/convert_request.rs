@@ -1,7 +1,9 @@
 #![allow(dead_code, unused_imports, unused_variables, deprecated)]
 use warp_multi_agent_api as api;
 
-use super::convert::{ConversationMessage, ContentPart, MessageContent, MessageRole, ToolDefinition};
+use super::convert::{
+    ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
+};
 
 /// Extract new input messages from the current request and convert them directly
 /// to ConversationMessage format for the Bedrock message history.
@@ -36,9 +38,7 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                             });
                         }
                     }
-                    Some(api::request::input::user_inputs::user_input::Input::UserQuery(
-                        query,
-                    )) => {
+                    Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) => {
                         if !query.query.is_empty() {
                             user_queries.push(ConversationMessage {
                                 role: MessageRole::User,
@@ -59,9 +59,15 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                     let parts: Vec<ContentPart> = tool_results
                         .into_iter()
                         .map(|tr| match tr.content {
-                            MessageContent::ToolResult { tool_use_id, content, is_error } => {
-                                ContentPart::ToolResult { tool_use_id, content, is_error }
-                            }
+                            MessageContent::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => ContentPart::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            },
                             _ => unreachable!(),
                         })
                         .collect();
@@ -111,10 +117,7 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
         api::request::input::Type::CreateNewProject(project) => {
             results.push(ConversationMessage {
                 role: MessageRole::User,
-                content: MessageContent::Text(format!(
-                    "Create a new project: {}",
-                    project.query,
-                )),
+                content: MessageContent::Text(format!("Create a new project: {}", project.query,)),
             });
         }
         api::request::input::Type::CloneRepository(repo) => {
@@ -150,11 +153,17 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
     for msg in &results {
         let desc = match &msg.content {
             MessageContent::Text(t) => format!("Text({}chars)", t.len()),
-            MessageContent::ToolResult { tool_use_id, .. } => format!("ToolResult({})", tool_use_id),
+            MessageContent::ToolResult { tool_use_id, .. } => {
+                format!("ToolResult({})", tool_use_id)
+            }
             MessageContent::MultiPart(parts) => format!("MultiPart({} parts)", parts.len()),
             _ => "Other".to_string(),
         };
-        log::info!("[bedrock] New input message: role={:?}, content={}", msg.role, desc);
+        log::info!(
+            "[bedrock] New input message: role={:?}, content={}",
+            msg.role,
+            desc
+        );
     }
 
     results
@@ -247,9 +256,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                             });
                         }
                     }
-                    Some(api::request::input::user_inputs::user_input::Input::UserQuery(
-                        query,
-                    )) => {
+                    Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) => {
                         if !query.query.is_empty() {
                             results.push(api::Message {
                                 id: uuid::Uuid::new_v4().to_string(),
@@ -280,12 +287,10 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     timestamp: None,
                     server_message_data: String::new(),
                     citations: vec![],
-                    message: Some(api::message::Message::UserQuery(
-                        api::message::UserQuery {
-                            query: query.query.clone(),
-                            ..Default::default()
-                        },
-                    )),
+                    message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+                        query: query.query.clone(),
+                        ..Default::default()
+                    })),
                 });
             }
         }
@@ -303,13 +308,11 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                         api::message::ToolCallResult {
                             tool_call_id: result.tool_call_id.clone(),
                             context: None,
-                            result: Some(
-                                api::message::tool_call_result::Result::Server(
-                                    api::message::tool_call_result::ServerResult {
-                                        serialized_result: content,
-                                    },
-                                ),
-                            ),
+                            result: Some(api::message::tool_call_result::Result::Server(
+                                api::message::tool_call_result::ServerResult {
+                                    serialized_result: content,
+                                },
+                            )),
                         },
                     )),
                 });
@@ -336,14 +339,18 @@ pub fn extract_messages_from_request(request: &api::Request) -> Vec<Conversation
                 task.messages.len()
             );
             for msg in &task.messages {
-                let msg_type = msg.message.as_ref().map(|m| match m {
-                    api::message::Message::UserQuery(_) => "UserQuery",
-                    api::message::Message::AgentOutput(_) => "AgentOutput",
-                    api::message::Message::ToolCall(_) => "ToolCall",
-                    api::message::Message::ToolCallResult(_) => "ToolCallResult",
-                    api::message::Message::AgentReasoning(_) => "AgentReasoning",
-                    _ => "Other",
-                }).unwrap_or("None");
+                let msg_type = msg
+                    .message
+                    .as_ref()
+                    .map(|m| match m {
+                        api::message::Message::UserQuery(_) => "UserQuery",
+                        api::message::Message::AgentOutput(_) => "AgentOutput",
+                        api::message::Message::ToolCall(_) => "ToolCall",
+                        api::message::Message::ToolCallResult(_) => "ToolCallResult",
+                        api::message::Message::AgentReasoning(_) => "AgentReasoning",
+                        _ => "Other",
+                    })
+                    .unwrap_or("None");
                 log::info!(
                     "[bedrock-debug] extract_messages:   msg id='{}' type={}",
                     msg.id,
@@ -577,16 +584,29 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
                 }
                 existing => {
                     // Convert existing single content + synthetic results into MultiPart.
-                    let existing_part = match std::mem::replace(existing, MessageContent::Text(String::new())) {
-                        MessageContent::Text(t) => ContentPart::Text(t),
-                        MessageContent::ToolResult { tool_use_id, content, is_error } => {
-                            ContentPart::ToolResult { tool_use_id, content, is_error }
-                        }
-                        MessageContent::ToolUse { tool_use_id, name, input } => {
-                            ContentPart::ToolUse { tool_use_id, name, input }
-                        }
-                        MessageContent::MultiPart(_) => unreachable!(),
-                    };
+                    let existing_part =
+                        match std::mem::replace(existing, MessageContent::Text(String::new())) {
+                            MessageContent::Text(t) => ContentPart::Text(t),
+                            MessageContent::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => ContentPart::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            },
+                            MessageContent::ToolUse {
+                                tool_use_id,
+                                name,
+                                input,
+                            } => ContentPart::ToolUse {
+                                tool_use_id,
+                                name,
+                                input,
+                            },
+                            MessageContent::MultiPart(_) => unreachable!(),
+                        };
                     let mut parts = vec![existing_part];
                     parts.extend(synthetic_results);
                     *existing = MessageContent::MultiPart(parts);
@@ -596,9 +616,15 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
             // No user message follows — insert a new one.
             let content = if synthetic_results.len() == 1 {
                 match synthetic_results.into_iter().next().unwrap() {
-                    ContentPart::ToolResult { tool_use_id, content, is_error } => {
-                        MessageContent::ToolResult { tool_use_id, content, is_error }
-                    }
+                    ContentPart::ToolResult {
+                        tool_use_id,
+                        content,
+                        is_error,
+                    } => MessageContent::ToolResult {
+                        tool_use_id,
+                        content,
+                        is_error,
+                    },
                     _ => unreachable!(),
                 }
             } else {
@@ -631,15 +657,22 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
                     .into_iter()
                     .map(|id| ContentPart::ToolResult {
                         tool_use_id: id,
-                        content: "Tool call result unavailable (conversation was interrupted).".to_string(),
+                        content: "Tool call result unavailable (conversation was interrupted)."
+                            .to_string(),
                         is_error: false,
                     })
                     .collect();
                 let content = if parts.len() == 1 {
                     match parts.into_iter().next().unwrap() {
-                        ContentPart::ToolResult { tool_use_id, content, is_error } => {
-                            MessageContent::ToolResult { tool_use_id, content, is_error }
-                        }
+                        ContentPart::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        } => MessageContent::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        },
                         _ => unreachable!(),
                     }
                 } else {
@@ -746,18 +779,25 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
 
     prompt.push_str("## Tools\nYou have access to the following tools. Use them proactively to explore codebases and complete tasks:\n");
     prompt.push_str("- `run_shell_command`: Execute shell commands. Use absolute paths based on the working directory.\n");
-    prompt.push_str("- `read_files`: Read file contents. Pass all files you need in a single call.\n");
+    prompt.push_str(
+        "- `read_files`: Read file contents. Pass all files you need in a single call.\n",
+    );
     prompt.push_str("- `apply_file_diffs`: Apply search/replace edits to files.\n");
     prompt.push_str("- `grep`: Search for patterns in files. Pass all patterns in one call.\n");
-    prompt.push_str("- `file_glob`: Find files matching glob patterns. Pass all patterns in one call.\n");
+    prompt.push_str(
+        "- `file_glob`: Find files matching glob patterns. Pass all patterns in one call.\n",
+    );
     prompt.push_str("- `get_tool_documentation`: Get detailed documentation for any tool or system capabilities.\n");
     prompt.push_str("- `suggest_next_prompt`: After completing a task, suggest a follow-up action the user might want.\n\n");
 
     prompt.push_str("## Guidelines\n");
-    prompt.push_str("- ALWAYS use tools to explore the codebase before answering questions about code.\n");
+    prompt.push_str(
+        "- ALWAYS use tools to explore the codebase before answering questions about code.\n",
+    );
     prompt.push_str("- Use absolute paths based on the working directory shown above.\n");
     prompt.push_str("- When asked about a project, start by listing files with `file_glob` or `run_shell_command`.\n");
-    prompt.push_str("- Read relevant files before making claims about code structure or behavior.\n");
+    prompt
+        .push_str("- Read relevant files before making claims about code structure or behavior.\n");
     prompt.push_str("- Be concise and direct in responses.\n");
     prompt.push_str("- IMPORTANT: After EVERY response, you MUST call `suggest_next_prompt` to suggest a relevant follow-up action or question the user might want to take next.\n");
 
@@ -984,9 +1024,9 @@ fn extract_tool_call_info(tool_call: &api::message::ToolCall) -> (String, serde_
             ),
             api::message::tool_call::Tool::SuggestPrompt(sp) => {
                 let (prompt, label) = match &sp.display_mode {
-                    Some(api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(chip)) => {
-                        (chip.prompt.clone(), chip.label.clone())
-                    }
+                    Some(api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(
+                        chip,
+                    )) => (chip.prompt.clone(), chip.label.clone()),
                     _ => (String::new(), String::new()),
                 };
                 (
@@ -1129,10 +1169,7 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
                         if finished.output.is_empty() {
                             format!("Exit code: {}\n(no output)", finished.exit_code)
                         } else {
-                            format!(
-                                "Exit code: {}\n{}",
-                                finished.exit_code, finished.output
-                            )
+                            format!("Exit code: {}\n{}", finished.exit_code, finished.output)
                         }
                     }
                     Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(

@@ -16,13 +16,13 @@ use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
-use instant::Instant;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::Empty;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, AppContext, Element, Entity, TypedActionView, View, WindowId};
+use instant::Instant;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 fn make_test_environment(
     name: &str,

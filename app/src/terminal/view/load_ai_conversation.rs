@@ -1,9 +1,9 @@
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{EntityId, ViewContext};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 use vec1::Vec1;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{EntityId, ViewContext};
 
 use super::blocklist_filter::exchanges_for_blocklist;
 use crate::ai::blocklist::agent_view::{
@@ -63,9 +63,9 @@ use crate::{
     },
 };
 use galaxy_core::channel::ChannelState;
-use warp_multi_agent_api as api;
 use galaxyui::units::IntoPixels;
 use galaxyui::{ModelHandle, SingletonEntity};
+use warp_multi_agent_api as api;
 
 /// Describes restore-context setup state for directory reconciliation and hinting.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -5,11 +5,11 @@ use crate::search::ai_context_menu::styles;
 use crate::search::item::SearchItem;
 use crate::search::result_renderer::ItemHighlightState;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, Icon, ParentElement, Text,
 };
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 #[derive(Debug, Clone)]
 pub struct DiffSetSearchItem {

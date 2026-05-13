@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 use anyhow::{anyhow, bail};
+use galaxy_core::channel::ChannelState;
+use galaxyui::ModelSpawner;
+use galaxyui_extras::secure_storage::AppContextExt as _;
 use oauth2::{RefreshToken, TokenResponse as _};
 use rmcp::transport::{
     auth::{
@@ -13,9 +16,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
-use galaxy_core::channel::ChannelState;
-use galaxyui::ModelSpawner;
-use galaxyui_extras::secure_storage::AppContextExt as _;
 
 use super::{MCPServerState, TemplatableMCPServerManager};
 use {crate::ai::mcp::FileBasedMCPManager, galaxyui::SingletonEntity};

@@ -1,7 +1,7 @@
 use ai::diff_validation::DiffDelta;
 use futures::{future::BoxFuture, FutureExt};
-use std::collections::HashMap;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use std::collections::HashMap;
 
 use crate::ai::{
     agent::{

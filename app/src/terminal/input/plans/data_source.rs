@@ -1,9 +1,9 @@
 //! Data source for the inline plan menu.
 
 use fuzzy_match::match_indices_case_insensitive;
+use galaxyui::{AppContext, Entity, SingletonEntity};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
-use galaxyui::{AppContext, Entity, SingletonEntity};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::document::ai_document_model::AIDocumentModel;

@@ -5,6 +5,8 @@ use crate::auth::AuthStateProvider;
 use crate::settings::{AISettings, FocusedTerminalInfo};
 use crate::warp_managed_paths_watcher::{warp_data_dir, WarpManagedPathsWatcher};
 use crate::workspaces::user_workspaces::UserWorkspaces;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{App, Entity, ModelHandle, SingletonEntity as _};
 use repo_metadata::{
     repositories::DetectedRepositories, watcher::DirectoryWatcher, RepoMetadataModel,
 };
@@ -12,8 +14,6 @@ use settings::Setting as _;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use uuid::Uuid;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{App, Entity, ModelHandle, SingletonEntity as _};
 use watcher::HomeDirectoryWatcher;
 
 // Helper to initialize dependencies and return FileBasedMCPManager handle

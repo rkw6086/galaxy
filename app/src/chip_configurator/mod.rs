@@ -10,8 +10,6 @@ pub(crate) use modal_shell::{
     ChipEditorMouseHandles, ChipEditorSectionsConfig,
 };
 
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Border, ConstrainedBox, Container, CrossAxisAlignment, Dash, DispatchEventResult, Draggable,
@@ -22,6 +20,8 @@ use galaxyui::fonts::Properties;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{Action, View, ViewContext};
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;
 use crate::appearance::Appearance;

@@ -135,10 +135,10 @@ use crate::workspace::view::openwarp_launch_modal::{
 use crate::workspace::{ForkFromExchange, ForkedConversationDestination};
 use crate::BlocklistAIHistoryModel;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+use galaxyui::notification::NotificationSendError;
 #[cfg(all(target_os = "macos", feature = "crash_reporting"))]
 use sentry::protocol::{Attachment, AttachmentType};
 use serde_json;
-use galaxyui::notification::NotificationSendError;
 
 use super::hoa_onboarding::{
     mark_hoa_onboarding_completed, HoaOnboardingFlow, HoaOnboardingFlowEvent, HoaOnboardingStep,
@@ -375,6 +375,12 @@ use crate::{
 use crate::{send_telemetry_from_ctx, GlobalResourceHandles};
 
 use futures::Future;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_util::path::{user_friendly_path, LineAndColumnArg};
+use galaxyui::fonts::Weight;
+use galaxyui::modals::{AlertDialogWithCallbacks, AppModalCallback};
+use galaxyui::windowing::{StateEvent, WindowManager};
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use pathfinder_geometry::rect::RectF;
@@ -386,12 +392,6 @@ use std::convert::TryFrom;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::time::{SystemTime, UNIX_EPOCH};
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_util::path::{user_friendly_path, LineAndColumnArg};
-use galaxyui::fonts::Weight;
-use galaxyui::modals::{AlertDialogWithCallbacks, AppModalCallback};
-use galaxyui::windowing::{StateEvent, WindowManager};
 
 use galaxy_core::user_preferences::GetUserPreferences as _;
 use galaxyui::clipboard::ClipboardContent;
@@ -468,19 +468,6 @@ use crate::TelemetryEvent;
 use autoupdate::AutoupdateStage;
 #[cfg(target_os = "macos")]
 use command::blocking::Command;
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-#[cfg(target_os = "macos")]
-use std::env;
-use std::fmt::Write;
-#[cfg(all(target_os = "macos", feature = "crash_reporting"))]
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
-#[cfg(target_os = "macos")]
-use std::process;
-use std::sync::{mpsc, Mutex};
-use std::{cmp::Ordering, sync::Arc};
 use galaxy_core::ui::theme::{color::internal_colors, phenomenon::PhenomenonStyle, Fill};
 use galaxy_core::ui::{color::coloru_with_opacity, Icon};
 use galaxy_editor::editor::NavigationKey;
@@ -510,6 +497,19 @@ use galaxyui::{
     EntityId, FocusContext, ModelHandle, SingletonEntity, UpdateModel, ViewAsRef, WeakViewHandle,
     WindowId,
 };
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+#[cfg(target_os = "macos")]
+use std::env;
+use std::fmt::Write;
+#[cfg(all(target_os = "macos", feature = "crash_reporting"))]
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::process;
+use std::sync::{mpsc, Mutex};
+use std::{cmp::Ordering, sync::Arc};
 
 use crate::terminal::view::LeftPanelTargetView;
 
@@ -18393,11 +18393,14 @@ impl Workspace {
         let text_color = theme.main_text_color(Fill::Solid(bg_color)).into_solid();
 
         // Left side: alert icon + bold heading + regular description, all inline.
-        let icon =
-            ConstrainedBox::new(Icon::AlertCircle.to_galaxyui_icon(text_color.into()).finish())
-                .with_width(16.)
-                .with_height(16.)
-                .finish();
+        let icon = ConstrainedBox::new(
+            Icon::AlertCircle
+                .to_galaxyui_icon(text_color.into())
+                .finish(),
+        )
+        .with_width(16.)
+        .with_height(16.)
+        .finish();
 
         let ui_font_family = appearance.ui_font_family();
         const BANNER_FONT_SIZE: f32 = 12.;
@@ -19269,8 +19272,6 @@ impl Workspace {
                 .set
                 .insert(flags::SHARED_BLOCK_TITLE_GENERATION_FLAG);
         }
-
-
 
         if *ai_settings
             .should_render_use_agent_footer_for_user_commands

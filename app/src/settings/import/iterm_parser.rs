@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use bitflags::bitflags;
-use itertools::Itertools;
-use palette::Srgba;
-use pathfinder_color::ColorU;
-use plist::{Dictionary, Value};
 use galaxy_core::ui::theme::{AnsiColors, TerminalColors, WarpTheme};
 use galaxyui::{
     fonts::FontInfo, keymap::Keystroke, platform::mac::utils::unicode_char_to_key, DisplayIdx,
 };
+use itertools::Itertools;
+use palette::Srgba;
+use pathfinder_color::ColorU;
+use plist::{Dictionary, Value};
 
 use crate::{
     root_view::QuakeModePinPosition,

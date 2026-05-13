@@ -1,12 +1,12 @@
 use anyhow::Context;
 use async_channel::Sender;
 use futures_util::stream::AbortHandle;
+use galaxy_core::context_flag::ContextFlag;
 use lazy_static::lazy_static;
 use regex::Regex;
 use settings::Setting as _;
 use std::{sync::Arc, time::Duration};
 use url::Url;
-use galaxy_core::context_flag::ContextFlag;
 
 #[cfg(target_family = "wasm")]
 use crate::uri::web_intent_parser::open_url_on_desktop;

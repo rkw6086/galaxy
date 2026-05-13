@@ -23,8 +23,8 @@ use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::SessionId;
 use chrono::{DateTime, Local};
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::{AppContext, Entity, EntityId, ModelHandle, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 #[derive(Clone, Debug)]
 pub enum AcceptHistoryItem {

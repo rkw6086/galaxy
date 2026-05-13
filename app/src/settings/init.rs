@@ -1,7 +1,7 @@
-use settings::{Setting as _, SettingsManager};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{rendering::GPUPowerPreference, AppContext, SingletonEntity};
 use galaxyui_extras::user_preferences;
+use settings::{Setting as _, SettingsManager};
 
 use crate::{
     ai::cloud_agent_settings::CloudAgentSettings,

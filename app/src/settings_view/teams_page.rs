@@ -51,6 +51,8 @@ use crate::{
 
 use core::default::Default;
 use email_address::EmailAddress;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::FocusContext;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
@@ -59,8 +61,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::{cmp::Ordering, collections::HashSet};
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::FocusContext;
 
 use galaxyui::{
     clipboard::ClipboardContent,

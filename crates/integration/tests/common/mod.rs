@@ -1,7 +1,7 @@
 use command::blocking::Command;
+use galaxyui::integration::RERUN_EXIT_CODE;
 use std::env;
 use std::process::Stdio;
-use galaxyui::integration::RERUN_EXIT_CODE;
 
 const MAX_TEST_RUNS: usize = 10;
 

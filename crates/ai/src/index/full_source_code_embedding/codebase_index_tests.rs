@@ -17,13 +17,13 @@ use crate::index::full_source_code_embedding::{
 };
 use crate::index::locations::{CodeContextLocation, FileFragmentLocation};
 use futures::executor::block_on;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::{App, SingletonEntity};
 use repo_metadata::DirectoryWatcher;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
-use galaxy_util::standardized_path::StandardizedPath;
-use galaxyui::{App, SingletonEntity};
 
 use super::{
     CodebaseIndex, CodebaseIndexTimeStampMetadata, TreeSourceSyncState,

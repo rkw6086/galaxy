@@ -6,10 +6,10 @@ use std::future::Future;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use itertools::Itertools as _;
-use persistence::model::AgentConversationRecord;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity};
+use itertools::Itertools as _;
+use persistence::model::AgentConversationRecord;
 
 use crate::ai::agent::api::convert_conversation::{
     convert_conversation_data_to_ai_conversation, RestorationMode,

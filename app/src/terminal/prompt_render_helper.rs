@@ -10,8 +10,6 @@ use crate::themes::theme::PromptColors;
 use crate::{appearance::Appearance, terminal::model::blockgrid::BlockGrid};
 use settings::Setting as _;
 
-use std::fmt;
-use std::num::NonZeroUsize;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxyui::elements::{DispatchEventResult, SelectionHandle};
 use galaxyui::ModelAsRef;
@@ -21,6 +19,8 @@ use galaxyui::{
     presenter::ChildView,
     AppContext, EntityId, ModelHandle, SingletonEntity, ViewHandle,
 };
+use std::fmt;
+use std::num::NonZeroUsize;
 
 use super::input::InputRenderStateModel;
 use super::model::block::Block;

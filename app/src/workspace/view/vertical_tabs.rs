@@ -51,11 +51,6 @@ use crate::workspace::{
 };
 use languages::language_by_filename;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use settings::Setting as _;
-use std::path::{Path, PathBuf};
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::telemetry::TelemetryEvent as _;
 use galaxy_core::ui::color::blend::Blend;
@@ -80,6 +75,11 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use settings::Setting as _;
+use std::path::{Path, PathBuf};
 
 const PANEL_WIDTH: f32 = 248.;
 const MIN_PANEL_WIDTH: f32 = 200.;

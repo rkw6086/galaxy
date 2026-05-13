@@ -1,9 +1,9 @@
 use crate::server::ids::ServerId;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 use serde::Serialize;
 use serde_json::{json, Value};
 use strum_macros::{EnumDiscriminants, EnumIter};
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 
 /// The entry point through which Cloud Mode was entered.
 #[derive(Clone, Copy, Debug, Serialize)]

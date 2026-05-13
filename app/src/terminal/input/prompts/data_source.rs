@@ -1,10 +1,10 @@
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::icons::Icon;
 use galaxyui::elements::{ConstrainedBox, Container, Highlight, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, Entity, ModelContext, ModelHandle, SingletonEntity as _};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::cloud_object::model::persistence::CloudModel;

@@ -40,7 +40,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2000);
 const MAX_WAIT: Duration = Duration::from_secs(300);
 
 pub fn schedule(ctx: &mut galaxyui::ViewContext<Workspace>) {
-    log::info!("[smoke-test] Bedrock smoke test scheduled — starting in {:?}", INITIAL_DELAY);
+    log::info!(
+        "[smoke-test] Bedrock smoke test scheduled — starting in {:?}",
+        INITIAL_DELAY
+    );
 
     ctx.spawn(
         async move { Timer::after(INITIAL_DELAY).await },
@@ -296,20 +299,35 @@ fn get_finished_text(
         if all_text.is_empty() {
             log::warn!("[smoke-test] Conversation finished but no text output found");
             log::warn!("[smoke-test] Conversation status: {:?}", conv.status());
-            log::warn!("[smoke-test] Number of exchanges: {}", conv.exchanges_reversed().count());
+            log::warn!(
+                "[smoke-test] Number of exchanges: {}",
+                conv.exchanges_reversed().count()
+            );
             for (i, exchange) in conv.exchanges_reversed().enumerate() {
                 match &exchange.output_status {
                     AIAgentOutputStatus::Finished {
                         finished_output: FinishedAIAgentOutput::Success { output },
                     } => {
                         let o = output.get();
-                        log::warn!("[smoke-test] Exchange {}: Finished/Success, messages={}", i, o.messages.len());
+                        log::warn!(
+                            "[smoke-test] Exchange {}: Finished/Success, messages={}",
+                            i,
+                            o.messages.len()
+                        );
                         for (j, msg) in o.messages.iter().enumerate() {
-                            log::warn!("[smoke-test]   msg[{}]: type={:?}", j, std::mem::discriminant(&msg.message));
+                            log::warn!(
+                                "[smoke-test]   msg[{}]: type={:?}",
+                                j,
+                                std::mem::discriminant(&msg.message)
+                            );
                         }
                     }
                     other => {
-                        log::warn!("[smoke-test] Exchange {}: {:?}", i, std::mem::discriminant(other));
+                        log::warn!(
+                            "[smoke-test] Exchange {}: {:?}",
+                            i,
+                            std::mem::discriminant(other)
+                        );
                     }
                 }
             }

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
-use similar::DiffableStr;
 use galaxyui::elements::{MouseStateHandle, PartialClickableElement, SecretRange};
 use galaxyui::platform::Cursor;
+use itertools::Itertools;
+use similar::DiffableStr;
 
 use crate::ai::agent::{AIAgentOutput, AIAgentTextSection, AgentOutputText};
 use crate::terminal::model::secrets::{SecretLevel, REGEX_LEVEL_METADATA, SECRETS_REGEX};

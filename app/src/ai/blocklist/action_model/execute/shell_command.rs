@@ -7,13 +7,13 @@ use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::{select, FutureExt};
 use futures_lite::pin;
-use itertools::Itertools;
-use parking_lot::FairMutex;
 use galaxy_core::command::ExitCode;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_util::path::ShellFamily;
 use galaxyui::r#async::{Spawnable, Timer};
 use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
+use parking_lot::FairMutex;
 
 use crate::ai::agent::{
     AIAgentActionId, AIAgentActionType, AIAgentPtyWriteMode, ReadShellCommandOutputResult,

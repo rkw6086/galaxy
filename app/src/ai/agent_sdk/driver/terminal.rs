@@ -10,8 +10,6 @@ use std::{
 };
 
 use futures::channel::oneshot;
-use session_sharing_protocol::common::{Role, SessionId};
-use session_sharing_protocol::sharer::SessionSourceType;
 use galaxy_cli::share::{ShareAccessLevel, ShareRequest, ShareSubject};
 use galaxy_completer::completer::CommandOutput;
 use galaxy_core::command::ExitCode;
@@ -21,6 +19,8 @@ use galaxyui::{
     r#async::FutureExt, AppContext, Entity, ModelContext, ModelHandle, SingletonEntity as _,
     ViewHandle,
 };
+use session_sharing_protocol::common::{Role, SessionId};
+use session_sharing_protocol::sharer::SessionSourceType;
 
 use crate::terminal::model::session::ExecuteCommandOptions;
 
@@ -197,8 +197,8 @@ impl TerminalDriver {
         // Create a oneshot channel for session sharing when sharing is expected.
         // When sharing is disabled (or running against ngrok), leave both halves
         // as None so that `wait_for_session_shared` returns immediately.
-        let sharing_expected =
-            should_share && !galaxy_core::channel::ChannelState::server_root_url().contains("ngrok");
+        let sharing_expected = should_share
+            && !galaxy_core::channel::ChannelState::server_root_url().contains("ngrok");
         let (mut session_share_tx, session_share_rx) = if sharing_expected {
             if !FeatureFlag::CreatingSharedSessions.is_enabled() {
                 // Session sharing was requested but the feature is not enabled for this

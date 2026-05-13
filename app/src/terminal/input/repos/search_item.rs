@@ -3,13 +3,13 @@
 use std::path::{Path, PathBuf};
 
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{ConstrainedBox, Container, Highlight, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::search::result_renderer::ItemHighlightState;

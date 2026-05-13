@@ -3,6 +3,7 @@
 use command::{blocking, r#async::Command};
 use futures::{StreamExt, TryStreamExt as _};
 use futures_lite::future;
+use galaxy_core::safe_error;
 use instant::Instant;
 use std::{
     env,
@@ -13,14 +14,13 @@ use std::{
     str,
     time::Duration,
 };
-use galaxy_core::safe_error;
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 use channel_versions::VersionInfo;
-use nix::unistd::{fchown, getgid};
-use nix::{errno::Errno, unistd::getuid};
 use galaxy_core::macos::get_bundle_path;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
+use nix::unistd::{fchown, getgid};
+use nix::{errno::Errno, unistd::getuid};
 
 use crate::{
     appearance::AppearanceManager,

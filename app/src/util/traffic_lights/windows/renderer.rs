@@ -4,8 +4,6 @@ use crate::util::traffic_lights::windows::RendererState;
 use crate::util::traffic_lights::windows_only::WINDOWS_BRIGHT_RED;
 use crate::util::traffic_lights::{TrafficLightData, TrafficLightMouseStates};
 use crate::workspace::TOTAL_TAB_BAR_HEIGHT;
-use pathfinder_color::ColorU;
-use std::sync::Arc;
 use galaxy_core::ui::theme::{Fill, WarpTheme};
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
@@ -14,6 +12,8 @@ use galaxyui::elements::{
 use galaxyui::fonts::FamilyId;
 use galaxyui::platform::FullscreenState;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use pathfinder_color::ColorU;
+use std::sync::Arc;
 
 /// Possible window traffic light icons.
 #[derive(Copy, Clone)]

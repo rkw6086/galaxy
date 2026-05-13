@@ -1,8 +1,8 @@
 use crate::terminal::model::ansi::color_index;
 use crate::themes::theme::{AnsiColors, WarpTheme};
+use galaxyui::color::ColorU;
 use std::fmt;
 use std::ops::{Index, IndexMut};
-use galaxyui::color::ColorU;
 
 pub const COUNT: usize = 269;
 

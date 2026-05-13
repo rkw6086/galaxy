@@ -1,6 +1,5 @@
 use std::iter;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -11,9 +10,10 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxyui::elements::FormattedTextElement;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::blocklist::code_block::{
     render_code_block_plain, CodeBlockOptions, CodeSnippetButtonHandles,

@@ -1,4 +1,3 @@
-use pathfinder_geometry::{rect::RectF, vector::Vector2F};
 use galaxyui::{
     elements::{
         AcceptedByDropTarget, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
@@ -16,6 +15,7 @@ use galaxyui::{
     },
     AppContext, Element, SingletonEntity, ViewHandle,
 };
+use pathfinder_geometry::{rect::RectF, vector::Vector2F};
 
 use crate::{
     cloud_object::{

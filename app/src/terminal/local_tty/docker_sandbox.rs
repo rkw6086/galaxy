@@ -12,10 +12,10 @@
 
 use futures::future::BoxFuture;
 use futures::FutureExt as _;
+use galaxyui::{AppContext, SingletonEntity as _};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use galaxyui::{AppContext, SingletonEntity as _};
 
 use super::shell::DirectShellStarter;
 use crate::{

@@ -25,11 +25,11 @@ use crate::{
 };
 #[cfg(not(target_family = "wasm"))]
 use diesel::{QueryDsl, RunQueryDsl, SqliteConnection};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::Icon;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::Icon;
 
 pub mod manager;
 pub mod templatable_manager;
@@ -158,8 +158,8 @@ mod tests {
 }
 
 pub mod gallery;
-pub use gallery::MCPGalleryManager;
 use galaxyui::{AppContext, SingletonEntity as _};
+pub use gallery::MCPGalleryManager;
 pub mod templatable;
 pub use templatable::JsonTemplate;
 pub use templatable::{TemplatableMCPServer, TemplateVariable};

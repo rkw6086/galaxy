@@ -12,9 +12,9 @@ use crate::search::data_source::{DataSourceSearchError, Query, QueryResult};
 use crate::search::mixer::DataSourceRunErrorWrapper;
 use crate::search::SyncDataSource;
 use crate::workspace::Workspace;
+use galaxyui::{AppContext, Entity};
 use itertools::Itertools;
 use std::collections::HashMap;
-use galaxyui::{AppContext, Entity};
 
 /// Sections for grouping conversations in the command palette.
 #[derive(Debug, PartialEq, Eq, Hash)]

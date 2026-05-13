@@ -2,14 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use typed_path::TypedPathBuf;
-#[cfg(windows)]
-use typed_path::{UnixComponent, WindowsComponent, WindowsPrefix};
 use galaxy_completer::completer::PathCompletionContext;
 use galaxy_completer::completer::{CompletionContext, EngineDirEntry};
 use galaxy_completer::signatures::CommandRegistry;
 use galaxyui::App;
+use itertools::Itertools;
+use typed_path::TypedPathBuf;
+#[cfg(windows)]
+use typed_path::{UnixComponent, WindowsComponent, WindowsPrefix};
 
 use crate::completer::SessionContext;
 use crate::terminal::model::session::Session;

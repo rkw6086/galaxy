@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use galaxy_core::context_flag::ContextFlag;
 use galaxyui::{
     elements::{Clipped, Container, Flex, MouseStateHandle, ParentElement},
@@ -6,6 +5,7 @@ use galaxyui::{
     ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, SingletonEntity,
 };
+use itertools::Itertools;
 
 use crate::{
     appearance::Appearance,

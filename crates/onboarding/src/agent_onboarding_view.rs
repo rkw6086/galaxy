@@ -9,8 +9,6 @@ use crate::slides::{
 };
 use crate::telemetry::OnboardingEvent;
 use ai::LLMId;
-use instant::Instant;
-use std::time::Duration;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxyui::assets::asset_cache::AssetSource;
@@ -19,11 +17,11 @@ use galaxyui::windowing::{
     state::{ApplicationStage, StateEvent},
     WindowManager,
 };
+use instant::Instant;
+use std::time::Duration;
 
 const APP_BECAME_ACTIVE_DEBOUNCE: Duration = Duration::from_secs(15);
 
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::ui::{appearance::Appearance, theme::WarpTheme};
 use galaxyui::elements::Rect;
 use galaxyui::{
@@ -37,6 +35,8 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 #[derive(Clone, Debug)]
 pub enum AgentOnboardingEvent {

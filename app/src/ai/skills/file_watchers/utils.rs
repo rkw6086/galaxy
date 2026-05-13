@@ -8,9 +8,9 @@ use ai::skills::{
     home_skills_path, read_skills, ParsedSkill, SkillProvider, SKILL_PROVIDER_DEFINITIONS,
 };
 use anyhow::Error;
+use galaxyui::AppContext;
 use regex::Regex;
 use repo_metadata::{local_model::GetContentsArgs, RepoContent, RepoMetadataModel};
-use galaxyui::AppContext;
 
 use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
 

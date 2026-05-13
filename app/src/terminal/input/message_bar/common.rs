@@ -1,5 +1,4 @@
 use crate::ai::blocklist::agent_view::agent_view_bg_color;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
@@ -11,6 +10,7 @@ use galaxyui::platform::Cursor;
 use galaxyui::prelude::{Align, ConstrainedBox, CrossAxisAlignment, Flex, Text};
 use galaxyui::ui_components::keyboard_shortcut::keystroke_to_keys;
 use galaxyui::{AppContext, SingletonEntity};
+use pathfinder_color::ColorU;
 
 use crate::ai::blocklist::agent_view::shortcuts::render_keystroke_with_color_overrides;
 use crate::terminal;
@@ -468,9 +468,9 @@ pub fn disableable_message_item_color_overrides(
 }
 
 pub mod styles {
-    use pathfinder_color::ColorU;
     use galaxy_core::ui::appearance::Appearance;
     use galaxyui::{AppContext, SingletonEntity};
+    use pathfinder_color::ColorU;
 
     use crate::ui_components::blended_colors;
 

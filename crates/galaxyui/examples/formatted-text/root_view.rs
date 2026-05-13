@@ -1,6 +1,5 @@
 //! A UI sample demonstrating how the SelectableArea element can be used.
 
-use markdown_parser::{parse_markdown, FormattedTextFragment, FormattedTextLine};
 use galaxyui::fonts::FamilyId;
 use galaxyui::SingletonEntity as _;
 use galaxyui::{
@@ -10,6 +9,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use markdown_parser::{parse_markdown, FormattedTextFragment, FormattedTextLine};
 
 use galaxyui::color::ColorU;
 use galaxyui::elements::{Align, HighlightedHyperlink, HyperlinkLens};

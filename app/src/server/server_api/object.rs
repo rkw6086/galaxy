@@ -46,9 +46,6 @@ use async_channel::Sender;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use cynic::{MutationBuilder, QueryBuilder, SubscriptionBuilder};
-#[cfg(test)]
-use mockall::{automock, predicate::*};
-use std::collections::HashMap;
 use galaxy_core::report_error;
 use galaxy_graphql::{
     error::UserFacingErrorInterface,
@@ -154,6 +151,9 @@ use galaxy_graphql::{
         get_warp_drive_updates::GetWarpDriveUpdates, start_graphql_streaming_operation,
     },
 };
+#[cfg(test)]
+use mockall::{automock, predicate::*};
+use std::collections::HashMap;
 
 /// Identifies a guest to remove from an object.
 #[derive(Clone, Debug)]

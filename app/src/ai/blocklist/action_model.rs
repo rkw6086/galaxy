@@ -47,9 +47,9 @@ use std::{
 };
 
 use crate::ai::agent::conversation::AIConversationId;
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 use parking_lot::FairMutex;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use crate::{
     ai::{

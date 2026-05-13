@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::{collections::HashSet, future::Future, path::PathBuf};
 
-#[cfg(test)]
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_util::standardized_path::StandardizedPath;
 #[cfg(test)]
 use galaxyui::r#async::FutureId;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
+#[cfg(test)]
+use virtual_fs::{Stub, VirtualFS};
 
 use crate::DirectoryWatcher;
 use crate::Repository;

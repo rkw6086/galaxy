@@ -1,6 +1,3 @@
-use pathfinder_color::ColorU;
-use std::{cell::Cell, sync::Arc};
-use string_offset::CharOffset;
 use galaxyui::{
     elements::{Axis, scroll_delta_for_pointer_movement},
     fonts::FamilyId,
@@ -8,6 +5,9 @@ use galaxyui::{
     text_layout::TextFrame,
     units::{IntoPixels, Pixels},
 };
+use pathfinder_color::ColorU;
+use std::{cell::Cell, sync::Arc};
+use string_offset::CharOffset;
 
 use crate::{
     content::text::{FormattedTable, table_cell_offset_maps},

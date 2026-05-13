@@ -1,9 +1,9 @@
+use galaxyui::platform::FullscreenState;
 use pathfinder_geometry::rect::RectF;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use galaxyui::platform::FullscreenState;
 
 use galaxyui::AppContext;
 

@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
@@ -14,7 +13,10 @@ use galaxyui::platform::Cursor;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::ui_components::keyboard_shortcut::KeyboardShortcut;
-use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent_management::notifications::item_rendering::{
     create_notification_artifact_buttons_view, handle_notification_artifact_buttons_event,

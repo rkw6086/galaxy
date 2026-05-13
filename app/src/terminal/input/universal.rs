@@ -12,7 +12,6 @@ use crate::{
     },
     themes::theme::color::internal_colors,
 };
-use settings::Setting;
 use galaxyui::{
     elements::{
         Border, ChildView, Container, CornerRadius, DropTarget, Element, Flex, Hoverable,
@@ -20,6 +19,7 @@ use galaxyui::{
     },
     AppContext, SingletonEntity,
 };
+use settings::Setting;
 
 use super::{
     common::{

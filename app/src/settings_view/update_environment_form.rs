@@ -25,11 +25,6 @@ use crate::{
     workspaces::user_workspaces::UserWorkspaces,
     ChannelState,
 };
-use instant::{Duration, Instant};
-use log::debug;
-#[cfg(not(target_family = "wasm"))]
-use std::collections::HashMap;
-use url::Url;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_editor::editor::NavigationKey;
 use galaxy_graphql::queries::user_github_info::UserGithubInfoResult;
@@ -52,6 +47,11 @@ use galaxyui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use instant::{Duration, Instant};
+use log::debug;
+#[cfg(not(target_family = "wasm"))]
+use std::collections::HashMap;
+use url::Url;
 
 const SUBMIT_BUTTON_FOCUSED: &str = "SubmitButtonFocused";
 
@@ -3085,10 +3085,11 @@ impl UpdateEnvironmentForm {
                 };
 
                 let icon_size = appearance.ui_font_size();
-                let icon = ConstrainedBox::new(Icon::Lightbulb.to_galaxyui_icon(text_fill).finish())
-                    .with_width(icon_size)
-                    .with_height(icon_size)
-                    .finish();
+                let icon =
+                    ConstrainedBox::new(Icon::Lightbulb.to_galaxyui_icon(text_fill).finish())
+                        .with_width(icon_size)
+                        .with_height(icon_size)
+                        .finish();
 
                 let text = Text::new(
                     button_text,

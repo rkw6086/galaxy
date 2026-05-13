@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::fonts::FamilyId;
 use galaxyui::SingletonEntity as _;
 use galaxyui::{
@@ -7,6 +6,7 @@ use galaxyui::{
     presenter::ChildView,
     AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 // We could initiate global action and bindings here.
 pub fn init(ctx: &mut AppContext) {

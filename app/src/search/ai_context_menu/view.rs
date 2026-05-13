@@ -34,11 +34,6 @@ use crate::search::result_renderer::{QueryResultRenderer, QueryResultRendererSty
 use crate::search::search_bar::{SearchBar, SearchBarEvent, SearchBarState, SearchResultOrdering};
 use crate::settings::InputSettings;
 use async_channel::Sender;
-use itertools::Itertools;
-use settings::Setting as _;
-use std::collections::HashSet;
-use std::ops::Range;
-use std::time::Duration;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::ConstrainedBox;
 use galaxyui::elements::CrossAxisAlignment;
@@ -57,6 +52,11 @@ use galaxyui::elements::{
     OffsetType, ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius,
     SavePosition, Shrinkable, Stack, Text, XAxisAnchor, YAxisAnchor,
 };
+use itertools::Itertools;
+use settings::Setting as _;
+use std::collections::HashSet;
+use std::ops::Range;
+use std::time::Duration;
 
 use galaxyui::platform::Cursor;
 use galaxyui::windowing::WindowManager;

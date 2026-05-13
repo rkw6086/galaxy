@@ -11,10 +11,10 @@ use crate::watcher::{DirectoryWatcher, TaskQueue};
 use crate::{CanonicalizedPath, RepoMetadataError, Repository, RepositoryUpdate};
 use futures::channel::mpsc;
 use futures::StreamExt as _;
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::r#async::Timer;
 use galaxyui::{App, ModelContext, ModelHandle};
+use virtual_fs::{Stub, VirtualFS};
 
 #[test]
 fn test_add_repository_success() {

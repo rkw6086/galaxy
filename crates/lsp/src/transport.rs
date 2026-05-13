@@ -8,12 +8,12 @@ use futures::{
     future::FutureExt,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
 };
-use jsonrpc::Transport;
-use simple_logger::SimpleLogger;
 use galaxyui::r#async::{
     executor::{Background, BackgroundTask},
     Timer,
 };
+use jsonrpc::Transport;
+use simple_logger::SimpleLogger;
 
 /// Transport implementation for LSP communication over process stdin/stdout.
 /// Also manages the LSP server process lifecycle with graceful shutdown capabilities.

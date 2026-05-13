@@ -15,9 +15,9 @@ use crate::{
     send_telemetry_from_app_ctx, TelemetryEvent,
 };
 #[cfg(not(target_family = "wasm"))]
-use itertools::Itertools;
-#[cfg(not(target_family = "wasm"))]
 use galaxyui::SingletonEntity;
+#[cfg(not(target_family = "wasm"))]
+use itertools::Itertools;
 
 pub struct CallMCPToolExecutor {
     _active_session: ModelHandle<ActiveSession>,

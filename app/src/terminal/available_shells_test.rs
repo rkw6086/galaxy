@@ -1,10 +1,10 @@
 use super::*;
 use crate::terminal::shell::ShellType;
 use crate::test_util::{Stub, VirtualFS};
+use galaxy_core::features::FeatureFlag;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use galaxy_core::features::FeatureFlag;
 
 fn make_available_shells(shells: Vec<AvailableShell>) -> AvailableShells {
     AvailableShells {

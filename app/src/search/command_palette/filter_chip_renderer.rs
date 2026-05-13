@@ -4,13 +4,13 @@ use crate::drive::DriveObjectType;
 use crate::search::FilterChipRenderer as CommonFilterChipRenderer;
 use crate::search::QueryFilter;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable, Icon,
     MouseStateHandle, ParentElement, Radius, Text,
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{Element, EventContext};
+use pathfinder_color::ColorU;
 
 /// Trait to render filter chips for the command palette.
 pub trait FilterChipRenderer: crate::search::FilterChipRenderer {

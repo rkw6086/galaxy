@@ -1,9 +1,9 @@
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     r#async::SpawnedFutureHandle, AppContext, EntityId, SingletonEntity as _, ViewContext,
     ViewHandle,
 };
+use parking_lot::FairMutex;
 
 use crate::terminal::{
     model::{

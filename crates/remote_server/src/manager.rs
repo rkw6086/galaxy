@@ -15,10 +15,10 @@ use crate::setup::RemoteServerSetupState;
 use crate::transport::Connection;
 use crate::transport::RemoteTransport;
 use crate::HostId;
-use repo_metadata::RepoMetadataUpdate;
-use serde::Serialize;
 use galaxy_core::SessionId;
 use galaxyui::{Entity, ModelContext, ModelSpawner, SingletonEntity};
+use repo_metadata::RepoMetadataUpdate;
+use serde::Serialize;
 
 /// Maximum number of reconnection attempts after a spontaneous disconnect.
 #[cfg(not(target_family = "wasm"))]

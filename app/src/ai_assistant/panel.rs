@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use chrono::Local;
 
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
@@ -22,6 +21,7 @@ use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{elements::Element, AppContext, Entity, TypedActionView, View, ViewContext};
 use galaxyui::{FocusContext, ModelHandle, SingletonEntity, ViewHandle};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use crate::appearance::Appearance;
 use crate::editor::{

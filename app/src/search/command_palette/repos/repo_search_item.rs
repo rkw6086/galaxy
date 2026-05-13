@@ -1,13 +1,13 @@
 use ai::workspace::WorkspaceMetadata;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
-use std::path::Path;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::{
     elements::{Align, ConstrainedBox, Flex, Highlight, ParentElement, Shrinkable, Text},
     fonts::{Properties, Weight},
     AppContext, Element, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
+use std::path::Path;
 
 use crate::appearance::Appearance;
 use crate::search::action::search_item::styles;

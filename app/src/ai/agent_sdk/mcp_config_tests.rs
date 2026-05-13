@@ -1,5 +1,5 @@
-use serde_json::{json, Map, Value};
 use galaxy_cli::mcp::MCPSpec;
+use serde_json::{json, Map, Value};
 
 use super::build_mcp_servers_from_specs;
 

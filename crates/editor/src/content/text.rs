@@ -4,6 +4,14 @@ use crate::render::model::{
 };
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::ListIndentLevel;
+use galaxyui::text::BlockHeaderSize as HeaderSize;
+use galaxyui::text::point::Point;
+use galaxyui::{
+    AppContext,
+    fonts::{Properties, Style, Weight},
+};
 use lazy_static::lazy_static;
 pub use markdown_parser::markdown_parser::TABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::{
@@ -30,14 +38,6 @@ use std::{
 };
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use galaxy_core::features::FeatureFlag;
-use galaxyui::elements::ListIndentLevel;
-use galaxyui::text::BlockHeaderSize as HeaderSize;
-use galaxyui::text::point::Point;
-use galaxyui::{
-    AppContext,
-    fonts::{Properties, Style, Weight},
-};
 
 use super::{buffer::Buffer, core::CursorType, markdown::MarkdownStyle};
 

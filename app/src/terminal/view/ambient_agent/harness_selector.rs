@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::{
     elements::{
         Border, ChildAnchor, ChildView, OffsetPositioning, ParentAnchor, ParentElement as _,
@@ -13,6 +12,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use galaxy_cli::agent::Harness;
 use galaxy_core::ui::appearance::Appearance;

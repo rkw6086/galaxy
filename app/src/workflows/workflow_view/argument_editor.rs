@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use itertools::Itertools;
-use pathfinder_color::ColorU;
 use galaxy_core::{features::FeatureFlag, ui::appearance::Appearance};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
@@ -16,6 +14,8 @@ use galaxyui::{
     },
     AppContext, Element, SingletonEntity as _, ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_color::ColorU;
 
 use crate::{
     drive::workflows::{

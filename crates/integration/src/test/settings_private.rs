@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-use settings::Setting as _;
 use galaxy::{
     features::FeatureFlag,
     integration_testing::{
@@ -15,6 +14,7 @@ use galaxy::{
     settings::{CodeSettings, DebugSettings, FontSettings},
 };
 use galaxyui::{async_assert, async_assert_eq, integration::TestStep, SingletonEntity};
+use settings::Setting as _;
 
 use super::{new_builder, Builder};
 

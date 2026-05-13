@@ -4,10 +4,6 @@ use std::{collections::HashMap, path::Path};
 
 #[cfg(not(target_family = "wasm"))]
 use diesel::SqliteConnection;
-#[cfg(not(target_family = "wasm"))]
-use parking_lot::Mutex;
-use pathfinder_geometry::vector::vec2f;
-use uuid::Uuid;
 use galaxy_core::{
     send_telemetry_from_ctx,
     ui::{appearance::Appearance, theme::color::internal_colors},
@@ -25,6 +21,10 @@ use galaxyui::{
     ui_components::components::UiComponent,
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+#[cfg(not(target_family = "wasm"))]
+use parking_lot::Mutex;
+use pathfinder_geometry::vector::vec2f;
+use uuid::Uuid;
 
 use crate::{
     ai::{

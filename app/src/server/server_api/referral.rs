@@ -3,8 +3,6 @@ use crate::server::graphql::{get_request_context, get_user_facing_error_message}
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use cynic::{MutationBuilder, QueryBuilder};
-#[cfg(test)]
-use mockall::{automock, predicate::*};
 use galaxy_core::channel::ChannelState;
 use galaxy_graphql::{
     mutations::send_referral_invite_emails::{
@@ -12,6 +10,8 @@ use galaxy_graphql::{
     },
     queries::get_referral_info::{GetReferralInfo, GetReferralInfoVariables},
 };
+#[cfg(test)]
+use mockall::{automock, predicate::*};
 
 /// Referral information for the logged-in user
 pub struct ReferralInfo {

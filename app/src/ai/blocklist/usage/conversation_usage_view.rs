@@ -6,8 +6,6 @@ use crate::persistence::model::{
     PRIMARY_AGENT_CATEGORY,
 };
 use crate::ui_components::blended_colors;
-use std::cmp::Ordering;
-use std::collections::HashMap;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::ConstrainedBox;
@@ -18,6 +16,8 @@ use galaxyui::{
     },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use std::cmp::Ordering;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayMode {

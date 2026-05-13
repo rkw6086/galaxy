@@ -7,9 +7,9 @@ mod parser;
 mod token;
 
 use crate::parsers::LiteCommand;
+use galaxy_util::path::EscapeChar;
 use lexer::Lexer;
 use parser::Parser;
-use galaxy_util::path::EscapeChar;
 
 use string_offset::ByteOffset;
 

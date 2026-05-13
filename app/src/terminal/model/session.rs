@@ -7,6 +7,10 @@ pub use command_executor::*;
 use anyhow::Result;
 use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
+use galaxy_util::path::{
+    convert_msys2_to_windows_native_path, convert_wsl_to_windows_host_path, msys2_exe_to_root,
+    ShellFamily,
+};
 use instant::Instant;
 use once_cell::sync::OnceCell;
 use smol_str::SmolStr;
@@ -17,16 +21,12 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
-use galaxy_util::path::{
-    convert_msys2_to_windows_native_path, convert_wsl_to_windows_host_path, msys2_exe_to_root,
-    ShellFamily,
-};
 
-use version_compare::Version;
 use galaxy_completer::completer::{
     CommandExitStatus, CommandOutput, PathSeparators, TopLevelCommandCaseSensitivity,
 };
 use galaxyui::{platform::OperatingSystem, Entity, ModelContext, SingletonEntity};
+use version_compare::Version;
 
 #[cfg(feature = "local_tty")]
 use crate::features::FeatureFlag;
@@ -842,7 +842,9 @@ pub enum SessionType {
     /// `RemoteServerManager` has completed the connection handshake. It is
     /// `None` when the feature flag is off or the connection hasn't been
     /// established yet.
-    WarpifiedRemote { host_id: Option<galaxy_core::HostId> },
+    WarpifiedRemote {
+        host_id: Option<galaxy_core::HostId>,
+    },
 }
 
 impl From<BootstrapSessionType> for SessionType {

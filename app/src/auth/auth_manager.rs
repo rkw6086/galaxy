@@ -6,8 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use settings::Setting as _;
-use uuid::Uuid;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 #[allow(unused_imports)]
@@ -16,6 +14,8 @@ use galaxy_graphql::mutations::create_anonymous_user::{
 };
 #[allow(unused_imports)]
 use galaxyui::{clipboard::ClipboardContent, Entity, ModelContext, SingletonEntity, UpdateModel};
+use settings::Setting as _;
+use uuid::Uuid;
 
 use super::auth_state::{AuthState, PersistAction};
 use super::auth_view_modal::{AuthRedirectPayload, AuthViewVariant};
@@ -557,8 +557,7 @@ impl AuthManager {
     /// NOTE: You probably want to call auth::log_out instead; this only manages the auth state,
     /// it doesn't shut down any other user-dependent parts of the app.
     /// TODO(jeff): Can we move those pieces in here?
-    pub(super) fn log_out(&mut self, _ctx: &mut ModelContext<Self>) {
-    }
+    pub(super) fn log_out(&mut self, _ctx: &mut ModelContext<Self>) {}
 
     /// Sets whether or not this user's Firebase credentials are invalid and thus needs to reauth.
     pub fn set_needs_reauth(&self, needs_reauth: bool, ctx: &mut ModelContext<Self>) {
@@ -629,8 +628,7 @@ impl AuthManager {
     ) {
     }
 
-    pub fn anonymous_user_hit_drive_object_limit(&self, _ctx: &mut ModelContext<Self>) {
-    }
+    pub fn anonymous_user_hit_drive_object_limit(&self, _ctx: &mut ModelContext<Self>) {}
 
     pub fn initiate_anonymous_user_linking(
         &self,

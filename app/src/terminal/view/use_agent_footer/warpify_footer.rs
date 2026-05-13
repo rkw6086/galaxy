@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxyui::prelude::Empty;
 use galaxyui::{
     elements::{
@@ -8,6 +7,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use parking_lot::FairMutex;
 
 use crate::{
     terminal::view::{TerminalModel, PADDING_LEFT},
@@ -78,7 +78,9 @@ impl WarpifyFooterView {
             WarpificationMode::Ssh { .. } => {
                 ("Galaxyize SSH session", "terminal:warpify_ssh_session")
             }
-            WarpificationMode::Subshell { .. } => ("Galaxyize subshell", "terminal:warpify_subshell"),
+            WarpificationMode::Subshell { .. } => {
+                ("Galaxyize subshell", "terminal:warpify_subshell")
+            }
         };
         self.warpify_button.update(ctx, |button, ctx| {
             button.set_label(label, ctx);

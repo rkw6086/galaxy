@@ -12,7 +12,9 @@ use galaxyui::keymap::macros::id;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
-use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
 
 use crate::ai::agent_management::notifications::item::NotificationFilter;
 use crate::ai::agent_management::notifications::item_rendering::{
@@ -56,7 +58,9 @@ impl Entity for NotificationMailboxView {
 
 #[derive(Debug, Clone)]
 pub enum NotificationMailboxViewEvent {
-    NavigateToTerminal { terminal_view_id: galaxyui::EntityId },
+    NavigateToTerminal {
+        terminal_view_id: galaxyui::EntityId,
+    },
     Dismissed,
 }
 

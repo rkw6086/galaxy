@@ -30,9 +30,6 @@ pub mod query;
 mod todos;
 
 use common::get_highlight_ranges_for_find_matches;
-use pathfinder_color::ColorU;
-use settings::Setting as _;
-use std::collections::{HashMap, HashSet};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxyui::elements::{
@@ -45,6 +42,9 @@ use galaxyui::{
     AppContext, Element, SingletonEntity,
 };
 use galaxyui::{View, ViewContext};
+use pathfinder_color::ColorU;
+use settings::Setting as _;
+use std::collections::{HashMap, HashSet};
 
 use crate::ai::agent::AIAgentCitation;
 use crate::ai::agent::AIAgentInput;
@@ -82,7 +82,6 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::util::link_detection::DetectedLinkType;
 use crate::workspace::WorkspaceAction;
-use itertools::Itertools;
 use galaxy_core::ui::color::contrast::{
     foreground_color_with_minimum_contrast, MinimumAllowedContrast,
 };
@@ -93,6 +92,7 @@ use galaxyui::fonts::Properties;
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::TextStyle;
 use galaxyui::ui_components::components::UiComponent;
+use itertools::Itertools;
 
 /// Helper function to create gray strikethrough highlight for secrets
 fn create_secret_gray_highlight() -> Highlight {

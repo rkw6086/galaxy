@@ -7,13 +7,6 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use itertools::Itertools;
-use markdown_parser::{Hyperlink, TableAlignment};
-use num_traits::SaturatingSub;
-use rangemap::RangeSet;
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use urlocator::{UrlLocation, UrlLocator};
-use vec1::Vec1;
 use galaxy_core::{features::FeatureFlag, ui::theme::Fill as ThemeFill};
 use galaxyui::{
     AppContext,
@@ -23,6 +16,13 @@ use galaxyui::{
     text_layout::{StyleAndFont, TextAlignment},
     units::{IntoPixels, Pixels},
 };
+use itertools::Itertools;
+use markdown_parser::{Hyperlink, TableAlignment};
+use num_traits::SaturatingSub;
+use rangemap::RangeSet;
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
+use urlocator::{UrlLocation, UrlLocator};
+use vec1::Vec1;
 
 use crate::{
     parallel_util::Last,
@@ -38,8 +38,8 @@ use crate::{
         },
     },
 };
-use string_offset::{ByteOffset, CharOffset};
 use galaxyui::text::char_slice;
+use string_offset::{ByteOffset, CharOffset};
 
 use super::{
     buffer::{StyledBufferBlock, StyledBufferRun, StyledTextBlock},

@@ -6,7 +6,6 @@ use crate::settings::app_installation_detection::{
 use crate::settings::{NativePreferenceSettings, UserNativePreference};
 use crate::ui_components::dialog::{dialog_styles, Dialog};
 use crate::uri::web_intent_parser::{self, WebIntent};
-use settings::Setting as _;
 use galaxyui::elements::{Align, CrossAxisAlignment, Flex};
 use galaxyui::ui_components::{
     button::ButtonVariant,
@@ -18,6 +17,7 @@ use galaxyui::{
     platform::Cursor,
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use settings::Setting as _;
 
 const CLOSE_BUTTON_DIAMETER: f32 = 20.;
 const DIALOG_WIDTH: f32 = 350.;

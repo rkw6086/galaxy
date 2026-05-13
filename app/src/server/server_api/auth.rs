@@ -3,13 +3,13 @@ use std::result::Result as StdResult;
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use firebase::FirebaseError;
+use galaxy_core::errors::{AnyhowErrorExt, ErrorExt};
+use galaxy_graphql::mutations::expire_api_key::ExpireApiKeyResult;
+use galaxy_graphql::queries::get_conversation_usage::ConversationUsage;
 use instant::Duration;
 #[cfg(test)]
 use mockall::{automock, predicate::*};
 use thiserror::Error;
-use galaxy_core::errors::{AnyhowErrorExt, ErrorExt};
-use galaxy_graphql::mutations::expire_api_key::ExpireApiKeyResult;
-use galaxy_graphql::queries::get_conversation_usage::ConversationUsage;
 
 use galaxy_graphql::mutations::create_anonymous_user::{
     AnonymousUserType, CreateAnonymousUserResult,
@@ -19,12 +19,12 @@ use galaxy_graphql::mutations::mint_custom_token::MintCustomTokenResult;
 use galaxy_graphql::queries::api_keys::ApiKeyProperties;
 use galaxy_graphql::queries::get_user::UserOutput as GqlUserOutput;
 
-use crate::server::ids::ApiKeyUid;
-use crate::server::server_api::register_error;
-use crate::settings::PrivacySettingsSnapshot;
 use crate::auth::credentials::{AuthToken, Credentials, FirebaseToken, LoginToken};
 use crate::auth::user::User;
 use crate::server::experiments::ServerExperiment;
+use crate::server::ids::ApiKeyUid;
+use crate::server::server_api::register_error;
+use crate::settings::PrivacySettingsSnapshot;
 
 use super::ServerApi;
 
@@ -173,7 +173,9 @@ impl AuthClient for ServerApi {
         _token: LoginToken,
         _for_refresh: bool,
     ) -> StdResult<FetchUserResult, UserAuthenticationError> {
-        Err(UserAuthenticationError::Unexpected(anyhow!("Server auth disabled")))
+        Err(UserAuthenticationError::Unexpected(anyhow!(
+            "Server auth disabled"
+        )))
     }
 
     async fn fetch_new_custom_token(&self) -> Result<MintCustomTokenResult> {
@@ -219,7 +221,10 @@ impl AuthClient for ServerApi {
         Ok(())
     }
 
-    async fn update_user_settings(&self, _settings_snapshot: PrivacySettingsSnapshot) -> Result<()> {
+    async fn update_user_settings(
+        &self,
+        _settings_snapshot: PrivacySettingsSnapshot,
+    ) -> Result<()> {
         Ok(())
     }
 
@@ -230,7 +235,9 @@ impl AuthClient for ServerApi {
     async fn request_device_code(
         &self,
     ) -> StdResult<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError> {
-        Err(UserAuthenticationError::Unexpected(anyhow!("Server auth disabled")))
+        Err(UserAuthenticationError::Unexpected(anyhow!(
+            "Server auth disabled"
+        )))
     }
 
     async fn exchange_device_access_token(
@@ -238,7 +245,9 @@ impl AuthClient for ServerApi {
         _details: &oauth2::StandardDeviceAuthorizationResponse,
         _timeout: Duration,
     ) -> StdResult<FirebaseToken, UserAuthenticationError> {
-        Err(UserAuthenticationError::Unexpected(anyhow!("Server auth disabled")))
+        Err(UserAuthenticationError::Unexpected(anyhow!(
+            "Server auth disabled"
+        )))
     }
 
     async fn list_api_keys(&self) -> Result<Vec<ApiKeyProperties>> {
@@ -325,8 +334,7 @@ register_error!(UserAuthenticationError);
 impl From<FirebaseError> for UserAuthenticationError {
     fn from(error: FirebaseError) -> Self {
         UserAuthenticationError::Unexpected(
-            anyhow::Error::from(error)
-                .context("Firebase error (server auth disabled)"),
+            anyhow::Error::from(error).context("Firebase error (server auth disabled)"),
         )
     }
 }

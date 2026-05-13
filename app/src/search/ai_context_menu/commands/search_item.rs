@@ -3,11 +3,11 @@ use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::item::SearchItem;
 use crate::search::result_renderer::ItemHighlightState;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::{
     elements::{ConstrainedBox, Container, Icon, Text},
     AppContext, Element, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
 
 #[derive(Clone, Debug)]
 pub struct CommandSearchItem {

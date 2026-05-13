@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::Local;
-use smol_str::SmolStr;
 use galaxy_editor::render::model::LineCount;
 use galaxy_util::path::EscapeChar;
 use galaxyui::App;
+use smol_str::SmolStr;
 
 use super::{
     build_diff_hunk_prompt, build_review_prompt, build_selection_line_range_prompt,

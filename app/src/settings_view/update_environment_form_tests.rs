@@ -17,7 +17,6 @@ use crate::workspaces::team::Team;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::Workspace;
-use url::Url;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{Empty, MouseStateHandle};
 use galaxyui::platform::WindowStyle;
@@ -25,6 +24,7 @@ use galaxyui::{
     AddSingletonModel, App, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
     WindowId,
 };
+use url::Url;
 
 #[test]
 fn test_parse_repo_input_owner_repo() {

@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::DispatchEventResult;
 use galaxyui::fonts::FamilyId;
 use galaxyui::{
@@ -9,6 +8,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, Tracked, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 pub fn init(ctx: &mut AppContext) {
     ctx.add_singleton_model(|_| Settings {

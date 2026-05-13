@@ -29,28 +29,12 @@ use billing_and_usage_page::{BillingAndUsagePageEvent, BillingAndUsagePageView};
 use code_page::CodeSubpage;
 use code_page::{CodeSettingsPageAction, CodeSettingsPageEvent};
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
-use itertools::Itertools as _;
-use keybindings::KeybindingsView;
-use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
-use mcp_servers_page::MCPServersSettingsPageView;
-use nav::{SettingsNavItem, SettingsUmbrella};
-use pathfinder_geometry::vector::Vector2F;
-use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
-use settings_file_footer::{render_footer, SettingsFooterKind, SettingsFooterMouseStates};
-use settings_page::{
-    MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
-    HEADER_PADDING,
-};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::str::FromStr;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::{
     channel::ChannelState, context_flag::ContextFlag, features::FeatureFlag,
     settings::ToggleableSetting as _, ui::theme::color::internal_colors,
 };
 use galaxy_editor::editor::NavigationKey;
-use warpify_page::{WarpifyPageAction, WarpifyPageView};
 use galaxyui::Element;
 use galaxyui::{
     elements::{
@@ -66,6 +50,22 @@ use galaxyui::{
     Action, AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, UpdateView as _,
     View, ViewContext, ViewHandle,
 };
+use itertools::Itertools as _;
+use keybindings::KeybindingsView;
+use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
+use mcp_servers_page::MCPServersSettingsPageView;
+use nav::{SettingsNavItem, SettingsUmbrella};
+use pathfinder_geometry::vector::Vector2F;
+use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
+use settings_file_footer::{render_footer, SettingsFooterKind, SettingsFooterMouseStates};
+use settings_page::{
+    MatchData, SettingsPage, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
+    HEADER_PADDING,
+};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
+use warpify_page::{WarpifyPageAction, WarpifyPageView};
 
 mod about_page;
 mod admin_actions;

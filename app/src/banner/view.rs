@@ -1,8 +1,5 @@
 use std::{marker::PhantomData, rc::Rc};
 
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
-};
 use galaxyui::elements::HyperlinkLens;
 use galaxyui::{
     elements::{
@@ -17,6 +14,9 @@ use galaxyui::{
     },
     Action, AppContext, Element, Entity, EventContext, SingletonEntity, TypedActionView, View,
     ViewContext,
+};
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
 };
 
 use crate::{appearance::Appearance, ui_components::icons::Icon};

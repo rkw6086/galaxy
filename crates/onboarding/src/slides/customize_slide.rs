@@ -4,7 +4,6 @@ use crate::model::{OnboardingStateEvent, OnboardingStateModel, UICustomizationSe
 use crate::slides::{bottom_nav, layout, slide_content};
 use crate::visuals::{intention_terminal_visual, intention_visual};
 use crate::OnboardingIntention;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
 use galaxyui::prelude::Align;
@@ -20,6 +19,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
+use ui_components::{button, Component as _, Options as _};
 
 /// Which setting card is currently selected (expanded).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

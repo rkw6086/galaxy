@@ -3,13 +3,13 @@ use std::ops::Range;
 use std::time::Duration;
 
 use async_channel::Sender;
-use string_offset::ByteOffset;
 use galaxy_completer::completer::SuggestionTypeName;
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::ViewHandle;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use string_offset::ByteOffset;
 
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;

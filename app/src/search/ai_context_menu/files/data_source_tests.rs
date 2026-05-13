@@ -9,6 +9,11 @@ use crate::search::{
     mixer::AsyncDataSource,
 };
 use crate::{terminal::model::session::Session, workspace::ActiveSession};
+use galaxyui::platform::WindowStyle;
+use galaxyui::r#async::block_on;
+use galaxyui::windowing::WindowManager;
+use galaxyui::SingletonEntity;
+use galaxyui::{elements::Empty, App, AppContext, Element, Entity, TypedActionView, View};
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::RepoMetadataModel;
 use std::collections::HashMap;
@@ -17,11 +22,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::tempdir;
-use galaxyui::platform::WindowStyle;
-use galaxyui::r#async::block_on;
-use galaxyui::windowing::WindowManager;
-use galaxyui::SingletonEntity;
-use galaxyui::{elements::Empty, App, AppContext, Element, Entity, TypedActionView, View};
 struct TestView;
 
 impl Entity for TestView {

@@ -4,8 +4,8 @@ use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
 use fuzzy_match::FuzzyMatchResult;
-use std::path::PathBuf;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use std::path::PathBuf;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::workspace::ActiveSession;

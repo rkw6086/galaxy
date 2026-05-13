@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::{
     elements::{
         Border, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
@@ -8,6 +7,7 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use crate::{
     appearance::Appearance,

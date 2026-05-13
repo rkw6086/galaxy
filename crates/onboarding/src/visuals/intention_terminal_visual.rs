@@ -1,6 +1,6 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::Align;
 use galaxyui::Element;
+use pathfinder_color::ColorU;
 
 use crate::visuals::onboarding_visual::Rect;
 

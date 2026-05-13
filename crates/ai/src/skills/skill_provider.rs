@@ -9,10 +9,10 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-use strum_macros::{Display, EnumString, VariantNames};
 use galaxy_core::ui::color::CLAUDE_ORANGE;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::Fill;
+use strum_macros::{Display, EnumString, VariantNames};
 
 /// Represents a skill provider/origin (Agents, Claude, Codex, or Warp).
 #[derive(

@@ -1,6 +1,5 @@
 use std::{borrow::Cow, mem, ops::Range, sync::Arc};
 
-use string_offset::{ByteOffset, CharOffset};
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_editor::{
     content::{anchor::Anchor, buffer::Buffer, selection_model::BufferSelectionModel},
@@ -16,6 +15,7 @@ use galaxyui::{
     ui_components::{button::ButtonVariant, components::UiComponent},
     AppContext, Element, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity,
 };
+use string_offset::{ByteOffset, CharOffset};
 
 use crate::{
     appearance::Appearance,

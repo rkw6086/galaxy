@@ -1,7 +1,7 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::Align;
 use galaxyui::Element;
+use pathfinder_color::ColorU;
 
 use super::onboarding_visual::{IconPct, OnboardingVisual, Pill, RectPct};
 

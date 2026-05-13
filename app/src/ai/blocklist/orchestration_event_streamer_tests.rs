@@ -195,8 +195,8 @@ fn finish_restore_fetch_uses_server_cursor_when_sqlite_is_absent() {
     use crate::ai::agent::conversation::AIConversation;
     use crate::server::server_api::ai::MockAIClient;
     use crate::server::server_api::ServerApiProvider;
-    use std::sync::Arc;
     use galaxyui::App;
+    use std::sync::Arc;
 
     App::test((), |mut app| async move {
         let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
@@ -251,8 +251,8 @@ fn restored_inprogress_parent_defers_delivery_until_success() {
     use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
     use crate::server::server_api::ai::MockAIClient;
     use crate::server::server_api::ServerApiProvider;
-    use std::sync::Arc;
     use galaxyui::App;
+    use std::sync::Arc;
 
     App::test((), |mut app| async move {
         let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
@@ -339,8 +339,8 @@ fn handle_event_batch_persists_max_seq_to_history_model() {
     use crate::server::server_api::ServerApiProvider;
     use crate::test_util::settings::initialize_settings_for_tests;
     use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
-    use std::sync::Arc;
     use galaxyui::App;
+    use std::sync::Arc;
 
     App::test((), |mut app| async move {
         let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
@@ -436,8 +436,8 @@ fn finish_restore_fetch_no_ops_when_conversation_deleted_mid_flight() {
     use crate::ai::agent::conversation::AIConversation;
     use crate::server::server_api::ai::MockAIClient;
     use crate::server::server_api::ServerApiProvider;
-    use std::sync::Arc;
     use galaxyui::App;
+    use std::sync::Arc;
 
     App::test((), |mut app| async move {
         let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
@@ -508,8 +508,8 @@ fn finish_restore_fetch_reconnects_sse_when_children_added_to_open_connection() 
     use crate::ai::agent::conversation::{AIConversation, ConversationStatus};
     use crate::server::server_api::ai::MockAIClient;
     use crate::server::server_api::ServerApiProvider;
-    use std::sync::Arc;
     use galaxyui::App;
+    use std::sync::Arc;
 
     App::test((), |mut app| async move {
         let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);

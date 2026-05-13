@@ -2,13 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use instant::Instant;
 
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::keymap::Keystroke;
 use galaxyui::AppContext;
 use galaxyui::{
     r#async::SpawnedFutureHandle, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity,
 };
+use parking_lot::FairMutex;
 
 use crate::terminal::input::message_bar::{Message, MessageItem};
 use crate::terminal::input::slash_commands::SlashCommandTrigger;

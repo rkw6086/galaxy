@@ -3,9 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use anyhow::anyhow;
 use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use crate::{
     ai::{
@@ -151,7 +151,10 @@ impl ResponseStream {
         &self.id
     }
 
-    pub fn bedrock_messages_sent(&self) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>> {
+    pub fn bedrock_messages_sent(
+        &self,
+    ) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>
+    {
         &self.params.bedrock_messages_sent
     }
 
@@ -255,7 +258,9 @@ impl ResponseStream {
         ctx: &mut ModelContext<Self>,
     ) {
         if self.current_request_id.is_none_or(|id| id != request_id) {
-            log::info!("[bedrock-debug] handle_response_stream_event: stale request_id, dropping event");
+            log::info!(
+                "[bedrock-debug] handle_response_stream_event: stale request_id, dropping event"
+            );
             return;
         }
         self.time_to_latest_event = Local::now().signed_duration_since(self.start_time);
@@ -265,11 +270,20 @@ impl ResponseStream {
                 let event_type_name = match &response_event.r#type {
                     Some(warp_multi_agent_api::response_event::Type::Init(_)) => "Init",
                     Some(warp_multi_agent_api::response_event::Type::ClientActions(a)) => {
-                        log::info!("[bedrock-debug] ResponseStream received ClientActions with {} actions", a.actions.len());
+                        log::info!(
+                            "[bedrock-debug] ResponseStream received ClientActions with {} actions",
+                            a.actions.len()
+                        );
                         "ClientActions"
                     }
                     Some(warp_multi_agent_api::response_event::Type::Finished(f)) => {
-                        log::info!("[bedrock-debug] ResponseStream received Finished (reason={:?})", f.reason.as_ref().map(|r| format!("{r:?}")).unwrap_or("None".into()));
+                        log::info!(
+                            "[bedrock-debug] ResponseStream received Finished (reason={:?})",
+                            f.reason
+                                .as_ref()
+                                .map(|r| format!("{r:?}"))
+                                .unwrap_or("None".into())
+                        );
                         "Finished"
                     }
                     None => "None",

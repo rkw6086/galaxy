@@ -76,12 +76,9 @@ use super::{
 use crate::drive::panel::DrivePanelAction;
 use crate::server::cloud_objects::update_manager::InitiatedBy;
 use futures::Future;
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::{any::Any, collections::HashMap, sync::Arc};
-use url::Url;
-use galaxy_core::{context_flag::ContextFlag, settings::Setting, ui::theme::color::internal_colors};
+use galaxy_core::{
+    context_flag::ContextFlag, settings::Setting, ui::theme::color::internal_colors,
+};
 use galaxyui::{
     clipboard::ClipboardContent,
     elements::{
@@ -104,6 +101,11 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
     UpdateView, View, ViewContext, ViewHandle, WindowId,
 };
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use std::{any::Any, collections::HashMap, sync::Arc};
+use url::Url;
 
 const WARP_DRIVE_TITLE: &str = "Warp Drive";
 
@@ -1839,7 +1841,9 @@ impl DriveIndex {
         if let Some(focused_index) = self.focused_index {
             if Some(&WarpDriveItemId::Trash) == self.ordered_items.get(focused_index) {
                 container = container.with_background(
-                    galaxy_core::ui::theme::color::internal_colors::fg_overlay_4(appearance.theme()),
+                    galaxy_core::ui::theme::color::internal_colors::fg_overlay_4(
+                        appearance.theme(),
+                    ),
                 );
                 is_focused = true;
             }
@@ -2935,7 +2939,10 @@ impl DriveIndex {
         .finish()
     }
 
-    fn render_warp_drive_loading_icon(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
+    fn render_warp_drive_loading_icon(
+        &self,
+        appearance: &Appearance,
+    ) -> Box<dyn galaxyui::Element> {
         // Use same padding as icon_button (4px) to center the icon within ICON_DIMENSIONS
         let icon_button_padding = (ICON_DIMENSIONS - LOADING_ICON_WIDTH) / 2.;
         let loading_icon = Container::new(

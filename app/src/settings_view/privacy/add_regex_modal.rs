@@ -4,7 +4,6 @@ use crate::{
     appearance::Appearance,
     editor::{EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions},
 };
-use regex::Regex;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::{CrossAxisAlignment, Expanded, MainAxisSize};
 use galaxyui::{
@@ -15,6 +14,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use regex::Regex;
 
 const LABEL_FONT_SIZE: f32 = 12.;
 

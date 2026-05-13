@@ -71,9 +71,9 @@ pub(crate) use driver::harness::{
     task_env_vars, validate_cli_installed, ClaudeHarness, ThirdPartyHarness,
 };
 pub use driver::AgentDriver;
-use telemetry::CliTelemetryEvent;
 use galaxy_cli::agent::{Harness, Prompt, RunAgentArgs};
 use galaxy_cli::OZ_HARNESS_ENV;
+use telemetry::CliTelemetryEvent;
 
 mod admin;
 mod agent_config;

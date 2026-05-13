@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use settings::manager::SettingsManager;
 use galaxyui::{App, SingletonEntity};
+use settings::manager::SettingsManager;
 
 use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
 use crate::auth::AuthStateProvider;

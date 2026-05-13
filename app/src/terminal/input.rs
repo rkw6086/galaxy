@@ -229,6 +229,7 @@ use base64::Engine as _;
 #[cfg(feature = "local_fs")]
 use diesel::SqliteConnection;
 use futures::FutureExt as _;
+use galaxy_completer::util::parse_current_commands_and_tokens;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use ordered_float::Float;
@@ -249,7 +250,6 @@ use std::{
 use string_offset::CharOffset;
 use vec1::Vec1;
 use vim::vim::{VimHandler, VimMode};
-use galaxy_completer::util::parse_current_commands_and_tokens;
 
 use galaxy_completer::{
     completer::{
@@ -8980,7 +8980,8 @@ impl Input {
                             // the completions finish quickly, since that causes a jittery UX.
                             let _ = ctx.spawn(
                                 async move {
-                                    galaxyui::r#async::Timer::after(Duration::from_millis(750)).await;
+                                    galaxyui::r#async::Timer::after(Duration::from_millis(750))
+                                        .await;
                                     old_buffer_text_original
                                 },
                                 move |input, old_buffer_text_original, ctx| {

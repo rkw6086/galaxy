@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use galaxy_util::path::EscapeChar;
+use itertools::Itertools;
 
 use crate::{
     parsers::{

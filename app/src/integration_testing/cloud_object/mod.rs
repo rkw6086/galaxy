@@ -2,10 +2,10 @@ mod assertion;
 
 pub use assertion::*;
 use futures::{future::join_all, FutureExt};
+use galaxyui::{App, SingletonEntity};
 use itertools::Itertools;
 use std::future::Future;
 use std::pin::Pin;
-use galaxyui::{App, SingletonEntity};
 
 use crate::{
     cloud_object::{model::persistence::CloudModel, Space},

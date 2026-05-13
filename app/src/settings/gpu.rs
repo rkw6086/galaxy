@@ -1,5 +1,5 @@
-use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 use galaxyui::platform::GraphicsBackend;
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 define_settings_group!(GPUSettings, settings: [
    prefer_low_power_gpu: PreferLowPowerGPU {

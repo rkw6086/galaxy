@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use session_sharing_protocol::sharer::SessionSourceType;
 use galaxy_core::settings::Setting as _;
 use galaxyui::{App, AppContext, SingletonEntity, ViewContext};
+use session_sharing_protocol::sharer::SessionSourceType;
 
 use crate::{
     ai::{

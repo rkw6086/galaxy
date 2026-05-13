@@ -13,16 +13,16 @@ use cocoa::{
     base::{id, nil},
     foundation::{NSArray, NSAutoreleasePool, NSInteger},
 };
-use lazy_static::lazy_static;
-use objc::runtime::{NO, YES};
-use objc::{msg_send, sel, sel_impl};
-use std::{boxed::Box, cell::RefCell, collections::HashMap, ffi::c_void, rc::Rc};
 use galaxyui_core::actions::StandardAction;
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::platform::menu::{
     ItemTriggeredCallback, Menu, MenuBar, MenuItem, MenuItemProperties, MenuItemPropertyChanges,
     UpdateMenuItemCallback,
 };
+use lazy_static::lazy_static;
+use objc::runtime::{NO, YES};
+use objc::{msg_send, sel, sel_impl};
+use std::{boxed::Box, cell::RefCell, collections::HashMap, ffi::c_void, rc::Rc};
 
 use super::app::callback_dispatcher;
 use super::make_nsstring;

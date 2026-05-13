@@ -3,12 +3,12 @@ use std::collections::HashMap;
 
 use ::settings::Setting as _;
 use cfg_if::cfg_if;
-use lazy_static::lazy_static;
-use parking_lot::RwLock;
 use galaxy_cli::RecoveryMechanism;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxyui::{Entity, ModelContext, SingletonEntity, WindowId};
 use galaxyui_extras::user_preferences::UserPreferences;
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 
 use crate::{report_if_error, settings};
 

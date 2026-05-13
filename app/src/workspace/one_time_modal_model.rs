@@ -7,9 +7,9 @@ use crate::settings::cloud_preferences_syncer::{
 };
 use crate::settings::{AISettings, CodeSettings};
 use crate::terminal::general_settings::GeneralSettings;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{Entity, ModelContext, SingletonEntity, WindowId};
+use settings::Setting as _;
 
 /// A generic model for managing one-time modals that should be shown to users only once.
 ///

@@ -10,7 +10,6 @@ use crate::settings_view::mcp_servers::style::{
     INSTALLATION_MODAL_PADDING, INSTALLATION_MODAL_TITLE_VERTICAL_SPACING,
 };
 use crate::view_components::dropdown::{Dropdown, DropdownItem};
-use markdown_parser::parse_markdown;
 use galaxyui::elements::Shrinkable;
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::ui_components::button::ButtonVariant;
@@ -25,6 +24,7 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, TypedActionView, View, ViewHandle,
 };
 use galaxyui::{SingletonEntity, ViewContext};
+use markdown_parser::parse_markdown;
 
 use crate::ai::mcp::{TemplatableMCPServer, TemplatableMCPServerManager, TemplateVariable};
 

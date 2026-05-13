@@ -9,10 +9,6 @@ use cocoa::{
     appkit::{NSApp, NSRequestUserAttentionType},
     base::{id, nil},
 };
-use objc::{class, msg_send, sel, sel_impl};
-use std::ffi::c_void;
-use std::path::Path;
-use std::sync::Arc;
 use galaxyui_core::clipboard::InMemoryClipboard;
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::modals::{AlertDialog, ModalId};
@@ -25,6 +21,10 @@ use galaxyui_core::ApplicationBundleInfo;
 use galaxyui_core::{
     accessibility::AccessibilityContent, notification::UserNotification, platform, WindowId,
 };
+use objc::{class, msg_send, sel, sel_impl};
+use std::ffi::c_void;
+use std::path::Path;
+use std::sync::Arc;
 
 // Functions implemented in objC files.
 extern "C" {

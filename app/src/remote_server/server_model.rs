@@ -1,16 +1,16 @@
 use crate::terminal::shell::ShellType;
-use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
-use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
-use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::SessionId;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::platform::TerminationMode;
 use galaxyui::r#async::{Spawnable, SpawnableOutput, SpawnedFutureHandle};
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
+use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use galaxy_files::{FileModel, FileModelEvent};
 use galaxy_util::content_version::ContentVersion;

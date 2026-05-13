@@ -1,5 +1,3 @@
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::{cell::RefCell, rc::Rc};
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     elements::{
@@ -10,6 +8,8 @@ use galaxyui::{
     App, Entity, Event, Presenter, TypedActionView, View, ViewContext, ViewHandle, WindowId,
     WindowInvalidation,
 };
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use std::{cell::RefCell, rc::Rc};
 
 use super::*;
 

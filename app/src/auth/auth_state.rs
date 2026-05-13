@@ -5,16 +5,13 @@ use std::sync::{
 
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
-use parking_lot::RwLock;
-use uuid::Uuid;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_graphql::object_permissions::OwnerType;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use parking_lot::RwLock;
+use uuid::Uuid;
 
-use crate::{
-    cloud_object::ObjectType,
-    report_error,
-};
+use crate::{cloud_object::ObjectType, report_error};
 
 use super::{
     anonymous_id::get_or_create_anonymous_id,

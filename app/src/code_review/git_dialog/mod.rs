@@ -11,7 +11,6 @@
 
 use std::path::PathBuf;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
@@ -27,6 +26,7 @@ use galaxyui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_shell::LocalShellState;

@@ -5,9 +5,9 @@ mod rect;
 mod util;
 
 use frame::Frame;
+use galaxyui_core::platform::CapturedFrame;
 use pathfinder_geometry::vector::Vector2F;
 use util::with_error_scope;
-use galaxyui_core::platform::CapturedFrame;
 use wgpu::wgc::{device::DeviceError, present::SurfaceError};
 
 use crate::r#async::block_on;

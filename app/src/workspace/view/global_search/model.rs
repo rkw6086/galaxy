@@ -2,14 +2,14 @@ use crate::workspace::view::global_search::view::GlobalSearchEvent;
 use crate::workspace::view::global_search::SearchConfig;
 use anyhow::Result;
 use futures::StreamExt as _;
+use galaxy_ripgrep::search::{Match as RipgrepMatch, Submatch};
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::{Entity, ModelContext, ModelSpawner};
 use instant::Instant;
 use num_traits::SaturatingSub;
 use regex::escape;
 use std::path::PathBuf;
 use string_offset::ByteOffset;
-use galaxy_ripgrep::search::{Match as RipgrepMatch, Submatch};
-use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::{Entity, ModelContext, ModelSpawner};
 
 const START_BATCH_AFTER_COUNT: usize = 50;
 const MAX_BATCH_SIZE: usize = 512;

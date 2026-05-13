@@ -9,13 +9,13 @@ use test::Network;
 use super::*;
 use enclose::enclose;
 use futures::StreamExt;
+use galaxyui::{color::ColorU, App, ModelHandle};
 use rand::prelude::StdRng;
 use std::{
     cmp::Ordering,
     collections::HashSet,
     pin::{pin, Pin},
 };
-use galaxyui::{color::ColorU, App, ModelHandle};
 
 fn visible_text_styles(buffer: &Buffer) -> Vec<Option<TextStyle>> {
     buffer

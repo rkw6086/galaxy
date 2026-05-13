@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::{Fill, WarpTheme};
 use galaxyui::clipboard::ClipboardContent;
@@ -12,6 +11,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::Weight;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{View, ViewContext, ViewHandle};
+use pathfinder_color::ColorU;
 
 use galaxy_core::ui::appearance::Appearance as CoreAppearance;
 use galaxy_core::ui::theme::color::internal_colors;

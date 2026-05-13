@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 
 use comfy_table::Cell;
-use inquire::{error::InquireError, Confirm, Select};
-use serde::Serialize;
 use galaxy_cli::{
     agent::OutputFormat,
     environment::{EnvironmentCommand, ImageCommand},
@@ -11,6 +9,8 @@ use galaxy_cli::{
 };
 use galaxyui::r#async::FutureExt;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
+use inquire::{error::InquireError, Confirm, Select};
+use serde::Serialize;
 
 use crate::ai::agent_sdk::output::{self, TableFormat};
 

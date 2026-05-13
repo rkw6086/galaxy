@@ -1,4 +1,3 @@
-use instant::Instant;
 use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{
@@ -7,6 +6,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, TypedActionView, View,
 };
+use instant::Instant;
 
 pub struct RootView {
     animation_start_time: Instant,

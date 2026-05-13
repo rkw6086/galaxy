@@ -1,6 +1,3 @@
-/// Common functionality used across different AI Assistant components.
-use markdown_parser::{parse_markdown, CodeBlockText, FormattedText, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, HighlightedHyperlink,
@@ -13,6 +10,9 @@ use galaxyui::{
     },
     AppContext, Element, ModelHandle,
 };
+/// Common functionality used across different AI Assistant components.
+use markdown_parser::{parse_markdown, CodeBlockText, FormattedText, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use crate::{appearance::Appearance, ui_components::blended_colors};
 

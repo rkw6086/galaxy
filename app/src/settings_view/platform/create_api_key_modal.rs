@@ -10,7 +10,6 @@ use crate::{
     view_components::{Dropdown as DropdownView, DropdownItem},
 };
 use chrono::Utc;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Border, ChildView, ConstrainedBox, Container, CornerRadius, Empty, Fill, Flex,
@@ -25,6 +24,7 @@ use galaxyui::ui_components::segmented_control::{
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 const LABEL_FONT_SIZE: f32 = 14.;
 const INPUT_WIDTH: f32 = 428.; // 460px - (2 * 16px) padding

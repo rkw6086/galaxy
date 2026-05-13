@@ -1,10 +1,10 @@
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{Expanded, Highlight, Icon, ParentElement, Shrinkable};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::prelude::{ConstrainedBox, Container, CrossAxisAlignment, Empty, Flex, Text};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::ai::blocklist::agent_view::shortcuts::render_keystroke_with_color_overrides;
 use crate::search::slash_command_menu::static_commands::commands::COMMAND_REGISTRY;

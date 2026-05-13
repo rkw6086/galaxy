@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use base64::Engine;
+use galaxyui::util::parse_u32;
 use pathfinder_geometry::vector::Vector2F;
 use rand::Rng;
-use galaxyui::util::parse_u32;
 
 #[derive(Debug, Default, Clone)]
 pub struct ITermImage {

@@ -2,11 +2,11 @@ use std::{collections::HashMap, env};
 
 use anyhow::Result;
 use clap::Parser;
-use integration::test::*;
-use integration::Builder;
 use galaxy_cli::WorkerCommand;
 use galaxy_core::channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig};
 use galaxy_core::AppId;
+use integration::test::*;
+use integration::Builder;
 
 /// The Warp integration test runner.
 #[derive(Debug, Default, Parser, Clone)]

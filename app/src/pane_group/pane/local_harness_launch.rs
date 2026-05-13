@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ffi::OsString, path::PathBuf, sync::Arc};
 
-use shell_words::quote as shell_quote;
-use uuid::Uuid;
 use galaxy_cli::agent::Harness;
 use galaxy_managed_secrets::ManagedSecretValue;
+use shell_words::quote as shell_quote;
+use uuid::Uuid;
 
 use crate::ai::{
     agent_sdk::{

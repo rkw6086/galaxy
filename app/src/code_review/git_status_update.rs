@@ -1,22 +1,22 @@
 use galaxyui::{Entity, SingletonEntity};
 
 #[cfg(feature = "local_fs")]
-use std::path::{Path, PathBuf};
-#[cfg(feature = "local_fs")]
 use galaxyui::ModelContext;
+#[cfg(feature = "local_fs")]
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "local_fs")]
 use {
     crate::throttle::throttle,
     crate::util::git::{detect_current_branch_display, detect_main_branch},
     async_channel::Sender,
+    galaxyui::{r#async::SpawnedFutureHandle, ModelHandle, WeakModelHandle},
     repo_metadata::{
         repositories::DetectedRepositories,
         repository::{RepositorySubscriber, SubscriberId},
         Repository, RepositoryUpdate,
     },
     std::{collections::HashMap, time::Duration},
-    galaxyui::{r#async::SpawnedFutureHandle, ModelHandle, WeakModelHandle},
 };
 
 #[cfg(feature = "local_fs")]

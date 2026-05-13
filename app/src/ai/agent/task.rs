@@ -766,11 +766,18 @@ impl Task {
                 .apply()
                 .map_err(UpdateTaskError::from)?;
 
-        let text_len = updated_message.message.as_ref().map(|m| match m {
-            api::message::Message::AgentOutput(o) => o.text.len(),
-            _ => 0,
-        }).unwrap_or(0);
-        log::info!("[bedrock-debug] append_to_message_content: accumulated text_len={}", text_len);
+        let text_len = updated_message
+            .message
+            .as_ref()
+            .map(|m| match m {
+                api::message::Message::AgentOutput(o) => o.text.len(),
+                _ => 0,
+            })
+            .unwrap_or(0);
+        log::info!(
+            "[bedrock-debug] append_to_message_content: accumulated text_len={}",
+            text_len
+        );
 
         let id = self.id.clone();
         let exchange_to_update = self
@@ -999,12 +1006,24 @@ impl AIAgentExchange {
                 .iter()
                 .position(|m| m.id.0 == task_message.id);
 
-            let proto_text = task_message.message.as_ref().map(|m| match m {
-                api::message::Message::AgentOutput(o) => format!("AgentOutput(text_len={})", o.text.len()),
-                api::message::Message::ToolCall(t) => format!("ToolCall(id={})", t.tool_call_id),
-                other => format!("{:?}", std::mem::discriminant(other)),
-            }).unwrap_or_else(|| "None".to_string());
-            log::info!("[bedrock-debug] upsert_output_for_message: id={}, proto_type={}", task_message.id, proto_text);
+            let proto_text = task_message
+                .message
+                .as_ref()
+                .map(|m| match m {
+                    api::message::Message::AgentOutput(o) => {
+                        format!("AgentOutput(text_len={})", o.text.len())
+                    }
+                    api::message::Message::ToolCall(t) => {
+                        format!("ToolCall(id={})", t.tool_call_id)
+                    }
+                    other => format!("{:?}", std::mem::discriminant(other)),
+                })
+                .unwrap_or_else(|| "None".to_string());
+            log::info!(
+                "[bedrock-debug] upsert_output_for_message: id={}, proto_type={}",
+                task_message.id,
+                proto_text
+            );
 
             match task_message
                 .clone()
@@ -1014,7 +1033,10 @@ impl AIAgentExchange {
                     task_id,
                 })? {
                 MaybeAIAgentOutputMessage::Message(m) => {
-                    log::info!("[bedrock-debug] upsert_output_for_message: client_message_type={:?}", std::mem::discriminant(&m.message));
+                    log::info!(
+                        "[bedrock-debug] upsert_output_for_message: client_message_type={:?}",
+                        std::mem::discriminant(&m.message)
+                    );
                     output.extend_citations(m.citations.clone());
                     if let Some(message_idx) = message_idx {
                         output.messages[message_idx] = m;

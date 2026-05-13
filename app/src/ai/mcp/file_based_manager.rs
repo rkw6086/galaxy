@@ -1,12 +1,12 @@
 use super::MCPProvider;
 use super::{FileMCPWatcher, FileMCPWatcherEvent};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use itertools::Itertools as _;
 use repo_metadata::repositories::DetectedRepositories;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 use crate::{
     ai::mcp::{

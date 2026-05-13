@@ -3,9 +3,9 @@
 // and defines state used only for session sharing.
 use std::collections::HashMap;
 
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
 use session_sharing_protocol::common::{AgentAttachment, ParticipantId, ServerConversationToken};
-use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api::response_event::{stream_finished, ClientActions};
 use warp_multi_agent_api::{client_action::Action, message::Message};
 

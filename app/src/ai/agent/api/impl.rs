@@ -207,9 +207,7 @@ pub async fn generate_multi_agent_output(
                 // immediately after, and that the conversation starts with a
                 // user message. Without this, interrupted tool calls cause
                 // Bedrock ValidationException errors.
-                crate::ai::bedrock::convert_request::sanitize_messages_for_bedrock(
-                    &mut messages,
-                );
+                crate::ai::bedrock::convert_request::sanitize_messages_for_bedrock(&mut messages);
 
                 let system_prompt =
                     crate::ai::bedrock::convert_request::extract_system_prompt(&request);
@@ -329,7 +327,9 @@ pub async fn generate_multi_agent_output(
     log::error!("[bedrock] No Bedrock config available and server fallback is disabled. Cannot process request.");
     let err = Arc::new(crate::server::server_api::AIApiError::Stream {
         stream_type: "bedrock_converse",
-        source: anyhow::anyhow!("No AI backend available. Please configure Bedrock credentials in Settings > AI."),
+        source: anyhow::anyhow!(
+            "No AI backend available. Please configure Bedrock credentials in Settings > AI."
+        ),
     });
     let (tx, rx) = async_channel::unbounded();
     let _ = tx.send(Err(err)).await;

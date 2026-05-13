@@ -1,15 +1,15 @@
 //! Rendering functions for orchestration-related output items (messaging & agent management).
 
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Hoverable,
     MouseStateHandle, ParentElement, Radius, Text,
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use pathfinder_color::ColorU;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxyui::elements::FormattedTextElement;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{

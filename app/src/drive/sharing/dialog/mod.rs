@@ -32,10 +32,6 @@ use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::TelemetryEvent;
 use email_address::EmailAddress;
-use inheritance::{InheritanceDetails, InheritanceState};
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use session_sharing_protocol::common::{Guest, PendingGuest, SessionId, TeamAclData};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::{
@@ -60,6 +56,10 @@ use galaxyui::{
     ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use inheritance::{InheritanceDetails, InheritanceState};
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use session_sharing_protocol::common::{Guest, PendingGuest, SessionId, TeamAclData};
 
 use super::{
     style, ContentEditability, LinkSharingSubjectType, ShareableObject, SharingAccessLevel,

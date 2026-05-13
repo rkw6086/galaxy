@@ -10,7 +10,6 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon as UiIcon;
 use crate::workspace::WorkspaceAction;
 use channel_versions::overrides::TargetOS;
-use parking_lot::RwLock;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::{
@@ -22,6 +21,7 @@ use galaxyui::{
     elements::{Border, Container, Flex, ParentElement},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use parking_lot::RwLock;
 
 use super::render::{HORIZONTAL_TEXT_MARGIN, SSH_DOCS_URL, SUBSHELL_DOCS_URL};
 use super::settings::WarpifySettings;

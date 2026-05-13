@@ -3,10 +3,10 @@
 
 use std::{collections::HashMap, ops::Range};
 
-use settings::Setting as _;
-use string_offset::{ByteOffset, CharOffset};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity, ViewContext};
+use settings::Setting as _;
+use string_offset::{ByteOffset, CharOffset};
 
 use crate::{
     appearance::Appearance,

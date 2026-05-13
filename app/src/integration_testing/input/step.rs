@@ -1,6 +1,6 @@
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::integration::TestStep;
 use galaxyui::{windowing::WindowManager, SingletonEntity};
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::{
     integration_testing::{

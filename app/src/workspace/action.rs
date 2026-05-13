@@ -31,12 +31,12 @@ use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
 use crate::workspace::PaneViewLocator;
 use session_sharing_protocol::common::SessionId;
 
-use ui_components::lightbox;
 use galaxyui::accessibility::AccessibilityVerbosity;
 use galaxyui::geometry::rect::RectF;
 use galaxyui::geometry::vector::Vector2F;
 use galaxyui::platform::Cursor;
 use galaxyui::{EntityId, WeakViewHandle, WindowId};
+use ui_components::lightbox;
 
 use super::global_actions::{ForkFromExchange, ForkedConversationDestination};
 use super::tab_settings::{

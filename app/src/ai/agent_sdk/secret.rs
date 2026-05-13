@@ -6,8 +6,6 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use comfy_table::Cell;
-use inquire::{Confirm, InquireError, Password};
-use serde::Serialize;
 use galaxy_cli::{
     agent::OutputFormat,
     scope::ObjectScope,
@@ -24,6 +22,8 @@ use galaxy_graphql::{
 };
 use galaxy_managed_secrets::{client::SecretOwner, ManagedSecretManager, ManagedSecretValue};
 use galaxyui::{platform::TerminationMode, AppContext, SingletonEntity as _};
+use inquire::{Confirm, InquireError, Password};
+use serde::Serialize;
 
 use crate::{
     auth::UserUid, cloud_object::Owner, server::ids::ServerId,

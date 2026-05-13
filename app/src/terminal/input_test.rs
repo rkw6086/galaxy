@@ -72,20 +72,20 @@ use crate::{
 };
 use crate::{experiments, AgentNotificationsModel};
 use fuzzy_match::FuzzyMatchResult;
-use session_sharing_protocol::common::Role;
-use smol_str::SmolStr;
 use galaxy_completer::completer::{
     EngineFileType, Match, MatchStrategy, MatchedSuggestion, Priority, Suggestion,
     SuggestionResults, SuggestionType,
 };
 use galaxy_completer::meta::Span;
+use session_sharing_protocol::common::Role;
+use smol_str::SmolStr;
 
 use unindent::Unindent;
 
-#[cfg(feature = "voice_input")]
-use voice_input::VoiceInputToggledFrom;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, ReadModel, UpdateView};
+#[cfg(feature = "voice_input")]
+use voice_input::VoiceInputToggledFrom;
 
 use crate::terminal::universal_developer_input::UniversalDeveloperInputButtonBarEvent;
 

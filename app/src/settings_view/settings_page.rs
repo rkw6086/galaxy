@@ -29,7 +29,6 @@ use crate::{
     ui_components::icons::Icon,
     view_components::{Dropdown, SubmittableTextInput},
 };
-use settings::Setting;
 use galaxy_core::{
     settings::SyncToCloud,
     ui::{color::blend::Blend, theme::color::internal_colors},
@@ -52,6 +51,7 @@ use galaxyui::{
     units::Pixels,
     Action, AppContext, SingletonEntity, ViewContext, ViewHandle,
 };
+use settings::Setting;
 
 pub const TOGGLE_BUTTON_RIGHT_PADDING: f32 = 5.;
 pub const HEADER_PADDING: f32 = 15.;

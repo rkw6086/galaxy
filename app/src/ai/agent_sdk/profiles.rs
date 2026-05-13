@@ -1,7 +1,7 @@
 use comfy_table::Cell;
-use serde::Serialize;
 use galaxy_cli::{agent::AgentProfileCommand, GlobalOptions};
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
+use serde::Serialize;
 
 use crate::ai::agent_sdk::output::{self, TableFormat};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;

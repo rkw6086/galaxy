@@ -1,6 +1,6 @@
 use crate::settings::{AISettings, AISettingsChangedEvent};
-use settings::Setting;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use settings::Setting;
 
 /// Tracks whether the BYO LLM auth banner (e.g., AWS Bedrock login) has been dismissed.
 ///

@@ -1,8 +1,8 @@
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+use galaxy_core::ui::appearance::Appearance;
 use repo_metadata::repositories::DetectedRepositories;
 #[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
-use galaxy_core::ui::appearance::Appearance;
 
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent_conversations_model::AgentConversationsModel;

@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use serde_yaml::Mapping;
-use uuid::Uuid;
 use galaxy_editor::content::markdown::MarkdownStyle;
 use galaxy_editor::editor::EmbeddedItemModel;
 use galaxy_editor::render::element::{RenderContext, RenderableBlock};
 use galaxy_editor::render::layout::TextLayout;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use serde_yaml::Mapping;
+use uuid::Uuid;
 
 use galaxy_editor::render::model::{
     viewport::ViewportItem, BlockSpacing, EmbeddedItem, EmbeddedItemHTMLRepresentation,

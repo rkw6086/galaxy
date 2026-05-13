@@ -9,12 +9,12 @@ use std::{
 };
 
 use futures_util::future::Either;
-use url::Url;
 use galaxy_util::path::{CleanPathResult, LineAndColumnArg};
 use galaxyui::{
     r#async::SpawnedFutureHandle, AppContext, Entity, ModelContext, ModelHandle, SingletonEntity,
     WindowId,
 };
+use url::Url;
 
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor::EditorSettings;

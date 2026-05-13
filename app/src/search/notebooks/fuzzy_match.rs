@@ -4,11 +4,11 @@ use crate::search::result_renderer::ItemHighlightState;
 use crate::server::ids::SyncId;
 use crate::{appearance::Appearance, cloud_object::CloudObject};
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::{
     elements::{Highlight, Text},
     AppContext, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
 
 #[derive(Clone, Debug)]
 /// Result of fuzzy matching a [`Notebook`].

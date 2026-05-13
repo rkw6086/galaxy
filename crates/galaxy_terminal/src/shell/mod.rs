@@ -7,12 +7,6 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use channel_versions::overrides::TargetOS;
 use enum_iterator::Sequence;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
-use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
-use version_compare::{Cmp, Version};
 use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 #[cfg(windows)]
 use galaxy_core::paths::base_config_dir;
@@ -20,6 +14,12 @@ use galaxy_core::platform::SessionPlatform;
 use galaxy_util::path::{
     convert_msys2_to_windows_native_path, convert_wsl_to_windows_host_path, msys2_exe_to_root,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
+use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
+use version_compare::{Cmp, Version};
 
 use crate::model::escape_sequences;
 

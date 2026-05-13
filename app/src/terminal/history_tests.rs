@@ -17,9 +17,9 @@ use chrono::Local;
 use futures::future::join_all;
 use futures::Future;
 use futures_lite::StreamExt;
-use itertools::Itertools;
 use galaxy_core::command::ExitCode;
 use galaxyui::{App, ModelHandle};
+use itertools::Itertools;
 
 use std::path::PathBuf;
 use std::pin::pin;

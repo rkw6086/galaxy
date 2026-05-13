@@ -47,7 +47,6 @@ use crate::{
     ui_components::icons::Icon,
     view_components::action_button::{ActionButton, PrimaryTheme},
 };
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::icons;
 use galaxy_core::ui::icons::ICON_DIMENSIONS;
 use galaxy_core::ui::theme::Fill as ThemeFill;
@@ -70,6 +69,7 @@ use galaxyui::{
     ViewHandle,
 };
 use galaxyui::{id, EntityId};
+use pathfinder_geometry::vector::vec2f;
 
 pub fn init(app: &mut AppContext) {
     app.register_editable_bindings([EditableBinding::new(

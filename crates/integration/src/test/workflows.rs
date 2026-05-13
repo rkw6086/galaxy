@@ -1,4 +1,3 @@
-use std::time::Duration;
 use galaxy::integration_testing::workflow::{
     assert_no_team_workflow_pane_open, assert_open_team_workflow_pane_count_equals,
 };
@@ -22,6 +21,7 @@ use galaxy::{
     workflows::CategoriesView,
 };
 use galaxyui::{async_assert_eq, integration::TestStep, ViewHandle};
+use std::time::Duration;
 
 use crate::Builder;
 

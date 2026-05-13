@@ -1,5 +1,4 @@
 use enum_iterator::{all, Sequence};
-use itertools::{Either, Itertools};
 use galaxyui::elements::CornerRadius;
 use galaxyui::presenter::ChildView;
 use galaxyui::units::Pixels;
@@ -14,6 +13,7 @@ use galaxyui::{
     ui_components::components::{Coords, UiComponent, UiComponentStyles},
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use itertools::{Either, Itertools};
 
 use crate::settings_view;
 use crate::workspace::tab_settings::TabSettings;

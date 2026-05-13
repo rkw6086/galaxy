@@ -11,15 +11,15 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use bounded_vec_deque::BoundedVecDeque;
-use pathfinder_geometry::vector::Vector2F;
-use rand::Rng;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxy_terminal::model::ansi::CharsetIndex;
 use galaxy_terminal::model::grid::cell;
 use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use galaxyui::image_cache::{resize_dimensions, FitType};
+use pathfinder_geometry::vector::Vector2F;
+use rand::Rng;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::server::telemetry::ImageProtocol;
 use crate::terminal::event::Event;

@@ -502,14 +502,14 @@ impl TeamClient for ServerApi {
         let result = self.send_graphql_request(operation, None).await?;
 
         match result.user {
-            galaxy_graphql::queries::get_discoverable_teams::UserResult::UserOutput(user_output) => {
-                Ok(user_output
-                    .user
-                    .discoverable_teams
-                    .into_iter()
-                    .map(|gql_team_data| Ok(gql_team_data.into()))
-                    .collect::<Result<Vec<DiscoverableTeam>>>()?)
-            }
+            galaxy_graphql::queries::get_discoverable_teams::UserResult::UserOutput(
+                user_output,
+            ) => Ok(user_output
+                .user
+                .discoverable_teams
+                .into_iter()
+                .map(|gql_team_data| Ok(gql_team_data.into()))
+                .collect::<Result<Vec<DiscoverableTeam>>>()?),
             galaxy_graphql::queries::get_discoverable_teams::UserResult::UserFacingError(
                 user_facing_error,
             ) => Err(anyhow!(get_user_facing_error_message(user_facing_error))),

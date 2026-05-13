@@ -1,5 +1,5 @@
-use pathfinder_color::ColorU;
 use galaxyui::fonts::Properties;
+use pathfinder_color::ColorU;
 
 use crate::context_chips::{ChipAvailability, ChipDisabledReason, ContextChipKind};
 

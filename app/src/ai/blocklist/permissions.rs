@@ -22,12 +22,12 @@ use crate::ai::mcp::mcp_provider_from_file_path;
 use crate::ai::mcp::TemplatableMCPServerManager;
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use galaxy_completer::parsers::simple::decompose_command;
 use galaxy_core::user_preferences::GetUserPreferences;
 use galaxy_core::{features::FeatureFlag, settings::Setting};
 use galaxy_util::path::EscapeChar;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
+use serde::{Deserialize, Serialize};
 
 use super::BlocklistAIHistoryModel;
 

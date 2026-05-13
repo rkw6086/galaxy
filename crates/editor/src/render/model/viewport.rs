@@ -1,5 +1,4 @@
 use float_cmp::ApproxEq;
-use sum_tree::{SeekBias, SumTree};
 use galaxyui::{
     SizeConstraint,
     geometry::{
@@ -8,6 +7,7 @@ use galaxyui::{
     },
     units::{IntoPixels, Pixels},
 };
+use sum_tree::{SeekBias, SumTree};
 
 use crate::render::element::RenderContext;
 use string_offset::CharOffset;

@@ -27,14 +27,14 @@ use crate::{
     ChannelState, OpenPath,
 };
 use anyhow::{anyhow, ensure, Result};
+use galaxyui::notification::UserNotification;
+use galaxyui::{platform::TerminationMode, SingletonEntity as _, TypedActionView};
 use itertools::Itertools;
 use session_sharing_protocol::common::SessionId;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use url::Url;
-use galaxyui::notification::UserNotification;
-use galaxyui::{platform::TerminationMode, SingletonEntity as _, TypedActionView};
 
 use galaxyui::{AppContext, EntityId, ViewHandle, WindowId};
 

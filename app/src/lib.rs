@@ -4,8 +4,6 @@
 mod ai;
 mod alloc;
 mod antivirus;
-#[cfg(feature = "bedrock_smoke_test")]
-mod bedrock_smoke_test;
 #[cfg(target_os = "macos")]
 mod app_menus;
 mod app_services;
@@ -13,6 +11,8 @@ mod app_state;
 mod auth;
 mod autoupdate;
 mod banner;
+#[cfg(feature = "bedrock_smoke_test")]
+mod bedrock_smoke_test;
 mod billing;
 mod changelog_model;
 mod chip_configurator;
@@ -154,6 +154,8 @@ use auth::{auth_manager::AuthManager, auth_state::AuthState};
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
 use code_review::GlobalCodeReviewModel;
+use galaxy_cli::GlobalOptions;
+use galaxy_cli::{agent::AgentCommand, CliCommand};
 use quit_warning::UnsavedStateSummary;
 use server::network_log_pane_manager::NetworkLogPaneManager;
 use server::network_logging::NetworkLogModel;
@@ -162,8 +164,6 @@ use server::voice_transcriber::ServerVoiceTranscriber;
 #[cfg(feature = "local_fs")]
 use settings::import::model::ImportedConfigModel;
 use voice::transcriber::VoiceTranscriber;
-use galaxy_cli::GlobalOptions;
-use galaxy_cli::{agent::AgentCommand, CliCommand};
 
 #[cfg(feature = "local_fs")]
 use repo_metadata::{
@@ -187,11 +187,11 @@ pub use persistence::testing as sqlite_testing;
 use ::settings::{Setting, ToggleableSetting};
 pub use galaxy_core::errors::{report_error, report_if_error};
 
-#[cfg(feature = "plugin_host")]
-pub use plugin::{run_plugin_host, PLUGIN_HOST_FLAG};
 use galaxy_core::user_preferences::GetUserPreferences as _;
 use galaxyui::modals::{AlertDialogWithCallbacks, AppModalCallback};
 use galaxyui::platform::app::ApproveTerminateResult;
+#[cfg(feature = "plugin_host")]
+pub use plugin::{run_plugin_host, PLUGIN_HOST_FLAG};
 use window_settings::WindowSettings;
 use workflows::manager::WorkflowManager;
 
@@ -254,6 +254,8 @@ use anyhow::Context;
 use anyhow::{anyhow, Result};
 use appearance::{Appearance, AppearanceManager};
 use channel::ChannelState;
+use galaxy_core::execution_mode::{AppExecutionMode, ExecutionMode};
+use galaxy_managed_secrets::ManagedSecretManager;
 use interval_timer::IntervalTimer;
 use itertools::Itertools;
 use referral_theme_status::ReferralThemeStatus;
@@ -267,8 +269,6 @@ use std::sync::Arc;
 use terminal::input;
 use terminal::session_settings::SessionSettings;
 use url::Url;
-use galaxy_core::execution_mode::{AppExecutionMode, ExecutionMode};
-use galaxy_managed_secrets::ManagedSecretManager;
 use workspace::sync_inputs::SyncedInputState;
 
 use galaxyui::{integration::TestDriver, App, AssetProvider, Event};
@@ -556,7 +556,9 @@ pub fn run() -> Result<()> {
                 return crate::run_plugin_host();
             }
             #[cfg(feature = "local_tty")]
-            galaxy_cli::Command::Worker(galaxy_cli::WorkerCommand::MinidumpServer { socket_name }) => {
+            galaxy_cli::Command::Worker(galaxy_cli::WorkerCommand::MinidumpServer {
+                socket_name,
+            }) => {
                 cfg_if::cfg_if! {
                     if #[cfg(all(linux_or_windows, feature = "crash_reporting"))] {
                         return crate::crash_reporting::run_minidump_server(socket_name);
@@ -610,7 +612,9 @@ pub fn run() -> Result<()> {
             }
             galaxy_cli::Command::CommandLine(cmd) => {
                 let (is_sandboxed, computer_use_override) = match cmd.as_ref() {
-                    galaxy_cli::CliCommand::Agent(galaxy_cli::agent::AgentCommand::Run(run_args)) => (
+                    galaxy_cli::CliCommand::Agent(galaxy_cli::agent::AgentCommand::Run(
+                        run_args,
+                    )) => (
                         run_args.sandboxed,
                         run_args.computer_use.computer_use_override(),
                     ),
@@ -1321,8 +1325,10 @@ fn initialize_app(
             });
 
             GPUState::handle(ctx).update(ctx, |gpu_state, ctx| {
-                gpu_state
-                    .set_has_lower_power_gpu(galaxyui::rendering::is_low_power_gpu_available(), ctx);
+                gpu_state.set_has_lower_power_gpu(
+                    galaxyui::rendering::is_low_power_gpu_available(),
+                    ctx,
+                );
             });
 
             for window_id in ctx.window_ids().collect_vec() {

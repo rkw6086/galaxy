@@ -7,10 +7,10 @@ use crate::{
 };
 
 pub use super::ContextChipKind;
+use galaxyui::{Entity, GetSingletonModelHandle, ModelContext, SingletonEntity, UpdateModel};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use settings::Setting as _;
-use galaxyui::{Entity, GetSingletonModelHandle, ModelContext, SingletonEntity, UpdateModel};
 
 #[cfg(test)]
 #[path = "prompt_tests.rs"]

@@ -1,10 +1,10 @@
 //! Onboarding-specific AI types and conversions.
 
 use ai::LLMId;
-use onboarding::slides::OnboardingModelInfo;
-use onboarding::OnboardingAuthState;
 use galaxy_core::ui::icons::Icon;
 use galaxyui::{AppContext, SingletonEntity};
+use onboarding::slides::OnboardingModelInfo;
+use onboarding::OnboardingAuthState;
 
 use crate::auth::AuthStateProvider;
 use crate::experiments::FreeTierDefaultModel;

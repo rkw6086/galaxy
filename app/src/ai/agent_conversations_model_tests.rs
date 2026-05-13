@@ -1,4 +1,6 @@
 use chrono::{DateTime, Duration, Utc};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{App, EntityId};
 use instant::Instant;
 use persistence::model::AgentConversationData;
 use std::{
@@ -8,8 +10,6 @@ use std::{
         Arc,
     },
 };
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{App, EntityId};
 
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::ambient_agents::task::{TaskCreatorInfo, TaskStatusMessage};

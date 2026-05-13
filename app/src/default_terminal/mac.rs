@@ -7,8 +7,8 @@ use core_foundation::{
     base::TCFType,
     string::{CFString, CFStringRef},
 };
-use objc::{class, msg_send, sel, sel_impl};
 use galaxy_core::channel::{Channel, ChannelState};
+use objc::{class, msg_send, sel, sel_impl};
 
 // Launch Services constants
 type LSRolesMask = u32;

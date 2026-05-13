@@ -4,8 +4,6 @@ use crate::slides::{bottom_nav, layout, slide_content};
 use crate::telemetry::OnboardingEvent;
 use crate::visuals::theme_picker_visual;
 use crate::OnboardingIntention;
-use pathfinder_color::ColorU;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, theme::WarpTheme};
@@ -22,6 +20,8 @@ use galaxyui::{
     ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
+use ui_components::{button, Component as _, Options as _};
 
 #[derive(Debug, Clone)]
 pub enum ThemePickerSlideEvent {

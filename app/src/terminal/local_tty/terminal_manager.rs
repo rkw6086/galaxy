@@ -40,6 +40,8 @@ use pathfinder_geometry::vector::Vector2F;
 use crate::terminal::cli_agent_sessions::{
     CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
+use galaxyui::r#async::executor::Background;
+use galaxyui::{AppContext, ModelContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
 use session_sharing_protocol::common::{
     ActivePrompt, AgentPromptFailureReason, CLIAgentSessionState, CommandExecutionFailureReason,
     ControlAction, ControlActionFailureReason, SelectedAgentModel,
@@ -50,8 +52,6 @@ use session_sharing_protocol::common::{
     LongRunningCommandAgentInteractionState, SelectedConversation, UniversalDeveloperInputContext,
 };
 use settings::Setting as _;
-use galaxyui::r#async::executor::Background;
-use galaxyui::{AppContext, ModelContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
 
 use galaxy_core::execution_mode::AppExecutionMode;
 

@@ -5,11 +5,11 @@ use crate::editor::soft_wrap::{self, DisplayPointAndClampDirection, SoftWrapPoin
 use anyhow::{Context, Result};
 pub use fold_map::BufferRows;
 use fold_map::FoldMap;
+use galaxyui::text::point::Point;
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 use std::cmp;
 use std::ops::Range;
 use string_offset::CharOffset;
-use galaxyui::text::point::Point;
-use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 
 #[derive(Copy, Clone)]
 pub enum Bias {

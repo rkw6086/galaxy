@@ -1,6 +1,7 @@
 use crate::{appearance::Appearance, ui_components::blended_colors};
-use session_sharing_protocol::common::Role;
-use galaxyui::elements::{Container, Flex, MainAxisAlignment, MouseStateHandle, ParentElement, Text};
+use galaxyui::elements::{
+    Container, Flex, MainAxisAlignment, MouseStateHandle, ParentElement, Text,
+};
 use galaxyui::{
     elements::CrossAxisAlignment,
     fonts::Weight,
@@ -11,6 +12,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use session_sharing_protocol::common::Role;
 
 use super::{BODY_PADDING, HEADER_FONT_SIZE, MODAL_PADDING, TEXT_FONT_SIZE};
 

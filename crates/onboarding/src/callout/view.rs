@@ -1,4 +1,3 @@
-use ui_components::Component;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     elements::Empty,
@@ -6,6 +5,7 @@ use galaxyui::{
     AppContext, Element, Entity, EventContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext,
 };
+use ui_components::Component;
 
 /// Display strings for keybindings shown in the onboarding callout.
 #[derive(Clone, Debug)]

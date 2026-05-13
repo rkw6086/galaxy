@@ -13,9 +13,9 @@ use crate::terminal::model::BlockId;
 use crate::terminal::ShellHost;
 use crate::util::extensions::TrimStringExt;
 use chrono::{DateTime, Local, TimeZone as _};
+use galaxy_core::command::ExitCode;
 use serde::{Deserialize, Serialize};
 use serde_bytes_repr::{ByteFmtDeserializer, ByteFmtSerializer};
-use galaxy_core::command::ExitCode;
 
 use super::AgentInteractionMetadata;
 

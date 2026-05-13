@@ -1,6 +1,3 @@
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::vec2f;
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::elements::new_scrollable::AxisConfiguration;
 use galaxyui::elements::new_scrollable::ClippedAxisConfiguration;
 use galaxyui::elements::new_scrollable::DualAxisConfig;
@@ -8,6 +5,9 @@ use galaxyui::elements::new_scrollable::NewScrollableElement;
 use galaxyui::elements::new_scrollable::ScrollableAppearance;
 use galaxyui::elements::new_scrollable::ScrollableAxis;
 use galaxyui::elements::Axis;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::vec2f;
+use pathfinder_geometry::vector::Vector2F;
 
 use galaxyui::elements::ChildView;
 use galaxyui::elements::ClippedScrollStateHandle;
@@ -230,7 +230,12 @@ impl NewScrollableElement for ScrollableElement {
         }
     }
 
-    fn scroll(&mut self, delta: galaxyui::units::Pixels, axis: Axis, ctx: &mut galaxyui::EventContext) {
+    fn scroll(
+        &mut self,
+        delta: galaxyui::units::Pixels,
+        axis: Axis,
+        ctx: &mut galaxyui::EventContext,
+    ) {
         match axis {
             Axis::Horizontal => (),
             Axis::Vertical => {

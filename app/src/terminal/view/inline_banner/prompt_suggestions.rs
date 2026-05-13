@@ -12,7 +12,6 @@ use crate::server::telemetry::InteractionSource;
 use crate::settings::InputSettings;
 use crate::terminal::view::passive_suggestions::PromptSuggestionResolution;
 use crate::util::bindings::keybinding_name_to_keystroke;
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Fill, Flex, HighlightedHyperlink, Hoverable, Icon, MainAxisAlignment, MainAxisSize,
@@ -27,6 +26,7 @@ use galaxyui::{
     AppContext, Entity, EventContext, ModelHandle, TypedActionView, ViewContext, ViewHandle,
 };
 use galaxyui::{SingletonEntity, View};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::terminal::view::{ContextMenuAction, InputType, PromptSuggestion};
 use crate::ui_components::blended_colors;

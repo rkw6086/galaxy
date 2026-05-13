@@ -21,8 +21,6 @@ use crate::{
         warpify::render::{render_subshell_flag, render_subshell_flag_pole},
     },
 };
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting;
 use galaxyui::{
     elements::{
         Border, ChildAnchor, ChildView, Clipped, Container, DropTarget, Element, Empty, Flex,
@@ -31,6 +29,8 @@ use galaxyui::{
     },
     AppContext, SingletonEntity,
 };
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
 
 use super::{should_render_prompt_using_editor_decorator_elements, Input, SubshellRenderState};
 

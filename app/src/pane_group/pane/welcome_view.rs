@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
@@ -15,6 +14,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext, WindowId,
 };
+use itertools::Itertools as _;
 
 use crate::code_review::diff_state::GitDeltaPreference;
 use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;

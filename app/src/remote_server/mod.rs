@@ -1,9 +1,9 @@
 #[cfg(not(target_family = "wasm"))]
 use crate::server::server_api::{ServerApiEvent, ServerApiProvider};
 #[cfg(not(target_family = "wasm"))]
-use remote_server::manager::RemoteServerManager;
-#[cfg(not(target_family = "wasm"))]
 use galaxyui::SingletonEntity;
+#[cfg(not(target_family = "wasm"))]
+use remote_server::manager::RemoteServerManager;
 // Re-export everything from the `remote_server` crate so existing
 // `crate::remote_server::*` imports in `app` continue to work.
 pub use remote_server::*;

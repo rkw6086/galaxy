@@ -59,9 +59,9 @@ pub const fn toml_path_hierarchy(path: &str) -> Option<&str> {
 }
 
 use anyhow::{Context, Result};
-use serde::{Serialize, de::DeserializeOwned};
 use galaxyui::{AppContext, Entity, ModelContext};
 use galaxyui_extras::user_preferences::UserPreferences;
+use serde::{Serialize, de::DeserializeOwned};
 
 /// Whether the TOML-backed settings file is active.
 ///

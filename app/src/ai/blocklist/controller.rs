@@ -67,6 +67,8 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{send_telemetry_from_ctx, server::telemetry::TelemetryEvent};
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
+use galaxy_core::assertions::safe_assert;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use pending_response_streams::PendingResponseStreams;
@@ -74,9 +76,7 @@ use session_sharing_protocol::common::ParticipantId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use galaxy_core::assertions::safe_assert;
 use warp_multi_agent_api::{message, Task, ToolType};
-use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 
 use super::orchestration_events::{OrchestrationEventService, OrchestrationEventServiceEvent};
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
@@ -2306,9 +2306,14 @@ impl BlocklistAIController {
                                 // After the stream finishes, persist the full message
                                 // history (input + assistant response) from the Arc back
                                 // into the conversation for the next request cycle.
-                                let messages_sent_arc = response_stream.as_ref(ctx).bedrock_messages_sent().clone();
+                                let messages_sent_arc =
+                                    response_stream.as_ref(ctx).bedrock_messages_sent().clone();
                                 let new_history = messages_sent_arc.lock().ok().and_then(|sent| {
-                                    if sent.is_empty() { None } else { Some(sent.clone()) }
+                                    if sent.is_empty() {
+                                        None
+                                    } else {
+                                        Some(sent.clone())
+                                    }
                                 });
                                 if let Some(new_history) = new_history {
                                     let history_model = BlocklistAIHistoryModel::handle(ctx);

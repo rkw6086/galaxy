@@ -17,12 +17,6 @@ use crate::editor::position_id_for_first_cursor;
 use crate::settings::CursorDisplayType;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use itertools::Itertools;
-use pathfinder_geometry::{
-    rect::RectF,
-    vector::{vec2f, Vector2F},
-};
-use vim::vim::{MotionType, VimMode};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::DEFAULT_UI_FONT_SIZE;
 use galaxy_util::user_input::UserInput;
@@ -33,17 +27,15 @@ use galaxyui::text_selection_utils::{
 };
 use galaxyui::ViewHandle;
 use galaxyui::{event::ModifiersState, text_layout::ComputeBaselinePositionArgs};
+use itertools::Itertools;
+use pathfinder_geometry::{
+    rect::RectF,
+    vector::{vec2f, Vector2F},
+};
+use vim::vim::{MotionType, VimMode};
 
 use crate::editor::view::AutosuggestionLocation;
 use crate::themes::theme::Fill;
-use smallvec::SmallVec;
-use std::collections::HashMap;
-use std::{
-    cmp, mem,
-    ops::Range,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
 use galaxyui::{
     elements::{
         AfterLayoutContext, CornerRadius, Element, Event, EventContext, LayoutContext,
@@ -55,14 +47,22 @@ use galaxyui::{
     ui_components::components::UiComponent,
     AppContext, SingletonEntity, TaskId,
 };
+use smallvec::SmallVec;
+use std::collections::HashMap;
+use std::{
+    cmp, mem,
+    ops::Range,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use galaxyui::elements::{
     ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, ParentElement, Text,
 };
 use galaxyui::platform::keyboard::KeyCode;
 
-use instant::Instant;
 use galaxyui::elements::{Radius, DEFAULT_UI_LINE_HEIGHT_RATIO};
+use instant::Instant;
 
 // Similar to the terminal::model::ansi::CursorShape, this Editor Element has different cursor
 // shapes. However, this element doesn't implement all the same variants, so we don't share that

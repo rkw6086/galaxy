@@ -1,6 +1,6 @@
+use galaxyui::text::TextBuffer;
 use itertools::Itertools;
 use string_offset::CharOffset;
-use galaxyui::text::TextBuffer;
 
 use crate::vim::{BracketChar, BracketEnd};
 

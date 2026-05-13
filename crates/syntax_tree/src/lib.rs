@@ -12,13 +12,13 @@ use parking_lot::Mutex;
 
 use arborium::tree_sitter::{InputEdit, Parser, Tree};
 use futures::stream::AbortHandle;
+use galaxyui::{color::ColorU, AppContext, Entity, ModelContext, WeakModelHandle};
 use queries::{
     highlight_query::HighlightQuery,
     indent_query::{indentation_delta, IndentDelta},
 };
 use rangemap::{RangeMap, RangeSet};
 use string_offset::{ByteOffset, CharOffset};
-use galaxyui::{color::ColorU, AppContext, Entity, ModelContext, WeakModelHandle};
 
 use galaxy_editor::{
     content::{

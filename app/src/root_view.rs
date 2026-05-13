@@ -79,6 +79,11 @@ use crate::{features::FeatureFlag, ChannelState};
 use crate::{send_telemetry_from_app_ctx, GlobalResourceHandles, GlobalResourceHandlesProvider};
 use anyhow::Result;
 use cfg_if::cfg_if;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::keymap::{EditableBinding, FixedBinding};
+use galaxyui::windowing::WindowManager;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -92,11 +97,6 @@ use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::{collections::HashMap, path::PathBuf};
 use url::Url;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::user_preferences::GetUserPreferences as _;
-use galaxyui::clipboard::ClipboardContent;
-use galaxyui::keymap::{EditableBinding, FixedBinding};
-use galaxyui::windowing::WindowManager;
 
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
 use crate::ai::onboarding::{
@@ -3213,8 +3213,8 @@ impl RootView {
         ctx: &mut ViewContext<Self>,
     ) -> bool {
         use crate::settings::AISettings;
-        use voice_input::{VoiceInput, VoiceInputState, VoiceInputToggledFrom};
         use galaxyui::event::KeyState;
+        use voice_input::{VoiceInput, VoiceInputState, VoiceInputToggledFrom};
 
         // Check that the released key matches the configured voice input toggle key.
         let ai_settings = AISettings::as_ref(ctx);

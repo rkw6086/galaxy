@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::{
     elements::{
@@ -14,6 +13,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use crate::{
     appearance::Appearance,

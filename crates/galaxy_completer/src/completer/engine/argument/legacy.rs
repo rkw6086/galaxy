@@ -2,14 +2,14 @@
 //! command signature struct (`warp_command_signatures::Signature`).
 use std::{borrow::Cow, collections::HashMap};
 
+use galaxy_core::features::FeatureFlag;
+use galaxy_util::path::ShellFamily;
 use itertools::Itertools;
 use smol_str::SmolStr;
 use warp_command_signatures::{
     Argument, ArgumentType, DynamicCompletionData, Generator, GeneratorProcess, Signature,
     Template, TemplateFilter, TemplateType,
 };
-use galaxy_core::features::FeatureFlag;
-use galaxy_util::path::ShellFamily;
 
 use crate::completer::{
     context::CompletionContext,

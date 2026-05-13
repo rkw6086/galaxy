@@ -1,7 +1,5 @@
 use std::{cmp::max, fmt::Debug, mem, ops::RangeInclusive};
 
-use sum_tree::SeekBias;
-use vec1::{vec1, Vec1};
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_terminal::model::grid::CellType;
 use galaxyui::{
@@ -9,6 +7,8 @@ use galaxyui::{
     units::{IntoLines as _, Lines},
     AppContext, EntityId, ViewAsRef as _,
 };
+use sum_tree::SeekBias;
+use vec1::{vec1, Vec1};
 
 use crate::{
     ai::blocklist::AIBlock,

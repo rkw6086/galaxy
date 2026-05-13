@@ -29,14 +29,6 @@ use crate::UserWorkspaces;
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 use chrono::Utc;
 use futures::prelude::*;
-use itertools::Itertools;
-use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
-use markdown_parser::{
-    parse_markdown, CodeBlockText, FormattedText, FormattedTextFragment, FormattedTextLine,
-};
-use pathfinder_geometry::vector::Vector2F;
-use string_offset::CharOffset;
-use vec1::vec1;
 use galaxy_core::features::FeatureFlag;
 use galaxy_editor::content::buffer::{AutoScrollBehavior, BufferSelectAction, SelectionOffsets};
 use galaxy_editor::content::text::{BlockType, BufferBlockStyle, CodeBlockType, TextStyles};
@@ -52,6 +44,14 @@ use galaxyui::r#async::{block_on, FutureId};
 use galaxyui::text::word_boundaries::WordBoundariesPolicy;
 use galaxyui::{r#async::Timer, App, Entity, ModelHandle, SingletonEntity, TypedActionView};
 use galaxyui::{AddSingletonModel, AppContext, Element, View, ViewHandle};
+use itertools::Itertools;
+use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
+use markdown_parser::{
+    parse_markdown, CodeBlockText, FormattedText, FormattedTextFragment, FormattedTextLine,
+};
+use pathfinder_geometry::vector::Vector2F;
+use string_offset::CharOffset;
+use vec1::vec1;
 
 /// Container for a [`RichTextEditorView`] in unit tests.
 struct TestView {

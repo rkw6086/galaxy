@@ -1,8 +1,8 @@
-use pathfinder_geometry::vector::vec2f;
-use string_offset::ByteOffset;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::model::CoreEditorModel;
 use galaxyui::{platform::WindowStyle, App};
+use pathfinder_geometry::vector::vec2f;
+use string_offset::ByteOffset;
 
 use crate::search::files::model::FileSearchModel;
 

@@ -10,7 +10,6 @@ use crate::terminal::warpify::render;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon as UiIcon;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::{
     FormattedTextElement, HighlightedHyperlink, Hoverable, Icon, MainAxisAlignment, MainAxisSize,
@@ -23,6 +22,7 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
 use galaxyui::{BlurContext, FocusContext};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 pub const WHY_INSTALL_TMUX_URL: &str =
     "https://docs.warp.dev/terminal/warpify/ssh#why-do-i-need-tmux-on-the-remote-machine";

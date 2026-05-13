@@ -1,6 +1,5 @@
 //! Shared context menu implementation for notebooks.
 
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::context_flag::ContextFlag;
 use galaxyui::{
     elements::{ChildAnchor, OffsetPositioning, ParentAnchor, ParentOffsetBounds, Stack},
@@ -8,6 +7,7 @@ use galaxyui::{
     presenter::ChildView,
     Action, Element, EventContext, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::{
     editor::EditorView,

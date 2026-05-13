@@ -13,8 +13,6 @@ use crate::{
         model::{BlockItem, test_utils::TEST_STYLES},
     },
 };
-use std::path::Path;
-use string_offset::CharOffset;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{
     App, SingletonEntity,
@@ -23,6 +21,8 @@ use galaxyui::{
     image_cache::ImageType,
     text_layout::{LayoutCache, StyleAndFont, TextStyle},
 };
+use std::path::Path;
+use string_offset::CharOffset;
 
 #[test]
 fn test_highlight_urls() {

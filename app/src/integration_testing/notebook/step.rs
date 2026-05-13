@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use string_offset::CharOffset;
 use galaxy_editor::model::CoreEditorModel;
 use galaxyui::{
     async_assert, integration::TestStep, windowing::WindowManager, App, SingletonEntity,
     ViewHandle, WindowId,
 };
+use string_offset::CharOffset;
 
 use crate::{
     cloud_object::{model::persistence::CloudModel, CloudObjectEventEntrypoint, Space},

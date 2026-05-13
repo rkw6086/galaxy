@@ -1,7 +1,7 @@
-use itertools::{Either, Itertools};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::ConstrainedBox;
 use galaxyui::FocusContext;
+use itertools::{Either, Itertools};
 
 use std::collections::HashSet;
 

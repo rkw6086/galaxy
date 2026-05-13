@@ -19,11 +19,11 @@ use crate::content::{
     },
 };
 use enum_iterator::all;
+use galaxyui::elements::ListIndentLevel;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use std::ops::Range;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use galaxyui::elements::ListIndentLevel;
 
 #[derive(Debug, Clone)]
 pub struct CoreEditorAction {

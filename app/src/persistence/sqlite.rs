@@ -24,15 +24,15 @@ use diesel::{
     OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper,
 };
 use diesel_migrations::MigrationHarness;
+use galaxy_graphql::scalars::time::ServerTimestamp;
+use galaxyui::platform::FullscreenState;
+use galaxyui::{AppContext, SingletonEntity};
 use itertools::Itertools;
 use libsqlite3_sys as sqlite3;
 use num_traits::FromPrimitive;
 use pathfinder_geometry::{rect::RectF, vector::Vector2F};
 use persistence::model::AMBIENT_AGENT_PANE_KIND;
 use uuid::Uuid;
-use galaxy_graphql::scalars::time::ServerTimestamp;
-use galaxyui::platform::FullscreenState;
-use galaxyui::{AppContext, SingletonEntity};
 
 use super::agent::{delete_agent_conversations, upsert_agent_conversation};
 use super::block_list::{

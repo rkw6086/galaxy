@@ -3,6 +3,8 @@ use anyhow::anyhow;
 use anyhow::{bail, Result};
 use channel_versions::VersionInfo;
 use command::blocking::Command;
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxyui::AppContext;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::fs::File;
@@ -11,8 +13,6 @@ use std::sync::Arc;
 use std::{fs, io};
 use std::{io::Write as _, time::Duration};
 use tempfile::TempPath;
-use galaxy_core::channel::{Channel, ChannelState};
-use galaxyui::AppContext;
 
 use super::{release_assets_directory_url, DownloadReady};
 use crate::util::windows::install_dir;

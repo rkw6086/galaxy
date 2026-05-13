@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use tempfile::NamedTempFile;
 use galaxy_cli::agent::Harness;
 use galaxy_managed_secrets::ManagedSecretValue;
 use galaxyui::{ModelHandle, ModelSpawner, SingletonEntity};
+use tempfile::NamedTempFile;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::AmbientAgentTaskId;

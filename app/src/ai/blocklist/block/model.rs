@@ -1,10 +1,10 @@
 mod helper;
 mod model_impl;
 
+use galaxy_core::features::FeatureFlag;
 pub use helper::AIBlockModelHelper;
 pub use model_impl::*;
 use session_sharing_protocol::common::ParticipantId;
-use galaxy_core::features::FeatureFlag;
 
 use crate::ai::{
     agent::{

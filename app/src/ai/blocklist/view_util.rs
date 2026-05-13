@@ -1,8 +1,6 @@
 //! This module contains common utilities for rendering Blocklist AI UI.
 use std::sync::LazyLock;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     elements::{
@@ -17,6 +15,8 @@ use galaxyui::{
     },
     AppContext, Element, EntityId, EventContext, SingletonEntity,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::{
     themes::theme::{AnsiColorIdentifier, Fill, WarpTheme},

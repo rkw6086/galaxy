@@ -11,13 +11,6 @@ use crate::{
     },
     terminal::view::ambient_agent::AmbientAgentViewModel,
 };
-use pathfinder_color::ColorU;
-#[cfg(not(target_family = "wasm"))]
-use settings::Setting as _;
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::Arc;
 use galaxyui::{
     elements::{
         ChildView, Clipped, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,
@@ -28,6 +21,13 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, SingletonEntity as _, TypedActionView, View, ViewAsRef,
     ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+#[cfg(not(target_family = "wasm"))]
+use settings::Setting as _;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use galaxy_core::ui::{
     color::{
@@ -38,11 +38,11 @@ use galaxy_core::ui::{
     theme,
 };
 
-use std::boxed::Box;
 use galaxyui::{
     ui_components::segmented_control::{SegmentedControl, SegmentedControlEvent},
     ModelHandle,
 };
+use std::boxed::Box;
 
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;

@@ -4,7 +4,6 @@ use crate::{
     util::time_format::format_approx_duration_from_now,
 };
 use chrono::{DateTime, Local};
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::builder::MIN_FONT_SIZE;
 use galaxyui::{
     elements::{
@@ -15,6 +14,7 @@ use galaxyui::{
     ui_components::components::{Coords, UiComponent, UiComponentStyles},
     AppContext, Element, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
 
 use crate::ui_components::icons::Icon as UiIcon;
 

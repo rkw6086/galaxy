@@ -1,6 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::Fill;
@@ -12,6 +9,9 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
 
 use std::sync::Arc;
 

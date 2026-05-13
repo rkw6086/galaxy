@@ -15,12 +15,6 @@ use crate::themes::theme::WarpTheme;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 
 use core::mem;
-use lazy_static::lazy_static;
-use num_traits::Float as _;
-use std::cmp::Ordering;
-use std::ops::Range;
-use std::{collections::HashMap, ops::RangeInclusive};
-use unicode_width::UnicodeWidthChar;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
 use galaxyui::color::ColorU;
@@ -33,6 +27,12 @@ use galaxyui::platform::LineStyle;
 use galaxyui::text_layout::{Line, StyleAndFont, TextStyle, DEFAULT_TOP_BOTTOM_RATIO};
 use galaxyui::units::{IntoLines as _, Lines, Pixels};
 use galaxyui::{AppContext, Element, EntityId, PaintContext, Scene, SingletonEntity};
+use lazy_static::lazy_static;
+use num_traits::Float as _;
+use std::cmp::Ordering;
+use std::ops::Range;
+use std::{collections::HashMap, ops::RangeInclusive};
+use unicode_width::UnicodeWidthChar;
 
 pub use self::cell_glyph_cache::CellGlyphCache;
 use self::cell_type::{CellType, IsFocused, Secret};

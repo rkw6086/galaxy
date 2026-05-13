@@ -1,16 +1,16 @@
 use std::{path::PathBuf, sync::Arc};
 
-use pathfinder_color::ColorU;
-use serde::Serialize;
-use strum_macros::EnumIter;
 use galaxy_core::ui::{
     color::hex_color::HexColorError as UiHexColorError,
     theme::{AnsiColors, WarpTheme},
 };
+use pathfinder_color::ColorU;
+use serde::Serialize;
+use strum_macros::EnumIter;
 
 use async_trait::async_trait;
-use thiserror::Error;
 use galaxyui::{fonts::FontInfo, keymap::Keystroke, DisplayIdx};
+use thiserror::Error;
 
 use crate::{
     interval_timer::IntervalTimer,

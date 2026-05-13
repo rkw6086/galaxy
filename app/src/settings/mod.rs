@@ -48,6 +48,7 @@ pub use debug::*;
 pub use editor::*;
 pub use emacs_bindings::*;
 pub use font::*;
+use galaxy_core::user_preferences::GetUserPreferences as _;
 pub use gpu::*;
 pub use init::*;
 pub use input::*;
@@ -64,7 +65,6 @@ pub use select::*;
 pub use ssh::*;
 pub use theme::*;
 pub use vim_banner::*;
-use galaxy_core::user_preferences::GetUserPreferences as _;
 
 /// Describes errors encountered when loading settings from `settings.toml`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -121,17 +121,17 @@ use crate::{
     themes::theme::{ThemeKind, WarpTheme},
     user_config::WarpConfig,
 };
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{
+    elements::DEFAULT_UI_LINE_HEIGHT_RATIO, keymap::Keystroke, AppContext, DisplayIdx,
+    SingletonEntity,
+};
 use lazy_static::lazy_static;
 use pathfinder_geometry::{rect::RectF, vector::Vector2F};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use settings::Setting as _;
 use std::{collections::HashMap, ops::Mul, path::PathBuf};
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{
-    elements::DEFAULT_UI_LINE_HEIGHT_RATIO, keymap::Keystroke, AppContext, DisplayIdx,
-    SingletonEntity,
-};
 
 // The following are user preferences keys.
 pub const CHANGELOG_VERSIONS: &str = "ChangelogVersions";

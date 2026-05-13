@@ -1,9 +1,9 @@
 use std::{collections::HashMap, ops::Range};
 
 use arborium::tree_sitter::{Node, Query, QueryCursor, Tree};
-use streaming_iterator::StreamingIterator;
 use galaxy_editor::content::buffer::Buffer;
 use galaxyui::text::point::Point;
+use streaming_iterator::StreamingIterator;
 
 use super::highlight_query::TextBuffer;
 

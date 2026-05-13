@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -15,6 +14,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use crate::menu::{self, Event as MenuEvent, Menu, MenuItemFields};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};

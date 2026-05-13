@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use galaxyui::{App, ReadModel};
 use markdown_parser::{compute_formatted_text_delta, parse_markdown};
 use serde_yaml::Value;
 use string_offset::CharOffset;
 use vec1::Vec1;
-use galaxyui::{App, ReadModel};
 
 use crate::content::{
     buffer::{

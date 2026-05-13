@@ -170,9 +170,9 @@ impl Log for WasmLogger {
                             .map_or_else(|| "[Unknown]".to_string(), |line| line.to_string()),
                     );
                     // Send error logs to Sentry.
-                    galaxy_web_event_bus::emit_event(galaxy_web_event_bus::WarpEvent::ErrorLogged {
-                        error,
-                    });
+                    galaxy_web_event_bus::emit_event(
+                        galaxy_web_event_bus::WarpEvent::ErrorLogged { error },
+                    );
 
                     console::error_4(
                         &s,

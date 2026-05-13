@@ -18,8 +18,8 @@ use crate::ui::color::contrast::relative_luminance;
 use self::color::CustomDetails;
 
 use dirs::home_dir;
-use serde::{Deserialize, Serialize};
 use galaxyui::{assets::asset_cache::AssetSource, color::ColorU, geometry::vector::vec2f};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Image {

@@ -15,17 +15,17 @@ pub use agent_message_bar::*;
 pub use agent_view_block::*;
 pub use controller::*;
 pub use ephemeral_message_model::*;
-pub use inline_agent_view_header::*;
 use galaxyui::fonts::Properties;
+pub use inline_agent_view_header::*;
 pub use zero_state_block::*;
 
 use std::sync::LazyLock;
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::{appearance::Appearance, color::blend::Blend};
 use galaxyui::keymap::Keystroke;
 use galaxyui::{AppContext, SingletonEntity};
+use pathfinder_color::ColorU;
 
 use crate::view_components::action_button::ActionButtonTheme;
 

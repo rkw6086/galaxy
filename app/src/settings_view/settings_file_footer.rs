@@ -11,7 +11,6 @@ use crate::appearance::Appearance;
 use crate::settings::SettingsFileError;
 use crate::ui_components::icons::Icon;
 use crate::WorkspaceAction;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -22,6 +21,7 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::platform::Cursor;
+use pathfinder_color::ColorU;
 
 /// Horizontal + vertical padding applied to the footer inside the sidebar.
 const FOOTER_PADDING: f32 = 12.;

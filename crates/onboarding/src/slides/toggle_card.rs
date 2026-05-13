@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
 use galaxyui::prelude::Align;
@@ -14,6 +13,7 @@ use galaxyui::{
     text_layout::TextAlignment,
     AppContext, Element,
 };
+use pathfinder_geometry::vector::Vector2F;
 
 pub(super) type ClickCallback = Box<dyn FnMut(&mut EventContext, &AppContext, Vector2F) + 'static>;
 pub(super) type HoverCallback =

@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
+use galaxyui::{AppContext, AssetProvider, SingletonEntity};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use memo_map::MemoMap;
-use galaxyui::{AppContext, AssetProvider, SingletonEntity};
 
 use crate::{
     env_vars::EnvVar,

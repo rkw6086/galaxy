@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use galaxyui::{Entity, ModelHandle};
+use itertools::Itertools;
 
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::DataSourceRunErrorWrapper;

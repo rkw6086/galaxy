@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use chrono::DateTime;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::{AppContext, SingletonEntity as _};
 use handlebars::get_arguments;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{AppContext, SingletonEntity as _};
 
 use crate::{
     cloud_object::{

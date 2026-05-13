@@ -67,9 +67,6 @@ use crate::{
     util::bindings::keybinding_name_to_keystroke,
     BlocklistAIHistoryModel,
 };
-use instant::Instant;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use galaxy_core::{
     features::FeatureFlag,
     ui::{appearance::Appearance, theme::Fill, Icon as CoreIcon},
@@ -84,6 +81,9 @@ use galaxyui::{
     ViewHandle,
 };
 use galaxyui::{r#async::Timer, TypedActionView};
+use instant::Instant;
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
 
 pub fn init(app: &mut AppContext) {
     summarization_cancel_dialog::init(app);
@@ -989,8 +989,8 @@ fn latest_model_used_before_exchange<V: View>(
 
 fn render_agent_tip(tip: &AgentTip, app: &AppContext) -> Box<dyn Element> {
     use crate::ai::agent_tips::AITip;
-    use markdown_parser::{FormattedTextFragment, FormattedTextLine};
     use galaxyui::text_layout::ClipConfig;
+    use markdown_parser::{FormattedTextFragment, FormattedTextLine};
 
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();

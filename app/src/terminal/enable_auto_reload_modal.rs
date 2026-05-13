@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use enclose::enclose;
-use itertools::Itertools as _;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_graphql::billing::AddonCreditsOption;
 use galaxyui::elements::{
@@ -13,6 +11,8 @@ use galaxyui::fonts::Weight;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent as _, UiComponentStyles};
 use galaxyui::{AppContext, Element, Entity, SingletonEntity as _, View, ViewContext, ViewHandle};
+use itertools::Itertools as _;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::features::FeatureFlag;
 use crate::menu::MenuItemFields;

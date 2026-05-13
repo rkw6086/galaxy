@@ -19,11 +19,11 @@
 use cocoa::appkit::NSMenuItem;
 use cocoa::base::nil;
 use cocoa::foundation::NSAutoreleasePool;
-use objc::runtime::Object;
-use objc::{msg_send, sel, sel_impl};
 use galaxyui_core::actions::StandardAction;
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::platform::menu::{MenuItem, MenuItemPropertyChanges};
+use objc::runtime::Object;
+use objc::{msg_send, sel, sel_impl};
 
 use super::{apply_changes, make_menu_item};
 

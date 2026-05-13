@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use settings::Setting as _;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
@@ -20,6 +18,8 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, Tracked, TypedActionView,
     UpdateModel, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+use settings::Setting as _;
 
 use crate::resource_center::{mark_feature_used_and_write_to_user_defaults, Tip, TipAction};
 use crate::themes::theme::{RespectSystemTheme, ThemeKind, WarpTheme};

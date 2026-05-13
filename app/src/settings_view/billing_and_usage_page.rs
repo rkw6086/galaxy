@@ -1,12 +1,4 @@
 use chrono::Local;
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::sync::Arc;
-use thousands::Separable;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::{features::FeatureFlag, ui::appearance::Appearance};
 use galaxy_graphql::billing::AddonCreditsOption;
@@ -28,6 +20,14 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, UpdateView, View,
     ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::Arc;
+use thousands::Separable;
 
 use settings::Setting;
 

@@ -6,7 +6,6 @@ use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
-use std::default::Default;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::fonts::Weight;
 use galaxyui::keymap::FixedBinding;
@@ -16,6 +15,7 @@ use galaxyui::AppContext;
 use galaxyui::SingletonEntity;
 use galaxyui::ViewHandle;
 use galaxyui::{Element, Entity, TypedActionView, View, ViewContext};
+use std::default::Default;
 
 use super::shared_objects_creation_denied_body::{
     SharedObjectsCreationDeniedBody, SharedObjectsCreationDeniedBodyEvent,

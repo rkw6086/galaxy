@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use futures_util::future::BoxFuture;
-use itertools::Itertools;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::editor::EditorView;
 use galaxyui::{
@@ -10,6 +9,7 @@ use galaxyui::{
     AddSingletonModel, App, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
     ViewHandle, WindowId,
 };
+use itertools::Itertools;
 
 use crate::{
     auth::{

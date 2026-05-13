@@ -6,9 +6,9 @@ use crate::search::data_source::QueryResult;
 use crate::search::SyncDataSource;
 use crate::session_management::{CommandContext, SessionNavigationData, SessionSource};
 use fuzzy_match::match_indices_case_insensitive;
+use galaxyui::{AppContext, ModelHandle};
 use itertools::Itertools;
 use std::ops::Range;
-use galaxyui::{AppContext, ModelHandle};
 
 /// A session that was fuzzy matched against a search term.
 pub struct MatchedSession {
@@ -252,9 +252,9 @@ mod full_text_searcher {
     use crate::search::data_source::QueryResult;
     use crate::search::searcher::{DEFAULT_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR};
     use crate::session_management::{SessionNavigationData, SessionSource};
+    use galaxyui::{AppContext, ModelHandle};
     use itertools::Itertools;
     use std::collections::HashMap;
-    use galaxyui::{AppContext, ModelHandle};
 
     define_search_schema!(
         schema_name: SESSION_SEARCH_SCHEMA,

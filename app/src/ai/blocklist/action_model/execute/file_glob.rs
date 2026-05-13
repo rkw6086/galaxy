@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use itertools::Itertools;
 use galaxyui::r#async::FutureExt as AsyncFutureExt;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
 
 use crate::ai::agent::{
     conversation::AIConversationId, AIAgentAction, AIAgentActionType, FileGlobResult,

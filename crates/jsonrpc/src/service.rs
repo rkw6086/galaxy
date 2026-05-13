@@ -9,9 +9,9 @@ use std::{
 use crate::transport::Transport;
 use anyhow::{anyhow, Result};
 use futures::{channel::oneshot, lock::Mutex as AsyncMutex};
+use galaxyui::r#async::executor::Background;
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
-use galaxyui::r#async::executor::Background;
 
 pub const JSON_RPC_VERSION: &str = "2.0";
 

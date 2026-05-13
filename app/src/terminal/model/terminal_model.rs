@@ -61,13 +61,21 @@ use crate::terminal::model::session::SessionInfo;
 use crate::terminal::shell::{ShellName, ShellType};
 
 use crate::terminal::model::secrets::ObfuscateSecrets;
-use session_sharing_protocol::sharer::SessionSourceType;
 use galaxy_core::report_error;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui::util::save_as_file;
+use session_sharing_protocol::sharer::SessionSourceType;
 
 use async_channel::Sender;
 use base64::Engine;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::semantic_selection::SemanticSelection;
+pub use galaxy_terminal::model::BlockIndex;
+use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
+use galaxyui::assets::asset_cache::Asset;
+use galaxyui::image_cache::ImageType;
+use galaxyui::r#async::executor::Background;
+use galaxyui::AppContext;
 use hex::FromHexError;
 use instant::Instant;
 use itertools::{Either, Itertools};
@@ -82,14 +90,6 @@ use std::ops::{Range, RangeInclusive};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::semantic_selection::SemanticSelection;
-pub use galaxy_terminal::model::BlockIndex;
-use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
-use galaxyui::assets::asset_cache::Asset;
-use galaxyui::image_cache::ImageType;
-use galaxyui::r#async::executor::Background;
-use galaxyui::AppContext;
 
 /// Max size of the window title stack.
 const TITLE_STACK_MAX_DEPTH: usize = 4096;

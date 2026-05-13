@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use settings::Setting;
 use galaxy_core::ui::{appearance::Appearance, Icon};
 use galaxyui::{
     elements::{
@@ -12,6 +10,8 @@ use galaxyui::{
     text_layout::ClipConfig,
     Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
+use settings::Setting;
 
 use crate::{
     ai::{

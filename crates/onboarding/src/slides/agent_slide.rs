@@ -6,8 +6,6 @@ use galaxy_core::send_telemetry_from_ctx;
 
 use super::OnboardingSlide;
 use crate::visuals::agent_visual;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::{
     appearance::Appearance,
@@ -31,11 +29,13 @@ use galaxyui::{
     AppContext, Element, Entity, Gradient, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 use ai::LLMId;
+use galaxy_core::ui::icons::Icon;
 use pathfinder_color::ColorU;
 use ui_components::button::State as ButtonState;
-use galaxy_core::ui::icons::Icon;
 
 /// high-contrast "inverted" fill (foreground color)
 struct UpgradeButtonTheme;
@@ -1003,12 +1003,12 @@ impl AgentSlide {
         );
 
         let step_index = 2;
-        let step_count = if galaxy_core::features::FeatureFlag::OpenWarpNewSettingsModes.is_enabled()
-        {
-            5
-        } else {
-            4
-        };
+        let step_count =
+            if galaxy_core::features::FeatureFlag::OpenWarpNewSettingsModes.is_enabled() {
+                5
+            } else {
+                4
+            };
         bottom_nav::onboarding_bottom_nav(
             appearance,
             step_index,

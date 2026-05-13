@@ -1,5 +1,5 @@
-use serde::Serialize;
 use galaxyui::{elements::MouseStateHandle, Element};
+use serde::Serialize;
 
 use crate::{
     appearance::Appearance,

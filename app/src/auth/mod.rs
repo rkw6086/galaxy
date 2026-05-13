@@ -25,10 +25,10 @@ use ::settings::{Setting, SettingsManager, ToggleableSetting};
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
-use itertools::Itertools;
 pub use auth_view_modal::LoginFailureReason;
-pub use user_uid::UserUid;
 use galaxyui::modals::{AlertDialogWithCallbacks, ModalButton};
+use itertools::Itertools;
+pub use user_uid::UserUid;
 
 use galaxy_core::user_preferences::GetUserPreferences as _;
 use galaxyui::{AppContext, SingletonEntity};

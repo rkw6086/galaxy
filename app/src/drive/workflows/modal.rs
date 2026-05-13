@@ -2,9 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::{cmp::Ordering, sync::Arc};
 
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
 use galaxy_core::ui::theme::Fill;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::Clipped;
@@ -27,6 +24,9 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, UpdateView, View, ViewContext,
     ViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
 
 use crate::auth::UserUid;
 use crate::{

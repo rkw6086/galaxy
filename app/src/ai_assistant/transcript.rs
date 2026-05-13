@@ -1,7 +1,3 @@
-use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
-use markdown_parser::CodeBlockText;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::builder::AnimatedButtonOptions;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{DispatchEventResult, Stack};
@@ -22,6 +18,10 @@ use galaxyui::{
     WeakViewHandle,
 };
 use galaxyui::{BlurContext, FocusContext};
+use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
+use markdown_parser::CodeBlockText;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{

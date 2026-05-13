@@ -5,9 +5,9 @@ use std::{
 
 use async_channel::Receiver;
 use futures::channel::oneshot;
-use parking_lot::Mutex;
 use galaxy_js::JsFunctionId;
 use galaxyui::r#async::executor::Background;
+use parking_lot::Mutex;
 
 use super::{
     plugin::{AppServiceCallers, PluginRequest, PluginResponse},

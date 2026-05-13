@@ -31,11 +31,6 @@ use crate::{
 };
 use crate::{code_review::diff_state::DiffStateModel, terminal::view::TerminalView};
 use dunce::canonicalize;
-use itertools::Itertools;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::Icon;
 use galaxy_util::path::LineAndColumnArg;
@@ -58,6 +53,11 @@ use galaxyui::{
     fonts::{Properties, Weight},
     platform::Cursor,
     ui_components::components::UiComponent,
+};
+use itertools::Itertools;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
 };
 
 /// Describes which agent destination is available for sending review comments.

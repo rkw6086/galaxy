@@ -1,5 +1,4 @@
 #![allow(dead_code, unused_imports, unused_variables)]
-use pathfinder_color::ColorU;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
     elements::{
@@ -11,6 +10,7 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use crate::{
     appearance::Appearance,

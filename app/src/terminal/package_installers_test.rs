@@ -50,10 +50,10 @@ fn test_command_at_cursor_has_common_package_installer_prefix_with_alias_expansi
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use typed_path::TypedPathBuf;
     use galaxy_completer::signatures::CommandRegistry;
     use galaxy_util::path::ShellFamily;
     use galaxyui::App;
+    use typed_path::TypedPathBuf;
 
     use crate::completer::SessionContext;
     use crate::terminal::model::session::{

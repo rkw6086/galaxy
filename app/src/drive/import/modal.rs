@@ -5,7 +5,6 @@ use crate::{
     themes::theme::WarpTheme,
     workspaces::user_workspaces::UserWorkspaces,
 };
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::{
     elements::{
@@ -22,6 +21,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use super::modal_body::{ImportModalBody, ImportModalBodyAction, ImportModalBodyEvent};
 

@@ -1,5 +1,3 @@
-use std::ops::Range;
-use string_offset::CharOffset;
 use galaxyui::{
     AppContext, ClipBounds, Event, EventContext,
     elements::{
@@ -14,6 +12,8 @@ use galaxyui::{
     },
     units::{IntoPixels, Pixels},
 };
+use std::ops::Range;
+use string_offset::CharOffset;
 
 use crate::render::model::table_offset_map::CellAtOffset;
 use crate::{

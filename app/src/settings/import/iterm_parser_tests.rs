@@ -1,9 +1,9 @@
 use async_io::block_on;
+use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxyui::{fonts::FontInfo, keymap::Keystroke};
 use pathfinder_color::ColorU;
 use plist::{Dictionary, Value};
 use virtual_fs::{Stub, VirtualFS};
-use galaxy_core::ui::theme::{Fill, WarpTheme};
-use galaxyui::{fonts::FontInfo, keymap::Keystroke};
 
 use crate::settings::import::{
     config::{GlobalHotkey, HotkeyError, ImportedFont, ParseableConfig, ThemeType},

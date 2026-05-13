@@ -1,6 +1,6 @@
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::{Action, AppContext, Element};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 

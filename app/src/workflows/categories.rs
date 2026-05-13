@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
     elements::{
@@ -9,6 +8,7 @@ use galaxyui::{
     fonts::{Properties, Weight},
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
 };
+use itertools::Itertools;
 
 use crate::appearance::Appearance;
 use crate::util::bindings::CustomAction;
@@ -24,14 +24,8 @@ use crate::{
     user_config::WarpConfigUpdateEvent,
 };
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use std::collections::HashMap;
-use std::ops::Deref;
-#[cfg(feature = "local_fs")]
-use std::path::PathBuf;
-use std::sync::Arc;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
-use warp_workflows::workflows as global_workflows;
 use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
@@ -40,6 +34,12 @@ use galaxyui::elements::{
 use galaxyui::keymap::FixedBinding;
 use galaxyui::text_layout::TextStyle;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use std::collections::HashMap;
+use std::ops::Deref;
+#[cfg(feature = "local_fs")]
+use std::path::PathBuf;
+use std::sync::Arc;
+use warp_workflows::workflows as global_workflows;
 
 use super::{workflow::Workflow, WorkflowSource};
 

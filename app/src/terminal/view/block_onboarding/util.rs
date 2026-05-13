@@ -1,7 +1,6 @@
 use crate::appearance::Appearance;
 use crate::editor::EditorView;
 use crate::ui_components::icons::Icon;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{Flex, ParentElement};
 use galaxyui::ui_components::components::Coords;
@@ -20,6 +19,7 @@ use galaxyui::{
     Action, AppContext, Element,
 };
 use galaxyui::{SingletonEntity, ViewHandle};
+use pathfinder_color::ColorU;
 
 pub const INPUT_BOX_FONT_SIZE: f32 = 14.;
 pub const TEAM_BLOCK_INITIAL_HEIGHT: f32 = 92.;

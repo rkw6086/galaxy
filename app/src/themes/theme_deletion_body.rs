@@ -5,9 +5,6 @@ use crate::settings::{active_theme_kind, ThemeSettings};
 use crate::themes::theme::{ThemeKind, WarpTheme};
 use crate::user_config;
 use crate::user_config::util::from_yaml;
-use std::default::Default;
-use std::fs;
-use std::fs::remove_file;
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{
     Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisSize, MouseStateHandle,
@@ -20,6 +17,9 @@ use galaxyui::{
     platform::Cursor, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
     ViewContext,
 };
+use std::default::Default;
+use std::fs;
+use std::fs::remove_file;
 
 const BUTTON_PADDING: f32 = 12.;
 const BUTTON_FONT_SIZE: f32 = 14.;

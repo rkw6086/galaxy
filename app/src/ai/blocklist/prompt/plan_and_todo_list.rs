@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, Icon};
 use galaxyui::{
     elements::{
@@ -16,6 +15,7 @@ use galaxyui::{
     elements::{ParentElement, ParentOffsetBounds},
     ui_components::components::UiComponent,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use galaxy_core::features::FeatureFlag;
 

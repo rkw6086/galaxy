@@ -38,9 +38,6 @@ use ai::agent::action::{
     RequestComputerUseRequest, SuggestPromptRequest, UploadArtifactRequest, UseComputerRequest,
 };
 use ai::skills::SkillReference;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::ui::theme::color::internal_colors;
 #[allow(unused_imports)]
 use galaxy_util::path::{common_path, CleanPathResult};
@@ -49,6 +46,9 @@ use galaxyui::elements::{
     ChildAnchor, NewScrollable, OffsetPositioning, ParentAnchor, ParentOffsetBounds, Stack,
 };
 use galaxyui::EntityId;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 use crate::ai::blocklist::block::{
     CollapsibleElementState, CollapsibleExpansionState, FinishReason, ImportedCommentGroup,
@@ -108,9 +108,9 @@ use crate::{
     workspace::WorkspaceAction,
     FeatureFlag,
 };
+use galaxy_core::channel::ChannelState;
 use itertools::Itertools;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use galaxy_core::channel::ChannelState;
 
 use super::common::{
     format_elapsed_seconds, render_debug_footer, render_failed_output, render_informational_footer,
@@ -220,17 +220,29 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
         | AIBlockOutputStatus::Complete { .. }
         | AIBlockOutputStatus::Cancelled { .. }
         | AIBlockOutputStatus::Failed { .. } => {
-             if let Some(output) = status.output_to_render() {
+            if let Some(output) = status.output_to_render() {
                 let output = output.get();
-                let total_text_len: usize = output.messages.iter().map(|m| match &m.message {
-                    AIAgentOutputMessageType::Text(t) => t.sections.iter().map(|s| match s {
-                        AIAgentTextSection::PlainText { text } => text.text().len(),
-                        AIAgentTextSection::Code { code, .. } => code.len(),
+                let total_text_len: usize = output
+                    .messages
+                    .iter()
+                    .map(|m| match &m.message {
+                        AIAgentOutputMessageType::Text(t) => t
+                            .sections
+                            .iter()
+                            .map(|s| match s {
+                                AIAgentTextSection::PlainText { text } => text.text().len(),
+                                AIAgentTextSection::Code { code, .. } => code.len(),
+                                _ => 0,
+                            })
+                            .sum::<usize>(),
                         _ => 0,
-                    }).sum::<usize>(),
-                    _ => 0,
-                }).sum();
-                log::info!("[bedrock-debug] render output: messages={}, total_text_len={}", output.messages.len(), total_text_len);
+                    })
+                    .sum();
+                log::info!(
+                    "[bedrock-debug] render output: messages={}, total_text_len={}",
+                    output.messages.len(),
+                    total_text_len
+                );
                 let is_complete = matches!(status, AIBlockOutputStatus::Complete { .. });
                 let is_output_for_static_prompt_suggestions =
                     props.model.contains_static_prompt_suggestion_input(app);

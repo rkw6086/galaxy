@@ -1,7 +1,4 @@
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -16,6 +13,9 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, Entity, EntityId, SingletonEntity as _};
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use ordered_float::OrderedFloat;
 
 use crate::ai::llms::{
     is_using_api_key_for_provider, DisableReason, LLMId, LLMInfo, LLMPreferences, LLMProvider,

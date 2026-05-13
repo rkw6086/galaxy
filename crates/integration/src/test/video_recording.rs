@@ -1,9 +1,9 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::event::{Event, ModifiersState};
 use galaxyui::integration::{TestStep, ARTIFACTS_DIR_ENV_VAR};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::Builder;
 use galaxy::integration_testing::step::new_step_with_default_assertions;

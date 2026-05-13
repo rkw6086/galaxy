@@ -5,9 +5,6 @@ use crate::terminal::warpify::render::apply_spacing_styles;
 use crate::terminal::warpify::render::build_description_row;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::ui_components::icons::Icon as UiIcon;
-use markdown_parser::FormattedText;
-use markdown_parser::FormattedTextFragment;
-use markdown_parser::FormattedTextLine;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::HighlightedHyperlink;
@@ -28,6 +25,9 @@ use galaxyui::{
     elements::{Border, Container, CrossAxisAlignment, Flex, ParentElement},
     Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use markdown_parser::FormattedText;
+use markdown_parser::FormattedTextFragment;
+use markdown_parser::FormattedTextLine;
 
 const TMUX_NOT_INSTALLED_ERROR: &str =
     "tmux is not installed on the remote machine. Please install tmux and try again.";

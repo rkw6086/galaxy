@@ -12,15 +12,15 @@ use crate::workspace::sync_inputs::SyncedInputState;
 use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use anyhow::Error;
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use settings::ToggleableSetting;
-use unindent::Unindent;
 use galaxyui::color::ColorU;
 use galaxyui::platform::WindowStyle;
 use galaxyui::text_layout::TextFrame;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{AddSingletonModel, App, UpdateModel, UpdateView};
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use settings::ToggleableSetting;
+use unindent::Unindent;
 
 impl EditorView {
     fn selected_ranges(&self, app: &AppContext) -> Vec<Range<DisplayPoint>> {

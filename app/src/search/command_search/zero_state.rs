@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use lazy_static::lazy_static;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::Wrap;
@@ -11,6 +10,7 @@ use galaxyui::{
     platform::Cursor,
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use lazy_static::lazy_static;
 
 use crate::appearance::Appearance;
 use crate::drive::settings::{WarpDriveSettings, WarpDriveSettingsChangedEvent};

@@ -8,6 +8,8 @@ use crate::search::files::search_item::FileSearchResult;
 use crate::search::mixer::{AsyncDataSource, BoxFuture, DataSourceRunErrorWrapper};
 use futures_lite::FutureExt;
 use fuzzy_match::FuzzyMatchResult;
+use galaxy_util::path::CleanPathResult;
+use galaxyui::{AppContext, Entity, SingletonEntity};
 use instant::Instant;
 use itertools::Itertools;
 use std::collections::HashSet;
@@ -15,8 +17,6 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use galaxy_util::path::CleanPathResult;
-use galaxyui::{AppContext, Entity, SingletonEntity};
 
 const MAX_RESULTS: usize = 100;
 

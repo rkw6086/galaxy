@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, HighlightedHyperlink,
@@ -12,6 +11,7 @@ use galaxyui::{
     },
     AppContext, Element,
 };
+use pathfinder_color::ColorU;
 
 use crate::{
     appearance::Appearance,

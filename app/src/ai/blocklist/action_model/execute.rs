@@ -29,6 +29,7 @@ use edit_documents::EditDocumentsExecutor;
 use fetch_conversation::FetchConversationExecutor;
 use file_glob::FileGlobExecutor;
 use futures::{future::BoxFuture, FutureExt};
+use galaxy_core::{execution_mode::AppExecutionMode, features::FeatureFlag};
 use grep::GrepExecutor;
 use parking_lot::FairMutex;
 use read_documents::ReadDocumentsExecutor;
@@ -52,13 +53,11 @@ use suggest_new_conversation::SuggestNewConversationExecutor;
 pub use suggest_prompt::PromptSuggestionExecutor;
 use upload_artifact::UploadArtifactExecutor;
 use use_computer::UseComputerExecutor;
-use galaxy_core::{execution_mode::AppExecutionMode, features::FeatureFlag};
 
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::is_binary_file;
 #[cfg(feature = "local_fs")]
 use futures::AsyncReadExt;
-use std::{any::Any, path::PathBuf, pin::Pin, sync::Arc};
 #[cfg(feature = "local_fs")]
 use galaxy_files::{FileModel, TextFileReadResult};
 #[cfg(feature = "local_fs")]
@@ -69,6 +68,7 @@ use galaxyui::{
     r#async::{Spawnable, SpawnableOutput},
     AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity,
 };
+use std::{any::Any, path::PathBuf, pin::Pin, sync::Arc};
 
 #[cfg(feature = "local_fs")]
 use crate::util::image::{

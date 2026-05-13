@@ -1,9 +1,5 @@
 use std::{collections::HashMap, path::Path};
 
-use itertools::Itertools;
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
-};
 use galaxy_core::command::ExitCode;
 use galaxy_core::ui::{appearance::Appearance, color::blend::Blend as _};
 use galaxyui::{
@@ -13,6 +9,10 @@ use galaxyui::{
     },
     ui_components::{button::ButtonVariant, components::UiComponent as _},
     Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+};
+use itertools::Itertools;
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
 };
 
 use crate::{

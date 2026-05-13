@@ -4,12 +4,12 @@
 
 use anyhow::anyhow;
 use core::fmt;
+use galaxy_util::path::ShellFamily;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
-use galaxy_util::path::ShellFamily;
 
 #[cfg(all(not(target_family = "wasm"), feature = "local_tty"))]
 use crate::terminal::local_shell::execute_command;

@@ -20,11 +20,11 @@ use crate::{report_error, report_if_error};
 use anyhow::{Context, Result};
 use futures::channel::oneshot::{self, Receiver};
 use futures::stream::AbortHandle;
-use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
 use galaxyui::r#async::Timer;
 use galaxyui::{duration_with_jitter, RequestState};
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use std::sync::mpsc::SyncSender;
+use std::sync::Arc;
 
 pub enum TeamUpdateManagerEvent {
     LeaveSuccess,

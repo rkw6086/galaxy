@@ -5,12 +5,12 @@ pub mod common;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::Icon;
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::keymap::Keystroke;
 use galaxyui::EventContext;
+use pathfinder_color::ColorU;
 /// A trait for types that can produce a message based on some contextual arguments.
 ///
 /// The generic `Args` parameter allows each call site to define its own

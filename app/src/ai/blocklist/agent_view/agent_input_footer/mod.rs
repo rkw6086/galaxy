@@ -54,8 +54,8 @@ use crate::{
     workspace::{view::TOGGLE_PROJECT_EXPLORER_BINDING_NAME, ToastStack},
     workspaces::user_workspaces::UserWorkspaces,
 };
-use toolbar_item::AgentToolbarItemKind;
 use galaxy_cli::agent::Harness;
+use toolbar_item::AgentToolbarItemKind;
 
 use std::sync::Arc;
 
@@ -1309,10 +1309,12 @@ impl AgentInputFooter {
                     .unwrap_or_else(|| appearance.theme().foreground().into_solid());
                 left_buttons.add_child(
                     Container::new(
-                        ConstrainedBox::new(icon.to_galaxyui_icon(Fill::Solid(icon_color)).finish())
-                            .with_width(cli_icon_size)
-                            .with_height(cli_icon_size)
-                            .finish(),
+                        ConstrainedBox::new(
+                            icon.to_galaxyui_icon(Fill::Solid(icon_color)).finish(),
+                        )
+                        .with_width(cli_icon_size)
+                        .with_height(cli_icon_size)
+                        .finish(),
                     )
                     .with_padding_right(8.)
                     .finish(),

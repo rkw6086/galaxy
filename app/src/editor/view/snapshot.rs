@@ -16,6 +16,8 @@ use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use anyhow::Result;
 use core::f32;
+use galaxy_completer::completer::Description;
+use galaxyui::text::point::Point;
 use instant::Instant;
 use rayon::prelude::*;
 use std::borrow::Cow;
@@ -26,8 +28,6 @@ use std::{
     ops::Range,
     sync::Arc,
 };
-use galaxy_completer::completer::Description;
-use galaxyui::text::point::Point;
 
 use string_offset::ByteOffset;
 

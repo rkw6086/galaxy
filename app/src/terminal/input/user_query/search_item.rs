@@ -1,7 +1,6 @@
 //! SearchItem implementation for user query menu items.
 
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
@@ -10,6 +9,7 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::scene::{CornerRadius, Radius};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::ai::agent::AIAgentExchangeId;
 use crate::appearance::Appearance;

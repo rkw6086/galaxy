@@ -30,9 +30,6 @@ use crate::workspace::{
     PaneViewLocator, TabBarDropTargetData, TabBarLocation, TabContextMenuAnchor, WorkspaceAction,
 };
 use crate::BlocklistAIHistoryModel;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use serde::{Deserialize, Serialize};
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -50,6 +47,9 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, SingletonEntity, ViewHandle};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use serde::{Deserialize, Serialize};
 
 pub const TAB_BAR_BORDER_HEIGHT: f32 = 1.0;
 const TAB_INDICATOR_HEIGHT: f32 = 14.0;

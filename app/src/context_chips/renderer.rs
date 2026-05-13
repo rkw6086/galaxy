@@ -1,6 +1,5 @@
 //! The renderer for a single context chip.
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     ConstrainedBox, DraggableState, Hoverable, MouseStateHandle, OffsetPositioning, ParentElement,
@@ -14,6 +13,7 @@ use galaxyui::{
     elements::{Container, CrossAxisAlignment, Flex, Text},
     Element,
 };
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons;

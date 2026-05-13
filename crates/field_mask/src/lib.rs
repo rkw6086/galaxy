@@ -101,11 +101,16 @@ fn apply_path(
     let field_desc = match target.descriptor().get_field_by_name(field_name) {
         Some(f) => f,
         None => {
-            log::warn!("[field_mask] Unknown field '{}' in message '{}' (path: {:?}). Available fields: {:?}",
+            log::warn!(
+                "[field_mask] Unknown field '{}' in message '{}' (path: {:?}). Available fields: {:?}",
                 field_name,
                 target.descriptor().full_name(),
                 path_segments,
-                target.descriptor().fields().map(|f| f.name().to_string()).collect::<Vec<_>>()
+                target
+                    .descriptor()
+                    .fields()
+                    .map(|f| f.name().to_string())
+                    .collect::<Vec<_>>()
             );
             return Ok(());
         }

@@ -1,7 +1,7 @@
 use asset_macro::bundled_asset;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::assets::asset_cache::{AssetCache, AssetState};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::blocklist::inline_action::requested_action::RenderableAction;
 use crate::appearance::Appearance;

@@ -19,6 +19,8 @@ use crate::settings::PrivacySettingsSnapshot;
 use crate::ChannelState;
 use anyhow::Result;
 use futures::FutureExt;
+use galaxy_core::channel::RudderStackDestination;
+use galaxyui::telemetry::Event;
 use rudder_message::{
     Batch as RudderBatch, BatchMessage as RudderBatchMessageWithMetadata,
     BatchMessageItem as RudderBatchMessage, Message as RudderMessage,
@@ -28,8 +30,6 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use galaxy_core::channel::RudderStackDestination;
-use galaxyui::telemetry::Event;
 
 /// Filename for file where telemetry events are written on app quit.
 const RUDDER_TELEMETRY_EVENTS_FILE_NAME: &str = "rudder_telemetry_events.json";

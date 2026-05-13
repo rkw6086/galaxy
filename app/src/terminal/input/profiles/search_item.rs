@@ -1,5 +1,4 @@
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{ConstrainedBox, Container, Flex, Highlight, ParentElement as _, Text};
@@ -7,6 +6,7 @@ use galaxyui::fonts::{Properties, Style, Weight};
 use galaxyui::prelude::CrossAxisAlignment;
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, SingletonEntity as _};
+use ordered_float::OrderedFloat;
 
 use crate::ai::execution_profiles::profiles::ClientProfileId;
 use crate::appearance::Appearance;

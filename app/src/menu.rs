@@ -7,9 +7,6 @@ use crate::themes::theme::Fill;
 use crate::util::time_format::format_approx_duration_from_now_sentence_case;
 use crate::{appearance::Appearance, ui_components::icons};
 use chrono::{DateTime, Local};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_core::ui::color::blend::Blend;
 use galaxyui::elements::{
     ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, DropShadow, OffsetPositioning,
@@ -31,6 +28,9 @@ use galaxyui::{
     ui_components::components::UiComponent,
     Action, AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 pub const CHEVRON_RIGHT_ALIGN_SVG_PATH: &str = "bundled/svg/chevron-right-align.svg";
 

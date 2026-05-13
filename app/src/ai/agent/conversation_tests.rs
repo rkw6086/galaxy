@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{
-    artifact_from_fork_proto, AIConversation, AIConversationAutoexecuteMode, AIConversationId,
+    AIConversation, AIConversationAutoexecuteMode, AIConversationId, artifact_from_fork_proto,
 };
 use crate::ai::artifacts::Artifact;
 use crate::persistence::model::AgentConversationData;

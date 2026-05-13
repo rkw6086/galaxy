@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use comfy_table::{presets::UTF8_FULL, Cell, Table};
+use galaxy_cli::agent::OutputFormat;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use galaxy_cli::agent::OutputFormat;
 
 use crate::ai::agent_sdk::output::{self, TableFormat};
 use crate::util::time_format::format_approx_duration_from_now_utc;

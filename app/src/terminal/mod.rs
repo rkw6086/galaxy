@@ -8,14 +8,14 @@ use pathfinder_geometry::vector::vec2f;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 mod package_installers;
-pub(crate) use history::UpArrowHistoryConfig;
-pub use view::Event;
-pub use view::TerminalView;
 pub use galaxy_terminal::shell::{self, ShellLaunchData};
 use galaxyui::geometry::vector::Vector2F;
 use galaxyui::units::{IntoPixels, Lines, Pixels};
 use galaxyui::AppContext;
 use galaxyui::WindowId;
+pub(crate) use history::UpArrowHistoryConfig;
+pub use view::Event;
+pub use view::TerminalView;
 pub use {history::History, history::HistoryEntry, history::HistoryEvent, history::ShellHost};
 mod block_list_settings;
 

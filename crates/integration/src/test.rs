@@ -70,11 +70,6 @@ pub use workspace::*;
 use std::{borrow::Cow, collections::HashMap, path::PathBuf, rc::Rc, time::Duration};
 
 use anyhow::{anyhow, Result};
-use parking_lot::Mutex;
-use pathfinder_geometry::{rect::RectF, vector::Vector2F};
-use rust_embed::RustEmbed;
-use settings::Setting as _;
-use shell::ShellType;
 use galaxyui::{
     async_assert, async_assert_eq,
     integration::{AssertionOutcome, StepData, TestStep},
@@ -83,19 +78,25 @@ use galaxyui::{
     windowing::WindowManager,
     AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle,
 };
+use parking_lot::Mutex;
+use pathfinder_geometry::{rect::RectF, vector::Vector2F};
+use rust_embed::RustEmbed;
+use settings::Setting as _;
+use shell::ShellType;
 
-use galaxy::{terminal::find::TerminalFindModel, util::bindings::CustomAction, AgentModeEntrypoint};
+use galaxy::{
+    terminal::find::TerminalFindModel, util::bindings::CustomAction, AgentModeEntrypoint,
+};
 
+use galaxyui::units::Lines;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use version_compare::Cmp;
-use galaxyui::units::Lines;
 
 use crate::util::{skip_if_powershell_core_2303, ShellRcType};
 
 use crate::builder::cargo_target_tmpdir;
 use crate::user_defaults;
 use crate::Builder;
-use sum_tree::SeekBias;
 use galaxy::integration_testing::terminal::assert_focused_editor_in_tab;
 use galaxy::integration_testing::{
     settings::assert_theme_chooser_contains,
@@ -167,6 +168,7 @@ use galaxy::{
         view::BlockVisibilityMode,
     },
 };
+use sum_tree::SeekBias;
 
 use galaxy::terminal::view::ALIAS_EXPANSION_BANNER_SEEN_KEY;
 use galaxy::{

@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use galaxy_core::{settings::Setting, ui::appearance::Appearance};
+use itertools::Itertools;
 
 use galaxyui::{
     elements::{

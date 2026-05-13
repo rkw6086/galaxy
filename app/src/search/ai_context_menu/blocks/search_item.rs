@@ -6,13 +6,13 @@ use crate::search::result_renderer::ItemHighlightState;
 use crate::terminal::model::block::BlockId;
 use crate::util::truncation::truncate_from_end;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::elements::Highlight;
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{
     elements::{ConstrainedBox, Container, CrossAxisAlignment, Flex, Icon, ParentElement, Text},
     AppContext, Element, SingletonEntity,
 };
+use ordered_float::OrderedFloat;
 
 use chrono::{DateTime, Local};
 use galaxy_core::command::ExitCode;

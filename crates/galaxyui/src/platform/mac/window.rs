@@ -13,18 +13,6 @@ use cocoa::{
     foundation::{NSAutoreleasePool, NSInteger, NSRect, NSSize},
 };
 use foreign_types::ForeignType;
-use itertools::Itertools;
-use num_traits::FromPrimitive;
-use objc::class;
-use objc::{
-    msg_send,
-    runtime::{Object, BOOL, NO, YES},
-    sel, sel_impl,
-};
-use pathfinder_geometry::{
-    rect::RectF,
-    vector::{vec2f, Vector2F},
-};
 use galaxyui_core::event::ModifiersState;
 use galaxyui_core::platform::{
     file_picker, FilePickerCallback, FilePickerConfiguration, FullscreenState, GraphicsBackend,
@@ -41,6 +29,18 @@ use galaxyui_core::{
     Event, OptionalPlatformWindow, Scene, WindowId,
 };
 use galaxyui_core::{DisplayId, DisplayIdx};
+use itertools::Itertools;
+use num_traits::FromPrimitive;
+use objc::class;
+use objc::{
+    msg_send,
+    runtime::{Object, BOOL, NO, YES},
+    sel, sel_impl,
+};
+use pathfinder_geometry::{
+    rect::RectF,
+    vector::{vec2f, Vector2F},
+};
 
 use instant::Instant;
 use std::collections::HashMap;

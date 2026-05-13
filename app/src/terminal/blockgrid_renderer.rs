@@ -7,14 +7,14 @@ use crate::terminal::model::index::Point;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::SizeInfo;
 use crate::themes::theme::WarpTheme;
-use pathfinder_color::ColorU;
-use std::collections::HashMap;
-use std::ops::Neg;
-use std::ops::RangeInclusive;
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
 use galaxyui::geometry::vector::{vec2f, Vector2F};
 use galaxyui::{AppContext, Element, EntityId, PaintContext};
+use pathfinder_color::ColorU;
+use std::collections::HashMap;
+use std::ops::Neg;
+use std::ops::RangeInclusive;
 
 use super::model::ansi::{CursorShape, CursorStyle};
 use super::model::grid::RespectDisplayedOutput;

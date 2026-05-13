@@ -1,3 +1,5 @@
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_util::path::{canonicalize_git_bash_path, is_msys2_path, warp_shell_path};
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -7,8 +9,6 @@ use std::{
     process,
 };
 use typed_path::UnixPathBuf;
-use galaxy_core::channel::{Channel, ChannelState};
-use galaxy_util::path::{canonicalize_git_bash_path, is_msys2_path, warp_shell_path};
 
 use crate::{
     terminal::{

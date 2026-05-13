@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_terminal::model::BlockId;
 use galaxyui::{
@@ -8,6 +7,7 @@ use galaxyui::{
     scene::{CornerRadius, Radius},
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use parking_lot::FairMutex;
 
 use crate::{
     ai::{

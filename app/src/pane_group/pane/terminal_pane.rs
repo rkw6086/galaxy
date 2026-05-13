@@ -4,8 +4,8 @@ use crate::pane_group::CodeSource;
 use std::{collections::HashMap, sync::mpsc::SyncSender};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use url::Url;
 use galaxy_cli::agent::Harness;
+use url::Url;
 use warp_multi_agent_api as multi_agent_api;
 
 use galaxyui::{

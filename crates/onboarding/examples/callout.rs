@@ -1,11 +1,4 @@
 use anyhow::{anyhow, Result};
-use onboarding::components::onboarding_callout::{
-    Button as CalloutButton, OnboardingCallout, Options as CalloutOptions, Params as CalloutParams,
-    StepStatus,
-};
-use rust_embed::RustEmbed;
-use std::borrow::Cow;
-use ui_components::Component as _;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
 use galaxyui::color::ColorU;
@@ -13,6 +6,13 @@ use galaxyui::elements::{Rect, Stack};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
 use galaxyui::platform;
 use galaxyui::{prelude::*, AddWindowOptions, AssetProvider, ModelContext};
+use onboarding::components::onboarding_callout::{
+    Button as CalloutButton, OnboardingCallout, Options as CalloutOptions, Params as CalloutParams,
+    StepStatus,
+};
+use rust_embed::RustEmbed;
+use std::borrow::Cow;
+use ui_components::Component as _;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]

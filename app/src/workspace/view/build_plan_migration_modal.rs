@@ -5,12 +5,6 @@ use crate::view_components::{Dropdown, DropdownEvent, DropdownItem, ToastFlavor}
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::workspaces::workspace::CustomerType;
 use asset_macro::bundled_or_fetched_asset;
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
-use thousands::Separable;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxy_graphql::billing::{AddonCreditsOption, StripeSubscriptionPlan};
@@ -27,6 +21,12 @@ use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
+use thousands::Separable;
 
 const BUTTON_DIAMETER: f32 = 20.;
 const DROPDOWN_WIDTH: f32 = 160.;

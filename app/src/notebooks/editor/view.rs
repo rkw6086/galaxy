@@ -5,9 +5,6 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use markdown_parser::{parse_html, parse_markdown, FormattedText};
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
 use galaxy_editor::{
     content::{
         anchor::Anchor,
@@ -25,6 +22,9 @@ use galaxy_editor::{
     },
     selection::{TextDirection, TextUnit},
 };
+use markdown_parser::{parse_html, parse_markdown, FormattedText};
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
 
 use galaxy_util::{path::LineAndColumnArg, user_input::UserInput};
 use galaxyui::{

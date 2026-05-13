@@ -1,6 +1,6 @@
 use fuzzy_match::match_indices_case_insensitive;
-use itertools::Itertools;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
 
 use super::ProjectSearchItem;
 use crate::projects::ProjectManagementModel;

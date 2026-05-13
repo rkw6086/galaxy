@@ -10,12 +10,12 @@ use crate::{
     launch_configs::launch_config::LaunchConfig, themes::theme::ThemeKind,
     workflows::workflow::Workflow,
 };
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 use lazy_static::lazy_static;
 #[cfg(feature = "local_fs")]
 use std::path::Path;
 use std::path::PathBuf;
-use galaxy_core::ui::theme::WarpTheme;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 #[cfg(test)]
 pub(crate) use imp::load_tab_configs;

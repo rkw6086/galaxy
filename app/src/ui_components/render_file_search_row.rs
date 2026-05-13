@@ -12,7 +12,6 @@
 //! - Responsive layout that adapts to different highlight states
 
 use fuzzy_match::FuzzyMatchResult;
-use std::path::Path;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Container, CrossAxisAlignment, Flex, Highlight, MainAxisSize, ParentElement, Shrinkable, Text,
@@ -20,6 +19,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element};
+use std::path::Path;
 
 use crate::appearance::Appearance;
 use crate::search::ai_context_menu::safe_truncate;

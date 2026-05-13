@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     elements::Empty, platform::WindowStyle, App, AppContext, Element, Entity, TypedActionView,
     View, ViewContext,
 };
+use std::sync::Arc;
 
 use crate::{
     ai::blocklist::BlocklistAIHistoryModel,

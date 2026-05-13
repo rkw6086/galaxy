@@ -6,8 +6,8 @@ use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
 use fuzzy_match::FuzzyMatchResult;
-use std::collections::HashSet;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use std::collections::HashSet;
 
 const MAX_RESULTS: usize = 50;
 /// Minimum fuzzy match score to include a conversation in filtered results.

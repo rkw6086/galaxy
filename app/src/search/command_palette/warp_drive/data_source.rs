@@ -18,8 +18,8 @@ use crate::search::QueryFilter;
 use crate::server::ids::{ObjectUid, SyncId};
 use crate::settings::AISettings;
 use crate::workflows::CloudWorkflow;
-use std::collections::HashMap;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
+use std::collections::HashMap;
 
 /// Datasource that searches against all Warp Drive objects
 pub struct DataSource {
@@ -563,9 +563,9 @@ mod full_text_searcher {
     use crate::server::ids::ObjectUid;
     use crate::workflows::CloudWorkflow;
     use fuzzy_match::FuzzyMatchResult;
-    use itertools::Itertools;
     use galaxyui::r#async::executor::Background;
     use galaxyui::{AppContext, SingletonEntity};
+    use itertools::Itertools;
 
     /// Memory budget for the search index of warp drive.
     /// Warp could potentially have a lot of objects, so we increase it from the default of 50MB to 100MB

@@ -1,6 +1,14 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use galaxy_completer::completer::MatchType;
+use galaxy_core::command::ExitCode;
+use galaxy_core::telemetry::EnablementState;
+use galaxy_core::telemetry::TelemetryEvent as TelemetryEventTrait;
+use galaxy_core::telemetry::TelemetryEventDesc;
+use galaxyui::keymap::Keystroke;
+use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome};
+use galaxyui::rendering::ThinStrokes;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
@@ -10,14 +18,6 @@ use session_sharing_protocol::common::SessionId as SharedSessionId;
 use session_sharing_protocol::sharer::SessionEndedReason;
 use strum_macros::EnumDiscriminants;
 use strum_macros::EnumIter;
-use galaxy_completer::completer::MatchType;
-use galaxy_core::command::ExitCode;
-use galaxy_core::telemetry::EnablementState;
-use galaxy_core::telemetry::TelemetryEvent as TelemetryEventTrait;
-use galaxy_core::telemetry::TelemetryEventDesc;
-use galaxyui::keymap::Keystroke;
-use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome};
-use galaxyui::rendering::ThinStrokes;
 
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
@@ -104,8 +104,8 @@ use crate::workflows::WorkflowSource;
 use crate::workspace::tab_settings::TabCloseButtonPosition;
 use crate::workspace::tab_settings::WorkspaceDecorationVisibility;
 use crate::workspace::TabMovement;
-use session_sharing_protocol::sharer::SessionSourceType;
 use galaxy_core::interval_timer::TimingDataPoint;
+use session_sharing_protocol::sharer::SessionSourceType;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct BootstrappingInfo {

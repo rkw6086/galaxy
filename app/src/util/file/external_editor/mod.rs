@@ -8,10 +8,10 @@ mod windows;
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
-use settings::EditorChoice;
 use galaxy_util::path::LineAndColumnArg;
 use galaxyui::{AppContext, SingletonEntity};
+use serde::{Deserialize, Serialize};
+use settings::EditorChoice;
 
 pub use self::settings::{EditorLayout, EditorSettings};
 

@@ -10,10 +10,10 @@ use crate::search::{
 };
 use crate::terminal::available_shells::AvailableShells;
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use std::collections::HashMap;
-use std::sync::Arc;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Controls which kinds of new sessions the data source should surface.
 #[derive(Copy, Clone, Debug)]
@@ -312,9 +312,9 @@ mod full_text_searcher {
         AsyncSearcher, DEFAULT_MEMORY_BUDGET, MIN_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR,
     };
     use fuzzy_match::FuzzyMatchResult;
+    use galaxyui::r#async::executor::Background;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use galaxyui::r#async::executor::Background;
 
     define_search_schema!(
         schema_name: NEW_SESSION_SEARCH_SCHEMA,

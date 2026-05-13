@@ -5,9 +5,9 @@ use crate::search::data_source::{DataSourceSearchError, Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use fuzzy_match::match_indices_case_insensitive;
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use std::collections::HashMap;
 use std::sync::Arc;
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 /// Datasource that searches against `LaunchConfig`s.
 pub struct DataSource {
@@ -124,10 +124,10 @@ mod full_text_searcher {
     use crate::search::searcher::{AsyncSearcher, DEFAULT_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR};
     use crate::user_config::WarpConfig;
     use fuzzy_match::FuzzyMatchResult;
-    use std::collections::HashMap;
-    use std::sync::Arc;
     use galaxyui::r#async::executor::Background;
     use galaxyui::{AppContext, SingletonEntity};
+    use std::collections::HashMap;
+    use std::sync::Arc;
 
     // The name of the launch configs are duplicated to ensure that the searcher
     // hashes the name to uniquely identify the launch config.

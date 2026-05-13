@@ -1,8 +1,5 @@
 use std::time::Duration;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use uuid::Uuid;
 use galaxyui::elements::{DropShadow, Expanded};
 use galaxyui::r#async::Timer;
 use galaxyui::WindowId;
@@ -18,6 +15,9 @@ use galaxyui::{
     ui_components::components::{Coords, UiComponent, UiComponentStyles},
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use uuid::Uuid;
 
 use crate::appearance::Appearance;
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};

@@ -1,16 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use galaxy_core::send_telemetry_from_ctx;
 use lsp::supported_servers::LSPServerType;
 use lsp::{
     LanguageId, LanguageServerId, LspManagerModel, LspManagerModelEvent, LspServerModel,
     LspState as LspModelState,
 };
-use galaxy_core::send_telemetry_from_ctx;
 
 use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::{Fill as ThemeFill, WarpTheme};
 use galaxy_core::ui::{appearance::Appearance, Icon};
@@ -28,6 +26,8 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, View, WeakModelHandle,
 };
 use galaxyui::{TypedActionView, ViewContext, ViewHandle};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 

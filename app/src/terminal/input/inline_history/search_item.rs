@@ -8,7 +8,6 @@ use crate::terminal::input::inline_menu::styles as inline_styles;
 use crate::util::time_format::format_approx_duration_from_now_utc;
 use chrono::{DateTime, Local};
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
@@ -18,6 +17,7 @@ use galaxyui::prelude::{Align, CrossAxisAlignment, Flex, MainAxisAlignment, Main
 use galaxyui::scene::{CornerRadius, Radius};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 #[derive(Debug, Clone)]
 pub struct InlineHistoryItem {

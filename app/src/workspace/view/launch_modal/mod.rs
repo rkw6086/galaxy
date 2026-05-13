@@ -10,9 +10,6 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, PrimaryTheme, SecondaryTheme};
 use crate::workspace::view::launch_modal::cta_button::{CTAButton, CTAButtonAction};
-use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
-use pathfinder_color::ColorU;
-use std::collections::HashMap;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
@@ -31,6 +28,9 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
+use pathfinder_color::ColorU;
+use std::collections::HashMap;
 
 pub fn init<S: Slide>(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

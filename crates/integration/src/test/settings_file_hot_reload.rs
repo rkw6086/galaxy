@@ -4,8 +4,6 @@
 //! filesystem watcher and pushed into the in-memory setting models, on every
 //! platform where Warp watches `config_local_dir()`.
 
-use settings::Setting as _;
-use std::time::Duration;
 use galaxy::{
     features::FeatureFlag,
     integration_testing::{
@@ -15,6 +13,8 @@ use galaxy::{
     settings::FontSettings,
 };
 use galaxyui::{async_assert_eq, integration::TestStep, SingletonEntity};
+use settings::Setting as _;
+use std::time::Duration;
 
 use super::{new_builder, Builder};
 

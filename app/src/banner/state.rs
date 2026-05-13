@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use galaxyui::Entity;
+use serde::{Deserialize, Serialize};
 
 #[derive(
     Debug,

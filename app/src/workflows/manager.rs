@@ -13,8 +13,8 @@ use crate::{
     workflows::{workflow_view::WorkflowView, WorkflowViewMode},
     PaneViewLocator, WindowId,
 };
-use std::collections::{hash_map::Entry, HashMap};
 use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity};
+use std::collections::{hash_map::Entry, HashMap};
 
 pub struct WorkflowManager {
     panes_by_hashed_id: HashMap<String, WorkflowPaneData>,

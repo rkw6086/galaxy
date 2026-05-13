@@ -1,10 +1,10 @@
 use futures::channel::oneshot;
-use std::path::Path;
-use vec1::vec1;
 use galaxy_editor::content::buffer::{InitialBufferState, SelectionOffsets};
 use galaxy_editor::multiline::MultilineString;
 use galaxy_util::content_version::ContentVersion;
 use galaxyui::App;
+use std::path::Path;
+use vec1::vec1;
 
 use crate::{
     code::editor::line::EditorLineLocation, code::editor::view::code_text_styles,

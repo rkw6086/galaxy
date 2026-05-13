@@ -2,10 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use regex::Regex;
-use settings::{Setting, ToggleableSetting};
-use strum::IntoEnumIterator;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{FormattedTextElement, HighlightedHyperlink};
 use galaxyui::keymap::ContextPredicate;
@@ -19,6 +15,10 @@ use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use regex::Regex;
+use settings::{Setting, ToggleableSetting};
+use strum::IntoEnumIterator;
 
 use crate::terminal::warpify::settings::{
     EnableSshWarpification, SshExtensionInstallMode, UseSshTmuxWrapper, WarpifySettingsChangedEvent,

@@ -7,13 +7,13 @@ use ai::index::{
 };
 use anyhow::anyhow;
 use futures_util::stream::AbortHandle;
+use galaxy_core::features::FeatureFlag;
 use instant::Instant;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
-use galaxy_core::features::FeatureFlag;
 
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 

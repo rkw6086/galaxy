@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::{
     elements::{
         ConstrainedBox, Container, Element, Empty, Flex, MouseStateHandle, ParentElement,
@@ -7,6 +6,7 @@ use galaxyui::{
     ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
 
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 use crate::{

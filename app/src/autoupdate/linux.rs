@@ -3,10 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Context as _, Result};
 use channel_versions::VersionInfo;
-use instant::Duration;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_terminal::shell::ShellType;
 use galaxyui::ViewContext;
+use instant::Duration;
 
 use crate::workspace::Workspace;
 
@@ -161,12 +161,12 @@ mod appimage {
 }
 
 mod package_manager {
-    use markdown_parser::{
-        FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
-    };
     use galaxyui::{
         elements::{Container, FormattedTextElement, HighlightedHyperlink},
         Element, SingletonEntity as _,
+    };
+    use markdown_parser::{
+        FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     };
 
     use crate::appearance::Appearance;

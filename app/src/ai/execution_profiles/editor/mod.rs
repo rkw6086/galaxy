@@ -24,14 +24,13 @@ use crate::{
     Appearance,
 };
 use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
-use itertools::Itertools;
-use regex::Regex;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::fonts::Properties;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::switch::SwitchStateHandle;
+use itertools::Itertools;
+use regex::Regex;
 
-use std::path::{Path, PathBuf};
 use galaxyui::{
     elements::{
         Align, Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
@@ -41,6 +40,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use std::path::{Path, PathBuf};
 
 const MODEL_MENU_WIDTH: f32 = 250.;
 

@@ -13,7 +13,6 @@ use crate::ui_components::{blended_colors, icons::Icon};
 use crate::view_components::action_button::{ActionButton, DisabledSecondaryTheme, SecondaryTheme};
 use crate::view_components::find::FindDirection;
 use crate::{features::FeatureFlag, settings::AppEditorSettings};
-use pathfinder_color::ColorU;
 use galaxy_editor::editor::NavigationKey;
 use galaxy_editor::search::{SearchEvent, Searcher};
 use galaxyui::elements::MainAxisAlignment;
@@ -36,6 +35,7 @@ use galaxyui::{
 };
 use galaxyui::{presenter::ChildView, ViewContext, ViewHandle};
 use galaxyui::{FocusContext, ModelHandle};
+use pathfinder_color::ColorU;
 
 pub const FIND_BAR_WIDTH: f32 = 500.;
 const ICON_PADDING: f32 = 4.;

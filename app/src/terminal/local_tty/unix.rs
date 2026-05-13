@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 use signal_hook_mio::v1_0::Signals;
 
 use command::blocking::Command;
+use galaxy_core::channel::ChannelState;
+use galaxyui::{AppContext, SingletonEntity};
 use std::{
     collections::HashMap,
     ffi::{CStr, OsString},
@@ -44,8 +46,6 @@ use std::{
     path::{Path, PathBuf},
     ptr,
 };
-use galaxy_core::channel::ChannelState;
-use galaxyui::{AppContext, SingletonEntity};
 
 /// Get raw fds for leader/follower ends of a new PTY.
 fn make_pty(size: winsize) -> Result<(RawFd, RawFd)> {

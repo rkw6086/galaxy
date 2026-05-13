@@ -1,9 +1,5 @@
 use crate::ai::blocklist::inline_action::inline_action_icons;
 use crate::ui_components::blended_colors;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{Fill, WarpTheme};
 use galaxyui::elements::{
@@ -15,6 +11,10 @@ use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::ui_components::components::UiComponent as _;
 use galaxyui::ui_components::components::UiComponentStyles;
 use galaxyui::{AppContext, Element, EventContext, PaintContext, SingletonEntity as _};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::settings::WarpifySettings;
 use super::SubshellSource;

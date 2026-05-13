@@ -1,6 +1,6 @@
+use galaxy_server_client::cloud_object::Owner;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use galaxy_server_client::cloud_object::Owner;
 
 use crate::{
     auth::AuthStateProvider,

@@ -8,13 +8,13 @@ use crate::ai::blocklist::action_model::AIConversationId;
 use crate::ai::skills::SkillManager;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use ai::skills::{parse_skill, SkillReference};
+use galaxyui::App;
 use repo_metadata::{
     repositories::DetectedRepositories, watcher::DirectoryWatcher, RepoMetadataModel,
 };
 use std::fs;
 use std::io::Write;
 use tempfile::TempDir;
-use galaxyui::App;
 use watcher::HomeDirectoryWatcher;
 
 fn initialize_app(app: &mut App) {

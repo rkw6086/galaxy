@@ -1,5 +1,5 @@
-use serde::Serialize;
 use galaxyui::{AppContext, SingletonEntity};
+use serde::Serialize;
 
 use crate::ai::llms::LLMId;
 use crate::CloudModel;

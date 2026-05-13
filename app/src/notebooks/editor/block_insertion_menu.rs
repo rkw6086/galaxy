@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use galaxy_editor::content::text::BufferBlockItem;
 use galaxyui::{
     elements::{
@@ -15,6 +14,7 @@ use galaxyui::{
     },
     AppContext, Element, SingletonEntity, ViewContext, ViewHandle,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     appearance::Appearance,

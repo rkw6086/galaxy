@@ -1,12 +1,12 @@
 use super::*;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
 use ai::skills::{ParsedSkill, SkillProvider, SkillScope};
+use galaxy_core::channel::ChannelState;
+use galaxyui::App;
 use repo_metadata::{repositories::DetectedRepositories, DirectoryWatcher, RepoMetadataModel};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use tempfile::TempDir;
-use galaxy_core::channel::ChannelState;
-use galaxyui::App;
 use watcher::HomeDirectoryWatcher;
 
 // ============================================================================

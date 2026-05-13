@@ -3,13 +3,13 @@ use futures::channel::mpsc::{self, Receiver as MpscReceiver, Sender as MpscSende
 use futures::channel::oneshot::{self, Receiver, Sender};
 use futures::future::{AbortHandle, Abortable};
 use futures::StreamExt;
+use galaxyui::r#async::executor::Background;
 use instant::Instant;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use galaxyui::r#async::executor::Background;
 
 use anyhow::Result;
 use galaxyui::{r#async::Timer, Entity, RetryOption, SingletonEntity};

@@ -5,9 +5,6 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use lsp::ReferenceLocation;
-use pathfinder_geometry::vector::Vector2F;
-use string_offset::CharOffset;
 use galaxy_core::ui::{
     appearance::Appearance, icons::Icon as WarpIcon, theme::color::internal_colors,
 };
@@ -24,6 +21,9 @@ use galaxyui::{
     prelude::Align,
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use lsp::ReferenceLocation;
+use pathfinder_geometry::vector::Vector2F;
+use string_offset::CharOffset;
 
 use crate::search::result_renderer::ItemHighlightState;
 use galaxyui::ui_components::components::UiComponent;

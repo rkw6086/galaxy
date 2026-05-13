@@ -24,6 +24,7 @@ use std::{
 use anyhow::Context as _;
 use command::blocking::Command;
 use crash_handler::{CrashContext, CrashHandler};
+use galaxy_core::report_error;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use sentry::{
@@ -32,7 +33,6 @@ use sentry::{
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use galaxy_core::report_error;
 
 use super::ToSentryTags;
 

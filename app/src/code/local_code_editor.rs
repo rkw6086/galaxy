@@ -10,16 +10,6 @@ use std::{
 };
 
 use futures::stream::AbortHandle;
-use lsp::{
-    types::FileLocation, LanguageId, LanguageServerId, LspEvent, LspManagerModel,
-    LspManagerModelEvent, LspServerModel, ReferenceLocation,
-};
-use lsp_types::FormattingOptions;
-use markdown_parser::FormattedText;
-use num_traits::SaturatingSub;
-use pathfinder_geometry::{rect::RectF, vector::Vector2F};
-use string_offset::CharOffset;
-use vec1::Vec1;
 use galaxy_core::{features::FeatureFlag, ui::appearance::Appearance};
 use galaxy_editor::{
     content::{buffer::InitialBufferState, text::IndentUnit},
@@ -47,6 +37,16 @@ use galaxyui::{
     WindowId,
 };
 use galaxyui::{platform::SaveFilePickerConfiguration, ModelHandle};
+use lsp::{
+    types::FileLocation, LanguageId, LanguageServerId, LspEvent, LspManagerModel,
+    LspManagerModelEvent, LspServerModel, ReferenceLocation,
+};
+use lsp_types::FormattingOptions;
+use markdown_parser::FormattedText;
+use num_traits::SaturatingSub;
+use pathfinder_geometry::{rect::RectF, vector::Vector2F};
+use string_offset::CharOffset;
+use vec1::Vec1;
 
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 
@@ -67,11 +67,11 @@ use crate::{
     code_review::comments::CommentId,
 };
 use ai::diff_validation::DiffType;
+use galaxy_core::ui::icons::Icon;
 use pathfinder_color::ColorU;
 #[cfg(feature = "local_fs")]
 use repo_metadata::repositories::DetectedRepositories;
 use vim::vim::{MotionType, VimMode};
-use galaxy_core::ui::icons::Icon;
 
 use crate::ai::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::workspace::WorkspaceAction;

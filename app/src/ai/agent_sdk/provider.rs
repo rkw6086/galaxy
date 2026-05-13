@@ -1,13 +1,13 @@
 //! Provider command for linking third-party services.
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use comfy_table::Cell;
-use serde::Serialize;
 use galaxy_cli::{
     provider::{ProviderCommand, ProviderType},
     GlobalOptions,
 };
 use galaxy_core::channel::ChannelState;
 use galaxyui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
+use serde::Serialize;
 
 use crate::ai::agent_sdk::output::{self, TableFormat};
 

@@ -3,12 +3,12 @@ use fuzzy_match::{
     contains_wildcards, match_indices_case_insensitive, match_wildcard_pattern_case_insensitive,
     FuzzyMatchResult,
 };
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use std::sync::Arc;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
 };
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {

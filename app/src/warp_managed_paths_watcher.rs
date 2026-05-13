@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 use std::{fs, sync::Arc, time::Duration};
 
 #[cfg(not(target_family = "wasm"))]
+use galaxyui::ModelHandle;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
+#[cfg(not(target_family = "wasm"))]
 use notify_debouncer_full::notify::{RecursiveMode, WatchFilter};
 use repo_metadata::RepositoryUpdate;
 #[cfg(any(not(target_family = "wasm"), test))]
 use repo_metadata::TargetFile;
-#[cfg(not(target_family = "wasm"))]
-use galaxyui::ModelHandle;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 #[cfg(not(target_family = "wasm"))]
 use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 

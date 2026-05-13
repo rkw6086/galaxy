@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use galaxyui::{AppContext, SingletonEntity};
+use itertools::Itertools;
 
 use crate::cloud_object::{CloudObject, Space};
 use crate::notebooks::CloudNotebook;

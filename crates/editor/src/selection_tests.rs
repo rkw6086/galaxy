@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{App, ModelAsRef, units::IntoPixels};
 use serde_yaml::Value;
 use sum_tree::SumTree;
 use vec1::vec1;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{App, ModelAsRef, units::IntoPixels};
 
 use crate::{
     content::{
@@ -21,9 +21,9 @@ use crate::{
     },
     selection::SelectionMode,
 };
-use string_offset::CharOffset;
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::text::word_boundaries::WordBoundariesPolicy;
+use string_offset::CharOffset;
 
 use super::{SelectionModel, TextDirection, TextUnit};
 

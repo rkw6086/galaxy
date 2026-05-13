@@ -74,8 +74,6 @@ use futures::{
     future::{self, Either},
     FutureExt as _,
 };
-use oneshot::{Canceled, Receiver, Sender};
-use uuid::Uuid;
 use galaxy_cli::agent::{Harness, OutputFormat};
 use galaxy_cli::mcp::MCPSpec;
 use galaxy_cli::share::ShareRequest;
@@ -86,6 +84,8 @@ use galaxyui::{
     r#async::{FutureExt, TimeoutError},
     AppContext, Entity, ModelContext, ModelHandle, ModelSpawner, SingletonEntity,
 };
+use oneshot::{Canceled, Receiver, Sender};
+use uuid::Uuid;
 
 pub(crate) mod attachments;
 pub(crate) mod cloud_provider;

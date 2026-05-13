@@ -24,20 +24,18 @@ use crate::terminal::view::{
 };
 use crate::terminal::{grid_renderer, SizeInfo};
 use crate::terminal::{heights_approx_eq, TerminalModel};
-use num_traits::Float as _;
-use parking_lot::FairMutex;
-use pathfinder_geometry::vector::vec2f;
-use vec1::Vec1;
 use galaxy_core::features::FeatureFlag;
 use galaxy_util::user_input::UserInput;
 use galaxyui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use galaxyui::event::{KeyState, ModifiersState};
 use galaxyui::platform::keyboard::KeyCode;
 use galaxyui::text::SelectionType;
+use num_traits::Float as _;
+use parking_lot::FairMutex;
+use pathfinder_geometry::vector::vec2f;
+use vec1::Vec1;
 
 use super::{should_intercept_mouse, should_intercept_scroll};
-use std::ops::{Deref as _, Range};
-use std::sync::Arc;
 use galaxyui::elements::{Axis, Fill, Point as UiPoint, ScrollData, ScrollableElement};
 use galaxyui::fonts::Properties;
 use galaxyui::geometry::rect::RectF;
@@ -50,6 +48,8 @@ use galaxyui::{
     LayoutContext, PaintContext, SizeConstraint,
 };
 use galaxyui::{ClipBounds, EntityId, ModelHandle};
+use std::ops::{Deref as _, Range};
+use std::sync::Arc;
 
 const CLI_SUBAGENT_HORIZONTAL_MARGIN: f32 = 8.;
 const CLI_SUBAGENT_VERTICAL_MARGIN: f32 = 8.;

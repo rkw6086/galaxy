@@ -428,8 +428,8 @@ fn app_id_from_bundle() -> Option<AppId> {
             base::{id, nil},
             foundation::NSBundle,
         };
-        use objc::{msg_send, sel, sel_impl};
         use galaxyui::platform::mac::utils::nsstring_as_str;
+        use objc::{msg_send, sel, sel_impl};
 
         let bundle = id::mainBundle();
         if bundle != nil {

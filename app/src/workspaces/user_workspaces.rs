@@ -27,14 +27,14 @@ use crate::{
     },
 };
 use anyhow::Result;
-use regex::Regex;
-use std::sync::Arc;
 use galaxy_core::{
     features::FeatureFlag,
     settings::{ChangeEventReason, Setting},
 };
 use galaxy_graphql::workspace::FeatureModelChoice;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, Tracked};
+use regex::Regex;
+use std::sync::Arc;
 
 #[cfg(test)]
 use crate::server::server_api::{team::MockTeamClient, workspace::MockWorkspaceClient};

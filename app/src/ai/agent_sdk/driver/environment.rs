@@ -13,10 +13,10 @@ use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
 };
 use futures::{channel::oneshot, future::join_all};
-use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 use galaxy_completer::completer::CommandExitStatus;
 use galaxy_core::{command::ExitCode, safe_info, safe_warn};
 use galaxyui::{r#async::FutureExt, ModelContext, ModelSpawner, SingletonEntity};
+use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
 
 use super::{terminal::TerminalDriver, AgentDriverError};
 use galaxy_cli::agent::Harness;

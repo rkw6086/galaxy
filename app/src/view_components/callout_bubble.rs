@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
 use galaxyui::elements::{
     Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisSize,
@@ -7,6 +6,7 @@ use galaxyui::elements::{
 use galaxyui::ui_components::checkbox::Checkbox;
 use galaxyui::ui_components::components::UiComponentStyles;
 use galaxyui::Element;
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
 use galaxy_util::path::ShellFamily;
 use galaxyui::platform::OperatingSystem;
+use serde::{Deserialize, Serialize};
 
 #[derive(
     Debug,

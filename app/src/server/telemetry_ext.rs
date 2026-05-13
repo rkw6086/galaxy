@@ -5,12 +5,12 @@ use super::telemetry::rudder_message::{
 use super::telemetry::secret_redaction::redact_secrets_in_value;
 use crate::auth::UserUid;
 use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
 use galaxy_core::{
     channel::{Channel, ChannelState},
     execution_mode,
 };
 use galaxyui::telemetry::EventPayload;
+use serde_json::{json, Value};
 
 use super::telemetry::telemetry_context;
 

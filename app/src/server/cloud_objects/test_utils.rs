@@ -6,9 +6,9 @@ use std::{
     },
 };
 
-use settings::manager::SettingsManager;
 use galaxy_core::execution_mode::{AppExecutionMode, ExecutionMode};
 use galaxyui::{App, ModelHandle, SingletonEntity};
+use settings::manager::SettingsManager;
 
 use crate::{
     auth::{auth_manager::AuthManager, AuthStateProvider},

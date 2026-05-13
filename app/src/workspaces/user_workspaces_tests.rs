@@ -22,11 +22,11 @@ use crate::workspaces::workspace::{
     Workspace,
 };
 
+use galaxyui::{AddSingletonModel, App};
+use galaxyui_extras::user_preferences;
 use mockall::Sequence;
 use settings::{PrivatePreferences, PublicPreferences};
 use std::time::Duration;
-use galaxyui::{AddSingletonModel, App};
-use galaxyui_extras::user_preferences;
 
 use super::*;
 

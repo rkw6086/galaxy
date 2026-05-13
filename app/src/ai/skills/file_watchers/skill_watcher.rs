@@ -24,12 +24,12 @@ use ai::skills::{
 };
 use async_channel::Sender;
 use chrono::{DateTime, Duration, Utc};
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 use repo_metadata::{
     repositories::{DetectedRepositories, RepoDetectionSource},
     repository::{Repository, SubscriberId},
     DirectoryWatcher, RepoMetadataModel, RepositoryUpdate,
 };
-use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 #[derive(Debug, PartialEq)]
 pub enum SkillWatcherEvent {

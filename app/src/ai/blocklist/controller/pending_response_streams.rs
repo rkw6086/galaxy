@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
 use galaxyui::{AppContext, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
 
 use crate::{
     ai::agent::{conversation::AIConversationId, CancellationReason},

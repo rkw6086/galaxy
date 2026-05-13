@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
+use std::sync::Arc;
 
 use crate::{
     ai_assistant::execution_context::WarpAiExecutionContext,

@@ -1,7 +1,7 @@
 use enum_iterator::Sequence;
+use galaxyui::EntityId;
 use instant::Instant;
 use uuid::Uuid;
-use galaxyui::EntityId;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::artifacts::Artifact;

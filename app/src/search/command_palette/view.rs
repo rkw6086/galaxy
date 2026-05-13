@@ -15,17 +15,17 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::themes::theme::WarpTheme;
 use crate::view_components::DismissibleToast;
 use crate::ToastStack;
-use lazy_static::lazy_static;
 use galaxy_core::send_telemetry_from_app_ctx;
 use galaxy_util::path::LineAndColumnArg;
+use lazy_static::lazy_static;
 
 use crate::search::action::search_item::MatchedBinding;
-use itertools::Itertools;
 use galaxyui::elements::DispatchEventResult;
 use galaxyui::elements::EventHandler;
 use galaxyui::event::KeyState;
 use galaxyui::platform::keyboard::KeyCode;
 use galaxyui::FocusContext;
+use itertools::Itertools;
 
 use crate::search::command_palette::zero_state::{self, Event as ZeroStateEvent, ZeroState};
 use crate::search::data_source::QueryResult;

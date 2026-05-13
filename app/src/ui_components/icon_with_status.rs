@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::icons::Icon as WarpIcon;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::{Fill as WarpThemeFill, WarpTheme};
@@ -7,6 +5,8 @@ use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, Stack,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::terminal::CLIAgent;
@@ -157,10 +157,11 @@ fn render_with_optional_status_badge(
         return circle;
     };
     let (icon, color) = status.status_icon_and_color(theme);
-    let badge_icon = ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
-        .with_width(sizing.badge_icon_size)
-        .with_height(sizing.badge_icon_size)
-        .finish();
+    let badge_icon =
+        ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
+            .with_width(sizing.badge_icon_size)
+            .with_height(sizing.badge_icon_size)
+            .finish();
     let badge = Container::new(badge_icon)
         .with_uniform_padding(sizing.badge_padding)
         .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))

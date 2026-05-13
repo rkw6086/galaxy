@@ -1,10 +1,5 @@
 use std::borrow::Cow;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{
-    button, button::Button as ButtonComponent, Component, MouseEventHandler, Options as _,
-};
 use galaxy_core::ui::{
     appearance::Appearance,
     color::{coloru_with_opacity, contrast::relative_luminance},
@@ -20,6 +15,11 @@ use galaxyui::{
     prelude::*,
     ui_components::checkbox::Checkbox as WarpCheckbox,
     ui_components::components::{UiComponent as _, UiComponentStyles},
+};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{
+    button, button::Button as ButtonComponent, Component, MouseEventHandler, Options as _,
 };
 
 const CALLOUT_WIDTH: f32 = 480.;

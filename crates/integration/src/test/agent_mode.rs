@@ -5,9 +5,6 @@ use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use super::new_builder;
 use crate::{util::skip_if_powershell_core_2303, Builder};
-use lazy_static::lazy_static;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use settings::ToggleableSetting;
 use galaxy::{
     cmd_or_ctrl_shift,
     features::FeatureFlag,
@@ -22,8 +19,11 @@ use galaxy::{
     },
     settings::SelectionSettings,
 };
-use warp_multi_agent_api as api;
 use galaxyui::{async_assert, integration::TestStep, text::SelectionType, Event, SingletonEntity};
+use lazy_static::lazy_static;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use settings::ToggleableSetting;
+use warp_multi_agent_api as api;
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {

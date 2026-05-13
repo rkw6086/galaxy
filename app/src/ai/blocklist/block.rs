@@ -54,21 +54,21 @@ use crate::view_components::action_button::{
 use crate::view_components::compactible_action_button::CompactibleActionButton;
 use crate::AIAgentTodoList;
 use crate::FileEdit;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
+use pathfinder_color::ColorU;
 
 use cli_controller::CLISubagentController;
 use cli_controller::CLISubagentEvent;
 use find::FindState;
-use model::AIBlockOutputStatus;
-use parking_lot::FairMutex;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::get_rich_content_position_id;
 use galaxyui::elements::ClippedScrollStateHandle;
 use galaxyui::elements::TableStateHandle;
 use galaxyui::ui_components::radio_buttons::RadioButtonStateHandle;
+use model::AIBlockOutputStatus;
+use parking_lot::FairMutex;
+use settings::Setting as _;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentActionResultType;
@@ -111,6 +111,15 @@ use crate::view_components::action_button::KeystrokeSource;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::Appearance;
 use crate::LLMPreferences;
+use galaxy_util::path::ShellFamily;
+use galaxyui::elements::MainAxisAlignment;
+use galaxyui::elements::MainAxisSize;
+use galaxyui::elements::SecretRange;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::button::TextAndIcon;
+use galaxyui::ui_components::button::TextAndIconAlignment;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::ui_components::components::UiComponentStyles;
 use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
 use pathfinder_geometry::vector::vec2f;
@@ -121,20 +130,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{cell::OnceCell, sync::Arc};
-use galaxy_util::path::ShellFamily;
-use galaxyui::elements::MainAxisAlignment;
-use galaxyui::elements::MainAxisSize;
-use galaxyui::elements::SecretRange;
-use galaxyui::ui_components::button::ButtonVariant;
-use galaxyui::ui_components::button::TextAndIcon;
-use galaxyui::ui_components::button::TextAndIconAlignment;
-use galaxyui::ui_components::components::UiComponent;
-use galaxyui::ui_components::components::UiComponentStyles;
 
 use crate::util::link_detection::*;
 use chrono::Duration;
-use itertools::Itertools;
-use secret_redaction::*;
 #[cfg(feature = "local_fs")]
 use galaxy_editor::content::edit::resolve_asset_source_relative_to_directory;
 use galaxy_editor::{
@@ -151,6 +149,8 @@ use galaxyui::{
     AppContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle, WeakViewHandle, WindowId,
 };
+use itertools::Itertools;
+use secret_redaction::*;
 
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentAttachment, AIAgentCitation,
@@ -1688,13 +1688,20 @@ impl AIBlock {
         let status = self.model.status(ctx);
         let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
 
-        log::info!("[bedrock-debug] on_output_status_update: status={}", match &status {
-            AIBlockOutputStatus::Pending => "Pending".to_string(),
-            AIBlockOutputStatus::PartiallyReceived { output } => format!("PartiallyReceived(messages={})", output.get().messages.len()),
-            AIBlockOutputStatus::Complete { output } => format!("Complete(messages={})", output.get().messages.len()),
-            AIBlockOutputStatus::Cancelled { .. } => "Cancelled".to_string(),
-            AIBlockOutputStatus::Failed { .. } => "Failed".to_string(),
-        });
+        log::info!(
+            "[bedrock-debug] on_output_status_update: status={}",
+            match &status {
+                AIBlockOutputStatus::Pending => "Pending".to_string(),
+                AIBlockOutputStatus::PartiallyReceived { output } => format!(
+                    "PartiallyReceived(messages={})",
+                    output.get().messages.len()
+                ),
+                AIBlockOutputStatus::Complete { output } =>
+                    format!("Complete(messages={})", output.get().messages.len()),
+                AIBlockOutputStatus::Cancelled { .. } => "Cancelled".to_string(),
+                AIBlockOutputStatus::Failed { .. } => "Failed".to_string(),
+            }
+        );
 
         match status {
             AIBlockOutputStatus::Pending => {

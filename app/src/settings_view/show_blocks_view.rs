@@ -16,8 +16,6 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Local};
-use pathfinder_geometry::vector::vec2f;
-use std::sync::Arc;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
@@ -36,6 +34,8 @@ use galaxyui::{elements::ScrollbarWidth, fonts::Weight};
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+use std::sync::Arc;
 
 const SCROLLBAR_WIDTH: ScrollbarWidth = ScrollbarWidth::Auto;
 

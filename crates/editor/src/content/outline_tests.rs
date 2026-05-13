@@ -6,8 +6,8 @@ use crate::content::{
     selection_model::BufferSelectionModel,
     text::{BlockType, BufferBlockStyle, IndentBehavior, TextStyles},
 };
-use string_offset::CharOffset;
 use galaxyui::App;
+use string_offset::CharOffset;
 
 #[test]
 fn test_no_blocks() {

@@ -10,9 +10,9 @@
 
 use ai::diff_validation::AIRequestedCodeDiff;
 use futures::FutureExt;
-use vec1::Vec1;
 use galaxyui::r#async::BoxFuture;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity as _};
+use vec1::Vec1;
 
 use crate::ai::agent::{AIIdentifiers, FileEdit};
 use crate::ai::blocklist::SessionContext;

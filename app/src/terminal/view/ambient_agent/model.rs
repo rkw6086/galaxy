@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use instant::Instant;
-use session_sharing_protocol::common::SessionId;
 use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity};
+use instant::Instant;
+use session_sharing_protocol::common::SessionId;
 
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::AIConversationId;

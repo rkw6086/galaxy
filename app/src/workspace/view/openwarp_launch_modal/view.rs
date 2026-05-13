@@ -1,8 +1,3 @@
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
-};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{
@@ -16,6 +11,11 @@ use galaxyui::keymap::FixedBinding;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
+};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;

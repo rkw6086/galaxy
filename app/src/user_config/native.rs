@@ -4,9 +4,9 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
+use galaxyui::{ModelContext, SingletonEntity};
 use itertools::Itertools;
 use repo_metadata::RepositoryUpdate;
-use galaxyui::{ModelContext, SingletonEntity};
 
 use crate::features::FeatureFlag;
 use crate::launch_configs::launch_config::LaunchConfig;

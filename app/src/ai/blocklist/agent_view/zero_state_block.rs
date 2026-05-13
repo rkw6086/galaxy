@@ -1,9 +1,4 @@
 #![allow(dead_code, unused_imports, unused_variables)]
-use itertools::Itertools as _;
-use markdown_parser::{parse_markdown, FormattedText, FormattedTextFragment, FormattedTextLine};
-use parking_lot::FairMutex;
-use settings::Setting;
-use std::{borrow::Cow, cmp::Reverse, path::Path, sync::Arc};
 use galaxy_core::{features::FeatureFlag, report_if_error, ui::Icon};
 use galaxyui::{
     elements::{
@@ -17,6 +12,11 @@ use galaxyui::{
     scene::Border,
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use itertools::Itertools as _;
+use markdown_parser::{parse_markdown, FormattedText, FormattedTextFragment, FormattedTextLine};
+use parking_lot::FairMutex;
+use settings::Setting;
+use std::{borrow::Cow, cmp::Reverse, path::Path, sync::Arc};
 
 use crate::{
     ai::{
@@ -209,8 +209,7 @@ impl AgentViewZeroStateBlock {
                 }
             }
         });
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |_me, _, _event, _ctx| {
-        });
+        ctx.subscribe_to_model(&AISettings::handle(ctx), |_me, _, _event, _ctx| {});
 
         let mut state_handles = StateHandles::default();
         state_handles.update_hyperlinks.resize(

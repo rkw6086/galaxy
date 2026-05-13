@@ -10,11 +10,11 @@ use std::{
 };
 
 use async_trait::async_trait;
+use galaxy_core::command::ExitCode;
+use galaxy_util::path::{EscapeChar, ShellFamily, TEST_SESSION_HOME_DIR};
 use smol_str::SmolStr;
 use typed_path::{TypedPath, TypedPathBuf};
 use warp_command_signatures::IconType;
-use galaxy_core::command::ExitCode;
-use galaxy_util::path::{EscapeChar, ShellFamily, TEST_SESSION_HOME_DIR};
 
 use crate::{
     completer::{

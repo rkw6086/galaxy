@@ -1,8 +1,8 @@
-use pathfinder_geometry::rect::RectF;
 use galaxyui::{
     async_assert_eq, integration::TestStep, platform::TerminationMode, windowing::WindowManager,
     SingletonEntity,
 };
+use pathfinder_geometry::rect::RectF;
 
 use crate::integration_testing::step::new_step_with_default_assertions;
 

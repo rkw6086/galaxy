@@ -1,6 +1,4 @@
 use futures_util::stream::AbortHandle;
-use pathfinder_geometry::vector::vec2f;
-use std::path::PathBuf;
 use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
@@ -13,6 +11,8 @@ use galaxyui::{
     },
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_geometry::vector::vec2f;
+use std::path::PathBuf;
 
 use crate::{
     appearance::Appearance,

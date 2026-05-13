@@ -1,5 +1,4 @@
 use asset_macro::bundled_or_fetched_asset;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::{
     color::{blend::Blend, coloru_with_opacity, OPAQUE},
     theme::{
@@ -7,6 +6,7 @@ use galaxy_core::ui::{
         TerminalColors, VerticalGradient, WarpTheme,
     },
 };
+use pathfinder_color::ColorU;
 
 const DARK_MODE_NORMAL_COLORS: AnsiColors = AnsiColors::new(
     AnsiColor::from_u32(0x616161FF),

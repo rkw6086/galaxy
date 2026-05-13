@@ -1,7 +1,7 @@
+use galaxyui::accessibility::AccessibilityVerbosity;
 use settings::{
     macros::define_settings_group, RespectUserSyncSetting, SupportedPlatforms, SyncToCloud,
 };
-use galaxyui::accessibility::AccessibilityVerbosity;
 
 define_settings_group!(AccessibilitySettings, settings: [
     a11y_verbosity: AccessibilityVerbosityState {

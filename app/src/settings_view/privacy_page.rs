@@ -9,9 +9,9 @@ use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 
+use galaxy_core::context_flag::ContextFlag;
 use regex::Regex;
 use settings::Setting as _;
-use galaxy_core::context_flag::ContextFlag;
 
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::elements::{
@@ -94,8 +94,6 @@ const TELEMETRY_FREE_TIER_NOTE: &str =
     "On the free tier, analytics must be enabled to use AI features.";
 const TELEMETRY_DOCS_URL: &str =
     "https://docs.warp.dev/support-and-community/privacy-and-security/privacy#what-telemetry-data-does-warp-collect-and-why";
-
-
 
 pub struct PrivacyPageView {
     page: PageType<Self>,

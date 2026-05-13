@@ -1,12 +1,12 @@
+use galaxyui::keymap::Keystroke;
+#[cfg(not(test))]
+use galaxyui::keymap::Trigger;
+use galaxyui::AppContext;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 #[cfg(not(test))]
 use std::env::var_os;
 use vec1::{vec1, Vec1};
-use galaxyui::keymap::Keystroke;
-#[cfg(not(test))]
-use galaxyui::keymap::Trigger;
-use galaxyui::AppContext;
 
 use anyhow::Context;
 

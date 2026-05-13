@@ -1,10 +1,10 @@
 use std::{iter, pin::pin, sync::Once};
 
 use futures_lite::future;
+use galaxyui::App;
 use itertools::Itertools;
 use rangemap::RangeSet;
 use sum_tree::SumTree;
-use galaxyui::App;
 
 use crate::content::{
     buffer::Buffer,

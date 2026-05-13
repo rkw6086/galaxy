@@ -4,12 +4,12 @@ use crate::search::ai_context_menu::{mixer::AIContextMenuSearchableAction, safe_
 use crate::search::item::{IconLocation, SearchItem};
 use crate::search::result_renderer::ItemHighlightState;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon, ParentElement, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 // Import CodeSymbol from the data_source module
 use super::data_source::CodeSymbol;

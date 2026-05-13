@@ -13,6 +13,9 @@ use crate::search::mixer::{
 };
 use ai::index::Symbol;
 use fuzzy_match::FuzzyMatchResult;
+use galaxyui::AppContext;
+#[cfg(not(target_family = "wasm"))]
+use galaxyui::ModelSpawner;
 #[cfg(not(target_family = "wasm"))]
 use instant::Instant;
 #[cfg(not(target_family = "wasm"))]
@@ -23,20 +26,17 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 #[cfg(not(target_family = "wasm"))]
 use std::time::Duration;
-use galaxyui::AppContext;
-#[cfg(not(target_family = "wasm"))]
-use galaxyui::ModelSpawner;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::outline::{OutlineStatus, RepoOutlines, RepoOutlinesEvent};
 #[cfg(not(target_family = "wasm"))]
 use crate::workspace::ActiveSession;
 #[cfg(not(target_family = "wasm"))]
+use galaxyui::SingletonEntity;
+#[cfg(not(target_family = "wasm"))]
 use repo_metadata::repositories::DetectedRepositories;
 #[cfg(not(target_family = "wasm"))]
 use std::path::Path;
-#[cfg(not(target_family = "wasm"))]
-use galaxyui::SingletonEntity;
 
 const MAX_RESULTS: usize = 200;
 

@@ -13,13 +13,13 @@ pub use convert_from::{
 pub use r#impl::generate_multi_agent_output;
 
 use futures_lite::Stream;
+use galaxy_core::channel::ChannelState;
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::features::FeatureFlag;
 use serde::Serialize;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::execution_mode::AppExecutionMode;
-use galaxy_core::features::FeatureFlag;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -137,7 +137,8 @@ pub struct RequestParams {
     /// Populated by the Bedrock path after building the message list.
     /// Contains the full messages sent (old history + new input) so the controller
     /// can store them back into the conversation for the next request cycle.
-    pub bedrock_messages_sent: std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
+    pub bedrock_messages_sent:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
 }
 
 pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;

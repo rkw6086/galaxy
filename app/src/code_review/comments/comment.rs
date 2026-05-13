@@ -3,9 +3,9 @@ use crate::{
     code::editor::{line::EditorLineLocation, EditorReviewComment},
 };
 use chrono::{DateTime, Local};
+use galaxy_editor::render::model::LineCount;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
-use galaxy_editor::render::model::LineCount;
 use warp_multi_agent_api::{self as api};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

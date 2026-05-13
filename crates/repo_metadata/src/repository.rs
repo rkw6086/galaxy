@@ -8,13 +8,13 @@ use std::time::Duration;
 use std::path::Path;
 
 use futures::future::ready;
-#[cfg(feature = "local_fs")]
-use ignore::gitignore::Gitignore;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::r#async::{BoxFuture, SpawnedFutureHandle};
 #[cfg(feature = "local_fs")]
 use galaxyui::SingletonEntity;
 use galaxyui::{Entity, ModelContext, ModelHandle};
+#[cfg(feature = "local_fs")]
+use ignore::gitignore::Gitignore;
 
 #[cfg(feature = "local_fs")]
 use crate::watcher::DirectoryWatcher;

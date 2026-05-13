@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
+use galaxy_editor::multiline::{MultilineStr, MultilineString};
 use rangemap::RangeMap;
 use unindent::Unindent as _;
-use galaxy_editor::multiline::{MultilineStr, MultilineString};
 
 use crate::code::editor::diff::ChangeType;
 

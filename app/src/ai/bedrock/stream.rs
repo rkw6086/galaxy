@@ -13,7 +13,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 use crate::ai::agent::api::Event;
 use crate::server::server_api::AIApiError;
 
-use super::convert::{ContentPart, MessageContent, MessageRole, ConversationMessage};
+use super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::diagnostic::BedrockDiagnosticLogger;
 
 pub fn bedrock_stream_to_response_events(

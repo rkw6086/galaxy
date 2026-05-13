@@ -2,6 +2,7 @@
 
 use anyhow::Context;
 use futures::FutureExt as _;
+use galaxyui::r#async::{block_on, executor::Background, Timer};
 use instant::Instant;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
@@ -25,7 +26,6 @@ use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use tantivy::{
     snippet::SnippetGenerator, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term,
 };
-use galaxyui::r#async::{block_on, executor::Background, Timer};
 
 pub type FullTextSearchDocumentEntry = HashMap<String, FullTextSearchFieldValue>;
 

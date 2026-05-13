@@ -49,16 +49,18 @@ use crate::{
 use async_compat::CompatExt as _;
 use cfg_if::cfg_if;
 use futures::FutureExt as _;
+use galaxy_core::safe_error;
+use galaxy_core::{
+    execution_mode::AppExecutionMode, features::FeatureFlag, settings::Setting as _,
+};
+use galaxyui::AppContext;
+use galaxyui::{windowing::WindowManager, ModelContext, SingletonEntity};
 use parking_lot::Mutex;
 use rmcp::{transport::ConfigureCommandExt as _, ServiceExt as _};
 use simple_logger::manager::LogManager;
 use simple_logger::SimpleLogger;
 use tokio::io::AsyncBufReadExt as _;
 use uuid::Uuid;
-use galaxy_core::safe_error;
-use galaxy_core::{execution_mode::AppExecutionMode, features::FeatureFlag, settings::Setting as _};
-use galaxyui::AppContext;
-use galaxyui::{windowing::WindowManager, ModelContext, SingletonEntity};
 
 use super::{
     oauth::{self, AuthContext, FileBasedPersistedCredentialsMap, PersistedCredentialsMap},

@@ -3,14 +3,14 @@ pub mod autosuggestion_ignore_view;
 mod soft_wrap;
 mod view;
 
+pub use galaxyui::text::point::Point;
 /// Consumers of the editor should only interface with the view.
 /// They should _not_ be able to interface with the internal
 /// details of the editor (e.g. the [`Buffer`]).
 pub use view::*;
-pub use galaxyui::text::point::Point;
 
-use std::{cmp, ops::Range};
 use galaxyui::AppContext;
+use std::{cmp, ops::Range};
 
 pub fn init(app: &mut AppContext) {
     view::init(app);

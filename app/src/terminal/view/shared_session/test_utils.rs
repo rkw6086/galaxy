@@ -1,7 +1,7 @@
-use session_sharing_protocol::common::{ParticipantId, ParticipantList, SessionId};
-use session_sharing_protocol::sharer::SessionSourceType;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, SingletonEntity, ViewHandle};
+use session_sharing_protocol::common::{ParticipantId, ParticipantList, SessionId};
+use session_sharing_protocol::sharer::SessionSourceType;
 
 use crate::auth::UserUid;
 use crate::editor::ReplicaId;

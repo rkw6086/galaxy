@@ -1,9 +1,9 @@
 mod interaction_mode;
 mod serialized_block;
 
+use galaxy_core::features::FeatureFlag;
 pub use interaction_mode::*;
 pub use serialized_block::*;
-use galaxy_core::features::FeatureFlag;
 
 use super::grid::grid_handler::{GridHandler, PerformResetGridChecks};
 use super::grid::{Cursor, RespectDisplayedOutput};
@@ -50,15 +50,15 @@ use crate::{
 };
 
 use chrono::{DateTime, Duration, FixedOffset, Local};
-use hex;
-use instant::Instant;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::command::ExitCode;
 use galaxy_terminal::model::grid::Dimensions as _;
 use galaxy_util::path::user_friendly_path;
 use galaxyui::units::{IntoLines, Lines};
 use galaxyui::{r#async::executor::Background, record_trace_event};
+use hex;
+use instant::Instant;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 
 use enum_iterator::all;
 use lazy_static::lazy_static;

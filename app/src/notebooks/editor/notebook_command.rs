@@ -1,16 +1,6 @@
 use std::{borrow::Cow, mem, ops::Range, sync::Arc};
 
 use async_channel::Sender;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-use string_offset::{ByteOffset, CharOffset};
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{self, Theme, ThemeSet},
-    parsing::SyntaxSet,
-    util::LinesWithEndings,
-};
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_editor::{
     content::{
@@ -24,8 +14,17 @@ use galaxy_editor::{
     },
     editor::RunnableCommandModel,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+use string_offset::{ByteOffset, CharOffset};
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{self, Theme, ThemeSet},
+    parsing::SyntaxSet,
+    util::LinesWithEndings,
+};
 
-use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
 use galaxy_util::user_input::UserInput;
 use galaxyui::{elements::Align, r#async::SpawnedFutureHandle, AppContext};
 use galaxyui::{
@@ -38,6 +37,7 @@ use galaxyui::{
     Element, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, ViewHandle,
     WeakModelHandle, WindowId,
 };
+use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
 
 use crate::{
     appearance::Appearance,

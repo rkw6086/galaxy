@@ -1,12 +1,12 @@
 use std::process;
 
 use anyhow::{anyhow, Result};
-use serde_json::json;
 use galaxy_cli::federate::{FederateCommand, IssueGcpTokenArgs, IssueTokenArgs};
 use galaxy_cli::{agent::OutputFormat, GlobalOptions};
 use galaxy_core::{features::FeatureFlag, report_error};
 use galaxy_managed_secrets::ManagedSecretManager;
 use galaxyui::{platform::TerminationMode, AppContext, SingletonEntity as _};
+use serde_json::json;
 
 use super::common::set_ambient_task_context_from_run_id;
 
@@ -42,12 +42,13 @@ fn issue_token(
     };
 
     ManagedSecretManager::handle(ctx).update(ctx, move |manager, ctx| {
-        let future =
-            manager.issue_task_identity_token(galaxy_managed_secrets::client::IdentityTokenOptions {
+        let future = manager.issue_task_identity_token(
+            galaxy_managed_secrets::client::IdentityTokenOptions {
                 audience,
                 requested_duration: duration,
                 subject_template,
-            });
+            },
+        );
         ctx.spawn(future, move |_, result, ctx| match result {
             Ok(token) => {
                 let token_value = token.token;

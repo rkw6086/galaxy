@@ -6,10 +6,10 @@ use std::{
 };
 
 use futures::channel::oneshot;
-use parking_lot::Mutex;
-use tempfile::TempDir;
 use galaxy_util::path::ShellFamily;
 use galaxyui::{AddSingletonModel, App, SingletonEntity, WindowId};
+use parking_lot::Mutex;
+use tempfile::TempDir;
 
 use crate::{
     cloud_object::{

@@ -32,7 +32,6 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button_with_color;
 use crate::ui_components::icons;
 use crate::workspace::tab_settings::TabSettings;
-use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::ui::Icon as WarpIcon;
 use galaxyui::elements::{
@@ -46,6 +45,7 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::ui_components::components::UiComponentStyles;
 use galaxyui::WeakModelHandle;
 use galaxyui::{AppContext, Element, ModelHandle, SingletonEntity, TypedActionView, ViewContext};
+use settings::Setting as _;
 
 impl TerminalView {
     /// Returns a reference to the focus handle if one has been set.

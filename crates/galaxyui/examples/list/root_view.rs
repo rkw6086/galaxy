@@ -9,8 +9,8 @@ use galaxyui::{
     AppContext, Element, Entity, TypedActionView, View, ViewContext,
 };
 
-use std::sync::{Arc, Mutex};
 use galaxyui::color::ColorU;
+use std::sync::{Arc, Mutex};
 
 pub struct RootView {
     font_family: FamilyId,

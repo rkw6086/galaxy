@@ -45,9 +45,6 @@ use crate::{
     workspace::{ToastStack, WorkspaceAction},
     workspaces::user_workspaces::UserWorkspaces,
 };
-use instant::Instant;
-use pathfinder_geometry::vector::vec2f;
-use std::collections::HashMap;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_editor::editor::NavigationKey;
@@ -70,6 +67,9 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use instant::Instant;
+use pathfinder_geometry::vector::vec2f;
+use std::collections::HashMap;
 
 mod new_environment_button;
 use new_environment_button::NewEnvironmentButtonView;

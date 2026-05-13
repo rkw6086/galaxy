@@ -8,9 +8,9 @@ use fuzzy_match::FuzzyMatchResult;
 use crate::search::command_palette::mixer::CommandPaletteItemAction;
 use crate::search::result_renderer::ItemHighlightState;
 
+use galaxyui::{AppContext, Element, SingletonEntity};
 use ordered_float::OrderedFloat;
 use std::sync::Arc;
-use galaxyui::{AppContext, Element, SingletonEntity};
 
 #[derive(Debug)]
 pub struct SearchItem {

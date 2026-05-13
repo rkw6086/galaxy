@@ -9,9 +9,9 @@ use std::{
 };
 
 use chrono::{Local, SecondsFormat};
+use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 #[cfg(test)]
 use parking_lot::Mutex;
-use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 
 #[cfg(test)]
 use std::sync::Arc;

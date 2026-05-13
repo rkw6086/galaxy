@@ -5,10 +5,10 @@ use std::{
 };
 
 use galaxy_util::path::ShellFamily;
-use warp_workflows::workflows as global_workflows;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui::platform::OperatingSystem;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
+use warp_workflows::workflows as global_workflows;
 
 #[cfg(feature = "local_fs")]
 use crate::user_config::load_workflows;

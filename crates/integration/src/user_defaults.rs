@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use galaxy::settings::INPUT_MODE;
 use galaxy::terminal::block_list_viewport::InputMode;
+use std::collections::HashMap;
 
 /// Returns a user defaults map with the `InputMode` set to `input_mode`.
 #[allow(dead_code)]

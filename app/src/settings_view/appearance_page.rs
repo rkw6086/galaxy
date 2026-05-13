@@ -69,11 +69,6 @@ use crate::{report_error, report_if_error, themes};
 use crate::{send_telemetry_from_ctx, server::telemetry::TelemetryEvent};
 use ::settings::{Setting, SettingSection, ToggleableSetting};
 use enum_iterator::all;
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::rc::Rc;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::path::user_friendly_path;
 use galaxyui::elements::{
@@ -90,6 +85,11 @@ use galaxyui::ui_components::radio_buttons::{
 use galaxyui::ui_components::slider::SliderStateHandle;
 use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::units::IntoPixels;
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 use galaxyui::id;
 use galaxyui::{

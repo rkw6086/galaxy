@@ -4,11 +4,6 @@
 use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
 
 use futures::stream::AbortHandle;
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use rangemap::RangeMap;
-use similar::{ChangeTag, DiffOp, TextDiff};
-use string_offset::CharOffset;
 use galaxy_core::ui::theme::Fill;
 use galaxy_editor::{
     content::{edit::TemporaryBlock, version::BufferVersion},
@@ -16,6 +11,11 @@ use galaxy_editor::{
     render::model::{Decoration, LineCount, LineDecoration},
 };
 use galaxyui::{Entity, ModelContext};
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use rangemap::RangeMap;
+use similar::{ChangeTag, DiffOp, TextDiff};
+use string_offset::CharOffset;
 
 use super::super::DiffResult;
 

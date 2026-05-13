@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use ai::skills::{SkillProvider, SkillReference, SkillScope};
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -15,6 +14,7 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity as _,
 };
+use ordered_float::OrderedFloat;
 
 use crate::ai::skills::SkillManager;
 use crate::appearance::Appearance;

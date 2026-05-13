@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::TryFutureExt;
-use inquire::{InquireError, Select};
 use galaxy_cli::agent::Harness;
 use galaxy_cli::environment::{EnvironmentCreateArgs, EnvironmentUpdateArgs};
 use galaxyui::r#async::FutureExt;
 use galaxyui::{AppContext, GetSingletonModelHandle, SingletonEntity as _, UpdateModel};
+use inquire::{InquireError, Select};
 
 use crate::ai::agent::conversation::ServerAIConversationMetadata;
 use crate::ai::agent_sdk::driver::{AgentDriverError, WARP_DRIVE_SYNC_TIMEOUT};

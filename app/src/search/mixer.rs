@@ -6,14 +6,14 @@ use crate::server::telemetry::TelemetryEvent;
 use async_channel::Sender;
 use async_trait::async_trait;
 use futures_util::stream::AbortHandle;
+use galaxyui::r#async::Timer;
+use galaxyui::{Action, AppContext, Entity, ModelContext};
 use itertools::Itertools;
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use galaxyui::r#async::Timer;
-use galaxyui::{Action, AppContext, Entity, ModelContext};
 
 /// Maximum time to wait for matching data sources to return results before showing
 /// partial results.

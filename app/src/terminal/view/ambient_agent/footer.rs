@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::{
     elements::{
@@ -8,6 +7,7 @@ use galaxyui::{
     fonts::{Properties, Weight},
     Element,
 };
+use pathfinder_color::ColorU;
 
 use crate::ui_components::blended_colors;
 

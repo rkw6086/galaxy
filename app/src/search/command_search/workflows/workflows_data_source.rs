@@ -1,6 +1,6 @@
+use galaxyui::AppContext;
 use itertools::Itertools;
 use std::collections::HashMap;
-use galaxyui::AppContext;
 
 use crate::completer::SessionContext;
 use crate::search::command_search::settings::CommandSearchSettings;

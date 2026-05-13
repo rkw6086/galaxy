@@ -1,13 +1,13 @@
 use instant::Instant;
 use std::time::Duration;
 
+use galaxyui::r#async::Timer;
 use objc2_core_foundation::CGPoint;
 use objc2_core_graphics::{
     CGEvent, CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGEventType, CGMouseButton,
     CGScrollEventUnit,
 };
 use pathfinder_geometry::vector::Vector2I;
-use galaxyui::r#async::Timer;
 
 use crate::{MouseButton, ScrollDirection, ScrollDistance};
 

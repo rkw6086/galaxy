@@ -4,13 +4,13 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Itertools;
-use lazy_static::lazy_static;
 use galaxy_util::path::EscapeChar;
 use galaxyui::{
     accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
     SingletonEntity, ViewContext,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
 
 #[cfg(feature = "local_fs")]
 use crate::code::editor_management::CodeSource;
@@ -24,7 +24,6 @@ use crate::{
     },
     util::openable_file_type::{is_file_openable_in_warp, OpenableFileType},
 };
-use settings::Setting as _;
 use galaxy_completer::{
     completer::TopLevelCommandCaseSensitivity,
     parsers::{
@@ -34,6 +33,7 @@ use galaxy_completer::{
     },
     signatures::CommandRegistry,
 };
+use settings::Setting as _;
 
 use super::{Event, InlineBannerItem, InlineBannerType, TerminalView};
 

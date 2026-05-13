@@ -2,11 +2,11 @@
 
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use galaxy_cli::agent::Harness;
 use galaxy_core::report_error;
 use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::color::ColorU;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::ai::artifacts::{deserialize_artifacts, Artifact};
 use crate::server::server_api::ServerApiProvider;

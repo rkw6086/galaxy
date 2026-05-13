@@ -1,8 +1,5 @@
 use std::path::PathBuf;
 
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
-};
 use galaxyui::elements::{
     Align, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
     FormattedTextElement, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius,
@@ -18,9 +15,12 @@ use galaxyui::{
     AppContext, Element, Entity, EventContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
+};
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::settings::AISettings;

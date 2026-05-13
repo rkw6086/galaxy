@@ -7,9 +7,9 @@ use super::{
     grid::{grid_handler::PerformResetGridChecks, Dimensions as _},
     selection::ScrollDelta,
 };
+use galaxyui::units::{IntoLines as _, Lines};
 use instant::Instant;
 use pathfinder_color::ColorU;
-use galaxyui::units::{IntoLines as _, Lines};
 
 use crate::terminal::event::Event;
 

@@ -176,6 +176,10 @@ use block_onboarding::onboarding_agentic_suggestions_block::{
     OnboardingAgenticSuggestionsBlock, OnboardingAgenticSuggestionsBlockEvent, OnboardingChipType,
 };
 use block_onboarding::onboarding_drive_sharing_block::OnboardingDriveSharingBlock;
+use galaxy_core::channel::ChannelState;
+use galaxyui::elements::{shimmering_text::ShimmeringTextStateHandle, Border, ChildView};
+use galaxyui::fonts::Properties;
+use galaxyui::{ViewHandle, WeakModelHandle};
 pub use init::{
     init, CANCEL_COMMAND_KEYBINDING, TOGGLE_AUTOEXECUTE_MODE_KEYBINDING,
     TOGGLE_HIDE_CLI_RESPONSES_KEYBINDING, TOGGLE_QUEUE_NEXT_PROMPT_KEYBINDING,
@@ -187,10 +191,6 @@ use session_sharing_protocol::common::LongRunningCommandAgentInteractionState;
 use session_sharing_protocol::sharer::{RoleUpdateReason, SessionEndedReason, SessionSourceType};
 use ssh_file_upload::{FileUpload, FileUploadEvent};
 use uuid::Uuid;
-use galaxy_core::channel::ChannelState;
-use galaxyui::elements::{shimmering_text::ShimmeringTextStateHandle, Border, ChildView};
-use galaxyui::fonts::Properties;
-use galaxyui::{ViewHandle, WeakModelHandle};
 
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 
@@ -346,6 +346,30 @@ use chrono::{DateTime, Local, NaiveDateTime};
 use command_corrections::rules::{Rule, RuleId as CommandCorrectionsRuleId};
 use command_corrections::{correct_command, Command, Correction, HistoryItem, SessionMetadata};
 use enclose::enclose;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::user_preferences::GetUserPreferences as _;
+#[cfg(feature = "local_fs")]
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::path::ShellFamily;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::new_scrollable::{
+    AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
+    ScrollableAppearance, SingleAxisConfig,
+};
+use galaxyui::elements::{
+    get_rich_content_position_id, ChildAnchor, ClippedScrollStateHandle, Container,
+    CrossAxisAlignment, DispatchEventResult, DropTarget, DropTargetData, Empty, EventHandler,
+    Expanded, Flex, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
+    ScrollableElement, ScrollbarWidth, Shrinkable, Text,
+};
+use galaxyui::event::ModifiersState;
+use galaxyui::keymap::Keystroke;
+use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
+use galaxyui::platform::{Cursor, OperatingSystem};
+use galaxyui::r#async::executor::Background;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::windowing::WindowManager;
 use instant::Instant;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -378,30 +402,6 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use sum_tree::SeekBias;
 use vec1::vec1;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::user_preferences::GetUserPreferences as _;
-#[cfg(feature = "local_fs")]
-use galaxy_util::path::LineAndColumnArg;
-use galaxy_util::path::ShellFamily;
-use galaxyui::clipboard::ClipboardContent;
-use galaxyui::elements::new_scrollable::{
-    AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
-    ScrollableAppearance, SingleAxisConfig,
-};
-use galaxyui::elements::{
-    get_rich_content_position_id, ChildAnchor, ClippedScrollStateHandle, Container,
-    CrossAxisAlignment, DispatchEventResult, DropTarget, DropTargetData, Empty, EventHandler,
-    Expanded, Flex, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
-    ScrollableElement, ScrollbarWidth, Shrinkable, Text,
-};
-use galaxyui::event::ModifiersState;
-use galaxyui::keymap::Keystroke;
-use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
-use galaxyui::platform::{Cursor, OperatingSystem};
-use galaxyui::r#async::executor::Background;
-use galaxyui::r#async::{SpawnedFutureHandle, Timer};
-use galaxyui::windowing::WindowManager;
 
 use galaxyui::assets::asset_cache::{AssetCache, AssetCacheEvent};
 use galaxyui::image_cache::ImageType;
@@ -425,7 +425,9 @@ use galaxyui::{
     record_trace_event, WindowId,
 };
 
-use galaxyui::{windowing, CursorInfo, EntityId, EventContext, ModelAsRef, SingletonEntity, Tracked};
+use galaxyui::{
+    windowing, CursorInfo, EntityId, EventContext, ModelAsRef, SingletonEntity, Tracked,
+};
 
 use crate::ai_assistant::{AskAIType, ASK_AI_ASSISTANT_TEXT};
 use crate::appearance::{Appearance, AppearanceEvent};
@@ -509,9 +511,9 @@ use crate::terminal::{
     TerminalModel,
 };
 use crate::view_components::find::{Event as FindEvent, Find, FindDirection, FindWithinBlockState};
-use settings::{Setting, ToggleableSetting};
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxyui::text::SelectionType;
+use settings::{Setting, ToggleableSetting};
 
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::server::telemetry::{BlockLatencyInfo, BootstrappingInfo};
@@ -566,6 +568,7 @@ use action::RememberForWarpification;
 use block_banner::{render_warpification_banner, WarpificationMode, WarpifyBannerState};
 use bookmarks::render_floating_block_snapshot;
 use command_corrections::rules::generic::history::History as CommandCorrectionsHistoryRule;
+use galaxy_core::command::ExitCode;
 use init::{INPUT_BOX_VISIBLE_KEY, TOGGLE_BLOCK_FILTER_KEYBINDING};
 use inline_banner::{
     render_alias_expansion_banner, render_aws_bedrock_login_banner,
@@ -578,7 +581,6 @@ use inline_banner::{
     AwsCliNotInstalledBannerAction, AwsCliNotInstalledBannerState, ByoLlmAuthBannerSessionState,
     OpenInWarpBannerState, SSHBannerAction, SSHBannerState, VimModeBannerAction,
 };
-use galaxy_core::command::ExitCode;
 
 lazy_static! {
     // A set of commands that perform minimal work that we use as a baseline to measure the latency of blocks.

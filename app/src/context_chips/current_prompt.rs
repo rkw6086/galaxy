@@ -21,10 +21,10 @@ use crate::{
     },
 };
 use futures::{pin_mut, FutureExt as _};
-use itertools::Itertools;
-use settings::Setting as _;
 use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 use galaxy_core::user_preferences::GetUserPreferences;
+use itertools::Itertools;
+use settings::Setting as _;
 
 use super::ChipResult;
 use super::{
@@ -42,10 +42,6 @@ use super::{
 use crate::code_review::git_status_update::{GitRepoStatusEvent, GitRepoStatusModel};
 #[cfg(feature = "local_fs")]
 use crate::context_chips::display_chip::GitLineChanges;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash as _, Hasher as _};
-use std::sync::Arc;
-use std::time::Duration;
 #[cfg(feature = "local_fs")]
 use galaxyui::WeakModelHandle;
 use galaxyui::{
@@ -53,6 +49,10 @@ use galaxyui::{
     AppContext, ViewHandle,
 };
 use galaxyui::{Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity};
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash as _, Hasher as _};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(test)]
 #[path = "current_prompt_test.rs"]

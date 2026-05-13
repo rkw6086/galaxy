@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use galaxyui::r#async::BoxFuture;
+use std::sync::Arc;
 type GetAuthTokenFn = dyn Fn() -> BoxFuture<'static, Option<String>> + Send + Sync;
 type RemoteServerIdentityKeyFn = dyn Fn() -> String + Send + Sync;
 

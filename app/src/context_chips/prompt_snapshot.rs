@@ -1,6 +1,6 @@
+use galaxyui::{AppContext, SingletonEntity};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use galaxyui::{AppContext, SingletonEntity};
 
 use crate::context_chips::ContextChipKind;
 

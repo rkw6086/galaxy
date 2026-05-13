@@ -1,10 +1,10 @@
 use std::ops::Range;
 
+use galaxy_core::ui::theme::Fill;
+use galaxyui::{Entity, ModelContext, ModelHandle, r#async::SpawnedFutureHandle};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
-use galaxy_core::ui::theme::Fill;
-use galaxyui::{Entity, ModelContext, ModelHandle, r#async::SpawnedFutureHandle};
 
 use crate::{
     content::{

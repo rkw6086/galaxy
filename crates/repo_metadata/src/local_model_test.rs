@@ -13,6 +13,9 @@ mod tests {
     use crate::watcher::DirectoryWatcher;
     use futures::channel::oneshot;
     use futures::executor::block_on;
+    use galaxy_util::standardized_path::StandardizedPath;
+    use galaxyui::r#async::FutureExt as _;
+    use galaxyui::App;
     use ignore::gitignore::Gitignore;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -20,9 +23,6 @@ mod tests {
     use std::rc::Rc;
     use std::time::Duration;
     use virtual_fs::{Stub, VirtualFS};
-    use galaxy_util::standardized_path::StandardizedPath;
-    use galaxyui::r#async::FutureExt as _;
-    use galaxyui::App;
 
     impl LocalRepoMetadataModel {
         fn new_for_test() -> Self {

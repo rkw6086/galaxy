@@ -1,16 +1,4 @@
 use float_cmp::ApproxEq;
-use instant::Instant;
-use parking_lot::Mutex;
-use std::{
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
-use temporary_block::RenderableTemporaryBlock;
-use vim::vim::VimMode;
 use galaxy_core::ui::theme::Fill as ThemeFill;
 use galaxyui::{
     AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, ModelHandle,
@@ -28,6 +16,18 @@ use galaxyui::{
     platform::Cursor,
     units::{IntoPixels, Pixels},
 };
+use instant::Instant;
+use parking_lot::Mutex;
+use std::{
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
+use temporary_block::RenderableTemporaryBlock;
+use vim::vim::VimMode;
 
 use super::model::{
     BlockItem, ElementUpdate, HitTestOptions, Location, RenderState, RichTextStyles, UNIT_MARGIN,

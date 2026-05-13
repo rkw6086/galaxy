@@ -15,11 +15,11 @@ pub mod workflows;
 
 use std::{cmp::Ordering, fmt};
 
+use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxyui::AppContext;
 pub use index::DriveIndexVariant;
 pub use panel::{DrivePanel, DrivePanelEvent};
 use serde::{Deserialize, Serialize};
-use galaxy_core::user_preferences::GetUserPreferences as _;
-use galaxyui::AppContext;
 
 use crate::{
     cloud_object::{

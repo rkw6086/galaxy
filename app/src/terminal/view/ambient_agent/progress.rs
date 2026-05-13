@@ -3,7 +3,6 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{
@@ -12,6 +11,7 @@ use galaxyui::elements::{
     PositionedElementOffsetBounds, Radius, Rect, SavePosition, Stack, Text,
 };
 use galaxyui::{AppContext, Element, WindowId};
+use pathfinder_geometry::vector::vec2f;
 
 /// The state of a progress step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

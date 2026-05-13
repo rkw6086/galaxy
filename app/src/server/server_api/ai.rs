@@ -3,6 +3,8 @@ use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use cynic::{MutationBuilder, QueryBuilder};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::{features::FeatureFlag, report_error};
 use itertools::Itertools;
 #[cfg(test)]
 use mockall::automock;
@@ -11,8 +13,6 @@ use std::{
     collections::{HashMap, HashSet},
     time::Duration,
 };
-use galaxy_core::channel::ChannelState;
-use galaxy_core::{features::FeatureFlag, report_error};
 use warp_multi_agent_api::ConversationData;
 
 use super::auth::AuthClient;
@@ -1122,7 +1122,9 @@ impl AIClient for ServerApi {
         let response = self.send_graphql_request(operation, None).await?;
 
         match response.user {
-            galaxy_graphql::queries::get_request_limit_info::UserResult::UserOutput(user_output) => {
+            galaxy_graphql::queries::get_request_limit_info::UserResult::UserOutput(
+                user_output,
+            ) => {
                 let request_limit_info = user_output.user.request_limit_info.into();
 
                 let workspace_bonus_grants = user_output
@@ -1177,7 +1179,8 @@ impl AIClient for ServerApi {
         match response.user {
             galaxy_graphql::queries::get_feature_model_choices::UserResult::UserOutput(
                 galaxy_graphql::queries::get_feature_model_choices::UserOutput {
-                    user: galaxy_graphql::queries::get_feature_model_choices::User { mut workspaces },
+                    user:
+                        galaxy_graphql::queries::get_feature_model_choices::User { mut workspaces },
                 },
             ) if !workspaces.is_empty() => {
                 // This is safe (`remove()` can panic) because we ensure workspaces is non-empty
@@ -2131,7 +2134,9 @@ impl From<galaxy_graphql::queries::get_feature_model_choices::LlmProvider> for L
             galaxy_graphql::queries::get_feature_model_choices::LlmProvider::Google => {
                 LLMProvider::Google
             }
-            galaxy_graphql::queries::get_feature_model_choices::LlmProvider::Xai => LLMProvider::Xai,
+            galaxy_graphql::queries::get_feature_model_choices::LlmProvider::Xai => {
+                LLMProvider::Xai
+            }
             galaxy_graphql::queries::get_feature_model_choices::LlmProvider::Unknown => {
                 LLMProvider::Unknown
             }
@@ -2183,7 +2188,9 @@ impl From<galaxy_graphql::workspace::LlmSpec> for LLMSpec {
     }
 }
 
-impl From<galaxy_graphql::queries::get_feature_model_choices::LlmUsageMetadata> for LLMUsageMetadata {
+impl From<galaxy_graphql::queries::get_feature_model_choices::LlmUsageMetadata>
+    for LLMUsageMetadata
+{
     fn from(value: galaxy_graphql::queries::get_feature_model_choices::LlmUsageMetadata) -> Self {
         Self {
             request_multiplier: value.request_multiplier.max(1) as usize,
@@ -2228,7 +2235,9 @@ impl From<galaxy_graphql::workspace::DisableReason> for DisableReason {
         match value {
             galaxy_graphql::workspace::DisableReason::AdminDisabled => DisableReason::AdminDisabled,
             galaxy_graphql::workspace::DisableReason::OutOfRequests => DisableReason::OutOfRequests,
-            galaxy_graphql::workspace::DisableReason::ProviderOutage => DisableReason::ProviderOutage,
+            galaxy_graphql::workspace::DisableReason::ProviderOutage => {
+                DisableReason::ProviderOutage
+            }
             galaxy_graphql::workspace::DisableReason::RequiresUpgrade => {
                 DisableReason::RequiresUpgrade
             }

@@ -8,11 +8,11 @@ use crate::ui_components::icons::Icon;
 use std::default::Default;
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
-use style::{DENIED_MODAL_WIDTH, MODAL_HEIGHT, MODAL_WIDTH};
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::EntityId;
+use parking_lot::FairMutex;
+use style::{DENIED_MODAL_WIDTH, MODAL_HEIGHT, MODAL_WIDTH};
 
 use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::UiComponentStyles;

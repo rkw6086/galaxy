@@ -21,13 +21,13 @@ use super::update_manager::UpdateManager;
 
 use chrono::{DateTime, Utc};
 use futures_util::stream::AbortHandle;
-use std::time::Duration;
 use galaxyui::r#async::Timer;
+use std::time::Duration;
 
 use async_channel::Sender;
 
-use std::sync::Arc;
 use galaxyui::{Entity, ModelContext, RequestState, SingletonEntity};
+use std::sync::Arc;
 
 use instant::Instant;
 

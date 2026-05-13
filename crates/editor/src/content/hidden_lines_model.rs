@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 use rangemap::RangeSet;
 use string_offset::CharOffset;
-use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 
 use crate::content::edit::EditDelta;
 use crate::content::selection_model::BufferSelectionModel;

@@ -14,13 +14,13 @@ use crate::workspace::view::{
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+use galaxyui::keymap::Keystroke;
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use markdown_parser::FormattedTextFragment;
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
-use galaxyui::keymap::Keystroke;
-use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 /// Trait for tip implementations that can be displayed to users.
 /// Tips provide helpful information with optional links and keybindings.

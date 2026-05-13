@@ -5,14 +5,14 @@ use std::path::PathBuf;
 
 use ai::skills::SkillReference;
 use command_corrections::Correction;
-use pathfinder_geometry::vector::Vector2F;
-use session_sharing_protocol::common::Role;
-use session_sharing_protocol::sharer::RoleUpdateReason;
 use galaxy_util::user_input::UserInput;
 use galaxyui::elements::HyperlinkUrl;
 use galaxyui::event::ModifiersState;
 use galaxyui::units::Lines;
 use galaxyui::EntityId;
+use pathfinder_geometry::vector::Vector2F;
+use session_sharing_protocol::common::Role;
+use session_sharing_protocol::sharer::RoleUpdateReason;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;

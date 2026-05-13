@@ -8,13 +8,6 @@ use crate::{
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures_lite::StreamExt;
-use pathfinder_color::ColorU;
-use std::{
-    collections::HashMap,
-    ffi::OsStr,
-    ops::{Add, AddAssign, SubAssign},
-    path::{Path, PathBuf},
-};
 use galaxyui::{
     elements::{
         Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
@@ -23,6 +16,13 @@ use galaxyui::{
     platform::Cursor,
     ui_components::components::{UiComponent, UiComponentStyles},
     Element,
+};
+use pathfinder_color::ColorU;
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    ops::{Add, AddAssign, SubAssign},
+    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -553,9 +553,10 @@ impl FileNode {
 
         let icon_element = match &self.file_type {
             FileType::Workflow => Icon::Workflow
-                .to_galaxyui_icon(Fill::Solid(override_color.unwrap_or(
-                    warp_drive_icon_color(appearance, DriveObjectType::Workflow),
-                )))
+                .to_galaxyui_icon(Fill::Solid(
+                    override_color
+                        .unwrap_or(warp_drive_icon_color(appearance, DriveObjectType::Workflow)),
+                ))
                 .finish(),
             FileType::Notebook => Icon::Notebook
                 .to_galaxyui_icon(Fill::Solid(override_color.unwrap_or(

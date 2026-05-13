@@ -1,6 +1,11 @@
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use std::{any::Any, borrow::Cow, collections::HashMap, ops::Range, time::Duration};
 
+use galaxyui::{
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    clipboard::ClipboardContent,
+    AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, WindowId,
+};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use markdown_parser::FormattedText;
@@ -9,11 +14,6 @@ use num_traits::SaturatingSub;
 use regex::Regex;
 use url::Url;
 use vec1::{vec1, Vec1};
-use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
-    clipboard::ClipboardContent,
-    AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, WindowId,
-};
 
 use crate::{
     cloud_object::model::persistence::{CloudModel, CloudModelEvent},
@@ -25,7 +25,6 @@ use crate::{
     notebooks::editor::interaction_state_model::InteractionStateModelEvent,
     terminal::ShellLaunchData,
 };
-use string_offset::CharOffset;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_editor::{
@@ -50,6 +49,7 @@ use galaxy_editor::{
     selection::{SelectionMode, SelectionModel, TextDirection, TextUnit},
 };
 use galaxyui::elements::ListIndentLevel;
+use string_offset::CharOffset;
 
 use super::{
     super::telemetry::SelectionMode as TelemetrySelectionMode, embedding_model::NotebookEmbed,

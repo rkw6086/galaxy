@@ -1,12 +1,12 @@
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::user_preferences::GetUserPreferences;
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use parking_lot::FairMutex;
 use serde::{de, Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, OnceLock},
 };
-use galaxy_core::ui::icons::Icon;
-use galaxy_core::user_preferences::GetUserPreferences;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 
 use crate::{
     auth::{

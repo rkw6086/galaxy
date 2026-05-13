@@ -2,7 +2,6 @@
 
 use std::fs;
 
-use settings::Setting as _;
 use galaxy::integration_testing::terminal::assert_long_running_block_executing_for_single_terminal_in_tab;
 use galaxy::integration_testing::view_getters::terminal_view;
 use galaxy::integration_testing::workspace::{assert_tab_count, press_native_modal_button};
@@ -20,6 +19,7 @@ use galaxy::{
     workspace::NEW_TAB_BUTTON_POSITION_ID,
 };
 use galaxyui::{async_assert, integration::TestStep, SingletonEntity};
+use settings::Setting as _;
 
 use crate::{util::skip_if_powershell_core_2303, Builder};
 

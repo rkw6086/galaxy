@@ -1,12 +1,4 @@
 use anyhow::Result;
-use onboarding::callout::{
-    OnboardingCalloutView, OnboardingCalloutViewEvent, OnboardingKeybindings,
-};
-use onboarding::OnboardingIntention;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use rust_embed::RustEmbed;
-use std::borrow::Cow;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
@@ -22,6 +14,14 @@ use galaxyui::{
     AddWindowOptions, AppContext, AssetProvider, Element, Entity, SingletonEntity as _,
     TypedActionView, View, ViewContext, ViewHandle,
 };
+use onboarding::callout::{
+    OnboardingCalloutView, OnboardingCalloutViewEvent, OnboardingKeybindings,
+};
+use onboarding::OnboardingIntention;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use rust_embed::RustEmbed;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]

@@ -72,13 +72,13 @@ use ai::{
     index::full_source_code_embedding::manager::CodebaseIndexManager,
     project_context::model::ProjectContextModel,
 };
-use pathfinder_geometry::rect::RectF;
-use shared_session::permissions_manager::SessionPermissionsManager;
 use galaxyui::windowing::{state::ApplicationStage, WindowManager};
 use galaxyui::{
     platform::{WindowBounds, WindowStyle},
     App, ModelHandle,
 };
+use pathfinder_geometry::rect::RectF;
+use shared_session::permissions_manager::SessionPermissionsManager;
 
 fn initialize_app(app: &mut App) {
     initialize_settings_for_tests(app);

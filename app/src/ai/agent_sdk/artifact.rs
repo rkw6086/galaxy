@@ -1,13 +1,13 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
-use serde::Serialize;
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::artifact::{
     ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs,
 };
 use galaxy_cli::GlobalOptions;
 use galaxyui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
+use serde::Serialize;
 
 use crate::ai::artifact_download::{download_artifact_bytes, download_destination};
 #[cfg(test)]

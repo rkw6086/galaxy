@@ -599,8 +599,8 @@ impl Input {
 }
 
 pub mod styles {
-    use pathfinder_color::ColorU;
     use galaxy_core::ui::theme::WarpTheme;
+    use pathfinder_color::ColorU;
 
     use crate::ui_components::blended_colors;
 

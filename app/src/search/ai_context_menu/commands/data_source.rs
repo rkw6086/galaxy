@@ -4,8 +4,8 @@ use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
 use crate::terminal::History;
 use fuzzy_match::FuzzyMatchResult;
-use std::collections::HashSet;
 use galaxyui::{AppContext, SingletonEntity};
+use std::collections::HashSet;
 
 const MAX_RESULTS: usize = 50;
 

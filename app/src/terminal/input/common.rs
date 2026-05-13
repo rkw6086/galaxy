@@ -16,8 +16,6 @@ use crate::{
     ui_components::icons::Icon,
     workspaces::user_workspaces::UserWorkspaces,
 };
-use pathfinder_geometry::vector::vec2f;
-use vim::vim::{VimMode, VimState};
 use galaxy_completer::completer::Description;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{
@@ -32,6 +30,8 @@ use galaxyui::{
     ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, EntityId, SingletonEntity, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+use vim::vim::{VimMode, VimState};
 
 /// Whether the terminal input message bar should be shown.
 ///

@@ -8,7 +8,6 @@
 
 mod warpify;
 
-pub use warpify::*;
 use galaxyui::{
     elements::{
         ConstrainedBox, Container, CornerRadius, Hoverable, MouseState, MouseStateHandle,
@@ -16,6 +15,7 @@ use galaxyui::{
     },
     Element,
 };
+pub use warpify::*;
 
 use crate::themes::theme::WarpTheme;
 

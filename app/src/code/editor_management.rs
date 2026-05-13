@@ -5,9 +5,9 @@ use std::{
 
 use crate::ai::skills::SkillOpenOrigin;
 use ai::skills::SkillReference;
-use serde::{Deserialize, Serialize};
 use galaxy_util::path::LineAndColumnArg;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity, ViewHandle, WindowId};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     ai::agent::AIAgentActionId,

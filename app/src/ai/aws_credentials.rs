@@ -11,10 +11,10 @@ use aws_credential_types::provider::error::CredentialsError;
 use aws_credential_types::provider::ProvideCredentials;
 use futures::channel::oneshot::channel;
 use futures::future::BoxFuture;
-use tokio::sync::OnceCell;
-use vec1::vec1;
 use galaxy_managed_secrets::{client::IdentityTokenOptions, ManagedSecretManager};
 use galaxyui::{ModelContext, ModelHandle, SingletonEntity};
+use tokio::sync::OnceCell;
+use vec1::vec1;
 
 /// Errors that can occur when loading AWS credentials.
 #[derive(Debug, Clone)]

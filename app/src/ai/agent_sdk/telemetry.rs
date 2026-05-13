@@ -1,7 +1,7 @@
 use crate::features::FeatureFlag;
+use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 use serde_json::{json, Value};
 use strum_macros::{EnumDiscriminants, EnumIter};
-use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]

@@ -23,9 +23,6 @@ use crate::{auth, report_if_error};
 use ai::workspace::WorkspaceMetadata;
 use csv::Writer;
 use enclose::enclose;
-use itertools::Itertools;
-use settings::manager::SettingsManager;
-use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_util::path::user_friendly_path;
 use galaxyui::actions::StandardAction;
@@ -35,6 +32,9 @@ use galaxyui::platform::menu::{
 };
 use galaxyui::windowing::WindowManager;
 use galaxyui::{AppContext, SingletonEntity};
+use itertools::Itertools;
+use settings::manager::SettingsManager;
+use settings::Setting as _;
 
 type CheckmarkStatusGetter = dyn 'static + Fn(&mut AppContext) -> bool;
 

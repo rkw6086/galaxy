@@ -26,15 +26,15 @@ use crate::{
 };
 
 use async_trait::async_trait;
-use itertools::Itertools;
-use ordered_float::OrderedFloat;
-use serde_json::json;
-use std::{any::Any, sync::Arc};
 use galaxy_core::ui::builder;
 use galaxyui::{
     elements::{ConstrainedBox, Container, Text},
     AppContext, Element, SingletonEntity,
 };
+use itertools::Itertools;
+use ordered_float::OrderedFloat;
+use serde_json::json;
+use std::{any::Any, sync::Arc};
 
 const OPEN_WARP_AI_ITEM_BODY_TEXT: &str = "Ask Warp AI for command suggestions";
 const TRANSLATE_WITH_WARP_AI_ITEM_BODY_TEXT: &str = "Translate into shell command using Warp AI";

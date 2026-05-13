@@ -10,13 +10,13 @@ use crate::search::mixer::{BoxFuture, DataSourceRunErrorWrapper};
 use crate::workspace::ActiveSession;
 use futures_lite::future::yield_now;
 use fuzzy_match::FuzzyMatchResult;
+use galaxyui::{AppContext, SingletonEntity};
 use itertools::Itertools;
 use repo_metadata::repositories::DetectedRepositories;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use galaxyui::{AppContext, SingletonEntity};
 
 const MAX_RESULTS: usize = 200;
 

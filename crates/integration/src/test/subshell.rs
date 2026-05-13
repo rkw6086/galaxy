@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use settings::Setting as _;
 use galaxy::integration_testing::terminal::util::current_shell_starter_and_version;
 use galaxy::integration_testing::view_getters::single_input_view_for_tab;
 use galaxy::root_view::SubshellCommandArg;
@@ -22,6 +21,7 @@ use galaxyui::integration::{AssertionOutcome, TestStep};
 use galaxyui::windowing::state::ApplicationStage;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{async_assert, UpdateModel};
+use settings::Setting as _;
 
 use crate::util::skip_if_powershell_core_2303;
 

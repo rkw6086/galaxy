@@ -15,9 +15,9 @@ use crate::{
     integration_testing::view_getters::terminal_view,
     BlocklistAIHistoryModel,
 };
-use warp_multi_agent_api as api;
 use galaxyui::{integration::AssertionCallback, integration_assert, EntityId};
 use galaxyui::{integration::AssertionOutcome, SingletonEntity};
+use warp_multi_agent_api as api;
 
 type TextAssertion = Box<dyn Fn(&str) -> bool + 'static>;
 type ActionAssertion = Box<dyn Fn(&AIAgentActionType) -> bool + 'static>;

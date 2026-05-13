@@ -1,9 +1,9 @@
 use std::{pin, task, time::Duration};
 
 use futures_lite::{ready, Stream};
+use galaxyui::r#async::Timer;
 use pin::Pin;
 use task::{Context, Poll};
-use galaxyui::r#async::Timer;
 
 pub struct Throttle<S> {
     period: Duration,

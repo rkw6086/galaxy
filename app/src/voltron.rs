@@ -26,9 +26,6 @@ use crate::util::bindings::{self, CustomAction};
 use crate::workflows::categories::CategoriesView;
 
 use enclose::enclose;
-use pathfinder_geometry::vector::Vector2F;
-use std::path::PathBuf;
-use vec1::Vec1;
 use galaxyui::accessibility::AccessibilityContent;
 use galaxyui::elements::{
     resizable_state_handle, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,
@@ -44,6 +41,9 @@ use galaxyui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_geometry::vector::Vector2F;
+use std::path::PathBuf;
+use vec1::Vec1;
 
 const DROPDOWN_BUTTON_WIDTH: f32 = 200.;
 const DROPDOWN_PADDING: f32 = 6.;

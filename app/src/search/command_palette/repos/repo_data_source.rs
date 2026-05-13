@@ -1,7 +1,7 @@
 use ai::workspace::WorkspaceMetadata;
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use itertools::Itertools;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use itertools::Itertools;
 
 use super::RepoSearchItem;
 use crate::ai::persisted_workspace::PersistedWorkspace;

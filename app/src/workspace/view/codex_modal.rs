@@ -2,8 +2,6 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{ActionButton, ActionButtonTheme};
 use asset_macro::bundled_or_fetched_asset;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -19,6 +17,8 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 /// White button theme for the Codex modal CTA.
 struct WhiteButtonTheme;

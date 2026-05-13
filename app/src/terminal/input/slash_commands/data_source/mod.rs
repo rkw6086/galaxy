@@ -2,18 +2,18 @@ mod saved_prompts;
 mod zero_state;
 
 use ai::skills::SkillProvider;
-pub(crate) use saved_prompts::*;
 use galaxy_core::features::FeatureFlag;
+pub(crate) use saved_prompts::*;
 pub use zero_state::*;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::fonts::FamilyId;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::skills::{SkillDescriptor, SkillManager};
@@ -90,10 +90,7 @@ impl SlashCommandDataSource {
             _ => (),
         });
         ctx.subscribe_to_model(&AISettings::handle(ctx), |me, event, ctx| {
-            if matches!(
-                event,
-                AISettingsChangedEvent::IsAnyAIEnabled { .. }
-            ) {
+            if matches!(event, AISettingsChangedEvent::IsAnyAIEnabled { .. }) {
                 me.recompute_active_commands(ctx);
             }
         });

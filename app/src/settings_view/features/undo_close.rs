@@ -1,6 +1,5 @@
 use std::{cell::RefCell, collections::HashMap, time::Duration};
 
-use settings::{Setting, ToggleableSetting};
 use galaxyui::{
     elements::{
         Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle, ParentElement,
@@ -12,6 +11,7 @@ use galaxyui::{
     },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use settings::{Setting, ToggleableSetting};
 
 use crate::{
     appearance::Appearance,

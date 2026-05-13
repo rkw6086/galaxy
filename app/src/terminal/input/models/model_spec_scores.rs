@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Border, ConstrainedBox, Container, CornerRadius, Expanded, Flex, MainAxisAlignment,
@@ -7,6 +6,7 @@ use galaxyui::elements::{
 use galaxyui::prelude::{Align, CrossAxisAlignment};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, SingletonEntity as _};
+use pathfinder_color::ColorU;
 
 use crate::ai::llms::LLMSpec;
 use crate::appearance::Appearance;

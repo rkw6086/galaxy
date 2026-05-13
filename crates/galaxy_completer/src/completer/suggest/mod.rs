@@ -6,8 +6,8 @@ mod priority;
 use alias::{expand_command_aliases, AliasExpansionResult};
 pub use priority::Priority;
 
-use imp::*;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
+use imp::*;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;

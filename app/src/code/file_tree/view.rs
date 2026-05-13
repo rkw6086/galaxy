@@ -1,4 +1,6 @@
 use editing::sort_entries_for_file_tree;
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::standardized_path::StandardizedPath;
 use itertools::Itertools;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
@@ -13,10 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use galaxy_util::path::LineAndColumnArg;
-use galaxy_util::standardized_path::StandardizedPath;
 
-use repo_metadata::repositories::DetectedRepositories;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxyui::elements::{
     AcceptedByDropTarget, Align, Clipped, ConstrainedBox, Container, Dismiss, Draggable,
@@ -40,6 +39,7 @@ use galaxyui::{
     ViewHandle,
 };
 use galaxyui::{BlurContext, ModelHandle};
+use repo_metadata::repositories::DetectedRepositories;
 
 use crate::code::active_file::{ActiveFileEvent, ActiveFileModel};
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;

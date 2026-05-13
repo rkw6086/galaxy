@@ -1,6 +1,3 @@
-use itertools::Itertools;
-use std::{collections::HashMap, rc::Rc};
-use strum::IntoEnumIterator;
 use galaxy_core::ui::{appearance::Appearance, theme::Fill};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
@@ -19,6 +16,9 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use itertools::Itertools;
+use std::{collections::HashMap, rc::Rc};
+use strum::IntoEnumIterator;
 
 use crate::{
     editor::{

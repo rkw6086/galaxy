@@ -31,15 +31,15 @@ use base64::Engine;
 use block::BlockClient;
 use channel_versions::ChannelVersions;
 use futures::StreamExt;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::errors::{register_error, AnyhowErrorExt, ErrorExt};
+use galaxy_managed_secrets::client::ManagedSecretsClient;
+use galaxyui::{r#async::BoxFuture, ModelContext};
 use object::ObjectClient;
 use prost::Message;
 use referral::ReferralsClient;
 use team::TeamClient;
 use url::Url;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::errors::{register_error, AnyhowErrorExt, ErrorExt};
-use galaxy_managed_secrets::client::ManagedSecretsClient;
-use galaxyui::{r#async::BoxFuture, ModelContext};
 use workspace::WorkspaceClient;
 
 use crate::server::telemetry::TelemetryApi;
@@ -51,6 +51,9 @@ use crate::ChannelState;
 use ::http::header::CONTENT_LENGTH;
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, FixedOffset};
+use galaxy_core::telemetry::TelemetryEvent;
+use galaxyui::Entity;
+use galaxyui::SingletonEntity;
 use instant::Instant;
 use parking_lot::{Mutex, RwLock};
 use reqwest::StatusCode;
@@ -60,9 +63,6 @@ use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use galaxy_core::telemetry::TelemetryEvent;
-use galaxyui::Entity;
-use galaxyui::SingletonEntity;
 
 use super::experiments::ServerExperiment;
 use super::experiments::ServerExperiments;
@@ -1327,8 +1327,7 @@ impl ServerApiProvider {
                         // to events; it's prone to these sorts of circular reference issues.
                         ctx.dispatch_global_action("app:log_out", ());
                     }
-                    ServerApiEvent::NeedsReauth => {
-                    }
+                    ServerApiEvent::NeedsReauth => {}
                     // Re-emit the event for subscribers.
                     // TODO: we probably want a different type for the event emitted to subscribers
                     // from the one that's used for the async channel.

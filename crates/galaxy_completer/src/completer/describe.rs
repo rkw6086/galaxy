@@ -1,6 +1,6 @@
+use galaxyui::platform::OperatingSystem;
 use itertools::Itertools;
 use string_offset::ByteOffset;
-use galaxyui::platform::OperatingSystem;
 
 use crate::{
     completer::suggest::MatchRequirement,

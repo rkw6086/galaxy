@@ -18,10 +18,10 @@ use crate::{
         DEFAULT_COMMAND_EXECUTION_DENYLIST,
     },
 };
-use serde::{Deserialize, Serialize};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity};
+use serde::{Deserialize, Serialize};
 
 use super::llms::LLMId;
 

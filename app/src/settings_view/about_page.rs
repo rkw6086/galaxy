@@ -5,10 +5,7 @@ use super::{
     },
     SettingsSection,
 };
-use crate::{
-    appearance::Appearance, channel::ChannelState,
-    workspace::WorkspaceAction,
-};
+use crate::{appearance::Appearance, channel::ChannelState, workspace::WorkspaceAction};
 use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{
@@ -68,8 +65,8 @@ impl SettingsWidget for AboutPageWidget {
 
         let image_path = "bundled/svg/galaxy-logo.svg";
 
-        let version = ChannelState::app_version()
-            .unwrap_or(concat!("v", env!("CARGO_PKG_VERSION")));
+        let version =
+            ChannelState::app_version().unwrap_or(concat!("v", env!("CARGO_PKG_VERSION")));
 
         let version_text = ui_builder
             .span(version.to_string())

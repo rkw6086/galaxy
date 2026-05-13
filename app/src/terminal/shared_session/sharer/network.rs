@@ -11,6 +11,7 @@ use async_channel::Receiver;
 use byte_unit::{Byte, UnitType};
 use futures_util::stream::AbortHandle;
 use futures_util::{SinkExt, StreamExt};
+use galaxy_core::features::FeatureFlag;
 use instant::Instant;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
@@ -31,7 +32,6 @@ use session_sharing_protocol::sharer::{
 };
 use session_sharing_protocol::sharer::{FailedToInitializeSessionReason, SessionEndedReason};
 use std::collections::HashMap;
-use galaxy_core::features::FeatureFlag;
 
 use std::pin::pin;
 use std::sync::Arc;

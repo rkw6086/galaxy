@@ -1,8 +1,8 @@
 use std::time::Duration;
 
+use galaxyui::{Entity, SingletonEntity};
 use instant::Instant;
 use serde::{Deserialize, Serialize};
-use galaxyui::{Entity, SingletonEntity};
 
 /// This represents one interval, i.e. one stage in a multiple-stage timer.
 struct TimingInterval {

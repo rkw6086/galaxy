@@ -14,9 +14,9 @@
 mod proxy;
 
 use super::server_model::{ConnectionId, ServerModel};
+use galaxyui::r#async::executor;
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
-use galaxyui::r#async::executor;
 
 /// Run the `remote-server-proxy` subcommand.
 ///

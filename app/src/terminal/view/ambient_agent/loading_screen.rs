@@ -1,6 +1,5 @@
 //! Loading screen UI for cloud mode initialization.
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxy_core::ui::Icon;
@@ -17,6 +16,7 @@ use galaxyui::text_layout::TextAlignment;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, ModelHandle, SingletonEntity};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::agent_tips::{AITip, AITipModel};
 use crate::ai::loading::shimmering_warp_loading_text;

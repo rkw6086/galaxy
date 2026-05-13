@@ -1,7 +1,6 @@
 use crate::appearance::Appearance;
 use crate::terminal::general_settings::{GeneralSettings, GeneralSettingsChangedEvent};
 use crate::ui_components::dialog::{dialog_styles, Dialog};
-use settings::Setting as _;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{Align, Container, Empty, Flex, ParentElement};
 use galaxyui::keymap::FixedBinding;
@@ -15,6 +14,7 @@ use galaxyui::{
     Element, Entity, TypedActionView, View,
 };
 use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewContext};
+use settings::Setting as _;
 
 pub(super) fn init(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

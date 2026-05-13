@@ -5,8 +5,6 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::Vector2F;
 
 use crate::search::mixer::AddAsyncSourceOptions;
-use lazy_static::lazy_static;
-use std::{collections::HashSet, ops::Range, sync::Arc, time::Duration};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{
     accessibility::{AccessibilityContent, WarpA11yRole},
@@ -23,6 +21,8 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
+use lazy_static::lazy_static;
+use std::{collections::HashSet, ops::Range, sync::Arc, time::Duration};
 
 use crate::{
     ai_assistant::{
@@ -1120,9 +1120,9 @@ impl CommandSearchView {
 }
 
 pub mod styles {
+    use galaxyui::elements::{Border, DropShadow, ScrollbarWidth};
     use lazy_static::lazy_static;
     use pathfinder_color::ColorU;
-    use galaxyui::elements::{Border, DropShadow, ScrollbarWidth};
 
     use crate::{appearance::Appearance, themes::theme::Fill};
 

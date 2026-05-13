@@ -43,13 +43,13 @@ use crate::channel::ChannelState;
 use crate::util::bindings::{self, cmd_or_ctrl_shift, is_binding_pty_compliant, CustomAction};
 
 use crate::palette::PaletteMode;
-use serde::{Deserialize, Serialize};
 use galaxy_core::context_flag::ContextFlag;
 use galaxyui::accessibility::AccessibilityVerbosity;
 use galaxyui::elements::DropTargetData;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::keymap::{BindingDescription, EditableBinding};
 use galaxyui::AppContext;
+use serde::{Deserialize, Serialize};
 
 pub use action::{
     CommandSearchOptions, InitContent, RestoreConversationLayout, TabContextMenuAnchor,

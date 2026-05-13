@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
@@ -9,6 +8,7 @@ use galaxyui::elements::{Container, Element, Empty, MouseStateHandle};
 use galaxyui::keymap::Keystroke;
 use galaxyui::platform::OperatingSystem;
 use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity, View, ViewContext};
+use parking_lot::FairMutex;
 
 use super::{AgentViewState, EphemeralMessageModel, EphemeralMessageModelEvent};
 use crate::ai::agent::conversation::AIConversation;

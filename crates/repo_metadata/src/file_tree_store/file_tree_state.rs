@@ -1,11 +1,11 @@
 use crate::file_tree_store::FileTreeEntry;
 use crate::file_tree_store::{FileTreeDirectoryEntryState, FileTreeEntryState};
 use crate::{BuildTreeError, DirectoryEntry, Entry};
+use galaxy_util::standardized_path::StandardizedPath;
 use ignore::gitignore::Gitignore;
 use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::Arc;
-use galaxy_util::standardized_path::StandardizedPath;
 
 #[derive(Debug, Clone)]
 pub(super) struct FileTreeMapStore {

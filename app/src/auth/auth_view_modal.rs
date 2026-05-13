@@ -1,6 +1,6 @@
 use anyhow::Result;
-use url::Url;
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
+use url::Url;
 
 use super::credentials::RefreshToken;
 use super::user_uid::UserUid;

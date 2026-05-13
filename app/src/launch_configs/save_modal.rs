@@ -12,11 +12,6 @@ use crate::user_config::{util::file_name_to_human_readable_name, WarpConfig};
 use crate::util::bindings::keybinding_name_to_display_string;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
-};
-use pathfinder_geometry::vector::vec2f;
-use serde::{Deserialize, Serialize};
 use galaxy_core::paths::home_relative_path;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
@@ -32,6 +27,11 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
+};
+use pathfinder_geometry::vector::vec2f;
+use serde::{Deserialize, Serialize};
 
 const MODAL_WIDTH: f32 = 660.;
 const SIDE_PADDING: f32 = 16.;

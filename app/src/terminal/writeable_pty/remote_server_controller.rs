@@ -1,12 +1,12 @@
 use crate::auth::auth_state::AuthStateProvider;
 use crate::remote_server::auth_context::server_api_auth_context;
+use galaxy_core::SessionId;
+use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 use instant::Instant;
 use remote_server::auth::RemoteServerAuthContext;
 use settings::Setting;
 use std::path::PathBuf;
 use std::sync::Arc;
-use galaxy_core::SessionId;
-use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 
 use crate::terminal::warpify::settings::SshExtensionInstallMode;
 
