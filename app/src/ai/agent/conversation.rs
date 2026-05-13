@@ -14,7 +14,7 @@ use crate::terminal::model::block::{
 };
 
 use crate::ai::agent::api::convert_conversation::{
-    compute_time_to_first_token_ms_from_messages, ConvertToExchanges,
+    ConvertToExchanges, compute_time_to_first_token_ms_from_messages,
 };
 use ai::document::AIDocumentId;
 use chrono::{DateTime, Local, TimeZone};
@@ -24,52 +24,51 @@ use std::collections::HashSet;
 use std::{collections::HashMap, fmt::Display};
 
 use super::task_store::TaskStore;
-use uuid::Uuid;
-use vec1::{Size0Error, Vec1};
 use galaxy_core::command::ExitCode;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::WarpTheme;
-use warp_multi_agent_api::response_event::stream_finished;
-use warp_multi_agent_api::{self as api, response_event::stream_finished::TokenUsage};
+use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::color::ColorU;
 use galaxyui::{EntityId, ModelContext, SingletonEntity};
+use uuid::Uuid;
+use vec1::{Size0Error, Vec1};
+use warp_multi_agent_api::response_event::stream_finished;
+use warp_multi_agent_api::{self as api, response_event::stream_finished::TokenUsage};
 
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
 use crate::{
+    BlocklistAIHistoryModel, GlobalResourceHandlesProvider,
     ai::{
         agent::{
+            AIAgentOutputMessage, AIAgentOutputMessageType, MessageToAIAgentOutputMessageError,
             icons::{
                 failed_icon, gray_stop_icon, in_progress_icon, succeeded_icon, yellow_stop_icon,
             },
             todos::AIAgentTodoList,
-            AIAgentOutputMessage, AIAgentOutputMessageType, MessageToAIAgentOutputMessageError,
         },
         blocklist::BlocklistAIHistoryEvent,
     },
     persistence::{
-        model::{AgentConversationData, PersistedAutoexecuteMode},
         ModelEvent,
+        model::{AgentConversationData, PersistedAutoexecuteMode},
     },
     ui_components::icons::Icon,
-    BlocklistAIHistoryModel, GlobalResourceHandlesProvider,
 };
 
 use super::task::{ExtractMessagesError, UpdateTaskError, UpgradeOptimisticTaskError};
 use super::{
-    api::ServerConversationToken,
-    task::{
-        derive_todo_lists_from_root_task,
-        helper::*,
-        transaction::{SavedTask, Transaction},
-        Task, TaskId,
-    },
     AIAgentAction, AIAgentActionId, AIAgentContext, AIAgentExchange, AIAgentExchangeId,
     AIAgentInput, AIAgentOutputStatus, AIAgentTodo, AIAgentTodoId, FinishedAIAgentOutput,
     MessageId, RenderableAIError, RequestCost,
+    api::ServerConversationToken,
+    task::{
+        Task, TaskId, derive_todo_lists_from_root_task,
+        helper::*,
+        transaction::{SavedTask, Transaction},
+    },
 };
 use super::{
     AIAgentOutput, OutputModelInfo, ServerOutputId, Shared, SuggestedLoggingId, Suggestions,
@@ -203,6 +202,7 @@ pub struct AIConversation {
 
     total_request_cost: RequestCost,
     total_token_usage_by_model: HashMap<String, TokenUsage>,
+    last_block_token_usage_by_model: HashMap<String, TokenUsage>,
 
     /// Fallback title used when no task description or initial query exists.
     fallback_display_title: Option<String>,
@@ -277,6 +277,7 @@ impl AIConversation {
             dismissed_suggestion_ids: Default::default(),
             total_request_cost: RequestCost::new(0.),
             total_token_usage_by_model: Default::default(),
+            last_block_token_usage_by_model: Default::default(),
             fallback_display_title: None,
             artifacts: Vec::new(),
             parent_agent_id: None,
@@ -458,6 +459,7 @@ impl AIConversation {
             dismissed_suggestion_ids: Default::default(),
             total_request_cost: RequestCost::new(0.),
             total_token_usage_by_model: Default::default(),
+            last_block_token_usage_by_model: Default::default(),
             optimistic_cli_subagent_subtask_id: None,
             fallback_display_title: None,
             artifacts,
@@ -478,11 +480,16 @@ impl AIConversation {
         &self.bedrock_message_history
     }
 
-    pub fn bedrock_message_history_mut(&mut self) -> &mut Vec<crate::ai::bedrock::convert::ConversationMessage> {
+    pub fn bedrock_message_history_mut(
+        &mut self,
+    ) -> &mut Vec<crate::ai::bedrock::convert::ConversationMessage> {
         &mut self.bedrock_message_history
     }
 
-    pub fn append_to_bedrock_history(&mut self, messages: Vec<crate::ai::bedrock::convert::ConversationMessage>) {
+    pub fn append_to_bedrock_history(
+        &mut self,
+        messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    ) {
         self.bedrock_message_history.extend(messages);
     }
 
@@ -523,6 +530,13 @@ impl AIConversation {
         self.conversation_usage_metadata
             .credits_spent_for_last_block
             .map(|credits| (credits * 10.0).round() / 10.0)
+    }
+
+    pub fn last_block_total_tokens(&self) -> u32 {
+        self.last_block_token_usage_by_model
+            .values()
+            .map(Self::total_tokens_for_usage)
+            .sum()
     }
 
     /// Time to first token for the last completed set of agent responses
@@ -1548,6 +1562,9 @@ impl AIConversation {
         usage_metadata: Option<stream_finished::ConversationUsageMetadata>,
         was_user_initiated_request: bool,
     ) -> Result<(), UpdateConversationError> {
+        if was_user_initiated_request {
+            self.last_block_token_usage_by_model.clear();
+        }
         for usage in token_usage.into_iter() {
             let entry = self
                 .total_token_usage_by_model
@@ -1566,6 +1583,24 @@ impl AIConversation {
             entry.input_cache_read += usage.input_cache_read;
             entry.input_cache_write += usage.input_cache_write;
             entry.cost_in_cents += usage.cost_in_cents;
+
+            let last_block_entry = self
+                .last_block_token_usage_by_model
+                .entry(usage.model_id.clone())
+                .or_insert_with(|| TokenUsage {
+                    model_id: usage.model_id.clone(),
+                    total_input: 0,
+                    output: 0,
+                    input_cache_read: 0,
+                    input_cache_write: 0,
+                    cost_in_cents: 0.0,
+                });
+
+            last_block_entry.total_input += usage.total_input;
+            last_block_entry.output += usage.output;
+            last_block_entry.input_cache_read += usage.input_cache_read;
+            last_block_entry.input_cache_write += usage.input_cache_write;
+            last_block_entry.cost_in_cents += usage.cost_in_cents;
         }
 
         if let Some(request_cost) = request_cost {
@@ -2497,63 +2532,78 @@ impl AIConversation {
                 mask: Some(mask),
             }) => {
                 let task_id = TaskId::new(task_id);
-                log::info!("[bedrock-debug] AppendToMessageContent: task_id={:?}, message_id={:?}", task_id, message.id);
-                let exchange_id = match self
-                    .added_exchanges_by_response
-                    .get(response_stream_id)
-                {
+                log::info!(
+                    "[bedrock-debug] AppendToMessageContent: task_id={:?}, message_id={:?}",
+                    task_id,
+                    message.id
+                );
+                let exchange_id = match self.added_exchanges_by_response.get(response_stream_id) {
                     Some(exchanges) => {
-                        log::info!("[bedrock-debug] AppendToMessageContent: found {} exchanges for stream", exchanges.len());
+                        log::info!(
+                            "[bedrock-debug] AppendToMessageContent: found {} exchanges for stream",
+                            exchanges.len()
+                        );
                         for ex in exchanges.iter() {
-                            log::info!("[bedrock-debug]   exchange: task_id={:?}, exchange_id={:?}", ex.task_id, ex.exchange_id);
+                            log::info!(
+                                "[bedrock-debug]   exchange: task_id={:?}, exchange_id={:?}",
+                                ex.task_id,
+                                ex.exchange_id
+                            );
                         }
                         match exchanges.iter().find_map(|new_exchange| {
                             (new_exchange.task_id == task_id).then_some(new_exchange.exchange_id)
                         }) {
                             Some(id) => id,
                             None => {
-                                log::error!("[bedrock-debug] AppendToMessageContent: ExchangeNotFound - no exchange with matching task_id");
+                                log::error!(
+                                    "[bedrock-debug] AppendToMessageContent: ExchangeNotFound - no exchange with matching task_id"
+                                );
                                 return Err(UpdateConversationError::ExchangeNotFound);
                             }
                         }
                     }
                     None => {
-                        log::error!("[bedrock-debug] AppendToMessageContent: NoPendingRequest - no exchanges for this stream_id");
+                        log::error!(
+                            "[bedrock-debug] AppendToMessageContent: NoPendingRequest - no exchanges for this stream_id"
+                        );
                         return Err(UpdateConversationError::NoPendingRequest);
                     }
                 };
 
-                log::info!("[bedrock-debug] AppendToMessageContent: found exchange_id={:?}", exchange_id);
+                log::info!(
+                    "[bedrock-debug] AppendToMessageContent: found exchange_id={:?}",
+                    exchange_id
+                );
 
                 let current_todo_list = self.todo_lists.last().cloned();
                 let current_comment_state = self.code_review.as_ref().cloned();
                 // Update the message and get the updated todos op, if any.
-                let todos_op = match self
-                    .task_store
-                    .modify_task(&task_id, |task| {
-                        task.append_to_message_content(
-                            message,
-                            exchange_id,
-                            current_todo_list.as_ref(),
-                            current_comment_state.as_ref(),
-                            mask,
-                        )
-                        .map(|msg| msg.todos_op().cloned())
-                    }) {
-                    Some(result) => {
-                        match result {
-                            Ok(todos_op) => {
-                                log::info!("[bedrock-debug] AppendToMessageContent: append succeeded");
-                                todos_op
-                            }
-                            Err(e) => {
-                                log::error!("[bedrock-debug] AppendToMessageContent: append_to_message_content failed: {e:?}");
-                                return Err(e.into());
-                            }
+                let todos_op = match self.task_store.modify_task(&task_id, |task| {
+                    task.append_to_message_content(
+                        message,
+                        exchange_id,
+                        current_todo_list.as_ref(),
+                        current_comment_state.as_ref(),
+                        mask,
+                    )
+                    .map(|msg| msg.todos_op().cloned())
+                }) {
+                    Some(result) => match result {
+                        Ok(todos_op) => {
+                            log::info!("[bedrock-debug] AppendToMessageContent: append succeeded");
+                            todos_op
                         }
-                    }
+                        Err(e) => {
+                            log::error!(
+                                "[bedrock-debug] AppendToMessageContent: append_to_message_content failed: {e:?}"
+                            );
+                            return Err(e.into());
+                        }
+                    },
                     None => {
-                        log::error!("[bedrock-debug] AppendToMessageContent: TaskNotFound in task_store");
+                        log::error!(
+                            "[bedrock-debug] AppendToMessageContent: TaskNotFound in task_store"
+                        );
                         return Err(UpdateConversationError::TaskNotFound);
                     }
                 };
@@ -3009,6 +3059,10 @@ impl AIConversation {
     #[allow(dead_code)]
     pub fn total_token_usage(&self) -> Vec<TokenUsage> {
         self.total_token_usage_by_model.values().cloned().collect()
+    }
+
+    fn total_tokens_for_usage(usage: &TokenUsage) -> u32 {
+        usage.total_input + usage.output + usage.input_cache_read + usage.input_cache_write
     }
 
     /// Normalize all newlines to CRLF so restored blocks render lines starting at column 0,

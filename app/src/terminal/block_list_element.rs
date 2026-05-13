@@ -1,5 +1,6 @@
-use crate::ai::blocklist::agent_view::{agent_view_bg_fill, AgentViewState};
-use crate::ai::blocklist::{ai_brand_color, ATTACH_AS_AGENT_MODE_CONTEXT_TEXT};
+use crate::BlocklistAIHistoryModel;
+use crate::ai::blocklist::agent_view::{AgentViewState, agent_view_bg_fill};
+use crate::ai::blocklist::{ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, ai_brand_color};
 use crate::ai_assistant::{AI_ASSISTANT_SVG_PATH, ASK_AI_ASSISTANT_TEXT};
 use crate::appearance::Appearance;
 use crate::drive::settings::WarpDriveSettings;
@@ -19,30 +20,21 @@ use crate::terminal::model::index::Point as IndexPoint;
 use crate::terminal::model::selection::{SelectAction, SelectionPoint};
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
-use crate::terminal::{grid_renderer, SizeInfo};
+use crate::terminal::{SizeInfo, grid_renderer};
 use crate::themes::theme::{Fill, WarpTheme};
 use crate::ui_components::{self, icons as UIIcon};
 use crate::util::color::Opacity;
 use enum_iterator::Sequence;
-use itertools::Itertools;
-use parking_lot::FairMutex;
-use vec1::Vec1;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxy_util::user_input::UserInput;
 use galaxyui::platform::Cursor;
 use galaxyui::text::SelectionType;
+use itertools::Itertools;
+use parking_lot::FairMutex;
+use vec1::Vec1;
 
-use pathfinder_color::ColorU;
-use session_sharing_protocol::common::{ParticipantId, Selection};
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
-use std::mem;
-use std::ops::{Deref, Range, RangeInclusive};
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
 use galaxyui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use galaxyui::elements::{
     Axis, Border, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
@@ -52,23 +44,34 @@ use galaxyui::elements::{
 use galaxyui::event::{KeyState, ModifiersState};
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
-use galaxyui::geometry::vector::{vec2f, Vector2F};
+use galaxyui::geometry::vector::{Vector2F, vec2f};
 use galaxyui::platform::keyboard::KeyCode;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use galaxyui::{elements::Icon, ClipBounds};
 use galaxyui::{
-    elements::SavePosition, event::DispatchedEvent, AfterLayoutContext, AppContext, Element, Event,
-    EventContext, LayoutContext, PaintContext, SizeConstraint,
+    AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, PaintContext,
+    SizeConstraint, elements::SavePosition, event::DispatchedEvent,
 };
+use galaxyui::{ClipBounds, elements::Icon};
 use galaxyui::{EntityId, ModelHandle, SingletonEntity as _};
+use pathfinder_color::ColorU;
+use session_sharing_protocol::common::{ParticipantId, Selection};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::mem;
+use std::ops::{Deref, Range, RangeInclusive};
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::block_list_viewport::{ClampingMode, InputMode, ScrollPosition, ViewportState};
 use super::blockgrid_renderer::GridRenderParams;
 use super::find::{BlockListFindRun, BlockListMatch, TerminalFindModel};
 use super::grid_renderer::CellGlyphCache;
 
+use super::TerminalModel;
 use super::meta_shortcuts::handle_keystroke_despite_composing;
+use super::model::SecretHandle;
 use super::model::block::BlockId;
 use super::model::blocks::{RichContentItem, SelectionRange};
 use super::model::grid::grid_handler::{Link, TermMode};
@@ -76,24 +79,22 @@ use super::model::image_map::StoredImageMetadata;
 use super::model::mouse::{MouseAction, MouseButton, MouseState};
 use super::model::session::SessionId;
 use super::model::terminal_model::{SelectedBlocks, WithinBlock, WithinModel};
-use super::model::SecretHandle;
 use super::shared_session::presence_manager::{
-    text_selection_color, PresenceManager, MUTED_PARTICIPANT_COLOR,
+    MUTED_PARTICIPANT_COLOR, PresenceManager, text_selection_color,
 };
 use super::shared_session::render_util::SHARED_SESSION_AVATAR_DIAMETER;
 use super::view::{
-    BlocklistAIRenderContext, InlineBannerId, RichContentMetadata, SeparatorId,
-    SharedSessionBanners, TerminalEditor, TerminalViewRenderContext, BLOCK_BANNER_HEIGHT,
+    BLOCK_BANNER_HEIGHT, BlocklistAIRenderContext, InlineBannerId, RichContentMetadata,
+    SeparatorId, SharedSessionBanners, TerminalEditor, TerminalViewRenderContext,
 };
 use super::warpify::render::{draw_flag_pole, render_subshell_flag};
-use super::TerminalModel;
-use super::{heights_approx_eq, HEIGHT_FUDGE_FACTOR_LINES};
+use super::{HEIGHT_FUDGE_FACTOR_LINES, heights_approx_eq};
 use crate::terminal::blockgrid_renderer::BlockGridParams;
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::warpify::SubshellSource;
 
 use crate::terminal::model::escape_sequences::{
-    maybe_kitty_keyboard_escape_sequence, KeystrokeWithDetails, ToEscapeSequence,
+    KeystrokeWithDetails, ToEscapeSequence, maybe_kitty_keyboard_escape_sequence,
 };
 
 /// The number of pixels at the bottom of padding where selection scrolling is performed.
@@ -3547,36 +3548,22 @@ impl Element for BlockListElement {
         drop(viewport_iter);
 
         if DebugSettings::as_ref(app).should_show_memory_stats() {
+            let history_model = BlocklistAIHistoryModel::as_ref(app);
             for block_index in &visible_block_indices {
                 if let Some(block) = model.block_list().block_at(*block_index) {
                     if !block.has_footer() {
                         continue;
                     }
-
-                    fn adjusted_bytes(bytes: usize) -> byte_unit::AdjustedByte {
-                        let unit = if bytes >= 1_000_000 {
-                            byte_unit::Unit::MB
-                        } else {
-                            byte_unit::Unit::KB
-                        };
-                        byte_unit::Byte::from(bytes).get_adjusted_unit(unit)
-                    }
-
-                    let grid_storage_lines = block.grid_storage_lines();
-                    let grid_storage_bytes = block.grid_storage_bytes();
-                    let flat_storage_lines = block.flat_storage_lines();
-                    let flat_storage_bytes = block.flat_storage_bytes();
-
-                    let total_lines = grid_storage_lines + flat_storage_lines;
-                    let total_bytes = grid_storage_bytes + flat_storage_bytes;
-                    let text = format!("\
-                            Lines: {total_lines} (grid: {grid_storage_lines}, flat: {flat_storage_lines}); \
-                            Size: {:#.1} (grid: {:#.1}, flat: {:#.1})\
-                        ",
-                        adjusted_bytes(total_bytes),
-                        adjusted_bytes(grid_storage_bytes),
-                        adjusted_bytes(flat_storage_bytes),
-                    );
+                    let request_tokens = block
+                        .agent_view_visibility()
+                        .agent_view_conversation_id()
+                        .and_then(|conversation_id| history_model.conversation(&conversation_id))
+                        .map_or(0, |conversation| conversation.last_block_total_tokens());
+                    let text = if request_tokens > 0 {
+                        format!("Request tokens: {request_tokens}")
+                    } else {
+                        "Request tokens: --".to_string()
+                    };
 
                     let mut element = Text::new_inline(text, self.ui_font_family, self.font_size)
                         .with_style(Properties::default().weight(self.font_weight))
@@ -3977,7 +3964,9 @@ impl Element for BlockListElement {
                                     - SPACE_BETWEEN_SELECTED_BLOCK_AVATARS,
                             );
                         } else {
-                            log::warn!("Should show avatar for shared session participant at selected block but avatar element was not found")
+                            log::warn!(
+                                "Should show avatar for shared session participant at selected block but avatar element was not found"
+                            )
                         }
                     }
 
