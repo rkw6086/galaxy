@@ -28,7 +28,7 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
-use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
+use markdown_parser::{FormattedText, FormattedTextLine, parse_markdown};
 use pathfinder_color::ColorU;
 use std::collections::HashMap;
 

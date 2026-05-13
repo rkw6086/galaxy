@@ -25,8 +25,8 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use thousands::Separable;
 
-use crate::send_telemetry_from_ctx;
 use crate::TelemetryEvent;
+use crate::send_telemetry_from_ctx;
 
 const MODAL_WIDTH: f32 = 360.;
 const MODAL_HEIGHT: f32 = 532.;

@@ -1,19 +1,19 @@
 use super::{
+    SettingsSection,
     settings_page::{
         MatchData, PageType, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
         SettingsWidget,
     },
-    SettingsSection,
 };
 use crate::{appearance::Appearance, channel::ChannelState, workspace::WorkspaceAction};
 use galaxyui::{
+    AppContext, Entity, View, ViewContext, ViewHandle,
     assets::asset_cache::AssetSource,
     elements::{
         Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Image,
         MainAxisAlignment, MouseStateHandle, ParentElement, Wrap,
     },
     ui_components::components::UiComponent,
-    AppContext, Entity, View, ViewContext, ViewHandle,
 };
 
 pub struct AboutPageView {
@@ -60,7 +60,6 @@ impl SettingsWidget for AboutPageWidget {
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        let theme = appearance.theme();
         let ui_builder = appearance.ui_builder();
 
         let image_path = "bundled/svg/galaxy-logo.svg";

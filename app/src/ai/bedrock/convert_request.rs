@@ -577,10 +577,17 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
         let insert_idx = i + 1;
 
         // If the next message is already a user message, merge synthetic results into it.
+        // IMPORTANT: ToolResult blocks must come BEFORE text content in a user message
+        // that follows an assistant tool_use. The Bedrock/Anthropic API validates this
+        // ordering and rejects requests where text precedes tool_result.
         if insert_idx < messages.len() && messages[insert_idx].role == MessageRole::User {
             match &mut messages[insert_idx].content {
                 MessageContent::MultiPart(parts) => {
+                    // Prepend synthetic results before existing parts so
+                    // tool_result blocks appear first in the content.
+                    let existing = std::mem::take(parts);
                     parts.extend(synthetic_results);
+                    parts.extend(existing);
                 }
                 existing => {
                     // Convert existing single content + synthetic results into MultiPart.
@@ -607,11 +614,18 @@ fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
                             },
                             MessageContent::MultiPart(_) => unreachable!(),
                         };
-                    let mut parts = vec![existing_part];
-                    parts.extend(synthetic_results);
+                    // Synthetic tool_result blocks come first, then the
+                    // original content (text), matching the Bedrock API
+                    // requirement that tool_result precedes other content.
+                    let mut parts = synthetic_results;
+                    parts.push(existing_part);
                     *existing = MessageContent::MultiPart(parts);
                 }
             }
+            log::info!(
+                "[bedrock] Merged synthetic tool_result(s) into existing user message at index {}",
+                insert_idx
+            );
         } else {
             // No user message follows — insert a new one.
             let content = if synthetic_results.len() == 1 {
@@ -1272,3 +1286,7 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
         "Tool completed.".to_string()
     }
 }
+
+#[cfg(test)]
+#[path = "convert_request_tests.rs"]
+mod tests;

@@ -260,7 +260,7 @@ pub async fn generate_multi_agent_output(
                             format!("MultiPart[{}]", part_descs.join(", "))
                         }
                     };
-                    log::debug!(
+                    log::info!(
                         "[bedrock] msg[{}]: role={:?}, content={}",
                         i,
                         msg.role,

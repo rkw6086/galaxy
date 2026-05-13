@@ -303,6 +303,13 @@ impl AIApiError {
                 }
                 true
             }
+            // Don't retry Bedrock validation errors — they are deterministic
+            // and will always fail with the same request payload.
+            AIApiError::Stream { source, .. }
+                if source.to_string().contains("Validation error") =>
+            {
+                false
+            }
             // By default, retry on error.
             _ => true,
         }

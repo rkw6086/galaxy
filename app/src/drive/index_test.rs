@@ -1,17 +1,18 @@
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_server_client::cloud_object::ServerPermissions;
 use galaxyui::{
-    platform::WindowStyle, AddSingletonModel, App, SingletonEntity, TypedActionView, ViewHandle,
+    AddSingletonModel, App, SingletonEntity, TypedActionView, ViewHandle, platform::WindowStyle,
 };
 
 use crate::{
+    Assets,
     ai::blocklist::BlocklistAIHistoryModel,
-    auth::{auth_manager::AuthManager, AuthStateProvider},
+    auth::{AuthStateProvider, auth_manager::AuthManager},
     cloud_object::{
-        model::{actions::ObjectActions, persistence::CloudModel, view::CloudViewModel},
         CloudObjectSyncStatus, ObjectIdType, ObjectType, Owner, ServerCreationInfo, Space,
+        model::{actions::ObjectActions, persistence::CloudModel, view::CloudViewModel},
     },
-    drive::{items::WarpDriveItemId, CloudObjectTypeAndId},
+    drive::{CloudObjectTypeAndId, items::WarpDriveItemId},
     menu::MenuItem,
     network::NetworkStatus,
     notebooks::{CloudNotebook, CloudNotebookModel},
@@ -25,11 +26,10 @@ use crate::{
     settings_view::keybindings::KeybindingChangedNotifier,
     terminal::shared_session::permissions_manager::SessionPermissionsManager,
     test_util::settings::initialize_settings_for_tests,
-    workflows::{workflow::Workflow, CloudWorkflow, CloudWorkflowModel},
+    workflows::{CloudWorkflow, CloudWorkflowModel, workflow::Workflow},
     workspaces::{
         team_tester::TeamTesterStatus, user_profiles::UserProfiles, user_workspaces::UserWorkspaces,
     },
-    Assets,
 };
 
 use super::{DriveIndex, DriveIndexAction};

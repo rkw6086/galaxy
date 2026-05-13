@@ -1,6 +1,6 @@
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use strum_macros::{EnumDiscriminants, EnumIter};
 
 use crate::workspace::tab_settings::{

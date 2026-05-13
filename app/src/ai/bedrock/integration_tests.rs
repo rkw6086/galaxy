@@ -64,6 +64,7 @@ async fn collect_stream_output(
             8192,
             None,
             false,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
