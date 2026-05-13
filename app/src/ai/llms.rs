@@ -424,11 +424,11 @@ impl Default for ModelsByFeature {
     fn default() -> Self {
         Self {
             agent_mode: AvailableLLMs {
-                default_id: "auto".to_owned().into(),
+                default_id: "anthropic.claude-opus-4-6".to_owned().into(),
                 choices: vec![LLMInfo {
-                    display_name: "auto (cost-efficient)".to_owned(),
-                    base_model_name: "auto (cost-efficient)".to_owned(),
-                    id: "auto".to_owned().into(),
+                    display_name: "Claude Opus 4.6".to_owned(),
+                    base_model_name: "Claude Opus 4.6".to_owned(),
+                    id: "anthropic.claude-opus-4-6".to_owned().into(),
                     reasoning_level: None,
                     usage_metadata: LLMUsageMetadata {
                         request_multiplier: 1,
@@ -445,11 +445,11 @@ impl Default for ModelsByFeature {
                 preferred_codex_model_id: None,
             },
             coding: AvailableLLMs {
-                default_id: "auto".to_owned().into(),
+                default_id: "anthropic.claude-sonnet-4-6".to_owned().into(),
                 choices: vec![LLMInfo {
-                    display_name: "auto (responsive)".to_owned(),
-                    base_model_name: "auto (responsive)".to_owned(),
-                    id: "auto".to_owned().into(),
+                    display_name: "Claude Sonnet 4.6".to_owned(),
+                    base_model_name: "Claude Sonnet 4.6".to_owned(),
+                    id: "anthropic.claude-sonnet-4-6".to_owned().into(),
                     reasoning_level: None,
                     usage_metadata: LLMUsageMetadata {
                         request_multiplier: 1,
@@ -466,11 +466,11 @@ impl Default for ModelsByFeature {
                 preferred_codex_model_id: None,
             },
             cli_agent: Some(AvailableLLMs {
-                default_id: "cli-agent-auto".to_owned().into(),
+                default_id: "anthropic.claude-haiku-4-5-20251001-v1:0".to_owned().into(),
                 choices: vec![LLMInfo {
-                    display_name: "auto".to_owned(),
-                    base_model_name: "auto".to_owned(),
-                    id: "cli-agent-auto".to_owned().into(),
+                    display_name: "Claude Haiku 4.5".to_owned(),
+                    base_model_name: "Claude Haiku 4.5".to_owned(),
+                    id: "anthropic.claude-haiku-4-5-20251001-v1:0".to_owned().into(),
                     reasoning_level: None,
                     usage_metadata: LLMUsageMetadata {
                         request_multiplier: 1,
@@ -685,6 +685,52 @@ impl LLMPreferences {
             self.models_by_feature.coding.choices.push(llm_info.clone());
             if let Some(ref mut cli) = self.models_by_feature.cli_agent {
                 cli.choices.push(llm_info);
+            }
+        }
+
+        // Remove any placeholder/auto-routing entries now that real Bedrock models are available.
+        self.models_by_feature
+            .agent_mode
+            .choices
+            .retain(|m| m.provider != LLMProvider::Unknown);
+        self.models_by_feature
+            .coding
+            .choices
+            .retain(|m| m.provider != LLMProvider::Unknown);
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            cli.choices.retain(|m| m.provider != LLMProvider::Unknown);
+        }
+
+        // Default agent mode to Claude Opus 4.6, falling back to the first available model.
+        if let Some(id) = self
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .find(|m| m.display_name.contains("Opus 4.6"))
+            .or_else(|| self.models_by_feature.agent_mode.choices.first())
+            .map(|m| m.id.clone())
+        {
+            self.models_by_feature.agent_mode.default_id = id;
+        }
+
+        // Default coding to Claude Sonnet 4.6, falling back to the first available model.
+        if let Some(id) = self
+            .models_by_feature
+            .coding
+            .choices
+            .iter()
+            .find(|m| m.display_name.contains("Sonnet 4.6"))
+            .or_else(|| self.models_by_feature.coding.choices.first())
+            .map(|m| m.id.clone())
+        {
+            self.models_by_feature.coding.default_id = id;
+        }
+
+        // Default CLI agent to the first available model.
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            if let Some(id) = cli.choices.first().map(|m| m.id.clone()) {
+                cli.default_id = id;
             }
         }
     }

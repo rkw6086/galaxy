@@ -18,6 +18,7 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
     match input_type {
         api::request::input::Type::UserInputs(user_inputs) => {
             let mut tool_results: Vec<ConversationMessage> = Vec::new();
+            let mut user_queries: Vec<ConversationMessage> = Vec::new();
             for user_input in &user_inputs.inputs {
                 match &user_input.input {
                     Some(api::request::input::user_inputs::user_input::Input::ToolCallResult(
@@ -39,7 +40,7 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                         query,
                     )) => {
                         if !query.query.is_empty() {
-                            results.push(ConversationMessage {
+                            user_queries.push(ConversationMessage {
                                 role: MessageRole::User,
                                 content: MessageContent::Text(query.query.clone()),
                             });
@@ -48,6 +49,9 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                     _ => {}
                 }
             }
+            // Tool results MUST come before user queries so they pair with
+            // the preceding assistant tool_use messages (Bedrock requires
+            // tool_result immediately after the corresponding tool_use).
             if !tool_results.is_empty() {
                 if tool_results.len() == 1 {
                     results.extend(tool_results);
@@ -67,6 +71,7 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                     });
                 }
             }
+            results.extend(user_queries);
         }
         #[allow(deprecated)]
         api::request::input::Type::UserQuery(query) => {
@@ -456,6 +461,18 @@ pub fn extract_messages_from_request(request: &api::Request) -> Vec<Conversation
         messages.iter().filter(|m| matches!(&m.content, MessageContent::ToolUse { .. })).count(),
     );
     messages
+}
+
+/// Sanitizes a message list to satisfy Bedrock Converse API invariants:
+/// 1. Messages must start with a user message.
+/// 2. Every assistant tool_use must be immediately followed by a user
+///    message containing the matching tool_result.
+///
+/// Call this on the combined (history + new input) messages before
+/// sending to `build_converse_request`.
+pub fn sanitize_messages_for_bedrock(messages: &mut Vec<ConversationMessage>) {
+    ensure_starts_with_user_message(messages);
+    ensure_tool_results_paired(messages);
 }
 
 fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {

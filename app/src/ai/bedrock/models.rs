@@ -8,6 +8,11 @@ pub struct DefaultModel {
 
 pub const DEFAULT_BEDROCK_MODELS: &[DefaultModel] = &[
     DefaultModel {
+        model_id: "anthropic.claude-opus-4-6",
+        display_name: "Claude Opus 4.6",
+        vision_supported: true,
+    },
+    DefaultModel {
         model_id: "anthropic.claude-opus-4-7",
         display_name: "Claude Opus 4.7",
         vision_supported: true,

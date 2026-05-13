@@ -175,7 +175,7 @@ pub async fn generate_multi_agent_output(
                     .unwrap_or_default();
 
                 if model_id.is_empty() || model_id == "auto" {
-                    model_id = "us.anthropic.claude-sonnet-4-20250514-v1:0".to_string();
+                    model_id = "us.anthropic.claude-opus-4-6".to_string();
                 }
 
                 log::info!("[bedrock] Model: {model_id}");
@@ -202,6 +202,14 @@ pub async fn generate_multi_agent_output(
                     );
                     messages.extend(new_input_messages);
                 }
+
+                // Sanitize: ensure every tool_use has a matching tool_result
+                // immediately after, and that the conversation starts with a
+                // user message. Without this, interrupted tool calls cause
+                // Bedrock ValidationException errors.
+                crate::ai::bedrock::convert_request::sanitize_messages_for_bedrock(
+                    &mut messages,
+                );
 
                 let system_prompt =
                     crate::ai::bedrock::convert_request::extract_system_prompt(&request);

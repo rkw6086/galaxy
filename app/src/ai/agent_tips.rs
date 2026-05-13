@@ -262,13 +262,6 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
             kind: AgentTipKind::General,
         },
         AgentTip {
-            description: "Use the `oz` command to run an Oz agent in headless mode, useful for remote machines.".to_string(),
-            link: Some("https://docs.warp.dev/reference/cli".to_string()),
-            binding_name: None,
-            action: None,
-            kind: AgentTipKind::General,
-        },
-        AgentTip {
             description: "Right-click selected text to attach it as agent context.".to_string(),
             link: Some("https://docs.warp.dev/agent-platform/local-agents/agent-context/blocks-as-context#attaching-blocks-as-context".to_string()),
             binding_name: None,
