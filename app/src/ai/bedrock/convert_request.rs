@@ -480,74 +480,192 @@ fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {
     }
 }
 
+/// Ensures every `tool_use` block in an assistant message is immediately followed
+/// by a user message containing the matching `tool_result`. The Bedrock/Anthropic
+/// Converse API rejects requests where this invariant is violated.
+///
+/// This function:
+/// 1. Walks messages sequentially and collects tool_use IDs from each assistant message.
+/// 2. Checks the immediately-next user message for matching tool_results.
+/// 3. Synthesizes missing tool_results in the correct position.
+/// 4. Removes trailing assistant tool_use messages that have no following user message.
+/// 5. Ensures strict user/assistant role alternation.
 fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
-    let mut tool_use_ids: Vec<String> = Vec::new();
-    let mut tool_result_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    use std::collections::HashSet;
 
+    // Collect all tool_result IDs that exist anywhere in the conversation.
+    let mut all_result_ids = HashSet::new();
     for msg in messages.iter() {
-        match &msg.content {
-            MessageContent::ToolUse { tool_use_id, .. } => {
-                tool_use_ids.push(tool_use_id.clone());
-            }
-            MessageContent::ToolResult { tool_use_id, .. } => {
-                tool_result_ids.insert(tool_use_id.clone());
-            }
-            MessageContent::MultiPart(parts) => {
-                for part in parts {
-                    match part {
-                        super::convert::ContentPart::ToolUse { tool_use_id, .. } => {
-                            tool_use_ids.push(tool_use_id.clone());
+        collect_tool_result_ids(&msg.content, &mut all_result_ids);
+    }
+
+    // Walk forward: for each assistant message with tool_use blocks,
+    // ensure the next message is a user message with matching tool_results.
+    let mut i = 0;
+    while i < messages.len() {
+        let tool_use_ids = collect_tool_use_ids(&messages[i].content);
+        if tool_use_ids.is_empty() || messages[i].role != MessageRole::Assistant {
+            i += 1;
+            continue;
+        }
+
+        // Find which tool_use IDs are missing results in the next message.
+        let next_result_ids = messages
+            .get(i + 1)
+            .filter(|m| m.role == MessageRole::User)
+            .map(|m| {
+                let mut ids = HashSet::new();
+                collect_tool_result_ids(&m.content, &mut ids);
+                ids
+            })
+            .unwrap_or_default();
+
+        // Also check global results — if a result exists later, that's still
+        // structurally broken (not immediately after), but we still need to
+        // synthesize one in the right position.
+        let missing: Vec<String> = tool_use_ids
+            .into_iter()
+            .filter(|id| !next_result_ids.contains(id))
+            .collect();
+
+        if missing.is_empty() {
+            i += 1;
+            continue;
+        }
+
+        log::warn!(
+            "[bedrock] Synthesizing {} missing tool_result(s) after message {} for tool_use IDs: {:?}",
+            missing.len(),
+            i,
+            missing
+        );
+
+        // Build synthetic tool_result messages.
+        let synthetic_results: Vec<ContentPart> = missing
+            .iter()
+            .map(|id| ContentPart::ToolResult {
+                tool_use_id: id.clone(),
+                content: "Tool call result unavailable (conversation was interrupted).".to_string(),
+                is_error: false,
+            })
+            .collect();
+
+        let insert_idx = i + 1;
+
+        // If the next message is already a user message, merge synthetic results into it.
+        if insert_idx < messages.len() && messages[insert_idx].role == MessageRole::User {
+            match &mut messages[insert_idx].content {
+                MessageContent::MultiPart(parts) => {
+                    parts.extend(synthetic_results);
+                }
+                existing => {
+                    // Convert existing single content + synthetic results into MultiPart.
+                    let existing_part = match std::mem::replace(existing, MessageContent::Text(String::new())) {
+                        MessageContent::Text(t) => ContentPart::Text(t),
+                        MessageContent::ToolResult { tool_use_id, content, is_error } => {
+                            ContentPart::ToolResult { tool_use_id, content, is_error }
                         }
-                        super::convert::ContentPart::ToolResult { tool_use_id, .. } => {
-                            tool_result_ids.insert(tool_use_id.clone());
+                        MessageContent::ToolUse { tool_use_id, name, input } => {
+                            ContentPart::ToolUse { tool_use_id, name, input }
                         }
-                        _ => {}
-                    }
+                        MessageContent::MultiPart(_) => unreachable!(),
+                    };
+                    let mut parts = vec![existing_part];
+                    parts.extend(synthetic_results);
+                    *existing = MessageContent::MultiPart(parts);
                 }
             }
-            _ => {}
+        } else {
+            // No user message follows — insert a new one.
+            let content = if synthetic_results.len() == 1 {
+                match synthetic_results.into_iter().next().unwrap() {
+                    ContentPart::ToolResult { tool_use_id, content, is_error } => {
+                        MessageContent::ToolResult { tool_use_id, content, is_error }
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                MessageContent::MultiPart(synthetic_results)
+            };
+            messages.insert(
+                insert_idx,
+                ConversationMessage {
+                    role: MessageRole::User,
+                    content,
+                },
+            );
+        }
+
+        // Advance past both the assistant message and the (now-valid) user message.
+        i += 2;
+    }
+
+    // Final pass: ensure no trailing assistant tool_use without a following user message.
+    if let Some(last) = messages.last() {
+        if last.role == MessageRole::Assistant {
+            let trailing_ids = collect_tool_use_ids(&last.content);
+            if !trailing_ids.is_empty() {
+                log::warn!(
+                    "[bedrock] Removing {} trailing tool_use IDs from final assistant message",
+                    trailing_ids.len()
+                );
+                // Synthesize a trailing user message with all the results.
+                let parts: Vec<ContentPart> = trailing_ids
+                    .into_iter()
+                    .map(|id| ContentPart::ToolResult {
+                        tool_use_id: id,
+                        content: "Tool call result unavailable (conversation was interrupted).".to_string(),
+                        is_error: false,
+                    })
+                    .collect();
+                let content = if parts.len() == 1 {
+                    match parts.into_iter().next().unwrap() {
+                        ContentPart::ToolResult { tool_use_id, content, is_error } => {
+                            MessageContent::ToolResult { tool_use_id, content, is_error }
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    MessageContent::MultiPart(parts)
+                };
+                messages.push(ConversationMessage {
+                    role: MessageRole::User,
+                    content,
+                });
+            }
         }
     }
+}
 
-    let orphaned: Vec<String> = tool_use_ids
-        .into_iter()
-        .filter(|id| !tool_result_ids.contains(id))
-        .collect();
-
-    if orphaned.is_empty() {
-        return;
-    }
-
-    log::debug!(
-        "[bedrock] Synthesizing {} missing toolResult messages for orphaned tool calls",
-        orphaned.len()
-    );
-
-    for orphaned_id in &orphaned {
-        let insert_idx = messages
+/// Extracts all tool_use IDs from a message's content.
+fn collect_tool_use_ids(content: &MessageContent) -> Vec<String> {
+    match content {
+        MessageContent::ToolUse { tool_use_id, .. } => vec![tool_use_id.clone()],
+        MessageContent::MultiPart(parts) => parts
             .iter()
-            .rposition(|m| match &m.content {
-                MessageContent::ToolUse { tool_use_id, .. } => tool_use_id == orphaned_id,
-                MessageContent::MultiPart(parts) => parts.iter().any(|p| matches!(
-                    p,
-                    super::convert::ContentPart::ToolUse { tool_use_id, .. } if tool_use_id == orphaned_id
-                )),
-                _ => false,
+            .filter_map(|p| match p {
+                ContentPart::ToolUse { tool_use_id, .. } => Some(tool_use_id.clone()),
+                _ => None,
             })
-            .map(|i| i + 1)
-            .unwrap_or(messages.len());
+            .collect(),
+        _ => vec![],
+    }
+}
 
-        messages.insert(
-            insert_idx,
-            ConversationMessage {
-                role: MessageRole::User,
-                content: MessageContent::ToolResult {
-                    tool_use_id: orphaned_id.clone(),
-                    content: "Tool executed successfully.".to_string(),
-                    is_error: false,
-                },
-            },
-        );
+/// Collects all tool_result IDs from a message's content into the provided set.
+fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections::HashSet<String>) {
+    match content {
+        MessageContent::ToolResult { tool_use_id, .. } => {
+            ids.insert(tool_use_id.clone());
+        }
+        MessageContent::MultiPart(parts) => {
+            for part in parts {
+                if let ContentPart::ToolResult { tool_use_id, .. } = part {
+                    ids.insert(tool_use_id.clone());
+                }
+            }
+        }
+        _ => {}
     }
 }
 

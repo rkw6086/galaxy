@@ -42,8 +42,7 @@ fn base_warp_config_dir_name() -> String {
     match ChannelState::channel() {
         // Preview shares the same directory as Stable for backward
         // compatibility — existing users already have config in `.warp`.
-        Channel::Stable | Channel::Preview => WARP_CONFIG_DIR.to_owned(),
-        Channel::Oss => format!("{WARP_CONFIG_DIR}-oss"),
+        Channel::Stable | Channel::Preview | Channel::Oss => WARP_CONFIG_DIR.to_owned(),
         Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
         Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
@@ -217,9 +216,8 @@ pub fn warp_home_mcp_config_file_path() -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 fn macos_config_dir_name() -> String {
     match ChannelState::channel() {
-        Channel::Stable => WARP_CONFIG_DIR.to_owned(),
+        Channel::Stable | Channel::Oss => WARP_CONFIG_DIR.to_owned(),
         Channel::Preview => format!("{WARP_CONFIG_DIR}-preview"),
-        Channel::Oss => format!("{WARP_CONFIG_DIR}-oss"),
         Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
         Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
         Channel::Local => format!("{WARP_CONFIG_DIR}-local"),

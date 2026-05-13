@@ -915,7 +915,7 @@ pub fn init(app: &mut AppContext) {
     app.register_editable_bindings([
         EditableBinding::new(
             "workspace:terminate_app",
-            "Quit Warp",
+            "Quit Galaxy",
             WorkspaceAction::TerminateApp,
         )
         .with_context_predicate(id!("Workspace"))
