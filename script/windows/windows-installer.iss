@@ -5,7 +5,7 @@
 #define MyAppPublisher "Denver Technologies, Inc."
 #define MyAppURL "https://www.warp.dev/"
 #ifndef MyAppName
-  #define MyAppName "WarpDev"
+  #define MyAppName "GalaxyDev"
 #endif
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
@@ -130,7 +130,7 @@ Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Wind
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\{#MyAppName}Window\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""{#MyAppName}://action/new_window?path=%V"""
 
 [Tasks]
-Name: addToPath; Description: "Add Warp to PATH"
+Name: addToPath; Description: "Add Galaxy to PATH"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{userappdata}\warp\{#MyAppName}"

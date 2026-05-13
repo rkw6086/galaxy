@@ -341,7 +341,7 @@ pub fn init(app: &mut AppContext) {
         ),
         EditableBinding::new(
             "terminal:warpify_subshell",
-            "Galaxify subshell",
+            "Galaxyize subshell",
             TerminalAction::TriggerSubshellBootstrap,
         )
         .with_key_binding("ctrl-i")
@@ -350,7 +350,7 @@ pub fn init(app: &mut AppContext) {
         ),
         EditableBinding::new(
             "terminal:warpify_ssh_session",
-            "Galaxify ssh session",
+            "Galaxyize ssh session",
             TerminalAction::WarpifySSHSession,
         )
         .with_key_binding("ctrl-i")

@@ -12,8 +12,8 @@ fn main() -> Result<()> {
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
-            app_id: AppId::new("com", "samsung", "GalaxyAI"),
-            logfile_name: "galaxy-ai.log".into(),
+            app_id: AppId::new("com", "samsung", "Galaxy"),
+            logfile_name: "galaxy.log".into(),
             server_config: WarpServerConfig::production(),
             oz_config: OzConfig::production(),
             telemetry_config: None,
@@ -41,9 +41,9 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDisplayName</key>
     <string>Galaxy</string>
     <key>CFBundleExecutable</key>
-    <string>galaxy-ai-oss</string>
+    <string>galaxy-oss</string>
     <key>CFBundleIdentifier</key>
-    <string>com.samsung.GalaxyAI</string>
+    <string>com.samsung.Galaxy</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

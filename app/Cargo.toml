@@ -1,7 +1,7 @@
 [package]
 authors = ["Ryan Ward <ryan.ward@samsung.com>"]
-default-run = "galaxy-ai-oss"
-description = "Galaxy AI - AI-powered terminal for development teams"
+default-run = "galaxy-oss"
+description = "Galaxy - AI-powered terminal"
 edition = "2021"
 autobins = false
 name = "galaxy"
@@ -18,27 +18,27 @@ path = "src/lib.rs"
 # flag overrides). Otherwise these binaries are exactly identical to our main binary.
 
 [[bin]]
-name = "galaxy-ai-oss"
+name = "galaxy-oss"
 path = "src/bin/oss.rs"
 test = false
 
 [[bin]]
-name = "galaxy-ai"
+name = "galaxy-local"
 path = "src/bin/local.rs"
 test = false
 
 [[bin]]
-name = "stable"
+name = "galaxy-stable"
 path = "src/bin/stable.rs"
 test = false
 
 [[bin]]
-name = "dev"
+name = "galaxy-dev"
 path = "src/bin/dev.rs"
 test = false
 
 [[bin]]
-name = "preview"
+name = "galaxy-preview"
 path = "src/bin/preview.rs"
 required-features = ["preview_channel"]
 test = false
@@ -932,55 +932,46 @@ codex_notifications = []
 cloud_mode_setup_v2 = ["cloud_mode"]
 cloud_mode_input_v2 = ["cloud_mode"]
 
-[package.metadata.bundle.bin.warp-oss]
+[package.metadata.bundle.bin.galaxy-oss]
 category = "public.app-category.developer-tools"
-copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.galaxy.GalaxyOss"
+copyright = "© 2026, Samsung Electronics Co., Ltd."
+identifier = "com.samsung.Galaxy"
 name = "Galaxy"
 resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]
-short_description = "The open-source, cloud-backed terminal for individuals and teams."
+short_description = "Galaxy - AI-powered terminal for development teams."
 
-[package.metadata.bundle.bin.stable]
+[package.metadata.bundle.bin.galaxy-stable]
 category = "public.app-category.developer-tools"
-copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.galaxy.Galaxy-Stable"
+copyright = "© 2026, Samsung Electronics Co., Ltd."
+identifier = "com.samsung.Galaxy-Stable"
 name = "Galaxy"
-osx_frameworks = [
-    "frameworks/default/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
-]
 resources = ["assets/onboarding"]
-short_description = "The cloud-backed terminal for individuals and teams, stable build."
+short_description = "Galaxy - AI-powered terminal, stable build."
 
-[package.metadata.bundle.bin.preview]
+[package.metadata.bundle.bin.galaxy-preview]
 category = "public.app-category.developer-tools"
-copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.galaxy.Galaxy-Preview"
-name = "GalaxyPreview"
-osx_frameworks = [
-    "frameworks/default/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
-]
+copyright = "© 2026, Samsung Electronics Co., Ltd."
+identifier = "com.samsung.Galaxy-Preview"
+name = "Galaxy Preview"
 resources = ["assets/onboarding"]
-short_description = "The cloud-backed terminal for individuals and teams, feature preview build."
+short_description = "Galaxy - AI-powered terminal, preview build."
 
-[package.metadata.bundle.bin.dev]
+[package.metadata.bundle.bin.galaxy-dev]
 category = "public.app-category.developer-tools"
-copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.galaxy.Galaxy-Dev"
-name = "GalaxyDev"
-osx_frameworks = [
-    "frameworks/dev/Sentry-Dynamic-WithARM64e.xcframework/macos-arm64_arm64e_x86_64/Sentry.framework",
-]
+copyright = "© 2026, Samsung Electronics Co., Ltd."
+identifier = "com.samsung.Galaxy-Dev"
+name = "Galaxy Dev"
 resources = ["assets/onboarding"]
-short_description = "The cloud-backed terminal for individuals and teams, developer build."
+short_description = "Galaxy - AI-powered terminal, developer build."
 
-[package.metadata.bundle.bin.warp]
+[package.metadata.bundle.bin.galaxy-local]
 category = "public.app-category.developer-tools"
-copyright = "© 2025, Denver Technologies, Inc"
-identifier = "dev.galaxy.Galaxy-Local"
-name = "GalaxyLocal"
+copyright = "© 2026, Samsung Electronics Co., Ltd."
+identifier = "com.samsung.Galaxy-Local"
+name = "Galaxy Local"
 resources = ["assets/onboarding"]
-short_description = "The cloud-backed terminal for individuals and teams, developer build."
+short_description = "Galaxy - AI-powered terminal, local build."
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["embed_plist"]

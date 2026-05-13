@@ -6,7 +6,7 @@ use super::{
     SettingsSection,
 };
 use crate::{
-    appearance::Appearance, channel::ChannelState, themes::theme::ColorScheme,
+    appearance::Appearance, channel::ChannelState,
     workspace::WorkspaceAction,
 };
 use galaxyui::{
@@ -66,11 +66,7 @@ impl SettingsWidget for AboutPageWidget {
         let theme = appearance.theme();
         let ui_builder = appearance.ui_builder();
 
-        let image_path = if theme.inferred_color_scheme() == ColorScheme::LightOnDark {
-            "bundled/svg/bedrock.svg"
-        } else {
-            "bundled/svg/bedrock.svg"
-        };
+        let image_path = "bundled/svg/galaxy-logo.svg";
 
         let version = ChannelState::app_version()
             .unwrap_or(concat!("v", env!("CARGO_PKG_VERSION")));

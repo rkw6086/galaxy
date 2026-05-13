@@ -732,11 +732,11 @@ fn dmg_name(channel: Channel) -> String {
 
 fn app_name_prefix(channel: Channel) -> &'static str {
     match channel {
-        Channel::Stable => "GalaxyAI",
-        Channel::Preview => "GalaxyAIPreview",
+        Channel::Stable => "Galaxy",
+        Channel::Preview => "GalaxyPreview",
         Channel::Local => "galaxy-ai",
         Channel::Integration => "integration",
-        Channel::Dev => "GalaxyAIDev",
+        Channel::Dev => "GalaxyDev",
         Channel::Oss => "galaxy-ai-oss",
     }
 }

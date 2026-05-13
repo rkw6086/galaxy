@@ -160,6 +160,11 @@ When adding/editing match statements, avoid using the wildcard _ when at all pos
 - MCP config: `~/.galaxy-ai/.mcp.json`
 - Environment variables use `GALAXY_` prefix (e.g., `GALAXY_API_KEY`, `GALAXY_INTEGRATION`)
 
+### Skills
+
+**pull_warp_feature** (`.warp/skills/pull_warp_feature/SKILL.md`):
+Ports features from upstream Warp into Galaxy. Clones Warp source into `.galaxy/warp-upstream/` (gitignored), analyzes the feature for Warp-specific dependencies (AI → Bedrock, cloud → local storage, telemetry → removed), presents a compatibility plan, and implements the port after approval. All AI must go through `BedrockClient`; all cloud storage must be local.
+
 ## Future Work
 
 ### IDE-Level LSP Integration

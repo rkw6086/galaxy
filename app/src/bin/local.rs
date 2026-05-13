@@ -1,19 +1,26 @@
-#[path = "channel_config.rs"]
-mod channel_config;
-
 use anyhow::Result;
 use galaxy_core::{
-    channel::{Channel, ChannelState},
-    features,
+    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
+    features, AppId,
 };
 
 fn main() -> Result<()> {
-    let config = channel_config::load_config!("local");
-
-    let mut state = ChannelState::new(Channel::Local, config)
-        .with_additional_features(features::DEBUG_FLAGS)
-        .with_additional_features(features::DOGFOOD_FLAGS)
-        .with_additional_features(features::PREVIEW_FLAGS);
+    let mut state = ChannelState::new(
+        Channel::Local,
+        ChannelConfig {
+            app_id: AppId::new("com", "samsung", "Galaxy-Local"),
+            logfile_name: "galaxy.log".into(),
+            server_config: WarpServerConfig::production(),
+            oz_config: OzConfig::production(),
+            telemetry_config: None,
+            crash_reporting_config: None,
+            autoupdate_config: None,
+            mcp_static_config: None,
+        },
+    )
+    .with_additional_features(features::DEBUG_FLAGS)
+    .with_additional_features(features::DOGFOOD_FLAGS)
+    .with_additional_features(features::PREVIEW_FLAGS);
 
     // Enable sandbox telemetry feature flag if the env var is set.
     if std::env::var("WITH_SANDBOX_TELEMETRY").is_ok() {
@@ -37,9 +44,9 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDisplayName</key>
     <string>Galaxy</string>
     <key>CFBundleExecutable</key>
-    <string>galaxy-ai</string>
+    <string>galaxy-local</string>
     <key>CFBundleIdentifier</key>
-    <string>com.samsung.GalaxyAI-Local</string>
+    <string>com.samsung.Galaxy-Local</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

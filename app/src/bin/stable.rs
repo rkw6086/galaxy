@@ -2,17 +2,25 @@
 // builds. See https://doc.rust-lang.org/reference/runtime.html#the-windows_subsystem-attribute.
 #![cfg_attr(feature = "release_bundle", windows_subsystem = "windows")]
 
-#[path = "channel_config.rs"]
-mod channel_config;
-
 use anyhow::Result;
-use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::{
+    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
+    AppId,
+};
 
-// Simple wrapper around galaxy::run() for stable channel builds.
 fn main() -> Result<()> {
     ChannelState::set(ChannelState::new(
         Channel::Stable,
-        channel_config::load_config!("stable"),
+        ChannelConfig {
+            app_id: AppId::new("com", "samsung", "Galaxy"),
+            logfile_name: "galaxy.log".into(),
+            server_config: WarpServerConfig::production(),
+            oz_config: OzConfig::production(),
+            telemetry_config: None,
+            crash_reporting_config: None,
+            autoupdate_config: None,
+            mcp_static_config: None,
+        },
     ));
 
     galaxy::run()

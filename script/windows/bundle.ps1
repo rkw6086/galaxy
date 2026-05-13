@@ -91,28 +91,28 @@ $BUNDLE_ID = "dev.warp.$app_name"
 if ("$CHANNEL" -eq 'local') {
     $WARP_BIN = 'warp'
     $BINARY_NAME = 'warp.exe'
-    $APP_NAME = 'WarpLocal'
+    $APP_NAME = 'GalaxyLocal'
     $FEATURES = "$FEATURES,nld_improvements"
 } elseif ("$CHANNEL" -eq 'dev') {
     $WARP_BIN = 'dev'
     $BINARY_NAME = 'dev.exe'
-    $APP_NAME = 'WarpDev'
+    $APP_NAME = 'GalaxyDev'
     $FEATURES = "$FEATURES,agent_mode_debug,nld_improvements"
 } elseif ("$CHANNEL" -eq 'preview') {
     $WARP_BIN = 'preview'
     $BINARY_NAME = 'preview.exe'
-    $APP_NAME = 'WarpPreview'
+    $APP_NAME = 'GalaxyPreview'
     $FEATURES = "$FEATURES,preview_channel,nld_improvements"
 } elseif ("$CHANNEL" -eq 'stable') {
     $WARP_BIN = 'stable'
     $BINARY_NAME = 'warp.exe'
-    $APP_NAME = 'Warp'
+    $APP_NAME = 'Galaxy'
     # TODO(vorporeal): Remove this once we get tests passing with this default enabled.
     $FEATURES = "$FEATURES,nld_improvements"
 } elseif ("$CHANNEL" -eq 'oss') {
     $WARP_BIN = 'warp-oss'
     $BINARY_NAME = 'warp-oss.exe'
-    $APP_NAME = 'WarpOss'
+    $APP_NAME = 'GalaxyOss'
     # The OSS channel does not ship Sentry, so drop the crash_reporting feature
     # (which would otherwise pull in the Sentry SDK as a dependency).
     $FEATURES = 'release_bundle,gui,nld_improvements'

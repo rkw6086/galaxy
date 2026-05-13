@@ -28,7 +28,7 @@ use crate::{
 ///
 /// This should be used, for example, as the base directory under which
 /// repository workflows would be stored (in "./.warp-core/workflows").
-pub const WARP_CONFIG_DIR: &str = ".galaxy-ai";
+pub const WARP_CONFIG_DIR: &str = ".galaxy";
 
 /// The legacy config directory name used by Warp before the rename to Warp Core.
 /// Used for auto-migration on first launch.

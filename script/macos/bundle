@@ -270,9 +270,9 @@ fi
 
 if [[ $RELEASE_CHANNEL = "local" ]]; then
     WARP_BIN="galaxy-ai"
-    BUNDLE_ID="com.samsung.GalaxyAI-Local"
-    WARP_APP_NAME="GalaxyAI"
-    WARP_SCHEME_NAME="galaxyai"
+    BUNDLE_ID="com.samsung.Galaxy-Local"
+    WARP_APP_NAME="Galaxy"
+    WARP_SCHEME_NAME="galaxy"
     FEATURES="$FEATURES,agent_mode_debug"
     # For local builds, use different versions of our bundled frameworks (e.g.:
     # Sentry).  This needs to be exported so it can be referenced by
@@ -280,9 +280,9 @@ if [[ $RELEASE_CHANNEL = "local" ]]; then
     export FRAMEWORK_OVERRIDE="dev"
 elif [[ $RELEASE_CHANNEL = "dev" ]]; then
     WARP_BIN="dev"
-    BUNDLE_ID="com.samsung.GalaxyAI-Dev"
-    WARP_APP_NAME="GalaxyAIDev"
-    WARP_SCHEME_NAME="galaxyaidev"
+    BUNDLE_ID="com.samsung.Galaxy-Dev"
+    WARP_APP_NAME="GalaxyDev"
+    WARP_SCHEME_NAME="galaxydev"
     FEATURES="$FEATURES,agent_mode_debug"
     # Enable heap usage tracking & profiling using jemalloc through pprof.
     FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
@@ -293,22 +293,22 @@ elif [[ $RELEASE_CHANNEL = "dev" ]]; then
     export HANDLE_MARKDOWN=1
 elif [[ $RELEASE_CHANNEL = "preview" ]]; then
     WARP_BIN="preview"
-    BUNDLE_ID="com.samsung.GalaxyAI-Preview"
-    WARP_APP_NAME="GalaxyAIPreview"
-    WARP_SCHEME_NAME="galaxyaipreview"
+    BUNDLE_ID="com.samsung.Galaxy-Preview"
+    WARP_APP_NAME="GalaxyPreview"
+    WARP_SCHEME_NAME="galaxypreview"
     FEATURES="$FEATURES,preview_channel"
     # Enable heap usage tracking & profiling using jemalloc through pprof.
     FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
 elif [[ $RELEASE_CHANNEL = "stable" ]]; then
     WARP_BIN="stable"
-    BUNDLE_ID="com.samsung.GalaxyAI"
-    WARP_APP_NAME="GalaxyAI"
-    WARP_SCHEME_NAME="galaxyai"
+    BUNDLE_ID="com.samsung.Galaxy"
+    WARP_APP_NAME="Galaxy"
+    WARP_SCHEME_NAME="galaxy"
 elif [[ $RELEASE_CHANNEL = "oss" ]]; then
     WARP_BIN="galaxy-ai-oss"
-    BUNDLE_ID="com.samsung.GalaxyAI"
-    WARP_APP_NAME="GalaxyAI"
-    WARP_SCHEME_NAME="galaxyai"
+    BUNDLE_ID="com.samsung.Galaxy"
+    WARP_APP_NAME="Galaxy"
+    WARP_SCHEME_NAME="galaxy"
     # The OSS channel does not ship Sentry, so drop the cocoa_sentry feature
     # (which would otherwise pull in the Sentry framework dependency).
     FEATURES="release_bundle,extern_plist"
