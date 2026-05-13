@@ -34,10 +34,23 @@ ln -s /Applications "$STAGING_DIR/Applications"
 echo "Creating DMG..."
 hdiutil detach /Volumes/Galaxy -force 2>/dev/null || true
 rm -f "$DMG_PATH"
-hdiutil create -volname "Galaxy" \
-    -srcfolder "$STAGING_DIR" \
-    -ov -format UDZO \
-    "$DMG_PATH"
+# Prevent Spotlight/fseventsd from locking the staging dir
+touch "$STAGING_DIR/.metadata_never_index"
+sleep 1
+for attempt in 1 2 3; do
+    if hdiutil create -volname "Galaxy" \
+        -srcfolder "$STAGING_DIR" \
+        -ov -format UDZO \
+        "$DMG_PATH"; then
+        break
+    fi
+    if [ "$attempt" -eq 3 ]; then
+        echo "Error: hdiutil create failed after 3 attempts"
+        exit 1
+    fi
+    echo "hdiutil failed (attempt $attempt/3), retrying in 3s..."
+    sleep 3
+done
 
 echo "Signing DMG..."
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
