@@ -218,7 +218,16 @@ pub fn bedrock_stream_to_response_events(
                 Err(e) => {
                     log::error!("[bedrock-debug] Stream error after {event_count} events: {e}");
                     if let Some(ref logger) = diagnostic_logger {
-                        logger.log_stream_error(&format!("{e}"));
+                        let error_msg = format!("{e}");
+                        let debug_error = format!("{e:?}");
+                        logger.log_stream_error(&error_msg);
+                        logger.log_result_fail(&error_msg);
+                        if let Some(path) = logger.dump_error_snapshot(&error_msg, &debug_error) {
+                            log::error!(
+                                "[bedrock] Wrote Bedrock failure snapshot to {}",
+                                path.display()
+                            );
+                        }
                     }
                     if !buffered_text.is_empty() {
                         let msg_id = current_text_message_id

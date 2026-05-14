@@ -14,7 +14,7 @@ use crate::terminal::model::block::{
 };
 
 use crate::ai::agent::api::convert_conversation::{
-    ConvertToExchanges, compute_time_to_first_token_ms_from_messages,
+    compute_time_to_first_token_ms_from_messages, ConvertToExchanges,
 };
 use ai::document::AIDocumentId;
 use chrono::{DateTime, Local, TimeZone};
@@ -29,8 +29,8 @@ use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::WarpTheme;
 use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::WarpTheme;
 use galaxyui::color::ColorU;
 use galaxyui::{EntityId, ModelContext, SingletonEntity};
 use uuid::Uuid;
@@ -40,35 +40,36 @@ use warp_multi_agent_api::{self as api, response_event::stream_finished::TokenUs
 
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
 use crate::{
-    BlocklistAIHistoryModel, GlobalResourceHandlesProvider,
     ai::{
         agent::{
-            AIAgentOutputMessage, AIAgentOutputMessageType, MessageToAIAgentOutputMessageError,
             icons::{
                 failed_icon, gray_stop_icon, in_progress_icon, succeeded_icon, yellow_stop_icon,
             },
             todos::AIAgentTodoList,
+            AIAgentOutputMessage, AIAgentOutputMessageType, MessageToAIAgentOutputMessageError,
         },
         blocklist::BlocklistAIHistoryEvent,
     },
     persistence::{
-        ModelEvent,
         model::{AgentConversationData, PersistedAutoexecuteMode},
+        ModelEvent,
     },
     ui_components::icons::Icon,
+    BlocklistAIHistoryModel, GlobalResourceHandlesProvider,
 };
 
 use super::task::{ExtractMessagesError, UpdateTaskError, UpgradeOptimisticTaskError};
 use super::{
+    api::ServerConversationToken,
+    task::{
+        derive_todo_lists_from_root_task,
+        helper::*,
+        transaction::{SavedTask, Transaction},
+        Task, TaskId,
+    },
     AIAgentAction, AIAgentActionId, AIAgentContext, AIAgentExchange, AIAgentExchangeId,
     AIAgentInput, AIAgentOutputStatus, AIAgentTodo, AIAgentTodoId, FinishedAIAgentOutput,
     MessageId, RenderableAIError, RequestCost,
-    api::ServerConversationToken,
-    task::{
-        Task, TaskId, derive_todo_lists_from_root_task,
-        helper::*,
-        transaction::{SavedTask, Transaction},
-    },
 };
 use super::{
     AIAgentOutput, OutputModelInfo, ServerOutputId, Shared, SuggestedLoggingId, Suggestions,

@@ -555,6 +555,7 @@ impl AgentSimulation {
                 8192,
                 None,
                 false,
+                None,
                 Arc::new(Mutex::new(Vec::new())),
             )
             .await
@@ -1140,6 +1141,7 @@ async fn test_reasoning_model_produces_substantial_output() {
             8192,
             None,
             false,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1261,6 +1263,7 @@ async fn test_event_sequence_matches_controller_expectations() {
             100,
             None,
             false,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1374,6 +1377,7 @@ async fn test_followup_turn_does_not_send_create_task() {
             100,
             None,
             false,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1438,7 +1442,11 @@ async fn run_slash_command_test(
     let task_id = uuid::Uuid::new_v4().to_string();
     println!(
         "\n{}\n[SLASH CMD TEST] {}\n[SLASH CMD TEST] Model: {}\n[SLASH CMD TEST] Message: {:.100}\n{}",
-        "=".repeat(80), test_name, model, user_message, "=".repeat(80)
+        "=".repeat(80),
+        test_name,
+        model,
+        user_message,
+        "=".repeat(80)
     );
 
     let stream = client
@@ -1452,6 +1460,7 @@ async fn run_slash_command_test(
             4096,
             None,
             true,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1678,6 +1687,7 @@ async fn test_slash_resume_conversation() {
             256,
             None,
             true,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1788,6 +1798,7 @@ async fn test_empty_messages_safety_check() {
             100,
             None,
             true,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1829,17 +1840,26 @@ async fn test_full_proto_round_trip_with_tool_history() {
     let request = make_request(
         &task_id,
         vec![
-            make_user_query_message("msg-1", &task_id, "List all files in the current directory."),
+            make_user_query_message(
+                "msg-1",
+                &task_id,
+                "List all files in the current directory.",
+            ),
             make_tool_call_run_shell(tool_call_id_1, &task_id, tool_call_id_1, "ls -la"),
             make_tool_call_read_files(tool_call_id_2, &task_id, tool_call_id_2, "README.md"),
             make_tool_result_shell(
-                "msg-result-1", &task_id, tool_call_id_1,
+                "msg-result-1",
+                &task_id,
+                tool_call_id_1,
                 "total 16\ndrwxr-xr-x  5 user staff  160 May  6 10:00 .\n-rw-r--r--  1 user staff  100 May  6 10:00 README.md\n-rw-r--r--  1 user staff  200 May  6 10:00 Cargo.toml",
                 0,
             ),
             make_tool_result_read_files(
-                "msg-result-2", &task_id, tool_call_id_2,
-                "README.md", "# Sample Project\nA test project.",
+                "msg-result-2",
+                &task_id,
+                tool_call_id_2,
+                "README.md",
+                "# Sample Project\nA test project.",
             ),
         ],
         make_user_inputs_input("Now summarize what you found in one sentence."),
@@ -1938,6 +1958,7 @@ async fn test_full_proto_round_trip_with_tool_history() {
             1024,
             None,
             true,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await;

@@ -1,6 +1,5 @@
-use crate::BlocklistAIHistoryModel;
-use crate::ai::blocklist::agent_view::{AgentViewState, agent_view_bg_fill};
-use crate::ai::blocklist::{ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, ai_brand_color};
+use crate::ai::blocklist::agent_view::{agent_view_bg_fill, AgentViewState};
+use crate::ai::blocklist::{ai_brand_color, ATTACH_AS_AGENT_MODE_CONTEXT_TEXT};
 use crate::ai_assistant::{AI_ASSISTANT_SVG_PATH, ASK_AI_ASSISTANT_TEXT};
 use crate::appearance::Appearance;
 use crate::drive::settings::WarpDriveSettings;
@@ -20,10 +19,11 @@ use crate::terminal::model::index::Point as IndexPoint;
 use crate::terminal::model::selection::{SelectAction, SelectionPoint};
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
-use crate::terminal::{SizeInfo, grid_renderer};
+use crate::terminal::{grid_renderer, SizeInfo};
 use crate::themes::theme::{Fill, WarpTheme};
 use crate::ui_components::{self, icons as UIIcon};
 use crate::util::color::Opacity;
+use crate::BlocklistAIHistoryModel;
 use enum_iterator::Sequence;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::builder::UiBuilder;
@@ -44,15 +44,15 @@ use galaxyui::elements::{
 use galaxyui::event::{KeyState, ModifiersState};
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
-use galaxyui::geometry::vector::{Vector2F, vec2f};
+use galaxyui::geometry::vector::{vec2f, Vector2F};
 use galaxyui::platform::keyboard::KeyCode;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
+use galaxyui::{elements::Icon, ClipBounds};
 use galaxyui::{
-    AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, PaintContext,
-    SizeConstraint, elements::SavePosition, event::DispatchedEvent,
+    elements::SavePosition, event::DispatchedEvent, AfterLayoutContext, AppContext, Element, Event,
+    EventContext, LayoutContext, PaintContext, SizeConstraint,
 };
-use galaxyui::{ClipBounds, elements::Icon};
 use galaxyui::{EntityId, ModelHandle, SingletonEntity as _};
 use pathfinder_color::ColorU;
 use session_sharing_protocol::common::{ParticipantId, Selection};
@@ -69,9 +69,7 @@ use super::blockgrid_renderer::GridRenderParams;
 use super::find::{BlockListFindRun, BlockListMatch, TerminalFindModel};
 use super::grid_renderer::CellGlyphCache;
 
-use super::TerminalModel;
 use super::meta_shortcuts::handle_keystroke_despite_composing;
-use super::model::SecretHandle;
 use super::model::block::BlockId;
 use super::model::blocks::{RichContentItem, SelectionRange};
 use super::model::grid::grid_handler::{Link, TermMode};
@@ -79,22 +77,24 @@ use super::model::image_map::StoredImageMetadata;
 use super::model::mouse::{MouseAction, MouseButton, MouseState};
 use super::model::session::SessionId;
 use super::model::terminal_model::{SelectedBlocks, WithinBlock, WithinModel};
+use super::model::SecretHandle;
 use super::shared_session::presence_manager::{
-    MUTED_PARTICIPANT_COLOR, PresenceManager, text_selection_color,
+    text_selection_color, PresenceManager, MUTED_PARTICIPANT_COLOR,
 };
 use super::shared_session::render_util::SHARED_SESSION_AVATAR_DIAMETER;
 use super::view::{
-    BLOCK_BANNER_HEIGHT, BlocklistAIRenderContext, InlineBannerId, RichContentMetadata,
-    SeparatorId, SharedSessionBanners, TerminalEditor, TerminalViewRenderContext,
+    BlocklistAIRenderContext, InlineBannerId, RichContentMetadata, SeparatorId,
+    SharedSessionBanners, TerminalEditor, TerminalViewRenderContext, BLOCK_BANNER_HEIGHT,
 };
 use super::warpify::render::{draw_flag_pole, render_subshell_flag};
-use super::{HEIGHT_FUDGE_FACTOR_LINES, heights_approx_eq};
+use super::TerminalModel;
+use super::{heights_approx_eq, HEIGHT_FUDGE_FACTOR_LINES};
 use crate::terminal::blockgrid_renderer::BlockGridParams;
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::warpify::SubshellSource;
 
 use crate::terminal::model::escape_sequences::{
-    KeystrokeWithDetails, ToEscapeSequence, maybe_kitty_keyboard_escape_sequence,
+    maybe_kitty_keyboard_escape_sequence, KeystrokeWithDetails, ToEscapeSequence,
 };
 
 /// The number of pixels at the bottom of padding where selection scrolling is performed.

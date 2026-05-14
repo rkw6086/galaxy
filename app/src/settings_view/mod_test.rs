@@ -26,12 +26,12 @@ fn code_subpages_are_identified() {
 }
 
 #[test]
-fn cloud_platform_subpages_are_identified() {
-    assert!(SettingsSection::CloudEnvironments.is_cloud_platform_subpage());
-    assert!(SettingsSection::OzCloudAPIKeys.is_cloud_platform_subpage());
+fn legacy_cloud_platform_sections_are_not_subpages() {
+    assert!(!SettingsSection::CloudEnvironments.is_subpage());
+    assert!(!SettingsSection::OzCloudAPIKeys.is_subpage());
 
-    assert!(!SettingsSection::Account.is_cloud_platform_subpage());
-    assert!(!SettingsSection::WarpAgent.is_cloud_platform_subpage());
+    assert!(!SettingsSection::Account.is_subpage());
+    assert!(!SettingsSection::WarpAgent.is_subpage());
 }
 
 #[test]
@@ -42,8 +42,8 @@ fn is_subpage_covers_all_umbrella_types() {
     }
     assert!(SettingsSection::CodeIndexing.is_subpage());
     assert!(SettingsSection::EditorAndCodeReview.is_subpage());
-    assert!(SettingsSection::CloudEnvironments.is_subpage());
-    assert!(SettingsSection::OzCloudAPIKeys.is_subpage());
+    assert!(!SettingsSection::CloudEnvironments.is_subpage());
+    assert!(!SettingsSection::OzCloudAPIKeys.is_subpage());
 
     // Top-level pages should not be subpages.
     assert!(!SettingsSection::Account.is_subpage());
@@ -647,7 +647,10 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
         )),
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Cloud platform",
-            SettingsSection::cloud_platform_subpages().to_vec(),
+            vec![
+                SettingsSection::CloudEnvironments,
+                SettingsSection::OzCloudAPIKeys,
+            ],
         )),
         SettingsNavItem::Page(SettingsSection::Teams),
     ]
