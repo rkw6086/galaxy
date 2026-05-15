@@ -165,6 +165,46 @@ When adding/editing match statements, avoid using the wildcard _ when at all pos
 **pull_warp_feature** (`.warp/skills/pull_warp_feature/SKILL.md`):
 Ports features from upstream Warp into Galaxy. Clones Warp source into `.galaxy/warp-upstream/` (gitignored), analyzes the feature for Warp-specific dependencies (AI → Bedrock, cloud → local storage, telemetry → removed), presents a compatibility plan, and implements the port after approval. All AI must go through `BedrockClient`; all cloud storage must be local.
 
+### Code Signing & Distribution
+
+Galaxy uses Samsung's Developer ID Application certificate for macOS code signing and Apple notarization.
+
+**Signing identity:** `Developer ID Application: SAMSUNG ELECTRONICS AMERICA, INC. (3JU72Z7Y3J)`
+
+**Entitlements** (`BuildSupport/Galaxy.entitlements`):
+- `com.apple.security.network.client` — AWS Bedrock API calls
+- `com.apple.security.automation.apple-events` — osascript for CLI install
+- `com.apple.security.cs.allow-unsigned-executable-memory` — Metal shader compilation
+
+**Build & distribute pipeline:**
+```bash
+# Debug (unoptimized, ~149MB)
+./build-debug.sh
+
+# Release (optimized, smaller)
+./build-release.sh
+
+# Or step by step:
+cargo bundle [--release] --bin galaxy-oss --package galaxy
+./sign.sh [--release]
+./notarize.sh [--release]
+./package.sh [--release]
+
+# Copy DMGs to ~/Downloads with date suffix
+./copy-dmgs.sh
+```
+
+**Output:** `target/{debug|release}/bundle/osx/Galaxy.dmg` — signed, notarized, stapled. Users can download, open, drag to Applications, launch without Gatekeeper warnings.
+
+**Install from source (end users):**
+```bash
+./script/install-galaxy.sh
+```
+
+### Bedrock Diagnostics
+
+When `GALAXY_BEDROCK_DIAGNOSTICS=1` is set, the diagnostic logger writes to `bedrock-diagnostics.log` in the log directory. On API errors, a comprehensive JSON snapshot (`Error_YYYYMMDD_HHMMSS_mmm.txt`) is written to the repo root (or cwd/tmp) containing the full request context, captured log lines, and log tails.
+
 ## Future Work
 
 ### IDE-Level LSP Integration
