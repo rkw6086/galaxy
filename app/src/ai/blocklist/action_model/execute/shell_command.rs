@@ -236,9 +236,16 @@ impl ShellCommandExecutor {
                     .active_block()
                     .is_active_and_long_running()
                 {
-                    // If there is an active block, we can't execute another command.
+                    // Another command is still running (e.g. stuck in a pager). Return an error
+                    // result so the model receives feedback and can adapt. Using Completed with a
+                    // non-zero exit code ensures a follow-up request is triggered.
                     return ActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
-                        RequestCommandOutputResult::CancelledBeforeExecution,
+                        RequestCommandOutputResult::Completed {
+                            command: command.clone(),
+                            block_id: model.block_list().active_block().id().clone(),
+                            output: "Error: Cannot execute command because another command is still running in the terminal.".to_string(),
+                            exit_code: ExitCode::from(1),
+                        },
                     ));
                 }
                 // If the command might use pager and can't be interacted with,

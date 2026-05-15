@@ -2417,7 +2417,11 @@ impl BlocklistAIController {
                     log::warn!("Conversation not found.");
                     return;
                 };
-                let new_exchange_ids = conversation.new_exchange_ids_for_response(&stream_id);
+                let new_exchange_ids: Vec<_> = conversation.new_exchange_ids_for_response(&stream_id).collect();
+                log::info!(
+                    "[bedrock-debug] AfterStreamFinished: stream_id={:?}, conversation_id={:?}, new_exchange_ids count={}",
+                    stream_id, conversation_id, new_exchange_ids.len()
+                );
                 let mut was_passive_request = false;
                 let mut is_any_exchange_unfinished = false;
                 let mut actions_to_queue = vec![];
@@ -2429,12 +2433,30 @@ impl BlocklistAIController {
                     };
                     was_passive_request |= exchange.has_passive_request();
                     is_any_exchange_unfinished |= !exchange.output_status.is_finished();
+                    log::info!(
+                        "[bedrock-debug] AfterStreamFinished: exchange_id={:?}, is_finished={}, output_status={:?}",
+                        new_exchange_id,
+                        exchange.output_status.is_finished(),
+                        std::mem::discriminant(&exchange.output_status)
+                    );
 
                     if let AIAgentOutputStatus::Finished {
                         finished_output: FinishedAIAgentOutput::Success { output },
                         ..
                     } = &exchange.output_status
                     {
+                        let action_count = output.get().actions().count();
+                        let msg_count = output.get().messages.len();
+                        log::info!(
+                            "[bedrock-debug] AfterStreamFinished: output has {} messages, {} actions",
+                            msg_count, action_count
+                        );
+                        for msg in output.get().messages.iter() {
+                            log::info!(
+                                "[bedrock-debug] AfterStreamFinished:   msg type={:?}",
+                                std::mem::discriminant(&msg.message)
+                            );
+                        }
                         actions_to_queue.extend(output.get().actions().cloned());
                     }
                 }
@@ -2484,9 +2506,18 @@ impl BlocklistAIController {
                         );
                     });
                 } else if !actions_to_queue.is_empty() {
+                    log::info!(
+                        "[bedrock-debug] AfterStreamFinished: queuing {} actions",
+                        actions_to_queue.len()
+                    );
                     self.action_model.update(ctx, |action_model, ctx| {
                         action_model.queue_actions(actions_to_queue, conversation_id, ctx);
                     });
+                } else {
+                    log::warn!(
+                        "[bedrock-debug] AfterStreamFinished: NO actions to queue, was_passive={}, is_any_unfinished={}",
+                        was_passive_request, is_any_exchange_unfinished
+                    );
                 }
 
                 // Cancelled streams will handle pending_response_stream updates synchronously.

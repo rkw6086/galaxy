@@ -500,7 +500,7 @@ fn build_tool_call_message(
                 api::message::tool_call::RunShellCommand {
                     command,
                     is_read_only: false,
-                    uses_pager: false,
+                    uses_pager: true,
                     citations: vec![],
                     is_risky: false,
                     risk_category: 0,
