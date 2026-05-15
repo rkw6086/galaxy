@@ -89,12 +89,10 @@ fi
 
 # ---------- 5. Build ----------
 info "Building $BUNDLE_BIN (release)..."
-cargo build --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG" \
-    --manifest-path "$CLONE_DIR/Cargo.toml"
+pushd "$CLONE_DIR" > /dev/null
+cargo build --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG"
 
 info "Bundling $APP_NAME..."
-# cargo-bundle does not support --manifest-path; run from repo root
-pushd "$CLONE_DIR" > /dev/null
 cargo bundle --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG"
 popd > /dev/null
 
