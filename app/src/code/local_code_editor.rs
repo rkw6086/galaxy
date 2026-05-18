@@ -90,6 +90,7 @@ use super::editor::{
     scroll::{ScrollPosition, ScrollTrigger},
     view::{CodeEditorEvent, CodeEditorView},
 };
+use super::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
 use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
@@ -101,11 +102,18 @@ type SaveCallback =
     Box<dyn FnOnce(SaveOutcome, &mut ViewContext<LocalCodeEditorView>) + Send + Sync + 'static>;
 
 pub fn init(app: &mut AppContext) {
-    app.register_fixed_bindings([FixedBinding::new(
-        "cmdorctrl-l",
-        LocalCodeEditorAction::InsertSelectedTextToInput,
-        id!("LocalCodeEditorView") & !id!("IMEOpen"),
-    )]);
+    app.register_fixed_bindings([
+        FixedBinding::new(
+            "cmdorctrl-l",
+            LocalCodeEditorAction::InsertSelectedTextToInput,
+            id!("LocalCodeEditorView") & !id!("IMEOpen"),
+        ),
+        FixedBinding::new(
+            "cmdorctrl-.",
+            LocalCodeEditorAction::OpenCodeActions,
+            id!("LocalCodeEditorView"),
+        ),
+    ]);
 }
 
 pub enum LocalCodeEditorEvent {
@@ -198,6 +206,8 @@ pub enum LocalCodeEditorAction {
         lsp_position: lsp::types::Location,
         anchor_offset: CharOffset,
     },
+    /// Open the code actions menu (Cmd+.).
+    OpenCodeActions,
 }
 
 #[derive(Default)]
@@ -308,6 +318,10 @@ pub struct LocalCodeEditorView {
     pub(super) completion_state: CompletionState,
     /// Channel for debouncing completion requests triggered by typing.
     pub(super) completion_debounce_tx: async_channel::Sender<CharOffset>,
+    /// State for LSP code actions (quick fixes, refactorings).
+    pub(super) code_actions_state: CodeActionsState,
+    /// Channel for debouncing code actions requests on cursor/selection change.
+    pub(super) code_actions_debounce_tx: async_channel::Sender<CharOffset>,
 }
 
 impl LocalCodeEditorView {
@@ -363,6 +377,7 @@ impl LocalCodeEditorView {
                 ctx.emit(LocalCodeEditorEvent::DiffStatusUpdated);
             }
             CodeEditorEvent::SelectionEnd => {
+                me.on_selection_changed_for_code_actions(ctx);
                 ctx.notify();
             }
             CodeEditorEvent::MouseHovered {
@@ -500,6 +515,14 @@ impl LocalCodeEditorView {
             |_, _| {},
         );
 
+        // Set up debounce for code actions requests (triggered on cursor movement)
+        let (code_actions_debounce_tx, code_actions_debounce_rx) = async_channel::unbounded();
+        ctx.spawn_stream_local(
+            debounce(CODE_ACTIONS_DEBOUNCE_PERIOD, code_actions_debounce_rx),
+            |me, offset, ctx| me.request_code_actions_debounced(offset, ctx),
+            |_, _| {},
+        );
+
         let model = Self {
             editor,
             diff_type,
@@ -524,6 +547,8 @@ impl LocalCodeEditorView {
             find_references_view: None,
             completion_state: CompletionState::default(),
             completion_debounce_tx,
+            code_actions_state: CodeActionsState::default(),
+            code_actions_debounce_tx,
         };
 
         if let Some(display_mode) = display_mode {
@@ -2222,6 +2247,14 @@ impl View for LocalCodeEditorView {
             stack.add_positioned_overlay_child(completion_menu, positioning);
         }
 
+        // Render code actions menu if open
+        if let (Some(actions_menu), Some(positioning)) = (
+            self.render_code_actions_menu(app),
+            self.code_actions_menu_positioning(app),
+        ) {
+            stack.add_positioned_overlay_child(actions_menu, positioning);
+        }
+
         // Render LSP hover tooltip if available (render last so it appears on top)
         if let (Some(hover_tooltip), Some(positioning)) = (
             self.render_hover_tooltip(app),
@@ -2308,6 +2341,9 @@ impl TypedActionView for LocalCodeEditorView {
                 // Lazily fetch find-references as fallback when at the definition.
                 // This is triggered on cmd-click when go-to-definition has no different location.
                 self.fetch_find_references_and_show(lsp_position.clone(), *anchor_offset, ctx);
+            }
+            LocalCodeEditorAction::OpenCodeActions => {
+                self.open_code_actions_menu(ctx);
             }
         }
     }
