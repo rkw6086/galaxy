@@ -92,6 +92,7 @@ use super::editor::{
 };
 use super::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
 use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
+use super::rename::RenameState;
 use super::signature_help::SignatureHelpState;
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
@@ -112,6 +113,11 @@ pub fn init(app: &mut AppContext) {
         FixedBinding::new(
             "cmdorctrl-.",
             LocalCodeEditorAction::OpenCodeActions,
+            id!("LocalCodeEditorView"),
+        ),
+        FixedBinding::new(
+            "f2",
+            LocalCodeEditorAction::StartRename,
             id!("LocalCodeEditorView"),
         ),
     ]);
@@ -209,6 +215,8 @@ pub enum LocalCodeEditorAction {
     },
     /// Open the code actions menu (Cmd+.).
     OpenCodeActions,
+    /// Start LSP rename at cursor (F2).
+    StartRename,
 }
 
 #[derive(Default)]
@@ -325,6 +333,8 @@ pub struct LocalCodeEditorView {
     pub(super) code_actions_debounce_tx: async_channel::Sender<CharOffset>,
     /// State for LSP signature help (parameter hints).
     pub(super) signature_help_state: SignatureHelpState,
+    /// State for LSP rename (F2).
+    pub(super) rename_state: RenameState,
 }
 
 impl LocalCodeEditorView {
@@ -555,6 +565,7 @@ impl LocalCodeEditorView {
             code_actions_state: CodeActionsState::default(),
             code_actions_debounce_tx,
             signature_help_state: SignatureHelpState::default(),
+            rename_state: RenameState::default(),
         };
 
         if let Some(display_mode) = display_mode {
@@ -1981,7 +1992,8 @@ impl LocalCodeEditorView {
         }
         let had_sig_help = self.signature_help_state.clear();
         let had_code_actions = self.code_actions_state.dismiss();
-        had_refs || had_hover || had_completion || had_sig_help || had_code_actions
+        let had_rename = self.rename_state.dismiss();
+        had_refs || had_hover || had_completion || had_sig_help || had_code_actions || had_rename
     }
 
     /// Perform goto definition at the cursor position and navigate directly.
@@ -2360,6 +2372,9 @@ impl TypedActionView for LocalCodeEditorView {
             }
             LocalCodeEditorAction::OpenCodeActions => {
                 self.open_code_actions_menu(ctx);
+            }
+            LocalCodeEditorAction::StartRename => {
+                self.start_rename(ctx);
             }
         }
     }
