@@ -46,7 +46,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleExecutable</key>
     <string>galaxy-local</string>
     <key>CFBundleIdentifier</key>
-    <string>com.samsung.Galaxy-Local</string>
+    <string>samsung.galaxy.GalaxyLocal</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

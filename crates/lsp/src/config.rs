@@ -167,25 +167,24 @@ impl LspServerConfig {
     /// and working on PATH, we use that. Otherwise, we fall back to our custom installation.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn command_and_params(self) -> Result<ResolvedLspCommand> {
-        // PATH takes precedence - only use custom installation if not working on PATH
-        let executor = crate::CommandBuilder::new(self.path_env_var.clone());
+        // Resolve the effective PATH for this server. We try multiple sources:
+        // 1. The PATH passed from the terminal session
+        // 2. PATH captured from the user's interactive login shell (picks up nvm, fnm, volta, etc.)
+        let executor = self.resolve_effective_executor().await;
+
         let is_working_on_path = self
             .server_type
             .is_working_on_path(&executor, self.client.clone())
             .await;
+
         let custom_binary_config = if is_working_on_path {
-            // Binary works on PATH, don't use custom installation
             None
         } else {
-            // Not working on PATH, check for custom installation
             self.server_type
                 .find_installed_binary_config(executor.path_env_var())
                 .await
         };
 
-        // Bail early with a clear error instead of attempting to spawn a
-        // binary that doesn't exist (which would fail with a confusing
-        // "No such file or directory" OS error).
         if !is_working_on_path && custom_binary_config.is_none() {
             anyhow::bail!(
                 "{} is not installed. Binary was not found on PATH and no custom installation exists",
@@ -210,6 +209,39 @@ impl LspServerConfig {
         let params = default_init_params(&self.initial_workspace, self.client_name)?;
 
         Ok(ResolvedLspCommand { command, params })
+    }
+
+    /// Resolves the best available PATH for running LSP-related commands.
+    /// Tries the session PATH first, then falls back to capturing PATH from
+    /// the user's interactive login shell (which includes nvm, fnm, volta, pyenv, etc.).
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn resolve_effective_executor(&self) -> crate::CommandBuilder {
+        // If we have a session PATH, check if it can at least find common tools
+        if let Some(ref path) = self.path_env_var {
+            if !path.is_empty() {
+                // Quick sanity check: can this PATH find the LSP binary or node?
+                let executor = crate::CommandBuilder::new(Some(path.clone()));
+                let works = self
+                    .server_type
+                    .is_working_on_path(&executor, self.client.clone())
+                    .await;
+                if works {
+                    return executor;
+                }
+            }
+        }
+
+        // Session PATH didn't work — try interactive shell PATH
+        if let Some(shell_path) = crate::CommandBuilder::capture_interactive_shell_path().await {
+            log::info!(
+                "Using interactive shell PATH for {} (session PATH insufficient)",
+                self.server_type.binary_name()
+            );
+            return crate::CommandBuilder::new(Some(shell_path));
+        }
+
+        // Fall back to whatever we have
+        crate::CommandBuilder::new(self.path_env_var.clone())
     }
 
     pub(crate) fn server_type(&self) -> LSPServerType {

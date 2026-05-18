@@ -90,6 +90,7 @@ use super::editor::{
     scroll::{ScrollPosition, ScrollTrigger},
     view::{CodeEditorEvent, CodeEditorView},
 };
+use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
 use super::lsp_telemetry::LspTelemetryEvent;
@@ -303,6 +304,10 @@ pub struct LocalCodeEditorView {
     pub(super) diagnostic_decorations: Vec<Decoration>,
     /// View for the find references feature.
     find_references_view: Option<ViewHandle<FindReferencesView>>,
+    /// State for the LSP completion menu.
+    pub(super) completion_state: CompletionState,
+    /// Channel for debouncing completion requests triggered by typing.
+    pub(super) completion_debounce_tx: async_channel::Sender<CharOffset>,
 }
 
 impl LocalCodeEditorView {
@@ -337,6 +342,9 @@ impl LocalCodeEditorView {
                 if origin.from_user() {
                     me.was_edited = true;
                     ctx.emit(LocalCodeEditorEvent::UserEdited);
+
+                    // Trigger completion on user typing
+                    me.on_content_changed_for_completion(ctx);
                 }
             }
             CodeEditorEvent::VimEscapeInNormalMode => {
@@ -473,6 +481,14 @@ impl LocalCodeEditorView {
             |_, _| {},
         );
 
+        // Set up debounce for completion requests (shorter period than hover)
+        let (completion_debounce_tx, completion_debounce_rx) = async_channel::unbounded();
+        ctx.spawn_stream_local(
+            debounce(COMPLETION_DEBOUNCE_PERIOD, completion_debounce_rx),
+            |me, offset, ctx| me.request_completion_debounced(offset, ctx),
+            |_, _| {},
+        );
+
         let model = Self {
             editor,
             diff_type,
@@ -495,6 +511,8 @@ impl LocalCodeEditorView {
             processed_diagnostics: Vec::new(),
             diagnostic_decorations: Vec::new(),
             find_references_view: None,
+            completion_state: CompletionState::default(),
+            completion_debounce_tx,
         };
 
         if let Some(display_mode) = display_mode {
@@ -1915,7 +1933,8 @@ impl LocalCodeEditorView {
     fn dismiss_lsp_overlays(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         let had_refs = self.close_find_references_card(ctx);
         let had_hover = self.lsp_hover_state.clear();
-        had_refs || had_hover
+        let had_completion = self.completion_state.dismiss();
+        had_refs || had_hover || had_completion
     }
 
     /// Perform goto definition at the cursor position and navigate directly.
@@ -2179,6 +2198,14 @@ impl View for LocalCodeEditorView {
                     );
                 }
             }
+        }
+
+        // Render completion menu if active
+        if let (Some(completion_menu), Some(positioning)) = (
+            self.render_completion_menu(app),
+            self.completion_menu_positioning(app),
+        ) {
+            stack.add_positioned_overlay_child(completion_menu, positioning);
         }
 
         // Render LSP hover tooltip if available (render last so it appears on top)

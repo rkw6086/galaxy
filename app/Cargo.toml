@@ -935,7 +935,7 @@ cloud_mode_input_v2 = ["cloud_mode"]
 [package.metadata.bundle.bin.galaxy-oss]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "com.samsung.Galaxy"
+identifier = "samsung.galaxy.GalaxyOss"
 name = "Galaxy"
 resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]
@@ -944,7 +944,7 @@ short_description = "Galaxy - AI-powered terminal for development teams."
 [package.metadata.bundle.bin.galaxy-stable]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "com.samsung.Galaxy-Stable"
+identifier = "samsung.galaxy.GalaxyStable"
 name = "Galaxy"
 resources = ["assets/onboarding"]
 short_description = "Galaxy - AI-powered terminal, stable build."
@@ -952,7 +952,7 @@ short_description = "Galaxy - AI-powered terminal, stable build."
 [package.metadata.bundle.bin.galaxy-preview]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "com.samsung.Galaxy-Preview"
+identifier = "samsung.galaxy.GalaxyPreview"
 name = "Galaxy Preview"
 resources = ["assets/onboarding"]
 short_description = "Galaxy - AI-powered terminal, preview build."
@@ -960,7 +960,7 @@ short_description = "Galaxy - AI-powered terminal, preview build."
 [package.metadata.bundle.bin.galaxy-dev]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "com.samsung.Galaxy-Dev"
+identifier = "samsung.galaxy.GalaxyDev"
 name = "Galaxy Dev"
 resources = ["assets/onboarding"]
 short_description = "Galaxy - AI-powered terminal, developer build."
@@ -968,7 +968,7 @@ short_description = "Galaxy - AI-powered terminal, developer build."
 [package.metadata.bundle.bin.galaxy-local]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "com.samsung.Galaxy-Local"
+identifier = "samsung.galaxy.GalaxyLocal"
 name = "Galaxy Local"
 resources = ["assets/onboarding"]
 short_description = "Galaxy - AI-powered terminal, local build."

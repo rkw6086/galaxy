@@ -43,7 +43,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleExecutable</key>
     <string>galaxy-oss</string>
     <key>CFBundleIdentifier</key>
-    <string>com.samsung.Galaxy</string>
+    <string>samsung.galaxy.GalaxyOss</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

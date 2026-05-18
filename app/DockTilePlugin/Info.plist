@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.samsung.GalaxyDockTilePlugin</string>
+    <string>samsung.galaxy.GalaxyDockTilePlugin</string>
     <key>CFBundleExecutable</key>
     <string>WarpDockTilePlugin</string>
     <key>CFBundleName</key>

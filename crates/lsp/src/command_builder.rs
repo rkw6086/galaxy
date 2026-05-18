@@ -48,4 +48,37 @@ impl CommandBuilder {
         }
         cmd
     }
+
+    /// Attempts to capture PATH from the user's login shell.
+    /// This is a fallback for when the PATH passed in from the terminal session
+    /// doesn't include paths set by tools like nvm, pyenv, rbenv, etc. that
+    /// modify PATH in shell rc files.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn capture_interactive_shell_path() -> Option<String> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+        let output = Command::new(&shell)
+            .args(["-i", "-l", "-c", "echo $PATH"])
+            .output()
+            .await
+            .ok()?;
+
+        if !output.status.success() {
+            log::warn!(
+                "Failed to capture PATH from interactive shell ({}): {}",
+                shell,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return None;
+        }
+
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if path.is_empty() {
+            log::warn!("Interactive shell returned empty PATH");
+            return None;
+        }
+
+        log::info!("Captured PATH from interactive shell ({shell})");
+        Some(path)
+    }
 }

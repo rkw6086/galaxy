@@ -1660,6 +1660,16 @@ impl CodeEditorView {
         self.model.as_ref(ctx).selections(ctx).first().head
     }
 
+    /// Returns text in the given character offset range from the buffer.
+    pub fn buffer_text_in_range(
+        &self,
+        range: Range<CharOffset>,
+        ctx: &AppContext,
+    ) -> Option<String> {
+        let buffer = self.model.as_ref(ctx).buffer().as_ref(ctx);
+        Some(buffer.text_in_range(range).into_string())
+    }
+
     pub fn hovered_symbol_range<'a>(
         &'a self,
         ctx: &'a AppContext,

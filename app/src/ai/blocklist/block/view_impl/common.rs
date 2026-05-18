@@ -129,7 +129,54 @@ const IMAGE_SOURCE_LINK_LINE_INDEX: usize = 1;
 const ERROR_APOLOGY_TEXT: &str = "I'm sorry, I couldn't complete that request.";
 const INTERNAL_WARP_ERROR: &str = "Internal Warp error.";
 
-pub const LOAD_OUTPUT_MESSAGE: &str = "Warping...";
+const GALAXY_STATUS_MESSAGES: &[&str] = &[
+    "Warping through the Galaxy...",
+    "Guarding the Galaxy...",
+    "Exploring the Galaxy...",
+    "Charting the Galaxy...",
+    "Traversing the Galaxy...",
+    "Navigating the Galaxy...",
+    "Scanning the Galaxy...",
+    "Hitchhiking across the Galaxy...",
+    "Assembling the Galaxy...",
+    "Aligning stars in the Galaxy...",
+    "Consulting the Galaxy...",
+    "Galaxy brain activated...",
+    "Orbiting the Galaxy...",
+    "Bending the Galaxy...",
+    "Summoning the Galaxy...",
+    "Decoding the Galaxy...",
+    "Harnessing Galaxy power...",
+    "Riding the Galaxy stream...",
+    "Tuning into the Galaxy...",
+    "Surfing the Galaxy waves...",
+    "Mapping the Galaxy...",
+    "Galaxy engines engaged...",
+    "Weaving through the Galaxy...",
+    "Channeling the Galaxy...",
+    "Phasing through the Galaxy...",
+    "Galaxy hyperdrive online...",
+    "Syncing with the Galaxy...",
+    "Galaxy core spinning up...",
+    "Drifting through the Galaxy...",
+    "Galaxy warp field stable...",
+    "Tapping into Galaxy energy...",
+    "Galaxy neurons firing...",
+    "Quantum leaping the Galaxy...",
+    "Galaxy thrusters ignited...",
+    "Calculating Galaxy trajectory...",
+    "Galaxy flux capacitor charged...",
+    "Piercing the Galaxy veil...",
+    "Galaxy signal acquired...",
+    "Folding Galaxy spacetime...",
+    "Galaxy coordinates locked...",
+];
+
+pub fn random_load_output_message() -> &'static str {
+    use rand::Rng;
+    let idx = rand::thread_rng().gen_range(0..GALAXY_STATUS_MESSAGES.len());
+    GALAXY_STATUS_MESSAGES[idx]
+}
 pub const LOAD_OUTPUT_MESSAGE_FOR_ADJUSTING: &str = "Adjusting tasks...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_PASSIVE_CODE_GEN: &str = "Generating fix...";
 pub const LOAD_OUTPUT_MESSAGE_FOR_CREATING_DIFF: &str = "Creating diff...";

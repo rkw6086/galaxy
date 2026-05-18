@@ -7,6 +7,8 @@ use std::fmt::Debug;
 use std::ops::AddAssign;
 
 #[cfg(not(target_family = "wasm"))]
+pub mod completion;
+#[cfg(not(target_family = "wasm"))]
 pub mod find_references_view;
 #[cfg(not(target_family = "wasm"))]
 pub mod language_server_extension;

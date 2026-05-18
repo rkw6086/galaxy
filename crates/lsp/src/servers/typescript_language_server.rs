@@ -9,8 +9,6 @@ use async_trait::async_trait;
 
 #[cfg(feature = "local_fs")]
 use anyhow::Context;
-#[cfg(feature = "local_fs")]
-use command::r#async::Command;
 
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub struct TypeScriptLanguageServerCandidate {
@@ -18,88 +16,31 @@ pub struct TypeScriptLanguageServerCandidate {
 }
 
 impl TypeScriptLanguageServerCandidate {
-    /// Path to the new langserver JS file (v4.0.0+) relative to the install directory.
-    #[cfg(feature = "local_fs")]
-    const NEW_SERVER_PATH: &str = "node_modules/typescript-language-server/lib/cli.mjs";
-
-    /// Path to the old langserver JS file (pre-4.0.0) relative to the install directory.
-    #[cfg(feature = "local_fs")]
-    const OLD_SERVER_PATH: &str = "node_modules/typescript-language-server/lib/cli.js";
-
     pub fn new(client: Arc<http_client::Client>) -> Self {
         Self { client }
     }
 
-    /// Finds the configuration for running typescript-language-server from our custom installation.
-    ///
-    /// Instead of running the wrapper script (which has a shebang requiring node in PATH),
-    /// we run node directly with the CLI JS file. This is the same pattern used by Zed.
-    ///
-    /// # Arguments
-    /// * `path_env_var` - The PATH environment variable to use when checking for system node.
+    /// Returns a CustomBinaryConfig that runs the server via npx.
+    /// npx handles downloading/caching the package automatically.
     #[cfg(feature = "local_fs")]
     pub async fn find_installed_binary_config(
         path_env_var: Option<&str>,
     ) -> Option<CustomBinaryConfig> {
-        let install_dir = galaxy_core::paths::data_dir().join("typescript-language-server");
-
-        // Check for the JS file - prefer new path (cli.mjs) over old path (cli.js)
-        let server_js = {
-            let new_path = install_dir.join(Self::NEW_SERVER_PATH);
-            if new_path.is_file() {
-                new_path
-            } else {
-                let old_path = install_dir.join(Self::OLD_SERVER_PATH);
-                if old_path.is_file() {
-                    old_path
-                } else {
-                    log::info!(
-                        "typescript-language-server JS file not found at {} or {}",
-                        new_path.display(),
-                        old_path.display()
-                    );
-                    return None;
-                }
-            }
-        };
-
-        // Try to find a working node binary - first custom, then system
-        let node_binary = node_runtime::find_working_node_binary(path_env_var).await?;
-
-        // Verify the installation works by running `node cli.mjs --version`
-        let mut cmd = Command::new(&node_binary);
-        // Propagate PATH so "node" (bare name) resolves when using system node
-        if let Some(path) = path_env_var {
-            cmd.env("PATH", path);
-        }
-        cmd.arg(&server_js).arg("--version");
-        match cmd.output().await {
-            Ok(output) if output.status.success() => {
-                let version = String::from_utf8_lossy(&output.stdout);
-                log::info!(
-                    "Verified typescript-language-server installation: {}",
-                    version.trim()
-                );
-            }
-            Ok(output) => {
-                log::warn!(
-                    "typescript-language-server version check failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                return None;
-            }
-            Err(e) => {
-                log::warn!(
-                    "Failed to run typescript-language-server version check: {}",
-                    e
-                );
-                return None;
-            }
+        // npx is available wherever npm/node is — verify it exists
+        let path_env = path_env_var?;
+        let mut cmd = command::r#async::Command::new("npx");
+        cmd.env("PATH", path_env);
+        cmd.arg("--version");
+        let output = cmd.output().await.ok()?;
+        if !output.status.success() {
+            return None;
         }
 
+        // Use npx to run typescript-language-server
+        // --yes skips the install prompt, npx handles download/caching
         Some(CustomBinaryConfig {
-            binary_path: node_binary,
-            prepend_args: vec![server_js.to_string_lossy().to_string()],
+            binary_path: "npx".into(),
+            prepend_args: vec!["--yes".into(), "typescript-language-server".into()],
         })
     }
 }
@@ -108,13 +49,13 @@ impl TypeScriptLanguageServerCandidate {
 #[cfg(feature = "local_fs")]
 impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
     async fn should_suggest_for_repo(&self, path: &Path, _executor: &CommandBuilder) -> bool {
-        // Check for common JavaScript/TypeScript project indicators
         path.join("package.json").exists()
             || path.join("tsconfig.json").exists()
             || path.join("jsconfig.json").exists()
     }
 
     async fn is_installed_in_data_dir(&self, executor: &CommandBuilder) -> bool {
+        // npx is our "installed" state — if npx is available, we can run the server
         Self::find_installed_binary_config(executor.path_env_var())
             .await
             .is_some()
@@ -132,74 +73,23 @@ impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
 
     async fn install(
         &self,
-        metadata: LanguageServerMetadata,
+        _metadata: LanguageServerMetadata,
         executor: &CommandBuilder,
     ) -> anyhow::Result<()> {
-        log::info!(
-            "Installing typescript-language-server version {}",
-            metadata.version
-        );
-
-        let install_dir = galaxy_core::paths::data_dir().join("typescript-language-server");
-
-        // Create the installation directory
-        async_fs::create_dir_all(&install_dir)
+        // With npx, there's nothing to install — npx downloads on first use.
+        // Just verify that npx is available.
+        let output = executor
+            .command("npx")
+            .arg("--version")
+            .output()
             .await
-            .context("Failed to create typescript-language-server installation directory")?;
-
-        // First, check if system node is available and meets requirements
-        let use_system_node = match executor.path_env_var() {
-            Some(path) => node_runtime::detect_system_node(path).await.is_ok(),
-            None => false,
-        };
-
-        let custom_node_paths = if use_system_node {
-            log::info!("Using system Node.js for typescript-language-server installation");
-            None
-        } else {
-            log::info!("System Node.js not found or too old, installing custom Node.js");
-            node_runtime::install_npm(&self.client).await?;
-            Some((
-                node_runtime::node_binary_path()?,
-                node_runtime::npm_binary_path()?,
-            ))
-        };
-
-        // Install typescript-language-server and typescript using npm
-        // typescript is a peer dependency required for the language server to work
-        log::info!(
-            "Installing typescript-language-server@{} using npm",
-            metadata.version
-        );
-
-        // Build the npm install command:
-        // - System node: run `npm` directly (it's on PATH)
-        // - Custom node: run `node <npm_path>` to avoid relying on shebang resolution
-        let mut cmd = if let Some((node_path, npm_path)) = &custom_node_paths {
-            let mut c = executor.command(node_path);
-            c.arg(npm_path);
-            c
-        } else {
-            executor.command("npm")
-        };
-
-        cmd.arg("install")
-            .arg("--ignore-scripts")
-            .arg(format!("typescript-language-server@{}", metadata.version))
-            .arg("typescript")
-            .current_dir(&install_dir);
-
-        let output = cmd.output().await.context("Failed to run npm install")?;
+            .context("npx not found — is Node.js installed?")?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!(
-                "Failed to install typescript-language-server via npm: {}",
-                stderr
-            );
+            anyhow::bail!("npx is not working. Ensure Node.js and npm are installed.");
         }
 
-        log::info!("typescript-language-server installed successfully");
+        log::info!("typescript-language-server will run via npx (no pre-install needed)");
         Ok(())
     }
 
@@ -211,7 +101,7 @@ impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
 
         Ok(LanguageServerMetadata {
             version,
-            url: None, // npm packages don't have direct download URLs
+            url: None,
             digest: None,
         })
     }

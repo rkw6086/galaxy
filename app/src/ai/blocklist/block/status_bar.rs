@@ -6,7 +6,8 @@ use super::{
     view_impl::common::{
         render_switch_control_to_user_button, render_warping_indicator,
         render_warping_indicator_base, ButtonProps, ForceRefreshButtonProps, MaybeShimmeringText,
-        WarpingIndicatorProps, WarpingProps, LOAD_OUTPUT_MESSAGE, WAITING_FOR_USER_INPUT_MESSAGE,
+        WarpingIndicatorProps, WarpingProps, random_load_output_message,
+        WAITING_FOR_USER_INPUT_MESSAGE,
     },
 };
 use crate::{
@@ -812,7 +813,7 @@ impl BlocklistAIStatusBar {
         );
         let default_warping_text = fallback_warping_text
             .as_deref()
-            .unwrap_or(LOAD_OUTPUT_MESSAGE)
+            .unwrap_or(random_load_output_message())
             .to_owned();
         let secondary_element = if fallback_warping_text.is_some() {
             Some(render_fallback_explanation(model.as_ref(), app))
