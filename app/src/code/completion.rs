@@ -22,22 +22,14 @@ const COMPLETION_MENU_MAX_HEIGHT: f32 = 220.;
 const COMPLETION_MENU_WIDTH: f32 = 340.;
 const MAX_VISIBLE_ITEMS: usize = 10;
 
-/// State machine for the completion feature.
 pub(super) enum CompletionState {
-    /// No completion session active.
     Idle,
-    /// Waiting for the LSP response.
-    Requesting {
-        abort_handle: AbortHandle,
-        trigger_offset: CharOffset,
-    },
-    /// Completion menu is visible with results.
+    Requesting { abort_handle: AbortHandle },
     Showing {
         items: Vec<CompletionItemData>,
         filtered_indices: Vec<usize>,
         selected_index: usize,
         trigger_offset: CharOffset,
-        is_incomplete: bool,
     },
 }
 
@@ -61,20 +53,6 @@ impl CompletionState {
         }
         *self = Self::Idle;
         true
-    }
-
-    pub fn selected_item(&self) -> Option<&CompletionItemData> {
-        match self {
-            Self::Showing {
-                items,
-                filtered_indices,
-                selected_index,
-                ..
-            } => filtered_indices
-                .get(*selected_index)
-                .and_then(|&idx| items.get(idx)),
-            _ => None,
-        }
     }
 
     pub fn move_selection(&mut self, delta: i32) {
@@ -141,7 +119,6 @@ impl LocalCodeEditorView {
         FeatureFlag::LspCompletion.is_enabled()
     }
 
-    /// Sync the editor's key interception flag with the completion state.
     pub(super) fn sync_completion_intercept(&self, ctx: &mut ViewContext<Self>) {
         let should_intercept = self.completion_state.is_showing();
         self.editor.update(ctx, |editor, _ctx| {
@@ -149,7 +126,6 @@ impl LocalCodeEditorView {
         });
     }
 
-    /// Handle a user typing event — potentially trigger completion.
     pub(super) fn on_content_changed_for_completion(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_completion_enabled() {
             return;
@@ -192,6 +168,7 @@ impl LocalCodeEditorView {
             }
             _ => {
                 if self.completion_state.dismiss() {
+                    self.sync_completion_intercept(ctx);
                     ctx.notify();
                 }
                 return;
@@ -203,7 +180,6 @@ impl LocalCodeEditorView {
         }
     }
 
-    /// Request completions from the LSP server.
     pub(super) fn request_completion(
         &mut self,
         trigger_offset: CharOffset,
@@ -246,13 +222,9 @@ impl LocalCodeEditorView {
             })
             .abort_handle();
 
-        self.completion_state = CompletionState::Requesting {
-            abort_handle,
-            trigger_offset,
-        };
+        self.completion_state = CompletionState::Requesting { abort_handle };
     }
 
-    /// Handle the debounced completion trigger (from typing).
     pub(super) fn request_completion_debounced(
         &mut self,
         offset: CharOffset,
@@ -291,7 +263,6 @@ impl LocalCodeEditorView {
             filtered_indices,
             selected_index: 0,
             trigger_offset,
-            is_incomplete: completion_result.is_incomplete,
         };
 
         let query = self.get_completion_filter_query(trigger_offset, ctx);
@@ -311,14 +282,11 @@ impl LocalCodeEditorView {
         if cursor_offset <= trigger_offset {
             return String::new();
         }
-
-        // Access the buffer to get text in range
         editor
             .buffer_text_in_range(trigger_offset..cursor_offset, ctx)
             .unwrap_or_default()
     }
 
-    /// Confirm the currently selected completion item.
     pub(super) fn confirm_completion(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         let (insert_text, text_edit_range, trigger_offset) = match &self.completion_state {
             CompletionState::Showing {
@@ -363,7 +331,6 @@ impl LocalCodeEditorView {
         true
     }
 
-    /// Render the completion menu overlay.
     pub(super) fn render_completion_menu(&self, app: &AppContext) -> Option<Box<dyn Element>> {
         let CompletionState::Showing {
             items,
@@ -407,7 +374,6 @@ impl LocalCodeEditorView {
         Some(menu)
     }
 
-    /// Compute the positioning for the completion menu (below cursor).
     pub(super) fn completion_menu_positioning(
         &self,
         app: &AppContext,

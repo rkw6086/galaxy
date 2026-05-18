@@ -13,7 +13,6 @@ use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
 use lsp::CodeActionData;
 use pathfinder_geometry::vector::Vector2F;
 use string_offset::CharOffset;
-use vec1::Vec1;
 
 use super::local_code_editor::LocalCodeEditorView;
 
@@ -22,16 +21,9 @@ const CODE_ACTIONS_MENU_WIDTH: f32 = 380.;
 const CODE_ACTIONS_MENU_MAX_HEIGHT: f32 = 250.;
 const MAX_VISIBLE_ACTIONS: usize = 12;
 
-/// State machine for code actions.
 pub(super) enum CodeActionsState {
-    /// No code actions active.
     Idle,
-    /// Fetching code actions from the LSP.
-    Requesting {
-        abort_handle: AbortHandle,
-        anchor_offset: CharOffset,
-    },
-    /// Code actions are available (shown via lightbulb or menu).
+    Requesting { abort_handle: AbortHandle },
     Available {
         actions: Vec<CodeActionData>,
         anchor_offset: CharOffset,
@@ -58,39 +50,9 @@ impl CodeActionsState {
         true
     }
 
-    pub fn has_actions(&self) -> bool {
-        matches!(self, Self::Available { actions, .. } if !actions.is_empty())
-    }
-
-    pub fn is_menu_open(&self) -> bool {
-        matches!(self, Self::Available { menu_open: true, .. })
-    }
-
     pub fn open_menu(&mut self) {
         if let Self::Available { menu_open, .. } = self {
             *menu_open = true;
-        }
-    }
-
-    pub fn close_menu(&mut self) {
-        if let Self::Available { menu_open, .. } = self {
-            *menu_open = false;
-        }
-    }
-
-    pub fn move_selection(&mut self, delta: i32) {
-        if let Self::Available {
-            actions,
-            selected_index,
-            ..
-        } = self
-        {
-            if actions.is_empty() {
-                return;
-            }
-            let len = actions.len() as i32;
-            let new_idx = (*selected_index as i32 + delta).rem_euclid(len);
-            *selected_index = new_idx as usize;
         }
     }
 }
@@ -100,7 +62,6 @@ impl LocalCodeEditorView {
         FeatureFlag::LspCodeActions.is_enabled()
     }
 
-    /// Trigger code actions fetch after selection/cursor change (debounced).
     pub(super) fn on_selection_changed_for_code_actions(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_code_actions_enabled() {
             return;
@@ -114,7 +75,6 @@ impl LocalCodeEditorView {
         let _ = self.code_actions_debounce_tx.try_send(cursor_offset);
     }
 
-    /// Handle the debounced code actions request.
     pub(super) fn request_code_actions_debounced(
         &mut self,
         offset: CharOffset,
@@ -135,7 +95,6 @@ impl LocalCodeEditorView {
         let editor = self.editor().as_ref(ctx);
         let lsp_position = editor.offset_to_lsp_position(offset, ctx);
 
-        // Build a zero-width range at cursor for code action request
         let lsp_range = lsp_types::Range {
             start: lsp_types::Position {
                 line: lsp_position.line as u32,
@@ -147,19 +106,15 @@ impl LocalCodeEditorView {
             },
         };
 
-        // Include diagnostics at cursor position for context
         let diagnostics_at_cursor: Vec<lsp_types::Diagnostic> = self
             .processed_diagnostics
             .iter()
             .filter(|d| d.start <= offset && offset <= d.end)
-            .filter_map(|d| {
-                // Convert back to LSP diagnostic (we only need message + severity)
-                Some(lsp_types::Diagnostic {
-                    range: lsp_range,
-                    severity: Some(d.severity),
-                    message: d.message.clone(),
-                    ..Default::default()
-                })
+            .map(|d| lsp_types::Diagnostic {
+                range: lsp_range,
+                severity: Some(d.severity),
+                message: d.message.clone(),
+                ..Default::default()
             })
             .collect();
 
@@ -182,10 +137,7 @@ impl LocalCodeEditorView {
             })
             .abort_handle();
 
-        self.code_actions_state = CodeActionsState::Requesting {
-            abort_handle,
-            anchor_offset: offset,
-        };
+        self.code_actions_state = CodeActionsState::Requesting { abort_handle };
     }
 
     fn handle_code_actions_response(
@@ -212,7 +164,6 @@ impl LocalCodeEditorView {
         ctx.notify();
     }
 
-    /// Open the code actions menu (triggered by Cmd+. or clicking the lightbulb).
     pub(super) fn open_code_actions_menu(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_code_actions_enabled() {
             return;
@@ -224,97 +175,12 @@ impl LocalCodeEditorView {
                 ctx.notify();
             }
             _ => {
-                // No actions available yet — force a fetch and open when ready
                 let cursor_offset = self.editor().as_ref(ctx).cursor_head_offset(ctx);
                 self.request_code_actions_debounced(cursor_offset, ctx);
             }
         }
     }
 
-    /// Apply the selected code action.
-    pub(super) fn confirm_code_action(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-        let (raw_action, anchor_offset) = match &self.code_actions_state {
-            CodeActionsState::Available {
-                actions,
-                selected_index,
-                anchor_offset,
-                ..
-            } => {
-                let Some(action) = actions.get(*selected_index) else {
-                    return false;
-                };
-                (action.raw.clone(), *anchor_offset)
-            }
-            _ => return false,
-        };
-
-        self.code_actions_state = CodeActionsState::Idle;
-
-        // Apply the code action based on its type
-        match raw_action {
-            lsp_types::CodeActionOrCommand::CodeAction(action) => {
-                if let Some(edit) = action.edit {
-                    self.apply_workspace_edit(edit, ctx);
-                }
-                // TODO: handle action.command (execute command on server)
-            }
-            lsp_types::CodeActionOrCommand::Command(_cmd) => {
-                // TODO: execute command on LSP server
-                log::info!("Code action command execution not yet implemented");
-            }
-        }
-
-        ctx.notify();
-        true
-    }
-
-    /// Apply a workspace edit (shared between code actions and rename).
-    pub(super) fn apply_workspace_edit(
-        &mut self,
-        edit: lsp_types::WorkspaceEdit,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let mut edits_for_current_file: Vec<(String, std::ops::Range<CharOffset>)> = Vec::new();
-
-        if let Some(changes) = edit.changes {
-            for (_uri, text_edits) in changes {
-                // For now, apply all edits assuming they're for the current file.
-                // TODO: support multi-file edits by checking URI against open files.
-                for text_edit in text_edits {
-                    let start = self.editor().as_ref(ctx).lsp_location_to_offset(
-                        &lsp::types::Location {
-                            line: text_edit.range.start.line as usize,
-                            column: text_edit.range.start.character as usize,
-                        },
-                        ctx,
-                    );
-                    let end = self.editor().as_ref(ctx).lsp_location_to_offset(
-                        &lsp::types::Location {
-                            line: text_edit.range.end.line as usize,
-                            column: text_edit.range.end.character as usize,
-                        },
-                        ctx,
-                    );
-                    edits_for_current_file.push((text_edit.new_text, start..end));
-                }
-            }
-        }
-
-        if edits_for_current_file.is_empty() {
-            return;
-        }
-
-        // Sort in reverse order to avoid offset shifting
-        edits_for_current_file.sort_by(|a, b| b.1.start.cmp(&a.1.start));
-
-        if let Ok(edits) = Vec1::try_from_vec(edits_for_current_file) {
-            self.editor.update(ctx, |editor, ctx| {
-                editor.apply_edits(edits, ctx);
-            });
-        }
-    }
-
-    /// Render the code actions menu overlay.
     pub(super) fn render_code_actions_menu(&self, app: &AppContext) -> Option<Box<dyn Element>> {
         let CodeActionsState::Available {
             actions,
@@ -355,7 +221,6 @@ impl LocalCodeEditorView {
         Some(menu)
     }
 
-    /// Compute positioning for the code actions menu.
     pub(super) fn code_actions_menu_positioning(
         &self,
         app: &AppContext,

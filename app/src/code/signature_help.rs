@@ -4,8 +4,7 @@ use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
-    MainAxisSize, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Shrinkable, Text,
+    MainAxisSize, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Text,
 };
 use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
 use lsp::{ParameterLabel, SignatureHelpResult, SignatureInfo};

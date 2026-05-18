@@ -1,5 +1,11 @@
 # Galaxy AI Agents - Ideas & Future Work
 
+## Build Standards
+
+The project must always have a **clean build with zero warnings and zero errors**. This applies to both `cargo check` and `cargo build`. Dead code warnings (`unused`, `dead_code`) should be resolved by either using the code, removing it, or adding targeted `#[allow(dead_code)]` annotations with a reason (e.g., code that's intentionally staged for upcoming work).
+
+---
+
 ## LLM-Powered Predictive Autocomplete
 
 **Idea:** As the user types in the code editor, stream the current context (surrounding code, file structure, recent edits) to an LLM and predict what they're about to write — offering inline ghost-text completions similar to GitHub Copilot.
