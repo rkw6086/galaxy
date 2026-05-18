@@ -19,7 +19,7 @@ fn test_build_stream_init_has_valid_ids() {
 #[test]
 fn test_build_stream_finished_done_reason() {
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let event = build_stream_finished(reason, 100, 50);
+    let event = build_stream_finished(reason, 100, 50, 20, 10);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {
@@ -35,8 +35,16 @@ fn test_build_stream_finished_done_reason() {
                     .get("bedrock")
                     .unwrap()
                     .total_tokens,
-                150
+                180
             );
+            // Verify token_usage includes cache breakdown
+            assert_eq!(finished.token_usage.len(), 1);
+            let usage = &finished.token_usage[0];
+            assert_eq!(usage.total_input, 100);
+            assert_eq!(usage.output, 50);
+            assert_eq!(usage.input_cache_read, 20);
+            assert_eq!(usage.input_cache_write, 10);
+            assert!(usage.cost_in_cents > 0.0);
         }
         other => panic!("Expected Finished event, got {:?}", other),
     }
@@ -45,7 +53,7 @@ fn test_build_stream_finished_done_reason() {
 #[test]
 fn test_build_stream_finished_max_token_limit() {
     let reason = stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {});
-    let event = build_stream_finished(reason, 200, 100);
+    let event = build_stream_finished(reason, 200, 100, 0, 0);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {
@@ -61,7 +69,7 @@ fn test_build_stream_finished_max_token_limit() {
 #[test]
 fn test_build_stream_finished_other_reason() {
     let reason = stream_finished::Reason::Other(stream_finished::Other {});
-    let event = build_stream_finished(reason, 0, 0);
+    let event = build_stream_finished(reason, 0, 0, 0, 0);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {

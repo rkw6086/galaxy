@@ -605,7 +605,7 @@ impl LLMPreferences {
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
             fallback_to_warp: *settings.bedrock_fallback_to_warp.value(),
-        };
+        }.with_external_fallbacks();
 
         ctx.spawn(
             async move { discover_inference_profiles(&config).await },

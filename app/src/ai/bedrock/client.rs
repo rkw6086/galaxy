@@ -7,6 +7,7 @@ use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 
 use crate::settings::ai::BedrockAuthMethod;
 
+use super::external_config::ExternalBedrockConfig;
 use super::convert::{build_converse_request, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::models::apply_cross_region_prefix;
@@ -27,6 +28,33 @@ pub struct BedrockClientConfig {
     pub secret_access_key: String,
     pub cross_region_inference: bool,
     pub fallback_to_warp: bool,
+}
+
+impl BedrockClientConfig {
+    /// Applies external config (from Claude Code / OpenCode) as fallback values
+    /// when Galaxy's own settings are at their defaults.
+    pub fn with_external_fallbacks(mut self) -> Self {
+        let external = ExternalBedrockConfig::load();
+        if external.is_empty() {
+            return self;
+        }
+
+        if self.profile == "default" {
+            if let Some(profile) = external.profile {
+                log::info!("[bedrock] Using profile from external config: {profile}");
+                self.profile = profile;
+            }
+        }
+
+        if self.region.is_empty() {
+            if let Some(region) = external.region {
+                log::info!("[bedrock] Using region from external config: {region}");
+                self.region = region;
+            }
+        }
+
+        self
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

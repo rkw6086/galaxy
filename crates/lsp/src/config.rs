@@ -6,10 +6,14 @@ use anyhow::Result;
 #[cfg(not(target_arch = "wasm32"))]
 use command::r#async::Command;
 use lsp_types::{
-    ClientCapabilities, ClientInfo, DidChangeWatchedFilesClientCapabilities, GotoCapability,
-    HoverClientCapabilities, InitializeParams, MarkupKind, PublishDiagnosticsClientCapabilities,
-    TextDocumentClientCapabilities, TextDocumentSyncClientCapabilities, Uri,
-    WindowClientCapabilities, WorkDoneProgressParams, WorkspaceClientCapabilities, WorkspaceFolder,
+    ClientCapabilities, ClientInfo, CodeActionClientCapabilities,
+    CompletionClientCapabilities, CompletionItemCapability,
+    CompletionItemCapabilityResolveSupport, DidChangeWatchedFilesClientCapabilities,
+    GotoCapability, HoverClientCapabilities, InitializeParams, MarkupKind,
+    PublishDiagnosticsClientCapabilities, RenameClientCapabilities,
+    SignatureHelpClientCapabilities, TextDocumentClientCapabilities,
+    TextDocumentSyncClientCapabilities, Uri, WindowClientCapabilities, WorkDoneProgressParams,
+    WorkspaceClientCapabilities, WorkspaceFolder,
 };
 
 use crate::supported_servers::LSPServerType;
@@ -301,19 +305,49 @@ fn default_client_capabilities() -> ClientCapabilities {
                 will_save_wait_until: Some(false),
                 did_save: Some(true),
             }),
+            completion: Some(CompletionClientCapabilities {
+                dynamic_registration: Some(false),
+                completion_item: Some(CompletionItemCapability {
+                    snippet_support: Some(true),
+                    documentation_format: Some(vec![
+                        MarkupKind::Markdown,
+                        MarkupKind::PlainText,
+                    ]),
+                    resolve_support: Some(CompletionItemCapabilityResolveSupport {
+                        properties: vec![
+                            "documentation".into(),
+                            "detail".into(),
+                            "additionalTextEdits".into(),
+                        ],
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
             definition: Some(GotoCapability {
                 dynamic_registration: Some(false),
                 link_support: Some(true),
             }),
             hover: Some(HoverClientCapabilities {
                 dynamic_registration: Some(false),
-                // Request Markdown content from the LSP for hover responses.
-                // This enables proper syntax highlighting in hover tooltips.
                 content_format: Some(vec![MarkupKind::Markdown, MarkupKind::PlainText]),
             }),
             publish_diagnostics: Some(PublishDiagnosticsClientCapabilities {
                 version_support: Some(true),
                 related_information: Some(true),
+                ..Default::default()
+            }),
+            signature_help: Some(SignatureHelpClientCapabilities {
+                dynamic_registration: Some(false),
+                ..Default::default()
+            }),
+            rename: Some(RenameClientCapabilities {
+                dynamic_registration: Some(false),
+                prepare_support: Some(true),
+                ..Default::default()
+            }),
+            code_action: Some(CodeActionClientCapabilities {
+                dynamic_registration: Some(false),
                 ..Default::default()
             }),
             ..Default::default()

@@ -23,14 +23,18 @@ pub use config::{default_init_params, LanguageId, LspServerConfig};
 pub use jsonrpc::{JsonRpcService, ServerNotificationEvent, Transport};
 pub use lsp_types::{
     notification::{self},
-    Position, Range,
+    CompletionItem, Position, Range,
 };
 pub use manager::{LspManagerModel, LspManagerModelEvent};
 pub use model::{
     BackgroundTaskInfo, DocumentDiagnostics, LanguageServerId, LspEvent, LspServerModel, LspState,
 };
 pub use service::LspService;
-pub use types::{HoverContents, HoverResult, MarkupKind, ReferenceLocation};
+pub use types::{
+    CodeActionData, CompletionItemData, CompletionKind, CompletionResult, CompletionTrigger,
+    FileEdits, HoverContents, HoverResult, MarkupKind, ParameterInfo, ParameterLabel,
+    PrepareRenameResult, ReferenceLocation, RenameResult, SignatureHelpResult, SignatureInfo,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LspServerLogLevel {

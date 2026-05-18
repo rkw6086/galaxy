@@ -5627,6 +5627,14 @@ impl TerminalView {
         let wall_to_wall_response_time_ms =
             conversation.wall_to_wall_response_time_since_last_query();
 
+        let token_usage_list = conversation.total_token_usage();
+        let total_input_tokens: u32 = token_usage_list.iter().map(|u| u.total_input).sum();
+        let total_output_tokens: u32 = token_usage_list.iter().map(|u| u.output).sum();
+        let total_cache_read_tokens: u32 = token_usage_list.iter().map(|u| u.input_cache_read).sum();
+        let total_cache_write_tokens: u32 =
+            token_usage_list.iter().map(|u| u.input_cache_write).sum();
+        let estimated_cost_cents: f32 = token_usage_list.iter().map(|u| u.cost_in_cents).sum();
+
         let conversation_usage_info = ConversationUsageInfo {
             credits_spent: conversation.credits_spent(),
             credits_spent_for_last_block: conversation.credits_spent_for_last_block(),
@@ -5637,6 +5645,11 @@ impl TerminalView {
             lines_added: tool_usage.apply_file_diff_stats.lines_added,
             lines_removed: tool_usage.apply_file_diff_stats.lines_removed,
             commands_executed: tool_usage.run_command_stats.commands_executed,
+            total_input_tokens,
+            total_output_tokens,
+            total_cache_read_tokens,
+            total_cache_write_tokens,
+            estimated_cost_cents,
         };
 
         let timing_info = TimingInfo {

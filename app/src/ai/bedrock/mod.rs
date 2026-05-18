@@ -3,6 +3,7 @@ pub mod convert;
 pub mod convert_request;
 pub mod diagnostic;
 pub mod discovery;
+pub mod external_config;
 pub mod models;
 pub mod stream;
 

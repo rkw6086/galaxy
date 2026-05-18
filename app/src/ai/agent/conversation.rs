@@ -3062,6 +3062,20 @@ impl AIConversation {
         self.total_token_usage_by_model.values().cloned().collect()
     }
 
+    pub fn total_tokens(&self) -> u32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(Self::total_tokens_for_usage)
+            .sum()
+    }
+
+    pub fn total_cost_cents(&self) -> f32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(|u| u.cost_in_cents)
+            .sum()
+    }
+
     fn total_tokens_for_usage(usage: &TokenUsage) -> u32 {
         usage.total_input + usage.output + usage.input_cache_read + usage.input_cache_write
     }

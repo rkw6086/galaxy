@@ -1,5 +1,5 @@
 use crate::ai::blocklist::usage::render_context_window_usage_icon;
-use crate::ai::blocklist::view_util::format_credits;
+use crate::ai::blocklist::view_util::{format_cost_cents, format_credits, format_token_count};
 use crate::appearance::Appearance;
 use crate::persistence::model::{
     token_usage_category_display_name, ModelTokenUsage, FULL_TERMINAL_USE_CATEGORY,
@@ -37,6 +37,11 @@ pub struct ConversationUsageInfo {
     pub lines_added: i32,
     pub lines_removed: i32,
     pub commands_executed: i32,
+    pub total_input_tokens: u32,
+    pub total_output_tokens: u32,
+    pub total_cache_read_tokens: u32,
+    pub total_cache_write_tokens: u32,
+    pub estimated_cost_cents: f32,
 }
 
 /// Timing information for the last set of agent responses
@@ -261,6 +266,55 @@ impl ConversationUsageView {
                     .with_children(model_elements)
                     .finish(),
             );
+        }
+
+        // Token usage section
+        let total_tokens = self.usage_info.total_input_tokens
+            + self.usage_info.total_output_tokens
+            + self.usage_info.total_cache_read_tokens
+            + self.usage_info.total_cache_write_tokens;
+        if total_tokens > 0 {
+            labels.push(render_label_text("Total tokens", appearance));
+            values.push(render_value_text(
+                format_token_count(total_tokens),
+                appearance,
+            ));
+
+            labels.push(render_label_text("  Input", appearance));
+            values.push(render_value_text(
+                format_token_count(self.usage_info.total_input_tokens),
+                appearance,
+            ));
+
+            labels.push(render_label_text("  Output", appearance));
+            values.push(render_value_text(
+                format_token_count(self.usage_info.total_output_tokens),
+                appearance,
+            ));
+
+            if self.usage_info.total_cache_read_tokens > 0 {
+                labels.push(render_label_text("  Cache read", appearance));
+                values.push(render_value_text(
+                    format_token_count(self.usage_info.total_cache_read_tokens),
+                    appearance,
+                ));
+            }
+
+            if self.usage_info.total_cache_write_tokens > 0 {
+                labels.push(render_label_text("  Cache write", appearance));
+                values.push(render_value_text(
+                    format_token_count(self.usage_info.total_cache_write_tokens),
+                    appearance,
+                ));
+            }
+
+            if self.usage_info.estimated_cost_cents > 0.0 {
+                labels.push(render_label_text("Estimated cost", appearance));
+                values.push(render_value_text(
+                    format_cost_cents(self.usage_info.estimated_cost_cents),
+                    appearance,
+                ));
+            }
         }
 
         labels.push(render_label_text("Context window used", appearance));

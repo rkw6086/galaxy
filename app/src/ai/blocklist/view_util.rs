@@ -152,6 +152,28 @@ pub fn get_ai_block_overflow_menu_element_position_id(view_id: EntityId) -> Stri
 }
 
 /// Formats credit count to display as whole numbers when the value is effectively a whole number,
+pub fn format_token_count(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M tokens", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k tokens", tokens as f64 / 1_000.0)
+    } else {
+        format!("{tokens} tokens")
+    }
+}
+
+pub fn format_cost_cents(cents: f32) -> String {
+    if cents >= 100.0 {
+        format!("${:.2}", cents / 100.0)
+    } else if cents >= 1.0 {
+        format!("{:.1}\u{00A2}", cents)
+    } else if cents > 0.0 {
+        format!("{:.2}\u{00A2}", cents)
+    } else {
+        "$0.00".to_string()
+    }
+}
+
 /// otherwise displays with one decimal place.
 /// Returns a formatted string with proper pluralization ("credit" vs "credits").
 pub fn format_credits(credits: f32) -> String {

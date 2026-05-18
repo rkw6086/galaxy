@@ -4,7 +4,9 @@ use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::{AgentSource, AmbientAgentTask, AmbientAgentTaskState};
 use crate::ai::artifacts::Artifact;
-use crate::ai::blocklist::{format_credits, BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+use crate::ai::blocklist::{
+    format_credits, format_token_count, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
+};
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
@@ -509,6 +511,20 @@ impl ConversationOrTask<'_> {
     /// Formats the request usage for display.
     pub fn display_request_usage(&self, app: &AppContext) -> Option<String> {
         self.request_usage(app).map(format_credits)
+    }
+
+    pub fn display_total_tokens(&self, app: &AppContext) -> Option<String> {
+        match self {
+            ConversationOrTask::Task(_) => None,
+            ConversationOrTask::Conversation(metadata) => {
+                let history_model = BlocklistAIHistoryModel::as_ref(app);
+                history_model
+                    .conversation(&metadata.nav_data.id)
+                    .map(|conv| conv.total_tokens())
+                    .filter(|&t| t > 0)
+                    .map(format_token_count)
+            }
+        }
     }
 
     pub fn last_updated(&self) -> DateTime<Utc> {

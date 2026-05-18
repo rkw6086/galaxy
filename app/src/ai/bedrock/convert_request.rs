@@ -872,6 +872,11 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
         tools = default_tool_definitions();
     }
 
+    // Filter out suggest_next_prompt — its action executor waits on a oneshot
+    // channel for UI interaction that never fires in the Bedrock path, causing
+    // the conversation to stay InProgress forever.
+    tools.retain(|t| t.name != "suggest_next_prompt");
+
     tools
 }
 
@@ -963,7 +968,6 @@ fn default_tool_definitions() -> Vec<ToolDefinition> {
         tool_definition_for_name("apply_file_diffs"),
         tool_definition_for_name("grep"),
         tool_definition_for_name("file_glob"),
-        tool_definition_for_name("suggest_next_prompt"),
     ]
 }
 

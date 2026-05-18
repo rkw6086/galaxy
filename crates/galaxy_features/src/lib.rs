@@ -831,6 +831,18 @@ pub enum FeatureFlag {
     VerticalTabsSummaryMode,
 
     CloudModeInputV2,
+
+    /// Enables LSP-based code completion (autocomplete) in the code editor.
+    LspCompletion,
+
+    /// Enables LSP code actions (quick fixes, refactorings) in the code editor.
+    LspCodeActions,
+
+    /// Enables LSP-based symbol rename in the code editor.
+    LspRename,
+
+    /// Enables LSP signature help (parameter hints) in the code editor.
+    LspSignatureHelp,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =

@@ -7,8 +7,9 @@ use std::{
 use crate::{
     config::{lsp_uri_to_path, path_to_lsp_uri, LanguageId},
     types::{
-        HoverResult, LspDefinitionLocation, ReferenceLocation, TextDocumentContentChangeEvent,
-        TextEdit, WatchedFileChangeEvent,
+        CodeActionData, CompletionResult, FileEdits, HoverResult, Location, LspDefinitionLocation,
+        PrepareRenameResult, Range, ReferenceLocation, RenameResult, SignatureHelpResult,
+        TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
     },
     LspServerLogLevel,
 };
@@ -19,12 +20,14 @@ use jsonrpc::{JsonRpcService, RequestId, ServerNotificationEvent};
 use lsp_types::{
     notification::{self, Notification},
     request::{self, Request},
-    CancelParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, FileChangeType, FileSystemWatcher,
-    FormattingOptions, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse, HoverParams,
-    InitializeParams, InitializedParams, NumberOrString, OneOf, Position, ReferenceParams,
-    RegistrationParams, RelativePattern, TextDocumentIdentifier, TextDocumentItem,
+    CancelParams, CodeActionContext, CodeActionParams, CompletionContext, CompletionItem,
+    CompletionParams, CompletionTriggerKind, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams,
+    FileChangeType, FileSystemWatcher, FormattingOptions, GlobPattern, GotoDefinitionParams,
+    GotoDefinitionResponse, HoverParams, InitializeParams, InitializedParams, NumberOrString,
+    OneOf, Position, Range as LspRange, ReferenceParams, RegistrationParams, RelativePattern,
+    RenameParams, SignatureHelpParams, TextDocumentIdentifier, TextDocumentItem,
     TextDocumentPositionParams, UnregistrationParams, VersionedTextDocumentIdentifier, WatchKind,
 };
 use serde_json::Value;
@@ -739,4 +742,258 @@ impl<'a> TextDocumentService<'a> {
             .filter_map(|loc| ReferenceLocation::try_from(loc).ok())
             .collect())
     }
+
+    pub async fn completion(
+        &self,
+        path: &Path,
+        position: Position,
+        trigger: Option<CompletionTriggerKind>,
+        trigger_character: Option<String>,
+    ) -> anyhow::Result<Option<CompletionResult>> {
+        let uri = path_to_lsp_uri(path)?;
+
+        let completion_params = CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position,
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: Some(CompletionContext {
+                trigger_kind: trigger.unwrap_or(CompletionTriggerKind::INVOKED),
+                trigger_character,
+            }),
+        };
+
+        let result = self
+            .service
+            .send_request::<request::Completion>(completion_params)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("textDocument/completion failed: {e}"),
+            );
+        }
+
+        Ok(result?.map(Into::into))
+    }
+
+    pub async fn completion_resolve(
+        &self,
+        item: CompletionItem,
+    ) -> anyhow::Result<CompletionItem> {
+        let result = self
+            .service
+            .send_request::<request::ResolveCompletionItem>(item)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("completionItem/resolve failed: {e}"),
+            );
+        }
+
+        result
+    }
+
+    pub async fn signature_help(
+        &self,
+        path: &Path,
+        position: Position,
+    ) -> anyhow::Result<Option<SignatureHelpResult>> {
+        let uri = path_to_lsp_uri(path)?;
+
+        let params = SignatureHelpParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position,
+            },
+            work_done_progress_params: Default::default(),
+            context: None,
+        };
+
+        let result = self
+            .service
+            .send_request::<request::SignatureHelpRequest>(params)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("textDocument/signatureHelp failed: {e}"),
+            );
+        }
+
+        Ok(result?.map(Into::into))
+    }
+
+    pub async fn code_action(
+        &self,
+        path: &Path,
+        range: LspRange,
+        diagnostics: Vec<lsp_types::Diagnostic>,
+    ) -> anyhow::Result<Vec<CodeActionData>> {
+        let uri = path_to_lsp_uri(path)?;
+
+        let params = CodeActionParams {
+            text_document: TextDocumentIdentifier { uri },
+            range,
+            context: CodeActionContext {
+                diagnostics,
+                only: None,
+                trigger_kind: None,
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+
+        let result = self
+            .service
+            .send_request::<request::CodeActionRequest>(params)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("textDocument/codeAction failed: {e}"),
+            );
+        }
+
+        Ok(result?
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect())
+    }
+
+    pub async fn prepare_rename(
+        &self,
+        path: &Path,
+        position: Position,
+    ) -> anyhow::Result<Option<PrepareRenameResult>> {
+        let uri = path_to_lsp_uri(path)?;
+
+        let params = TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri },
+            position,
+        };
+
+        let result = self
+            .service
+            .send_request::<request::PrepareRenameRequest>(params)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("textDocument/prepareRename failed: {e}"),
+            );
+        }
+
+        Ok(result?.map(|response| match response {
+            lsp_types::PrepareRenameResponse::Range(range) => PrepareRenameResult {
+                range: range.into(),
+                placeholder: None,
+            },
+            lsp_types::PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                PrepareRenameResult {
+                    range: range.into(),
+                    placeholder: Some(placeholder),
+                }
+            }
+            lsp_types::PrepareRenameResponse::DefaultBehavior { .. } => PrepareRenameResult {
+                range: Range {
+                    start: Location { line: 0, column: 0 },
+                    end: Location { line: 0, column: 0 },
+                },
+                placeholder: None,
+            },
+        }))
+    }
+
+    pub async fn rename(
+        &self,
+        path: &Path,
+        position: Position,
+        new_name: String,
+    ) -> anyhow::Result<Option<RenameResult>> {
+        let uri = path_to_lsp_uri(path)?;
+
+        let params = RenameParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position,
+            },
+            new_name,
+            work_done_progress_params: Default::default(),
+        };
+
+        let result = self
+            .service
+            .send_request::<request::Rename>(params)
+            .await;
+
+        if let Err(e) = &result {
+            self.service.log_to_server_log(
+                LspServerLogLevel::Error,
+                format!("textDocument/rename failed: {e}"),
+            );
+        }
+
+        let workspace_edit = match result? {
+            Some(edit) => edit,
+            None => return Ok(None),
+        };
+
+        let file_edits = workspace_edit_to_file_edits(workspace_edit)?;
+        Ok(Some(RenameResult { edits: file_edits }))
+    }
+}
+
+fn workspace_edit_to_file_edits(
+    workspace_edit: lsp_types::WorkspaceEdit,
+) -> anyhow::Result<Vec<FileEdits>> {
+    let mut result: Vec<FileEdits> = Vec::new();
+
+    if let Some(changes) = workspace_edit.changes {
+        for (uri, edits) in changes {
+            let path = lsp_uri_to_path(&uri)?;
+            result.push(FileEdits {
+                path,
+                edits: edits.into_iter().map(Into::into).collect(),
+            });
+        }
+    }
+
+    if let Some(document_changes) = workspace_edit.document_changes {
+        match document_changes {
+            lsp_types::DocumentChanges::Edits(edits) => {
+                for edit in edits {
+                    let path = lsp_uri_to_path(&edit.text_document.uri)?;
+                    result.push(FileEdits {
+                        path,
+                        edits: edit.edits.into_iter().map(|e| match e {
+                            lsp_types::OneOf::Left(text_edit) => text_edit.into(),
+                            lsp_types::OneOf::Right(annotated) => {
+                                lsp_types::TextEdit {
+                                    range: annotated.text_edit.range,
+                                    new_text: annotated.text_edit.new_text,
+                                }
+                                .into()
+                            }
+                        }).collect(),
+                    });
+                }
+            }
+            lsp_types::DocumentChanges::Operations(_) => {
+                // File create/rename/delete operations are not supported yet
+                log::warn!("workspace/rename returned file operations which are not yet supported");
+            }
+        }
+    }
+
+    Ok(result)
 }

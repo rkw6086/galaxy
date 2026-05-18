@@ -2743,7 +2743,7 @@ impl TypedActionView for AISettingsPageView {
                         secret_access_key: ai_settings.bedrock_secret_access_key.value().clone(),
                         cross_region_inference: *ai_settings.bedrock_cross_region_inference.value(),
                         fallback_to_warp: *ai_settings.bedrock_fallback_to_warp.value(),
-                    };
+                    }.with_external_fallbacks();
 
                     ctx.spawn(
                         async move { discover_inference_profiles(&config).await },

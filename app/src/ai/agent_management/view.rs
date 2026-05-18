@@ -1824,6 +1824,10 @@ impl AgentManagementView {
             metadata_parts.push(format!("Credits used: {usage}"));
         }
 
+        if let Some(tokens) = card_data.display_total_tokens(app) {
+            metadata_parts.push(format!("Tokens: {tokens}"));
+        }
+
         let metadata_text = metadata_parts.join(" • ");
 
         Text::new(metadata_text, font_family, font_size)

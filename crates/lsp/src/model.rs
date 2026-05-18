@@ -3,16 +3,17 @@ use crate::{
     server_repo_watcher::LspRepoWatcher,
     supported_servers::LSPServerType,
     types::{
-        DefinitionLocation, DocumentVersion, HoverResult, Location, ReferenceLocation,
-        TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
+        CodeActionData, CompletionResult, CompletionTrigger, DefinitionLocation, DocumentVersion,
+        HoverResult, Location, PrepareRenameResult, ReferenceLocation, RenameResult,
+        SignatureHelpResult, TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
     },
     LspServerConfig, LspServerLogLevel, LspService,
 };
 use instant::Instant;
 use lsp_types::{
     notification::{self, Notification},
-    FormattingOptions, NumberOrString, ProgressParams, ProgressParamsValue,
-    PublishDiagnosticsParams, WorkDoneProgress,
+    CompletionItem, CompletionTriggerKind, FormattingOptions, NumberOrString, ProgressParams,
+    ProgressParamsValue, PublishDiagnosticsParams, Range as LspRange, WorkDoneProgress,
 };
 use std::{
     collections::HashMap,
@@ -732,6 +733,96 @@ impl LspServerModel {
             service
                 .text_document()
                 .references(&path, position.into_lsp())
+                .await
+        })
+    }
+
+    pub fn completion(
+        &self,
+        path: PathBuf,
+        position: Location,
+        trigger: CompletionTrigger,
+    ) -> Result<impl Future<Output = Result<Option<CompletionResult>>>> {
+        let service = self.service()?;
+        let (trigger_kind, trigger_character) = match trigger {
+            CompletionTrigger::Invoked => (CompletionTriggerKind::INVOKED, None),
+            CompletionTrigger::TriggerCharacter(ch) => {
+                (CompletionTriggerKind::TRIGGER_CHARACTER, Some(ch))
+            }
+            CompletionTrigger::Incomplete => {
+                (CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS, None)
+            }
+        };
+        Ok(async move {
+            service
+                .text_document()
+                .completion(&path, position.into_lsp(), Some(trigger_kind), trigger_character)
+                .await
+        })
+    }
+
+    pub fn completion_resolve(
+        &self,
+        item: CompletionItem,
+    ) -> Result<impl Future<Output = Result<CompletionItem>>> {
+        let service = self.service()?;
+        Ok(async move { service.text_document().completion_resolve(item).await })
+    }
+
+    pub fn signature_help(
+        &self,
+        path: PathBuf,
+        position: Location,
+    ) -> Result<impl Future<Output = Result<Option<SignatureHelpResult>>>> {
+        let service = self.service()?;
+        Ok(async move {
+            service
+                .text_document()
+                .signature_help(&path, position.into_lsp())
+                .await
+        })
+    }
+
+    pub fn code_actions(
+        &self,
+        path: PathBuf,
+        range: LspRange,
+        diagnostics: Vec<lsp_types::Diagnostic>,
+    ) -> Result<impl Future<Output = Result<Vec<CodeActionData>>>> {
+        let service = self.service()?;
+        Ok(async move {
+            service
+                .text_document()
+                .code_action(&path, range, diagnostics)
+                .await
+        })
+    }
+
+    pub fn prepare_rename(
+        &self,
+        path: PathBuf,
+        position: Location,
+    ) -> Result<impl Future<Output = Result<Option<PrepareRenameResult>>>> {
+        let service = self.service()?;
+        Ok(async move {
+            service
+                .text_document()
+                .prepare_rename(&path, position.into_lsp())
+                .await
+        })
+    }
+
+    pub fn rename(
+        &self,
+        path: PathBuf,
+        position: Location,
+        new_name: String,
+    ) -> Result<impl Future<Output = Result<Option<RenameResult>>>> {
+        let service = self.service()?;
+        Ok(async move {
+            service
+                .text_document()
+                .rename(&path, position.into_lsp(), new_name)
                 .await
         })
     }

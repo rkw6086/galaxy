@@ -68,6 +68,18 @@ Global rules are loaded from `~/.galaxy-ai/rules/*.md` (filename = rule name, co
 
 Project rules are loaded from `GALAXY.md` or `AGENTS.md` files found in the project directory tree.
 
+**External Config Fallback** (`app/src/ai/bedrock/external_config.rs`):
+When Galaxy's own Bedrock settings are at defaults, it falls back to configurations from:
+1. **Claude Code** (`~/.claude/settings.json`) — reads `env.AWS_PROFILE`, `env.AWS_REGION`, and `env.DCP_MODEL_MAP` (ARN-based model mappings)
+2. **OpenCode** (`~/.config/opencode/opencode.json`) — reads `provider.amazon-bedrock.options.profile` and `.region`
+
+Priority: Galaxy explicit settings > Claude Code > OpenCode > hardcoded defaults. Fallback only applies when profile is `"default"` (for profile) or empty (for region/models). External model ARNs are merged with Galaxy's built-in default model list.
+
+**Token Usage & Cost Tracking** (`app/src/ai/bedrock/stream.rs`):
+The Bedrock stream extracts full token metadata from responses: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`. These flow through `build_stream_finished` → `TokenUsage` struct → `conversation.update_cost_and_usage_for_request()`. Cost is estimated using Sonnet-tier Bedrock pricing as a conservative default. Displayed in:
+- **Agent management cards** — total token count in metadata row
+- **Conversation usage footer** — full breakdown (input/output/cache read/cache write) + estimated cost
+
 ### Key Architectural Patterns
 
 1. **Entity-Handle System**: Views reference other views via handles, not direct ownership

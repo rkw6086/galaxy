@@ -1,5 +1,7 @@
 use crate::settings::ai::BedrockModelConfig;
 
+use super::external_config::ExternalBedrockConfig;
+
 pub struct DefaultModel {
     pub model_id: &'static str,
     pub display_name: &'static str,
@@ -55,18 +57,43 @@ pub const DEFAULT_BEDROCK_MODELS: &[DefaultModel] = &[
 ];
 
 pub fn get_effective_models(user_models: &[BedrockModelConfig]) -> Vec<BedrockModelConfig> {
-    if user_models.is_empty() {
-        DEFAULT_BEDROCK_MODELS
+    if !user_models.is_empty() {
+        return user_models.to_vec();
+    }
+
+    // Fall back to models from external configs (Claude Code / OpenCode)
+    let external = ExternalBedrockConfig::load();
+    if !external.models.is_empty() {
+        log::info!(
+            "[bedrock] Using {} model(s) from external config",
+            external.models.len()
+        );
+        // Merge external models with defaults so the user still sees all defaults
+        let mut models = external.models;
+        let defaults: Vec<BedrockModelConfig> = DEFAULT_BEDROCK_MODELS
             .iter()
             .map(|m| BedrockModelConfig {
                 model_id: m.model_id.to_string(),
                 display_name: m.display_name.to_string(),
                 vision_supported: m.vision_supported,
             })
-            .collect()
-    } else {
-        user_models.to_vec()
+            .collect();
+        for default in defaults {
+            if !models.iter().any(|m| m.model_id == default.model_id) {
+                models.push(default);
+            }
+        }
+        return models;
     }
+
+    DEFAULT_BEDROCK_MODELS
+        .iter()
+        .map(|m| BedrockModelConfig {
+            model_id: m.model_id.to_string(),
+            display_name: m.display_name.to_string(),
+            vision_supported: m.vision_supported,
+        })
+        .collect()
 }
 
 pub fn apply_cross_region_prefix(model_id: &str, region: &str) -> String {

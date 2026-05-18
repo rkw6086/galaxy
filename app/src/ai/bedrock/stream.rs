@@ -55,6 +55,8 @@ pub fn bedrock_stream_to_response_events(
         let mut _has_tool_calls = false;
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
+        let mut cache_read_input_tokens: i32 = 0;
+        let mut cache_write_input_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(stream_finished::Done {});
 
         // Track full assistant text and tool calls for bedrock_message_history
@@ -155,31 +157,41 @@ pub fn bedrock_stream_to_response_events(
                     StreamEvent::ContentBlockStop(_) => {
                         log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
                         if !current_tool_use_id.is_empty() {
-                            log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
-                            // Track for bedrock_message_history
-                            let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
-                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-                            history_tool_calls.push(ContentPart::ToolUse {
-                                tool_use_id: current_tool_use_id.clone(),
-                                name: current_tool_name.clone(),
-                                input: input_json,
-                            });
-                            if let Some(ref logger) = diagnostic_logger {
-                                logger.log_stream_event(&format!(
-                                    "ToolCall: name={}, id={}, input={}",
-                                    current_tool_name, current_tool_use_id, current_tool_input_json
-                                ));
+                            // Skip suggest_next_prompt — its executor hangs forever
+                            // waiting for UI interaction that doesn't exist in the
+                            // Bedrock path.
+                            if current_tool_name == "suggest_next_prompt" {
+                                log::info!("[bedrock] Skipping suggest_next_prompt tool call");
+                                current_tool_use_id.clear();
+                                current_tool_name.clear();
+                                current_tool_input_json.clear();
+                            } else {
+                                log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
+                                // Track for bedrock_message_history
+                                let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                                history_tool_calls.push(ContentPart::ToolUse {
+                                    tool_use_id: current_tool_use_id.clone(),
+                                    name: current_tool_name.clone(),
+                                    input: input_json,
+                                });
+                                if let Some(ref logger) = diagnostic_logger {
+                                    logger.log_stream_event(&format!(
+                                        "ToolCall: name={}, id={}, input={}",
+                                        current_tool_name, current_tool_use_id, current_tool_input_json
+                                    ));
+                                }
+                                let tool_msg = build_tool_call_message(
+                                    &task_id,
+                                    &current_tool_use_id,
+                                    &current_tool_name,
+                                    &current_tool_input_json,
+                                );
+                                yield Ok(tool_msg);
+                                current_tool_use_id.clear();
+                                current_tool_name.clear();
+                                current_tool_input_json.clear();
                             }
-                            let tool_msg = build_tool_call_message(
-                                &task_id,
-                                &current_tool_use_id,
-                                &current_tool_name,
-                                &current_tool_input_json,
-                            );
-                            yield Ok(tool_msg);
-                            current_tool_use_id.clear();
-                            current_tool_name.clear();
-                            current_tool_input_json.clear();
                         }
                     }
                     StreamEvent::MessageStop(stop) => {
@@ -204,6 +216,8 @@ pub fn bedrock_stream_to_response_events(
                         if let Some(usage) = metadata.usage() {
                             input_tokens = usage.input_tokens();
                             output_tokens = usage.output_tokens();
+                            cache_read_input_tokens = usage.cache_read_input_tokens().unwrap_or(0);
+                            cache_write_input_tokens = usage.cache_write_input_tokens().unwrap_or(0);
                         }
                     }
                     _ => {
@@ -265,7 +279,9 @@ pub fn bedrock_stream_to_response_events(
             }
         }
 
-        log::info!("[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");
+        log::info!(
+            "[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_input_tokens}, cache_write={cache_write_input_tokens}"
+        );
 
         // Build and store the assistant message into bedrock_messages_sent
         // so the controller can persist it as part of conversation history.
@@ -317,7 +333,13 @@ pub fn bedrock_stream_to_response_events(
             };
             logger.log_result_success(input_tokens, output_tokens, stop_reason_str);
         }
-        let finished_event = build_stream_finished(stop_reason, input_tokens, output_tokens);
+        let finished_event = build_stream_finished(
+            stop_reason,
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_write_input_tokens,
+        );
         yield Ok(finished_event);
     };
 
@@ -365,8 +387,11 @@ pub(super) fn build_stream_finished(
     reason: stream_finished::Reason,
     input_tokens: i32,
     output_tokens: i32,
+    cache_read_input_tokens: i32,
+    cache_write_input_tokens: i32,
 ) -> ResponseEvent {
-    let total_tokens = (input_tokens + output_tokens) as u32;
+    let total_tokens =
+        (input_tokens + output_tokens + cache_read_input_tokens + cache_write_input_tokens) as u32;
 
     let mut byok_token_usage = std::collections::HashMap::new();
     if total_tokens > 0 {
@@ -380,6 +405,20 @@ pub(super) fn build_stream_finished(
             },
         );
     }
+
+    let token_usage = vec![stream_finished::TokenUsage {
+        model_id: "bedrock".to_string(),
+        total_input: input_tokens as u32,
+        output: output_tokens as u32,
+        input_cache_read: cache_read_input_tokens as u32,
+        input_cache_write: cache_write_input_tokens as u32,
+        cost_in_cents: estimate_cost_cents(
+            input_tokens as u32,
+            output_tokens as u32,
+            cache_read_input_tokens as u32,
+            cache_write_input_tokens as u32,
+        ),
+    }];
 
     #[allow(deprecated)]
     let conversation_usage_metadata = Some(stream_finished::ConversationUsageMetadata {
@@ -396,13 +435,30 @@ pub(super) fn build_stream_finished(
         r#type: Some(api::response_event::Type::Finished(
             api::response_event::StreamFinished {
                 reason: Some(reason),
-                token_usage: vec![],
+                token_usage,
                 should_refresh_model_config: false,
                 request_cost: None,
                 conversation_usage_metadata,
             },
         )),
     }
+}
+
+/// Estimates cost in cents based on Anthropic Claude Bedrock pricing.
+/// Uses Sonnet-tier pricing as a conservative default since we don't
+/// know the exact model at this layer.
+/// Pricing (per 1M tokens): input $3, output $15, cache_read $0.30, cache_write $3.75
+fn estimate_cost_cents(
+    input_tokens: u32,
+    output_tokens: u32,
+    cache_read_tokens: u32,
+    cache_write_tokens: u32,
+) -> f32 {
+    let input_cost = input_tokens as f64 * 0.3 / 100_000.0;
+    let output_cost = output_tokens as f64 * 1.5 / 100_000.0;
+    let cache_read_cost = cache_read_tokens as f64 * 0.03 / 100_000.0;
+    let cache_write_cost = cache_write_tokens as f64 * 0.375 / 100_000.0;
+    (input_cost + output_cost + cache_read_cost + cache_write_cost) as f32
 }
 
 fn build_add_agent_output_message(
