@@ -455,6 +455,17 @@ impl LocalCodeEditorView {
             CodeEditorEvent::DelayedRenderingFlushed => {
                 ctx.emit(LocalCodeEditorEvent::DelayedRenderingFlushed);
             }
+            CodeEditorEvent::CompletionNavigateUp => {
+                me.completion_state.move_selection(-1);
+                ctx.notify();
+            }
+            CodeEditorEvent::CompletionNavigateDown => {
+                me.completion_state.move_selection(1);
+                ctx.notify();
+            }
+            CodeEditorEvent::CompletionConfirm => {
+                me.confirm_completion(ctx);
+            }
             CodeEditorEvent::VimGotoDefinition
             | CodeEditorEvent::VimFindReferences
             | CodeEditorEvent::VimShowHover => {
@@ -1934,6 +1945,9 @@ impl LocalCodeEditorView {
         let had_refs = self.close_find_references_card(ctx);
         let had_hover = self.lsp_hover_state.clear();
         let had_completion = self.completion_state.dismiss();
+        if had_completion {
+            self.sync_completion_intercept(ctx);
+        }
         had_refs || had_hover || had_completion
     }
 

@@ -805,6 +805,28 @@ impl TypedActionView for CodeEditorView {
             return;
         }
 
+        // When completion menu is active, redirect navigation/confirm keys to the parent.
+        if self.completion_intercept_keys {
+            match action {
+                MoveUp => {
+                    ctx.emit(super::CodeEditorEvent::CompletionNavigateUp);
+                    return;
+                }
+                MoveDown => {
+                    ctx.emit(super::CodeEditorEvent::CompletionNavigateDown);
+                    return;
+                }
+                Tab | Enter => {
+                    ctx.emit(super::CodeEditorEvent::CompletionConfirm);
+                    return;
+                }
+                Escape => {
+                    // Let escape fall through to normal handling (which emits EscapePressed)
+                }
+                _ => {}
+            }
+        }
+
         match action {
             UserTyped(content) => self.user_insert(content, ctx),
             VimUserTyped(content) => {

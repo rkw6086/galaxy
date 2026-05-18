@@ -153,6 +153,12 @@ pub enum CodeEditorEvent {
     VimGotoDefinition,
     VimFindReferences,
     VimShowHover,
+    /// Emitted when Up is pressed and completion_intercept_keys is active.
+    CompletionNavigateUp,
+    /// Emitted when Down is pressed and completion_intercept_keys is active.
+    CompletionNavigateDown,
+    /// Emitted when Tab/Enter is pressed and completion_intercept_keys is active.
+    CompletionConfirm,
 }
 
 /// Store all states related to displaying the editor content.
@@ -284,6 +290,9 @@ pub struct CodeEditorView {
     /// The offset where find references card is anchored (if showing).
     find_references_anchor_offset: Option<CharOffset>,
     window_id: WindowId,
+    /// When true, Up/Down/Tab/Enter are redirected to completion events instead of
+    /// normal editor behavior. Set by the parent when a completion menu is visible.
+    pub completion_intercept_keys: bool,
 }
 
 impl CodeEditorView {
@@ -427,6 +436,7 @@ impl CodeEditorView {
             show_find_references_provider: render_options.show_find_references_provider,
             find_references_anchor_offset: None,
             window_id: ctx.window_id(),
+            completion_intercept_keys: false,
         }
     }
 

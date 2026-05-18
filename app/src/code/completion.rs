@@ -141,6 +141,14 @@ impl LocalCodeEditorView {
         FeatureFlag::LspCompletion.is_enabled()
     }
 
+    /// Sync the editor's key interception flag with the completion state.
+    pub(super) fn sync_completion_intercept(&self, ctx: &mut ViewContext<Self>) {
+        let should_intercept = self.completion_state.is_showing();
+        self.editor.update(ctx, |editor, _ctx| {
+            editor.completion_intercept_keys = should_intercept;
+        });
+    }
+
     /// Handle a user typing event — potentially trigger completion.
     pub(super) fn on_content_changed_for_completion(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_completion_enabled() {
@@ -270,6 +278,7 @@ impl LocalCodeEditorView {
             Ok(Some(result)) if !result.items.is_empty() => result,
             _ => {
                 self.completion_state = CompletionState::Idle;
+                self.sync_completion_intercept(ctx);
                 ctx.notify();
                 return;
             }
@@ -288,6 +297,7 @@ impl LocalCodeEditorView {
         let query = self.get_completion_filter_query(trigger_offset, ctx);
         self.completion_state.filter(&query);
 
+        self.sync_completion_intercept(ctx);
         ctx.notify();
     }
 
@@ -332,6 +342,7 @@ impl LocalCodeEditorView {
         };
 
         self.completion_state = CompletionState::Idle;
+        self.sync_completion_intercept(ctx);
 
         self.editor.update(ctx, |editor, ctx| {
             let edit_range = if let Some(range) = text_edit_range {
