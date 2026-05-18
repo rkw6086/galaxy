@@ -13,6 +13,8 @@ pub mod completion;
 #[cfg(not(target_family = "wasm"))]
 pub mod find_references_view;
 #[cfg(not(target_family = "wasm"))]
+pub mod signature_help;
+#[cfg(not(target_family = "wasm"))]
 pub mod language_server_extension;
 #[cfg_attr(not(target_family = "wasm"), path = "local_code_editor.rs")]
 #[cfg_attr(target_family = "wasm", path = "local_code_editor_wasm.rs")]

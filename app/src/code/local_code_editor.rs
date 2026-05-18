@@ -92,6 +92,7 @@ use super::editor::{
 };
 use super::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
 use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
+use super::signature_help::SignatureHelpState;
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
 use super::lsp_telemetry::LspTelemetryEvent;
@@ -322,6 +323,8 @@ pub struct LocalCodeEditorView {
     pub(super) code_actions_state: CodeActionsState,
     /// Channel for debouncing code actions requests on cursor/selection change.
     pub(super) code_actions_debounce_tx: async_channel::Sender<CharOffset>,
+    /// State for LSP signature help (parameter hints).
+    pub(super) signature_help_state: SignatureHelpState,
 }
 
 impl LocalCodeEditorView {
@@ -359,6 +362,8 @@ impl LocalCodeEditorView {
 
                     // Trigger completion on user typing
                     me.on_content_changed_for_completion(ctx);
+                    // Trigger signature help on '(' and ','
+                    me.on_content_changed_for_signature_help(ctx);
                 }
             }
             CodeEditorEvent::VimEscapeInNormalMode => {
@@ -549,6 +554,7 @@ impl LocalCodeEditorView {
             completion_debounce_tx,
             code_actions_state: CodeActionsState::default(),
             code_actions_debounce_tx,
+            signature_help_state: SignatureHelpState::default(),
         };
 
         if let Some(display_mode) = display_mode {
@@ -1973,7 +1979,9 @@ impl LocalCodeEditorView {
         if had_completion {
             self.sync_completion_intercept(ctx);
         }
-        had_refs || had_hover || had_completion
+        let had_sig_help = self.signature_help_state.clear();
+        let had_code_actions = self.code_actions_state.dismiss();
+        had_refs || had_hover || had_completion || had_sig_help || had_code_actions
     }
 
     /// Perform goto definition at the cursor position and navigate directly.
@@ -2245,6 +2253,14 @@ impl View for LocalCodeEditorView {
             self.completion_menu_positioning(app),
         ) {
             stack.add_positioned_overlay_child(completion_menu, positioning);
+        }
+
+        // Render signature help tooltip (above cursor)
+        if let (Some(sig_help), Some(positioning)) = (
+            self.render_signature_help(app),
+            self.signature_help_positioning(app),
+        ) {
+            stack.add_positioned_overlay_child(sig_help, positioning);
         }
 
         // Render code actions menu if open
