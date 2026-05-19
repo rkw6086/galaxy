@@ -42,7 +42,7 @@ use galaxyui::{
 };
 use std::path::{Path, PathBuf};
 
-const MODEL_MENU_WIDTH: f32 = 250.;
+const MODEL_MENU_WIDTH: f32 = 480.;
 
 /// Renders a footer banner for model dropdowns informing free-plan users that
 /// frontier models require an upgrade, with a clickable "Upgrade" link.
@@ -480,21 +480,25 @@ impl ExecutionProfileEditorView {
 
         let base_model_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
+            dropdown.set_top_bar_max_width(MODEL_MENU_WIDTH);
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });
         let coding_model_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
+            dropdown.set_top_bar_max_width(MODEL_MENU_WIDTH);
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });
         let full_terminal_use_model_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
+            dropdown.set_top_bar_max_width(MODEL_MENU_WIDTH);
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });
         let computer_use_model_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = FilterableDropdown::new(ctx);
+            dropdown.set_top_bar_max_width(MODEL_MENU_WIDTH);
             dropdown.set_menu_width(MODEL_MENU_WIDTH, ctx);
             dropdown
         });

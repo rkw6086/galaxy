@@ -185,7 +185,7 @@ impl WarpifyPageView {
         {
             categories.push(
                 Category::new("SSH", vec![Box::new(SSHWidget::default())])
-                    .with_subtitle("Galaxyize your interactive SSH sessions."),
+                    .with_subtitle("Wormhole your interactive SSH sessions."),
             );
         }
         PageType::new_categorized(categories, None)
@@ -532,7 +532,7 @@ impl TitleWidget {
     fn render_top_of_page(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
         let warpify_description = vec![
             FormattedTextFragment::plain_text(
-                "Configure whether Galaxy attempts to \u{201c}Galaxyize\u{201d} (add support for blocks, \
+                "Configure whether Galaxy attempts to \u{201c}Wormhole\u{201d} (add support for blocks, \
                     input modes, etc) certain shells. ",
             ),
             FormattedTextFragment::hyperlink(
@@ -556,7 +556,7 @@ impl TitleWidget {
         .finish();
 
         Flex::column()
-            .with_child(render_page_title("Galaxyize", HEADER_FONT_SIZE, appearance))
+            .with_child(render_page_title("Wormhole", HEADER_FONT_SIZE, appearance))
             .with_child(warpify_description)
             .finish()
     }
@@ -682,7 +682,7 @@ impl SettingsWidget for SSHWidget {
             &WarpifySettings::as_ref(app).enable_ssh_warpification,
             move || {
                 render_body_item::<WarpifyPageAction>(
-                    "Galaxyize SSH Sessions".into(),
+                    "Wormhole SSH Sessions".into(),
                     None,
                     LocalOnlyIconState::for_setting(
                         EnableSshWarpification::storage_key(),

@@ -5,7 +5,11 @@ use super::{
     },
     SettingsSection,
 };
-use crate::{appearance::Appearance, channel::ChannelState, workspace::WorkspaceAction};
+use crate::{
+    appearance::Appearance, channel::ChannelState, settings::app_icon::AppIconSettings,
+    workspace::WorkspaceAction,
+};
+use galaxyui::SingletonEntity;
 use galaxyui::{
     assets::asset_cache::AssetSource,
     elements::{
@@ -62,7 +66,15 @@ impl SettingsWidget for AboutPageWidget {
     ) -> Box<dyn Element> {
         let ui_builder = appearance.ui_builder();
 
-        let image_path = "bundled/svg/galaxy-logo.svg";
+        let icon_file = AppIconSettings::get_base_icon_file_name(*AppIconSettings::as_ref(_app).app_icon);
+        let image_path = match icon_file {
+            "galaxy" => "bundled/png/galaxy.png",
+            "galaxy_dotmatrix" => "bundled/png/galaxy_dotmatrix.png",
+            "galaxy_explorer" => "bundled/png/galaxy_explorer.png",
+            "galaxy_rainbow" => "bundled/png/galaxy_rainbow.png",
+            "galaxy_wormhole" => "bundled/png/galaxy_wormhole.png",
+            _ => "bundled/png/galaxy.png",
+        };
 
         let version =
             ChannelState::app_version().unwrap_or(concat!("v", env!("CARGO_PKG_VERSION")));

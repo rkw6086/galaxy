@@ -24,7 +24,7 @@ use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAuthMethod,
-    BedrockAutoLogin, BedrockCrossRegionInference, BedrockEnabled, BedrockFallbackToWarp,
+    BedrockAutoLogin, BedrockCrossRegionInference, BedrockEnabled,
     CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled, GitOperationsAutogenEnabled,
     IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled, MemoryEnabled,
     NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, RuleSuggestionsEnabled,
@@ -5837,7 +5837,6 @@ mod tests;
 struct BedrockSettingsWidget {
     enabled_toggle: SwitchStateHandle,
     cross_region_toggle: SwitchStateHandle,
-    fallback_toggle: SwitchStateHandle,
     auto_login_toggle: SwitchStateHandle,
     auth_method_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
     profile_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
@@ -6092,7 +6091,6 @@ impl BedrockSettingsWidget {
         Self {
             enabled_toggle: SwitchStateHandle::default(),
             cross_region_toggle: SwitchStateHandle::default(),
-            fallback_toggle: SwitchStateHandle::default(),
             auto_login_toggle: SwitchStateHandle::default(),
             auth_method_dropdown,
             profile_dropdown,
@@ -6163,7 +6161,6 @@ impl SettingsWidget for BedrockSettingsWidget {
         let is_enabled = *ai_settings.bedrock_enabled.value();
         let auth_method = ai_settings.bedrock_auth_method.value().clone();
         let cross_region = *ai_settings.bedrock_cross_region_inference.value();
-        let fallback = *ai_settings.bedrock_fallback_to_warp.value();
         let auto_login = *ai_settings.bedrock_auto_login.value();
 
         let mut column = Flex::column().with_spacing(16.);
@@ -6297,24 +6294,6 @@ impl SettingsWidget for BedrockSettingsWidget {
                 .finish(),
         );
 
-        column.add_child(
-            Flex::column()
-                .with_child(render_ai_setting_toggle::<BedrockFallbackToWarp>(
-                    "Fallback to Warp server",
-                    AISettingsPageAction::ToggleBedrockFallbackToWarp,
-                    fallback,
-                    is_enabled,
-                    self.fallback_toggle.clone(),
-                    &RefCell::new(HashMap::new()),
-                    app,
-                ))
-                .with_child(render_ai_setting_description(
-                    "When enabled, requests will route through the Warp server if Bedrock credentials are invalid.",
-                    is_enabled,
-                    app,
-                ))
-                .finish(),
-        );
 
         column.add_child(render_separator(appearance));
 

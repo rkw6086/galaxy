@@ -8,15 +8,15 @@ use galaxyui::ViewContext;
 use super::view::Workspace;
 use crate::pane_group::{AnyPaneContent, FilePane};
 
-const WARP_HOME_TITLE: &str = "Welcome to Warp on Web";
+const WARP_HOME_TITLE: &str = "Welcome to Galaxy on Web";
 const WARP_HOME_CONTENT: &str = r#"
-Welcome to Warp on Web - your browser-based home for Warp! 
-Use Warp on Web to:
+Welcome to Galaxy on Web - your browser-based home for Galaxy!
+Use Galaxy on Web to:
 * Join Shared Sessions
-* Create, View, and Edit Warp Drive Objects
-* Manage your Warp Settings
+* Create, View, and Edit Galaxy Drive Objects
+* Manage your Galaxy Settings
 
-Warp on Web can also be used by your teammates and peers who don't have Warp downloaded yet to view your shared sessions, notebooks, and workflows."#;
+Galaxy on Web can also be used by your teammates and peers who don't have Galaxy downloaded yet to view your shared sessions, notebooks, and workflows."#;
 
 /// Create a static "home page" pane.
 pub fn create_home_pane(ctx: &mut ViewContext<Workspace>) -> Box<dyn AnyPaneContent> {

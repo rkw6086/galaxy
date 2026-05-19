@@ -224,9 +224,9 @@ impl AppearanceManager {
             // revert to the icon we started up with. We therefore need to use an in-memory
             // override to display the default icon. This has the drawback of _not_ inheriting the
             // preferred icon style, but that icon style _will_ apply on next app restart.
-            if icon == AppIcon::Default
+            if icon == AppIcon::Galaxy
                 && ChannelState::channel() != Channel::Local
-                && self.app_icon_at_startup == AppIcon::Default
+                && self.app_icon_at_startup == AppIcon::Galaxy
             {
                 log::debug!("User has default icon selected, resetting to bundle default");
                 // Reset to nil to use the bundle's default icon

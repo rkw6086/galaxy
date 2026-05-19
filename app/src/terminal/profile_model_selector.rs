@@ -65,7 +65,7 @@ use galaxy_core::{
     ui::color::{coloru_with_opacity, Opacity},
 };
 
-const MENU_WIDTH: f32 = 280.;
+const MENU_WIDTH: f32 = 480.;
 const NEW_MODEL_CHOICES_POPUP_DELAY: Duration = Duration::from_millis(500);
 const BLURRED_OPACITY: Opacity = 50;
 const SEPARATOR_WIDTH: f32 = 1.0;
@@ -1708,7 +1708,7 @@ impl ProfileModelSelector {
         let theme = appearance.theme();
         let header = self.render_model_spec_header(
             "Model Specs".to_string(),
-            "Warp’s benchmarks for how well a model performs in our harness, the rate at which it consumes credits, and task speed.".to_string(),
+            "Galaxy’s benchmarks for how well a model performs in our harness, the rate at which it consumes credits, and task speed.".to_string(),
             app,
         );
         let spec = self.render_all_model_spec_values(

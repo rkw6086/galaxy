@@ -239,7 +239,7 @@ impl Display for SettingsSection {
             SettingsSection::Knowledge => write!(f, "Knowledge"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Bedrock => write!(f, "AWS Bedrock"),
-            SettingsSection::Warpify => write!(f, "Galaxyize"),
+            SettingsSection::Warpify => write!(f, "Wormhole"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
             _ => write!(f, "{self:?}"),
@@ -318,7 +318,7 @@ impl FromStr for SettingsSection {
             "Features" => Ok(Self::Features),
             "Keyboard shortcuts" => Ok(Self::Keybindings),
             "Privacy" => Ok(Self::Privacy),
-            "Warpify" | "Galaxyize" => Ok(Self::Warpify),
+            "Warpify" | "Wormhole" => Ok(Self::Warpify),
             "WarpDrive" | "Warp Drive" | "Galaxy Drive" => Ok(Self::WarpDrive),
             // This page was called "Oz" at one point, keep for backward compatibility.
             "Oz" | "Warp Agent" | "Galaxy Agent" => Ok(Self::WarpAgent),
