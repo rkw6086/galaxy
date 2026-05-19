@@ -211,6 +211,9 @@ impl BedrockDiagnosticLogger {
     }
 
     pub fn dump_error_snapshot(&self, error: &str, debug_error: &str) -> Option<PathBuf> {
+        if !is_enabled() {
+            return None;
+        }
         let conversation_id = self
             .conversation_id
             .lock()

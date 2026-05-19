@@ -37,9 +37,9 @@ Environment variables:
 - `find . -name "*.wgsl" -exec wgslfmt --check {} +` - Check WGSL shader formatting
 
 ### Bedrock Diagnostics
-- Bedrock request or stream failures automatically write `Error_<timestamp>.txt` to the repository root.
-- The error snapshot file includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails.
-- Set `GALAXY_BEDROCK_DIAGNOSTICS=1` to additionally write per-event Bedrock diagnostic logs to `bedrock-diagnostics.log` in the active Warp log directory.
+- Set `GALAXY_BEDROCK_DIAGNOSTICS=1` to enable Bedrock diagnostic output, including:
+  - `Error_<timestamp>.txt` snapshot files written to the repository root on request/stream failures (includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails)
+  - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup (calls platform-specific bootstrap scripts)
