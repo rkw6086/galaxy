@@ -5,7 +5,7 @@ description = "Galaxy - AI-powered terminal"
 edition = "2021"
 autobins = false
 name = "galaxy"
-version = "1.1.0"
+version = "1.2.0"
 publish.workspace = true
 license.workspace = true
 

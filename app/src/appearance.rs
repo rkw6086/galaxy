@@ -239,32 +239,16 @@ impl AppearanceManager {
             let icon_name = AppIconSettings::get_base_icon_file_name(icon);
 
             log::debug!("Setting app icon in memory to: {icon_name}");
-            // Locate the plugin bundle.
-            let plugins_path: id = msg_send![bundle, builtInPlugInsPath];
-            let plugin_name = make_nsstring("WarpDockTilePlugin.docktileplugin");
-            let plugin_path: id =
-                msg_send![plugins_path, stringByAppendingPathComponent: plugin_name];
-            let plugin_bundle: id = msg_send![class!(NSBundle), bundleWithPath: plugin_path];
-
-            if plugin_bundle == nil {
-                log::warn!("Failed to get dock tile plugin bundle");
+            // Load icon from the compiled-in assets.
+            let asset_path = format!("bundled/png/{icon_name}.png");
+            let Ok(icon_data) = crate::ASSETS.get(&asset_path) else {
+                log::warn!("Failed to load icon asset: {asset_path}");
                 return;
-            }
+            };
 
-            // Read the images from the plugin bundle.
-            let image_name = make_nsstring(icon_name);
-            let extension = make_nsstring("png");
-            let image_path: id =
-                msg_send![plugin_bundle, pathForResource:image_name ofType:extension];
-
-            if image_path == nil {
-                log::warn!("Failed to get image path for icon: {icon_name}");
-                return;
-            }
-
-            // Create the image from the file.
+            let ns_data: id = msg_send![class!(NSData), dataWithBytes:icon_data.as_ptr() length:icon_data.len()];
             let image: id = msg_send![class!(NSImage), alloc];
-            let image: id = msg_send![image, initWithContentsOfFile:image_path];
+            let image: id = msg_send![image, initWithData:ns_data];
 
             if image == nil {
                 log::warn!("Failed to create image for icon: {icon_name}");

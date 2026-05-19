@@ -62,6 +62,8 @@ embed_plist::embed_info_plist_bytes!(r#"
     <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxyai</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026, Samsung Electronics Co., Ltd.</string>
+    <key>NSDockTilePlugIn</key>
+    <string>GalaxyDockTilePlugin.docktileplugin</string>
     </dict>
     </plist>
 "#.as_bytes());

@@ -5,7 +5,7 @@
     <key>CFBundleIdentifier</key>
     <string>samsung.galaxy.GalaxyDockTilePlugin</string>
     <key>CFBundleExecutable</key>
-    <string>WarpDockTilePlugin</string>
+    <string>GalaxyDockTilePlugin</string>
     <key>CFBundleName</key>
     <string>GalaxyDockTilePlugin</string>
     <key>CFBundlePackageType</key>
@@ -15,7 +15,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>NSPrincipalClass</key>
-    <string>WarpDockTilePlugin</string>
+    <string>GalaxyDockTilePlugIn</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
 </dict>
