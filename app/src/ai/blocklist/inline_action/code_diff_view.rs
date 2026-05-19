@@ -1536,9 +1536,10 @@ impl CodeDiffView {
             .with_main_axis_alignment(MainAxisAlignment::Start)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
-        if let Some(title) = &self.title {
+        {
+            let title_text = self.title.as_deref().unwrap_or("File changes");
             let title = Text::new_inline(
-                title.to_string(),
+                title_text.to_string(),
                 appearance.ui_font_family(),
                 appearance.monospace_font_size(),
             )
@@ -1763,9 +1764,10 @@ impl CodeDiffView {
         }
 
         let mut col = Flex::column();
-        if let Some(title) = &self.title {
+        {
+            let title_text = self.title.as_deref().unwrap_or("File changes");
             let title = Text::new_inline(
-                title.to_string(),
+                title_text.to_string(),
                 appearance.ui_font_family(),
                 appearance.monospace_font_size() + 2.,
             )

@@ -12,7 +12,7 @@ mod macos_app_icon {
         base::{id, nil},
     };
     pub use galaxy_core::channel::{Channel, ChannelState};
-    pub use galaxyui::platform::mac::{make_nsstring, AutoreleasePoolGuard};
+    pub use galaxyui::platform::mac::AutoreleasePoolGuard;
     pub use objc::{class, msg_send, sel, sel_impl};
 
     pub use crate::settings::app_icon::{AppIcon, AppIconSettings, AppIconSettingsChangedEvent};

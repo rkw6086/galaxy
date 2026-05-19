@@ -805,6 +805,7 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
     prompt.push_str("- `suggest_next_prompt`: After completing a task, suggest a follow-up action the user might want.\n\n");
 
     prompt.push_str("## Guidelines\n");
+    prompt.push_str("- You ALWAYS have access to run shell commands via `run_shell_command`. Never tell the user you cannot execute commands — use the tool directly.\n");
     prompt.push_str(
         "- ALWAYS use tools to explore the codebase before answering questions about code.\n",
     );
