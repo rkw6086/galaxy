@@ -261,7 +261,6 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         access_key_id: String::new(),
         secret_access_key: String::new(),
         cross_region_inference: false,
-        fallback_to_warp: false,
     })
 }
 
@@ -555,6 +554,7 @@ impl AgentSimulation {
                 8192,
                 None,
                 false,
+                None,
                 None,
                 Arc::new(Mutex::new(Vec::new())),
             )
@@ -1142,6 +1142,7 @@ async fn test_reasoning_model_produces_substantial_output() {
             None,
             false,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1264,6 +1265,7 @@ async fn test_event_sequence_matches_controller_expectations() {
             None,
             false,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1378,6 +1380,7 @@ async fn test_followup_turn_does_not_send_create_task() {
             None,
             false,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1460,6 +1463,7 @@ async fn run_slash_command_test(
             4096,
             None,
             true,
+            None,
             None,
             Arc::new(Mutex::new(Vec::new())),
         )
@@ -1688,6 +1692,7 @@ async fn test_slash_resume_conversation() {
             None,
             true,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1799,6 +1804,7 @@ async fn test_empty_messages_safety_check() {
             None,
             true,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await
@@ -1866,9 +1872,9 @@ async fn test_full_proto_round_trip_with_tool_history() {
         &model,
     );
 
-    let messages = super::convert_request::extract_messages_from_request(&request);
-    let system_prompt = super::convert_request::extract_system_prompt(&request);
-    let tools = super::convert_request::extract_tools(&request);
+    let messages = super::request_translator::extract_messages_from_request(&request);
+    let system_prompt = super::request_translator::extract_system_prompt(&request);
+    let tools = super::request_translator::extract_tools(&request);
 
     println!("\n=== FULL PROTO ROUND-TRIP TEST ===");
     println!("Extracted {} messages:", messages.len());
@@ -1959,6 +1965,7 @@ async fn test_full_proto_round_trip_with_tool_history() {
             None,
             true,
             None,
+            None,
             Arc::new(Mutex::new(Vec::new())),
         )
         .await;
@@ -2043,7 +2050,7 @@ async fn test_proto_tool_call_id_mapping() {
         "",
     );
 
-    let messages = super::convert_request::extract_messages_from_request(&request);
+    let messages = super::request_translator::extract_messages_from_request(&request);
 
     println!("\n=== PROTO TOOL_CALL_ID MAPPING TEST ===");
     for (i, msg) in messages.iter().enumerate() {
@@ -2133,7 +2140,7 @@ async fn test_tool_call_id_uses_proto_field_not_message_id() {
         mcp_context: None,
     };
 
-    let messages = super::convert_request::extract_messages_from_request(&request);
+    let messages = super::request_translator::extract_messages_from_request(&request);
 
     let tool_use_msg = messages
         .iter()

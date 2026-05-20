@@ -16,6 +16,7 @@ use galaxy_core::ui::appearance::Appearance;
 use serde::{Deserialize, Serialize};
 
 pub mod manager;
+pub mod predefined_rules;
 pub mod view;
 pub use manager::AIFactManager;
 pub use view::{AIFactView, AIFactViewEvent};

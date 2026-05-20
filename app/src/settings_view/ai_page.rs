@@ -2081,7 +2081,6 @@ pub enum AISettingsPageAction {
     SetBedrockAuthMethod(BedrockAuthMethod),
     SetBedrockProfile(String),
     ToggleBedrockCrossRegionInference,
-    ToggleBedrockFallbackToWarp,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -2742,7 +2741,6 @@ impl TypedActionView for AISettingsPageView {
                         access_key_id: ai_settings.bedrock_access_key_id.value().clone(),
                         secret_access_key: ai_settings.bedrock_secret_access_key.value().clone(),
                         cross_region_inference: *ai_settings.bedrock_cross_region_inference.value(),
-                        fallback_to_warp: *ai_settings.bedrock_fallback_to_warp.value(),
                     }.with_external_fallbacks();
 
                     ctx.spawn(
@@ -2778,12 +2776,6 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings
                         .bedrock_cross_region_inference
                         .toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::ToggleBedrockFallbackToWarp => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.bedrock_fallback_to_warp.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }

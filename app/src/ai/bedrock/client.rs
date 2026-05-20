@@ -11,7 +11,7 @@ use super::external_config::ExternalBedrockConfig;
 use super::convert::{build_converse_request, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::models::apply_cross_region_prefix;
-use super::stream::bedrock_stream_to_response_events;
+use super::response_translator::bedrock_stream_to_response_events;
 use crate::ai::agent::api::ResponseStream;
 
 pub struct BedrockClient {
@@ -27,7 +27,6 @@ pub struct BedrockClientConfig {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub cross_region_inference: bool,
-    pub fallback_to_warp: bool,
 }
 
 impl BedrockClientConfig {
@@ -63,8 +62,6 @@ pub enum BedrockError {
     CredentialsNotConfigured,
     #[error("Bedrock region not configured and could not be auto-detected")]
     RegionNotConfigured,
-    #[error("AWS credential error: {0}")]
-    CredentialError(String),
     #[error("Bedrock API error: {0}")]
     ApiError(String),
     #[error("Model not found: {0}")]
@@ -140,6 +137,7 @@ impl BedrockClient {
         max_tokens: i32,
         temperature: Option<f32>,
         cross_region_inference: bool,
+        user_query: Option<String>,
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
         messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     ) -> Result<ResponseStream, BedrockError> {
@@ -226,16 +224,11 @@ impl BedrockClient {
             output,
             task_id.to_string(),
             needs_create_task,
+            user_query,
             diagnostic_logger,
             messages_sent,
+            effective_model_id,
         )))
     }
 
-    pub fn runtime_client(&self) -> &BedrockRuntimeClient {
-        &self.runtime_client
-    }
-
-    pub fn region(&self) -> &str {
-        &self.region
-    }
 }

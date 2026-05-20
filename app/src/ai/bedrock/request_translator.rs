@@ -1,9 +1,37 @@
-#![allow(dead_code, unused_imports, unused_variables, deprecated)]
 use warp_multi_agent_api as api;
 
 use super::convert::{
     ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
 };
+
+/// Convert a prost_types::Struct to a serde_json::Value for tool input schemas.
+fn prost_struct_to_json(s: &prost_types::Struct) -> serde_json::Value {
+    struct_to_value(s)
+}
+
+fn struct_to_value(s: &prost_types::Struct) -> serde_json::Value {
+    let map: serde_json::Map<String, serde_json::Value> = s
+        .fields
+        .iter()
+        .map(|(k, v)| (k.clone(), prost_value_to_json(v)))
+        .collect();
+    serde_json::Value::Object(map)
+}
+
+fn prost_value_to_json(v: &prost_types::Value) -> serde_json::Value {
+    use prost_types::value::Kind;
+    match &v.kind {
+        Some(Kind::NullValue(_)) => serde_json::Value::Null,
+        Some(Kind::NumberValue(n)) => serde_json::json!(n),
+        Some(Kind::StringValue(s)) => serde_json::Value::String(s.clone()),
+        Some(Kind::BoolValue(b)) => serde_json::Value::Bool(*b),
+        Some(Kind::StructValue(s)) => struct_to_value(s),
+        Some(Kind::ListValue(l)) => {
+            serde_json::Value::Array(l.values.iter().map(prost_value_to_json).collect())
+        }
+        None => serde_json::Value::Null,
+    }
+}
 
 /// Extract new input messages from the current request and convert them directly
 /// to ConversationMessage format for the Bedrock message history.
@@ -169,6 +197,37 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
     results
 }
 
+/// Extract the user's query text from the request input (if present).
+/// Used to emit a UserQuery proto message in the stream for persistence.
+pub fn extract_user_query_text(request: &api::Request) -> Option<String> {
+    let input = request.input.as_ref()?;
+    let input_type = input.r#type.as_ref()?;
+
+    match input_type {
+        api::request::input::Type::UserInputs(user_inputs) => {
+            for user_input in &user_inputs.inputs {
+                if let Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) =
+                    &user_input.input
+                {
+                    if !query.query.is_empty() {
+                        return Some(query.query.clone());
+                    }
+                }
+            }
+            None
+        }
+        #[allow(deprecated)]
+        api::request::input::Type::UserQuery(query) => {
+            if !query.query.is_empty() {
+                Some(query.query.clone())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 /// For the Bedrock direct path: inject all input messages (user queries and tool call
 /// results) into the task's messages so they persist in conversation history for future
 /// requests. Without this, inputs are lost after the current request cycle because they
@@ -224,6 +283,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
         .map(|t| t.id.clone())
         .unwrap_or_default();
 
+    #[allow(deprecated)]
     match input_type {
         api::request::input::Type::UserInputs(user_inputs) => {
             for user_input in &user_inputs.inputs {
@@ -322,152 +382,6 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
     }
 
     results
-}
-
-pub fn extract_messages_from_request(request: &api::Request) -> Vec<ConversationMessage> {
-    let mut messages = Vec::new();
-
-    if let Some(task_context) = &request.task_context {
-        log::info!(
-            "[bedrock-debug] extract_messages: {} tasks in task_context",
-            task_context.tasks.len()
-        );
-        for task in &task_context.tasks {
-            log::info!(
-                "[bedrock-debug] extract_messages: task '{}' has {} messages",
-                task.id,
-                task.messages.len()
-            );
-            for msg in &task.messages {
-                let msg_type = msg
-                    .message
-                    .as_ref()
-                    .map(|m| match m {
-                        api::message::Message::UserQuery(_) => "UserQuery",
-                        api::message::Message::AgentOutput(_) => "AgentOutput",
-                        api::message::Message::ToolCall(_) => "ToolCall",
-                        api::message::Message::ToolCallResult(_) => "ToolCallResult",
-                        api::message::Message::AgentReasoning(_) => "AgentReasoning",
-                        _ => "Other",
-                    })
-                    .unwrap_or("None");
-                log::info!(
-                    "[bedrock-debug] extract_messages:   msg id='{}' type={}",
-                    msg.id,
-                    msg_type
-                );
-                if let Some(converted) = convert_proto_message(msg) {
-                    messages.push(converted);
-                }
-            }
-        }
-    } else {
-        log::warn!("[bedrock-debug] extract_messages: NO task_context in request!");
-    }
-
-    if let Some(input) = &request.input {
-        if let Some(input_type) = &input.r#type {
-            #[allow(deprecated)]
-            match input_type {
-                // UserInputs (UserQuery + ToolCallResult) are already injected
-                // into task messages by inject_input_messages_into_task().
-                api::request::input::Type::UserInputs(_) => {}
-                api::request::input::Type::UserQuery(_) => {}
-                api::request::input::Type::ToolCallResult(_) => {}
-                api::request::input::Type::InitProjectRules(_) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(
-                            "Initialize this project. Analyze the codebase structure and files, \
-                             generate an AGENTS.md file documenting project conventions and setup \
-                             instructions, and offer to create a development environment configuration. \
-                             Use the available tools to inspect the project before responding."
-                                .to_string(),
-                        ),
-                    });
-                }
-                api::request::input::Type::CreateEnvironment(env) => {
-                    let repo_info = if env.repo_paths.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" Repositories: {}", env.repo_paths.join(", "))
-                    };
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(format!(
-                            "Create a development environment for this project. \
-                             Set up necessary dependencies, configuration files, and tooling.{}",
-                            repo_info
-                        )),
-                    });
-                }
-                api::request::input::Type::CreateNewProject(project) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(format!(
-                            "Create a new project: {}",
-                            project.query
-                        )),
-                    });
-                }
-                api::request::input::Type::CloneRepository(repo) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(format!(
-                            "Clone the repository at {} and set it up for development.",
-                            repo.url
-                        )),
-                    });
-                }
-                api::request::input::Type::AutoCodeDiffQuery(diff) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(format!(
-                            "Apply code changes: {}",
-                            diff.query
-                        )),
-                    });
-                }
-                api::request::input::Type::ResumeConversation(_) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(
-                            "Continue where we left off. Review the conversation history and proceed with the next steps."
-                                .to_string(),
-                        ),
-                    });
-                }
-                api::request::input::Type::QueryWithCannedResponse(canned) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(canned.query.clone()),
-                    });
-                }
-                api::request::input::Type::CodeReview(_) => {
-                    messages.push(ConversationMessage {
-                        role: MessageRole::User,
-                        content: MessageContent::Text(
-                            "Review the following code changes and provide detailed feedback on correctness, style, and potential issues."
-                                .to_string(),
-                        ),
-                    });
-                }
-                _ => {}
-            }
-        }
-    }
-
-    ensure_starts_with_user_message(&mut messages);
-    ensure_tool_results_paired(&mut messages);
-    log::info!(
-        "[bedrock-debug] extract_messages: TOTAL {} messages to send to Bedrock (User={}, Assistant={}, ToolResult={}, ToolUse={})",
-        messages.len(),
-        messages.iter().filter(|m| m.role == MessageRole::User && matches!(&m.content, MessageContent::Text(_))).count(),
-        messages.iter().filter(|m| m.role == MessageRole::Assistant && matches!(&m.content, MessageContent::Text(_))).count(),
-        messages.iter().filter(|m| matches!(&m.content, MessageContent::ToolResult { .. })).count(),
-        messages.iter().filter(|m| matches!(&m.content, MessageContent::ToolUse { .. })).count(),
-    );
-    messages
 }
 
 /// Sanitizes a message list to satisfy Bedrock Converse API invariants:
@@ -791,86 +705,74 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
         }
     }
 
-    prompt.push_str("## Tools\nYou have access to the following tools. Use them proactively to explore codebases and complete tasks:\n");
-    prompt.push_str("- `run_shell_command`: Execute shell commands. Use absolute paths based on the working directory.\n");
-    prompt.push_str(
-        "- `read_files`: Read file contents. Pass all files you need in a single call.\n",
-    );
-    prompt.push_str("- `apply_file_diffs`: Apply search/replace edits to files.\n");
-    prompt.push_str("- `grep`: Search for patterns in files. Pass all patterns in one call.\n");
-    prompt.push_str(
-        "- `file_glob`: Find files matching glob patterns. Pass all patterns in one call.\n",
-    );
-    prompt.push_str("- `get_tool_documentation`: Get detailed documentation for any tool or system capabilities.\n");
-    prompt.push_str("- `suggest_next_prompt`: After completing a task, suggest a follow-up action the user might want.\n\n");
-
-    prompt.push_str("## Guidelines\n");
-    prompt.push_str("- You ALWAYS have access to run shell commands via `run_shell_command`. Never tell the user you cannot execute commands — use the tool directly.\n");
-    prompt.push_str(
-        "- ALWAYS use tools to explore the codebase before answering questions about code.\n",
-    );
+    prompt.push_str("## Tool Usage\n");
+    prompt.push_str("You have been given every tool you need to complete your tasks. Use them to achieve results with as few calls and as little back-and-forth as possible.\n\n");
+    prompt.push_str("**How to choose tools:**\n");
+    prompt.push_str("- For reading, writing, searching, and navigating files on the local filesystem, use your filesystem tools (`read_files`, `file_glob`, `grep`, `apply_file_diffs`).\n");
+    prompt.push_str("- For running commands, installing packages, building, testing, and any shell operation, use `run_shell_command`.\n");
+    prompt.push_str("- For tasks that require interacting with external services, web UIs, or capabilities not covered by your filesystem and shell tools, use your MCP tools.\n");
+    prompt.push_str("- For complex multi-step tasks where a single script would replace many tool calls, write code (Python, Node, bash) via `run_shell_command` to reduce round-trips. But never use scripts for simple operations that a single command handles.\n\n");
+    prompt.push_str("**Critical rules:**\n");
+    prompt.push_str("- Use ONLY the tools in your tool configuration. Never invent or guess tool names.\n");
+    prompt.push_str("- ALWAYS pass `--no-pager` (or equivalent) flags to CLI tools like git, less, man, etc. Tools that lock stdin will freeze the session.\n");
+    prompt.push_str("- Output text directly in your response instead of using `echo` — echo requires user approval and adds unnecessary friction.\n");
     prompt.push_str("- Use absolute paths based on the working directory shown above.\n");
-    prompt.push_str("- When asked about a project, start by listing files with `file_glob` or `run_shell_command`.\n");
-    prompt
-        .push_str("- Read relevant files before making claims about code structure or behavior.\n");
-    prompt.push_str("- Be concise and direct in responses.\n");
-    prompt.push_str("- IMPORTANT: After EVERY response, you MUST call `suggest_next_prompt` to suggest a relevant follow-up action or question the user might want to take next.\n");
+    prompt.push_str("- Be logical in your tool choices. Read files before making claims about code. List files before assuming project structure.\n");
+    prompt.push_str("- Be concise and direct.\n");
 
     Some(prompt)
 }
 
 pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
-    let mut tools = Vec::new();
-    let mut seen_names = std::collections::HashSet::new();
+    // Always start with the full set of default tools.
+    let mut tools = default_tool_definitions();
+    let mut seen_names: std::collections::HashSet<String> =
+        tools.iter().map(|t| t.name.clone()).collect();
 
-    if let Some(task_context) = &request.task_context {
-        for task in &task_context.tasks {
-            for msg in &task.messages {
-                if let Some(api::message::Message::ToolCall(tool_call)) = &msg.message {
-                    let (name, _) = extract_tool_call_info(tool_call);
-                    if name != "unknown_tool" && seen_names.insert(name.clone()) {
-                        tools.push(tool_definition_for_name(&name));
-                    }
+    // Include MCP tools from connected servers so the model can invoke them.
+    if let Some(mcp_context) = &request.mcp_context {
+        for server in &mcp_context.servers {
+            for tool in &server.tools {
+                let name = format!("mcp__{}__{}", server.name, tool.name);
+                if seen_names.insert(name.clone()) {
+                    let input_schema = tool
+                        .input_schema
+                        .as_ref()
+                        .map(|s| prost_struct_to_json(s))
+                        .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
+                    tools.push(ToolDefinition {
+                        name,
+                        description: if tool.description.is_empty() {
+                            format!("MCP tool from {} server", server.name)
+                        } else {
+                            tool.description.clone()
+                        },
+                        input_schema,
+                    });
                 }
             }
         }
-    }
-
-    if let Some(input) = &request.input {
-        if let Some(input_type) = &input.r#type {
-            #[allow(deprecated)]
-            match input_type {
-                api::request::input::Type::UserInputs(user_inputs) => {
-                    for user_input in &user_inputs.inputs {
-                        if let Some(
-                            api::request::input::user_inputs::user_input::Input::ToolCallResult(_),
-                        ) = &user_input.input
-                        {
-                            break;
-                        }
-                    }
-                }
-                api::request::input::Type::ToolCallResult(_) => {}
-                _ => {}
+        // Also handle flat (deprecated) tool list
+        #[allow(deprecated)]
+        for tool in &mcp_context.tools {
+            let name = format!("mcp__{}", tool.name);
+            if seen_names.insert(name.clone()) {
+                let input_schema = tool
+                    .input_schema
+                    .as_ref()
+                    .map(|s| prost_struct_to_json(s))
+                    .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
+                tools.push(ToolDefinition {
+                    name,
+                    description: if tool.description.is_empty() {
+                        "MCP tool".to_string()
+                    } else {
+                        tool.description.clone()
+                    },
+                    input_schema,
+                });
             }
         }
-    }
-
-    if tools.is_empty() {
-        let messages = extract_messages_from_request(request);
-        let has_tool_content = messages.iter().any(|m| {
-            matches!(
-                m.content,
-                MessageContent::ToolUse { .. } | MessageContent::ToolResult { .. }
-            )
-        });
-        if has_tool_content {
-            tools = default_tool_definitions();
-        }
-    }
-
-    if tools.is_empty() {
-        tools = default_tool_definitions();
     }
 
     // Filter out suggest_next_prompt — its action executor waits on a oneshot
@@ -881,183 +783,215 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
     tools
 }
 
-fn tool_definition_for_name(name: &str) -> ToolDefinition {
-    match name {
-        "run_shell_command" => ToolDefinition {
+pub fn default_tool_definitions() -> Vec<ToolDefinition> {
+    vec![
+        ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command and return its output.".to_string(),
+            description: "Execute a shell command in the user's terminal and return its output. Use for running builds, tests, git operations, installing packages, or any shell operation. Commands run in the user's actual shell with their environment. Set is_read_only=true for read-only commands (ls, cat, git status) to enable auto-execution. Always use --no-pager for git commands.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "The shell command to execute" }
+                    "command": { "type": "string", "description": "The shell command to execute" },
+                    "is_read_only": { "type": "boolean", "description": "True if command only reads data and makes no changes" },
+                    "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" }
                 },
                 "required": ["command"]
             }),
         },
-        "read_files" => ToolDefinition {
+        ToolDefinition {
             name: "read_files".to_string(),
-            description: "Read the contents of one or more files. ALWAYS pass all files you need in a single call rather than making multiple separate calls.".to_string(),
+            description: "Read the contents of one or more files. Pass ALL file paths you need in a single call for efficiency. Returns file contents with path headers. Binary files are detected and skipped. Use absolute paths.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "files": { "type": "array", "items": { "type": "string" }, "description": "File paths to read. Include ALL files you need in one call for efficiency." }
+                    "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute file paths to read" }
                 },
                 "required": ["files"]
             }),
         },
-        "apply_file_diffs" => ToolDefinition {
+        ToolDefinition {
             name: "apply_file_diffs".to_string(),
-            description: "Apply search/replace diffs to files.".to_string(),
+            description: "Apply search/replace edits to files. Creates files if they don't exist (use empty search string). The search string must uniquely match one location in the file. Include enough surrounding context for uniqueness. For new files, use search=\"\" and put full content in replace.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "file_path": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["file_path", "search", "replace"] } }
+                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "file_path": { "type": "string", "description": "Absolute path to the file" }, "search": { "type": "string", "description": "Exact text to find (must match uniquely). Empty string to create a new file." }, "replace": { "type": "string", "description": "Text to replace with" } }, "required": ["file_path", "search", "replace"] }, "description": "Array of file edits to apply" }
                 },
                 "required": ["diffs"]
             }),
         },
-        "grep" => ToolDefinition {
+        ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for patterns in files. Pass all search patterns in one call.".to_string(),
+            description: "Search for regex patterns in files. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns file paths and matching line numbers. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "queries": { "type": "array", "items": { "type": "string" }, "description": "Search patterns. Include ALL patterns you need in one call." },
-                    "path": { "type": "string", "description": "Directory to search in" }
+                    "queries": { "type": "array", "items": { "type": "string" }, "description": "Regex patterns to search for" },
+                    "path": { "type": "string", "description": "Directory to scope the search to" }
                 },
                 "required": ["queries"]
             }),
         },
-        "file_glob" => ToolDefinition {
+        ToolDefinition {
             name: "file_glob".to_string(),
-            description: "Find files matching glob patterns. Pass all patterns in one call.".to_string(),
+            description: "Find files matching glob patterns. Uses git ls-files in git repos. Returns absolute file paths of matches. Common patterns: '**/*.rs', 'src/**/*.ts', '**/Cargo.toml'. Pass ALL patterns in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "patterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to match" }
+                    "patterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to match files" },
+                    "path": { "type": "string", "description": "Directory to search from" }
                 },
                 "required": ["patterns"]
             }),
         },
-        "suggest_next_prompt" => ToolDefinition {
-            name: "suggest_next_prompt".to_string(),
-            description: "After completing a task, suggest a relevant follow-up prompt the user might want to try next. Use this to suggest a natural next step based on what was just accomplished.".to_string(),
+        ToolDefinition {
+            name: "search_codebase".to_string(),
+            description: "Semantic code search across the indexed codebase. Use for finding relevant code by meaning rather than exact text match. Better than grep for conceptual queries like 'authentication logic' or 'error handling for database connections'.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "prompt": { "type": "string", "description": "The suggested prompt text that will be sent to the agent if the user accepts" },
-                    "label": { "type": "string", "description": "Short display label for the suggestion chip (keep under 40 chars)" }
+                    "query": { "type": "string", "description": "Natural language search query describing what you're looking for" },
+                    "path": { "type": "string", "description": "Optional directory path to narrow search scope" }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDefinition {
+            name: "write_to_long_running_shell_command".to_string(),
+            description: "Send input (stdin) to a currently running shell command. Use this to interact with commands that are waiting for input, like interactive prompts, REPLs, or commands that accept piped input.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "input": { "type": "string", "description": "Text to send as stdin to the running command" }
+                },
+                "required": ["input"]
+            }),
+        },
+        ToolDefinition {
+            name: "read_shell_command_output".to_string(),
+            description: "Read the latest output from a previously started long-running shell command. Use to check progress or get results from commands that are still running.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        ToolDefinition {
+            name: "read_mcp_resource".to_string(),
+            description: "Read a resource from a connected MCP (Model Context Protocol) server. Resources provide context like database schemas, API docs, or live system state.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "server_id": { "type": "string", "description": "MCP server identifier" },
+                    "uri": { "type": "string", "description": "Resource URI to read" }
+                },
+                "required": ["server_id", "uri"]
+            }),
+        },
+        ToolDefinition {
+            name: "read_documents".to_string(),
+            description: "Read the contents of one or more Galaxy notebook documents by their IDs.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Document IDs to read" }
+                },
+                "required": ["document_ids"]
+            }),
+        },
+        ToolDefinition {
+            name: "create_documents".to_string(),
+            description: "Create new Galaxy notebook documents with the specified title and content.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Documents to create" }
+                },
+                "required": ["documents"]
+            }),
+        },
+        ToolDefinition {
+            name: "edit_documents".to_string(),
+            description: "Edit existing Galaxy notebook documents using search/replace diffs.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to documents" }
+                },
+                "required": ["diffs"]
+            }),
+        },
+        ToolDefinition {
+            name: "start_agent".to_string(),
+            description: "Start a sub-agent to handle a specific task autonomously. Use for delegating independent work that can run in parallel. The agent gets its own conversation context and tool access.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Name for the sub-agent (used for identification)" },
+                    "prompt": { "type": "string", "description": "The task/instructions for the sub-agent to execute" }
+                },
+                "required": ["name", "prompt"]
+            }),
+        },
+        ToolDefinition {
+            name: "send_message_to_agent".to_string(),
+            description: "Send a message to a running sub-agent. Use to provide additional context, ask for updates, or redirect the agent's work.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "agent_id": { "type": "string", "description": "ID of the target sub-agent" },
+                    "message": { "type": "string", "description": "Message to send to the agent" }
+                },
+                "required": ["agent_id", "message"]
+            }),
+        },
+        ToolDefinition {
+            name: "ask_user_question".to_string(),
+            description: "Ask the user a question when you need clarification or a decision. Present clear options when possible. Use sparingly — prefer making reasonable assumptions.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "question": { "type": "string", "description": "The question to ask the user" },
+                    "options": { "type": "array", "items": { "type": "string" }, "description": "Optional multiple-choice options to present" }
+                },
+                "required": ["question"]
+            }),
+        },
+        ToolDefinition {
+            name: "suggest_next_prompt".to_string(),
+            description: "After completing a task, suggest a relevant follow-up action. Only call once at the end of your response. Keep labels concise and action-oriented.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "prompt": { "type": "string", "description": "The full prompt text sent to the agent if the user clicks" },
+                    "label": { "type": "string", "description": "Short display label (under 40 chars)" }
                 },
                 "required": ["prompt", "label"]
             }),
         },
-        _ => ToolDefinition {
-            name: name.to_string(),
-            description: format!("Tool: {}", name),
+        ToolDefinition {
+            name: "read_skill".to_string(),
+            description: "Read a skill definition to understand available capabilities and how to use them.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "skill": { "type": "string", "description": "Skill identifier to read" }
+                },
+                "required": ["skill"]
             }),
         },
-    }
-}
-
-fn default_tool_definitions() -> Vec<ToolDefinition> {
-    vec![
-        tool_definition_for_name("run_shell_command"),
-        tool_definition_for_name("read_files"),
-        tool_definition_for_name("apply_file_diffs"),
-        tool_definition_for_name("grep"),
-        tool_definition_for_name("file_glob"),
+        ToolDefinition {
+            name: "fetch_conversation".to_string(),
+            description: "Fetch the contents of a previous conversation for context. Use when the user references prior work or you need history from another session.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "conversation_id": { "type": "string", "description": "ID of the conversation to fetch" }
+                },
+                "required": ["conversation_id"]
+            }),
+        },
     ]
-}
-
-fn convert_proto_message(msg: &api::Message) -> Option<ConversationMessage> {
-    let message_content = msg.message.as_ref()?;
-
-    match message_content {
-        api::message::Message::UserQuery(query) => Some(ConversationMessage {
-            role: MessageRole::User,
-            content: MessageContent::Text(query.query.clone()),
-        }),
-        api::message::Message::AgentOutput(output) => Some(ConversationMessage {
-            role: MessageRole::Assistant,
-            content: MessageContent::Text(output.text.clone()),
-        }),
-        api::message::Message::ToolCall(tool_call) => {
-            let (name, input) = extract_tool_call_info(tool_call);
-            Some(ConversationMessage {
-                role: MessageRole::Assistant,
-                content: MessageContent::ToolUse {
-                    tool_use_id: tool_call.tool_call_id.clone(),
-                    name,
-                    input,
-                },
-            })
-        }
-        api::message::Message::ToolCallResult(result) => {
-            let content = format_tool_call_result(result);
-            Some(ConversationMessage {
-                role: MessageRole::User,
-                content: MessageContent::ToolResult {
-                    tool_use_id: result.tool_call_id.clone(),
-                    content,
-                    is_error: false,
-                },
-            })
-        }
-        api::message::Message::AgentReasoning(_) => None,
-        _ => None,
-    }
-}
-
-fn extract_tool_call_info(tool_call: &api::message::ToolCall) -> (String, serde_json::Value) {
-    if let Some(tool) = &tool_call.tool {
-        match tool {
-            api::message::tool_call::Tool::RunShellCommand(cmd) => (
-                "run_shell_command".to_string(),
-                serde_json::json!({ "command": cmd.command }),
-            ),
-            api::message::tool_call::Tool::ReadFiles(read) => (
-                "read_files".to_string(),
-                serde_json::json!({ "files": read.files.iter().map(|f| &f.name).collect::<Vec<_>>() }),
-            ),
-            api::message::tool_call::Tool::ApplyFileDiffs(diffs) => (
-                "apply_file_diffs".to_string(),
-                serde_json::json!({ "diffs": diffs.diffs.iter().map(|d| {
-                    serde_json::json!({
-                        "file_path": d.file_path,
-                        "search": d.search,
-                        "replace": d.replace
-                    })
-                }).collect::<Vec<_>>() }),
-            ),
-            api::message::tool_call::Tool::Grep(grep) => (
-                "grep".to_string(),
-                serde_json::json!({ "queries": grep.queries, "path": grep.path }),
-            ),
-            #[allow(deprecated)]
-            api::message::tool_call::Tool::FileGlob(glob) => (
-                "file_glob".to_string(),
-                serde_json::json!({ "patterns": glob.patterns }),
-            ),
-            api::message::tool_call::Tool::SuggestPrompt(sp) => {
-                let (prompt, label) = match &sp.display_mode {
-                    Some(api::message::tool_call::suggest_prompt::DisplayMode::PromptChip(
-                        chip,
-                    )) => (chip.prompt.clone(), chip.label.clone()),
-                    _ => (String::new(), String::new()),
-                };
-                (
-                    "suggest_next_prompt".to_string(),
-                    serde_json::json!({ "prompt": prompt, "label": label }),
-                )
-            }
-            _ => ("unknown_tool".to_string(), serde_json::json!({})),
-        }
-    } else {
-        ("unknown_tool".to_string(), serde_json::json!({}))
-    }
 }
 
 fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> String {
@@ -1172,118 +1106,41 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                     None => "Apply diffs completed.".to_string(),
                 }
             }
-            _ => "Tool completed successfully.".to_string(),
-        }
-    } else {
-        "Tool completed.".to_string()
-    }
-}
-
-fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
-    if let Some(result_type) = &result.result {
-        match result_type {
-            api::message::tool_call_result::Result::RunShellCommand(cmd_result) => {
-                match &cmd_result.result {
-                    Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
-                        if finished.output.is_empty() {
-                            format!("Exit code: {}\n(no output)", finished.exit_code)
-                        } else {
-                            format!("Exit code: {}\n{}", finished.exit_code, finished.output)
-                        }
-                    }
-                    Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
-                        snapshot,
-                    )) => {
-                        format!("Output (running): {}", snapshot.output)
-                    }
-                    _ => "Command completed.".to_string(),
-                }
-            }
-            api::message::tool_call_result::Result::ReadFiles(read_result) => {
-                match &read_result.result {
-                    Some(api::read_files_result::Result::TextFilesSuccess(success)) => success
-                        .files
-                        .iter()
-                        .map(|f| format!("{}:\n{}", f.file_path, f.content))
-                        .collect::<Vec<_>>()
-                        .join("\n\n"),
-                    _ => "Read files completed.".to_string(),
-                }
-            }
-            api::message::tool_call_result::Result::Grep(grep_result) => {
-                match &grep_result.result {
-                    Some(api::grep_result::Result::Success(success)) => {
-                        if success.matched_files.is_empty() {
-                            "No matches found.".to_string()
-                        } else {
-                            success
-                                .matched_files
-                                .iter()
-                                .map(|f| {
-                                    let lines: String = f
-                                        .matched_lines
-                                        .iter()
-                                        .map(|l| format!("  line {}", l.line_number))
-                                        .collect::<Vec<_>>()
-                                        .join(", ");
-                                    format!("{} (matches at: {})", f.file_path, lines)
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        }
-                    }
-                    Some(api::grep_result::Result::Error(error)) => {
-                        format!("Grep error: {}", error.message)
-                    }
-                    None => "Grep completed (no result).".to_string(),
-                }
-            }
-            api::message::tool_call_result::Result::FileGlobV2(glob_result) => {
+            api::request::input::tool_call_result::Result::FileGlob(glob_result) => {
                 match &glob_result.result {
-                    Some(api::file_glob_v2_result::Result::Success(success)) => {
+                    Some(api::file_glob_result::Result::Success(success)) => {
                         if success.matched_files.is_empty() {
                             "No files matched.".to_string()
                         } else {
-                            success
-                                .matched_files
-                                .iter()
-                                .map(|f| f.file_path.as_str())
-                                .collect::<Vec<_>>()
-                                .join("\n")
+                            success.matched_files.clone()
                         }
                     }
-                    Some(api::file_glob_v2_result::Result::Error(error)) => {
+                    Some(api::file_glob_result::Result::Error(error)) => {
                         format!("File glob error: {}", error.message)
                     }
                     None => "File glob completed (no result).".to_string(),
                 }
             }
-            api::message::tool_call_result::Result::ApplyFileDiffs(diff_result) => {
-                match &diff_result.result {
-                    Some(api::apply_file_diffs_result::Result::Success(success)) => {
-                        let mut parts = Vec::new();
-                        for f in &success.updated_files_v2 {
-                            if let Some(file) = &f.file {
-                                parts.push(format!("Updated: {}", file.file_path));
-                            }
-                        }
-                        for f in &success.deleted_files {
-                            parts.push(format!("Deleted: {}", f.file_path));
-                        }
-                        if parts.is_empty() {
-                            "Diffs applied successfully.".to_string()
-                        } else {
-                            parts.join("\n")
-                        }
+            api::request::input::tool_call_result::Result::CallMcpTool(mcp_result) => {
+                match &mcp_result.result {
+                    Some(api::call_mcp_tool_result::Result::Success(success)) => {
+                        success
+                            .results
+                            .iter()
+                            .filter_map(|item| match &item.result {
+                                Some(api::call_mcp_tool_result::success::result::Result::Text(t)) => {
+                                    Some(t.text.clone())
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     }
-                    Some(api::apply_file_diffs_result::Result::Error(error)) => {
-                        format!("Apply diffs error: {}", error.message)
+                    Some(api::call_mcp_tool_result::Result::Error(error)) => {
+                        format!("MCP tool error: {}", error.message)
                     }
-                    None => "Apply diffs completed.".to_string(),
+                    None => "MCP tool completed.".to_string(),
                 }
-            }
-            api::message::tool_call_result::Result::Server(server_result) => {
-                server_result.serialized_result.clone()
             }
             _ => "Tool completed successfully.".to_string(),
         }
@@ -1293,5 +1150,110 @@ fn format_tool_call_result(result: &api::message::ToolCallResult) -> String {
 }
 
 #[cfg(test)]
-#[path = "convert_request_tests.rs"]
+pub fn extract_messages_from_request(request: &api::Request) -> Vec<ConversationMessage> {
+    let mut messages = Vec::new();
+
+    if let Some(task_context) = &request.task_context {
+        for task in &task_context.tasks {
+            for msg in &task.messages {
+                if let Some(converted) = convert_proto_message_for_test(msg) {
+                    messages.push(converted);
+                }
+            }
+        }
+    }
+
+    let new_inputs = extract_new_input_messages(request);
+    messages.extend(new_inputs);
+
+    ensure_starts_with_user_message(&mut messages);
+    ensure_tool_results_paired(&mut messages);
+    messages
+}
+
+#[cfg(test)]
+fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMessage> {
+    let message_content = msg.message.as_ref()?;
+    match message_content {
+        api::message::Message::UserQuery(query) => Some(ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text(query.query.clone()),
+        }),
+        api::message::Message::AgentOutput(output) => Some(ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text(output.text.clone()),
+        }),
+        api::message::Message::ToolCall(tool_call) => {
+            let (name, input) = extract_tool_call_info_for_test(tool_call);
+            Some(ConversationMessage {
+                role: MessageRole::Assistant,
+                content: MessageContent::ToolUse {
+                    tool_use_id: tool_call.tool_call_id.clone(),
+                    name,
+                    input,
+                },
+            })
+        }
+        api::message::Message::ToolCallResult(result) => {
+            let content = match &result.result {
+                Some(api::message::tool_call_result::Result::Server(s)) => {
+                    s.serialized_result.clone()
+                }
+                _ => "Tool completed.".to_string(),
+            };
+            Some(ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::ToolResult {
+                    tool_use_id: result.tool_call_id.clone(),
+                    content,
+                    is_error: false,
+                },
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[allow(deprecated)]
+fn extract_tool_call_info_for_test(
+    tool_call: &api::message::ToolCall,
+) -> (String, serde_json::Value) {
+    if let Some(tool) = &tool_call.tool {
+        match tool {
+            api::message::tool_call::Tool::RunShellCommand(cmd) => (
+                "run_shell_command".to_string(),
+                serde_json::json!({ "command": cmd.command }),
+            ),
+            api::message::tool_call::Tool::ReadFiles(read) => (
+                "read_files".to_string(),
+                serde_json::json!({ "files": read.files.iter().map(|f| &f.name).collect::<Vec<_>>() }),
+            ),
+            api::message::tool_call::Tool::ApplyFileDiffs(diffs) => (
+                "apply_file_diffs".to_string(),
+                serde_json::json!({ "diffs": diffs.diffs.iter().map(|d| {
+                    serde_json::json!({
+                        "file_path": d.file_path,
+                        "search": d.search,
+                        "replace": d.replace
+                    })
+                }).collect::<Vec<_>>() }),
+            ),
+            api::message::tool_call::Tool::Grep(grep) => (
+                "grep".to_string(),
+                serde_json::json!({ "queries": grep.queries, "path": grep.path }),
+            ),
+            api::message::tool_call::Tool::FileGlob(glob) => (
+                "file_glob".to_string(),
+                serde_json::json!({ "patterns": glob.patterns }),
+            ),
+            _ => ("unknown_tool".to_string(), serde_json::json!({})),
+        }
+    } else {
+        ("unknown_tool".to_string(), serde_json::json!({}))
+    }
+}
+
+#[cfg(test)]
+#[path = "request_translator_tests.rs"]
 mod tests;

@@ -5636,8 +5636,6 @@ impl TerminalView {
         let estimated_cost_cents: f32 = token_usage_list.iter().map(|u| u.cost_in_cents).sum();
 
         let conversation_usage_info = ConversationUsageInfo {
-            credits_spent: conversation.credits_spent(),
-            credits_spent_for_last_block: conversation.credits_spent_for_last_block(),
             tool_calls: tool_usage.total_tool_calls(),
             models: conversation.token_usage().to_vec(),
             context_window_usage: conversation.context_window_usage(),
@@ -6536,11 +6534,22 @@ impl TerminalView {
                                 .and_then(|data| data.maybe_convert_absolute_path(cwd))
                         })
                 })
-                // Checking if the pwd from the active session actually exists
-                // and if not (ie. directory was removed) - return None.
                 .filter(|path| path.is_dir())
+                // Fall back to the shell's startup directory when no block CWD
+                // is available (e.g. agent mode sessions or freshly opened tabs).
+                .or_else(|| {
+                    self.model
+                        .lock()
+                        .session_startup_path()
+                        .filter(|path| path.is_dir())
+                })
         } else {
-            None
+            // For non-local sessions (viewers, transcript viewers), still try
+            // the startup path so we can persist where the pane was opened.
+            self.model
+                .lock()
+                .session_startup_path()
+                .filter(|path| path.is_dir())
         }
     }
 

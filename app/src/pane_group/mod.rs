@@ -1547,10 +1547,25 @@ impl PaneGroup {
                         }
                     });
 
+                let raw_cwd = terminal_snapshot.cwd.clone();
                 let startup_directory = terminal_snapshot
                     .cwd
                     .map(PathBuf::from)
                     .filter(|path| path.is_dir());
+
+                log::info!(
+                    "[session-restore] pane=terminal raw_cwd={raw_cwd:?} \
+                     resolved_startup_dir={startup_directory:?} \
+                     conversations_to_restore={} \
+                     active_conversation_id={:?} \
+                     has_shell_launch_data={} \
+                     has_block_list={} is_active={}",
+                    terminal_snapshot.conversation_ids_to_restore.len(),
+                    terminal_snapshot.active_conversation_id,
+                    terminal_snapshot.shell_launch_data.is_some(),
+                    block_list.is_some(),
+                    terminal_snapshot.is_active,
+                );
 
                 // Filter conversation IDs to only include those that have task messages
                 // and are not entirely passive (ignored suggestions).

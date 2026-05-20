@@ -67,7 +67,7 @@ pub(crate) use view_util::{
     NEW_AGENT_PANE_LABEL,
 };
 
-pub(crate) use view_util::{format_credits, format_token_count};
+pub(crate) use view_util::{format_cost_cents, format_credits, format_token_count};
 
 pub use crate::ai::blocklist::block::{secret_redaction, AIBlockResponseRating, TextLocation};
 pub use block::keyboard_navigable_buttons;

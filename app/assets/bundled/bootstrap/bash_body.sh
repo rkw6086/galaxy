@@ -37,9 +37,9 @@ if [ -z "$WARP_BOOTSTRAPPED" ]; then
 
     # Attempt to cd to the desired initial working directory, swallowing any
     # errors.  If this fails, the user will end up in their home directory.
-    if [[ ! -z "$WARP_INITIAL_WORKING_DIR" ]]; then
-        cd "$WARP_INITIAL_WORKING_DIR" >/dev/null 2>&1
-        unset WARP_INITIAL_WORKING_DIR
+    if [[ ! -z "$GALAXY_INITIAL_WORKING_DIR" ]]; then
+        cd "$GALAXY_INITIAL_WORKING_DIR" >/dev/null 2>&1
+        unset GALAXY_INITIAL_WORKING_DIR
     fi
 
     # We configure history to `ignorespace` to avoid leaking our bootstrap script

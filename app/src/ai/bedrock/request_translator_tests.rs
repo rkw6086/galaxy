@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
+use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::sanitize_messages_for_bedrock;
 
 #[test]

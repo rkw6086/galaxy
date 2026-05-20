@@ -115,25 +115,3 @@ pub fn apply_cross_region_prefix(model_id: &str, region: &str) -> String {
     };
     format!("{}.{}", prefix, model_id)
 }
-
-pub fn is_bedrock_model(model_id: &str, configured_models: &[BedrockModelConfig]) -> bool {
-    if model_id.starts_with("arn:aws:bedrock:") {
-        return true;
-    }
-
-    let effective = get_effective_models(configured_models);
-    effective.iter().any(|m| m.model_id == model_id)
-        || model_id.starts_with("anthropic.")
-        || model_id.starts_with("amazon.")
-        || model_id.starts_with("meta.")
-        || model_id.starts_with("mistral.")
-        || model_id.starts_with("cohere.")
-        || model_id.starts_with("ai21.")
-        || model_id.starts_with("deepseek.")
-        || has_cross_region_prefix(model_id)
-}
-
-fn has_cross_region_prefix(model_id: &str) -> bool {
-    let prefixes = ["us.", "eu.", "jp.", "apac.", "au.", "global."];
-    prefixes.iter().any(|p| model_id.starts_with(p))
-}

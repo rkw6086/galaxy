@@ -5,7 +5,7 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::{AgentSource, AmbientAgentTask, AmbientAgentTaskState};
 use crate::ai::artifacts::Artifact;
 use crate::ai::blocklist::{
-    format_credits, format_token_count, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
+    format_cost_cents, format_token_count, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
 };
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::conversation_navigation::ConversationNavigationData;
@@ -498,7 +498,8 @@ impl ConversationOrTask<'_> {
                 let history_model = BlocklistAIHistoryModel::as_ref(app);
                 history_model
                     .conversation(&metadata.nav_data.id)
-                    .map(|conv| conv.credits_spent())
+                    .map(|conv| conv.total_cost_cents())
+                    .filter(|&c| c > 0.0)
                     .or_else(|| {
                         history_model
                             .get_conversation_metadata(&metadata.nav_data.id)
@@ -510,7 +511,7 @@ impl ConversationOrTask<'_> {
 
     /// Formats the request usage for display.
     pub fn display_request_usage(&self, app: &AppContext) -> Option<String> {
-        self.request_usage(app).map(format_credits)
+        self.request_usage(app).map(format_cost_cents)
     }
 
     pub fn display_total_tokens(&self, app: &AppContext) -> Option<String> {

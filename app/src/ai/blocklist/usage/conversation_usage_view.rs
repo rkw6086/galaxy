@@ -1,5 +1,5 @@
 use crate::ai::blocklist::usage::render_context_window_usage_icon;
-use crate::ai::blocklist::view_util::{format_cost_cents, format_credits, format_token_count};
+use crate::ai::blocklist::view_util::{format_cost_cents, format_token_count};
 use crate::appearance::Appearance;
 use crate::persistence::model::{
     token_usage_category_display_name, ModelTokenUsage, FULL_TERMINAL_USE_CATEGORY,
@@ -26,10 +26,6 @@ pub enum DisplayMode {
 }
 
 pub struct ConversationUsageInfo {
-    pub credits_spent: f32,
-    // Credits spent over the last block, where the block comprises
-    // all agent outputs since the most recent user input.
-    pub credits_spent_for_last_block: Option<f32>,
     pub tool_calls: i32,
     pub models: Vec<ModelTokenUsage>,
     pub context_window_usage: f32,
@@ -144,28 +140,10 @@ impl ConversationUsageView {
         ));
         values.push(render_section_header("".to_string(), appearance));
 
-        if self.display_mode == DisplayMode::Footer
-            && self.usage_info.credits_spent_for_last_block.is_some()
-        {
-            let last_block_credits = self.usage_info.credits_spent_for_last_block.unwrap();
-            labels.push(render_label_text(
-                "Credits spent (last response)",
-                appearance,
-            ));
+        if self.usage_info.estimated_cost_cents > 0.0 {
+            labels.push(render_label_text("Estimated cost", appearance));
             values.push(render_value_text(
-                format_credits(last_block_credits),
-                appearance,
-            ));
-
-            labels.push(render_label_text("Credits spent (total)", appearance));
-            values.push(render_value_text(
-                format_credits(self.usage_info.credits_spent),
-                appearance,
-            ));
-        } else {
-            labels.push(render_label_text("Credits spent", appearance));
-            values.push(render_value_text(
-                format_credits(self.usage_info.credits_spent),
+                format_cost_cents(self.usage_info.estimated_cost_cents),
                 appearance,
             ));
         }
@@ -304,14 +282,6 @@ impl ConversationUsageView {
                 labels.push(render_label_text("  Cache write", appearance));
                 values.push(render_value_text(
                     format_token_count(self.usage_info.total_cache_write_tokens),
-                    appearance,
-                ));
-            }
-
-            if self.usage_info.estimated_cost_cents > 0.0 {
-                labels.push(render_label_text("Estimated cost", appearance));
-                values.push(render_value_text(
-                    format_cost_cents(self.usage_info.estimated_cost_cents),
                     appearance,
                 ));
             }

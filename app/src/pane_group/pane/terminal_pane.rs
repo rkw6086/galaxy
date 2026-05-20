@@ -418,15 +418,22 @@ impl PaneContent for TerminalPane {
             if ambient_model.is_ambient_agent() {
                 let task_id = ambient_model.task_id();
 
+                log::info!(
+                    "[session-save] pane=viewer/ambient task_id={task_id:?}"
+                );
                 return LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
                     uuid: self.uuid.clone(),
                     task_id,
                 });
             }
 
+            let cwd = view.pwd_if_local(app);
+            log::info!(
+                "[session-save] pane=viewer cwd={cwd:?} is_active={is_active}"
+            );
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),
-                cwd: view.pwd_if_local(app),
+                cwd,
                 is_active,
                 is_read_only: false,
                 shell_launch_data: None,
@@ -441,14 +448,21 @@ impl PaneContent for TerminalPane {
             // can be restored via the ambient agent task if one exists.
             let task_id = view.model.lock().ambient_agent_task_id();
             if task_id.is_some() {
+                log::info!(
+                    "[session-save] pane=transcript/ambient task_id={task_id:?}"
+                );
                 LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
                     uuid: self.uuid.clone(),
                     task_id,
                 })
             } else {
+                let cwd = view.pwd_if_local(app);
+                log::info!(
+                    "[session-save] pane=transcript cwd={cwd:?} is_active={is_active}"
+                );
                 LeafContents::Terminal(TerminalPaneSnapshot {
                     uuid: self.uuid.clone(),
-                    cwd: view.pwd_if_local(app),
+                    cwd,
                     is_active,
                     is_read_only: false,
                     shell_launch_data: None,
@@ -468,7 +482,7 @@ impl PaneContent for TerminalPane {
                 .sync_id();
 
             // Collect all conversation IDs for this terminal view
-            let conversation_ids_to_restore = BlocklistAIHistoryModel::as_ref(app)
+            let conversation_ids_to_restore: Vec<_> = BlocklistAIHistoryModel::as_ref(app)
                 .all_live_conversations_for_terminal_view(self.terminal_view(app).id())
                 .map(|conversation| conversation.id())
                 .collect();
@@ -487,9 +501,18 @@ impl PaneContent for TerminalPane {
                         .active_conversation_id()
                 });
 
+            let cwd = view.pwd_if_local(app);
+            log::info!(
+                "[session-save] pane=terminal cwd={cwd:?} is_active={is_active} \
+                 conversations={} active_conversation={active_conversation_id:?} \
+                 has_shell_launch_data={} has_input_config=true",
+                conversation_ids_to_restore.len(),
+                view.shell_launch_data_if_local(app).is_some(),
+            );
+
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),
-                cwd: view.pwd_if_local(app),
+                cwd,
                 is_active,
                 is_read_only: view.model.lock().is_read_only(),
                 shell_launch_data: view.shell_launch_data_if_local(app),

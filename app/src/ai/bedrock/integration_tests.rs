@@ -23,7 +23,6 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         access_key_id: String::new(),
         secret_access_key: String::new(),
         cross_region_inference: false,
-        fallback_to_warp: false,
     })
 }
 
@@ -64,6 +63,7 @@ async fn collect_stream_output(
             8192,
             None,
             false,
+            None,
             None,
             Arc::new(Mutex::new(Vec::new())),
         )
@@ -604,5 +604,87 @@ async fn test_reasoning_model_output() {
         output.text.contains("555"),
         "Expected correct answer (555) in output, got: {}",
         &output.text[..output.text.len().min(300)]
+    );
+}
+
+#[tokio::test]
+async fn test_all_tools_visible_to_model() {
+    let Some(config) = get_test_config() else {
+        eprintln!("Skipping: BEDROCK_INTEGRATION_TEST not set");
+        return;
+    };
+
+    let client = BedrockClient::from_config(config)
+        .await
+        .expect("client creation");
+    let model = get_test_model();
+
+    let tools = super::request_translator::default_tool_definitions();
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+
+    println!("[test] Sending {} tools to Bedrock: {:?}", tools.len(), tool_names);
+
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text(
+            "List every tool you have access to. Output ONLY the tool names, one per line, no descriptions, no formatting, no markdown."
+                .into(),
+        ),
+    }];
+
+    let output = collect_stream_output(
+        &client,
+        &model,
+        messages,
+        Some("You are a helpful assistant. When asked about your tools, list them exactly as they appear in your tool configuration.".into()),
+        tools.clone(),
+    )
+    .await;
+
+    println!("[test] Model's tool list response:\n{}", output.text);
+    println!("[test] Total tokens: {}", output.total_tokens);
+
+    let response_lower = output.text.to_lowercase();
+
+    let mut missing_tools = Vec::new();
+    for tool in &tools {
+        if !response_lower.contains(&tool.name.to_lowercase()) {
+            missing_tools.push(&tool.name);
+        }
+    }
+
+    if !missing_tools.is_empty() {
+        println!("[test] WARNING: Model did not mention these tools: {:?}", missing_tools);
+    }
+
+    let expected_core_tools = [
+        "run_shell_command",
+        "read_files",
+        "apply_file_diffs",
+        "grep",
+        "file_glob",
+        "search_codebase",
+        "start_agent",
+        "ask_user_question",
+    ];
+
+    let mut missing_core = Vec::new();
+    for name in &expected_core_tools {
+        if !response_lower.contains(name) {
+            missing_core.push(*name);
+        }
+    }
+
+    assert!(
+        missing_core.is_empty(),
+        "Model failed to list these core tools: {:?}\n\nFull response:\n{}",
+        missing_core,
+        output.text
+    );
+
+    assert!(
+        tools.len() >= 17,
+        "Expected at least 17 tool definitions, got {}",
+        tools.len()
     );
 }

@@ -770,7 +770,23 @@ fn open_from_restored(arg: &OpenFromRestoredArg, ctx: &mut AppContext) {
         };
 
         // Check whether user has enabled session restoration.
+        if !*GeneralSettings::as_ref(ctx).restore_session {
+            log::info!("[session-restore] restore_session setting is DISABLED, skipping");
+        }
         if *GeneralSettings::as_ref(ctx).restore_session {
+            log::info!(
+                "[session-restore] restoring {} window(s), active_window_index={:?}",
+                app_state.windows.len(),
+                app_state.active_window_index,
+            );
+            for (i, w) in app_state.windows.iter().enumerate() {
+                log::info!(
+                    "[session-restore]   window[{i}]: tabs={} active_tab={} quake={}",
+                    w.tabs.len(),
+                    w.active_tab_index,
+                    w.quake_mode,
+                );
+            }
             let mut active_index = None;
             let mut normal_window_count = 0;
             for (idx, window) in app_state.windows.iter().enumerate() {

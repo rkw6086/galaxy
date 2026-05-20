@@ -34,9 +34,9 @@ set -g OSC_PARAM_SEPARATOR ';'
 
 set -g RESET_GRID_OSC (printf '\e]9279\a')
 
-if test -n "$WARP_INITIAL_WORKING_DIR"
-    cd "$WARP_INITIAL_WORKING_DIR" >/dev/null 2>&1
-    set -e WARP_INITIAL_WORKING_DIR
+if test -n "$GALAXY_INITIAL_WORKING_DIR"
+    cd "$GALAXY_INITIAL_WORKING_DIR" >/dev/null 2>&1
+    set -e GALAXY_INITIAL_WORKING_DIR
 end
 
 # Append additional PATH entries if provided via WARP_PATH_APPEND.

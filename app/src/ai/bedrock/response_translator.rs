@@ -16,12 +16,55 @@ use crate::server::server_api::AIApiError;
 use super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::diagnostic::BedrockDiagnosticLogger;
 
+fn json_to_prost_struct(value: &serde_json::Value) -> prost_types::Struct {
+    let fields = match value.as_object() {
+        Some(map) => map
+            .iter()
+            .map(|(k, v)| (k.clone(), json_to_prost_value(v)))
+            .collect(),
+        None => std::collections::BTreeMap::new(),
+    };
+    prost_types::Struct { fields }
+}
+
+fn json_to_prost_value(value: &serde_json::Value) -> prost_types::Value {
+    use prost_types::value::Kind;
+    let kind = match value {
+        serde_json::Value::Null => Kind::NullValue(0),
+        serde_json::Value::Bool(b) => Kind::BoolValue(*b),
+        serde_json::Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::String(s) => Kind::StringValue(s.clone()),
+        serde_json::Value::Array(arr) => Kind::ListValue(prost_types::ListValue {
+            values: arr.iter().map(json_to_prost_value).collect(),
+        }),
+        serde_json::Value::Object(_) => Kind::StructValue(json_to_prost_struct(value)),
+    };
+    prost_types::Value { kind: Some(kind) }
+}
+
+/// Returns the context window size (in tokens) for a given model ID.
+/// Models with "[1m]" in their identifier support 1M token context.
+pub fn context_window_for_model(model_id: &str) -> u32 {
+    let lower = model_id.to_lowercase();
+    if lower.contains("[1m]") {
+        1_000_000
+    } else if lower.contains("nova") {
+        300_000
+    } else if lower.contains("deepseek") {
+        128_000
+    } else {
+        200_000
+    }
+}
+
 pub fn bedrock_stream_to_response_events(
     mut output: ConverseStreamOutput,
     task_id: String,
     needs_create_task: bool,
+    user_query: Option<String>,
     diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
     messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+    model_id: String,
 ) -> BoxStream<'static, Event> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
@@ -46,6 +89,13 @@ pub fn bedrock_stream_to_response_events(
             yield Ok(create_task_event);
         }
 
+        // Emit the user's query as a proto message in the task so it persists
+        // across sessions and can be used for the conversation title.
+        if let Some(ref query_text) = user_query {
+            let user_query_msg = build_user_query_message(&task_id, query_text);
+            yield Ok(user_query_msg);
+        }
+
         let mut current_text_message_id: Option<String> = None;
         let mut buffered_text = String::new();
         let mut text_flushed = false;
@@ -62,6 +112,9 @@ pub fn bedrock_stream_to_response_events(
         // Track full assistant text and tool calls for bedrock_message_history
         let mut history_text = String::new();
         let mut history_tool_calls: Vec<ContentPart> = Vec::new();
+        // Synthetic tool_results for unknown/hallucinated tools — these get
+        // paired with their tool_use in history so the next request is valid.
+        let mut synthetic_tool_results: Vec<ContentPart> = Vec::new();
 
         let mut event_count: u32 = 0;
         loop {
@@ -165,6 +218,42 @@ pub fn bedrock_stream_to_response_events(
                                 current_tool_use_id.clear();
                                 current_tool_name.clear();
                                 current_tool_input_json.clear();
+                            } else if !is_known_tool(&current_tool_name) {
+                                // Unknown/hallucinated tool: record it in history
+                                // with a paired error result so the conversation
+                                // doesn't deadlock waiting for a tool_result that
+                                // will never come.
+                                log::warn!(
+                                    "[bedrock] Model called unknown tool '{}' (id={}), synthesizing error result",
+                                    current_tool_name, current_tool_use_id
+                                );
+                                let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                                history_tool_calls.push(ContentPart::ToolUse {
+                                    tool_use_id: current_tool_use_id.clone(),
+                                    name: current_tool_name.clone(),
+                                    input: input_json,
+                                });
+                                // Immediately pair with a synthetic error result
+                                // so ensure_tool_results_paired doesn't need to
+                                // fix it up later (and so the executor doesn't hang).
+                                synthetic_tool_results.push(ContentPart::ToolResult {
+                                    tool_use_id: current_tool_use_id.clone(),
+                                    content: format!(
+                                        "Error: '{}' is not a valid tool. Available tools are: run_shell_command, read_files, apply_file_diffs, grep, file_glob. Please use one of these tools instead.",
+                                        current_tool_name
+                                    ),
+                                    is_error: true,
+                                });
+                                if let Some(ref logger) = diagnostic_logger {
+                                    logger.log_stream_event(&format!(
+                                        "UnknownToolCall: name={}, id={} — synthesized error result",
+                                        current_tool_name, current_tool_use_id
+                                    ));
+                                }
+                                current_tool_use_id.clear();
+                                current_tool_name.clear();
+                                current_tool_input_json.clear();
                             } else {
                                 log::debug!("[bedrock] Tool call complete: {} ({})", current_tool_name, current_tool_use_id);
                                 // Track for bedrock_message_history
@@ -212,12 +301,17 @@ pub fn bedrock_stream_to_response_events(
                         };
                     }
                     StreamEvent::Metadata(metadata) => {
-                        log::info!("[bedrock-debug] Event #{event_count}: Metadata");
                         if let Some(usage) = metadata.usage() {
                             input_tokens = usage.input_tokens();
                             output_tokens = usage.output_tokens();
                             cache_read_input_tokens = usage.cache_read_input_tokens().unwrap_or(0);
                             cache_write_input_tokens = usage.cache_write_input_tokens().unwrap_or(0);
+                            log::info!(
+                                "[bedrock-debug] Event #{event_count}: Metadata (input={}, output={}, cache_read={}, cache_write={})",
+                                input_tokens, output_tokens, cache_read_input_tokens, cache_write_input_tokens
+                            );
+                        } else {
+                            log::warn!("[bedrock-debug] Event #{event_count}: Metadata with NO usage data");
                         }
                     }
                     _ => {
@@ -279,8 +373,15 @@ pub fn bedrock_stream_to_response_events(
             }
         }
 
+        let cost = estimate_cost_cents(
+            input_tokens as u32,
+            output_tokens as u32,
+            cache_read_input_tokens as u32,
+            cache_write_input_tokens as u32,
+            &model_id,
+        );
         log::info!(
-            "[bedrock] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_input_tokens}, cache_write={cache_write_input_tokens}"
+            "[bedrock] Stream finished: model={model_id}, input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_input_tokens}, cache_write={cache_write_input_tokens}, cost_cents={cost:.4}"
         );
 
         // Build and store the assistant message into bedrock_messages_sent
@@ -317,6 +418,35 @@ pub fn bedrock_stream_to_response_events(
 
                 if let Ok(mut sent) = messages_sent.lock() {
                     sent.push(assistant_msg);
+
+                    // If the model hallucinated unknown tools, append a user
+                    // message with synthetic error results so the history is
+                    // valid for the next Bedrock request (every tool_use must
+                    // be followed by a tool_result).
+                    if !synthetic_tool_results.is_empty() {
+                        let result_msg = if synthetic_tool_results.len() == 1 {
+                            match synthetic_tool_results.remove(0) {
+                                ContentPart::ToolResult { tool_use_id, content, is_error } => {
+                                    ConversationMessage {
+                                        role: MessageRole::User,
+                                        content: MessageContent::ToolResult { tool_use_id, content, is_error },
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        } else {
+                            ConversationMessage {
+                                role: MessageRole::User,
+                                content: MessageContent::MultiPart(synthetic_tool_results),
+                            }
+                        };
+                        sent.push(result_msg);
+                        log::info!(
+                            "[bedrock] Stored synthetic tool error results in history. Total messages: {}",
+                            sent.len()
+                        );
+                    }
+
                     log::info!(
                         "[bedrock] Stored assistant message in history. Total messages: {}",
                         sent.len()
@@ -339,6 +469,7 @@ pub fn bedrock_stream_to_response_events(
             output_tokens,
             cache_read_input_tokens,
             cache_write_input_tokens,
+            &model_id,
         );
         yield Ok(finished_event);
     };
@@ -371,6 +502,40 @@ pub(crate) fn build_create_task(task_id: &str) -> ResponseEvent {
     }
 }
 
+fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
+    let message = api::Message {
+        id: Uuid::new_v4().to_string(),
+        task_id: task_id.to_string(),
+        request_id: String::new(),
+        timestamp: None,
+        server_message_data: String::new(),
+        citations: vec![],
+        message: Some(api::message::Message::UserQuery(
+            api::message::UserQuery {
+                query: query_text.to_string(),
+                ..Default::default()
+            },
+        )),
+    };
+
+    let action = ClientAction {
+        action: Some(api::client_action::Action::AddMessagesToTask(
+            api::client_action::AddMessagesToTask {
+                task_id: task_id.to_string(),
+                messages: vec![message],
+            },
+        )),
+    };
+
+    ResponseEvent {
+        r#type: Some(api::response_event::Type::ClientActions(
+            api::response_event::ClientActions {
+                actions: vec![action],
+            },
+        )),
+    }
+}
+
 pub(super) fn build_stream_init(request_id: &str, conversation_id: &str) -> ResponseEvent {
     ResponseEvent {
         r#type: Some(api::response_event::Type::Init(
@@ -389,6 +554,7 @@ pub(super) fn build_stream_finished(
     output_tokens: i32,
     cache_read_input_tokens: i32,
     cache_write_input_tokens: i32,
+    model_id: &str,
 ) -> ResponseEvent {
     let total_tokens =
         (input_tokens + output_tokens + cache_read_input_tokens + cache_write_input_tokens) as u32;
@@ -417,12 +583,21 @@ pub(super) fn build_stream_finished(
             output_tokens as u32,
             cache_read_input_tokens as u32,
             cache_write_input_tokens as u32,
+            model_id,
         ),
     }];
 
+    let max_context_tokens = context_window_for_model(model_id);
+    let context_usage = if max_context_tokens > 0 {
+        (input_tokens as f32 + cache_read_input_tokens as f32 + cache_write_input_tokens as f32)
+            / max_context_tokens as f32
+    } else {
+        0.0
+    };
+
     #[allow(deprecated)]
     let conversation_usage_metadata = Some(stream_finished::ConversationUsageMetadata {
-        context_window_usage: 0.0,
+        context_window_usage: context_usage,
         summarized: false,
         credits_spent: 0.0,
         token_usage: vec![],
@@ -444,20 +619,48 @@ pub(super) fn build_stream_finished(
     }
 }
 
-/// Estimates cost in cents based on Anthropic Claude Bedrock pricing.
-/// Uses Sonnet-tier pricing as a conservative default since we don't
-/// know the exact model at this layer.
-/// Pricing (per 1M tokens): input $3, output $15, cache_read $0.30, cache_write $3.75
+/// Estimates cost in cents based on Bedrock model pricing.
+/// Pricing varies by model (per 1M tokens):
+///   Opus 4.6/4.7: input $15, output $75, cache_read $1.50, cache_write $18.75
+///   Sonnet 4/4.6: input $3, output $15, cache_read $0.30, cache_write $3.75
+///   Haiku 4.5:    input $0.80, output $4, cache_read $0.08, cache_write $1.00
+///   Nova Pro:     input $0.80, output $3.20
+///   Nova Lite:    input $0.06, output $0.24
+///   Nova Micro:   input $0.035, output $0.14
+///   DeepSeek R1:  input $1.35, output $5.40
 fn estimate_cost_cents(
     input_tokens: u32,
     output_tokens: u32,
     cache_read_tokens: u32,
     cache_write_tokens: u32,
+    model_id: &str,
 ) -> f32 {
-    let input_cost = input_tokens as f64 * 0.3 / 100_000.0;
-    let output_cost = output_tokens as f64 * 1.5 / 100_000.0;
-    let cache_read_cost = cache_read_tokens as f64 * 0.03 / 100_000.0;
-    let cache_write_cost = cache_write_tokens as f64 * 0.375 / 100_000.0;
+    let lower = model_id.to_lowercase();
+
+    // (input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m) in dollars
+    let (input_rate, output_rate, cache_read_rate, cache_write_rate) =
+        if lower.contains("opus") {
+            (15.0, 75.0, 1.50, 18.75)
+        } else if lower.contains("haiku") {
+            (0.80, 4.0, 0.08, 1.0)
+        } else if lower.contains("nova-pro") {
+            (0.80, 3.20, 0.0, 0.0)
+        } else if lower.contains("nova-lite") {
+            (0.06, 0.24, 0.0, 0.0)
+        } else if lower.contains("nova-micro") {
+            (0.035, 0.14, 0.0, 0.0)
+        } else if lower.contains("deepseek") {
+            (1.35, 5.40, 0.0, 0.0)
+        } else {
+            // Default to Sonnet pricing
+            (3.0, 15.0, 0.30, 3.75)
+        };
+
+    // Convert from dollars per 1M tokens to cents per token
+    let input_cost = input_tokens as f64 * input_rate * 100.0 / 1_000_000.0;
+    let output_cost = output_tokens as f64 * output_rate * 100.0 / 1_000_000.0;
+    let cache_read_cost = cache_read_tokens as f64 * cache_read_rate * 100.0 / 1_000_000.0;
+    let cache_write_cost = cache_write_tokens as f64 * cache_write_rate * 100.0 / 1_000_000.0;
     (input_cost + output_cost + cache_read_cost + cache_write_cost) as f32
 }
 
@@ -653,6 +856,191 @@ fn build_tool_call_message(
                 },
             ))
         }
+        "search_codebase" => {
+            let query = input
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let codebase_path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::SearchCodebase(
+                api::message::tool_call::SearchCodebase {
+                    query,
+                    path_filters: vec![],
+                    codebase_path,
+                },
+            ))
+        }
+        "write_to_long_running_shell_command" => {
+            let text_input = input
+                .get("input")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::WriteToLongRunningShellCommand(
+                api::message::tool_call::WriteToLongRunningShellCommand {
+                    input: text_input.into_bytes(),
+                    mode: None,
+                    command_id: String::new(),
+                },
+            ))
+        }
+        "read_shell_command_output" => {
+            Some(api::message::tool_call::Tool::ReadShellCommandOutput(
+                api::message::tool_call::ReadShellCommandOutput {
+                    command_id: String::new(),
+                    delay: None,
+                },
+            ))
+        }
+        "read_mcp_resource" => {
+            let server_id = input
+                .get("server_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let uri = input
+                .get("uri")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::ReadMcpResource(
+                api::message::tool_call::ReadMcpResource {
+                    uri,
+                    server_id,
+                },
+            ))
+        }
+        "read_documents" => {
+            let documents = input
+                .get("document_ids")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|d| d.as_str())
+                        .map(|id| api::message::tool_call::read_documents::Document {
+                            document_id: id.to_string(),
+                            line_ranges: vec![],
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(api::message::tool_call::Tool::ReadDocuments(
+                api::message::tool_call::ReadDocuments { documents },
+            ))
+        }
+        "create_documents" => {
+            let new_documents = input
+                .get("documents")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|d| {
+                            Some(api::message::tool_call::create_documents::NewDocument {
+                                title: d.get("title")?.as_str()?.to_string(),
+                                content: d.get("content")?.as_str()?.to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(api::message::tool_call::Tool::CreateDocuments(
+                api::message::tool_call::CreateDocuments { new_documents },
+            ))
+        }
+        "edit_documents" => {
+            let diffs = input
+                .get("diffs")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|d| {
+                            Some(api::message::tool_call::edit_documents::DocumentDiff {
+                                document_id: d.get("document_id")?.as_str()?.to_string(),
+                                search: d.get("search").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                replace: d.get("replace").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            Some(api::message::tool_call::Tool::EditDocuments(
+                api::message::tool_call::EditDocuments { diffs },
+            ))
+        }
+        "start_agent" => {
+            let _name = input.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            Some(api::message::tool_call::Tool::Subagent(
+                api::message::tool_call::Subagent {
+                    task_id: String::new(),
+                    payload: prompt,
+                    metadata: None,
+                },
+            ))
+        }
+        "send_message_to_agent" => {
+            let agent_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let message = input.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            Some(api::message::tool_call::Tool::SendMessageToAgent(
+                api::SendMessageToAgent {
+                    addresses: vec![agent_id],
+                    subject: String::new(),
+                    message,
+                },
+            ))
+        }
+        "ask_user_question" => {
+            let question_text = input.get("question").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let options: Vec<api::ask_user_question::Option> = input
+                .get("options")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|o| o.as_str())
+                        .map(|label| api::ask_user_question::Option { label: label.to_string() })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let question = api::ask_user_question::Question {
+                question_id: Uuid::new_v4().to_string(),
+                question: question_text,
+                question_type: Some(api::ask_user_question::question::QuestionType::MultipleChoice(
+                    api::ask_user_question::MultipleChoice {
+                        options,
+                        is_multiselect: false,
+                        supports_other: true,
+                        recommended_option_index: 0,
+                    },
+                )),
+            };
+            Some(api::message::tool_call::Tool::AskUserQuestion(
+                api::AskUserQuestion {
+                    questions: vec![question],
+                },
+            ))
+        }
+        "read_skill" => {
+            let skill = input.get("skill").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            Some(api::message::tool_call::Tool::ReadSkill(
+                api::message::tool_call::ReadSkill {
+                    name: skill.clone(),
+                    skill_reference: Some(
+                        api::message::tool_call::read_skill::SkillReference::SkillPath(skill),
+                    ),
+                },
+            ))
+        }
+        "fetch_conversation" => {
+            let conversation_id = input.get("conversation_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            Some(api::message::tool_call::Tool::FetchConversation(
+                api::message::tool_call::FetchConversation { conversation_id },
+            ))
+        }
         "suggest_next_prompt" => {
             let prompt = input
                 .get("prompt")
@@ -675,8 +1063,25 @@ fn build_tool_call_message(
                 },
             ))
         }
+        name if name.starts_with("mcp__") => {
+            // MCP tool call: parse server and tool name from "mcp__{server}__{tool}"
+            let parts: Vec<&str> = name.splitn(3, "__").collect();
+            let (server_name, mcp_tool_name) = if parts.len() == 3 {
+                (parts[1].to_string(), parts[2].to_string())
+            } else {
+                (String::new(), name.strip_prefix("mcp__").unwrap_or(name).to_string())
+            };
+            let args = json_to_prost_struct(&input);
+            Some(api::message::tool_call::Tool::CallMcpTool(
+                api::message::tool_call::CallMcpTool {
+                    name: mcp_tool_name,
+                    args: Some(args),
+                    server_id: server_name,
+                },
+            ))
+        }
         _ => {
-            log::warn!("[bedrock] Unknown tool name: {tool_name}, emitting as text");
+            log::error!("[bedrock] build_tool_call_message called with unknown tool: {tool_name}");
             None
         }
     };
@@ -695,6 +1100,9 @@ fn build_tool_call_message(
             })),
         }
     } else {
+        // Fallback: emit as agent output text so the stream doesn't break,
+        // but this should not happen in normal operation.
+        log::error!("[bedrock] Emitting unknown tool as text (should have been caught earlier): {tool_name}");
         api::Message {
             id: Uuid::new_v4().to_string(),
             task_id: task_id.to_string(),
@@ -705,8 +1113,8 @@ fn build_tool_call_message(
             message: Some(api::message::Message::AgentOutput(
                 api::message::AgentOutput {
                     text: format!(
-                        "[Tool call: {} ({})]\nInput: {}",
-                        tool_name, tool_use_id, tool_input_json
+                        "Error: Model attempted to use unknown tool '{}'. This tool does not exist.",
+                        tool_name
                     ),
                 },
             )),
@@ -729,4 +1137,30 @@ fn build_tool_call_message(
             },
         )),
     }
+}
+
+/// Built-in tools that Galaxy knows how to execute directly.
+const KNOWN_TOOLS: &[&str] = &[
+    "run_shell_command",
+    "read_files",
+    "apply_file_diffs",
+    "grep",
+    "file_glob",
+    "search_codebase",
+    "write_to_long_running_shell_command",
+    "read_shell_command_output",
+    "read_mcp_resource",
+    "read_documents",
+    "create_documents",
+    "edit_documents",
+    "start_agent",
+    "send_message_to_agent",
+    "ask_user_question",
+    "suggest_next_prompt",
+    "read_skill",
+    "fetch_conversation",
+];
+
+fn is_known_tool(name: &str) -> bool {
+    KNOWN_TOOLS.contains(&name) || name.starts_with("mcp__")
 }

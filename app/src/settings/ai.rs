@@ -1110,16 +1110,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "ai.bedrock.cross_region_inference",
         description: "Whether to automatically add cross-region inference prefixes to model IDs.",
     }
-    // Whether to fall back to routing through the Warp server when Bedrock credentials fail.
-    bedrock_fallback_to_warp: BedrockFallbackToWarp {
-        type: bool,
-        default: false,
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
-        private: false,
-        toml_path: "ai.bedrock.fallback_to_warp",
-        description: "Whether to fall back to the Galaxy server when Bedrock credentials are invalid.",
-    }
     // Custom Bedrock model configurations.
     bedrock_models: BedrockModels {
         type: Vec<BedrockModelConfig>,
@@ -1527,6 +1517,17 @@ define_settings_group!(AISettings, settings: [
         private: false,
         toml_path: "agents.warp_agent.other.agent_attribution_enabled",
         description: "Whether the Galaxy Agent adds an attribution co-author line to commit messages and pull requests it creates.",
+    }
+
+    // Tracks whether predefined system rules have been seeded on first launch.
+    // Once set to true, predefined rules will not be auto-created again even if the user
+    // deletes all their rules.
+    has_seeded_predefined_rules: HasSeededPredefinedRules {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        private: true,
     }
 ]);
 
@@ -1991,6 +1992,14 @@ impl AISettings {
         report_if_error!(self
             .plugin_update_chip_dismissed_for_version_map
             .set_value(map, ctx));
+    }
+
+    pub fn has_seeded_predefined_rules(&self) -> bool {
+        *self.has_seeded_predefined_rules
+    }
+
+    pub fn mark_predefined_rules_seeded(&mut self, ctx: &mut ModelContext<Self>) {
+        report_if_error!(self.has_seeded_predefined_rules.set_value(true, ctx));
     }
 }
 

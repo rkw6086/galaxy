@@ -141,7 +141,8 @@ const COMMANDS_COUNT_LIMIT: i64 = 10000;
 
 use galaxy_server_client::persistence::{upsert_cloud_object, CloudObjectId};
 
-const WARP_SQLITE_FILE_NAME: &str = "warp.sqlite";
+const WARP_SQLITE_FILE_NAME: &str = "galaxy.sqlite";
+const LEGACY_SQLITE_FILE_NAME: &str = "warp.sqlite";
 
 /// When delete a cloud object, this callback is used to delete the cloud
 /// object. It takes the id of the cloud object to delete as a parameter.
@@ -162,7 +163,14 @@ pub fn initialize(ctx: &mut AppContext) -> (Option<PersistedData>, Option<Writer
         Ok(mut conn) => {
             let user_uid = AuthStateProvider::as_ref(ctx).get().user_id();
             let app_state = match read_sqlite_data(&mut conn, user_uid) {
-                Ok(app_state) => Some(app_state),
+                Ok(app_state) => {
+                    log::info!(
+                        "[session-restore] read_sqlite_data: windows={} conversations={}",
+                        app_state.app_state.windows.len(),
+                        app_state.multi_agent_conversations.len(),
+                    );
+                    Some(app_state)
+                }
                 Err(err) => {
                     send_telemetry_from_app_ctx!(
                         TelemetryEvent::DatabaseReadError(err.to_string()),
@@ -335,6 +343,11 @@ pub(super) fn init_db() -> Result<SqliteConnection> {
     // First, make sure the parent directory of the file exists, otherwise
     // we'll get an error if the file doesn't already exist.
     let db_path = database_file_path();
+    log::info!(
+        "[session-restore] init_db: target={} exists={}",
+        db_path.display(),
+        db_path.exists()
+    );
     // If we fail to create the necessary directories, log a warning and
     // continue; we'll return a sqlite error if it actually fails to initialize
     // a database connection.
@@ -346,6 +359,55 @@ pub(super) fn init_db() -> Result<SqliteConnection> {
         log::warn!(
             "Encountered an error while creating parent directories for sqlite database: {err:#}"
         );
+    }
+
+    // Migrate from legacy "warp.sqlite" filename to "galaxy.sqlite" (same directory).
+    if !db_path.exists() {
+        let legacy_same_dir = db_path
+            .parent()
+            .expect("database file path should be absolute")
+            .join(LEGACY_SQLITE_FILE_NAME);
+        if legacy_same_dir.exists() {
+            match std::fs::rename(&legacy_same_dir, &db_path) {
+                Ok(_) => {
+                    log::info!("Migrated legacy warp.sqlite to galaxy.sqlite");
+                    let old_wal = legacy_same_dir.with_extension("sqlite-wal");
+                    let old_shm = legacy_same_dir.with_extension("sqlite-shm");
+                    let new_wal = db_path.with_extension("sqlite-wal");
+                    let new_shm = db_path.with_extension("sqlite-shm");
+                    let _ = std::fs::rename(&old_wal, &new_wal);
+                    let _ = std::fs::rename(&old_shm, &new_shm);
+                }
+                Err(err) => {
+                    log::warn!("Failed to migrate legacy warp.sqlite: {err:#}");
+                }
+            }
+        }
+    }
+
+    // Migrate from legacy "warp.sqlite" in state_dir (handles users who never
+    // got the in-place rename above because they were on the old app ID path).
+    if !db_path.exists() {
+        let legacy_state_dir = galaxy_core::paths::state_dir().join(LEGACY_SQLITE_FILE_NAME);
+        if legacy_state_dir.exists() {
+            match std::fs::rename(&legacy_state_dir, &db_path) {
+                Ok(_) => {
+                    log::info!(
+                        "Migrated legacy warp.sqlite from state_dir to {}",
+                        db_path.display()
+                    );
+                    let old_wal = legacy_state_dir.with_extension("sqlite-wal");
+                    let old_shm = legacy_state_dir.with_extension("sqlite-shm");
+                    let new_wal = db_path.with_extension("sqlite-wal");
+                    let new_shm = db_path.with_extension("sqlite-shm");
+                    let _ = std::fs::rename(&old_wal, &new_wal);
+                    let _ = std::fs::rename(&old_shm, &new_shm);
+                }
+                Err(err) => {
+                    log::warn!("Failed to migrate legacy warp.sqlite from state_dir: {err:#}");
+                }
+            }
+        }
     }
 
     // Migrate old SQLite files into the secure application container.
@@ -2408,6 +2470,18 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                     let active_conversation_id = terminal_pane
                         .active_conversation_id
                         .and_then(|id_str| AIConversationId::try_from(id_str).ok());
+
+                    log::info!(
+                        "[session-db-read] terminal_pane: cwd={:?} is_active={} \
+                         conversations={} active_conversation={:?} \
+                         has_shell_launch_data={} has_input_config={}",
+                        terminal_pane.cwd,
+                        terminal_pane.is_active,
+                        conversation_ids_to_restore.len(),
+                        active_conversation_id,
+                        shell_launch_data.is_some(),
+                        input_config.is_some(),
+                    );
 
                     LeafContents::Terminal(TerminalPaneSnapshot {
                         uuid: terminal_pane.uuid,

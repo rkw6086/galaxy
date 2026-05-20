@@ -5,14 +5,12 @@ use futures_util::StreamExt;
 use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
-use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
-use crate::ai::bedrock::diagnostic::BedrockDiagnosticLogger;
-use crate::server::server_api::ServerApi;
+use crate::ai::bedrock::client::BedrockClientConfig;
+use crate::ai::bedrock::translator::{self, TranslatorRequest};
 
 use super::{convert_to::convert_input, ConvertToAPITypeError, RequestParams, ResponseStream};
 
 pub async fn generate_multi_agent_output(
-    _server_api: Arc<ServerApi>,
     bedrock_config: Option<BedrockClientConfig>,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
@@ -59,7 +57,7 @@ pub async fn generate_multi_agent_output(
         api_keys.allow_use_of_warp_credits = params.allow_use_of_warp_credits_with_byok;
     }
 
-    let request = api::Request {
+    let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
             tasks: params.tasks,
         }),
@@ -114,8 +112,6 @@ pub async fn generate_multi_agent_output(
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
             forked_from_conversation_id: if params.conversation_token.is_none() {
-                // We only include this param on our initial request to the server
-                // (when the forked conversation has not been asigned a new id yet).
                 params
                     .forked_from_conversation_token
                     .map(|token| token.as_str().to_string())
@@ -132,208 +128,50 @@ pub async fn generate_multi_agent_output(
         mcp_context: params.mcp_context.map(Into::into),
     };
 
-    if let Some(config) = bedrock_config {
-        let model_id_for_fallback_check = request
-            .settings
-            .as_ref()
-            .and_then(|s| s.model_config.as_ref())
-            .map(|mc| mc.base.clone())
-            .unwrap_or_default();
-        let is_arn = model_id_for_fallback_check.starts_with("arn:");
-        let fallback_to_warp = config.fallback_to_warp && !is_arn;
-        if is_arn && config.fallback_to_warp {
-            log::info!(
-                "[bedrock] Fallback disabled for ARN-based model (not available on Warp server)"
-            );
+    let Some(config) = bedrock_config else {
+        log::error!("[bedrock] No Bedrock config available. Cannot process request.");
+        let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+            stream_type: "bedrock_converse",
+            source: anyhow::anyhow!(
+                "No AI backend available. Please configure Bedrock credentials in Settings > AI."
+            ),
+        });
+        let (tx, rx) = async_channel::unbounded();
+        let _ = tx.send(Err(err)).await;
+        return Ok(Box::pin(rx));
+    };
+
+    let model_id = request
+        .settings
+        .as_ref()
+        .and_then(|s| s.model_config.as_ref())
+        .map(|mc| mc.base.clone())
+        .unwrap_or_default();
+
+    let translator_request = TranslatorRequest {
+        config,
+        model_id,
+        root_task_id: params.root_task_id.clone(),
+        bedrock_message_history: params.bedrock_message_history.clone(),
+        bedrock_messages_sent: params.bedrock_messages_sent.clone(),
+    };
+
+    match translator::execute(translator_request, &mut request).await {
+        Ok(stream) => {
+            let output_stream = stream.take_until(cancellation_rx);
+            Ok(Box::pin(output_stream))
         }
-        match BedrockClient::from_config(config).await {
-            Ok(bedrock) => {
-                let task_id = params.root_task_id.clone().unwrap_or_else(|| {
-                    request
-                        .task_context
-                        .as_ref()
-                        .and_then(|tc| tc.tasks.first())
-                        .map(|t| t.id.clone())
-                        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
-                });
-
-                log::info!("[bedrock] Starting stream with task_id={task_id}");
-
-                let needs_create_task = request
-                    .task_context
-                    .as_ref()
-                    .map(|tc| tc.tasks.is_empty())
-                    .unwrap_or(true);
-
-                log::info!("[bedrock] needs_create_task={needs_create_task}");
-
-                let mut model_id = request
-                    .settings
-                    .as_ref()
-                    .and_then(|s| s.model_config.as_ref())
-                    .map(|mc| mc.base.clone())
-                    .unwrap_or_default();
-
-                if model_id.is_empty() || model_id == "auto" {
-                    model_id = "us.anthropic.claude-opus-4-6".to_string();
-                }
-
-                log::info!("[bedrock] Model: {model_id}");
-
-                let diagnostic_logger =
-                    BedrockDiagnosticLogger::try_new(&model_id, "", "", &task_id).map(Arc::new);
-
-                if let Some(ref logger) = diagnostic_logger {
-                    logger.log_protobuf_input(&request);
-                }
-
-                // Build message list from bedrock_message_history + new input messages.
-                // The history contains all prior messages. We extract only NEW messages
-                // from the current request input and append them.
-                let new_input_messages =
-                    crate::ai::bedrock::convert_request::extract_new_input_messages(&request);
-
-                let mut messages = params.bedrock_message_history.clone();
-                if !new_input_messages.is_empty() {
-                    log::info!(
-                        "[bedrock] Appending {} new input messages to history of {}",
-                        new_input_messages.len(),
-                        messages.len()
-                    );
-                    messages.extend(new_input_messages);
-                }
-
-                // Sanitize: ensure every tool_use has a matching tool_result
-                // immediately after, and that the conversation starts with a
-                // user message. Without this, interrupted tool calls cause
-                // Bedrock ValidationException errors.
-                crate::ai::bedrock::convert_request::sanitize_messages_for_bedrock(&mut messages);
-
-                let system_prompt =
-                    crate::ai::bedrock::convert_request::extract_system_prompt(&request);
-                let tools = crate::ai::bedrock::convert_request::extract_tools(&request);
-
-                log::info!(
-                    "[bedrock] Sending {} messages, system_prompt={}, tools={}",
-                    messages.len(),
-                    system_prompt.is_some(),
-                    tools.len()
-                );
-
-                for (i, msg) in messages.iter().enumerate() {
-                    let content_desc = match &msg.content {
-                        crate::ai::bedrock::convert::MessageContent::Text(t) => {
-                            format!("Text({}chars)", t.len())
-                        }
-                        crate::ai::bedrock::convert::MessageContent::ToolUse {
-                            tool_use_id,
-                            name,
-                            ..
-                        } => {
-                            format!("ToolUse(name={}, id={})", name, tool_use_id)
-                        }
-                        crate::ai::bedrock::convert::MessageContent::ToolResult {
-                            tool_use_id,
-                            is_error,
-                            ..
-                        } => {
-                            format!("ToolResult(id={}, is_error={})", tool_use_id, is_error)
-                        }
-                        crate::ai::bedrock::convert::MessageContent::MultiPart(parts) => {
-                            let part_descs: Vec<String> = parts
-                                .iter()
-                                .map(|p| match p {
-                                    crate::ai::bedrock::convert::ContentPart::Text(t) => {
-                                        format!("Text({})", t.len())
-                                    }
-                                    crate::ai::bedrock::convert::ContentPart::ToolUse {
-                                        name,
-                                        tool_use_id,
-                                        ..
-                                    } => format!("ToolUse({},{})", name, tool_use_id),
-                                    crate::ai::bedrock::convert::ContentPart::ToolResult {
-                                        tool_use_id,
-                                        ..
-                                    } => format!("ToolResult({})", tool_use_id),
-                                })
-                                .collect();
-                            format!("MultiPart[{}]", part_descs.join(", "))
-                        }
-                    };
-                    log::info!(
-                        "[bedrock] msg[{}]: role={:?}, content={}",
-                        i,
-                        msg.role,
-                        content_desc
-                    );
-                }
-
-                match bedrock
-                    .converse_stream(
-                        &model_id,
-                        &task_id,
-                        needs_create_task,
-                        messages.clone(),
-                        system_prompt,
-                        tools,
-                        64000,
-                        None,
-                        true,
-                        diagnostic_logger,
-                        params.bedrock_messages_sent.clone(),
-                    )
-                    .await
-                {
-                    Ok(stream) => {
-                        // Store the input messages we sent so the controller can
-                        // persist them. The stream will append the assistant response.
-                        if let Ok(mut sent) = params.bedrock_messages_sent.lock() {
-                            *sent = messages;
-                        }
-                        let output_stream = stream.take_until(cancellation_rx);
-                        return Ok(Box::pin(output_stream));
-                    }
-                    Err(e) => {
-                        if fallback_to_warp {
-                            log::warn!("Bedrock stream failed, falling back to server: {e}");
-                        } else {
-                            let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-                                stream_type: "bedrock_converse",
-                                source: anyhow::anyhow!("{e}"),
-                            });
-                            let (tx, rx) = async_channel::unbounded();
-                            let _ = tx.send(Err(err)).await;
-                            return Ok(Box::pin(rx));
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                if fallback_to_warp {
-                    log::warn!("Bedrock client creation failed, falling back to server: {e}");
-                } else {
-                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-                        stream_type: "bedrock_converse",
-                        source: anyhow::anyhow!("{e}"),
-                    });
-                    let (tx, rx) = async_channel::unbounded();
-                    let _ = tx.send(Err(err)).await;
-                    return Ok(Box::pin(rx));
-                }
-            }
+        Err(e) => {
+            log::error!("[bedrock] Translator error: {e}");
+            let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                stream_type: "bedrock_converse",
+                source: anyhow::anyhow!("{e}"),
+            });
+            let (tx, rx) = async_channel::unbounded();
+            let _ = tx.send(Err(err)).await;
+            Ok(Box::pin(rx))
         }
     }
-
-    log::error!("[bedrock] No Bedrock config available and server fallback is disabled. Cannot process request.");
-    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-        stream_type: "bedrock_converse",
-        source: anyhow::anyhow!(
-            "No AI backend available. Please configure Bedrock credentials in Settings > AI."
-        ),
-    });
-    let (tx, rx) = async_channel::unbounded();
-    let _ = tx.send(Err(err)).await;
-    Ok(Box::pin(rx))
 }
 
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
@@ -373,16 +211,9 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
             }
         }
         Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
-            // Remote session with a known host — enable tools that route
-            // through RemoteServerClient. The host_id is only populated
-            // after a successful connection handshake, so its presence is a
-            // sufficient proxy for client availability.
-            // SearchCodebase remains disabled (follow-up work).
             supported_tools.extend(&[api::ToolType::ReadFiles, api::ToolType::ApplyFileDiffs]);
         }
-        Some(SessionType::WarpifiedRemote { host_id: None }) => {
-            // Feature flag off or not yet connected — no remote tools.
-        }
+        Some(SessionType::WarpifiedRemote { host_id: None }) => {}
     }
 
     if FeatureFlag::AgentModeComputerUse.is_enabled() && params.computer_use_enabled {

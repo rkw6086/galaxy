@@ -3076,6 +3076,34 @@ impl AIConversation {
             .sum()
     }
 
+    pub fn total_input_tokens(&self) -> u32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
+            .sum()
+    }
+
+    pub fn total_cache_read_tokens(&self) -> u32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(|u| u.input_cache_read)
+            .sum()
+    }
+
+    pub fn total_cache_write_tokens(&self) -> u32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(|u| u.input_cache_write)
+            .sum()
+    }
+
+    pub fn cache_miss_tokens(&self) -> u32 {
+        self.total_token_usage_by_model
+            .values()
+            .map(|u| u.total_input)
+            .sum()
+    }
+
     fn total_tokens_for_usage(usage: &TokenUsage) -> u32 {
         usage.total_input + usage.output + usage.input_cache_read + usage.input_cache_write
     }

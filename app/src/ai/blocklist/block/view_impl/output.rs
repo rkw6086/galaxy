@@ -18,7 +18,6 @@ use crate::ai::blocklist::block::view_impl::common::{
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
 use crate::ai::blocklist::inline_action::create_or_edit_document::CreateOrEditDocumentAction;
 use crate::ai::blocklist::secret_redaction::SecretRedactionState;
-use crate::ai::blocklist::view_util::format_credits;
 use crate::ai::skills::SkillOpenOrigin;
 use crate::ai::skills::{
     icon_override_for_skill_name, render_skill_button, skill_path_from_file_path,
@@ -3195,13 +3194,8 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
         return Empty::new().finish();
     };
 
-    // If this conversation has no usage metadata (e.g. a forked conversation from
-    // mid-way through a prior conversation where the server did not send
-    // ConversationUsageMetadata), avoid rendering the usage button entirely.
-    let has_any_usage = conversation.credits_spent() > 0.0
-        || conversation.credits_spent_for_last_block().is_some()
-        || !conversation.token_usage().is_empty()
-        || conversation.tool_usage_metadata().total_tool_calls() > 0;
+    let has_any_usage = conversation.total_tokens() > 0
+        || conversation.total_cost_cents() > 0.0;
     if !has_any_usage {
         return Empty::new().finish();
     }
@@ -3215,29 +3209,37 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
         Icon::ChevronRight
     };
 
-    let total_credits_spent = conversation.credits_spent();
-    let mut credit_usage_text = format_credits(total_credits_spent);
-    if let Some(credits_spent_for_last_block) = conversation.credits_spent_for_last_block() {
-        // Only show the credits spent for the last block if it is different from the total credits spent
-        // and we spent a non-zero amount of credits for the last block.
-        // Avoid showing the credits spent for the last block if the request failed, as we refund user
-        // credits in that case (so no credits were in fact spent).
-        if credits_spent_for_last_block > 0.0
-            && total_credits_spent != credits_spent_for_last_block
-            && props.model.status(app).error().is_none()
-        {
-            // If the first part of the decimal is 0, we just display the whole number.
-            if credits_spent_for_last_block.fract() < 0.1 {
-                credit_usage_text = format!(
-                    "{credit_usage_text} (+{})",
-                    credits_spent_for_last_block.trunc() as i32
-                );
-            } else {
-                credit_usage_text =
-                    format!("{credit_usage_text} (+{credits_spent_for_last_block:.1})");
-            }
-        }
-    }
+    let context_usage = conversation.context_window_usage();
+    let total_input = conversation.total_input_tokens();
+    let cache_read = conversation.total_cache_read_tokens();
+    let cache_write = conversation.total_cache_write_tokens();
+    let cache_miss = conversation.cache_miss_tokens();
+    let cost_cents = conversation.total_cost_cents();
+
+    let max_context: u32 = if context_usage > 0.0 {
+        (total_input as f32 / context_usage).round() as u32
+    } else {
+        200_000
+    };
+    let context_pct = context_usage * 100.0;
+    let cache_total = cache_read + cache_write + cache_miss;
+    let cache_hit_pct = if cache_total > 0 {
+        (cache_read as f64 / cache_total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let usage_text = format!(
+        "Context: {:.1}% ({} / {}) | Cache: {:.1}% (R: {}, W: {}, M: {}) | Cost: ${:.2}",
+        context_pct,
+        format_token_count(total_input),
+        format_token_count(max_context),
+        cache_hit_pct,
+        format_token_count(cache_read),
+        format_token_count(cache_write),
+        format_token_count(cache_miss),
+        cost_cents / 100.0,
+    );
 
     let icon_size = icon_size(app);
     let button_row = Flex::row()
@@ -3246,7 +3248,7 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
         .with_child(
             Container::new(
                 Text::new_inline(
-                    credit_usage_text,
+                    usage_text,
                     appearance.ui_font_family(),
                     appearance.monospace_font_size(),
                 )
@@ -3265,7 +3267,6 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
         )
         .with_child(
             Container::new(
-                // Expansion icon
                 ConstrainedBox::new(
                     expansion_icon
                         .to_galaxyui_icon(
@@ -3299,10 +3300,9 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
                     .with_background(background)
                     .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
 
-                // Show tooltip on hover or while clicked
                 let mut stack = Stack::new().with_child(content.finish());
                 let tooltip = ui_builder
-                    .tool_tip("Show credit usage details".to_string())
+                    .tool_tip("Show usage details".to_string())
                     .build()
                     .finish();
                 stack.add_positioned_overlay_child(
@@ -3326,6 +3326,16 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
     })
     .with_cursor(Cursor::PointingHand)
     .finish()
+}
+
+fn format_token_count(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        format!("{tokens}")
+    }
 }
 
 pub fn action_icon<V: View>(

@@ -41,6 +41,34 @@ Environment variables:
   - `Error_<timestamp>.txt` snapshot files written to the repository root on request/stream failures (includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails)
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
 
+### Bedrock Translator Architecture
+The Bedrock integration uses a **translator service pattern** where Warp proto types flow in, get converted to Bedrock SDK types, and responses are translated back:
+
+```
+Warp UI (proto) → translator.rs → request_translator.rs → Bedrock API
+Warp UI (proto) ← response_translator.rs ← Bedrock stream
+```
+
+Key files in `app/src/ai/bedrock/`:
+- `translator.rs` — Orchestrator: takes `api::Request` + config, returns `ResponseStream`
+- `request_translator.rs` — Converts Warp proto → Bedrock SDK types (messages, system prompt, tools, sanitization)
+- `response_translator.rs` — Converts Bedrock stream events → Warp proto `ResponseEvent`s
+- `convert.rs` — Shared types (`ConversationMessage`, `ToolDefinition`) and Bedrock SDK type builders
+- `client.rs` — AWS SDK client construction and `converse_stream` call
+- `models.rs` — Model registry and cross-region inference prefix logic
+- `discovery.rs` — AWS profile and model listing
+- `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
+- `external_config.rs` — Fallback config from Claude Code/OpenCode settings
+
+Key invariants:
+- Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`
+- Tool definitions are built via `tool_definition_for_name()` in `request_translator.rs`
+- Unknown/hallucinated tool calls are caught in the stream, paired with synthetic error results
+- Prompt caching uses three cache points: system prompt, conversation history (second-to-last message), tool config
+- `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`
+- `inject_input_messages_into_task()` and `extract_user_query_text()` ensure user queries persist for session restore
+- The stream emits a `UserQuery` proto message at the start of each response for conversation title
+
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup (calls platform-specific bootstrap scripts)
 - `./script/install_cargo_build_deps` - Install Cargo build dependencies
@@ -141,6 +169,14 @@ This is a Rust-based terminal emulator with a custom UI framework called **WarpU
 - Uses Diesel ORM with SQLite
 - Migrations in `migrations/` directory
 - Schema defined in `app/src/persistence/schema.rs`
+- Database file is `galaxy.sqlite` (renamed from Warp's `warp.sqlite`); legacy filename migration is handled in `init_db()`
+
+**Session Restoration**:
+- Controlled by `general.restore_session` setting
+- App state (windows, tabs, pane tree, CWD, agent conversations) is snapshotted to SQLite on window events (close, move, resize, focus change)
+- `TerminalView::active_session_path_if_local()` provides the CWD for each pane; falls back to `session_startup_path` for agent-mode or fresh tabs
+- Agent conversations are persisted via `BlocklistAIHistoryEvent` → `ModelEvent::UpsertAIQuery` and restored via `RestoredAgentConversations` singleton
+- The `active_conversation_id` field in `TerminalPaneSnapshot` controls whether agent view restores in fullscreen mode
 
 **GraphQL**:
 - Schema and client code generation from `graphql/api/schema.graphql`
@@ -183,6 +219,24 @@ if FeatureFlag::YourNewFeature.is_enabled() {
 ### Exhaustive Matching
 
 When adding/editing match statements, avoid using the wildcard _ when at all possible. Exhaustive matching is helpful for ensuring that all variants are handled, especially when adding new variants to enums in the future.
+
+### Rules System
+
+Global rules (behavioral instructions for the AI agent) are stored as `AIFact::Memory` cloud objects and managed via the Rules settings pane.
+
+Key files:
+- `app/src/ai/facts/mod.rs` — `AIFact` / `AIMemory` data model
+- `app/src/ai/facts/predefined_rules.rs` — Default system-defined rules (seeded on first launch)
+- `app/src/ai/facts/view/rule.rs` — `RuleView` UI with Global/Project tabs and "Add Predefined Rules" button
+- `app/src/ai/facts/view/mod.rs` — `AIFactView` parent container (Rules + RuleEditor pages)
+- `app/src/ai/facts/manager.rs` — `AIFactManager` singleton for pane tracking
+- `app/src/settings/ai.rs` — `has_seeded_predefined_rules` setting (one-time flag)
+
+Behavior:
+- On first launch (no existing global rules and `has_seeded_predefined_rules` is false), predefined rules are automatically created
+- The "Add Predefined Rules" button in the Global rules tab will add/update system-defined rules (identified by the "System Defined Rule" name prefix)
+- Rules are persisted via the cloud object sync system (`UpdateManager::create_ai_fact` / `update_ai_fact`)
+- The `memory_enabled` setting (`agents.knowledge.rules_enabled`) controls whether rules are sent to the AI
 
 ### Appearance Settings Notes
 

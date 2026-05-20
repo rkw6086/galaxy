@@ -808,7 +808,7 @@ fn build_docker_sandbox_command(
     let sentinel_value = "57265949261";
     builder.env("HISTFILESIZE", sentinel_value);
     builder.env("GALAXY_INITIAL_HISTFILESIZE", sentinel_value);
-    // Intentionally do NOT set `WARP_INITIAL_WORKING_DIR` for sandboxes:
+    // Intentionally do NOT set `GALAXY_INITIAL_WORKING_DIR` for sandboxes:
     // the container's init script cds into the sandbox home dir, not
     // the host's startup dir.
 

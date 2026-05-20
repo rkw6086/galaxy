@@ -248,15 +248,12 @@ impl From<GqlUgcCollectionEnablementSetting> for UgcCollectionEnablementSetting 
 impl From<&gql_usage::ConversationUsage> for ConversationUsageInfo {
     fn from(gql: &gql_usage::ConversationUsage) -> Self {
         let persistence::model::ConversationUsageMetadata {
-            credits_spent,
             token_usage: models,
             tool_usage_metadata: tool,
             context_window_usage,
             ..
         } = (&gql.usage_metadata).into();
         ConversationUsageInfo {
-            credits_spent,
-            credits_spent_for_last_block: None,
             tool_calls: tool.total_tool_calls(),
             models,
             context_window_usage,

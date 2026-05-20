@@ -18,7 +18,6 @@ use crate::{
     },
     network::NetworkStatus,
     report_error, send_telemetry_from_ctx,
-    server::server_api::ServerApiProvider,
     settings::ai::AISettings,
 };
 use settings::Setting;
@@ -100,7 +99,6 @@ impl ResponseStream {
             access_key_id: settings.bedrock_access_key_id.value().clone(),
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-            fallback_to_warp: *settings.bedrock_fallback_to_warp.value(),
         }.with_external_fallbacks())
     }
 
@@ -110,7 +108,6 @@ impl ResponseStream {
         can_attempt_resume_on_error: bool,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let server_api = ServerApiProvider::as_ref(ctx).get();
         let (cancellation_tx, cancellation_rx) = oneshot::channel();
         let start_time = Local::now();
 
@@ -119,13 +116,7 @@ impl ResponseStream {
         let params_clone = params.clone();
         let _ = ctx.spawn(
             async move {
-                generate_multi_agent_output(
-                    server_api,
-                    bedrock_config,
-                    params_clone,
-                    cancellation_rx,
-                )
-                .await
+                generate_multi_agent_output(bedrock_config, params_clone, cancellation_rx).await
             },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
@@ -194,11 +185,9 @@ impl ResponseStream {
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
         let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
-        let server_api = ServerApiProvider::as_ref(ctx).get();
         let _ = ctx.spawn(
             async move {
-                generate_multi_agent_output(server_api, bedrock_config, params, cancellation_rx)
-                    .await
+                generate_multi_agent_output(bedrock_config, params, cancellation_rx).await
             },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
