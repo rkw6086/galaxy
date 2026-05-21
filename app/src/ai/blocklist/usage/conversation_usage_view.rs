@@ -41,6 +41,8 @@ pub struct ConversationUsageInfo {
     pub total_cache_read_tokens: u32,
     /// Cumulative cache write tokens (session total).
     pub total_cache_write_tokens: u32,
+    /// Cumulative total input tokens across all requests (session total).
+    pub total_input_tokens: u32,
 }
 
 /// Timing information for the last set of agent responses
@@ -278,15 +280,15 @@ impl ConversationUsageView {
                 ));
             }
 
-            // Cache hit rate
-            let cache_miss = self.usage_info.current_context_tokens
-                .saturating_sub(self.usage_info.total_cache_read_tokens);
-            let total_input = self.usage_info.total_cache_read_tokens + cache_miss;
-            if total_input > 0 {
-                let hit_rate = (self.usage_info.total_cache_read_tokens as f32 / total_input as f32) * 100.0;
+            // Cache hit rate: proportion of total input tokens served from cache
+            let total_input = self.usage_info.total_input_tokens;
+            if total_input > 0 && self.usage_info.total_cache_read_tokens > 0 {
+                let hit_rate = (self.usage_info.total_cache_read_tokens as f32
+                    / total_input as f32)
+                    * 100.0;
                 labels.push(render_label_text("Cache hit rate", appearance));
                 values.push(render_value_text(
-                    format!("{:.0}%", hit_rate),
+                    format!("{:.0}%", hit_rate.min(100.0)),
                     appearance,
                 ));
             }
@@ -410,14 +412,16 @@ impl ConversationUsageView {
                     ));
                     values.push(render_section_header("".to_string(), appearance));
 
-                    labels.push(render_label_text("Time to first token", appearance));
-                    values.push(render_value_text(
-                        format!(
-                            "{:.1} seconds",
-                            timing.time_to_first_token_ms as f64 / 1000.0
-                        ),
-                        appearance,
-                    ));
+                    if timing.time_to_first_token_ms > 0 {
+                        labels.push(render_label_text("Time to first token", appearance));
+                        values.push(render_value_text(
+                            format!(
+                                "{:.1} seconds",
+                                timing.time_to_first_token_ms as f64 / 1000.0
+                            ),
+                            appearance,
+                        ));
+                    }
 
                     labels.push(render_label_text("Total agent response time", appearance));
                     values.push(render_value_text(

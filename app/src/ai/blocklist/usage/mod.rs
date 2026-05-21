@@ -2,6 +2,7 @@ use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxy_core::ui::Icon;
 use galaxyui::Element;
 
+pub mod context_window_view;
 pub mod conversation_usage_view;
 
 pub fn icon_for_context_window_usage(context_window_usage: f32) -> Icon {

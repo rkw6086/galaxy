@@ -1,4 +1,6 @@
 use crate::ai::agent::{AIAgentActionResultType, AIAgentActionType};
+use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
+use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::BlocklistAIPermissions;
 use ai::agent::action_result::{AskUserQuestionAnswerItem, AskUserQuestionResult};
 use futures::{future::BoxFuture, FutureExt};
@@ -51,6 +53,52 @@ impl AskUserQuestionExecutor {
             }
         };
 
+        // For child agent conversations, route the question to the parent
+        // for silent auto-answer instead of presenting UI to the user.
+        if let Some(parent_conversation_id) = self.parent_conversation_id(input.conversation_id, ctx)
+        {
+            let question_text = questions
+                .iter()
+                .map(|q| q.question.clone())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let options: Vec<String> = questions
+                .iter()
+                .filter_map(|q| q.multiple_choice_options())
+                .flatten()
+                .map(|o| o.label.clone())
+                .collect();
+
+            OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                service.route_subagent_question_to_parent(
+                    input.conversation_id,
+                    parent_conversation_id,
+                    question_text,
+                    options,
+                    0,
+                    ctx,
+                );
+            });
+
+            // Wait for the parent's answer to arrive via the same channel
+            let receiver = self.result_rx.1.clone();
+            return ActionExecution::new_async(
+                async move { receiver.recv().await },
+                |result, _ctx| match result {
+                    Ok(AskUserQuestionDecision::Completed(answers)) => {
+                        AIAgentActionResultType::AskUserQuestion(
+                            AskUserQuestionResult::Success { answers },
+                        )
+                    }
+                    Ok(AskUserQuestionDecision::Cancelled) | Err(_) => {
+                        AIAgentActionResultType::AskUserQuestion(
+                            AskUserQuestionResult::Cancelled,
+                        )
+                    }
+                },
+            );
+        }
+
         if self.should_autoexecute(input, ctx) {
             let question_ids = questions
                 .iter()
@@ -78,6 +126,16 @@ impl AskUserQuestionExecutor {
                 }
             },
         )
+    }
+
+    fn parent_conversation_id(
+        &self,
+        conversation_id: crate::ai::agent::conversation::AIConversationId,
+        ctx: &ModelContext<Self>,
+    ) -> Option<crate::ai::agent::conversation::AIConversationId> {
+        let history_model = BlocklistAIHistoryModel::as_ref(ctx);
+        let conversation = history_model.conversation(&conversation_id)?;
+        conversation.parent_conversation_id()
     }
 
     pub(super) fn preprocess_action(

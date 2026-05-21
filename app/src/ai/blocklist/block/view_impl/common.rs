@@ -3403,30 +3403,46 @@ pub struct FindContext<'a> {
     pub state: &'a FindState,
 }
 
-/// Renders a user avatar with profile image or display name.
+/// A palette of colors for the user avatar silhouette, randomly selected per session.
+const USER_AVATAR_PALETTE: &[ColorU] = &[
+    ColorU { r: 99, g: 179, b: 237, a: 255 },  // blue
+    ColorU { r: 129, g: 230, b: 217, a: 255 },  // teal
+    ColorU { r: 183, g: 148, b: 244, a: 255 },  // purple
+    ColorU { r: 252, g: 165, b: 165, a: 255 },  // red/coral
+    ColorU { r: 251, g: 191, b: 36, a: 255 },   // amber
+    ColorU { r: 110, g: 231, b: 183, a: 255 },  // green
+    ColorU { r: 249, g: 168, b: 212, a: 255 },  // pink
+    ColorU { r: 253, g: 186, b: 116, a: 255 },  // orange
+];
+
+fn session_avatar_color() -> ColorU {
+    use std::sync::OnceLock;
+    use rand::Rng;
+    static COLOR: OnceLock<ColorU> = OnceLock::new();
+    *COLOR.get_or_init(|| {
+        let idx = rand::thread_rng().gen_range(0..USER_AVATAR_PALETTE.len());
+        USER_AVATAR_PALETTE[idx]
+    })
+}
+
+/// Renders a user avatar as a silhouette icon with a session-random color.
 pub fn render_user_avatar(
-    user_display_name: &str,
-    profile_image_path: Option<&String>,
+    _user_display_name: &str,
+    _profile_image_path: Option<&String>,
     avatar_color: Option<ColorU>,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let theme = appearance.theme();
-    let background = avatar_color.unwrap_or_else(|| blended_colors::accent(theme).into());
+    let background = avatar_color.unwrap_or_else(session_avatar_color);
     let avatar = Avatar::new(
-        profile_image_path
-            .map(|url| AvatarContent::Image {
-                url: url.to_owned(),
-                display_name: user_display_name.to_owned(),
-            })
-            .unwrap_or(AvatarContent::DisplayName(user_display_name.to_owned())),
+        AvatarContent::Icon(Icon::User),
         UiComponentStyles {
             width: Some(icon_size(app)),
             height: Some(icon_size(app)),
             font_family_id: Some(appearance.ui_font_family()),
             font_size: Some(appearance.monospace_font_size() - 2.),
             background: Some(background.into()),
-            font_color: Some(blended_colors::text_main(theme, background)),
+            font_color: Some(ColorU::white()),
             border_radius: Some(CornerRadius::with_all(Radius::Percentage(50.))),
             ..Default::default()
         },

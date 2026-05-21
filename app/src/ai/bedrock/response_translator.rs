@@ -124,10 +124,10 @@ pub fn bedrock_stream_to_response_events(
                     event_count += 1;
                     match event {
                     StreamEvent::MessageStart(_) => {
-                        log::info!("[bedrock-debug] Event #{event_count}: MessageStart");
+                        log::debug!("[bedrock] Event #{event_count}: MessageStart");
                     }
                     StreamEvent::ContentBlockStart(block_start) => {
-                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStart");
+                        log::debug!("[bedrock] Event #{event_count}: ContentBlockStart");
                         if let Some(start) = block_start.start() {
                             match start {
                                 ContentBlockStart::ToolUse(tool_start) => {
@@ -166,11 +166,11 @@ pub fn bedrock_stream_to_response_events(
                         }
                     }
                     StreamEvent::ContentBlockDelta(delta) => {
-                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockDelta");
+                        log::trace!("[bedrock] Event #{event_count}: ContentBlockDelta");
                         if let Some(d) = delta.delta() {
                             match d {
                                 ContentBlockDelta::Text(text) => {
-                                    log::info!("[bedrock-debug] Event #{event_count}: TextDelta ({} chars): {:?}", text.len(), &text[..text.len().min(80)]);
+                                    log::debug!("[bedrock] TextDelta ({} chars)", text.len());
                                     history_text.push_str(text);
                                     if text_flushed {
                                         let msg_id = current_text_message_id.as_ref().unwrap();
@@ -182,6 +182,10 @@ pub fn bedrock_stream_to_response_events(
                                         yield Ok(append);
                                     } else {
                                         buffered_text.push_str(text);
+                                        // Buffer a few initial deltas so the first
+                                        // AddMessagesToTask carries enough content for
+                                        // the exchange to be fully registered before
+                                        // subsequent AppendToMessageContent events arrive.
                                         if buffered_text.len() >= 1 {
                                             let msg_id = Uuid::new_v4().to_string();
                                             current_text_message_id = Some(msg_id.clone());
@@ -209,7 +213,7 @@ pub fn bedrock_stream_to_response_events(
                         }
                     }
                     StreamEvent::ContentBlockStop(_) => {
-                        log::info!("[bedrock-debug] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
+                        log::debug!("[bedrock] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
                         if !current_tool_use_id.is_empty() {
                             // Skip suggest_next_prompt — its executor hangs forever
                             // waiting for UI interaction that doesn't exist in the
@@ -382,7 +386,7 @@ pub fn bedrock_stream_to_response_events(
             &model_id,
         );
         log::info!(
-            "[bedrock] Stream finished: model={model_id}, input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_input_tokens}, cache_write={cache_write_input_tokens}, cost_cents={cost:.4}"
+            "[bedrock] Stream finished: {event_count} events, model={model_id}, input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_input_tokens}, cache_write={cache_write_input_tokens}, cost_cents={cost:.4}"
         );
 
         // Build and store the assistant message into bedrock_messages_sent

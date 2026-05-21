@@ -2586,6 +2586,9 @@ pub struct TerminalView {
     /// Cached view ids for usage footers keyed by the AI block view id that owns them.
     usage_footer_view_ids: HashMap<EntityId, EntityId>,
 
+    /// View ID of the context window debug view, if visible.
+    context_view_id: Option<EntityId>,
+
     // Whether the block onboarding view is active or not.
     block_onboarding_active: bool,
 
@@ -4089,6 +4092,7 @@ impl TerminalView {
             active_filter_editor_block_index: None,
             rich_content_views: Vec::new(),
             usage_footer_view_ids: Default::default(),
+            context_view_id: None,
             block_onboarding_active: false,
             onboarding_agentic_suggestions_block: None,
             onboarding_prompt_block: None,
@@ -5621,6 +5625,18 @@ impl TerminalView {
         };
 
         let tool_usage = conversation.tool_usage_metadata();
+        // For Bedrock conversations, the server doesn't send tool_usage_metadata.
+        // Fall back to counting actions from the conversation exchanges.
+        let tool_call_count = if tool_usage.total_tool_calls() > 0 {
+            tool_usage.total_tool_calls()
+        } else {
+            conversation.count_all_actions() as i32
+        };
+        let commands_executed = if tool_usage.run_command_stats.commands_executed > 0 {
+            tool_usage.run_command_stats.commands_executed
+        } else {
+            conversation.count_command_actions() as i32
+        };
         let time_to_first_token_ms = conversation.time_to_first_token_for_last_user_query_ms();
         let total_agent_response_time_ms =
             conversation.total_agent_response_time_since_last_user_query_ms();
@@ -5631,20 +5647,22 @@ impl TerminalView {
         let total_cache_read_tokens: u32 = token_usage_list.iter().map(|u| u.input_cache_read).sum();
         let total_cache_write_tokens: u32 =
             token_usage_list.iter().map(|u| u.input_cache_write).sum();
+        let total_input_tokens: u32 = token_usage_list.iter().map(|u| u.total_input).sum();
         let estimated_cost_cents: f32 = token_usage_list.iter().map(|u| u.cost_in_cents).sum();
 
         let conversation_usage_info = ConversationUsageInfo {
-            tool_calls: tool_usage.total_tool_calls(),
+            tool_calls: tool_call_count,
             models: conversation.token_usage().to_vec(),
             context_window_usage: conversation.context_window_usage(),
             files_changed: tool_usage.apply_file_diff_stats.files_changed,
             lines_added: tool_usage.apply_file_diff_stats.lines_added,
             lines_removed: tool_usage.apply_file_diff_stats.lines_removed,
-            commands_executed: tool_usage.run_command_stats.commands_executed,
+            commands_executed,
             current_context_tokens: conversation.current_context_tokens(),
             estimated_cost_cents,
             total_cache_read_tokens,
             total_cache_write_tokens,
+            total_input_tokens,
         };
 
         let timing_info = TimingInfo {
@@ -5727,6 +5745,51 @@ impl TerminalView {
                 block.handle_action(&AIBlockAction::ToggleIsUsageFooterExpanded, ctx);
             });
         }
+    }
+
+    fn toggle_context_view(&mut self, ctx: &mut ViewContext<Self>) {
+        use crate::ai::blocklist::usage::context_window_view::ContextWindowView;
+
+        // If already showing, remove it
+        if let Some(view_id) = self.context_view_id.take() {
+            let mut model = self.model.lock();
+            model.block_list_mut().remove_rich_content(view_id);
+            drop(model);
+            self.rich_content_views.retain(|rc| rc.view_id() != view_id);
+            ctx.notify();
+            return;
+        }
+
+        // Get the active conversation's bedrock_message_history
+        let conversation_id = self
+            .agent_view_controller
+            .as_ref(ctx)
+            .agent_view_state()
+            .active_conversation_id();
+
+        let Some(conversation_id) = conversation_id else {
+            return;
+        };
+
+        let messages = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .map(|conv| conv.bedrock_message_history().to_vec())
+            .unwrap_or_default();
+
+        let context_view = ctx.add_view(|_| ContextWindowView::new(messages));
+        let view_id = context_view.id();
+        self.context_view_id = Some(view_id);
+
+        self.insert_rich_content(
+            None,
+            context_view,
+            None,
+            RichContentInsertionPosition::Append {
+                insert_below_long_running_block: true,
+            },
+            ctx,
+        );
+        ctx.notify();
     }
 
     /// Returns true if the window is wide enough to auto-open side panels.
@@ -24407,6 +24470,7 @@ impl TypedActionView for TerminalView {
             | AwsCliNotInstalledBanner(_)
             | ExecuteRewindFromInlineMenu { .. }
             | ToggleUsageFooter
+            | ToggleContextView
             | RevealChildAgent { .. }
             | OpenCLIAgentRichInput
             | ToggleSessionRecording => Empty,
@@ -25427,6 +25491,9 @@ impl TypedActionView for TerminalView {
             }
             ToggleUsageFooter => {
                 self.toggle_usage_footer(ctx);
+            }
+            ToggleContextView => {
+                self.toggle_context_view(ctx);
             }
             RevealChildAgent { conversation_id } => {
                 ctx.emit(Event::RevealChildAgent {

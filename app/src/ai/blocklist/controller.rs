@@ -78,7 +78,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use warp_multi_agent_api::{message, Task, ToolType};
 
-use super::orchestration_events::{OrchestrationEventService, OrchestrationEventServiceEvent};
+use super::orchestration_events::{
+    OrchestrationEventService, OrchestrationEventServiceEvent, PendingEventDetail,
+};
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 #[derive(Debug, Clone)]
@@ -1507,6 +1509,9 @@ impl BlocklistAIController {
             return;
         }
 
+        // Handle local subagent events before standard orchestration events.
+        self.handle_subagent_events(conversation_id, ctx);
+
         if self
             .in_flight_response_streams
             .has_active_stream_for_conversation(conversation_id, ctx)
@@ -1553,6 +1558,67 @@ impl BlocklistAIController {
                 svc.requeue_awaiting_events(conversation_id, ctx);
             });
         }
+    }
+
+    /// Processes local subagent events (questions, answers, summaries) for a conversation.
+    fn handle_subagent_events(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let events = OrchestrationEventService::handle(ctx).update(ctx, |svc, _ctx| {
+            svc.drain_subagent_events(&conversation_id)
+        });
+
+        for event in events {
+            match event.detail {
+                PendingEventDetail::SubagentQuestion {
+                    source_conversation_id,
+                    question_text,
+                    options,
+                    ..
+                } => {
+                    // Auto-answer: pick the first option, or echo the question text
+                    // as a default answer. In a future version, this could invoke the
+                    // parent LLM for a contextual answer.
+                    let answer = options.first().cloned().unwrap_or_else(|| {
+                        format!("Proceed with: {}", question_text)
+                    });
+
+                    OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
+                        svc.route_answer_to_subagent(source_conversation_id, answer, ctx);
+                    });
+                }
+                PendingEventDetail::SubagentAnswer {
+                    answer_text, ..
+                } => {
+                    // This fires on the child's controller — complete its pending question.
+                    self.complete_ask_user_question_with_answer(answer_text, ctx);
+                }
+                PendingEventDetail::SubagentCompletionSummary { .. } => {
+                    // Summary is consumed by the inline panel renderer directly.
+                    // No controller action needed.
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Completes this controller's pending AskUserQuestion with the answer from the parent.
+    fn complete_ask_user_question_with_answer(
+        &self,
+        answer_text: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use ai::agent::action_result::AskUserQuestionAnswerItem;
+
+        let executor = self.action_model.as_ref(ctx).ask_user_question_executor(ctx);
+        let answer_item = AskUserQuestionAnswerItem::Answered {
+            question_id: String::new(),
+            selected_options: vec![answer_text.clone()],
+            other_text: answer_text,
+        };
+        executor.as_ref(ctx).complete(vec![answer_item]);
     }
 
     pub fn resume_conversation(

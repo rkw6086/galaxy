@@ -758,8 +758,25 @@ impl Task {
             .enumerate()
             .find(|(_, m)| message.id == m.id)
         else {
-            log::error!("Message not found for append client action.");
-            return Err(UpdateTaskError::MessageNotFound);
+            // Self-healing: if the message doesn't exist yet (e.g. the initial
+            // AddMessagesToTask was dropped or arrived out of order), treat this
+            // append as an implicit add so streaming doesn't break.
+            log::warn!(
+                "[bedrock] append_to_message_content: message_id={} not found, treating as implicit add",
+                message.id
+            );
+            self.add_messages(
+                vec![message],
+                exchange_id,
+                current_todo_list,
+                current_comments,
+                false,
+            )?;
+            return self
+                .try_get_source()?
+                .messages
+                .last()
+                .ok_or(UpdateTaskError::MessageNotFound);
         };
         let updated_message =
             FieldMaskOperation::append(&api::MESSAGE_DESCRIPTOR, existing_message, &message, mask)

@@ -698,6 +698,20 @@ impl Input {
                     ctx.dispatch_typed_action(&TerminalAction::ToggleUsageFooter);
                 }
             }
+            _context if command.name == commands::CONTEXT.name => {
+                let history = BlocklistAIHistoryModel::handle(ctx);
+                let conversation = history
+                    .as_ref(ctx)
+                    .active_conversation(self.terminal_view_id);
+                if conversation.is_none() {
+                    show_error_toast(
+                        "Cannot show context: no active conversation".to_owned(),
+                        ctx,
+                    );
+                } else {
+                    ctx.dispatch_typed_action(&TerminalAction::ToggleContextView);
+                }
+            }
             _fork if command.name == commands::FORK.name => {
                 let Some(conversation_id) = self
                     .ai_context_model

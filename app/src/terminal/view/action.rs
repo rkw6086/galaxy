@@ -422,6 +422,8 @@ pub enum TerminalAction {
     AwsCliNotInstalledBanner(AwsCliNotInstalledBannerAction),
     /// Toggle the usage footer on the last AI block in the active conversation.
     ToggleUsageFooter,
+    /// Toggle the context window debug view showing bedrock_message_history.
+    ToggleContextView,
     /// Reveal a hidden child agent pane from the orchestrator status card.
     RevealChildAgent {
         conversation_id: AIConversationId,
@@ -702,6 +704,7 @@ impl fmt::Debug for TerminalAction {
             AwsBedrockLoginBanner(action) => write!(f, "AwsBedrockLoginBanner({action:?})"),
             AwsCliNotInstalledBanner(action) => write!(f, "AwsCliNotInstalledBanner({action:?})"),
             ToggleUsageFooter => write!(f, "ToggleUsageFooter"),
+            ToggleContextView => write!(f, "ToggleContextView"),
             RevealChildAgent { .. } => write!(f, "RevealChildAgent"),
             ToggleSessionRecording => write!(f, "ToggleSessionRecording"),
             OpenCLIAgentRichInput => write!(f, "OpenCLIAgentRichInput"),

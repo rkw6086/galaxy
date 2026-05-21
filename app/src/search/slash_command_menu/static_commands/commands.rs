@@ -387,6 +387,15 @@ pub const COST: StaticCommand = StaticCommand {
     argument: None,
 };
 
+pub const CONTEXT: StaticCommand = StaticCommand {
+    name: "/context",
+    description: "Show current context window contents (debug)",
+    icon_path: "bundled/svg/bar-chart-04.svg",
+    availability: Availability::AGENT_VIEW.union(Availability::AI_ENABLED),
+    auto_enter_ai_mode: false,
+    argument: None,
+};
+
 pub const CONVERSATIONS: StaticCommand = StaticCommand {
     name: "/conversations",
     description: "Open conversation history",
@@ -506,6 +515,7 @@ fn all_commands() -> Vec<StaticCommand> {
         ADD_MCP,
         ADD_PROMPT.clone(),
         ADD_RULE,
+        CONTEXT,
         COST,
         FEEDBACK.clone(),
         INDEX,

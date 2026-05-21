@@ -398,6 +398,7 @@ pub(super) struct AIBlockStateHandles {
     /// A given citation should only appear once per block.
     footer_citation_chip_handles: HashMap<AIAgentCitation, MouseStateHandle>,
     orchestration_navigation_card_handles: HashMap<AIAgentActionId, MouseStateHandle>,
+    pub(super) subagent_panel_states: HashMap<AIAgentActionId, super::agent_view::subagent_inline_panel::SubagentPanelState>,
 
     references_section_collapsible_handle: MouseStateHandle,
 
@@ -1368,6 +1369,10 @@ impl AIBlock {
         };
         me.run_secret_redaction_on_user_query(me.client_ids.conversation_id, ctx);
         me.spawn_link_detection(ctx);
+
+        // Create summarization view immediately if this block has a SummarizeConversation input,
+        // so the "Summarizing..." UI appears before the API response starts streaming.
+        me.maybe_create_summarization_view_from_input(ctx);
 
         if me.model.status(ctx).is_streaming() {
             me.model
@@ -4237,6 +4242,27 @@ impl AIBlock {
                         });
                     }
 
+                    // Create subagent panel state for finished StartAgent actions
+                    if let Some(AIActionStatus::Finished(result)) =
+                        action_model.as_ref(ctx).get_action_status(action_id)
+                    {
+                        if let AIAgentActionResultType::StartAgent(
+                            crate::ai::agent::StartAgentResult::Success { agent_id, .. },
+                        ) = &result.result
+                        {
+                            if !me.state_handles.subagent_panel_states.contains_key(action_id) {
+                                if let Some(conversation_id) =
+                                    crate::ai::blocklist::agent_view::orchestration_conversation_links::conversation_id_for_agent_id(agent_id, ctx)
+                                {
+                                    me.state_handles.subagent_panel_states.insert(
+                                        action_id.clone(),
+                                        super::agent_view::subagent_inline_panel::SubagentPanelState::new(conversation_id),
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     let action_statuses = me
                         .requested_action_ids
                         .iter()
@@ -5825,6 +5851,9 @@ pub enum AIBlockAction {
     OpenCommentInGitHub {
         url: String,
     },
+    ToggleSubagentPanel {
+        action_id: AIAgentActionId,
+    },
 }
 
 impl TypedActionView for AIBlock {
@@ -6473,6 +6502,11 @@ impl TypedActionView for AIBlock {
                     images,
                     initial_index,
                 });
+            }
+            AIBlockAction::ToggleSubagentPanel { action_id } => {
+                if let Some(state) = self.state_handles.subagent_panel_states.get_mut(action_id) {
+                    state.is_expanded = !state.is_expanded;
+                }
             }
         }
         ctx.notify();

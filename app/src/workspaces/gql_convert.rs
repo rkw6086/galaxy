@@ -265,6 +265,7 @@ impl From<&gql_usage::ConversationUsage> for ConversationUsageInfo {
             estimated_cost_cents: 0.0,
             total_cache_read_tokens: 0,
             total_cache_write_tokens: 0,
+            total_input_tokens: 0,
         }
     }
 }

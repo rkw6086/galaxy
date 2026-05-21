@@ -430,8 +430,155 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
 /// Call this on the combined (history + new input) messages before
 /// sending to `build_converse_request`.
 pub fn sanitize_messages_for_bedrock(messages: &mut Vec<ConversationMessage>) {
+    remove_orphaned_tool_results(messages);
     ensure_starts_with_user_message(messages);
     ensure_tool_results_paired(messages);
+    ensure_ends_with_user_message(messages);
+}
+
+/// Bedrock requires the conversation to end with a user message.
+/// If the last message is an assistant message (e.g. after compaction),
+/// append a continuation prompt.
+fn ensure_ends_with_user_message(messages: &mut Vec<ConversationMessage>) {
+    if messages.last().is_some_and(|m| m.role == MessageRole::Assistant) {
+        log::info!("[bedrock] Appending continuation prompt (conversation ended with assistant message)");
+        messages.push(ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Continue.".to_string()),
+        });
+    }
+}
+
+/// Removes tool_result content that references tool_use IDs not present in any
+/// preceding assistant message. This happens after compaction when the history
+/// is replaced with a summary but the next request still carries tool_results
+/// from the old (now-discarded) exchanges.
+fn remove_orphaned_tool_results(messages: &mut Vec<ConversationMessage>) {
+    use std::collections::HashSet;
+
+    // Collect all tool_use IDs from assistant messages.
+    let mut valid_tool_use_ids = HashSet::new();
+    for msg in messages.iter() {
+        if msg.role == MessageRole::Assistant {
+            collect_tool_use_ids_into(&msg.content, &mut valid_tool_use_ids);
+        }
+    }
+
+    if valid_tool_use_ids.is_empty() {
+        // No tool_use in history — remove ALL tool_results from user messages.
+        let before_count = messages.len();
+        messages.retain(|msg| {
+            if msg.role != MessageRole::User {
+                return true;
+            }
+            !is_pure_tool_result(&msg.content)
+        });
+
+        // Also strip tool_result parts from MultiPart user messages.
+        for msg in messages.iter_mut() {
+            if msg.role != MessageRole::User {
+                continue;
+            }
+            strip_tool_result_parts(&mut msg.content);
+        }
+
+        if messages.len() != before_count {
+            log::info!(
+                "[bedrock] Removed {} orphaned tool_result message(s) (no tool_use in history)",
+                before_count - messages.len()
+            );
+        }
+        return;
+    }
+
+    // Remove tool_results whose IDs aren't in valid_tool_use_ids.
+    for msg in messages.iter_mut() {
+        if msg.role != MessageRole::User {
+            continue;
+        }
+        strip_orphaned_tool_result_parts(&mut msg.content, &valid_tool_use_ids);
+    }
+
+    // Remove messages that became empty after stripping.
+    messages.retain(|msg| !is_empty_content(&msg.content));
+}
+
+fn is_pure_tool_result(content: &MessageContent) -> bool {
+    matches!(content, MessageContent::ToolResult { .. })
+}
+
+fn strip_tool_result_parts(content: &mut MessageContent) {
+    if let MessageContent::MultiPart(parts) = content {
+        parts.retain(|p| !matches!(p, ContentPart::ToolResult { .. }));
+        if parts.len() == 1 {
+            let part = parts.remove(0);
+            *content = match part {
+                ContentPart::Text(t) => MessageContent::Text(t),
+                ContentPart::ToolUse { tool_use_id, name, input } => {
+                    MessageContent::ToolUse { tool_use_id, name, input }
+                }
+                ContentPart::ToolResult { tool_use_id, content: c, is_error } => {
+                    MessageContent::ToolResult { tool_use_id, content: c, is_error }
+                }
+            };
+        }
+    }
+}
+
+fn strip_orphaned_tool_result_parts(
+    content: &mut MessageContent,
+    valid_ids: &std::collections::HashSet<String>,
+) {
+    match content {
+        MessageContent::ToolResult { tool_use_id, .. } => {
+            if !valid_ids.contains(tool_use_id) {
+                *content = MessageContent::Text(String::new());
+            }
+        }
+        MessageContent::MultiPart(parts) => {
+            parts.retain(|p| match p {
+                ContentPart::ToolResult { tool_use_id, .. } => valid_ids.contains(tool_use_id),
+                _ => true,
+            });
+            if parts.len() == 1 {
+                let part = parts.remove(0);
+                *content = match part {
+                    ContentPart::Text(t) => MessageContent::Text(t),
+                    ContentPart::ToolUse { tool_use_id, name, input } => {
+                        MessageContent::ToolUse { tool_use_id, name, input }
+                    }
+                    ContentPart::ToolResult { tool_use_id, content: c, is_error } => {
+                        MessageContent::ToolResult { tool_use_id, content: c, is_error }
+                    }
+                };
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_empty_content(content: &MessageContent) -> bool {
+    match content {
+        MessageContent::Text(t) => t.is_empty(),
+        MessageContent::MultiPart(parts) => parts.is_empty(),
+        _ => false,
+    }
+}
+
+fn collect_tool_use_ids_into(content: &MessageContent, ids: &mut std::collections::HashSet<String>) {
+    match content {
+        MessageContent::ToolUse { tool_use_id, .. } => {
+            ids.insert(tool_use_id.clone());
+        }
+        MessageContent::MultiPart(parts) => {
+            for p in parts {
+                if let ContentPart::ToolUse { tool_use_id, .. } = p {
+                    ids.insert(tool_use_id.clone());
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {

@@ -259,8 +259,8 @@ impl ResponseStream {
                 let event_type_name = match &response_event.r#type {
                     Some(warp_multi_agent_api::response_event::Type::Init(_)) => "Init",
                     Some(warp_multi_agent_api::response_event::Type::ClientActions(a)) => {
-                        log::info!(
-                            "[bedrock-debug] ResponseStream received ClientActions with {} actions",
+                        log::debug!(
+                            "[bedrock] ResponseStream received ClientActions with {} actions",
                             a.actions.len()
                         );
                         "ClientActions"

@@ -3,9 +3,8 @@
 //! Shows a collapsible panel with the subagent's status, a mini-transcript of
 //! recent messages, and controls to expand to full view or cancel.
 
-use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Empty, Flex,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Empty, Flex, Hoverable,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
 };
 use galaxyui::{AppContext, SingletonEntity};
@@ -13,6 +12,8 @@ use pathfinder_color::ColorU;
 use warp_multi_agent_api as api;
 
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+use crate::ai::agent::AIAgentActionId;
+use crate::ai::blocklist::block::AIBlockAction;
 use crate::ai::blocklist::inline_action::inline_action_header::{
     ICON_MARGIN, INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
 };
@@ -51,6 +52,7 @@ impl SubagentPanelState {
 /// Renders the inline subagent panel for a child conversation.
 pub fn render_subagent_inline_panel(
     state: &SubagentPanelState,
+    action_id: &AIAgentActionId,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
@@ -71,14 +73,28 @@ pub fn render_subagent_inline_panel(
 
     let mut column = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
 
-    // Header — always visible
-    column.add_child(render_panel_header(
-        &agent_name,
-        &status,
-        state,
-        panel_bg,
-        app,
-    ));
+    // Header — always visible, click to toggle expand/collapse
+    let header_mouse_state = state.header_mouse_state.clone();
+    let toggle_action_id = action_id.clone();
+    let header_status = status.clone();
+    let header_expanded = state.is_expanded;
+    column.add_child(
+        Hoverable::new(header_mouse_state, move |_mouse_state| {
+            render_panel_header(
+                &agent_name,
+                &header_status,
+                header_expanded,
+                panel_bg,
+                app,
+            )
+        })
+        .on_click(move |ctx, _, _| {
+            ctx.dispatch_typed_action(AIBlockAction::ToggleSubagentPanel {
+                action_id: toggle_action_id.clone(),
+            });
+        })
+        .finish(),
+    );
 
     // Body (mini-transcript) — only when expanded
     if state.is_expanded {
@@ -106,7 +122,7 @@ pub fn render_subagent_inline_panel(
 fn render_panel_header(
     agent_name: &str,
     status: &ConversationStatus,
-    state: &SubagentPanelState,
+    is_expanded: bool,
     _background: ColorU,
     app: &AppContext,
 ) -> Box<dyn Element> {
@@ -168,7 +184,7 @@ fn render_panel_header(
     // Right: collapse/expand chevron
     let mut right_side = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
 
-    let chevron_icon = if state.is_expanded {
+    let chevron_icon = if is_expanded {
         Icon::ChevronDown
     } else {
         Icon::ChevronRight

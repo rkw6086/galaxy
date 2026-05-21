@@ -552,6 +552,57 @@ impl OrchestrationEventService {
                     LifecycleEventType::Idle,
                     result,
                 );
+
+                // Emit completion summary to parent and merge costs
+                let (parent_id, summary) = {
+                    let history_model = BlocklistAIHistoryModel::as_ref(ctx);
+                    let parent_id = history_model
+                        .conversation(&conversation_id)
+                        .and_then(|c| c.parent_conversation_id());
+                    let summary = parent_id.and_then(|_| {
+                        let conv = history_model.conversation(&conversation_id)?;
+                        let messages = conv.all_linearized_messages();
+                        messages.iter().rev().find_map(|msg| {
+                            let message_content = msg.message.as_ref()?;
+                            match message_content {
+                                warp_multi_agent_api::message::Message::AgentOutput(output)
+                                    if !output.text.is_empty() =>
+                                {
+                                    let text = if output.text.len() > 500 {
+                                        format!("{}...", &output.text[..497])
+                                    } else {
+                                        output.text.clone()
+                                    };
+                                    Some(text)
+                                }
+                                _ => None,
+                            }
+                        })
+                    });
+                    (parent_id, summary)
+                };
+                if let Some(parent_id) = parent_id {
+                    // Merge child's token usage and costs into parent
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _ctx| {
+                        let child_usage: Option<(HashMap<String, api::response_event::stream_finished::TokenUsage>, crate::ai::agent::RequestCost)> = history_model
+                            .conversation(&conversation_id)
+                            .map(|c| (c.total_token_usage_by_model().clone(), c.total_request_cost()));
+                        if let Some((token_usage, request_cost)) = child_usage {
+                            if let Some(parent) = history_model.conversation_mut(&parent_id) {
+                                parent.merge_child_usage_raw(&token_usage, request_cost);
+                            }
+                        }
+                    });
+
+                    if let Some(summary_text) = summary {
+                        self.route_subagent_completion_summary(
+                            conversation_id,
+                            parent_id,
+                            summary_text,
+                            ctx,
+                        );
+                    }
+                }
             }
             (Some(ConversationStatus::InProgress), ConversationStatus::Error) => {
                 let result = self.dispatch_lifecycle_event(
