@@ -10,7 +10,7 @@ use crate::terminal::warpify::render;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon as UiIcon;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
     FormattedTextElement, HighlightedHyperlink, Hoverable, Icon, MainAxisAlignment, MainAxisSize,
     MouseStateHandle,
@@ -315,7 +315,7 @@ impl SshInstallTmuxBlock {
     fn render_title_ui(
         &self,
         app: &AppContext,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         let header_contents = render::build_header_row(

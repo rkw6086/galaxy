@@ -902,8 +902,8 @@ fn handle_terminal_view_event(
             Event::RoleRequestCancelled(role_request_id) => {
                 group.remove_shared_session_role_request(role_request_id.clone(), ctx);
             }
-            Event::OpenWarpDriveObjectInPane(uid) => {
-                ctx.emit(pane_group::Event::OpenWarpDriveObjectInPane(uid.clone()));
+            Event::OpenGalaxyDriveObjectInPane(uid) => {
+                ctx.emit(pane_group::Event::OpenGalaxyDriveObjectInPane(uid.clone()));
             }
             Event::OpenSuggestedAgentModeWorkflowModal { workflow_and_id } => {
                 ctx.emit(pane_group::Event::OpenSuggestedAgentModeWorkflowModal {

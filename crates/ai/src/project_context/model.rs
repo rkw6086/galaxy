@@ -13,7 +13,7 @@ cfg_if::cfg_if! {
         use ignore::gitignore::Gitignore;
         use async_channel::Sender;
 
-        const RULES_FILE_PATTERN: [&str; 2] = ["WARP.md", "AGENTS.md"];
+        const RULES_FILE_PATTERN: [&str; 4] = ["GALAXY.md", "WARP.md", "CLAUDE.md", "AGENTS.md"];
         const MAX_SCAN_DEPTH: usize = 3;
         const MAX_FILES_TO_SCAN: usize = 5000;
     }
@@ -28,13 +28,23 @@ pub struct ProjectRule {
 #[derive(Debug, Default)]
 struct RuleAtPath {
     parent_path: PathBuf,
+    galaxy_md: Option<ProjectRule>,
     warp_md: Option<ProjectRule>,
+    claude_md: Option<ProjectRule>,
     agents_md: Option<ProjectRule>,
 }
 
 impl RuleAtPath {
-    fn respected_rule(&self) -> Option<&ProjectRule> {
-        self.warp_md.as_ref().or(self.agents_md.as_ref())
+    fn all_rules(&self) -> Vec<&ProjectRule> {
+        [
+            self.galaxy_md.as_ref(),
+            self.warp_md.as_ref(),
+            self.claude_md.as_ref(),
+            self.agents_md.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 }
 
@@ -82,12 +92,14 @@ impl ProjectRules {
 
         // Collect all applicable rules (rules in directories that are ancestors of the target path)
         for rule in &self.rules {
-            if let Some(respected_rule) = rule.respected_rule() {
-                // Check if the rule's directory is an ancestor of or equal to the target path
-                if path.starts_with(&rule.parent_path) {
-                    active_rules.push(respected_rule.clone());
-                } else {
-                    available_rule_paths.push(respected_rule.path.to_string_lossy().to_string());
+            if path.starts_with(&rule.parent_path) {
+                for project_rule in rule.all_rules() {
+                    active_rules.push(project_rule.clone());
+                }
+            } else {
+                for project_rule in rule.all_rules() {
+                    available_rule_paths
+                        .push(project_rule.path.to_string_lossy().to_string());
                 }
             }
         }
@@ -109,16 +121,16 @@ impl ProjectRules {
             .iter_mut()
             .find(|rule| rule.parent_path == parent)?;
 
-        if file_name.to_lowercase() == "warp.md" {
-            rule.warp_md.take()
-        } else if file_name.to_lowercase() == "agents.md" {
-            rule.agents_md.take()
-        } else {
-            None
+        match file_name.to_lowercase().as_str() {
+            "galaxy.md" => rule.galaxy_md.take(),
+            "warp.md" => rule.warp_md.take(),
+            "claude.md" => rule.claude_md.take(),
+            "agents.md" => rule.agents_md.take(),
+            _ => None,
         }
     }
 
-    /// Upsert a rule to the set of project rules. This will create a new RuleAtPath entry if none exists and update the existin one
+    /// Upsert a rule to the set of project rules. This will create a new RuleAtPath entry if none exists and update the existing one
     /// otherwise.
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     fn upsert_rule(&mut self, path: &Path, content: String) {
@@ -139,32 +151,29 @@ impl ProjectRules {
             content,
         });
 
-        match existing_rule {
-            Some(rule) => {
-                if file_name.to_lowercase() == "warp.md" {
-                    rule.warp_md = rule_file;
-                } else if file_name.to_lowercase() == "agents.md" {
-                    rule.agents_md = rule_file;
-                }
-            }
+        let rule_ref = match existing_rule {
+            Some(rule) => rule,
             None => {
-                let mut rule = RuleAtPath {
+                self.rules.push(RuleAtPath {
                     parent_path: parent.to_path_buf(),
                     ..Default::default()
-                };
-                if file_name.to_lowercase() == "warp.md" {
-                    rule.warp_md = rule_file;
-                } else if file_name.to_lowercase() == "agents.md" {
-                    rule.agents_md = rule_file;
-                }
-                self.rules.push(rule);
+                });
+                self.rules.last_mut().unwrap()
             }
         };
+
+        match file_name.to_lowercase().as_str() {
+            "galaxy.md" => rule_ref.galaxy_md = rule_file,
+            "warp.md" => rule_ref.warp_md = rule_file,
+            "claude.md" => rule_ref.claude_md = rule_file,
+            "agents.md" => rule_ref.agents_md = rule_file,
+            _ => {}
+        }
     }
 }
 
 /// Singleton model that keeps track of mapping between paths and rule files
-/// Currently supports WARP.md files, but designed to be extensible
+/// Supports GALAXY.md, WARP.md, CLAUDE.md, and AGENTS.md project rule files
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 #[derive(Debug, Default)]
 pub struct ProjectContextModel {
@@ -237,18 +246,12 @@ impl ProjectContextModel {
                             discovered_rules: rule_files
                                 .rules
                                 .iter()
-                                .filter_map(|rule| {
-                                    rule.warp_md.as_ref().map(|rule| ProjectRulePath {
+                                .flat_map(|rule| {
+                                    rule.all_rules().into_iter().map(|r| ProjectRulePath {
                                         project_root: root_clone.clone(),
-                                        path: rule.path.clone(),
+                                        path: r.path.clone(),
                                     })
                                 })
-                                .chain(rule_files.rules.iter().filter_map(|rule| {
-                                    rule.agents_md.as_ref().map(|rule| ProjectRulePath {
-                                        project_root: root_clone.clone(),
-                                        path: rule.path.clone(),
-                                    })
-                                }))
                                 .collect(),
                             deleted_rules: Default::default(),
                         };
@@ -489,7 +492,7 @@ impl ProjectContextModel {
         (existing_rules, rules_delta)
     }
 
-    /// Scan a directory for rule files (currently WARP.md, extensible for future file types)
+    /// Scan a directory for rule files (GALAXY.md, WARP.md, CLAUDE.md, AGENTS.md)
     /// Uses repo_metadata::entry::build_tree for efficient directory traversal
     #[cfg(feature = "local_fs")]
     async fn scan_directory_for_rules(dir_path: &Path) -> Result<ProjectRules> {
@@ -576,11 +579,10 @@ impl ProjectContextModel {
 
     pub fn indexed_rules(&self) -> impl Iterator<Item = PathBuf> + '_ {
         self.path_to_rules.values().flat_map(|rules| {
-            rules.rules.iter().filter_map(|rules| {
-                rules
-                    .respected_rule()
-                    .map(|project_rule| project_rule.path.clone())
-            })
+            rules
+                .rules
+                .iter()
+                .flat_map(|rule| rule.all_rules().into_iter().map(|r| r.path.clone()))
         })
     }
 
@@ -590,8 +592,9 @@ impl ProjectContextModel {
             .get(workspace_path)
             .into_iter()
             .flat_map(|rules| {
-                rules.rules.iter().filter_map(|rule| {
-                    rule.respected_rule()
+                rules.rules.iter().flat_map(|rule| {
+                    rule.all_rules()
+                        .into_iter()
                         .map(|project_rule| project_rule.path.clone())
                 })
             })

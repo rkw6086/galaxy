@@ -93,7 +93,7 @@ mod view_components;
 mod vim_registers;
 mod voice;
 mod voltron;
-mod warp_managed_paths_watcher;
+mod galaxy_managed_paths_watcher;
 #[cfg(target_family = "wasm")]
 mod wasm_nux_dialog;
 mod window_settings;
@@ -241,9 +241,9 @@ use crate::terminal::resizable_data::ResizableData;
 use crate::terminal::view::inline_banner::ByoLlmAuthBannerSessionState;
 use crate::terminal::{AudibleBell, History};
 use crate::undo_close::UndoCloseStack;
-use crate::user_config::WarpConfig;
+use crate::user_config::GalaxyConfig;
 use crate::vim_registers::VimRegisters;
-use crate::warp_managed_paths_watcher::{ensure_warp_watch_roots_exist, WarpManagedPathsWatcher};
+use crate::galaxy_managed_paths_watcher::{ensure_galaxy_watch_roots_exist, GalaxyManagedPathsWatcher};
 use crate::workflows::aliases::WorkflowAliases;
 use crate::workflows::local_workflows::LocalWorkflows;
 use crate::workspace::{ActiveSession, OneTimeModalModel, ToastStack};
@@ -347,7 +347,7 @@ pub enum LaunchMode {
     /// Run the regular GUI application.
     App {
         args: galaxy_cli::AppArgs,
-        /// API key for server authentication, if provided via `--api-key` or `WARP_API_KEY`.
+        /// API key for server authentication, if provided via `--api-key` or `GALAXY_API_KEY`.
         /// Only used on dogfood channels.
         api_key: Option<String>,
     },
@@ -996,14 +996,14 @@ fn initialize_app(
 
     // One-time migration: give Preview its own config directory by
     // symlinking contents from the shared ~/.warp location. Must run
-    // before ensure_warp_watch_roots_exist() creates the new directory.
+    // before ensure_galaxy_watch_roots_exist() creates the new directory.
     #[cfg(target_os = "macos")]
     preview_config_migration::migrate_preview_config_dir_if_needed();
 
-    ensure_warp_watch_roots_exist();
-    ctx.add_singleton_model(WarpManagedPathsWatcher::new);
+    ensure_galaxy_watch_roots_exist();
+    ctx.add_singleton_model(GalaxyManagedPathsWatcher::new);
 
-    ctx.add_singleton_model(WarpConfig::new);
+    ctx.add_singleton_model(GalaxyConfig::new);
     ctx.add_singleton_model(|_ctx| SettingsManager::default());
 
     let user_defaults_on_startup = settings::init(startup_toml_parse_error, ctx);
@@ -2443,7 +2443,7 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         #[cfg(all(not(windows), feature = "kitty_images"))]
         FeatureFlag::KittyImages,
         #[cfg(feature = "warp_packs")]
-        FeatureFlag::WarpPacks,
+        FeatureFlag::GalaxyPacks,
         #[cfg(feature = "global_ai_analytics_banner")]
         FeatureFlag::GlobalAIAnalyticsBanner,
         #[cfg(feature = "global_ai_analytics_collection")]
@@ -2657,7 +2657,7 @@ pub fn enabled_features() -> HashSet<FeatureFlag> {
         #[cfg(feature = "agent_view_block_context")]
         FeatureFlag::AgentViewBlockContext,
         #[cfg(feature = "galaxy_managed_secrets")]
-        FeatureFlag::WarpManagedSecrets,
+        FeatureFlag::GalaxyManagedSecrets,
         #[cfg(feature = "v4a_file_diffs")]
         FeatureFlag::V4AFileDiffs,
         #[cfg(feature = "interactive_conversation_management_view")]

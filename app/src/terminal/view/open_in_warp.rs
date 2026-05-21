@@ -6,7 +6,7 @@ use std::{
 
 use galaxy_util::path::EscapeChar;
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     SingletonEntity, ViewContext,
 };
 use itertools::Itertools;
@@ -238,7 +238,7 @@ impl TerminalView {
                     Some(banner_state) => {
                         ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                             format!("Open {} in Galaxy", banner_state.target.path.display()),
-                            WarpA11yRole::UserAction,
+                            GalaxyA11yRole::UserAction,
                         ))
                     }
                     None => ActionAccessibilityContent::Empty,
@@ -247,14 +247,14 @@ impl TerminalView {
             OpenInWarpBannerAction::Close => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Close View in Galaxy banner",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             OpenInWarpBannerAction::LearnMore => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new(
                     "Learn more",
                     "Learn more about opening Markdown files in Galaxy",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
         }

@@ -14,7 +14,7 @@ use crate::{
         ParsedTemplatableMCPServerResult,
     },
     settings::{ai::AISettings, AISettingsChangedEvent},
-    warp_managed_paths_watcher::warp_data_dir,
+    galaxy_managed_paths_watcher::galaxy_data_dir,
 };
 
 /// Singleton model to manage file-based MCP servers.
@@ -235,7 +235,7 @@ impl FileBasedMCPManager {
     /// config location.
     ///
     /// "Global" means the installation was detected outside of a user repository:
-    /// - For `MCPProvider::Warp`: `warp_data_dir()` (i.e. `~/.warp-core/.mcp.json`).
+    /// - For `MCPProvider::Warp`: `galaxy_data_dir()` (i.e. `~/.warp-core/.mcp.json`).
     /// - For any other provider: the user's home directory (e.g. `~/.claude.json`).
     ///
     /// Project-scoped installations (those detected inside a repo) are not considered
@@ -243,7 +243,7 @@ impl FileBasedMCPManager {
     /// case this returns `true` due to the global reference).
     fn is_global_server(&self, hash: u64) -> bool {
         let home_dir = dirs::home_dir();
-        let warp_root = warp_data_dir();
+        let warp_root = galaxy_data_dir();
         self.file_based_servers_by_root
             .iter()
             .any(|(root_path, provider_map)| {
@@ -264,7 +264,7 @@ impl FileBasedMCPManager {
     /// Returns `true` if the server identified by `hash` is referenced from the global
     /// Warp config (`~/.warp/.mcp.json`). Global Warp servers always auto-spawn.
     fn is_global_warp_server(&self, hash: u64) -> bool {
-        let warp_root = warp_data_dir();
+        let warp_root = galaxy_data_dir();
         self.file_based_servers_by_root
             .get(&warp_root)
             .and_then(|provider_map| provider_map.get(&MCPProvider::Warp))
@@ -432,7 +432,7 @@ impl FileBasedMCPManager {
         // Global Warp installs live under `~/.warp-core/`, which is internal Warp state
         // rather than a meaningful working directory. Map them to the home dir so
         // all global installs (Warp and third-party) share a consistent cwd.
-        if discovery_root == warp_data_dir() {
+        if discovery_root == galaxy_data_dir() {
             return dirs::home_dir().or(Some(discovery_root));
         }
         Some(discovery_root)

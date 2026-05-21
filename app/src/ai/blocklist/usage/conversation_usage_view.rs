@@ -33,11 +33,14 @@ pub struct ConversationUsageInfo {
     pub lines_added: i32,
     pub lines_removed: i32,
     pub commands_executed: i32,
-    pub total_input_tokens: u32,
-    pub total_output_tokens: u32,
-    pub total_cache_read_tokens: u32,
-    pub total_cache_write_tokens: u32,
+    /// Live context window token count (from most recent Bedrock response).
+    pub current_context_tokens: u32,
+    /// Cumulative cost across all requests.
     pub estimated_cost_cents: f32,
+    /// Cumulative cache read tokens (session total).
+    pub total_cache_read_tokens: u32,
+    /// Cumulative cache write tokens (session total).
+    pub total_cache_write_tokens: u32,
 }
 
 /// Timing information for the last set of agent responses
@@ -246,32 +249,21 @@ impl ConversationUsageView {
             );
         }
 
-        // Token usage section
-        let total_tokens = self.usage_info.total_input_tokens
-            + self.usage_info.total_output_tokens
-            + self.usage_info.total_cache_read_tokens
+        // Context tokens (live state — current context window size)
+        if self.usage_info.current_context_tokens > 0 {
+            labels.push(render_label_text("Context tokens", appearance));
+            values.push(render_value_text(
+                format_token_count(self.usage_info.current_context_tokens),
+                appearance,
+            ));
+        }
+
+        // Cache usage (cumulative session totals)
+        let total_cache = self.usage_info.total_cache_read_tokens
             + self.usage_info.total_cache_write_tokens;
-        if total_tokens > 0 {
-            labels.push(render_label_text("Total tokens", appearance));
-            values.push(render_value_text(
-                format_token_count(total_tokens),
-                appearance,
-            ));
-
-            labels.push(render_label_text("  Input", appearance));
-            values.push(render_value_text(
-                format_token_count(self.usage_info.total_input_tokens),
-                appearance,
-            ));
-
-            labels.push(render_label_text("  Output", appearance));
-            values.push(render_value_text(
-                format_token_count(self.usage_info.total_output_tokens),
-                appearance,
-            ));
-
+        if total_cache > 0 {
             if self.usage_info.total_cache_read_tokens > 0 {
-                labels.push(render_label_text("  Cache read", appearance));
+                labels.push(render_label_text("Cache read", appearance));
                 values.push(render_value_text(
                     format_token_count(self.usage_info.total_cache_read_tokens),
                     appearance,
@@ -279,9 +271,22 @@ impl ConversationUsageView {
             }
 
             if self.usage_info.total_cache_write_tokens > 0 {
-                labels.push(render_label_text("  Cache write", appearance));
+                labels.push(render_label_text("Cache write", appearance));
                 values.push(render_value_text(
                     format_token_count(self.usage_info.total_cache_write_tokens),
+                    appearance,
+                ));
+            }
+
+            // Cache hit rate
+            let cache_miss = self.usage_info.current_context_tokens
+                .saturating_sub(self.usage_info.total_cache_read_tokens);
+            let total_input = self.usage_info.total_cache_read_tokens + cache_miss;
+            if total_input > 0 {
+                let hit_rate = (self.usage_info.total_cache_read_tokens as f32 / total_input as f32) * 100.0;
+                labels.push(render_label_text("Cache hit rate", appearance));
+                values.push(render_value_text(
+                    format!("{:.0}%", hit_rate),
                     appearance,
                 ));
             }

@@ -3,23 +3,23 @@ use std::path::Path;
 use galaxyui::ModelContext;
 
 use crate::launch_configs::launch_config::LaunchConfig;
-use crate::themes::theme::WarpThemeConfig;
+use crate::themes::theme::GalaxyThemeConfig;
 use crate::workflows::workflow::Workflow;
 
-impl super::WarpConfig {
+impl super::GalaxyConfig {
     pub fn new(_ctx: &mut ModelContext<Self>) -> Self {
         Self {
             launch_configs: Default::default(),
             tab_configs: Default::default(),
             tab_config_errors: Default::default(),
-            theme_config: WarpThemeConfig::new(),
+            theme_config: GalaxyThemeConfig::new(),
             local_user_workflows: Default::default(),
         }
     }
 }
 
 /// Loads all themes relative to the `workflow_path`.
-pub fn load_theme_configs(_theme_path: &Path) -> WarpThemeConfig {
+pub fn load_theme_configs(_theme_path: &Path) -> GalaxyThemeConfig {
     // There's no local filesystem for wasm, so we'll never be able to retrieve
     // themes from any path.
     Default::default()

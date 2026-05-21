@@ -88,6 +88,7 @@ use crate::{
                 },
                 requested_command::RequestedCommand,
                 search_codebase::SearchCodebaseView,
+                summarization::SummarizationView,
                 suggested_unit_tests::SuggestedUnitTestsView,
                 web_fetch::WebFetchView,
                 web_search::WebSearchView,
@@ -177,6 +178,7 @@ pub(crate) struct Props<'a> {
     pub(super) search_codebase_view: &'a HashMap<AIAgentActionId, ViewHandle<SearchCodebaseView>>,
     pub(super) web_search_views: &'a HashMap<MessageId, ViewHandle<WebSearchView>>,
     pub(super) web_fetch_views: &'a HashMap<MessageId, ViewHandle<WebFetchView>>,
+    pub(super) summarization_views: &'a HashMap<MessageId, ViewHandle<SummarizationView>>,
     pub(super) review_changes_button: &'a ViewHandle<ActionButton>,
     pub(super) open_all_comments_button: &'a ViewHandle<ActionButton>,
     pub(super) dismiss_suggestion_button: &'a ViewHandle<ActionButton>,
@@ -209,6 +211,23 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
 
     let conversation_status = props.model.conversation(app).map(|c| c.status());
     let is_conversation_in_progress = conversation_status.is_some_and(|s| s.is_in_progress());
+
+    // If this is a summarization request, render the inline SummarizationView at the top
+    // regardless of output status. This handles the Bedrock path where no Summarization
+    // output message type is emitted.
+    let is_summarize_input = props
+        .model
+        .inputs_to_render(app)
+        .iter()
+        .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }));
+    if is_summarize_input {
+        let key = crate::ai::agent::MessageId::new(
+            "__summarization_inline_view__".to_string(),
+        );
+        if let Some(summarization_view) = props.summarization_views.get(&key) {
+            output_items.add_child(ChildView::new(summarization_view).finish());
+        }
+    }
 
     let status = props.model.status(app);
     match status {
@@ -807,21 +826,28 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                         } if matches!(
                             summarization_type,
                             SummarizationType::ConversationSummary
-                        ) && !are_all_text_sections_empty(&text.sections) =>
+                        ) =>
                         {
-                            let header_text = "Conversation summarized".to_string();
-                            if let Some(element) = render_collapsible_block(
-                                output_message,
-                                header_text,
-                                &text.sections,
-                                finished_duration.is_some(),
-                                props,
-                                &mut has_rendered_first_text_section,
-                                &mut text_section_index,
-                                &mut code_section_index,
-                                app,
-                            ) {
-                                output_items.add_child(element);
+                            if let Some(summarization_view) =
+                                props.summarization_views.get(&output_message.id)
+                            {
+                                output_items
+                                    .add_child(ChildView::new(summarization_view).finish());
+                            } else if !are_all_text_sections_empty(&text.sections) {
+                                let header_text = "Conversation summarized".to_string();
+                                if let Some(element) = render_collapsible_block(
+                                    output_message,
+                                    header_text,
+                                    &text.sections,
+                                    finished_duration.is_some(),
+                                    props,
+                                    &mut has_rendered_first_text_section,
+                                    &mut text_section_index,
+                                    &mut code_section_index,
+                                    app,
+                                ) {
+                                    output_items.add_child(element);
+                                }
                             }
                         }
                         AIAgentOutputMessageType::WebSearch(web_search_status) => {
@@ -3210,19 +3236,18 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
     };
 
     let context_usage = conversation.context_window_usage();
-    let total_input = conversation.total_input_tokens();
+    let current_context = conversation.current_context_tokens();
     let cache_read = conversation.total_cache_read_tokens();
     let cache_write = conversation.total_cache_write_tokens();
-    let cache_miss = conversation.cache_miss_tokens();
     let cost_cents = conversation.total_cost_cents();
 
     let max_context: u32 = if context_usage > 0.0 {
-        (total_input as f32 / context_usage).round() as u32
+        (current_context as f32 / context_usage).round() as u32
     } else {
         200_000
     };
     let context_pct = context_usage * 100.0;
-    let cache_total = cache_read + cache_write + cache_miss;
+    let cache_total = cache_read + cache_write;
     let cache_hit_pct = if cache_total > 0 {
         (cache_read as f64 / cache_total as f64) * 100.0
     } else {
@@ -3230,14 +3255,13 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
     };
 
     let usage_text = format!(
-        "Context: {:.1}% ({} / {}) | Cache: {:.1}% (R: {}, W: {}, M: {}) | Cost: ${:.2}",
+        "Context: {:.1}% ({} / {}) | Cache: {:.1}% (R: {}, W: {}) | Cost: ${:.2}",
         context_pct,
-        format_token_count(total_input),
+        format_token_count(current_context),
         format_token_count(max_context),
         cache_hit_pct,
         format_token_count(cache_read),
         format_token_count(cache_write),
-        format_token_count(cache_miss),
         cost_cents / 100.0,
     );
 

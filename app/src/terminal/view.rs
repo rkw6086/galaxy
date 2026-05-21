@@ -321,7 +321,7 @@ use crate::terminal::{height_in_range_approx, heights_approx_gt, SizeUpdate};
 use crate::terminal::{heights_approx_eq, CellSizeAndWindowPadding};
 use crate::terminal::{AudibleBell, SizeUpdateReason};
 use crate::terminal::{BlockListSettings, BlockListSettingsChangedEvent};
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::ui_components::icons::{self};
 use crate::util::bindings::{
     custom_tag_to_keystroke, keybinding_name_to_display_string, keybinding_name_to_keystroke,
@@ -407,7 +407,7 @@ use galaxyui::assets::asset_cache::{AssetCache, AssetCacheEvent};
 use galaxyui::image_cache::ImageType;
 use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     elements::SavePosition,
     elements::{
         Align, Clipped, ConstrainedBox, CornerRadius, Fill, Hoverable, Icon, MouseStateHandle,
@@ -721,7 +721,7 @@ const DEFAULT_AI_BLOCK_HEIGHT: f32 = 96.;
 
 pub const DEFAULT_ASK_AI_AUTOSUGGESTION_TEXT: &str = "What happened here?";
 
-const WARP_MD_PATH: &str = "WARP.md";
+const GALAXY_MD_PATH: &str = "GALAXY.md";
 
 pub const LONG_RUNNING_AGENT_REQUESTED_COMMAND_CONTEXT_KEY: &str = "LongRunningRequestedCommand";
 pub const LONG_RUNNING_AGENT_REQUESTED_COMMAND_USER_TOOK_OVER_CONTEXT_KEY: &str =
@@ -1678,7 +1678,7 @@ pub enum Event {
     OpenWorkflowModalWithCloudWorkflow(SyncId),
     // Tell the pane group to open the workflow modal with an unsaved workflow.
     OpenWorkflowModalWithTemporary(Box<Workflow>),
-    OpenWarpDriveObjectInPane(ObjectUid),
+    OpenGalaxyDriveObjectInPane(ObjectUid),
     OpenSuggestedAgentModeWorkflowModal {
         workflow_and_id: SuggestedAgentModeWorkflowAndId,
     },
@@ -2218,7 +2218,7 @@ impl BlocklistAIRenderContext {
     }
 
     /// Returns the AI context stripe color to use for a block, if any.
-    pub fn context_color_for_block(&self, block: &Block, theme: &WarpTheme) -> Option<ColorU> {
+    pub fn context_color_for_block(&self, block: &Block, theme: &GalaxyTheme) -> Option<ColorU> {
         match self.context_inclusion_state_for_block(block) {
             Some(AIContextInclusionState::Active) => self.context_color(theme),
             _ => None,
@@ -2229,7 +2229,7 @@ impl BlocklistAIRenderContext {
     pub fn context_color_for_rich_content(
         &self,
         rich_content: &RichContentMetadata,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Option<ColorU> {
         match rich_content {
             RichContentMetadata::AIBlock(ai_metadata)
@@ -2248,7 +2248,7 @@ impl BlocklistAIRenderContext {
 
     /// The context color to use for a block, given its conversation phase.
     /// This assumes the block is part of the active conversation.
-    fn context_color(&self, theme: &WarpTheme) -> Option<ColorU> {
+    fn context_color(&self, theme: &GalaxyTheme) -> Option<ColorU> {
         (self.is_ai_input_enabled && self.should_highlight_context).then(|| ai_brand_color(theme))
     }
 }
@@ -4012,7 +4012,7 @@ impl TerminalView {
                 ConversationDetailsPanelEvent::OpenPlanNotebook { notebook_uid } => {
                     // Convert NotebookId -> SyncId -> ObjectUid (String)
                     let object_uid = SyncId::from(*notebook_uid).uid();
-                    ctx.emit(Event::OpenWarpDriveObjectInPane(object_uid));
+                    ctx.emit(Event::OpenGalaxyDriveObjectInPane(object_uid));
                 }
             }
         });
@@ -5628,8 +5628,6 @@ impl TerminalView {
             conversation.wall_to_wall_response_time_since_last_query();
 
         let token_usage_list = conversation.total_token_usage();
-        let total_input_tokens: u32 = token_usage_list.iter().map(|u| u.total_input).sum();
-        let total_output_tokens: u32 = token_usage_list.iter().map(|u| u.output).sum();
         let total_cache_read_tokens: u32 = token_usage_list.iter().map(|u| u.input_cache_read).sum();
         let total_cache_write_tokens: u32 =
             token_usage_list.iter().map(|u| u.input_cache_write).sum();
@@ -5643,11 +5641,10 @@ impl TerminalView {
             lines_added: tool_usage.apply_file_diff_stats.lines_added,
             lines_removed: tool_usage.apply_file_diff_stats.lines_removed,
             commands_executed: tool_usage.run_command_stats.commands_executed,
-            total_input_tokens,
-            total_output_tokens,
+            current_context_tokens: conversation.current_context_tokens(),
+            estimated_cost_cents,
             total_cache_read_tokens,
             total_cache_write_tokens,
-            estimated_cost_cents,
         };
 
         let timing_info = TimingInfo {
@@ -8568,7 +8565,7 @@ impl TerminalView {
         let a11y_content = AccessibilityContent::new(
             format!("{title} recognized."),
             a11y_message,
-            WarpA11yRole::TextRole,
+            GalaxyA11yRole::TextRole,
         );
         ctx.emit_a11y_content(a11y_content);
 
@@ -8681,7 +8678,7 @@ impl TerminalView {
         let a11y_content = AccessibilityContent::new(
             trigger.discovery_banner_copy(),
             "You can enable notifications through the command palette.",
-            WarpA11yRole::TextRole,
+            GalaxyA11yRole::TextRole,
         );
         ctx.emit_a11y_content(a11y_content);
 
@@ -8720,7 +8717,7 @@ impl TerminalView {
         let a11y_content = AccessibilityContent::new(
             banner_title,
             "Make sure you have enabled access for Galaxy notifications in System Preferences.",
-            WarpA11yRole::TextRole,
+            GalaxyA11yRole::TextRole,
         );
         ctx.emit_a11y_content(a11y_content);
 
@@ -13495,7 +13492,7 @@ impl TerminalView {
             let a11y_content = AccessibilityContent::new(
                 format!("Suggested corrected command: {}", correction.command),
                 "Press right arrow to insert or keep editing to ignore",
-                WarpA11yRole::HelpRole,
+                GalaxyA11yRole::HelpRole,
             );
             ctx.emit_a11y_content(a11y_content);
 
@@ -18807,7 +18804,7 @@ impl TerminalView {
             }
             AIBlockEvent::OpenCitation(citation) => match citation {
                 AIAgentCitation::WarpDriveObject { uid } => {
-                    ctx.emit(Event::OpenWarpDriveObjectInPane(uid.clone()));
+                    ctx.emit(Event::OpenGalaxyDriveObjectInPane(uid.clone()));
                 }
                 AIAgentCitation::WarpDocumentation { path } => {
                     ctx.open_url(&format!("https://docs.warp.dev/{path}"));
@@ -18821,7 +18818,7 @@ impl TerminalView {
             }
             AIBlockEvent::OpenWorkflow { sync_id } => {
                 if let Some(object) = CloudModel::as_ref(ctx).get_workflow(sync_id) {
-                    ctx.emit(Event::OpenWarpDriveObjectInPane(object.uid()));
+                    ctx.emit(Event::OpenGalaxyDriveObjectInPane(object.uid()));
                 }
             }
             AIBlockEvent::OpenSuggestedAgentModeWorkflowModal { workflow_and_id } => {
@@ -23098,7 +23095,7 @@ impl TerminalView {
                 // TODO (a11y) Keybindings should be taken from the actual user's
                 // configuration
                 "Press cmd-C to read and copy both command and output, and cmd-option-shift-C to read and copy output only. Press cmd-B to bookmark the block: you could navigate between bookmarked blocks quickly using option-up and option-down.",
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )
         })
     }
@@ -24097,7 +24094,7 @@ impl TypedActionView for TerminalView {
                     .map_or(Empty, |selected| {
                         Custom(AccessibilityContent::new_without_help(
                             selected,
-                            WarpA11yRole::TextRole,
+                            GalaxyA11yRole::TextRole,
                         ))
                     })
             }
@@ -24123,7 +24120,7 @@ impl TypedActionView for TerminalView {
             BookmarkBlock(_) | BookmarkSelectedBlock => {
                 Custom(AccessibilityContent::new_without_help(
                     "Toggle Bookmark block",
-                    WarpA11yRole::TextRole,
+                    GalaxyA11yRole::TextRole,
                 ))
             }
             ExpandBlockSelectionAbove | ExpandBlockSelectionBelow => {
@@ -24145,19 +24142,19 @@ impl TypedActionView for TerminalView {
                     "Selected all {} blocks.",
                     self.num_non_hidden_selected_blocks()
                 ),
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )),
             ScrollToBottomOfSelectedBlocks => Custom(AccessibilityContent::new_without_help(
                 "Scrolled to bottom of selected block".to_string(),
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )),
             ScrollToTopOfSelectedBlocks => Custom(AccessibilityContent::new_without_help(
                 "Scrolled to top of selected block".to_string(),
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )),
             ScrollToBottomOfOverhangingBlock(_) => Custom(AccessibilityContent::new_without_help(
                 "Scrolled to bottom of bottommost visible block".to_string(),
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )),
             CopyOutputs => {
                 let mut outputs = vec![];
@@ -24178,7 +24175,7 @@ impl TypedActionView for TerminalView {
                 );
                 Custom(AccessibilityContent::new_without_help(
                     text,
-                    WarpA11yRole::TextRole,
+                    GalaxyA11yRole::TextRole,
                 ))
             }
             Copy => {
@@ -24197,7 +24194,7 @@ impl TypedActionView for TerminalView {
                 let text = format!("Copied {} blocks.\n{}", blocks.len(), blocks.join("\n"));
                 Custom(AccessibilityContent::new_without_help(
                     text,
-                    WarpA11yRole::TextRole,
+                    GalaxyA11yRole::TextRole,
                 ))
             }
             FocusInputAndClearSelection => {
@@ -24205,7 +24202,7 @@ impl TypedActionView for TerminalView {
                     INPUT_A11Y_LABEL,
                     // TODO (a11y) use bindings from user settings
                     INPUT_A11Y_HELPER,
-                    WarpA11yRole::TextareaRole,
+                    GalaxyA11yRole::TextareaRole,
                 ))
             }
             KeyDown(key) => {
@@ -24216,24 +24213,24 @@ impl TypedActionView for TerminalView {
                 };
                 Custom(AccessibilityContent::new_without_help(
                     label,
-                    WarpA11yRole::TextareaRole,
+                    GalaxyA11yRole::TextareaRole,
                 ))
             }
             OpenBlockFilterEditor(block_index) => Custom(AccessibilityContent::new_without_help(
                 format!("Open block filter editor for block {block_index}"),
-                WarpA11yRole::TextRole,
+                GalaxyA11yRole::TextRole,
             )),
             ShowInitializationBlock => Custom(AccessibilityContent::new_without_help(
                 "Showed initialization block",
-                WarpA11yRole::TextareaRole,
+                GalaxyA11yRole::TextareaRole,
             )),
             ShowWarpifySettings => Custom(AccessibilityContent::new_without_help(
                 "Opened Wormhole Settings",
-                WarpA11yRole::ButtonRole,
+                GalaxyA11yRole::ButtonRole,
             )),
             OpenFilesPalette { .. } => Custom(AccessibilityContent::new_without_help(
                 "Opened file search palette",
-                WarpA11yRole::ButtonRole,
+                GalaxyA11yRole::ButtonRole,
             )),
             InsertCommandCorrection { .. }
             | BlockListContextMenu(_)
@@ -24302,28 +24299,28 @@ impl TypedActionView for TerminalView {
             OpenInWarpBanner(action) => self.open_in_warp_banner_accessibility_content(*action),
             OpenAIBlockAttachedBlocksMenu { .. } => Custom(AccessibilityContent::new_without_help(
                 "Open list of blocks attached as context to this AI query.".to_owned(),
-                WarpA11yRole::PopoverRole,
+                GalaxyA11yRole::PopoverRole,
             )),
             OpenAIBlockOverflowMenu { .. } => Custom(AccessibilityContent::new_without_help(
                 "Open overflow menu with copy options for this AI block.".to_owned(),
-                WarpA11yRole::PopoverRole,
+                GalaxyA11yRole::PopoverRole,
             )),
             RewindAIConversation { .. } => Custom(AccessibilityContent::new_without_help(
                 "Show confirmation dialog to rewind to before this point in the AI conversation."
                     .to_owned(),
-                WarpA11yRole::ButtonRole,
+                GalaxyA11yRole::ButtonRole,
             )),
             ExecuteRewindAIConversation { .. } => Custom(AccessibilityContent::new_without_help(
                 "Execute rewind to before this point in the AI conversation.".to_owned(),
-                WarpA11yRole::ButtonRole,
+                GalaxyA11yRole::ButtonRole,
             )),
             SelectAIAttachedBlock(_) => Custom(AccessibilityContent::new_without_help(
                 "Click on a block attached as context to this AI query.".to_owned(),
-                WarpA11yRole::ButtonRole,
+                GalaxyA11yRole::ButtonRole,
             )),
             PickRepoToOpen => Custom(AccessibilityContent::new_without_help(
                 "Use file picker to select a git repository".to_owned(),
-                WarpA11yRole::PopoverRole,
+                GalaxyA11yRole::PopoverRole,
             )),
             #[cfg(feature = "voice_input")]
             ToggleCLIAgentVoiceInput(_) => Empty,
@@ -25252,11 +25249,11 @@ impl TypedActionView for TerminalView {
             }
             OpenProjectRulesPane => {
                 if let Some(current_dir) = self.pwd() {
-                    let mut warp_md_path = PathBuf::from(&current_dir);
-                    warp_md_path.push(WARP_MD_PATH);
+                    let mut galaxy_md_path = PathBuf::from(&current_dir);
+                    galaxy_md_path.push(GALAXY_MD_PATH);
                     #[cfg(feature = "local_fs")]
                     ctx.emit(Event::OpenCodeInWarp {
-                        source: CodeSource::ProjectRules { path: warp_md_path },
+                        source: CodeSource::ProjectRules { path: galaxy_md_path },
                         layout: *crate::util::file::external_editor::EditorSettings::as_ref(ctx)
                             .open_file_layout
                             .value(),
@@ -26531,7 +26528,7 @@ fn maybe_wrap_terminal_element_in_scrollable(
     vertical_scroll_handle: ScrollStateHandle,
     horizontal_scroll_handle: ClippedScrollStateHandle,
     required_terminal_width: f32,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
     element: impl NewScrollableElement + 'static,
 ) -> Box<dyn Element> {
     let nonactive_thumb_background = theme.disabled_text_color(theme.background()).into();

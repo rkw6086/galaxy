@@ -14,7 +14,7 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType, ObjectType};
 use crate::drive::export::ExportManager;
 use crate::drive::items::WarpDriveItemId;
-use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings};
+use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectArgs, OpenGalaxyDriveObjectSettings};
 use crate::experiments::{BlockOnboarding, Experiment};
 use crate::interval_timer::IntervalTimer;
 use crate::launch_configs::launch_config;
@@ -49,7 +49,7 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::{cell_size_and_padding, TerminalAction};
 use crate::themes::onboarding_theme_picker_themes;
-use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, WarpThemeConfig};
+use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, GalaxyThemeConfig};
 use crate::uri::OpenMCPSettingsArgs;
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::util::traffic_lights::{traffic_light_data, TrafficLightData, TrafficLightMouseStates};
@@ -1133,7 +1133,7 @@ fn open_linear_issue_work_in_new_window(args: &LinearIssueWork, ctx: &mut AppCon
     });
 }
 
-fn open_warp_drive_object(arg: &OpenWarpDriveObjectArgs, ctx: &mut AppContext) {
+fn open_warp_drive_object(arg: &OpenGalaxyDriveObjectArgs, ctx: &mut AppContext) {
     match arg.object_type {
         ObjectType::Notebook => open_new_workspace_with_notebook_open(
             SyncId::ServerId(arg.server_id),
@@ -1158,7 +1158,7 @@ fn display_object_missing_error_in_window(window_id: WindowId, ctx: &mut AppCont
 
 fn open_new_workspace_with_notebook_open(
     notebook_id: SyncId,
-    settings: OpenWarpDriveObjectSettings,
+    settings: OpenGalaxyDriveObjectSettings,
     ctx: &mut AppContext,
 ) {
     open_new_with_workspace_source(
@@ -1172,7 +1172,7 @@ fn open_new_workspace_with_notebook_open(
 
 fn open_new_workspace_with_workflow_open(
     workflow_id: SyncId,
-    settings: OpenWarpDriveObjectSettings,
+    settings: OpenGalaxyDriveObjectSettings,
     ctx: &mut AppContext,
 ) {
     open_new_with_workspace_source(
@@ -1583,11 +1583,11 @@ pub enum NewWorkspaceSource {
     },
     NotebookById {
         id: SyncId,
-        settings: OpenWarpDriveObjectSettings,
+        settings: OpenGalaxyDriveObjectSettings,
     },
     WorkflowById {
         id: SyncId,
-        settings: OpenWarpDriveObjectSettings,
+        settings: OpenGalaxyDriveObjectSettings,
     },
     AgentSession {
         options: Box<NewTerminalOptions>,
@@ -2153,7 +2153,7 @@ impl RootView {
     }
 
     fn onboarding_theme_kind(theme_name: &str) -> Option<ThemeKind> {
-        WarpThemeConfig::new()
+        GalaxyThemeConfig::new()
             .theme_items()
             .find_map(|(kind, theme)| {
                 (theme.name().as_deref() == Some(theme_name)).then(|| kind.clone())
@@ -2593,7 +2593,7 @@ impl RootView {
 
     pub fn open_warp_drive_object_in_existing_window(
         &mut self,
-        arg: &OpenWarpDriveObjectArgs,
+        arg: &OpenGalaxyDriveObjectArgs,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
         if let AuthOnboardingState::Terminal(handle) = &self.auth_onboarding_state {
@@ -2856,7 +2856,7 @@ impl RootView {
             ctx.dispatch_typed_action_for_view(
                 window_id,
                 handle.id(),
-                &WorkspaceAction::OpenWarpDrive,
+                &WorkspaceAction::OpenGalaxyDrive,
             );
             ctx.windows().show_window_and_focus_app(window_id);
         } else {

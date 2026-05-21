@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{Container, Element};
 use galaxyui::keymap::Keystroke;
 use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity, View, ViewContext};
@@ -460,7 +460,7 @@ impl MessageTransformer<TerminalMessageArgs<'_>> for AttachedTextSelectionMessag
     }
 }
 
-fn message_magenta(theme: &WarpTheme) -> ColorU {
+fn message_magenta(theme: &GalaxyTheme) -> ColorU {
     let mut color = theme.ansi_fg_magenta();
     color.a = (255. * 0.65) as u8;
     color

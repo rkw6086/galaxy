@@ -327,7 +327,7 @@ fn is_home_provider_path_true_for_known_providers() {
     let path = home_dir.join(".agents").join("skills");
     assert!(is_home_provider_path(&path));
 
-    if let Some(path) = galaxy_core::paths::warp_home_skills_dir() {
+    if let Some(path) = galaxy_core::paths::galaxy_home_skills_dir() {
         assert!(is_home_provider_path(&path));
     }
 
@@ -350,12 +350,12 @@ fn extract_skill_parent_directory_returns_home_dir_for_warp_home_skill() {
         eprintln!("Skipping test: home directory not available");
         return;
     };
-    let Some(warp_home_skills_dir) = galaxy_core::paths::warp_home_skills_dir() else {
+    let Some(galaxy_home_skills_dir) = galaxy_core::paths::galaxy_home_skills_dir() else {
         eprintln!("Skipping test: Warp home skills directory not available");
         return;
     };
 
-    let skill_path = warp_home_skills_dir.join("test-skill").join("SKILL.md");
+    let skill_path = galaxy_home_skills_dir.join("test-skill").join("SKILL.md");
     let result = extract_skill_parent_directory(&skill_path);
     assert_eq!(result.ok(), Some(home_dir));
 }

@@ -286,7 +286,7 @@ pub fn test_add_workflows_to_warp_config() -> Builder {
 
                     workflows.read(app, |workflows, _| {
                         // Note that this can be a synchronous assertion because unlike the next test step,
-                        // we don't have concurrency with a WarpConfig watcher thread
+                        // we don't have concurrency with a GalaxyConfig watcher thread
                         assert_eq!(
                             workflows.local_workflows().count(),
                             0,

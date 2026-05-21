@@ -16,7 +16,7 @@ use galaxy_editor::{
     model::{CoreEditorModel, RichTextEditorModel},
 };
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     clipboard::ClipboardContent,
     elements::{
         Align, Clipped, ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty,
@@ -52,7 +52,7 @@ use crate::{
     drive::{
         drive_helpers::has_feature_gated_anonymous_user_reached_notebook_limit,
         export::ExportManager, items::WarpDriveItemId, sharing::ShareableObject,
-        CloudObjectTypeAndId, OpenWarpDriveObjectSettings,
+        CloudObjectTypeAndId, OpenGalaxyDriveObjectSettings,
     },
     editor::{
         EditOrigin, EditorView, Event as EditorEvent, InteractionState,
@@ -1522,7 +1522,7 @@ impl NotebookView {
     pub fn wait_for_initial_load_then_load(
         &mut self,
         notebook_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         window_id: WindowId,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -1561,7 +1561,7 @@ impl NotebookView {
     fn fetch_and_load_notebook(
         &mut self,
         notebook_id: ServerId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         window_id: WindowId,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -1605,7 +1605,7 @@ impl NotebookView {
     pub fn load(
         &mut self,
         notebook: CloudNotebook,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
     ) -> SpawnedFutureHandle {
         self.set_title(&notebook.model().title, ctx);
@@ -1868,7 +1868,7 @@ impl NotebookView {
         if let Some(notebook) = CloudModel::as_ref(ctx).get_notebook(&id) {
             self.load(
                 notebook.clone(),
-                &OpenWarpDriveObjectSettings::default(),
+                &OpenGalaxyDriveObjectSettings::default(),
                 ctx,
             );
         }
@@ -2185,7 +2185,7 @@ impl View for NotebookView {
     fn accessibility_contents(&self, ctx: &AppContext) -> Option<AccessibilityContent> {
         Some(AccessibilityContent::new_without_help(
             format!("{} notebook", self.title(ctx)),
-            WarpA11yRole::TextRole,
+            GalaxyA11yRole::TextRole,
         ))
     }
 

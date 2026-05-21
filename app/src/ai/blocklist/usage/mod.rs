@@ -1,4 +1,4 @@
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxy_core::ui::Icon;
 use galaxyui::Element;
 
@@ -33,7 +33,7 @@ pub fn icon_for_context_window_usage(context_window_usage: f32) -> Icon {
 
 pub fn render_context_window_usage_icon(
     context_window_usage: f32,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
     color_override: Option<Fill>,
 ) -> Box<dyn Element> {
     let icon = icon_for_context_window_usage(context_window_usage);

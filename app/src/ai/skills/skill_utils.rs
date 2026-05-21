@@ -21,7 +21,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
+use crate::galaxy_managed_paths_watcher::galaxy_managed_skill_dirs;
 
 lazy_static! {
     static ref CONTENT_HASHER: SipHasher = SipHasher::new_with_keys(0, 0);
@@ -167,7 +167,7 @@ pub fn icon_override_for_skill_name(name: &str) -> Option<Icon> {
 pub fn skill_path_from_file_path(file_path: &Path) -> Option<PathBuf> {
     for definition in SKILL_PROVIDER_DEFINITIONS.iter() {
         let home_skill_dirs = if definition.provider == SkillProvider::Warp {
-            warp_managed_skill_dirs()
+            galaxy_managed_skill_dirs()
         } else {
             home_skills_path(definition.provider).into_iter().collect()
         };

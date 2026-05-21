@@ -7,7 +7,7 @@ use crate::{
     send_telemetry_from_ctx, server::telemetry::TelemetryEvent, themes::theme::CustomTheme,
 };
 #[cfg(feature = "local_fs")]
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
     Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
     EventHandler, Fill, Flex, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
@@ -220,7 +220,7 @@ impl ThemeCreatorBody {
     /// Note: the image option should be (original_theme_image_path, theme_name, image_extension).
     #[cfg(feature = "local_fs")]
     pub fn write_theme<T>(
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         dir: PathBuf,
         theme_yaml_file_name: String,
         image_option: Option<(PathBuf, String, &str)>,

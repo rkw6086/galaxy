@@ -9,7 +9,7 @@ use galaxy_core::channel::ChannelState;
 use galaxyui::windowing;
 
 pub(crate) fn run() -> anyhow::Result<()> {
-    println!("Warp version: {:?}", ChannelState::app_version());
+    println!("Galaxy version: {:?}", ChannelState::app_version());
 
     #[cfg(not(windows))]
     {

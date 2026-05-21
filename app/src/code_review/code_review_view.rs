@@ -172,7 +172,7 @@ use crate::{
     editor::InteractionState,
     pane_group::pane::{view, BackingView, PaneEvent},
     send_telemetry_from_ctx,
-    themes::theme::WarpTheme,
+    themes::theme::GalaxyTheme,
 };
 
 use vec1::Vec1;
@@ -1383,7 +1383,7 @@ impl CodeReviewView {
         let init_project_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Initialize codebase", NakedTheme)
                 .with_size(ButtonSize::Small)
-                .with_tooltip("Enables codebase indexing and WARP.md")
+                .with_tooltip("Enables codebase indexing and GALAXY.md")
                 .with_tooltip_alignment(TooltipAlignment::Center)
                 .on_click(|ctx| {
                     ctx.dispatch_typed_action(CodeReviewAction::InitProjectForCurrentDirectory)
@@ -5528,7 +5528,7 @@ impl CodeReviewView {
 
     fn styled_file_content_container(
         content: Box<dyn Element>,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Box<dyn Element> {
         Container::new(
             Flex::row()

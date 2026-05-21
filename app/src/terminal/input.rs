@@ -192,7 +192,7 @@ use crate::{
     settings_view::{flags, SettingsSection},
     terminal::view::inline_banner::{PromptSuggestionsEvent, PromptSuggestionsView},
     ui_components::{blended_colors, icons::Icon},
-    user_config::WarpConfig,
+    user_config::GalaxyConfig,
     util::bindings::{self, CustomAction},
     util::image::MAX_IMAGE_COUNT_FOR_QUERY,
     view_components::{DismissibleToast, ToastFlavor},
@@ -268,7 +268,7 @@ use galaxy_core::{
 use galaxy_editor::editor::NavigationKey;
 use galaxy_util::path::ShellFamily;
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     clipboard::{ClipboardContent, ImageData},
     clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES,
     color::ColorU,
@@ -2652,7 +2652,7 @@ impl Input {
             .app_workflows()
             .cloned()
             .collect_vec();
-        let local_user_workflows = WarpConfig::as_ref(ctx).local_user_workflows().clone();
+        let local_user_workflows = GalaxyConfig::as_ref(ctx).local_user_workflows().clone();
 
         let workflows_search_view = ctx.add_typed_action_view(|ctx| {
             workflows::CategoriesView::new(local_user_workflows, app_workflows, ctx)
@@ -6677,7 +6677,7 @@ impl Input {
         ctx.emit_a11y_content(AccessibilityContent::new(
             accessibility_text,
             "Press shift-tab to select the next workflow argument",
-            WarpA11yRole::UserAction,
+            GalaxyA11yRole::UserAction,
         ));
 
         // Only highlight an argument and show enum suggestions if history suggestions are not active
@@ -7029,7 +7029,7 @@ impl Input {
 
                 ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                     format!("Executed: {command}"),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ));
             }
             InputSuggestionsEvent::CloseSuggestion {
@@ -11164,7 +11164,7 @@ impl Input {
             if let Some(a11y_text) = self.selected_workflow_a11y_text(ctx) {
                 ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                     a11y_text,
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ));
             }
         } else {
@@ -11246,7 +11246,7 @@ impl Input {
             if trigger == CommandXRayTrigger::Keystroke {
                 ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                     description.a11y_text(),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ));
             }
             ctx.notify();
@@ -13883,7 +13883,7 @@ impl TypedActionView for Input {
                     INPUT_A11Y_LABEL,
                     // TODO (a11y) use bindings from user settings
                     INPUT_A11Y_HELPER,
-                    WarpA11yRole::TextareaRole,
+                    GalaxyA11yRole::TextareaRole,
                 ))
             }
             _ => ActionAccessibilityContent::Empty,
@@ -14082,7 +14082,7 @@ impl View for Input {
             INPUT_A11Y_LABEL,
             // TODO (a11y) use bindings from user settings
             INPUT_A11Y_HELPER,
-            WarpA11yRole::TextareaRole,
+            GalaxyA11yRole::TextareaRole,
         ))
     }
 

@@ -1617,7 +1617,7 @@ impl AISettings {
             return None;
         }
         let path = std::path::Path::new(path_str);
-        crate::user_config::WarpConfig::as_ref(app)
+        crate::user_config::GalaxyConfig::as_ref(app)
             .tab_configs()
             .iter()
             .find(|config| config.source_path.as_deref().is_some_and(|p| p == path))

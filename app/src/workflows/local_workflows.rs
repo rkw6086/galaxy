@@ -12,7 +12,7 @@ use warp_workflows::workflows as global_workflows;
 
 #[cfg(feature = "local_fs")]
 use crate::user_config::load_workflows;
-use crate::{terminal::model::session::Session, user_config::WarpConfig};
+use crate::{terminal::model::session::Session, user_config::GalaxyConfig};
 
 use super::{workflow::Workflow, WorkflowSource};
 
@@ -136,7 +136,7 @@ impl LocalWorkflows {
                     .map(|workflow| (WorkflowSource::Project, workflow)),
             )
             .chain(
-                WarpConfig::as_ref(ctx)
+                GalaxyConfig::as_ref(ctx)
                     .local_user_workflows()
                     .iter()
                     .map(|workflow| (WorkflowSource::Local, workflow)),

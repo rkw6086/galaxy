@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use bitflags::bitflags;
-use galaxy_core::ui::theme::{AnsiColors, TerminalColors, WarpTheme};
+use galaxy_core::ui::theme::{AnsiColors, TerminalColors, GalaxyTheme};
 use galaxyui::{
     fonts::FontInfo, keymap::Keystroke, platform::mac::utils::unicode_char_to_key, DisplayIdx,
 };
@@ -126,7 +126,7 @@ impl ITermTheme {
         mut self,
         suffix: &'static str,
         default_theme: &ITermTheme,
-    ) -> Result<WarpTheme, ThemeError> {
+    ) -> Result<GalaxyTheme, ThemeError> {
         if self.foreground == default_theme.foreground
             || self.background == default_theme.background
         {
@@ -149,7 +149,7 @@ impl ITermTheme {
 
         let accent = calculate_accent_color(background, foreground, cursor, bright);
 
-        Ok(WarpTheme::new(
+        Ok(GalaxyTheme::new(
             background.into(),
             foreground,
             accent.into(),

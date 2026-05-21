@@ -13,5 +13,3 @@ pub mod sync_queue;
 pub mod telemetry;
 pub(crate) mod telemetry_ext;
 pub mod voice_transcriber;
-
-pub use galaxy_core::operating_system_info::OperatingSystemInfo;

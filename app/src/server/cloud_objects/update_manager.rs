@@ -4475,8 +4475,27 @@ impl UpdateManager {
         initiated_by: InitiatedBy,
         ctx: &mut ModelContext<Self>,
     ) {
-        // If the object isn't known to the server yet, we can't delete it.
+        // If the object isn't known to the server yet, delete it locally.
         let Some(server_id) = id.server_id() else {
+            let uid = id.uid();
+            let sync_ids_and_types = CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+                let (sync_ids_and_types, _) = cloud_model.delete_objects_by_id(vec![uid], ctx);
+                sync_ids_and_types
+            });
+            if !sync_ids_and_types.is_empty() {
+                self.save_to_db([ModelEvent::DeleteObjects {
+                    ids: sync_ids_and_types,
+                }]);
+            }
+            ctx.emit(UpdateManagerEvent::ObjectOperationComplete {
+                result: ObjectOperationResult {
+                    success_type: OperationSuccessType::Success,
+                    operation: ObjectOperation::Delete { initiated_by },
+                    client_id: None,
+                    server_id: None,
+                    num_objects: Some(1),
+                },
+            });
             return;
         };
 

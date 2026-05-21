@@ -233,7 +233,7 @@ use crate::drive::import::modal::{ImportModal, ImportModalEvent};
 use crate::drive::workflows::arguments::ArgumentsState;
 use crate::drive::workflows::modal::{WorkflowModal, WorkflowModalEvent};
 use crate::drive::{
-    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent, OpenWarpDriveObjectSettings,
+    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent, OpenGalaxyDriveObjectSettings,
 };
 use crate::experiments::{BlockOnboarding, Experiment};
 use crate::menu::{
@@ -338,7 +338,7 @@ use crate::user_config::{
     find_unused_worktree_config_path, materialize_default_worktree_config, sanitize_toml_base_name,
     tab_configs_dir,
 };
-use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
+use crate::user_config::{GalaxyConfig, GalaxyConfigUpdateEvent};
 use crate::util::bindings::{
     keybinding_name_to_display_string, keybinding_name_to_keystroke, trigger_to_keystroke,
 };
@@ -480,7 +480,7 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
     accessibility::{
-        AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, WarpA11yRole,
+        AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, GalaxyA11yRole,
     },
     elements::{
         Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
@@ -1372,7 +1372,7 @@ impl Workspace {
                 if let Some(id) = id_to_force_expand {
                     self.open_notebook(
                         &NotebookSource::Existing(id),
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         ctx,
                         true,
                     );
@@ -1388,7 +1388,7 @@ impl Workspace {
                 if let Some(id) = id_to_force_expand {
                     self.open_workflow_with_existing(
                         id,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         ctx,
                     );
                     CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
@@ -1936,7 +1936,7 @@ impl Workspace {
                         );
                     });
                 } else {
-                    WarpConfig::handle(ctx).update(ctx, |warp_config, ctx| {
+                    GalaxyConfig::handle(ctx).update(ctx, |warp_config, ctx| {
                         warp_config.remove_tab_config_by_path(path, ctx);
                     });
                 }
@@ -2404,7 +2404,7 @@ impl Workspace {
         );
     }
 
-    /// Subscribes to `WarpConfigUpdateEvent::TabConfigErrors` and shows a persistent
+    /// Subscribes to `GalaxyConfigUpdateEvent::TabConfigErrors` and shows a persistent
     /// error toast for each tab config file that failed to parse.  Uses `object_id`
     /// keyed by file path so that re-saving the same file auto-dismisses the stale
     /// toast.
@@ -2412,9 +2412,9 @@ impl Workspace {
         toast_stack: ViewHandle<DismissibleToastStack<WorkspaceAction>>,
         ctx: &mut ViewContext<Self>,
     ) {
-        ctx.subscribe_to_model(&WarpConfig::handle(ctx), move |_me, _, event, ctx| {
+        ctx.subscribe_to_model(&GalaxyConfig::handle(ctx), move |_me, _, event, ctx| {
             match event {
-                WarpConfigUpdateEvent::TabConfigs => {
+                GalaxyConfigUpdateEvent::TabConfigs => {
                     // On every tab config reload, dismiss error toasts for
                     // files that now parse successfully.  The model has already
                     // been updated with the current error set before this event
@@ -2429,7 +2429,7 @@ impl Workspace {
                         toast_stack.dismiss_toasts_by_prefix("tab_config_error:", ctx);
                     });
                 }
-                WarpConfigUpdateEvent::TabConfigErrors(errors) => {
+                GalaxyConfigUpdateEvent::TabConfigErrors(errors) => {
                     let home_dir = dirs::home_dir();
                     for error in errors {
                         let object_id = format!("tab_config_error:{}", error.file_path.display());
@@ -2463,17 +2463,17 @@ impl Workspace {
         });
     }
 
-    /// Subscribes to `WarpConfigUpdateEvent::SettingsErrors` and
+    /// Subscribes to `GalaxyConfigUpdateEvent::SettingsErrors` and
     /// `SettingsErrorsCleared` to update the workspace settings-error banner
     /// and mirror the state into the settings pane for its nav-rail footer.
     fn subscribe_to_settings_errors(ctx: &mut ViewContext<Self>) {
-        ctx.subscribe_to_model(&WarpConfig::handle(ctx), |me, _, event, ctx| match event {
-            WarpConfigUpdateEvent::SettingsErrors(error) => {
+        ctx.subscribe_to_model(&GalaxyConfig::handle(ctx), |me, _, event, ctx| match event {
+            GalaxyConfigUpdateEvent::SettingsErrors(error) => {
                 me.settings_file_error = Some(error.clone());
                 me.sync_settings_error_state_into_settings_pane(ctx);
                 ctx.notify();
             }
-            WarpConfigUpdateEvent::SettingsErrorsCleared => {
+            GalaxyConfigUpdateEvent::SettingsErrorsCleared => {
                 me.settings_file_error = None;
                 me.sync_settings_error_state_into_settings_pane(ctx);
                 ctx.notify();
@@ -5635,7 +5635,7 @@ impl Workspace {
             AgentManagementViewEvent::OpenPlanNotebook { notebook_uid } => {
                 self.open_notebook(
                     &NotebookSource::Existing((*notebook_uid).into()),
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     ctx,
                     false,
                 );
@@ -6086,7 +6086,7 @@ impl Workspace {
 
         // 4. User tab configs
         if FeatureFlag::TabConfigs.is_enabled() {
-            let tab_configs = WarpConfig::as_ref(ctx).tab_configs().to_vec();
+            let tab_configs = GalaxyConfig::as_ref(ctx).tab_configs().to_vec();
 
             // Count occurrences of each config name so we can disambiguate
             // duplicates in the menu (e.g. "My Tab Config", "My Tab Config (1)").
@@ -6780,7 +6780,7 @@ impl Workspace {
             ObjectType::Notebook => {
                 self.open_notebook(
                     &NotebookSource::Existing(sync_id),
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     ctx,
                     true,
                 );
@@ -6788,7 +6788,7 @@ impl Workspace {
             ObjectType::Workflow => {
                 self.open_workflow_in_pane(
                     &WorkflowOpenSource::Existing(sync_id),
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     WorkflowViewMode::View,
                     ctx,
                 );
@@ -6817,7 +6817,7 @@ impl Workspace {
     pub fn open_notebook(
         &mut self,
         source: &NotebookSource,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
         default_to_new_pane: bool,
     ) {
@@ -6900,7 +6900,7 @@ impl Workspace {
     pub fn open_workflow_from_intent(
         &mut self,
         workflow_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
     ) {
         // If running workflows is supported, do so. Otherwise, or if the workflow isn't in memory,
@@ -6942,7 +6942,7 @@ impl Workspace {
     pub fn open_workflow_in_pane(
         &mut self,
         source: &WorkflowOpenSource,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         mode: WorkflowViewMode,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -7697,7 +7697,7 @@ impl Workspace {
             );
             self.tips_completed.update(ctx, |tips_completed, ctx| {
                 mark_feature_used_and_write_to_user_defaults(
-                    Tip::Action(TipAction::OpenWarpDrive),
+                    Tip::Action(TipAction::OpenGalaxyDrive),
                     tips_completed,
                     ctx,
                 );
@@ -8860,7 +8860,7 @@ impl Workspace {
                 ctx.notify();
             }
             LaunchConfigModalEvent::SuccessfullySavedConfig(launch_config) => {
-                ctx.update_model(&WarpConfig::handle(ctx), move |warp_config, ctx| {
+                ctx.update_model(&GalaxyConfig::handle(ctx), move |warp_config, ctx| {
                     warp_config.append_launch_config(launch_config, ctx);
                 });
                 ctx.notify();
@@ -10843,7 +10843,7 @@ impl Workspace {
     pub fn add_tab_for_cloud_notebook(
         &mut self,
         notebook_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
     ) {
         // TODO: We should validate that this notebook exists and fallback if it doesn't
@@ -10861,7 +10861,7 @@ impl Workspace {
     fn add_tab_for_cloud_workflow(
         &mut self,
         workflow_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
     ) {
         let panes_layout = PanesLayout::Snapshot(Box::new(PaneNodeSnapshot::Leaf(LeafSnapshot {
@@ -12449,7 +12449,7 @@ impl Workspace {
             }
             CommandPaletteEvent::OpenNotebook { id } => self.open_notebook(
                 &NotebookSource::Existing(*id),
-                &OpenWarpDriveObjectSettings::default(),
+                &OpenGalaxyDriveObjectSettings::default(),
                 ctx,
                 true,
             ),
@@ -12732,7 +12732,7 @@ impl Workspace {
             SettingsViewEvent::LaunchNetworkLogging => {
                 self.open_network_log_pane(ctx);
             }
-            SettingsViewEvent::OpenWarpDrive => {
+            SettingsViewEvent::OpenGalaxyDrive => {
                 self.close_all_overlays(ctx);
                 self.open_or_toggle_warp_drive(
                     false, /* toggle */
@@ -13032,7 +13032,7 @@ impl Workspace {
             pane_group::Event::OpenCloudWorkflowForEdit(workflow_id) => self
                 .open_workflow_with_existing(
                     *workflow_id,
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     ctx,
                 ),
             pane_group::Event::OpenWorkflowModalWithTemporary(workflow) => {
@@ -13094,7 +13094,7 @@ impl Workspace {
             } => {
                 self.move_to_drive_space(*cloud_object_type_and_id, *space, ctx);
             }
-            pane_group::Event::OpenWarpDriveLink {
+            pane_group::Event::OpenGalaxyDriveLink {
                 open_warp_drive_args,
             } => {
                 let object_found = CloudModel::as_ref(ctx)
@@ -13674,7 +13674,7 @@ impl Workspace {
                 ctx.notify();
             }
             pane_group::Event::ClearHoveredTabIndex => self.hovered_tab_index = None,
-            pane_group::Event::OpenWarpDriveObjectInPane(uid) => {
+            pane_group::Event::OpenGalaxyDriveObjectInPane(uid) => {
                 self.open_warp_drive_object_in_new_pane(uid, ctx);
             }
             pane_group::Event::OpenSuggestedAgentModeWorkflowModal { workflow_and_id } => {
@@ -14414,7 +14414,7 @@ impl Workspace {
             DrivePanelEvent::OpenWorkflowModalWithCloudWorkflow(workflow_id) => {
                 self.open_workflow_with_existing(
                     *workflow_id,
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     ctx,
                 );
             }
@@ -14427,14 +14427,14 @@ impl Workspace {
                 );
             }
             DrivePanelEvent::OpenNotebook(source) => {
-                self.open_notebook(source, &OpenWarpDriveObjectSettings::default(), ctx, true)
+                self.open_notebook(source, &OpenGalaxyDriveObjectSettings::default(), ctx, true)
             }
             DrivePanelEvent::OpenEnvVarCollection(source) => {
                 self.open_env_var_collection(source, false, ctx)
             }
             DrivePanelEvent::OpenWorkflowInPane(source, mode) => self.open_workflow_in_pane(
                 source,
-                &OpenWarpDriveObjectSettings::default(),
+                &OpenGalaxyDriveObjectSettings::default(),
                 *mode,
                 ctx,
             ),
@@ -14878,7 +14878,7 @@ impl Workspace {
                     AcceptNotebook(sync_id) => {
                         self.open_notebook(
                             &NotebookSource::Existing(*sync_id),
-                            &OpenWarpDriveObjectSettings::default(),
+                            &OpenGalaxyDriveObjectSettings::default(),
                             ctx,
                             true,
                         );
@@ -16348,7 +16348,7 @@ impl Workspace {
     fn open_workflow_with_existing(
         &mut self,
         workflow_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<Self>,
     ) {
         let source = WorkflowOpenSource::Existing(workflow_id);
@@ -16368,7 +16368,7 @@ impl Workspace {
         };
         self.open_workflow_in_pane(
             &source,
-            &OpenWarpDriveObjectSettings::default(),
+            &OpenGalaxyDriveObjectSettings::default(),
             WorkflowViewMode::Create,
             ctx,
         );
@@ -16389,7 +16389,7 @@ impl Workspace {
         };
         self.open_workflow_in_pane(
             &source,
-            &OpenWarpDriveObjectSettings::default(),
+            &OpenGalaxyDriveObjectSettings::default(),
             WorkflowViewMode::Create,
             ctx,
         );
@@ -19556,7 +19556,7 @@ impl TypedActionView for Workspace {
             WorkspaceAction::SetA11yVerbosityLevel(verbosity) => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("{verbosity:?} accessibility announcements set"),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             _ => ActionAccessibilityContent::from_debug(),
@@ -19987,7 +19987,7 @@ impl TypedActionView for Workspace {
                             owner: personal_drive,
                             initial_folder_id: None,
                         },
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         ctx,
                         true,
                     );
@@ -20049,7 +20049,7 @@ impl TypedActionView for Workspace {
                     };
                     self.open_workflow_in_pane(
                         &source,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         WorkflowViewMode::Create,
                         ctx,
                     );
@@ -20067,7 +20067,7 @@ impl TypedActionView for Workspace {
                     };
                     self.open_workflow_in_pane(
                         &source,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         WorkflowViewMode::Create,
                         ctx,
                     );
@@ -20108,7 +20108,7 @@ impl TypedActionView for Workspace {
                 self.finish_tab_rename(ctx);
                 self.current_workspace_state.is_tab_being_dragged = true;
             }
-            OpenWarpDrive => {
+            OpenGalaxyDrive => {
                 if WarpDriveSettings::is_warp_drive_enabled(ctx) {
                     self.open_left_panel_view(&LeftPanelAction::WarpDrive, ctx);
                 }
@@ -20618,7 +20618,7 @@ impl TypedActionView for Workspace {
                 });
                 self.open_workflow_with_existing(
                     *workflow_id,
-                    &OpenWarpDriveObjectSettings::default(),
+                    &OpenGalaxyDriveObjectSettings::default(),
                     ctx,
                 );
             }
@@ -20938,7 +20938,7 @@ impl TypedActionView for Workspace {
             }
             OpenNotebook { id } => self.open_notebook(
                 &NotebookSource::Existing(*id),
-                &OpenWarpDriveObjectSettings::default(),
+                &OpenGalaxyDriveObjectSettings::default(),
                 ctx,
                 true,
             ),
@@ -21096,7 +21096,7 @@ impl TypedActionView for Workspace {
                     };
                     self.open_workflow_in_pane(
                         &source,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         WorkflowViewMode::Create,
                         ctx,
                     );
@@ -21114,7 +21114,7 @@ impl TypedActionView for Workspace {
                     };
                     self.open_workflow_in_pane(
                         &source,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         WorkflowViewMode::Create,
                         ctx,
                     );
@@ -21352,7 +21352,7 @@ impl TypedActionView for Workspace {
                     self.toggle_left_panel_view(&LeftPanelAction::ProjectExplorer, is_showing, ctx);
                 }
             }
-            ToggleWarpDrive => {
+            ToggleGalaxyDrive => {
                 if WarpDriveSettings::is_warp_drive_enabled(ctx) {
                     let is_showing =
                         self.left_panel_view.as_ref(ctx).active_view() == ToolPanelView::WarpDrive;

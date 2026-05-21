@@ -86,7 +86,7 @@ use galaxy_core::ui::color::contrast::{
     foreground_color_with_minimum_contrast, MinimumAllowedContrast,
 };
 use galaxy_core::ui::color::Rgb;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::elements::{Highlight, HighlightedRange, Text};
 use galaxyui::fonts::Properties;
 use galaxyui::platform::Cursor;
@@ -433,7 +433,7 @@ pub(crate) fn add_highlights_to_rich_text(
     find_context: Option<FindContext<'_>>,
     location_index: usize,
     line_count: usize,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
     is_selecting: bool,
     is_action: bool,
     app: &AppContext,
@@ -1080,6 +1080,7 @@ impl View for AIBlock {
                 search_codebase_view: &self.search_codebase_view,
                 web_search_views: &self.web_search_views,
                 web_fetch_views: &self.web_fetch_views,
+                summarization_views: &self.summarization_views,
                 review_changes_button: &self.review_changes_button,
                 open_all_comments_button: &self.open_all_comments_button,
                 dismiss_suggestion_button: &self.dismiss_suggestion_button,

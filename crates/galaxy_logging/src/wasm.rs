@@ -171,7 +171,7 @@ impl Log for WasmLogger {
                     );
                     // Send error logs to Sentry.
                     galaxy_web_event_bus::emit_event(
-                        galaxy_web_event_bus::WarpEvent::ErrorLogged { error },
+                        galaxy_web_event_bus::GalaxyEvent::ErrorLogged { error },
                     );
 
                     console::error_4(

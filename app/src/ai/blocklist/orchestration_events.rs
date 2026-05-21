@@ -19,6 +19,8 @@ use warp_multi_agent_api as api;
 
 const MAX_RETRY_ATTEMPTS: i32 = 3;
 const MAX_PENDING_LIFECYCLE_EVENTS_PER_TARGET: usize = 200;
+pub const MAX_SUBAGENT_RETRIES: u8 = 3;
+const MAX_SUBAGENT_QUESTION_DEPTH: u8 = 3;
 
 /// Stage associated with a lifecycle error detail.
 /// This keeps persisted/runtime metadata consistent across API payloads and DB rows.
@@ -63,6 +65,23 @@ pub enum PendingEventDetail {
     },
     Lifecycle {
         event: api::AgentEvent,
+    },
+    /// A subagent is asking its parent a question (routed from AskUserQuestion).
+    SubagentQuestion {
+        source_conversation_id: AIConversationId,
+        question_text: String,
+        options: Vec<String>,
+        depth: u8,
+    },
+    /// The parent's answer to a subagent's question.
+    SubagentAnswer {
+        target_conversation_id: AIConversationId,
+        answer_text: String,
+    },
+    /// A subagent reporting its completion summary to the parent.
+    SubagentCompletionSummary {
+        source_conversation_id: AIConversationId,
+        summary_text: String,
     },
 }
 
@@ -930,29 +949,49 @@ impl OrchestrationEventService {
 
         let mut messages = Vec::new();
         let mut lifecycle_events = Vec::new();
-        for event in &deliverable {
+        let mut server_bound_events = Vec::new();
+        for event in deliverable {
             match &event.detail {
                 PendingEventDetail::Message {
                     message_id,
                     addresses,
                     subject,
                     message_body,
-                } => messages.push(ReceivedMessageInput {
-                    message_id: message_id.clone(),
-                    sender_agent_id: event.source_agent_id.clone(),
-                    addresses: addresses.clone(),
-                    subject: subject.clone(),
-                    message_body: message_body.clone(),
-                }),
-                PendingEventDetail::Lifecycle { event } => lifecycle_events.push(event.clone()),
+                } => {
+                    messages.push(ReceivedMessageInput {
+                        message_id: message_id.clone(),
+                        sender_agent_id: event.source_agent_id.clone(),
+                        addresses: addresses.clone(),
+                        subject: subject.clone(),
+                        message_body: message_body.clone(),
+                    });
+                    server_bound_events.push(event);
+                }
+                PendingEventDetail::Lifecycle { event: _ } => {
+                    lifecycle_events.push(
+                        if let PendingEventDetail::Lifecycle { event: e } = &event.detail {
+                            e.clone()
+                        } else {
+                            unreachable!()
+                        },
+                    );
+                    server_bound_events.push(event);
+                }
+                // Local-only subagent events are consumed directly by the controller,
+                // not converted to AIAgentInput or awaited for server echo.
+                PendingEventDetail::SubagentQuestion { .. }
+                | PendingEventDetail::SubagentAnswer { .. }
+                | PendingEventDetail::SubagentCompletionSummary { .. } => {}
             }
         }
 
-        // Move to awaiting echo for delivery confirmation.
-        self.awaiting_server_echo_events
-            .entry(conversation_id)
-            .or_default()
-            .extend(deliverable);
+        // Only server-bound events need echo confirmation.
+        if !server_bound_events.is_empty() {
+            self.awaiting_server_echo_events
+                .entry(conversation_id)
+                .or_default()
+                .extend(server_bound_events);
+        }
 
         let mut inputs = Vec::new();
         if !messages.is_empty() {
@@ -964,6 +1003,34 @@ impl OrchestrationEventService {
             });
         }
         inputs
+    }
+
+    /// Drain only the local subagent events (Question/Answer/Summary) for a conversation.
+    /// These are not sent to the server and are consumed directly by the controller.
+    pub fn drain_subagent_events(
+        &mut self,
+        conversation_id: &AIConversationId,
+    ) -> Vec<PendingEvent> {
+        let Some(pending) = self.pending_events.get_mut(conversation_id) else {
+            return vec![];
+        };
+
+        let mut subagent_events = Vec::new();
+        pending.retain(|event| match &event.detail {
+            PendingEventDetail::SubagentQuestion { .. }
+            | PendingEventDetail::SubagentAnswer { .. }
+            | PendingEventDetail::SubagentCompletionSummary { .. } => {
+                subagent_events.push(event.clone());
+                false
+            }
+            _ => true,
+        });
+
+        if pending.is_empty() {
+            self.pending_events.remove(conversation_id);
+        }
+
+        subagent_events
     }
 
     /// Moves all awaiting events back to pending for retry after a failed
@@ -1109,6 +1176,101 @@ impl OrchestrationEventService {
             self.awaiting_server_echo_events.remove(&conversation_id);
         }
     }
+
+    /// Route a subagent's AskUserQuestion to the parent conversation for silent auto-answer.
+    pub fn route_subagent_question_to_parent(
+        &mut self,
+        child_conversation_id: AIConversationId,
+        parent_conversation_id: AIConversationId,
+        question_text: String,
+        options: Vec<String>,
+        depth: u8,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if depth >= MAX_SUBAGENT_QUESTION_DEPTH {
+            log::warn!(
+                "Subagent question depth limit reached for conversation {:?}",
+                child_conversation_id
+            );
+            return;
+        }
+
+        let event = PendingEvent {
+            event_id: Uuid::new_v4().to_string(),
+            source_agent_id: child_conversation_id.to_string(),
+            attempt_count: 0,
+            detail: PendingEventDetail::SubagentQuestion {
+                source_conversation_id: child_conversation_id,
+                question_text,
+                options,
+                depth,
+            },
+        };
+
+        self.pending_events
+            .entry(parent_conversation_id)
+            .or_default()
+            .push(event);
+
+        ctx.emit(OrchestrationEventServiceEvent::EventsReady {
+            conversation_id: parent_conversation_id,
+        });
+    }
+
+    /// Route the parent's answer back to the child subagent.
+    pub fn route_answer_to_subagent(
+        &mut self,
+        child_conversation_id: AIConversationId,
+        answer_text: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let event = PendingEvent {
+            event_id: Uuid::new_v4().to_string(),
+            source_agent_id: "parent".to_string(),
+            attempt_count: 0,
+            detail: PendingEventDetail::SubagentAnswer {
+                target_conversation_id: child_conversation_id,
+                answer_text,
+            },
+        };
+
+        self.pending_events
+            .entry(child_conversation_id)
+            .or_default()
+            .push(event);
+
+        ctx.emit(OrchestrationEventServiceEvent::EventsReady {
+            conversation_id: child_conversation_id,
+        });
+    }
+
+    /// Route a subagent's completion summary to the parent conversation.
+    pub fn route_subagent_completion_summary(
+        &mut self,
+        child_conversation_id: AIConversationId,
+        parent_conversation_id: AIConversationId,
+        summary_text: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let event = PendingEvent {
+            event_id: Uuid::new_v4().to_string(),
+            source_agent_id: child_conversation_id.to_string(),
+            attempt_count: 0,
+            detail: PendingEventDetail::SubagentCompletionSummary {
+                source_conversation_id: child_conversation_id,
+                summary_text,
+            },
+        };
+
+        self.pending_events
+            .entry(parent_conversation_id)
+            .or_default()
+            .push(event);
+
+        ctx.emit(OrchestrationEventServiceEvent::EventsReady {
+            conversation_id: parent_conversation_id,
+        });
+    }
 }
 
 /// `None` means \"subscribe to all lifecycle types\" (input omitted).
@@ -1135,6 +1297,10 @@ fn did_event_round_trip_through_server(
         PendingEventDetail::Lifecycle { event } => {
             echoed_lifecycle_event_ids.contains(event.event_id.as_str())
         }
+        // Local-only events never round-trip through the server.
+        PendingEventDetail::SubagentQuestion { .. }
+        | PendingEventDetail::SubagentAnswer { .. }
+        | PendingEventDetail::SubagentCompletionSummary { .. } => false,
     }
 }
 

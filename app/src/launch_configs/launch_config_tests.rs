@@ -5,7 +5,7 @@ use crate::{
         AppState, BranchSnapshot, LeafContents, LeafSnapshot, NotebookPaneSnapshot, PaneFlex,
         PaneNodeSnapshot, SplitDirection, TabSnapshot, TerminalPaneSnapshot, WindowSnapshot,
     },
-    drive::OpenWarpDriveObjectSettings,
+    drive::OpenGalaxyDriveObjectSettings,
     tab::SelectedTabColor,
 };
 
@@ -81,7 +81,7 @@ fn test_config_from_snapshot_flattens_single_pane() {
                     custom_vertical_tabs_title: None,
                     contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                         notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
+                        settings: OpenGalaxyDriveObjectSettings::default(),
                     }),
                 }),
             ),
@@ -151,7 +151,7 @@ fn test_config_from_snapshot_filters_panes() {
                     custom_vertical_tabs_title: None,
                     contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                         notebook_id: None,
-                        settings: OpenWarpDriveObjectSettings::default(),
+                        settings: OpenGalaxyDriveObjectSettings::default(),
                     }),
                 }),
             ),
@@ -215,7 +215,7 @@ fn test_config_from_snapshot_filters_tabs() {
                 custom_vertical_tabs_title: None,
                 contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                     notebook_id: None,
-                    settings: OpenWarpDriveObjectSettings::default(),
+                    settings: OpenGalaxyDriveObjectSettings::default(),
                 }),
             }),
         )],
@@ -285,7 +285,7 @@ fn test_config_with_active_tab_index_and_filtered_tabs() {
                             custom_vertical_tabs_title: None,
                             contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                                 notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
+                                settings: OpenGalaxyDriveObjectSettings::default(),
                             }),
                         }),
                     )],
@@ -376,7 +376,7 @@ fn test_config_with_active_tab_being_filtered() {
                             custom_vertical_tabs_title: None,
                             contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
                                 notebook_id: None,
-                                settings: OpenWarpDriveObjectSettings::default(),
+                                settings: OpenGalaxyDriveObjectSettings::default(),
                             }),
                         }),
                     )],

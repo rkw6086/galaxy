@@ -2,7 +2,7 @@ use super::icons::{Icon, ICON_DIMENSIONS};
 use super::{blended_colors, BORDER_RADIUS};
 use crate::appearance::Appearance;
 use crate::themes::theme::Fill;
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use galaxyui::elements::Radius;
 use galaxyui::elements::{CornerRadius, MouseStateHandle};
 use galaxyui::ui_components::button::Button;
@@ -33,7 +33,7 @@ pub struct AllButtonStyles {
     disabled_styles: Option<UiComponentStyles>,
 }
 
-fn all_icon_button_styles(warp_theme: &WarpTheme, mode: ButtonMode) -> AllButtonStyles {
+fn all_icon_button_styles(warp_theme: &GalaxyTheme, mode: ButtonMode) -> AllButtonStyles {
     AllButtonStyles {
         default_styles: icon_button_styles(warp_theme, mode, ButtonState::Default),
         hovered_styles: Some(icon_button_styles(warp_theme, mode, ButtonState::Hover)),
@@ -43,7 +43,7 @@ fn all_icon_button_styles(warp_theme: &WarpTheme, mode: ButtonMode) -> AllButton
 }
 
 fn icon_button_styles(
-    warp_theme: &WarpTheme,
+    warp_theme: &GalaxyTheme,
     mode: ButtonMode,
     state: ButtonState,
 ) -> UiComponentStyles {
@@ -86,7 +86,7 @@ fn icon_button_styles(
     styles
 }
 
-fn combo_inner_button_styles(warp_theme: &WarpTheme, state: ButtonState) -> UiComponentStyles {
+fn combo_inner_button_styles(warp_theme: &GalaxyTheme, state: ButtonState) -> UiComponentStyles {
     let background = match state {
         ButtonState::Default => None,
         ButtonState::Hover => Some(blended_colors::neutral_2(warp_theme)),
@@ -138,7 +138,7 @@ pub fn combo_inner_button(
     button
 }
 
-fn icon_color(warp_theme: &WarpTheme, mode: ButtonMode) -> Fill {
+fn icon_color(warp_theme: &GalaxyTheme, mode: ButtonMode) -> Fill {
     match mode {
         ButtonMode::Base => warp_theme.foreground(),
         ButtonMode::Accent => blended_colors::accent(warp_theme),

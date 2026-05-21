@@ -52,12 +52,11 @@ use crate::workspace::{
 use languages::language_by_filename;
 
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::telemetry::TelemetryEvent as _;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as WarpThemeFill, WarpTheme};
-use galaxy_core::ui::Icon as WarpIcon;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as GalaxyThemeFill, GalaxyTheme};
+use galaxy_core::ui::Icon as GalaxyIcon;
 use galaxyui::elements::DispatchEventResult;
 use galaxyui::elements::{
     resizable_state_handle, Border, ChildAnchor, Clipped, ClippedScrollStateHandle,
@@ -254,13 +253,13 @@ enum TerminalPrimaryLineFont {
     Monospace,
 }
 
-fn oz_icon_fill(theme: &WarpTheme) -> WarpThemeFill {
+fn oz_icon_fill(theme: &GalaxyTheme) -> GalaxyThemeFill {
     theme.main_text_color(theme.background())
 }
 
 fn render_pane_icon_with_status(
     variant: IconWithStatusVariant,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let sizing = match &variant {
         IconWithStatusVariant::OzAgent { .. } => &VERTICAL_TABS_AGENT_SIZING,
@@ -286,7 +285,7 @@ fn pane_row_background(
     is_selected: bool,
     is_hovered: bool,
     is_being_dragged: bool,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Option<ThemeFill> {
     if let Some(color) = pane_color {
         let opacity = if is_selected || is_hovered {
@@ -309,7 +308,7 @@ fn render_pane_row_element(
     padding: Padding,
     defer_events_to_children: bool,
     content: Box<dyn Element>,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let detail_target = supports_vertical_tabs_detail_sidecar(&props.typed).then(|| {
         detail_target_for_hovered_row(
@@ -1087,7 +1086,7 @@ fn vertical_tabs_tab_bar_location(insert_index: usize, tab_count: usize) -> TabB
     }
 }
 
-fn render_vertical_tab_hover_indicator(theme: &WarpTheme) -> Box<dyn Element> {
+fn render_vertical_tab_hover_indicator(theme: &GalaxyTheme) -> Box<dyn Element> {
     ConstrainedBox::new(
         Container::new(Empty::new().finish())
             .with_background(ThemeFill::Solid(theme.accent().into()))
@@ -1118,7 +1117,7 @@ fn render_vertical_tab_insertion_target(
     insert_index: usize,
     tab_count: usize,
     is_drag_target: bool,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let content = if is_drag_target {
         render_vertical_tab_hover_indicator(theme)
@@ -1143,7 +1142,7 @@ fn add_vertical_tab_insertion_target_overlay(
     is_drag_target: bool,
     parent_anchor: ParentAnchor,
     child_anchor: ChildAnchor,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) {
     stack.add_positioned_overlay_child(
         render_vertical_tab_insertion_target(insert_index, tab_count, is_drag_target, theme),
@@ -1166,7 +1165,7 @@ fn render_control_bar(
     let theme = appearance.theme();
     let sub_text = theme.sub_text_color(theme.background());
 
-    let search_icon = ConstrainedBox::new(WarpIcon::Search.to_galaxyui_icon(sub_text).finish())
+    let search_icon = ConstrainedBox::new(GalaxyIcon::Search.to_galaxyui_icon(sub_text).finish())
         .with_width(SEARCH_ICON_SIZE)
         .with_height(SEARCH_ICON_SIZE)
         .finish();
@@ -1226,35 +1225,35 @@ fn render_detail_kind_badge_icon(
             if let Some(icon) = cli_agent_session.and_then(|session| session.agent.icon()) {
                 let color = cli_agent_session
                     .and_then(|session| session.agent.brand_color())
-                    .map(WarpThemeFill::Solid)
+                    .map(GalaxyThemeFill::Solid)
                     .unwrap_or_else(|| theme.accent());
                 return icon.to_galaxyui_icon(color).finish();
             }
 
             let icon = if terminal_view.is_ambient_agent_session(app) {
-                WarpIcon::OzCloud
+                GalaxyIcon::OzCloud
             } else if terminal_view
                 .selected_conversation_display_title(app)
                 .is_some()
             {
-                WarpIcon::Oz
+                GalaxyIcon::Oz
             } else {
-                WarpIcon::Terminal
+                GalaxyIcon::Terminal
             };
             let color = match icon {
-                WarpIcon::Oz | WarpIcon::OzCloud => oz_icon_fill(theme),
-                WarpIcon::Terminal => disabled_text,
+                GalaxyIcon::Oz | GalaxyIcon::OzCloud => oz_icon_fill(theme),
+                GalaxyIcon::Terminal => disabled_text,
                 _ => sub_text,
             };
             icon.to_galaxyui_icon(color).finish()
         }
         TypedPane::Code(_) => icon_from_file_path(&props.title, appearance)
-            .unwrap_or_else(|| WarpIcon::Code2.to_galaxyui_icon(sub_text).finish()),
+            .unwrap_or_else(|| GalaxyIcon::Code2.to_galaxyui_icon(sub_text).finish()),
         typed => {
             let fill = typed
                 .warp_drive_object_type()
                 .map(|object_type| {
-                    WarpThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
+                    GalaxyThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
                 })
                 .unwrap_or(sub_text);
             typed.icon().to_galaxyui_icon(fill).finish()
@@ -1276,7 +1275,7 @@ fn render_settings_button(
         state.settings_button_mouse_state.clone(),
         move |hover_state| {
             let icon = ConstrainedBox::new(
-                WarpIcon::Settings
+                GalaxyIcon::Settings
                     .to_galaxyui_icon(if is_popup_open { main_text } else { sub_text })
                     .finish(),
             )
@@ -2084,13 +2083,13 @@ fn render_group_action_buttons(
     action_buttons_mouse_state: MouseStateHandle,
     kebab_mouse_state: MouseStateHandle,
     close_mouse_state: MouseStateHandle,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let meta_color = theme.sub_text_color(theme.background());
 
     let kebab_button = Hoverable::new(kebab_mouse_state, move |button_state| {
         let mut container = Container::new(
-            ConstrainedBox::new(WarpIcon::DotsVertical.to_galaxyui_icon(meta_color).finish())
+            ConstrainedBox::new(GalaxyIcon::DotsVertical.to_galaxyui_icon(meta_color).finish())
                 .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .finish(),
@@ -2113,7 +2112,7 @@ fn render_group_action_buttons(
 
     let close_button = Hoverable::new(close_mouse_state, move |button_state| {
         let mut container = Container::new(
-            ConstrainedBox::new(WarpIcon::X.to_galaxyui_icon(meta_color).finish())
+            ConstrainedBox::new(GalaxyIcon::X.to_galaxyui_icon(meta_color).finish())
                 .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
                 .finish(),
@@ -2231,8 +2230,8 @@ fn resolve_icon_with_status_variant(
     let main_text = theme.main_text_color(theme.background());
     let sub_text = theme.sub_text_color(theme.background());
 
-    let drive_color = |object_type: DriveObjectType| -> WarpThemeFill {
-        WarpThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
+    let drive_color = |object_type: DriveObjectType| -> GalaxyThemeFill {
+        GalaxyThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
     };
 
     match typed {
@@ -2275,7 +2274,7 @@ fn resolve_icon_with_status_variant(
             } else {
                 // Plain terminal: use foreground color per design spec
                 IconWithStatusVariant::Neutral {
-                    icon: WarpIcon::Terminal,
+                    icon: GalaxyIcon::Terminal,
                     icon_color: main_text,
                 }
             }
@@ -2285,7 +2284,7 @@ fn resolve_icon_with_status_variant(
                 IconWithStatusVariant::NeutralElement { icon_element }
             } else {
                 IconWithStatusVariant::Neutral {
-                    icon: WarpIcon::Code2,
+                    icon: GalaxyIcon::Code2,
                     icon_color: sub_text,
                 }
             }
@@ -2341,9 +2340,9 @@ fn has_unread_activity(typed: &TypedPane<'_>, app: &AppContext) -> bool {
 
 const INDICATOR_DOT_SIZE: f32 = 8.;
 
-fn render_title_indicator(theme: &WarpTheme) -> Box<dyn Element> {
+fn render_title_indicator(theme: &GalaxyTheme) -> Box<dyn Element> {
     ConstrainedBox::new(
-        WarpIcon::CircleFilled
+        GalaxyIcon::CircleFilled
             .to_galaxyui_icon(theme.accent())
             .finish(),
     )
@@ -2555,24 +2554,24 @@ impl TypedPane<'_> {
         }
     }
 
-    fn icon(&self) -> WarpIcon {
+    fn icon(&self) -> GalaxyIcon {
         match self {
-            TypedPane::Terminal(_) => WarpIcon::Terminal,
-            TypedPane::Code(_) => WarpIcon::Code2,
-            TypedPane::CodeDiff => WarpIcon::Diff,
-            TypedPane::File => WarpIcon::File,
-            TypedPane::Notebook { is_plan: true } => WarpIcon::Compass,
-            TypedPane::Notebook { is_plan: false } => WarpIcon::Notebook,
-            TypedPane::Workflow { is_ai_prompt: true } => WarpIcon::Prompt,
+            TypedPane::Terminal(_) => GalaxyIcon::Terminal,
+            TypedPane::Code(_) => GalaxyIcon::Code2,
+            TypedPane::CodeDiff => GalaxyIcon::Diff,
+            TypedPane::File => GalaxyIcon::File,
+            TypedPane::Notebook { is_plan: true } => GalaxyIcon::Compass,
+            TypedPane::Notebook { is_plan: false } => GalaxyIcon::Notebook,
+            TypedPane::Workflow { is_ai_prompt: true } => GalaxyIcon::Prompt,
             TypedPane::Workflow {
                 is_ai_prompt: false,
-            } => WarpIcon::Workflow,
-            TypedPane::Settings | TypedPane::EnvironmentManagement => WarpIcon::Gear,
-            TypedPane::EnvVarCollection => WarpIcon::EnvVarCollection,
-            TypedPane::AIFact => WarpIcon::BookOpen,
-            TypedPane::AIDocument => WarpIcon::Compass,
-            TypedPane::ExecutionProfileEditor => WarpIcon::Lightning,
-            TypedPane::Other => WarpIcon::File,
+            } => GalaxyIcon::Workflow,
+            TypedPane::Settings | TypedPane::EnvironmentManagement => GalaxyIcon::Gear,
+            TypedPane::EnvVarCollection => GalaxyIcon::EnvVarCollection,
+            TypedPane::AIFact => GalaxyIcon::BookOpen,
+            TypedPane::AIDocument => GalaxyIcon::Compass,
+            TypedPane::ExecutionProfileEditor => GalaxyIcon::Lightning,
+            TypedPane::Other => GalaxyIcon::File,
         }
     }
 }
@@ -3333,7 +3332,7 @@ fn compact_branch_subtitle_display(
 
 fn render_git_branch_text(
     branch: &str,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     font_size: f32,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
@@ -3366,7 +3365,7 @@ enum MetadataLeftContent {
 
 fn render_text_line(
     text: &str,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     clip: ClipConfig,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
@@ -3399,7 +3398,7 @@ fn render_inline_tab_rename_editor(
 fn render_title_override(
     props: &PaneProps<'_>,
     font_size: f32,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     clip: ClipConfig,
     appearance: &Appearance,
     app: &AppContext,
@@ -3433,7 +3432,7 @@ fn render_pane_title_slot(
     props: &PaneProps<'_>,
     generated_title: impl FnOnce() -> Box<dyn Element>,
     font_size: f32,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     clip: ClipConfig,
     appearance: &Appearance,
     app: &AppContext,
@@ -3629,9 +3628,9 @@ fn render_summary_pane_kind_icon_circle(
     let (icon_element, background): (Box<dyn Element>, ElementFill) = match kind {
         SummaryPaneKind::OzAgent { is_ambient } => {
             let icon = if is_ambient {
-                WarpIcon::OzCloud
+                GalaxyIcon::OzCloud
             } else {
-                WarpIcon::Oz
+                GalaxyIcon::Oz
             };
             (
                 icon.to_galaxyui_icon(oz_icon_fill(theme)).finish(),
@@ -3643,11 +3642,11 @@ fn render_summary_pane_kind_icon_circle(
             let icon_element = agent
                 .icon()
                 .map(|icon| {
-                    icon.to_galaxyui_icon(WarpThemeFill::Solid(icon_color))
+                    icon.to_galaxyui_icon(GalaxyThemeFill::Solid(icon_color))
                         .finish()
                 })
                 .unwrap_or_else(|| {
-                    WarpIcon::Terminal
+                    GalaxyIcon::Terminal
                         .to_galaxyui_icon(theme.sub_text_color(theme.background()))
                         .finish()
                 });
@@ -3663,7 +3662,7 @@ fn render_summary_pane_kind_icon_circle(
         }
         SummaryPaneKind::Code { title } => (
             icon_from_file_path(&title, appearance).unwrap_or_else(|| {
-                WarpIcon::Code2
+                GalaxyIcon::Code2
                     .to_galaxyui_icon(theme.sub_text_color(theme.background()))
                     .finish()
             }),
@@ -3705,36 +3704,36 @@ fn render_summary_pane_kind_icon_circle(
 fn summary_pane_kind_icon(
     kind: SummaryPaneKind,
     appearance: &Appearance,
-) -> (WarpIcon, WarpThemeFill) {
+) -> (GalaxyIcon, GalaxyThemeFill) {
     let theme = appearance.theme();
     let main_text = theme.main_text_color(theme.background());
     let sub_text = theme.sub_text_color(theme.background());
-    let drive_color = |object_type: DriveObjectType| -> WarpThemeFill {
-        WarpThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
+    let drive_color = |object_type: DriveObjectType| -> GalaxyThemeFill {
+        GalaxyThemeFill::Solid(warp_drive_icon_color(appearance, object_type))
     };
 
     match kind {
-        SummaryPaneKind::Terminal => (WarpIcon::Terminal, main_text),
+        SummaryPaneKind::Terminal => (GalaxyIcon::Terminal, main_text),
         SummaryPaneKind::OzAgent { is_ambient } => (
             if is_ambient {
-                WarpIcon::OzCloud
+                GalaxyIcon::OzCloud
             } else {
-                WarpIcon::Oz
+                GalaxyIcon::Oz
             },
             main_text,
         ),
         SummaryPaneKind::CLIAgent { agent } => (
-            agent.icon().unwrap_or(WarpIcon::Terminal),
-            WarpThemeFill::Solid(agent.brand_icon_color()),
+            agent.icon().unwrap_or(GalaxyIcon::Terminal),
+            GalaxyThemeFill::Solid(agent.brand_icon_color()),
         ),
-        SummaryPaneKind::Code { .. } => (WarpIcon::Code2, sub_text),
-        SummaryPaneKind::CodeDiff => (WarpIcon::Diff, sub_text),
-        SummaryPaneKind::File => (WarpIcon::File, sub_text),
+        SummaryPaneKind::Code { .. } => (GalaxyIcon::Code2, sub_text),
+        SummaryPaneKind::CodeDiff => (GalaxyIcon::Diff, sub_text),
+        SummaryPaneKind::File => (GalaxyIcon::File, sub_text),
         SummaryPaneKind::Notebook { is_plan } => (
             if is_plan {
-                WarpIcon::Compass
+                GalaxyIcon::Compass
             } else {
-                WarpIcon::Notebook
+                GalaxyIcon::Notebook
             },
             drive_color(DriveObjectType::Notebook {
                 is_ai_document: is_plan,
@@ -3742,9 +3741,9 @@ fn summary_pane_kind_icon(
         ),
         SummaryPaneKind::Workflow { is_ai_prompt } => (
             if is_ai_prompt {
-                WarpIcon::Prompt
+                GalaxyIcon::Prompt
             } else {
-                WarpIcon::Workflow
+                GalaxyIcon::Workflow
             },
             if is_ai_prompt {
                 drive_color(DriveObjectType::AgentModeWorkflow)
@@ -3753,16 +3752,16 @@ fn summary_pane_kind_icon(
             },
         ),
         SummaryPaneKind::Settings | SummaryPaneKind::EnvironmentManagement => {
-            (WarpIcon::Gear, main_text)
+            (GalaxyIcon::Gear, main_text)
         }
         SummaryPaneKind::EnvVarCollection => (
-            WarpIcon::EnvVarCollection,
+            GalaxyIcon::EnvVarCollection,
             drive_color(DriveObjectType::EnvVarCollection),
         ),
-        SummaryPaneKind::AIFact => (WarpIcon::BookOpen, drive_color(DriveObjectType::AIFact)),
-        SummaryPaneKind::AIDocument => (WarpIcon::Compass, sub_text),
-        SummaryPaneKind::ExecutionProfileEditor => (WarpIcon::Lightning, sub_text),
-        SummaryPaneKind::Other => (WarpIcon::File, sub_text),
+        SummaryPaneKind::AIFact => (GalaxyIcon::BookOpen, drive_color(DriveObjectType::AIFact)),
+        SummaryPaneKind::AIDocument => (GalaxyIcon::Compass, sub_text),
+        SummaryPaneKind::ExecutionProfileEditor => (GalaxyIcon::Lightning, sub_text),
+        SummaryPaneKind::Other => (GalaxyIcon::File, sub_text),
     }
 }
 
@@ -3817,7 +3816,7 @@ fn render_summary_branch_line(
 fn render_terminal_primary_line_for_view(
     terminal_view: &TerminalView,
     appearance: &Appearance,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let title_text = terminal_view.terminal_title_from_shell();
@@ -3853,7 +3852,7 @@ fn render_terminal_primary_line(
     primary_line: TerminalPrimaryLineData,
     terminal_view: &TerminalView,
     appearance: &Appearance,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     let theme = appearance.theme();
 
@@ -4171,7 +4170,7 @@ fn compute_tab_group_color_mode(
     tab: &TabData,
     pane_group: &PaneGroup,
     visible_pane_ids: &[PaneId],
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
     app: &AppContext,
 ) -> TabGroupColorMode {
     // Manual override applies to the whole group.
@@ -4466,7 +4465,7 @@ pub(super) fn render_settings_popup(
                 Expanded::new(
                     1.,
                     render_popup_segment(
-                        WarpIcon::Menu01,
+                        GalaxyIcon::Menu01,
                         matches!(current_mode, VerticalTabsViewMode::Compact),
                         state.compact_segment_mouse_state.clone(),
                         VerticalTabsViewMode::Compact,
@@ -4480,7 +4479,7 @@ pub(super) fn render_settings_popup(
                 Expanded::new(
                     1.,
                     render_popup_segment(
-                        WarpIcon::Grid,
+                        GalaxyIcon::Grid,
                         matches!(current_mode, VerticalTabsViewMode::Expanded),
                         state.expanded_segment_mouse_state.clone(),
                         VerticalTabsViewMode::Expanded,
@@ -4505,7 +4504,7 @@ pub(super) fn render_settings_popup(
         .finish();
 
     // Divider between toggle and "Pane title as" section
-    let make_divider = |theme: &WarpTheme| {
+    let make_divider = |theme: &GalaxyTheme| {
         Container::new(
             ConstrainedBox::new(
                 Container::new(Empty::new().finish())
@@ -4706,7 +4705,7 @@ fn render_compact_subtitle_option(
     mouse_state: MouseStateHandle,
     value: VerticalTabsCompactSubtitle,
     appearance: &Appearance,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     const ICON_SIZE: f32 = 16.;
     const FONT_SIZE: f32 = 12.;
@@ -4716,7 +4715,7 @@ fn render_compact_subtitle_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
+            ConstrainedBox::new(GalaxyIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4759,7 +4758,7 @@ fn render_tab_item_mode_option(
     mouse_state: MouseStateHandle,
     value: VerticalTabsTabItemMode,
     appearance: &Appearance,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     const ICON_SIZE: f32 = 16.;
     const FONT_SIZE: f32 = 12.;
@@ -4769,7 +4768,7 @@ fn render_tab_item_mode_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
+            ConstrainedBox::new(GalaxyIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4812,7 +4811,7 @@ fn render_primary_info_option(
     mouse_state: MouseStateHandle,
     value: VerticalTabsPrimaryInfo,
     appearance: &Appearance,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     const ICON_SIZE: f32 = 16.;
     const FONT_SIZE: f32 = 12.;
@@ -4822,7 +4821,7 @@ fn render_primary_info_option(
     let main_text = theme.main_text_color(theme.background());
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_selected {
-            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
+            ConstrainedBox::new(GalaxyIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4871,7 +4870,7 @@ fn render_show_toggle_option(
     action: WorkspaceAction,
     info_tooltip: Option<ShowToggleInfoTooltip>,
     appearance: &Appearance,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     const ICON_SIZE: f32 = 16.;
     const FONT_SIZE: f32 = 12.;
@@ -4889,7 +4888,7 @@ fn render_show_toggle_option(
 
     Hoverable::new(mouse_state, move |hover_state| {
         let check_icon: Box<dyn Element> = if is_enabled {
-            ConstrainedBox::new(WarpIcon::Check.to_galaxyui_icon(main_text).finish())
+            ConstrainedBox::new(GalaxyIcon::Check.to_galaxyui_icon(main_text).finish())
                 .with_width(ICON_SIZE)
                 .with_height(ICON_SIZE)
                 .finish()
@@ -4959,12 +4958,12 @@ fn render_show_toggle_option(
 }
 
 fn render_popup_segment(
-    icon: WarpIcon,
+    icon: GalaxyIcon,
     is_selected: bool,
     mouse_state: MouseStateHandle,
     mode: VerticalTabsViewMode,
-    theme: &WarpTheme,
-    icon_color: WarpThemeFill,
+    theme: &GalaxyTheme,
+    icon_color: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     Hoverable::new(mouse_state, move |hover_state| {
         let background = if is_selected {
@@ -5002,7 +5001,7 @@ fn render_popup_text_segment(
     mouse_state: MouseStateHandle,
     granularity: VerticalTabsDisplayGranularity,
     appearance: &Appearance,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let label = label.to_string();
     let main_text = theme.main_text_color(theme.background());
@@ -5170,25 +5169,25 @@ fn detail_sidecar_width_and_bounds(available_width: f32) -> (f32, PositionedElem
 }
 
 struct DetailSidecarTextColors {
-    main: WarpThemeFill,
-    sub: WarpThemeFill,
-    disabled: WarpThemeFill,
+    main: GalaxyThemeFill,
+    sub: GalaxyThemeFill,
+    disabled: GalaxyThemeFill,
 }
 
-fn detail_sidecar_background(theme: &WarpTheme) -> ColorU {
+fn detail_sidecar_background(theme: &GalaxyTheme) -> ColorU {
     theme
         .background()
         .blend(&internal_colors::fg_overlay_2(theme))
         .into_solid()
 }
 
-fn detail_sidecar_border_fill(theme: &WarpTheme) -> ThemeFill {
+fn detail_sidecar_border_fill(theme: &GalaxyTheme) -> ThemeFill {
     theme
         .background()
         .blend(&internal_colors::fg_overlay_4(theme))
 }
 
-fn detail_sidecar_text_colors(theme: &WarpTheme) -> DetailSidecarTextColors {
+fn detail_sidecar_text_colors(theme: &GalaxyTheme) -> DetailSidecarTextColors {
     let bg = ThemeFill::Solid(detail_sidecar_background(theme));
     DetailSidecarTextColors {
         main: theme.main_text_color(bg),
@@ -5201,7 +5200,7 @@ fn render_detail_badge(
     label: impl Into<String>,
     icon: Option<Box<dyn Element>>,
     background: Option<ThemeFill>,
-    text_color: WarpThemeFill,
+    text_color: GalaxyThemeFill,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     let mut content = Flex::row()
@@ -5244,14 +5243,14 @@ fn render_detail_status_pill(
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(4.)
             .with_child(
-                ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
+                ConstrainedBox::new(icon.to_galaxyui_icon(GalaxyThemeFill::Solid(color)).finish())
                     .with_width(12.)
                     .with_height(12.)
                     .finish(),
             )
             .with_child(
                 Text::new_inline(status.to_string(), appearance.ui_font_family(), 10.)
-                    .with_color(WarpThemeFill::Solid(color).into())
+                    .with_color(GalaxyThemeFill::Solid(color).into())
                     .finish(),
             )
             .finish(),
@@ -5265,7 +5264,7 @@ fn render_detail_status_pill(
 fn render_detail_wrapping_text(
     text: impl Into<String>,
     font_size: f32,
-    color: WarpThemeFill,
+    color: GalaxyThemeFill,
     style: Option<Properties>,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
@@ -5280,7 +5279,7 @@ fn render_detail_wrapping_text(
 
 fn render_terminal_detail_primary_line(
     primary_line: &TerminalPrimaryLineData,
-    color: WarpThemeFill,
+    color: GalaxyThemeFill,
     appearance: &Appearance,
 ) -> Box<dyn Element> {
     let font_family = match primary_line {

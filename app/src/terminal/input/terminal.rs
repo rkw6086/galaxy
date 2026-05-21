@@ -298,10 +298,10 @@ impl Input {
 }
 
 pub mod styles {
-    use galaxy_core::ui::theme::WarpTheme;
+    use galaxy_core::ui::theme::GalaxyTheme;
     use pathfinder_color::ColorU;
 
-    pub fn default_border_color(theme: &WarpTheme) -> ColorU {
+    pub fn default_border_color(theme: &GalaxyTheme) -> ColorU {
         theme.outline().into()
     }
 }

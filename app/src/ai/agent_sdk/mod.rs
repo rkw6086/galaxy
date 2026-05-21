@@ -175,7 +175,7 @@ fn dispatch_command(
             schedule::run(ctx, global_options, schedule_cmd)
         }
         CliCommand::Secret(secret_cmd) => {
-            if !FeatureFlag::WarpManagedSecrets.is_enabled() {
+            if !FeatureFlag::GalaxyManagedSecrets.is_enabled() {
                 return Err(anyhow::anyhow!("invalid value 'secret'"));
             }
             secret::run(ctx, global_options, secret_cmd)
@@ -547,7 +547,7 @@ impl AgentDriverRunner {
         // Ensure we've synced team state before starting the driver.
         Self::refresh_team_metadata(&foreground).await?;
 
-        // Wait for Warp Drive to sync before building the task config, since
+        // Wait for Galaxy Drive to sync before building the task config, since
         // prompt resolution (SavedPrompt -> workflow lookup) and environment
         // resolution (CloudAmbientAgentEnvironment lookup) depend on it.
         if foreground
@@ -1328,7 +1328,7 @@ fn launch_command(
                 dispatched = true;
                 let auth_state = AuthStateProvider::handle(ctx).as_ref(ctx).get();
                 let message = if auth_state.is_api_key_authenticated() {
-                    "Your API key is invalid. Please provide a valid key via '--api-key' or the WARP_API_KEY environment variable.".to_string()
+                    "Your API key is invalid. Please provide a valid key via '--api-key' or the GALAXY_API_KEY environment variable.".to_string()
                 } else {
                     format!("Your credentials are invalid. Please log in again with `{cli_name} login`.")
                 };

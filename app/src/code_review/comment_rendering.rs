@@ -43,7 +43,7 @@ pub(crate) struct HeaderClickHandler {
 /// (rounded corners, neutral background, outline border).
 fn comment_card_container(
     content: Box<dyn Element>,
-    theme: &galaxy_core::ui::theme::WarpTheme,
+    theme: &galaxy_core::ui::theme::GalaxyTheme,
 ) -> Box<dyn Element> {
     Container::new(content)
         .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))

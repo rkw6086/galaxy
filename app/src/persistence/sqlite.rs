@@ -86,7 +86,7 @@ use crate::cloud_object::{
 };
 use crate::code::editor_management::CodeSource;
 use crate::drive::folders::{CloudFolder, CloudFolderModel, FolderId};
-use crate::drive::OpenWarpDriveObjectSettings;
+use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::env_vars::{CloudEnvVarCollection, CloudEnvVarCollectionModel};
 use crate::features::FeatureFlag;
 use crate::notebooks::{CloudNotebook, NotebookId};
@@ -2519,7 +2519,7 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                         Some(path) => NotebookPaneSnapshot::LocalFileNotebook { path: Some(path) },
                         None => NotebookPaneSnapshot::CloudNotebook {
                             notebook_id,
-                            settings: OpenWarpDriveObjectSettings::default(),
+                            settings: OpenGalaxyDriveObjectSettings::default(),
                         },
                     })
                 }
@@ -2537,7 +2537,7 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
 
                     LeafContents::Workflow(WorkflowPaneSnapshot::CloudWorkflow {
                         workflow_id,
-                        settings: OpenWarpDriveObjectSettings::default(),
+                        settings: OpenGalaxyDriveObjectSettings::default(),
                     })
                 }
                 CODE_PANE_KIND => {

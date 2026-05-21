@@ -1,5 +1,5 @@
 use async_io::block_on;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::{fonts::FontInfo, keymap::Keystroke};
 use pathfinder_color::ColorU;
 use plist::{Dictionary, Value};
@@ -106,9 +106,9 @@ fn test_color_dictionary_to_coloru() {
 
 #[test]
 fn test_into_warp_theme_valid() {
-    let theme: WarpTheme = solarized_dark_theme()
+    let theme: GalaxyTheme = solarized_dark_theme()
         .into_warp_theme("", &default_dark_theme())
-        .expect("Should be able to convert into WarpTheme");
+        .expect("Should be able to convert into GalaxyTheme");
     assert_eq!(
         theme.accent(),
         Fill::Solid(ColorU {

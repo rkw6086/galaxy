@@ -121,12 +121,12 @@ fn test_find_applicable_rules_handles_root_path() {
 
 #[test]
 fn test_find_applicable_rules_complex_scenario() {
-    // This test covers the example from the original request:
     // For path /a/b/c/file.rs with rules:
     // - /a/WARP.md
     // - /a/AGENTS.md
     // - /a/b/WARP.md
     // - /a/b/AGENTS.md
+    // All ancestor rule files should be included.
     let mut rules = ProjectRules::default();
 
     rules.upsert_rule(Path::new("/a/WARP.md"), "a_warp".to_string());
@@ -138,13 +138,13 @@ fn test_find_applicable_rules_complex_scenario() {
     let path = PathBuf::from("/a/b/c/file.rs");
 
     let result = rules.find_active_or_applicable_rules(&path).active_rules;
-    assert_eq!(result.len(), 2);
+    assert_eq!(result.len(), 4);
 
-    // Expect only WARP.md files to be included as they have higher priority.
-    assert_eq!(result[0].path, PathBuf::from("/a/WARP.md"));
-    assert_eq!(result[0].content, "a_warp");
-    assert_eq!(result[1].path, PathBuf::from("/a/b/WARP.md"));
-    assert_eq!(result[1].content, "ab_warp");
+    let paths: Vec<PathBuf> = result.iter().map(|r| r.path.clone()).collect();
+    assert!(paths.contains(&PathBuf::from("/a/WARP.md")));
+    assert!(paths.contains(&PathBuf::from("/a/AGENTS.md")));
+    assert!(paths.contains(&PathBuf::from("/a/b/WARP.md")));
+    assert!(paths.contains(&PathBuf::from("/a/b/AGENTS.md")));
 }
 
 #[test]

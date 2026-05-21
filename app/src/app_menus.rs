@@ -15,7 +15,7 @@ use crate::terminal::alt_screen_reporting::AltScreenReporting;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
 use crate::undo_close::UndoCloseStack;
-use crate::user_config::WarpConfig;
+use crate::user_config::GalaxyConfig;
 use crate::util::bindings::{self, trigger_to_keystroke, CustomAction};
 use crate::util::links;
 use crate::workspace::sync_inputs::SyncedInputState;
@@ -138,7 +138,7 @@ fn updateable_custom_item_without_checkmark(action: CustomAction, ctx: &AppConte
 
 fn make_new_app_menu(ctx: &AppContext) -> Menu {
     let mut menu_items = vec![updateable_custom_item_without_checkmark(
-        CustomAction::ShowAboutWarp,
+        CustomAction::ShowAboutGalaxy,
         ctx,
     )];
 
@@ -375,7 +375,7 @@ fn make_new_edit_menu(ctx: &AppContext) -> Menu {
 
 fn make_new_view_menu(ctx: &AppContext) -> Menu {
     let mut items = vec![
-        updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
+        updateable_custom_item_without_checkmark(CustomAction::ToggleGalaxyDrive, ctx),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::CommandPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::NavigationPalette, ctx),
@@ -605,7 +605,7 @@ fn make_new_drive_menu(ctx: &AppContext) -> Menu {
     ));
     items.extend([
         MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
+        updateable_custom_item_without_checkmark(CustomAction::ToggleGalaxyDrive, ctx),
         updateable_custom_item_without_checkmark(CustomAction::SearchDrive, ctx),
         updateable_custom_item_without_checkmark(CustomAction::OpenTeamSettings, ctx),
         updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
@@ -934,7 +934,7 @@ fn make_new_help_menu() -> Menu {
 fn make_launch_config_menu_items(ctx: &mut AppContext) -> Vec<MenuItem> {
     let mut launch_config_menu_items = vec![];
 
-    let launch_configs = WarpConfig::handle(ctx).as_ref(ctx).launch_configs();
+    let launch_configs = GalaxyConfig::handle(ctx).as_ref(ctx).launch_configs();
     for config in launch_configs {
         launch_config_menu_items.push(MenuItem::Custom(CustomMenuItem::new(
             &config.name,

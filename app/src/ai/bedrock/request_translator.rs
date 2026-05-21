@@ -175,6 +175,20 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                 ),
             });
         }
+        api::request::input::Type::SummarizeConversation(summarize) => {
+            let prompt = if summarize.prompt.is_empty() {
+                "Please summarize this conversation so far, preserving key decisions, \
+                 code changes, and important context. Be concise but retain all \
+                 information needed to continue the work."
+                    .to_string()
+            } else {
+                summarize.prompt.clone()
+            };
+            results.push(ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text(prompt),
+            });
+        }
         _ => {}
     }
 
@@ -377,6 +391,30 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     )),
                 });
             }
+        }
+        api::request::input::Type::SummarizeConversation(summarize) => {
+            let prompt = if summarize.prompt.is_empty() {
+                "Please summarize this conversation so far, preserving key decisions, \
+                 code changes, and important context. Be concise but retain all \
+                 information needed to continue the work."
+                    .to_string()
+            } else {
+                summarize.prompt.clone()
+            };
+            results.push(api::Message {
+                id: uuid::Uuid::new_v4().to_string(),
+                task_id: task_id.clone(),
+                request_id: String::new(),
+                timestamp: None,
+                server_message_data: String::new(),
+                citations: vec![],
+                message: Some(api::message::Message::UserQuery(
+                    api::message::UserQuery {
+                        query: prompt,
+                        ..Default::default()
+                    },
+                )),
+            });
         }
         _ => {}
     }
@@ -1171,8 +1209,9 @@ pub fn extract_messages_from_request(request: &api::Request) -> Vec<Conversation
     messages
 }
 
-#[cfg(test)]
-fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMessage> {
+/// Converts a proto `api::Message` into a `ConversationMessage` for the Bedrock message history.
+/// Used to rebuild the message history from persisted task messages on session restore.
+pub fn convert_proto_message(msg: &api::Message) -> Option<ConversationMessage> {
     let message_content = msg.message.as_ref()?;
     match message_content {
         api::message::Message::UserQuery(query) => Some(ConversationMessage {
@@ -1184,7 +1223,7 @@ fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMess
             content: MessageContent::Text(output.text.clone()),
         }),
         api::message::Message::ToolCall(tool_call) => {
-            let (name, input) = extract_tool_call_info_for_test(tool_call);
+            let (name, input) = extract_tool_call_info(tool_call);
             Some(ConversationMessage {
                 role: MessageRole::Assistant,
                 content: MessageContent::ToolUse {
@@ -1214,11 +1253,8 @@ fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMess
     }
 }
 
-#[cfg(test)]
 #[allow(deprecated)]
-fn extract_tool_call_info_for_test(
-    tool_call: &api::message::ToolCall,
-) -> (String, serde_json::Value) {
+fn extract_tool_call_info(tool_call: &api::message::ToolCall) -> (String, serde_json::Value) {
     if let Some(tool) = &tool_call.tool {
         match tool {
             api::message::tool_call::Tool::RunShellCommand(cmd) => (
@@ -1253,6 +1289,12 @@ fn extract_tool_call_info_for_test(
         ("unknown_tool".to_string(), serde_json::json!({}))
     }
 }
+
+#[cfg(test)]
+fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMessage> {
+    convert_proto_message(msg)
+}
+
 
 #[cfg(test)]
 #[path = "request_translator_tests.rs"]

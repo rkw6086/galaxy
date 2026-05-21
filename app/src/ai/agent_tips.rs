@@ -118,7 +118,7 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
             description: "Store reusable workflows, notebooks, and prompts in your".to_string(),
             link: Some("https://docs.warp.dev/knowledge-and-collaboration/warp-drive".to_string()),
             binding_name: None,
-            action: Some(WorkspaceAction::OpenWarpDrive),
+            action: Some(WorkspaceAction::OpenGalaxyDrive),
             kind: AgentTipKind::WarpDrive,
         },
         AgentTip {
@@ -129,7 +129,7 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
             kind: AgentTipKind::General,
         },
         AgentTip {
-            description: "`@` to add context from files, blocks, or Warp Drive objects to your prompt.".to_string(),
+            description: "`@` to add context from files, blocks, or Galaxy Drive objects to your prompt.".to_string(),
             link: Some("https://docs.warp.dev/agent-platform/local-agents/agent-context/using-to-add-context".to_string()),
             binding_name: None,
             action: None,
@@ -297,7 +297,7 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
             kind: AgentTipKind::General,
         },
         AgentTip {
-            description: "`/init` to generate a `WARP.md` file and define project rules for the agent.".to_string(),
+            description: "`/init` to generate a `GALAXY.md` file and define project rules for the agent.".to_string(),
             link: Some("https://docs.warp.dev/agent-platform/capabilities/rules".to_string()),
             binding_name: None,
             action: None,
@@ -411,7 +411,7 @@ impl WorkspaceAction {
     pub fn display_text(&self) -> Option<String> {
         match self {
             WorkspaceAction::OpenPalette { .. } => Some("Open palette".to_string()),
-            WorkspaceAction::OpenWarpDrive => Some("Warp Drive.".to_string()),
+            WorkspaceAction::OpenGalaxyDrive => Some("Galaxy Drive.".to_string()),
             WorkspaceAction::ToggleRightPanel => Some("Show diff view".to_string()),
             _ => None,
         }

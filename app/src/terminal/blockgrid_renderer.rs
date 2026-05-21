@@ -6,7 +6,7 @@ use crate::terminal::model::grid::grid_handler::Link;
 use crate::terminal::model::index::Point;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::SizeInfo;
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
 use galaxyui::geometry::vector::{vec2f, Vector2F};
@@ -22,7 +22,7 @@ use super::model::image_map::StoredImageMetadata;
 use super::model::SecretHandle;
 
 pub struct GridRenderParams {
-    pub warp_theme: WarpTheme,
+    pub warp_theme: GalaxyTheme,
     pub font_family: FamilyId,
     pub font_size: f32,
     pub font_weight: Weight,

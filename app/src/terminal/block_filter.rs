@@ -3,7 +3,7 @@ use galaxyui::elements::{Align, Dash};
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::FocusContext;
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{
         Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         Dismiss, DropShadow, Empty, Flex, Hoverable, MouseStateHandle, OffsetPositioning,
@@ -755,7 +755,7 @@ impl View for BlockFilterEditor {
         Some(AccessibilityContent::new(
             "Type searched phrase.",
             "Press escape to quit",
-            WarpA11yRole::TextareaRole,
+            GalaxyA11yRole::TextareaRole,
         ))
     }
 }

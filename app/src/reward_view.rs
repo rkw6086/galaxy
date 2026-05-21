@@ -1,6 +1,6 @@
 use galaxy_core::ui::builder::UiBuilder;
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{Align, Container, Element, Flex, MouseStateHandle, ParentElement},
     keymap::FixedBinding,
     ui_components::button::ButtonVariant,
@@ -186,7 +186,7 @@ impl View for RewardView {
         Some(AccessibilityContent::new(
             format!("{} {}", TITLE, self.subtitle()),
             ACCESSIBILITY_HELP,
-            WarpA11yRole::WindowRole,
+            GalaxyA11yRole::WindowRole,
         ))
     }
 

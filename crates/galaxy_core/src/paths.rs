@@ -52,7 +52,7 @@ fn base_warp_config_dir_name() -> String {
 ///
 /// This preserves the historical `.warp*` directory shape while still isolating dev, local,
 /// integration, oss, and optional development profiles.
-pub fn warp_home_config_dir_name() -> String {
+pub fn galaxy_home_config_dir_name() -> String {
     let base_dir_name = base_warp_config_dir_name();
 
     if let Some(data_profile) = ChannelState::data_profile() {
@@ -67,13 +67,13 @@ pub fn warp_home_config_dir_name() -> String {
 /// Unlike [`data_dir`] and [`config_local_dir`] on non-macOS platforms, this intentionally keeps
 /// user-facing config under a `.warp-core*` directory in the home directory instead of
 /// using the platform XDG/AppData project directories.
-pub fn warp_home_config_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|home_dir| home_dir.join(warp_home_config_dir_name()))
+pub fn galaxy_home_config_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|home_dir| home_dir.join(galaxy_home_config_dir_name()))
 }
 
 /// Returns the legacy `~/.warp*` config directory path for the current channel,
 /// used to detect and migrate data from a previous Warp installation.
-pub fn legacy_warp_home_config_dir() -> Option<PathBuf> {
+pub fn legacy_galaxy_home_config_dir() -> Option<PathBuf> {
     let base = LEGACY_WARP_CONFIG_DIR;
     let dir_name = match ChannelState::channel() {
         Channel::Stable | Channel::Preview => base.to_owned(),
@@ -100,10 +100,10 @@ pub fn legacy_warp_home_config_dir() -> Option<PathBuf> {
 /// - The new directory already exists.
 /// - The old directory does not exist.
 pub fn migrate_legacy_config_dir_if_needed() {
-    let Some(old_dir) = legacy_warp_home_config_dir() else {
+    let Some(old_dir) = legacy_galaxy_home_config_dir() else {
         return;
     };
-    let Some(new_dir) = warp_home_config_dir() else {
+    let Some(new_dir) = galaxy_home_config_dir() else {
         return;
     };
 
@@ -198,12 +198,12 @@ pub fn migrate_legacy_config_dir_if_needed() {
     }
 }
 
-pub fn warp_home_skills_dir() -> Option<PathBuf> {
-    warp_home_config_dir().map(|warp_config_dir| warp_config_dir.join("skills"))
+pub fn galaxy_home_skills_dir() -> Option<PathBuf> {
+    galaxy_home_config_dir().map(|warp_config_dir| warp_config_dir.join("skills"))
 }
 
-pub fn warp_home_mcp_config_file_path() -> Option<PathBuf> {
-    warp_home_config_dir().map(|warp_config_dir| warp_config_dir.join(".mcp.json"))
+pub fn galaxy_home_mcp_config_file_path() -> Option<PathBuf> {
+    galaxy_home_config_dir().map(|warp_config_dir| warp_config_dir.join(".mcp.json"))
 }
 
 /// Returns the macOS config directory name for the current channel.

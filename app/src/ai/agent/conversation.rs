@@ -30,7 +30,7 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::color::ColorU;
 use galaxyui::{EntityId, ModelContext, SingletonEntity};
 use uuid::Uuid;
@@ -235,6 +235,19 @@ pub struct AIConversation {
     /// tool calls, and tool results sent to/received from Bedrock across all
     /// request cycles. This is the source of truth for what Bedrock sees.
     bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+
+    /// Live context token count from the most recent Bedrock response.
+    /// This is the actual input_tokens reported by Bedrock — represents the current
+    /// context window size, NOT a cumulative total.
+    current_context_tokens: u32,
+
+    /// Guards against repeated auto-compact triggers within the same high-usage window.
+    /// Set to true when auto-compact fires; reset when summarization completes.
+    has_pending_auto_compact: bool,
+
+    /// Number of times this child agent conversation has been automatically
+    /// restarted after a transient error. Capped at MAX_SUBAGENT_RETRIES.
+    subagent_retry_count: u8,
 }
 
 pub(crate) fn artifact_from_fork_proto(
@@ -287,6 +300,9 @@ impl AIConversation {
             is_remote_child: false,
             last_event_sequence: None,
             bedrock_message_history: Vec::new(),
+            current_context_tokens: 0,
+            has_pending_auto_compact: false,
+            subagent_retry_count: 0,
         }
     }
 
@@ -313,6 +329,20 @@ impl AIConversation {
                 .unwrap_or(&0)
                 .cmp(depths.get(a.as_str()).unwrap_or(&0))
         });
+
+        // Collect all task messages for rebuilding bedrock_message_history on restore.
+        // We must do this before consuming the tasks into exchanges.
+        let all_task_messages: Vec<&api::Message> = api_tasks_by_id
+            .values()
+            .flat_map(|task| task.messages.iter())
+            .collect();
+        let bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage> =
+            all_task_messages
+                .iter()
+                .filter_map(|msg| {
+                    crate::ai::bedrock::request_translator::convert_proto_message(msg)
+                })
+                .collect();
 
         let mut api_tasks_and_exchanges_by_id: HashMap<_, _> = api_tasks_by_id
             .into_iter()
@@ -469,7 +499,10 @@ impl AIConversation {
             parent_conversation_id,
             is_remote_child: false,
             last_event_sequence,
-            bedrock_message_history: Vec::new(),
+            bedrock_message_history,
+            current_context_tokens: 0,
+            has_pending_auto_compact: false,
+            subagent_retry_count: 0,
         })
     }
 
@@ -519,6 +552,26 @@ impl AIConversation {
 
     pub fn context_window_usage(&self) -> f32 {
         self.conversation_usage_metadata.context_window_usage
+    }
+
+    pub fn set_context_window_usage(&mut self, value: f32) {
+        self.conversation_usage_metadata.context_window_usage = value;
+    }
+
+    pub fn current_context_tokens(&self) -> u32 {
+        self.current_context_tokens
+    }
+
+    pub fn set_current_context_tokens(&mut self, tokens: u32) {
+        self.current_context_tokens = tokens;
+    }
+
+    pub fn has_pending_auto_compact(&self) -> bool {
+        self.has_pending_auto_compact
+    }
+
+    pub fn set_has_pending_auto_compact(&mut self, value: bool) {
+        self.has_pending_auto_compact = value;
     }
 
     pub fn credits_spent(&self) -> f32 {
@@ -857,6 +910,14 @@ impl AIConversation {
     /// Marks this conversation as a remote child placeholder.
     pub fn mark_as_remote_child(&mut self) {
         self.is_remote_child = true;
+    }
+
+    pub fn subagent_retry_count(&self) -> u8 {
+        self.subagent_retry_count
+    }
+
+    pub fn increment_subagent_retry_count(&mut self) {
+        self.subagent_retry_count = self.subagent_retry_count.saturating_add(1);
     }
 
     /// Returns a flat list of linearized messages across all tasks, interpolating subtask messages
@@ -1566,6 +1627,17 @@ impl AIConversation {
         if was_user_initiated_request {
             self.last_block_token_usage_by_model.clear();
         }
+
+        // Update live context token count from this response's input tokens.
+        // This represents the actual current context window size (not cumulative).
+        let live_input: u32 = token_usage
+            .iter()
+            .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
+            .sum();
+        if live_input > 0 {
+            self.current_context_tokens = live_input;
+        }
+
         for usage in token_usage.into_iter() {
             let entry = self
                 .total_token_usage_by_model
@@ -1666,6 +1738,7 @@ impl AIConversation {
             // so we only update the summarized flag if it's going from false to true.
             if usage_metadata.summarized && !self.conversation_usage_metadata.was_summarized {
                 self.conversation_usage_metadata.was_summarized = usage_metadata.summarized;
+                self.has_pending_auto_compact = false;
             }
         }
         Ok(())
@@ -3844,7 +3917,7 @@ impl ConversationStatus {
         }
     }
 
-    pub fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    pub fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         match self {
             ConversationStatus::InProgress => (Icon::ClockLoader, theme.ansi_fg_magenta()),
             ConversationStatus::Success => (Icon::Check, theme.ansi_fg_green()),

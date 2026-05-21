@@ -1,5 +1,5 @@
 use asset_macro::bundled_asset;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::assets::asset_cache::{AssetCache, AssetState};
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
@@ -65,7 +65,7 @@ impl Entity for SshWarpifyBlock {
 }
 
 impl SshWarpifyBlock {
-    fn render_title_ui(&self, theme: &WarpTheme, appearance: &Appearance) -> Box<dyn Element> {
+    fn render_title_ui(&self, theme: &GalaxyTheme, appearance: &Appearance) -> Box<dyn Element> {
         let icon = Icon::new(UiIcon::Warp.into(), theme.active_ui_detail());
         warpify::render::header_row("Wormholing SSH Session...", icon, theme, appearance)
     }

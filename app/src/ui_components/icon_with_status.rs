@@ -1,6 +1,6 @@
-use galaxy_core::ui::icons::Icon as WarpIcon;
+use galaxy_core::ui::icons::Icon as GalaxyIcon;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{Fill as WarpThemeFill, WarpTheme};
+use galaxy_core::ui::theme::{Fill as GalaxyThemeFill, GalaxyTheme};
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, Stack,
@@ -30,8 +30,8 @@ pub(crate) struct IconWithStatusSizing {
 pub(crate) enum IconWithStatusVariant {
     /// A generic icon with a given color on an overlay background.
     Neutral {
-        icon: WarpIcon,
-        icon_color: WarpThemeFill,
+        icon: GalaxyIcon,
+        icon_color: GalaxyThemeFill,
     },
     /// A pre-built icon element on an overlay background.
     NeutralElement { icon_element: Box<dyn Element> },
@@ -51,8 +51,8 @@ pub(crate) enum IconWithStatusVariant {
 pub(crate) fn render_icon_with_status(
     variant: IconWithStatusVariant,
     sizing: &IconWithStatusSizing,
-    theme: &WarpTheme,
-    badge_ring_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    badge_ring_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     let sub_text = theme.sub_text_color(theme.background());
 
@@ -85,9 +85,9 @@ pub(crate) fn render_icon_with_status(
         }
         IconWithStatusVariant::OzAgent { status, is_ambient } => {
             let icon = if is_ambient {
-                WarpIcon::OzCloud
+                GalaxyIcon::OzCloud
             } else {
-                WarpIcon::Oz
+                GalaxyIcon::Oz
             };
             let inner = ConstrainedBox::new(
                 icon.to_galaxyui_icon(theme.main_text_color(theme.background()))
@@ -119,10 +119,10 @@ pub(crate) fn render_icon_with_status(
             let icon_element = agent
                 .icon()
                 .map(|icon| {
-                    icon.to_galaxyui_icon(WarpThemeFill::Solid(icon_color))
+                    icon.to_galaxyui_icon(GalaxyThemeFill::Solid(icon_color))
                         .finish()
                 })
-                .unwrap_or_else(|| WarpIcon::Terminal.to_galaxyui_icon(sub_text).finish());
+                .unwrap_or_else(|| GalaxyIcon::Terminal.to_galaxyui_icon(sub_text).finish());
             let inner = ConstrainedBox::new(icon_element)
                 .with_width(sizing.icon_size)
                 .with_height(sizing.icon_size)
@@ -150,15 +150,15 @@ fn render_with_optional_status_badge(
     circle: Box<dyn Element>,
     status: Option<&ConversationStatus>,
     sizing: &IconWithStatusSizing,
-    theme: &WarpTheme,
-    badge_ring_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    badge_ring_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     let Some(status) = status else {
         return circle;
     };
     let (icon, color) = status.status_icon_and_color(theme);
     let badge_icon =
-        ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
+        ConstrainedBox::new(icon.to_galaxyui_icon(GalaxyThemeFill::Solid(color)).finish())
             .with_width(sizing.badge_icon_size)
             .with_height(sizing.badge_icon_size)
             .finish();

@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use galaxy_core::ui::{
     color::hex_color::HexColorError as UiHexColorError,
-    theme::{AnsiColors, WarpTheme},
+    theme::{AnsiColors, GalaxyTheme},
 };
 use pathfinder_color::ColorU;
 use serde::Serialize;
@@ -29,8 +29,8 @@ use super::iterm_parser::ITermProfile;
 
 #[derive(Debug)]
 pub enum ThemeType {
-    LightAndDark { light: WarpTheme, dark: WarpTheme },
-    Single(WarpTheme),
+    LightAndDark { light: GalaxyTheme, dark: GalaxyTheme },
+    Single(GalaxyTheme),
 }
 
 #[derive(Clone, Debug)]

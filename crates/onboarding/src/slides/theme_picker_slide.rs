@@ -6,7 +6,7 @@ use crate::visuals::theme_picker_visual;
 use crate::OnboardingIntention;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, theme::WarpTheme};
+use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, theme::GalaxyTheme};
 use galaxyui::{
     elements::{
         Border, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
@@ -54,7 +54,7 @@ const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 
 #[derive(Debug, Clone)]
 struct ThemeOption {
-    theme: WarpTheme,
+    theme: GalaxyTheme,
     mouse_state: MouseStateHandle,
 }
 
@@ -73,7 +73,7 @@ pub struct ThemePickerSlide {
 
 impl ThemePickerSlide {
     pub(crate) fn new(
-        themes: [WarpTheme; 4],
+        themes: [GalaxyTheme; 4],
         onboarding_state: ModelHandle<OnboardingStateModel>,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
@@ -222,7 +222,7 @@ impl ThemePickerSlide {
     fn render_theme_options(
         &self,
         appearance: &Appearance,
-        chrome_theme: &WarpTheme,
+        chrome_theme: &GalaxyTheme,
     ) -> Box<dyn Element> {
         let options = (0..self.theme_options.len())
             .map(|index| {
@@ -316,10 +316,10 @@ impl ThemePickerSlide {
     fn render_theme_option(
         &self,
         appearance: &Appearance,
-        chrome_theme: &WarpTheme,
+        chrome_theme: &GalaxyTheme,
         index: usize,
         theme_name: String,
-        option_theme: &WarpTheme,
+        option_theme: &GalaxyTheme,
         mouse_state: MouseStateHandle,
         interactive: bool,
     ) -> Box<dyn Element> {

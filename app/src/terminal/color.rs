@@ -1,5 +1,5 @@
 use crate::terminal::model::ansi::color_index;
-use crate::themes::theme::{AnsiColors, WarpTheme};
+use crate::themes::theme::{AnsiColors, GalaxyTheme};
 use galaxyui::color::ColorU;
 use std::fmt;
 use std::ops::{Index, IndexMut};
@@ -41,8 +41,8 @@ impl Colors {
     }
 }
 
-impl From<WarpTheme> for Colors {
-    fn from(theme: WarpTheme) -> Self {
+impl From<GalaxyTheme> for Colors {
+    fn from(theme: GalaxyTheme) -> Self {
         let colors = theme.terminal_colors();
         Colors::new(
             PrimaryColors::new(

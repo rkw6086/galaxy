@@ -10,7 +10,7 @@ use galaxy_editor::{
     render::model::RenderState,
 };
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     elements::{
         AnchorPair, Border, ConstrainedBox, Container, CornerRadius, DropShadow, Flex,
         MainAxisSize, MouseStateHandle, OffsetPositioning, OffsetType, ParentElement, Point,
@@ -447,12 +447,12 @@ impl TypedActionView for Omnibar {
             OmnibarAction::ConvertBlock(style) => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("Convert to {}", BlockType::from(style).label()),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             OmnibarAction::OpenLinkEditor => ActionAccessibilityContent::from_debug(),
             OmnibarAction::UnstyleLink => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Remove link", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Remove link", GalaxyA11yRole::UserAction),
             ),
         }
     }

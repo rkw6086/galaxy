@@ -1,6 +1,6 @@
 use galaxy_core::ui::{
     appearance::Appearance,
-    theme::{color::internal_colors, WarpTheme},
+    theme::{color::internal_colors, GalaxyTheme},
 };
 use galaxy_editor::{
     content::buffer::InitialBufferState,
@@ -575,7 +575,7 @@ impl LocalCodeEditorView {
     }
 
     /// Render a separator line between hover card sections.
-    fn render_separator(theme: &WarpTheme) -> Box<dyn Element> {
+    fn render_separator(theme: &GalaxyTheme) -> Box<dyn Element> {
         Container::new(
             ConstrainedBox::new(
                 Rect::new()

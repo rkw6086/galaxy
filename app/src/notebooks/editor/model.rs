@@ -2,7 +2,7 @@ use base64::{prelude::BASE64_STANDARD, Engine as _};
 use std::{any::Any, borrow::Cow, collections::HashMap, ops::Range, time::Duration};
 
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     clipboard::ClipboardContent,
     AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, WindowId,
 };
@@ -1289,7 +1289,7 @@ impl NotebooksEditorModel {
         if let Some(command) = child_model.executable_command(ctx) {
             ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                 format!("Selected workflow: {command}"),
-                WarpA11yRole::TextareaRole,
+                GalaxyA11yRole::TextareaRole,
             ));
         }
 
@@ -1650,7 +1650,7 @@ impl NotebooksEditorModel {
         let text = format!("{style:?} {action}");
         ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
             text,
-            WarpA11yRole::UserAction,
+            GalaxyA11yRole::UserAction,
         ))
     }
 

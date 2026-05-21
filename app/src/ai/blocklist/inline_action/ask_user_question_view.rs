@@ -4,7 +4,7 @@ use ai::agent::{
     action::{AskUserQuestionItem, AskUserQuestionOption, AskUserQuestionType},
     action_result::{AskUserQuestionAnswerItem, AskUserQuestionResult},
 };
-use galaxy_core::ui::theme::{color::internal_colors, WarpTheme};
+use galaxy_core::ui::theme::{color::internal_colors, GalaxyTheme};
 use galaxyui::{
     elements::{
         new_scrollable::SingleAxisConfig, Border, ChildView, Clipped, ClippedScrollStateHandle,
@@ -1333,7 +1333,7 @@ impl AskUserQuestionView {
     fn render_question_text(
         question_text: &str,
         appearance: &Appearance,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Box<dyn Element> {
         let text_color = theme.foreground().into();
         Container::new(render_text_with_markdown_support(
@@ -1357,7 +1357,7 @@ impl AskUserQuestionView {
         &self,
         question_text: &str,
         appearance: &Appearance,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Box<dyn Element> {
         let body = Flex::column()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -1385,7 +1385,7 @@ impl AskUserQuestionView {
     fn render_nav_footer(
         &self,
         appearance: &Appearance,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         app: &AppContext,
     ) -> Box<dyn Element> {
         let counter = format!(

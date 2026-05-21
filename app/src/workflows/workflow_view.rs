@@ -36,7 +36,7 @@ use crate::{
             workflow_arg_selector::{WorkflowArgSelector, WorkflowArgSelectorEvent},
             workflow_arg_type_helpers::{self, ArgumentEditorRowIndex},
         },
-        CloudObjectTypeAndId, DriveObjectType, OpenWarpDriveObjectSettings,
+        CloudObjectTypeAndId, DriveObjectType, OpenGalaxyDriveObjectSettings,
     },
     editor::{
         EditorOptions, EditorView, EnterAction, EnterSettings, Event as EditorEvent,
@@ -591,7 +591,7 @@ impl WorkflowView {
                 {
                     self.load(
                         workflow.clone(),
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         self.workflow_view_mode,
                         ctx,
                     );
@@ -611,7 +611,7 @@ impl WorkflowView {
                 {
                     self.load(
                         workflow,
-                        &OpenWarpDriveObjectSettings::default(),
+                        &OpenGalaxyDriveObjectSettings::default(),
                         self.workflow_view_mode,
                         ctx,
                     );
@@ -629,7 +629,7 @@ impl WorkflowView {
         if let Some(workflow) = cloud_workflow {
             self.load(
                 workflow,
-                &OpenWarpDriveObjectSettings::default(),
+                &OpenGalaxyDriveObjectSettings::default(),
                 self.workflow_view_mode,
                 ctx,
             );
@@ -639,7 +639,7 @@ impl WorkflowView {
     pub fn wait_for_initial_load_then_load(
         &mut self,
         workflow_id: SyncId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         mode: WorkflowViewMode,
         window_id: WindowId,
         ctx: &mut ViewContext<Self>,
@@ -680,7 +680,7 @@ impl WorkflowView {
     fn fetch_and_load_workflow(
         &mut self,
         workflow_id: ServerId,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         mode: WorkflowViewMode,
         window_id: WindowId,
         ctx: &mut ViewContext<Self>,
@@ -718,7 +718,7 @@ impl WorkflowView {
     pub fn load(
         &mut self,
         workflow: CloudWorkflow,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         mode: WorkflowViewMode,
         ctx: &mut ViewContext<Self>,
     ) {

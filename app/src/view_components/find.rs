@@ -14,7 +14,7 @@ use galaxyui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, S
 use galaxyui::keymap::EditableBinding;
 use galaxyui::ui_components::components::UiComponent;
 pub use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{ParentElement as _, Stack},
     geometry::vector::vec2f,
     AppContext,
@@ -258,10 +258,10 @@ impl<T: FindModel + Entity<Event = FindEvent> + 'static> Find<T> {
                     self.model.as_ref(ctx).match_count()
                 ),
                 "Use enter and shift-enter to navigate between matches. Escape to quit.",
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             )
         } else {
-            AccessibilityContent::new_without_help("No results.", WarpA11yRole::UserAction)
+            AccessibilityContent::new_without_help("No results.", GalaxyA11yRole::UserAction)
         };
         ctx.emit_a11y_content(content);
     }
@@ -500,7 +500,7 @@ impl<T: FindModel + Entity<Event = FindEvent> + 'static> View for Find<T> {
         Some(AccessibilityContent::new(
             "Type searched phrase.",
             "Press escape to quit, use enter and shift-enter to navigate between matches",
-            WarpA11yRole::TextareaRole,
+            GalaxyA11yRole::TextareaRole,
         ))
     }
 

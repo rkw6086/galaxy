@@ -13,7 +13,7 @@ use galaxy_core::context_flag::ContextFlag;
 use regex::Regex;
 use settings::Setting as _;
 
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
     Align, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
@@ -1751,6 +1751,6 @@ mod styles {
     pub const DESCRIPTION_LINE_MARGIN_BOTTOM: f32 = 6.;
 }
 
-fn description_text_color(theme: &WarpTheme) -> galaxy_core::ui::theme::Fill {
+fn description_text_color(theme: &GalaxyTheme) -> galaxy_core::ui::theme::Fill {
     theme.sub_text_color(theme.surface_2())
 }

@@ -6,7 +6,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use galaxy_core::ui::{
-    appearance::Appearance, icons::Icon as WarpIcon, theme::color::internal_colors,
+    appearance::Appearance, icons::Icon as GalaxyIcon, theme::color::internal_colors,
 };
 use galaxy_files::FileModel;
 use galaxyui::{
@@ -520,7 +520,7 @@ fn render_header(
     let icon_color = theme.sub_text_color(theme.background());
     let close_button = Hoverable::new(back_mouse_state, move |state| {
         let close_icon = ConstrainedBox::new(
-            galaxyui::elements::Icon::new(WarpIcon::X.into(), icon_color).finish(),
+            galaxyui::elements::Icon::new(GalaxyIcon::X.into(), icon_color).finish(),
         )
         .with_width(16.)
         .with_height(16.)

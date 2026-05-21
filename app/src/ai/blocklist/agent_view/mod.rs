@@ -8,6 +8,7 @@ mod inline_agent_view_header;
 // TODO: Move orchestration_conversation_links module import elsewhere.
 pub(crate) mod orchestration_conversation_links;
 pub mod shortcuts;
+pub(crate) mod subagent_inline_panel;
 mod zero_state_block;
 
 pub use agent_input_footer::*;

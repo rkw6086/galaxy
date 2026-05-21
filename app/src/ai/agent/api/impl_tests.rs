@@ -42,6 +42,7 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
         agent_name: None,
         bedrock_message_history: Vec::new(),
         bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        is_summarization: false,
     }
 }
 

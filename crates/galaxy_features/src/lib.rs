@@ -232,7 +232,7 @@ pub enum FeatureFlag {
     KittyImages,
 
     /// Enables support for Warp Packs.
-    WarpPacks,
+    GalaxyPacks,
 
     /// Enables the revised AI analytics policy banner.
     ///
@@ -582,7 +582,7 @@ pub enum FeatureFlag {
     CloudModeHostSelector,
 
     /// Enables Warp Managed Secrets functionality.
-    WarpManagedSecrets,
+    GalaxyManagedSecrets,
 
     /// Enables support for AM file diffs backed by the V4A patch format.
     V4AFileDiffs,

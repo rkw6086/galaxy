@@ -2059,7 +2059,7 @@ pub enum AISettingsPageAction {
     RemoveDirectoryFromCodeReadAllowlist(PathBuf),
     ToggleRules,
     ToggleRuleSuggestions,
-    ToggleWarpDriveContext,
+    ToggleGalaxyDriveContext,
     SetApplyCodeDiffs(ActionPermission),
     SetReadFiles(ActionPermission),
     SetExecuteCommands(ActionPermission),
@@ -2618,7 +2618,7 @@ impl TypedActionView for AISettingsPageView {
                 });
                 ctx.notify();
             }
-            AISettingsPageAction::ToggleWarpDriveContext => {
+            AISettingsPageAction::ToggleGalaxyDriveContext => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     let _ = settings
                         .warp_drive_context_enabled
@@ -5094,7 +5094,7 @@ impl AIFactWidget {
     ) -> Box<dyn Element> {
         let toggle = render_ai_setting_toggle::<WarpDriveContextEnabled>(
             "Galaxy Drive as agent context",
-            AISettingsPageAction::ToggleWarpDriveContext,
+            AISettingsPageAction::ToggleGalaxyDriveContext,
             *ai_settings.warp_drive_context_enabled,
             ai_settings.is_any_ai_enabled(app),
             self.warp_drive_context_toggle.clone(),

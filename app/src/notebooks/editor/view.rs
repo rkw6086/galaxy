@@ -28,7 +28,7 @@ use string_offset::CharOffset;
 
 use galaxy_util::{path::LineAndColumnArg, user_input::UserInput};
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     assets::asset_cache::{AssetCache, AssetHandle, AssetState},
     clipboard::ClipboardContent,
     elements::{
@@ -2440,7 +2440,7 @@ impl RichTextEditorView {
         if show_open_in_warp {
             let path_for_warp = path.clone();
             links.push(TooltipLink {
-                text: "Open in Warp".to_string(),
+                text: "Open in Galaxy".to_string(),
                 on_click: Box::new(move |ctx: &mut EventContext| {
                     ctx.dispatch_typed_action(EditorViewAction::OpenFile {
                         path: path_for_warp.clone(),
@@ -3015,13 +3015,13 @@ impl TypedActionView for RichTextEditorView {
             EditorViewAction::UserTyped(text) => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     text.clone().into_inner(),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::Paste | EditorViewAction::MiddleClickPaste => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("Pasting: {}", ctx.clipboard().read().plain_text),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::Enter
@@ -3034,21 +3034,21 @@ impl TypedActionView for RichTextEditorView {
             | EditorViewAction::Unindent
             | EditorViewAction::Tab => ActionAccessibilityContent::from_debug(),
             EditorViewAction::ShiftTab => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Shift-tab", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Shift-tab", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::EditLink | EditorViewAction::CreateOrEditLink => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Edit Link",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::CopyLink => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Copy Link", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Copy Link", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::OpenTooltipLink(link) => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("Open link: {}", **link),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::SecondaryLinkAction(link) => {
@@ -3058,72 +3058,72 @@ impl TypedActionView for RichTextEditorView {
                 );
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     content,
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::DeleteLineLeft => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Delete line left",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::DeleteLineRight => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Delete line right",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::DeleteWordLeft => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Delete word left",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::DeleteWordRight => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Delete word right",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
 
             EditorViewAction::CutLineLeft => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut line left", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Cut line left", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::CutLineRight => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut line right", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Cut line right", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::CutWordLeft => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut word left", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Cut word left", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::CutWordRight => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut word right", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Cut word right", GalaxyA11yRole::UserAction),
             ),
 
             EditorViewAction::ShowCharacterPalette => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Show character palette",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::ShowFindBar => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Show find bar", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Show find bar", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::OpenBlockInsertionMenu => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Open block-insertion menu",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::OpenEmbeddedObjectSearch => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Open embedded object search menu",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::InsertBlock(block_type) => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("Insert {} block", BlockType::from(block_type).label()),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::Bold => self
@@ -3150,23 +3150,23 @@ impl TypedActionView for RichTextEditorView {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new(
                     "De-select command",
                     "Switch from selecting commands to selecting text",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::CodeBlockTypeSelectedAtOffset {
                 code_block_type, ..
             } => ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                 format!("Change code block language to {code_block_type}"),
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             )),
             EditorViewAction::CopyTextToClipboard { .. } => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Copy code block", WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help("Copy code block", GalaxyA11yRole::UserAction),
             ),
             EditorViewAction::ToggleTaskList(_) => {
                 // TODO(ben): Is it useful to include the text and/or on/off state here?
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     "Toggle task list",
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             EditorViewAction::Delete

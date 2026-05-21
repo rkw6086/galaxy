@@ -45,8 +45,8 @@ use crate::terminal::settings::{
 };
 use crate::terminal::{BlockListSettings, ShowBlockDividers};
 use crate::terminal::{ShowJumpToBottomOfBlockButton, SizeInfo};
-use crate::themes::theme::{self, RespectSystemTheme, SelectedSystemThemes, ThemeKind, WarpTheme};
-use crate::user_config::WarpConfig;
+use crate::themes::theme::{self, RespectSystemTheme, SelectedSystemThemes, ThemeKind, GalaxyTheme};
+use crate::user_config::GalaxyConfig;
 use crate::util::bindings;
 use crate::window_settings::{
     BackgroundBlurRadius, BackgroundBlurTexture, BackgroundOpacity, LeftPanelVisibilityAcrossTabs,
@@ -2734,7 +2734,7 @@ impl ThemeSelectWidget {
         is_selected: bool,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let theme: WarpTheme = WarpConfig::as_ref(app).theme_config().theme(&theme_kind);
+        let theme: GalaxyTheme = GalaxyConfig::as_ref(app).theme_config().theme(&theme_kind);
         let mode_ui_label = match theme_chooser_mode {
             ThemeChooserMode::SystemLight => "Light",
             ThemeChooserMode::SystemDark => "Dark",

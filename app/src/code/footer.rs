@@ -10,7 +10,7 @@ use lsp::{
 
 use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{Fill as ThemeFill, WarpTheme};
+use galaxy_core::ui::theme::{Fill as ThemeFill, GalaxyTheme};
 use galaxy_core::ui::{appearance::Appearance, Icon};
 use galaxyui::elements::{
     ChildAnchor, ChildView, Dismiss, Empty, Hoverable, MainAxisSize, MouseStateHandle,
@@ -167,7 +167,7 @@ enum LSPServerRenderStatus {
 }
 
 impl LSPServerRenderStatus {
-    fn to_icon_color(&self, theme: &WarpTheme) -> ColorU {
+    fn to_icon_color(&self, theme: &GalaxyTheme) -> ColorU {
         match self {
             LSPServerRenderStatus::Available => AnsiColorIdentifier::Green
                 .to_ansi_color(&theme.terminal_colors().normal)
@@ -285,7 +285,7 @@ impl CodeFooterView {
         })
     }
 
-    fn render_tab_config_info_icon(theme: &WarpTheme) -> Box<dyn Element> {
+    fn render_tab_config_info_icon(theme: &GalaxyTheme) -> Box<dyn Element> {
         Container::new(
             ConstrainedBox::new(
                 Icon::Info
@@ -1376,7 +1376,7 @@ impl CodeFooterView {
 
     /// Computes the aggregate indicator color across all tracked servers.
     /// Priority: Failed > Busy > Stopped > Available.
-    fn aggregate_indicator_color(&self, theme: &WarpTheme, app: &AppContext) -> ColorU {
+    fn aggregate_indicator_color(&self, theme: &GalaxyTheme, app: &AppContext) -> ColorU {
         if self.lsp_servers.is_empty() {
             return LSPServerRenderStatus::Stopped.to_icon_color(theme);
         }
@@ -1449,7 +1449,7 @@ impl CodeFooterView {
     }
 
     fn render_status_text(
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         appearance: &Appearance,
         message: String,
     ) -> Box<dyn Element> {

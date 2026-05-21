@@ -1,6 +1,6 @@
 use anyhow::Result;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, GalaxyTheme};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
 use galaxyui::platform;
 use galaxyui::prelude::CrossAxisAlignment;
@@ -220,8 +220,8 @@ fn adeberry_colors() -> TerminalColors {
     TerminalColors::new(ADEBERRY_NORMAL_COLORS, ADEBERRY_BRIGHT_COLORS)
 }
 
-fn adeberry() -> WarpTheme {
-    WarpTheme::new(
+fn adeberry() -> GalaxyTheme {
+    GalaxyTheme::new(
         Fill::Solid(ColorU::from_u32(0x1D2022FF)),
         ColorU::from_u32(0xE4EEF5FF),
         Fill::Solid(ColorU::from_u32(0x6C96B4FF)),
@@ -233,7 +233,7 @@ fn adeberry() -> WarpTheme {
     )
 }
 
-fn build_appearance(theme: WarpTheme, ctx: &mut AppContext) -> Appearance {
+fn build_appearance(theme: GalaxyTheme, ctx: &mut AppContext) -> Appearance {
     let ui_font_family =
         load_default_ui_font_family(ctx).expect("unable to load default ui font family");
 

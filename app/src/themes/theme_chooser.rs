@@ -1,6 +1,6 @@
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{
         Align, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         DispatchEventResult, Element, Empty, EventHandler, Fill, Flex, Hoverable, Icon,
@@ -22,7 +22,7 @@ use pathfinder_color::ColorU;
 use settings::Setting as _;
 
 use crate::resource_center::{mark_feature_used_and_write_to_user_defaults, Tip, TipAction};
-use crate::themes::theme::{RespectSystemTheme, ThemeKind, WarpTheme};
+use crate::themes::theme::{RespectSystemTheme, ThemeKind, GalaxyTheme};
 use crate::util::traffic_lights::traffic_light_data;
 use crate::workspace::PANEL_HEADER_HEIGHT;
 use crate::{
@@ -34,7 +34,7 @@ use crate::{
     report_if_error,
     settings::{respect_system_theme, ThemeSettings},
     themes::theme::SelectedSystemThemes,
-    user_config::{load_theme_configs, themes_dir, WarpConfig, WarpConfigUpdateEvent},
+    user_config::{load_theme_configs, themes_dir, GalaxyConfig, GalaxyConfigUpdateEvent},
     util::traffic_lights::{TrafficLightData, TrafficLightSide},
     window_settings::WindowSettings,
 };
@@ -44,7 +44,7 @@ use crate::{
     server::telemetry::TelemetryEvent, ui_components::window_focus_dimming::WindowFocusDimming,
 };
 use crate::{
-    themes::theme::WarpThemeConfig,
+    themes::theme::GalaxyThemeConfig,
     ui_components::buttons::{close_button, icon_button},
     ui_components::icons,
 };
@@ -177,7 +177,7 @@ pub fn init(app: &mut AppContext) {
 
 fn theme_chooser_items(
     referral_theme_status: &ReferralThemeStatus,
-    theme_config: &WarpThemeConfig,
+    theme_config: &GalaxyThemeConfig,
 ) -> Vec<ThemeChooserItem> {
     let sent_referral_theme_active = referral_theme_status.sent_referral_theme_active();
     let received_referral_theme_active = referral_theme_status.received_referral_theme_active();
@@ -224,9 +224,9 @@ impl ThemeChooser {
             me.update_themes(ctx);
         });
 
-        let warp_config_handle = WarpConfig::handle(ctx);
+        let warp_config_handle = GalaxyConfig::handle(ctx);
         ctx.subscribe_to_model(&warp_config_handle, |me, _, event, ctx| {
-            if let WarpConfigUpdateEvent::Themes = event {
+            if let GalaxyConfigUpdateEvent::Themes = event {
                 me.update_themes(ctx);
                 ctx.notify();
             }
@@ -247,7 +247,7 @@ impl ThemeChooser {
 
         let themes = theme_chooser_items(
             referral_theme_status.as_ref(ctx),
-            WarpConfig::as_ref(ctx).theme_config(),
+            GalaxyConfig::as_ref(ctx).theme_config(),
         );
 
         Self {
@@ -311,7 +311,7 @@ impl ThemeChooser {
         ctx.spawn(
             async move { load_theme_configs(&themes_dir()) },
             move |theme_chooser, loaded_themes, ctx| {
-                ctx.update_model(&WarpConfig::handle(ctx), move |warp_config, ctx| {
+                ctx.update_model(&GalaxyConfig::handle(ctx), move |warp_config, ctx| {
                     warp_config.update_theme_config(loaded_themes, ctx);
                 });
                 theme_chooser.update_themes(ctx);
@@ -324,7 +324,7 @@ impl ThemeChooser {
         ctx.spawn(
             async move { load_theme_configs(&themes_dir()) },
             move |theme_chooser, loaded_themes, ctx| {
-                ctx.update_model(&WarpConfig::handle(ctx), move |warp_config, ctx| {
+                ctx.update_model(&GalaxyConfig::handle(ctx), move |warp_config, ctx| {
                     warp_config.update_theme_config(loaded_themes, ctx);
                 });
                 theme_chooser.update_themes(ctx);
@@ -518,7 +518,7 @@ impl ThemeChooser {
     fn update_themes(&mut self, ctx: &mut ViewContext<Self>) {
         *self.themes = theme_chooser_items(
             self.referral_theme_status.as_ref(ctx),
-            WarpConfig::as_ref(ctx).theme_config(),
+            GalaxyConfig::as_ref(ctx).theme_config(),
         );
     }
 
@@ -848,7 +848,7 @@ impl View for ThemeChooser {
         Some(AccessibilityContent::new(
                 "Theme chooser. Unfortunately, theme chooser window isn't compatible with screen readers yet.",
                 "Press escape to close.",
-                WarpA11yRole::WindowRole,
+                GalaxyA11yRole::WindowRole,
         ))
     }
 
@@ -878,12 +878,12 @@ impl View for ThemeChooser {
 #[derive(Clone)]
 struct ThemeChooserItem {
     pub kind: ThemeKind,
-    warp_theme: WarpTheme,
+    warp_theme: GalaxyTheme,
     mouse_state: MouseStateHandle,
 }
 
 impl ThemeChooserItem {
-    pub fn new(kind: ThemeKind, warp_theme: WarpTheme) -> Self {
+    pub fn new(kind: ThemeKind, warp_theme: GalaxyTheme) -> Self {
         Self {
             kind,
             warp_theme,

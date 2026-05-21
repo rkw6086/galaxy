@@ -16,21 +16,21 @@ use watcher::{BulkFilesystemWatcher, BulkFilesystemWatcherEvent};
 
 /// Duration between filesystem watch events for the Warp managed paths watcher, in milliseconds.
 #[cfg(not(target_family = "wasm"))]
-const WARP_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS: u64 = 500;
+const GALAXY_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS: u64 = 500;
 
-pub(crate) fn warp_data_dir() -> PathBuf {
+pub(crate) fn galaxy_data_dir() -> PathBuf {
     galaxy_core::paths::data_dir()
 }
 
 #[cfg(target_family = "wasm")]
-pub(crate) fn ensure_warp_watch_roots_exist() {}
+pub(crate) fn ensure_galaxy_watch_roots_exist() {}
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) fn ensure_warp_watch_roots_exist() {
-    let data_dir = warp_data_dir();
+pub(crate) fn ensure_galaxy_watch_roots_exist() {
+    let data_dir = galaxy_data_dir();
     if let Err(err) = fs::create_dir_all(&data_dir) {
         log::warn!(
-            "Failed to create Warp data directory {}: {err}",
+            "Failed to create Galaxy data directory {}: {err}",
             data_dir.display()
         );
     }
@@ -39,7 +39,7 @@ pub(crate) fn ensure_warp_watch_roots_exist() {
     if config_local_dir != data_dir {
         if let Err(err) = fs::create_dir_all(&config_local_dir) {
             log::warn!(
-                "Failed to create Warp config directory {}: {err}",
+                "Failed to create Galaxy config directory {}: {err}",
                 config_local_dir.display()
             );
         }
@@ -47,35 +47,35 @@ pub(crate) fn ensure_warp_watch_roots_exist() {
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_home_config_dir() -> Option<PathBuf> {
-    galaxy_core::paths::warp_home_config_dir()
+pub(crate) fn galaxy_home_config_dir() -> Option<PathBuf> {
+    galaxy_core::paths::galaxy_home_config_dir()
 }
 
-pub(crate) fn warp_home_skills_dir() -> Option<PathBuf> {
-    galaxy_core::paths::warp_home_skills_dir()
+pub(crate) fn galaxy_home_skills_dir() -> Option<PathBuf> {
+    galaxy_core::paths::galaxy_home_skills_dir()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_home_mcp_config_file_path() -> Option<PathBuf> {
-    galaxy_core::paths::warp_home_mcp_config_file_path()
+pub(crate) fn galaxy_home_mcp_config_file_path() -> Option<PathBuf> {
+    galaxy_core::paths::galaxy_home_mcp_config_file_path()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WarpMcpConfigPath {
+pub(crate) struct GalaxyMcpConfigPath {
     pub(crate) root_path: PathBuf,
     pub(crate) config_path: PathBuf,
 }
 
-pub(crate) fn warp_managed_skill_dirs() -> Vec<PathBuf> {
-    warp_home_skills_dir().into_iter().collect()
+pub(crate) fn galaxy_managed_skill_dirs() -> Vec<PathBuf> {
+    galaxy_home_skills_dir().into_iter().collect()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_managed_mcp_config_path() -> Option<WarpMcpConfigPath> {
-    Some(WarpMcpConfigPath {
+pub(crate) fn galaxy_managed_mcp_config_path() -> Option<GalaxyMcpConfigPath> {
+    Some(GalaxyMcpConfigPath {
         root_path: home_dir()?,
-        config_path: warp_home_mcp_config_file_path()?,
+        config_path: galaxy_home_mcp_config_file_path()?,
     })
 }
 
@@ -200,23 +200,23 @@ fn filesystem_event_to_repository_update(event: &BulkFilesystemWatcherEvent) -> 
 
 #[cfg(target_family = "wasm")]
 #[allow(dead_code)]
-pub(crate) enum WarpManagedPathsWatcherEvent {}
+pub(crate) enum GalaxyManagedPathsWatcherEvent {}
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) enum WarpManagedPathsWatcherEvent {
+pub(crate) enum GalaxyManagedPathsWatcherEvent {
     FilesChanged(RepositoryUpdate),
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) struct WarpManagedPathsWatcher {
+pub(crate) struct GalaxyManagedPathsWatcher {
     _watcher: ModelHandle<BulkFilesystemWatcher>,
 }
 
 #[cfg(target_family = "wasm")]
-pub(crate) struct WarpManagedPathsWatcher;
+pub(crate) struct GalaxyManagedPathsWatcher;
 
 #[cfg(not(target_family = "wasm"))]
-impl WarpManagedPathsWatcher {
+impl GalaxyManagedPathsWatcher {
     pub(crate) fn new(ctx: &mut ModelContext<Self>) -> Self {
         Self::new_internal(ctx, true)
     }
@@ -230,7 +230,7 @@ impl WarpManagedPathsWatcher {
         let watcher = if should_register_watcher {
             ctx.add_model(|ctx| {
                 BulkFilesystemWatcher::new(
-                    Duration::from_millis(WARP_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS),
+                    Duration::from_millis(GALAXY_MANAGED_PATHS_WATCHER_DEBOUNCE_MILLI_SECS),
                     ctx,
                 )
             })
@@ -240,7 +240,7 @@ impl WarpManagedPathsWatcher {
         ctx.subscribe_to_model(&watcher, Self::handle_fs_event);
 
         if should_register_watcher {
-            let data_dir = warp_data_dir();
+            let data_dir = galaxy_data_dir();
             let config_local_dir = galaxy_core::paths::config_local_dir();
             let should_register_config_local_dir = config_local_dir != data_dir;
             let worktrees_dir = data_dir.join("worktrees");
@@ -250,7 +250,7 @@ impl WarpManagedPathsWatcher {
                 data_dir.clone(),
                 WatchFilter::with_filter(Arc::new(move |path| !path.starts_with(&worktrees_dir))),
                 RecursiveMode::Recursive,
-                "Warp data directory",
+                "Galaxy data directory",
             );
             if should_register_config_local_dir {
                 Self::register_path(
@@ -259,42 +259,42 @@ impl WarpManagedPathsWatcher {
                     config_local_dir.clone(),
                     WatchFilter::accept_all(),
                     RecursiveMode::Recursive,
-                    "Warp config directory",
+                    "Galaxy config directory",
                 );
             }
-            if let Some(warp_home_skills_dir) = warp_home_skills_dir() {
-                if warp_home_skills_dir.exists()
-                    && !warp_home_skills_dir.starts_with(&data_dir)
+            if let Some(galaxy_home_skills_dir) = galaxy_home_skills_dir() {
+                if galaxy_home_skills_dir.exists()
+                    && !galaxy_home_skills_dir.starts_with(&data_dir)
                     && (!should_register_config_local_dir
-                        || !warp_home_skills_dir.starts_with(&config_local_dir))
+                        || !galaxy_home_skills_dir.starts_with(&config_local_dir))
                 {
                     Self::register_path(
                         ctx,
                         &watcher,
-                        warp_home_skills_dir,
+                        galaxy_home_skills_dir,
                         WatchFilter::accept_all(),
                         RecursiveMode::Recursive,
-                        "Warp home skills directory",
+                        "Galaxy home skills directory",
                     );
                 }
             }
-            if let (Some(warp_home_config_dir), Some(warp_home_mcp_config_path)) =
-                (warp_home_config_dir(), warp_home_mcp_config_file_path())
+            if let (Some(galaxy_home_config_dir), Some(warp_home_mcp_config_path)) =
+                (galaxy_home_config_dir(), galaxy_home_mcp_config_file_path())
             {
-                if warp_home_config_dir.exists()
-                    && !warp_home_config_dir.starts_with(&data_dir)
+                if galaxy_home_config_dir.exists()
+                    && !galaxy_home_config_dir.starts_with(&data_dir)
                     && (!should_register_config_local_dir
-                        || !warp_home_config_dir.starts_with(&config_local_dir))
+                        || !galaxy_home_config_dir.starts_with(&config_local_dir))
                 {
                     Self::register_path(
                         ctx,
                         &watcher,
-                        warp_home_config_dir,
+                        galaxy_home_config_dir,
                         WatchFilter::with_filter(Arc::new(move |path| {
                             path == warp_home_mcp_config_path
                         })),
                         RecursiveMode::NonRecursive,
-                        "Warp home MCP config directory",
+                        "Galaxy home MCP config directory",
                     );
                 }
             }
@@ -333,13 +333,13 @@ impl WarpManagedPathsWatcher {
     ) {
         let update = filesystem_event_to_repository_update(event);
         if !update.is_empty() {
-            ctx.emit(WarpManagedPathsWatcherEvent::FilesChanged(update));
+            ctx.emit(GalaxyManagedPathsWatcherEvent::FilesChanged(update));
         }
     }
 }
 
 #[cfg(target_family = "wasm")]
-impl WarpManagedPathsWatcher {
+impl GalaxyManagedPathsWatcher {
     pub(crate) fn new(_ctx: &mut ModelContext<Self>) -> Self {
         Self
     }
@@ -350,11 +350,11 @@ impl WarpManagedPathsWatcher {
     }
 }
 
-impl Entity for WarpManagedPathsWatcher {
-    type Event = WarpManagedPathsWatcherEvent;
+impl Entity for GalaxyManagedPathsWatcher {
+    type Event = GalaxyManagedPathsWatcherEvent;
 }
 
-impl SingletonEntity for WarpManagedPathsWatcher {}
+impl SingletonEntity for GalaxyManagedPathsWatcher {}
 
 #[cfg(test)]
 mod tests {
@@ -365,25 +365,25 @@ mod tests {
     use repo_metadata::{RepositoryUpdate, TargetFile};
 
     use super::{
-        filter_repository_update_by_prefix, warp_home_mcp_config_file_path, warp_home_skills_dir,
-        warp_managed_mcp_config_path, warp_managed_skill_dirs,
+        filter_repository_update_by_prefix, galaxy_home_mcp_config_file_path, galaxy_home_skills_dir,
+        galaxy_managed_mcp_config_path, galaxy_managed_skill_dirs,
     };
 
     #[test]
-    fn warp_managed_skill_dirs_contains_only_warp_home_path() {
-        let dirs = warp_managed_skill_dirs();
-        match warp_home_skills_dir() {
-            Some(warp_home_skills_dir) => assert_eq!(dirs, vec![warp_home_skills_dir]),
+    fn galaxy_managed_skill_dirs_contains_only_warp_home_path() {
+        let dirs = galaxy_managed_skill_dirs();
+        match galaxy_home_skills_dir() {
+            Some(galaxy_home_skills_dir) => assert_eq!(dirs, vec![galaxy_home_skills_dir]),
             None => assert!(dirs.is_empty()),
         }
     }
 
     #[test]
-    fn warp_managed_mcp_config_path_contains_only_warp_home_path() {
+    fn galaxy_managed_mcp_config_path_contains_only_warp_home_path() {
         match (
             home_dir(),
-            warp_home_mcp_config_file_path(),
-            warp_managed_mcp_config_path(),
+            galaxy_home_mcp_config_file_path(),
+            galaxy_managed_mcp_config_path(),
         ) {
             (Some(home_dir), Some(warp_home_mcp_config_path), Some(path)) => {
                 assert_eq!(path.root_path, home_dir);

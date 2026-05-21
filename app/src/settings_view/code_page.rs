@@ -2016,7 +2016,7 @@ impl CodePageWidget {
         &self,
         server_model: Option<&galaxyui::ModelHandle<LspServerModel>>,
         app: &AppContext,
-        theme: &galaxy_core::ui::theme::WarpTheme,
+        theme: &galaxy_core::ui::theme::GalaxyTheme,
     ) -> (ColorU, &'static str) {
         match server_model {
             Some(model) => {

@@ -6,7 +6,7 @@ use galaxy_editor::{
     search::{SearchEvent, Searcher},
 };
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     elements::{
         Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
         Empty, Flex, MouseStateHandle, OffsetPositioning, ParentElement, PositionedElementAnchor,
@@ -565,7 +565,7 @@ impl TypedActionView for FindBar {
         };
         Some(AccessibilityContent::new_without_help(
             text,
-            WarpA11yRole::UserAction,
+            GalaxyA11yRole::UserAction,
         ))
         .into()
     }

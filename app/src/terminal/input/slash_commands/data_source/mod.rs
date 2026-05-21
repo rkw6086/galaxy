@@ -25,7 +25,7 @@ use crate::terminal::cli_agent_sessions::{
     CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
 use crate::terminal::model::session::SessionType;
-use galaxy_core::ui::Icon as WarpIcon;
+use galaxy_core::ui::Icon as GalaxyIcon;
 
 use super::AcceptSlashCommandOrSavedPrompt;
 use crate::{
@@ -440,13 +440,13 @@ impl InlineItem {
             override_icon
         } else {
             match skill.provider {
-                SkillProvider::Warp => WarpIcon::Warp,
-                SkillProvider::Claude => WarpIcon::ClaudeLogo,
-                SkillProvider::Codex => WarpIcon::OpenAILogo,
-                SkillProvider::Gemini => WarpIcon::GeminiLogo,
-                SkillProvider::Droid => WarpIcon::DroidLogo,
-                SkillProvider::OpenCode => WarpIcon::OpenCodeLogo,
-                _ => WarpIcon::Warp,
+                SkillProvider::Warp => GalaxyIcon::Warp,
+                SkillProvider::Claude => GalaxyIcon::ClaudeLogo,
+                SkillProvider::Codex => GalaxyIcon::OpenAILogo,
+                SkillProvider::Gemini => GalaxyIcon::GeminiLogo,
+                SkillProvider::Droid => GalaxyIcon::DroidLogo,
+                SkillProvider::OpenCode => GalaxyIcon::OpenCodeLogo,
+                _ => GalaxyIcon::Warp,
             }
         };
 

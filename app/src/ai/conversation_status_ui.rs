@@ -1,6 +1,6 @@
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::coloru_with_opacity;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{ConstrainedBox, Container, CornerRadius, Radius};
 use galaxyui::Element;
@@ -13,17 +13,17 @@ use crate::ui_components::icons::Icon;
 pub const STATUS_ELEMENT_PADDING: f32 = 2.;
 
 pub trait StatusElementStyle {
-    fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU);
+    fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU);
 }
 
 impl StatusElementStyle for ConversationStatus {
-    fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         ConversationStatus::status_icon_and_color(self, theme)
     }
 }
 
 impl StatusElementStyle for AgentRunDisplayStatus {
-    fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         AgentRunDisplayStatus::status_icon_and_color(self, theme)
     }
 }

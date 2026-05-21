@@ -139,6 +139,8 @@ pub struct RequestParams {
     /// can store them back into the conversation for the next request cycle.
     pub bedrock_messages_sent:
         std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
+    /// Whether this request is a conversation summarization/compaction.
+    pub is_summarization: bool,
 }
 
 pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
@@ -327,6 +329,7 @@ impl RequestParams {
             agent_name: None,
             bedrock_message_history: Vec::new(),
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            is_summarization: false,
         }
     }
 }

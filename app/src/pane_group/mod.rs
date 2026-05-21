@@ -113,7 +113,7 @@ use crate::banner::{Banner, BannerEvent, BannerState, BannerTextContent, Dismiss
 use crate::channel::{Channel, ChannelState};
 use crate::code::view::CodeView;
 use crate::drive::items::WarpDriveItemId;
-use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectArgs};
+use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectArgs};
 use crate::features::FeatureFlag;
 use crate::launch_configs::launch_config::{self, PaneMode, PaneTemplateType};
 use crate::persistence::ModelEvent;
@@ -522,8 +522,8 @@ pub enum Event {
         /// The session that the path was opened from.
         session: Arc<Session>,
     },
-    OpenWarpDriveLink {
-        open_warp_drive_args: OpenWarpDriveObjectArgs,
+    OpenGalaxyDriveLink {
+        open_warp_drive_args: OpenGalaxyDriveObjectArgs,
     },
     #[cfg(feature = "local_fs")]
     OpenCodeInWarp {
@@ -598,7 +598,7 @@ pub enum Event {
     },
     /// Clears the hovered tab index so it no longer appears as highlighted drop target
     ClearHoveredTabIndex,
-    OpenWarpDriveObjectInPane(ObjectUid),
+    OpenGalaxyDriveObjectInPane(ObjectUid),
     OpenSuggestedAgentModeWorkflowModal {
         workflow_and_id: SuggestedAgentModeWorkflowAndId,
     },

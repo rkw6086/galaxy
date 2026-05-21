@@ -1995,6 +1995,9 @@ impl BlocklistAIController {
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
         request_params.bedrock_message_history = bedrock_history;
+        request_params.is_summarization = request_input
+            .all_inputs()
+            .any(|input| matches!(input, AIAgentInput::SummarizeConversation { .. }));
 
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
@@ -2020,9 +2023,13 @@ impl BlocklistAIController {
         let input_contains_user_query = request_input
             .all_inputs()
             .any(|input| input.is_user_query());
+        let input_is_summarization = request_input
+            .all_inputs()
+            .any(|input| matches!(input, AIAgentInput::SummarizeConversation { .. }));
         ctx.subscribe_to_model(&response_stream, move |me, event, ctx| {
             me.handle_response_stream_event(
                 input_contains_user_query,
+                input_is_summarization,
                 event,
                 &response_stream_clone,
                 ctx,
@@ -2212,6 +2219,7 @@ impl BlocklistAIController {
     fn handle_response_stream_event(
         &mut self,
         did_input_contain_user_query: bool,
+        is_summarization_request: bool,
         event: &ResponseStreamEvent,
         response_stream: &ModelHandle<ResponseStream>,
         ctx: &mut ModelContext<Self>,
@@ -2319,11 +2327,88 @@ impl BlocklistAIController {
                                     let history_model = BlocklistAIHistoryModel::handle(ctx);
                                     history_model.update(ctx, |history_model, _| {
                                         if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
-                                            *conversation.bedrock_message_history_mut() = new_history;
-                                            log::info!(
-                                                "[bedrock] Updated conversation bedrock history: {} messages",
-                                                conversation.bedrock_message_history().len()
-                                            );
+                                            // If this was a summarization request, compact the
+                                            // history to just the summary instead of keeping
+                                            // the full message list. This is what actually
+                                            // frees up context window space.
+                                            let is_summarization = is_summarization_request;
+
+                                            if is_summarization {
+                                                // Extract the assistant's summary from the last
+                                                // message in the history (the response).
+                                                let summary_text = new_history
+                                                    .iter()
+                                                    .rev()
+                                                    .find_map(|msg| {
+                                                        use crate::ai::bedrock::convert::{
+                                                            MessageContent, MessageRole,
+                                                        };
+                                                        if msg.role == MessageRole::Assistant {
+                                                            if let MessageContent::Text(text) =
+                                                                &msg.content
+                                                            {
+                                                                Some(text.clone())
+                                                            } else {
+                                                                None
+                                                            }
+                                                        } else {
+                                                            None
+                                                        }
+                                                    });
+
+                                                if let Some(summary) = summary_text {
+                                                    use crate::ai::bedrock::convert::{
+                                                        ConversationMessage, MessageContent,
+                                                        MessageRole,
+                                                    };
+                                                    let assistant_reply = "Understood. I have the context from our previous conversation. How can I help you next?";
+                                                    let user_msg = format!(
+                                                        "Here is a summary of our conversation so far:\n\n{summary}"
+                                                    );
+                                                    let compacted = vec![
+                                                        ConversationMessage {
+                                                            role: MessageRole::User,
+                                                            content: MessageContent::Text(user_msg.clone()),
+                                                        },
+                                                        ConversationMessage {
+                                                            role: MessageRole::Assistant,
+                                                            content: MessageContent::Text(
+                                                                assistant_reply.to_string()
+                                                            ),
+                                                        },
+                                                    ];
+                                                    log::info!(
+                                                        "[bedrock] Compacted conversation history from {} messages to {} (summary)",
+                                                        new_history.len(),
+                                                        compacted.len()
+                                                    );
+                                                    *conversation.bedrock_message_history_mut() =
+                                                        compacted;
+
+                                                    // Estimate new context size from the compacted content.
+                                                    // ~4 chars per token is a reasonable approximation.
+                                                    let estimated_tokens = ((user_msg.len() + assistant_reply.len()) / 4) as u32;
+                                                    let max_context = crate::ai::bedrock::response_translator::context_window_for_model("claude-opus-4-6-20250514[1m]");
+                                                    let new_usage = estimated_tokens as f32 / max_context as f32;
+                                                    conversation.set_context_window_usage(new_usage);
+                                                    conversation.set_current_context_tokens(estimated_tokens);
+                                                    log::info!(
+                                                        "[bedrock] Post-compact context estimate: ~{} tokens ({:.1}% of context window)",
+                                                        estimated_tokens,
+                                                        new_usage * 100.0
+                                                    );
+                                                } else {
+                                                    *conversation.bedrock_message_history_mut() =
+                                                        new_history;
+                                                }
+                                            } else {
+                                                *conversation.bedrock_message_history_mut() =
+                                                    new_history;
+                                                log::info!(
+                                                    "[bedrock] Updated conversation bedrock history: {} messages",
+                                                    conversation.bedrock_message_history().len()
+                                                );
+                                            }
                                         }
                                     });
                                 }
@@ -2799,6 +2884,42 @@ impl BlocklistAIController {
                 llm_preferences.refresh_authed_models(ctx);
             });
             ctx.emit(BlocklistAIControllerEvent::FreeTierLimitCheckTriggered);
+        }
+
+        // Auto-compact: trigger summarization when context window usage >= 85%.
+        let should_auto_compact = {
+            let history_model = BlocklistAIHistoryModel::as_ref(ctx);
+            history_model
+                .conversation(&conversation_id)
+                .is_some_and(|conversation| {
+                    let is_summarization_request = conversation
+                        .latest_exchange()
+                        .is_some_and(|exchange| {
+                            exchange
+                                .input
+                                .iter()
+                                .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }))
+                        });
+                    conversation.context_window_usage() >= 0.85
+                        && !conversation.has_pending_auto_compact()
+                        && !is_summarization_request
+                })
+        };
+
+        if should_auto_compact {
+            log::info!(
+                "[auto-compact] Context window usage >= 85% for conversation {:?}, triggering summarization",
+                conversation_id
+            );
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
+                if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                    conversation.set_has_pending_auto_compact(true);
+                }
+            });
+            self.send_slash_command_request(
+                SlashCommandRequest::Summarize { prompt: None },
+                ctx,
+            );
         }
     }
 }

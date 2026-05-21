@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::*;
 
 fn initialize_app(app: &App) {
-    app.add_singleton_model(WarpConfig::mock);
+    app.add_singleton_model(GalaxyConfig::mock);
 }
 
 #[test]

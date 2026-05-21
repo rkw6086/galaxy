@@ -669,7 +669,7 @@ impl TerminalManager {
                 });
 
                 #[cfg(target_family = "wasm")]
-                crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::SessionJoined);
+                crate::platform::wasm::emit_event(crate::platform::wasm::GalaxyEvent::SessionJoined);
             }
             NetworkEvent::SessionEnded { reason } => {
                 let Some(view) = weak_view_handle.upgrade(ctx) else {

@@ -49,7 +49,7 @@ use windows_only::*;
 #[cfg(not(target_os = "windows"))]
 use galaxyui::elements::Empty;
 
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::platform::FullscreenState;
 use galaxyui::{AppContext, Element, WindowId};
@@ -150,7 +150,7 @@ impl TrafficLightData {
         &self,
         fullscreen_state: FullscreenState,
         mouse_states: &TrafficLightMouseStates,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         _app: &AppContext,
     ) -> Box<dyn Element> {
         if !cfg!(target_os = "linux") {
@@ -286,7 +286,7 @@ impl TrafficLightData {
     fn render_button(
         mouse_state: MouseStateHandle,
         child: Box<dyn Element>,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Hoverable {
         Hoverable::new(mouse_state, |state| {
             let background_color = if state.is_hovered() {
@@ -311,7 +311,7 @@ impl TrafficLightData {
         &self,
         fullscreen_state: FullscreenState,
         mouse_states: &TrafficLightMouseStates,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         app: &AppContext,
     ) -> Box<dyn Element> {
         self.render_tab_row(fullscreen_state, mouse_states, theme, app)
@@ -447,7 +447,7 @@ impl TrafficLightData {
         &self,
         _fullscreen_state: FullscreenState,
         _mouse_states: &TrafficLightMouseStates,
-        _theme: &WarpTheme,
+        _theme: &GalaxyTheme,
         _app: &AppContext,
     ) -> Box<dyn Element> {
         Empty::new().finish()

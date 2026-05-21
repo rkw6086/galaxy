@@ -18,15 +18,15 @@ use crate::{
     cloud_object::model::persistence::CloudModel, workspaces::user_workspaces::UserWorkspaces,
 };
 use crate::{editor::Event as EditorEvent, send_telemetry_from_ctx};
-use crate::{server::telemetry::TelemetryEvent, user_config::WarpConfig};
+use crate::{server::telemetry::TelemetryEvent, user_config::GalaxyConfig};
 use crate::{
-    themes::theme::{self, Blend, WarpTheme},
-    user_config::WarpConfigUpdateEvent,
+    themes::theme::{self, Blend, GalaxyTheme},
+    user_config::GalaxyConfigUpdateEvent,
 };
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     Align, CrossAxisAlignment, EventHandler, Highlight, Hoverable, MainAxisSize, MouseStateHandle,
@@ -174,7 +174,7 @@ impl WorkflowViewType {
             WorkflowViewType::Team => "Showing team workflows".into(),
         };
 
-        AccessibilityContent::new_without_help(a11y_content, WarpA11yRole::UserAction)
+        AccessibilityContent::new_without_help(a11y_content, GalaxyA11yRole::UserAction)
     }
 }
 
@@ -339,7 +339,7 @@ impl SelectionState {
         }
     }
 
-    fn background_color(&self, theme: &WarpTheme) -> theme::Fill {
+    fn background_color(&self, theme: &GalaxyTheme) -> theme::Fill {
         match self {
             SelectionState::Unselected => theme.surface_2(),
             SelectionState::Selected => theme.surface_2().blend(&theme.accent_overlay()),
@@ -406,8 +406,8 @@ impl CategoriesView {
             ctx.notify();
         });
 
-        ctx.subscribe_to_model(&WarpConfig::handle(ctx), |me, _, event, ctx| {
-            if let WarpConfigUpdateEvent::LocalUserWorkflows = event {
+        ctx.subscribe_to_model(&GalaxyConfig::handle(ctx), |me, _, event, ctx| {
+            if let GalaxyConfigUpdateEvent::LocalUserWorkflows = event {
                 me.update_workflows(ctx);
             }
         });
@@ -722,7 +722,7 @@ impl CategoriesView {
             );
             ctx.emit_a11y_content(AccessibilityContent::new_without_help(
                 a11y_content_text,
-                WarpA11yRole::MenuItemRole,
+                GalaxyA11yRole::MenuItemRole,
             ));
         }
     }
@@ -1156,7 +1156,7 @@ impl CategoriesView {
     }
 
     fn update_workflows(&mut self, ctx: &mut ViewContext<Self>) {
-        let workflows = WarpConfig::as_ref(ctx)
+        let workflows = GalaxyConfig::as_ref(ctx)
             .local_user_workflows()
             .iter()
             .map(Clone::clone)
@@ -1212,7 +1212,7 @@ impl View for CategoriesView {
         Some(AccessibilityContent::new(
             "Workflows",
             "Search or use arrow up and arrow down keys to navigate and find a workflow. Use enter to confirm the workflow and esc to quit.",
-            WarpA11yRole::MenuRole,
+            GalaxyA11yRole::MenuRole,
         ))
     }
 

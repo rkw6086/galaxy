@@ -20,7 +20,7 @@ use std::{fmt, iter, mem};
 
 use super::{ActivationReason, PaneGroup, PaneId};
 use crate::pane_group::{get_minimum_pane_size, DraggedBorder, PaneGroupAction};
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use galaxy_core::features::FeatureFlag;
 
 #[cfg(test)]
@@ -492,7 +492,7 @@ impl PaneData {
         self.len == 0
     }
 
-    pub fn render(&self, theme: &WarpTheme, app: &AppContext) -> Box<dyn Element> {
+    pub fn render(&self, theme: &GalaxyTheme, app: &AppContext) -> Box<dyn Element> {
         match &self.root {
             PaneNode::Leaf(pane) => pane.render(app),
             PaneNode::Branch(node) => node.render(theme, &self.hidden_panes, app),
@@ -694,7 +694,7 @@ impl PaneNode {
 
     fn render(
         &self,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         hidden_panes: &Vec<HiddenPane>,
         app: &AppContext,
     ) -> Box<dyn Element> {
@@ -1023,7 +1023,7 @@ impl PaneBranch {
 
     fn render(
         &self,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         hidden_panes: &Vec<HiddenPane>,
         app: &AppContext,
     ) -> Box<dyn Element> {
@@ -1355,7 +1355,7 @@ fn create_divider_placeholder(direction: SplitDirection, position_id: &str) -> B
 fn create_divider(
     direction: SplitDirection,
     item: &Divider,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let divider = ConstrainedBox::new(
         Rect::new()
@@ -1393,7 +1393,7 @@ fn create_divider(
 fn create_minimalist_divider(
     direction: SplitDirection,
     item: &Divider,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let divider = ConstrainedBox::new(
         Rect::new()

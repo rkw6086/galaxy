@@ -1,7 +1,4 @@
-use crate::cloud_object::{
-    CloudObject, CloudObjectSyncStatus, GenericStringObjectFormat, JsonObjectType,
-};
-use crate::drive::CloudObjectTypeAndId;
+use crate::cloud_object::{CloudObject, CloudObjectSyncStatus};
 use crate::network::NetworkStatus;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::{pane::view, BackingView, PaneConfiguration, PaneEvent};
@@ -337,22 +334,12 @@ pub fn is_online(app: &AppContext) -> bool {
     NetworkStatus::as_ref(app).is_online()
 }
 
-pub fn is_delete_allowed(ai_fact: CloudAIFact, app: &AppContext) -> bool {
-    let cloud_object_type_and_id = CloudObjectTypeAndId::GenericStringObject {
-        object_type: GenericStringObjectFormat::Json(JsonObjectType::AIFact),
-        id: ai_fact.sync_id(),
-    };
-    is_online(app)
-        && cloud_object_type_and_id.has_server_id()
-        && !ai_fact.metadata().has_pending_online_only_change()
+pub fn is_delete_allowed(_ai_fact: CloudAIFact, _app: &AppContext) -> bool {
+    true
 }
 
-pub fn is_edit_allowed(ai_fact: CloudAIFact, app: &AppContext) -> bool {
-    let cloud_object_type_and_id = CloudObjectTypeAndId::GenericStringObject {
-        object_type: GenericStringObjectFormat::Json(JsonObjectType::AIFact),
-        id: ai_fact.sync_id(),
-    };
-    is_online(app) || !cloud_object_type_and_id.has_server_id()
+pub fn is_edit_allowed(_ai_fact: CloudAIFact, _app: &AppContext) -> bool {
+    true
 }
 
 pub fn is_syncing(ai_fact: CloudAIFact, app: &AppContext) -> bool {

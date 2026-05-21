@@ -12,7 +12,7 @@ use crate::server::telemetry::LaunchConfigUiLocation;
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::CtrlTabBehavior;
 use crate::terminal::keys_settings::KeysSettings;
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::view_components::DismissibleToast;
 use crate::ToastStack;
 use galaxy_core::send_telemetry_from_app_ctx;
@@ -695,7 +695,7 @@ impl View {
         })
     }
 
-    fn render_palette_list(&self, theme: &WarpTheme, app: &AppContext) -> Box<dyn Element> {
+    fn render_palette_list(&self, theme: &GalaxyTheme, app: &AppContext) -> Box<dyn Element> {
         match self.search_bar_state.as_ref(app).query_result_renderers() {
             None => Empty::new().finish(),
             Some(renderers) if renderers.is_empty() => {

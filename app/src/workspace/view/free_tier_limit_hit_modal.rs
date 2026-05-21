@@ -8,7 +8,7 @@ use crate::TelemetryEvent;
 use asset_macro::bundled_or_fetched_asset;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxy_graphql::billing::{PlanPricing, StripeSubscriptionPlan};
 use galaxyui::elements::{
     Align, Border, CacheOption, ChildAnchor, ConstrainedBox, Container, CornerRadius,
@@ -97,7 +97,7 @@ impl FreeTierLimitHitModal {
     fn render_checklist_item_dynamic(
         text: String,
         appearance: &Appearance,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
     ) -> Box<dyn Element> {
         let formatted_text = FormattedText::new([FormattedTextLine::Line(vec![
             FormattedTextFragment::plain_text(text),

@@ -122,7 +122,7 @@ use galaxyui::text::TextBuffer;
 use galaxyui::text_layout::TextStyle;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{
-    accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole},
     fonts::Cache as FontCache,
     keymap::{EditableBinding, FixedBinding},
     AppContext, Element, Entity, ModelAsRef, ModelHandle, View, ViewContext, WindowId,
@@ -8368,7 +8368,7 @@ impl TypedActionView for EditorView {
     ) -> ActionAccessibilityContent {
         match action {
             EditorAction::UserInsert(text) => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help(text.to_string(), WarpA11yRole::UserAction),
+                AccessibilityContent::new_without_help(text.to_string(), GalaxyA11yRole::UserAction),
             ),
             EditorAction::SelectLeft
             | EditorAction::SelectToLineEnd
@@ -8403,7 +8403,7 @@ impl TypedActionView for EditorView {
             EditorAction::Paste => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
                     format!("Pasting: {}", self.clipboard_content(ctx)),
-                    WarpA11yRole::UserAction,
+                    GalaxyA11yRole::UserAction,
                 ))
             }
             _ => ActionAccessibilityContent::from_debug(),

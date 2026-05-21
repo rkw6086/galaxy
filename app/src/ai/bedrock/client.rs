@@ -140,6 +140,7 @@ impl BedrockClient {
         user_query: Option<String>,
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
         messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+        is_summarization: bool,
     ) -> Result<ResponseStream, BedrockError> {
         let effective_model_id = if cross_region_inference {
             apply_cross_region_prefix(model_id, &self.region)
@@ -228,6 +229,7 @@ impl BedrockClient {
             diagnostic_logger,
             messages_sent,
             effective_model_id,
+            is_summarization,
         )))
     }
 

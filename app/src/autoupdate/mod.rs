@@ -26,7 +26,7 @@ use galaxyui::r#async::Timer;
 use galaxyui::windowing::state::ApplicationStage;
 use galaxyui::windowing::{self, WindowManager};
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     AppContext,
 };
 use galaxyui::{Entity, ModelContext, SingletonEntity, ViewContext};
@@ -679,12 +679,12 @@ pub fn accessibility_content(
         (RequestType::ManualCheck, Ok(UpdateReady::Yes { .. })) => Some(AccessibilityContent::new(
             "Update available.",
             "Use the command palette to install and relaunch Galaxy",
-            WarpA11yRole::HelpRole,
+            GalaxyA11yRole::HelpRole,
         )),
         // Any non-successful autoupdate check
         (RequestType::ManualCheck, _) => Some(AccessibilityContent::new_without_help(
             "No updates available",
-            WarpA11yRole::HelpRole,
+            GalaxyA11yRole::HelpRole,
         )),
         _ => None,
     }

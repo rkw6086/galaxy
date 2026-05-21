@@ -32,7 +32,7 @@ pub const MAC_MENUS_CONTEXT: DescriptionContext = DescriptionContext::Custom("ma
 pub enum CustomAction {
     NewTab,
     NewFile,
-    ShowAboutWarp,
+    ShowAboutGalaxy,
     ShowSettings,
     ConfigureKeybindings,
     ShowAccount,
@@ -104,7 +104,7 @@ pub enum CustomAction {
     ToggleSyncTerminalInputsInCurrentTab,
     DisableSyncTerminalInputs,
     ReopenClosedSession,
-    ToggleWarpDrive,
+    ToggleGalaxyDrive,
     AddWindow,
     CloseCurrentSession,
     CloseWindow,
@@ -390,7 +390,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
 
         // This is one of the app's hardcoded keybindings.
         CustomAction::AddWindow => Keystroke::parse(cmd_or_ctrl_shift("n")).ok(),
-        CustomAction::ToggleWarpDrive => {
+        CustomAction::ToggleGalaxyDrive => {
             if OperatingSystem::get().is_mac() {
                 Keystroke::parse("cmd-\\").ok()
             } else {
@@ -435,7 +435,7 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
         }
         CustomAction::NewTerminalTab
         | CustomAction::NewFile
-        | CustomAction::ShowAboutWarp
+        | CustomAction::ShowAboutGalaxy
         | CustomAction::SplitPaneLeft
         | CustomAction::SelectAllBlocks
         | CustomAction::SplitPaneUp

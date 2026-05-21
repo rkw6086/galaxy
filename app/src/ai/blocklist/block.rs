@@ -90,6 +90,7 @@ use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::{
 use crate::ai::blocklist::inline_action::search_codebase::{
     SearchCodebaseView, SearchCodebaseViewEvent,
 };
+use crate::ai::blocklist::inline_action::summarization::SummarizationView;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
@@ -830,6 +831,9 @@ pub struct AIBlock {
     /// Map from web fetch message IDs to their view handles.
     web_fetch_views: HashMap<MessageId, ViewHandle<WebFetchView>>,
 
+    /// Map from summarization message IDs to their view handles.
+    summarization_views: HashMap<MessageId, ViewHandle<SummarizationView>>,
+
     /// Map from todo list IDs to their states.
     todo_list_states: HashMap<MessageId, TodoListElementState>,
 
@@ -1340,6 +1344,7 @@ impl AIBlock {
             search_codebase_view: Default::default(),
             web_search_views: Default::default(),
             web_fetch_views: Default::default(),
+            summarization_views: Default::default(),
             requested_commands_to_auto_collapse: Default::default(),
             review_changes_button,
             open_all_comments_button,
@@ -1800,6 +1805,9 @@ impl AIBlock {
             // Handle WebFetch messages
             self.handle_web_fetch_messages(&output.messages, ctx);
         }
+
+        self.handle_summarization_messages(&output.messages, ctx);
+        self.maybe_create_summarization_view_from_input(ctx);
 
         for action in output.actions() {
             let new_action_ids: HashSet<AIAgentActionId> =
@@ -3487,6 +3495,84 @@ impl AIBlock {
                 ctx.notify();
             }
         }
+    }
+
+    fn handle_summarization_messages(
+        &mut self,
+        messages: &[AIAgentOutputMessage],
+        ctx: &mut ViewContext<Self>,
+    ) {
+        use crate::ai::agent::SummarizationType;
+
+        for message in messages {
+            let AIAgentOutputMessageType::Summarization {
+                finished_duration,
+                summarization_type,
+                ..
+            } = &message.message
+            else {
+                continue;
+            };
+
+            if !matches!(summarization_type, SummarizationType::ConversationSummary) {
+                continue;
+            }
+
+            if let Some(view) = self.summarization_views.get(&message.id) {
+                if finished_duration.is_some() {
+                    view.update(ctx, |view, ctx| {
+                        view.mark_finished();
+                        ctx.notify();
+                    });
+                }
+            } else {
+                let is_finished = finished_duration.is_some();
+                let view = ctx.add_view(|ctx| {
+                    let mut v = SummarizationView::new(ctx);
+                    if is_finished {
+                        v.mark_finished();
+                    }
+                    v
+                });
+                self.summarization_views.insert(message.id.clone(), view);
+                ctx.notify();
+            }
+        }
+    }
+
+    /// Creates a SummarizationView when the exchange input is a SummarizeConversation.
+    /// This handles the Bedrock path where no Summarization output message is emitted.
+    fn maybe_create_summarization_view_from_input(&mut self, ctx: &mut ViewContext<Self>) {
+        let is_summarize_input = self
+            .model
+            .inputs_to_render(ctx)
+            .iter()
+            .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }));
+
+        if !is_summarize_input {
+            return;
+        }
+
+        let key = MessageId::new("__summarization_inline_view__".to_string());
+        if self.summarization_views.contains_key(&key) {
+            // Already created — check if we should mark it finished
+            let is_complete = !self.model.status(ctx).is_streaming();
+            if is_complete {
+                if let Some(view) = self.summarization_views.get(&key) {
+                    view.update(ctx, |view, ctx| {
+                        if !view.is_finished {
+                            view.mark_finished();
+                            ctx.notify();
+                        }
+                    });
+                }
+            }
+            return;
+        }
+
+        let view = ctx.add_view(|ctx| SummarizationView::new(ctx));
+        self.summarization_views.insert(key, view);
+        ctx.notify();
     }
 
     /// Note this is called when the search codebase tool call definition finishes streaming, not when the search actually completes.

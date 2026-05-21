@@ -7,7 +7,7 @@ use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle
 use crate::{
     app_state::{LeafContents, NotebookPaneSnapshot},
     cloud_object::Space,
-    drive::{items::WarpDriveItemId, CloudObjectTypeAndId, OpenWarpDriveObjectSettings},
+    drive::{items::WarpDriveItemId, CloudObjectTypeAndId, OpenGalaxyDriveObjectSettings},
     notebooks::{
         link::{LinkEvent, NotebookLinks},
         manager::{NotebookManager, NotebookSource},
@@ -47,7 +47,7 @@ impl NotebookPane {
     /// Restore a notebook pane given its cloud notebook ID.
     pub fn restore(
         notebook_id: Option<SyncId>,
-        settings: &OpenWarpDriveObjectSettings,
+        settings: &OpenGalaxyDriveObjectSettings,
         ctx: &mut ViewContext<PaneGroup>,
     ) -> anyhow::Result<Self> {
         let window_id = ctx.window_id();
@@ -81,7 +81,7 @@ impl PaneContent for NotebookPane {
         let notebook_id = self.notebook_view(app).as_ref(app).notebook_id(app);
         LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
             notebook_id,
-            settings: OpenWarpDriveObjectSettings::default(),
+            settings: OpenGalaxyDriveObjectSettings::default(),
         })
     }
 
@@ -183,9 +183,9 @@ pub(super) fn subscribe_to_link_model(
                 session: session.clone(),
             })
         }
-        LinkEvent::OpenWarpDriveLink {
+        LinkEvent::OpenGalaxyDriveLink {
             open_warp_drive_args,
-        } => ctx.emit(crate::pane_group::Event::OpenWarpDriveLink {
+        } => ctx.emit(crate::pane_group::Event::OpenGalaxyDriveLink {
             open_warp_drive_args: open_warp_drive_args.clone(),
         }),
         LinkEvent::StartLocalSession { path } => {

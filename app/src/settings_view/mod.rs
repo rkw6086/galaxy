@@ -159,7 +159,7 @@ pub enum SettingsViewEvent {
     StartResize,
     CheckForUpdate,
     LaunchNetworkLogging,
-    OpenWarpDrive,
+    OpenGalaxyDrive,
     SignupAnonymousUser,
     ShowToast {
         message: String,
@@ -989,7 +989,7 @@ pub struct SettingsView {
     /// Mirrored from `Workspace` via [`set_settings_error_state`].
     settings_error_banner_dismissed: bool,
     /// Mouse state handles for the nav-rail footer buttons. Constructed once
-    /// per `SettingsView` per `WARP.md`'s guidance that inline
+    /// per `SettingsView` per `GALAXY.md`'s guidance that inline
     /// `MouseStateHandle::default()` breaks hover/click tracking.
     footer_mouse_states: SettingsFooterMouseStates,
 }

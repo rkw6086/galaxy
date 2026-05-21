@@ -357,7 +357,7 @@ pub enum AgentDriverError {
     #[error("Agent profile \"{0}\" not found")]
     ProfileError(String),
     #[error(
-        "Failed to authenticate with server - please log in via 'oz login', provide an API key via '--api-key <key>', or set the WARP_API_KEY environment variable"
+        "Failed to authenticate with server - please log in via 'oz login', provide an API key via '--api-key <key>', or set the GALAXY_API_KEY environment variable"
     )]
     NotLoggedIn,
     #[error("Saved prompt not found for id {0}")]
@@ -369,7 +369,7 @@ pub enum AgentDriverError {
         #[source]
         error: terminal::ShareSessionError,
     },
-    #[error("Error syncing Warp Drive")]
+    #[error("Error syncing Galaxy Drive")]
     WarpDriveSyncFailed,
     #[error("Requested environment not found: {0}")]
     EnvironmentNotFound(String),

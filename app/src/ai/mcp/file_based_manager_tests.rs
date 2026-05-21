@@ -3,7 +3,7 @@ use crate::ai::mcp::FileMCPWatcher;
 use crate::ai::mcp::ParsedTemplatableMCPServerResult;
 use crate::auth::AuthStateProvider;
 use crate::settings::{AISettings, FocusedTerminalInfo};
-use crate::warp_managed_paths_watcher::{warp_data_dir, WarpManagedPathsWatcher};
+use crate::galaxy_managed_paths_watcher::{galaxy_data_dir, GalaxyManagedPathsWatcher};
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{App, Entity, ModelHandle, SingletonEntity as _};
@@ -22,7 +22,7 @@ fn setup_app(app: &mut App) -> galaxyui::ModelHandle<FileBasedMCPManager> {
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(FileMCPWatcher::new);
     app.add_singleton_model(AISettings::new_with_defaults);
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
@@ -260,7 +260,7 @@ fn test_update_file_based_servers_removes_unreferenced_servers() {
 #[test]
 fn test_global_warp_server_always_spawns() {
     let _flag_guard = FeatureFlag::FileBasedMcp.override_enabled(true);
-    let warp_root = warp_data_dir();
+    let warp_root = galaxy_data_dir();
     let parsed = parse_mcp_json(r#"{"global-warp": {"command": "npx", "args": ["warp"]}}"#);
 
     App::test((), |mut app| async move {

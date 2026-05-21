@@ -118,8 +118,8 @@ impl SettingsFileError {
 use crate::{
     root_view::QuakeModePinPosition,
     terminal::{BlockListSettings, BlockPadding},
-    themes::theme::{ThemeKind, WarpTheme},
-    user_config::WarpConfig,
+    themes::theme::{ThemeKind, GalaxyTheme},
+    user_config::GalaxyConfig,
 };
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{
@@ -516,10 +516,10 @@ impl Settings {
             })
     }
 
-    pub fn theme_for_theme_kind(theme_kind: &ThemeKind, ctx: &mut AppContext) -> WarpTheme {
+    pub fn theme_for_theme_kind(theme_kind: &ThemeKind, ctx: &mut AppContext) -> GalaxyTheme {
         match theme_kind {
             ThemeKind::InMemory(in_memory_theme) => in_memory_theme.theme(),
-            _ => WarpConfig::as_ref(ctx).theme_config().theme(theme_kind),
+            _ => GalaxyConfig::as_ref(ctx).theme_config().theme(theme_kind),
         }
     }
 }

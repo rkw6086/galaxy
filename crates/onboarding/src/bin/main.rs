@@ -4,7 +4,7 @@ use ai::LLMId;
 use anyhow::Result;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, Image, TerminalColors};
-use galaxy_core::ui::{appearance::Appearance, theme::WarpTheme};
+use galaxy_core::ui::{appearance::Appearance, theme::GalaxyTheme};
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::platform;
 use galaxyui::{
@@ -385,8 +385,8 @@ fn adeberry_colors() -> TerminalColors {
     TerminalColors::new(ADEBERRY_NORMAL_COLORS, ADEBERRY_BRIGHT_COLORS)
 }
 
-fn dark_theme() -> WarpTheme {
-    WarpTheme::new(
+fn dark_theme() -> GalaxyTheme {
+    GalaxyTheme::new(
         Fill::Solid(ColorU::from_u32(0x000000FF)),
         ColorU::from_u32(0xffffffff),
         Fill::Solid(ColorU::from_u32(0x19AAD8FF)),
@@ -398,8 +398,8 @@ fn dark_theme() -> WarpTheme {
     )
 }
 
-fn light_theme() -> WarpTheme {
-    WarpTheme::new(
+fn light_theme() -> GalaxyTheme {
+    GalaxyTheme::new(
         Fill::Solid(ColorU::white()),
         ColorU::new(17, 17, 17, 0xFF),
         Fill::Solid(ColorU::from_u32(0x00c2ffff)),
@@ -411,8 +411,8 @@ fn light_theme() -> WarpTheme {
     )
 }
 
-fn phenomenon() -> WarpTheme {
-    WarpTheme::new(
+fn phenomenon() -> GalaxyTheme {
+    GalaxyTheme::new(
         Fill::Solid(ColorU::from_u32(0x121212FF)),
         ColorU::from_u32(0xFAF9F6FF),
         Fill::Solid(ColorU::from_u32(0x2E5D9EFF)),
@@ -430,8 +430,8 @@ fn phenomenon() -> WarpTheme {
     )
 }
 
-fn adeberry() -> WarpTheme {
-    WarpTheme::new(
+fn adeberry() -> GalaxyTheme {
+    GalaxyTheme::new(
         Fill::Solid(ColorU::from_u32(0x1D2022FF)),
         ColorU::from_u32(0xE4EEF5FF),
         Fill::Solid(ColorU::from_u32(0x6C96B4FF)),
@@ -443,7 +443,7 @@ fn adeberry() -> WarpTheme {
     )
 }
 
-fn build_appearance(theme: WarpTheme, ctx: &mut AppContext) -> Appearance {
+fn build_appearance(theme: GalaxyTheme, ctx: &mut AppContext) -> Appearance {
     let ui_font_family =
         load_default_ui_font_family(ctx).expect("unable to load default ui font family");
 

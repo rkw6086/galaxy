@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use galaxy_cli::agent::Harness;
 use galaxy_core::report_error;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::color::ColorU;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -406,7 +406,7 @@ impl AmbientAgentTaskState {
         }
     }
 
-    pub fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    pub fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         match self {
             AmbientAgentTaskState::Queued
             | AmbientAgentTaskState::Pending

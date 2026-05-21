@@ -1,3 +1,4 @@
+use crate::ai::agent::RenderableAIError;
 use crate::ai::blocklist::task_status_sync_model::classify_renderable_error;
 use crate::server::server_api::ai::TaskStatusUpdate;
 use galaxy_graphql::ai::{AgentTaskState, PlatformErrorCode};
@@ -66,7 +67,7 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
         AgentDriverError::WarpDriveSyncFailed => (
             AgentTaskState::Error,
             TaskStatusUpdate::with_error_code(
-                "Warp Drive failed to sync. Please check your network connection and try again.",
+                "Galaxy Drive failed to sync. Please check your network connection and try again.",
                 PlatformErrorCode::InternalError,
             ),
         ),
@@ -76,7 +77,7 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
                 AgentTaskState::Error,
                 TaskStatusUpdate::with_error_code(
                     format!(
-                        "Authentication required. Log in via '{bin} login', provide an API key via '--api-key', or set the WARP_API_KEY environment variable."
+                        "Authentication required. Log in via '{bin} login', provide an API key via '--api-key', or set the GALAXY_API_KEY environment variable."
                     ),
                     PlatformErrorCode::AuthenticationRequired,
                 ),
@@ -95,7 +96,7 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
             AgentTaskState::Failed,
             TaskStatusUpdate::with_error_code(
                 format!(
-                    "MCP server {uuid} was not found. Verify the server exists in your Warp Drive and the UUID is correct."
+                    "MCP server {uuid} was not found. Verify the server exists in your Galaxy Drive and the UUID is correct."
                 ),
                 PlatformErrorCode::EnvironmentSetupFailed,
             ),
@@ -125,7 +126,7 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
             AgentTaskState::Failed,
             TaskStatusUpdate::with_error_code(
                 format!(
-                    "Agent profile \"{name}\" not found. Check the profile ID and ensure it exists in your team's Warp Drive."
+                    "Agent profile \"{name}\" not found. Check the profile ID and ensure it exists in your team's Galaxy Drive."
                 ),
                 PlatformErrorCode::ResourceNotFound,
             ),
@@ -134,7 +135,7 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
             AgentTaskState::Failed,
             TaskStatusUpdate::with_error_code(
                 format!(
-                    "Saved prompt not found for ID {id}. Verify the prompt exists in your Warp Drive."
+                    "Saved prompt not found for ID {id}. Verify the prompt exists in your Galaxy Drive."
                 ),
                 PlatformErrorCode::ResourceNotFound,
             ),
@@ -299,6 +300,31 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
                 PlatformErrorCode::EnvironmentSetupFailed,
             ),
         ),
+    }
+}
+
+/// Returns true if an `AgentDriverError` represents a transient condition that
+/// a subagent can recover from by retrying (e.g., network issues, rate limits,
+/// server overload). Permanent errors (auth, config, cancelled) return false.
+pub fn is_self_recoverable(error: &AgentDriverError) -> bool {
+    match error {
+        AgentDriverError::ConversationError { error: renderable } => {
+            matches!(
+                renderable,
+                RenderableAIError::ServerOverloaded
+                    | RenderableAIError::Other {
+                        will_attempt_resume: true,
+                        ..
+                    }
+            )
+        }
+        AgentDriverError::WarpDriveSyncFailed
+        | AgentDriverError::TeamMetadataRefreshTimeout
+        | AgentDriverError::ShareSessionFailed {
+            error: ShareSessionError::Timeout,
+            ..
+        } => true,
+        _ => false,
     }
 }
 

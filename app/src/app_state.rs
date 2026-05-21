@@ -13,7 +13,7 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::InputConfig;
 use crate::ai::blocklist::SerializedBlockListItem;
 use crate::code::editor_management::CodeSource;
-use crate::drive::OpenWarpDriveObjectSettings;
+use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::root_view::quake_mode_window_id;
 use crate::server::ids::SyncId;
 use crate::settings_view::{environments_page::EnvironmentsPage, SettingsSection};
@@ -216,7 +216,7 @@ pub enum NotebookPaneSnapshot {
         ///    server ID.
         notebook_id: Option<SyncId>,
         // Settings for the notebook pane when it's opened (such as a folder to focus upon opening)
-        settings: OpenWarpDriveObjectSettings,
+        settings: OpenGalaxyDriveObjectSettings,
     },
     LocalFileNotebook {
         /// The path to the local file that was open in this pane. This may be `None` if
@@ -255,7 +255,7 @@ pub enum WorkflowPaneSnapshot {
     CloudWorkflow {
         workflow_id: Option<SyncId>,
         // Settings for the workflow pane when it's opened (such as a folder to focus upon opening)
-        settings: OpenWarpDriveObjectSettings,
+        settings: OpenGalaxyDriveObjectSettings,
     },
 }
 

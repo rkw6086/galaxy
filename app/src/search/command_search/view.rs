@@ -7,7 +7,7 @@ use pathfinder_geometry::vector::Vector2F;
 use crate::search::mixer::AddAsyncSourceOptions;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{
         resizable_state_handle, Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius,
         CrossAxisAlignment, Dismiss, Fill, Flex, MouseStateHandle, OffsetPositioning, OffsetType,
@@ -528,7 +528,7 @@ impl CommandSearchView {
             ctx.emit_a11y_content(AccessibilityContent::new(
                 a11y_content,
                 a11y_help_content,
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             ));
 
             // Recompute the result index - the incoming index is the index in the
@@ -1006,7 +1006,7 @@ impl View for CommandSearchView {
         Some(AccessibilityContent::new(
             "Command Search".to_owned(),
             "Search your history, workflows, and more.  Use the Up and Down arrows to browse search results after typing.  Press Enter to accept a selected result, inserting it into the terminal input.  Press Escape to close.".to_owned(),
-            WarpA11yRole::MenuRole,
+            GalaxyA11yRole::MenuRole,
         ))
     }
 

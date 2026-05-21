@@ -22,7 +22,7 @@ use std::time::Duration;
 
 const APP_BECAME_ACTIVE_DEBOUNCE: Duration = Duration::from_secs(15);
 
-use galaxy_core::ui::{appearance::Appearance, theme::WarpTheme};
+use galaxy_core::ui::{appearance::Appearance, theme::GalaxyTheme};
 use galaxyui::elements::Rect;
 use galaxyui::{
     elements::{
@@ -111,7 +111,7 @@ impl AgentOnboardingView {
     /// Creates a new AgentOnboardingView.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        theme_picker_themes: [WarpTheme; 4],
+        theme_picker_themes: [GalaxyTheme; 4],
         skippable: bool,
         models: Vec<OnboardingModelInfo>,
         default_model_id: LLMId,

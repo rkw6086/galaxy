@@ -46,8 +46,12 @@ use markdown_parser::{
 use std::fmt::Debug;
 use std::path::PathBuf;
 
-use super::{is_edit_allowed, is_syncing, style, AIFact, CloudAIFact, CloudAIFactModel};
-use crate::ai::facts::predefined_rules::{PREDEFINED_RULES, SYSTEM_DEFINED_RULE_PREFIX};
+use super::{
+    is_delete_allowed, is_edit_allowed, is_syncing, style, AIFact, CloudAIFact, CloudAIFactModel,
+};
+use crate::ai::facts::predefined_rules::{
+    is_predefined_rule, predefined_rule_index, PREDEFINED_RULES,
+};
 use crate::ai::facts::AIMemory;
 
 pub const HEADER_TEXT: &str = "Rules";
@@ -56,7 +60,7 @@ const DESCRIPTION_TEXT: &str = "Rules enhance the agent by providing structured 
 const SEARCH_PLACEHOLDER_TEXT: &str = "Search rules";
 const ZERO_STATE_TEXT: &str = "Once you add a rule, it will be shown here.";
 const ZERO_STATE_TEXT_PROJECT: &str =
-    "Once you generate a WARP.md rules file for a project, it will appear here.";
+    "Once you generate a GALAXY.md rules file for a project, it will appear here.";
 
 const DISABLED_BANNER_TEXT: &str =
     "Your rules are disabled and won't be used as context in sessions. You can ";
@@ -84,6 +88,7 @@ pub enum RuleViewAction {
     AddPredefinedRules,
     InitializeProject,
     Edit(SyncId),
+    Delete(SyncId),
     OpenSettings,
     SelectScope(RuleScope),
     OpenFile(PathBuf),
@@ -94,6 +99,7 @@ pub struct MouseStateHandles {
     pub hover: MouseStateHandle,
     pub sync_status_hover: MouseStateHandle,
     pub sync_status_icon: MouseStateHandle,
+    pub delete_hover: MouseStateHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -358,13 +364,37 @@ impl RuleView {
                 .cloned()
                 .collect()
         };
-        self.global_rules = ai_rules
+        let mut rows: Vec<CloudRuleRow> = ai_rules
             .into_iter()
             .map(|ai_fact| CloudRuleRow {
                 fact: ai_fact,
                 mouse_states: Default::default(),
             })
             .collect();
+
+        rows.sort_by(|a, b| {
+            let name_a = match &a.fact.model().string_model {
+                AIFact::Memory(AIMemory { name, .. }) => name.clone().unwrap_or_default(),
+            };
+            let name_b = match &b.fact.model().string_model {
+                AIFact::Memory(AIMemory { name, .. }) => name.clone().unwrap_or_default(),
+            };
+            let is_predefined_a = is_predefined_rule(&name_a);
+            let is_predefined_b = is_predefined_rule(&name_b);
+
+            match (is_predefined_a, is_predefined_b) {
+                (true, true) => {
+                    let idx_a = predefined_rule_index(&name_a).unwrap_or(usize::MAX);
+                    let idx_b = predefined_rule_index(&name_b).unwrap_or(usize::MAX);
+                    idx_a.cmp(&idx_b)
+                }
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                (false, false) => std::cmp::Ordering::Equal,
+            }
+        });
+
+        self.global_rules = rows;
         ctx.notify();
     }
 
@@ -466,7 +496,7 @@ impl RuleView {
                 .filter_map(|row| {
                     let AIFact::Memory(AIMemory { ref name, .. }) = row.fact.model().string_model;
                     let name = name.as_deref().unwrap_or_default();
-                    if name.starts_with(SYSTEM_DEFINED_RULE_PREFIX) {
+                    if is_predefined_rule(name) {
                         Some((
                             name.to_string(),
                             (row.fact.sync_id(), row.fact.metadata().revision.clone()),
@@ -870,7 +900,8 @@ impl RuleView {
 
         let mut row = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween);
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
         if let Some(sync_status_icon) =
             self.render_sync_status_icon(ai_row.clone(), appearance, app)
@@ -879,6 +910,45 @@ impl RuleView {
         }
 
         row.add_child(Expanded::new(1., fact_text).finish());
+
+        if is_delete_allowed(ai_row.fact.clone(), app) {
+            let delete_sync_id = ai_row.fact.sync_id();
+            let delete_button = Hoverable::new(
+                ai_row.mouse_states.delete_hover.clone(),
+                |state| {
+                    let mut container = Container::new(
+                        ConstrainedBox::new(
+                            Icon::Trash
+                                .to_galaxyui_icon(
+                                    appearance
+                                        .theme()
+                                        .sub_text_color(appearance.theme().background()),
+                                )
+                                .finish(),
+                        )
+                        .with_width(16.)
+                        .with_height(16.)
+                        .finish(),
+                    )
+                    .with_uniform_padding(4.)
+                    .with_corner_radius(CornerRadius::with_all(
+                        galaxyui::elements::Radius::Pixels(4.),
+                    ));
+                    if state.is_hovered() {
+                        container =
+                            container.with_background(appearance.theme().surface_2());
+                    }
+                    container.finish()
+                },
+            )
+            .with_cursor(Cursor::PointingHand)
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(RuleViewAction::Delete(delete_sync_id));
+            })
+            .finish();
+
+            row.add_child(delete_button);
+        }
 
         let mut hoverable = Hoverable::new(ai_row.mouse_states.hover.clone(), |state| {
             let mut bg_color = internal_colors::neutral_1(appearance.theme());
@@ -904,6 +974,7 @@ impl RuleView {
         if is_edit_allowed(ai_row.fact.clone(), app) {
             hoverable = hoverable
                 .with_cursor(Cursor::PointingHand)
+                .with_defer_events_to_children()
                 .on_click(move |ctx, _, _| {
                     ctx.dispatch_typed_action(RuleViewAction::Edit(ai_row.fact.sync_id()));
                 });
@@ -1049,6 +1120,9 @@ impl TypedActionView for RuleView {
             }
             RuleViewAction::Edit(sync_id) => {
                 ctx.emit(RuleViewEvent::Edit(*sync_id));
+            }
+            RuleViewAction::Delete(sync_id) => {
+                self.delete_ai_rule(*sync_id, ctx);
             }
             RuleViewAction::OpenSettings => {
                 ctx.emit(RuleViewEvent::OpenSettings);

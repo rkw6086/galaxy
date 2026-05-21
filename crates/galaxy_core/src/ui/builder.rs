@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use super::color::{blend::Blend, contrast::MinimumAllowedContrast, ContrastingColor};
 use super::theme::color::internal_colors::{self, text_main};
-use super::theme::{Fill, WarpTheme};
+use super::theme::{Fill, GalaxyTheme};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
@@ -59,7 +59,7 @@ pub const DEFAULT_KEYBOARD_SHORTCUT_HEIGHT: f32 = 24.;
 
 #[derive(Clone, Debug)]
 pub struct UiBuilder {
-    warp_theme: WarpTheme,
+    warp_theme: GalaxyTheme,
     ui_font_family: FamilyId,
     ui_font_size: f32,
     command_palette_font_size: f32,
@@ -68,7 +68,7 @@ pub struct UiBuilder {
 
 impl UiBuilder {
     pub fn new(
-        warp_theme: WarpTheme,
+        warp_theme: GalaxyTheme,
         ui_font_family: FamilyId,
         ui_font_size: f32,
         command_palette_font_size: f32,
@@ -1196,7 +1196,7 @@ impl UiBuilder {
         self.command_palette_font_size
     }
 
-    pub fn warp_theme(&self) -> &WarpTheme {
+    pub fn warp_theme(&self) -> &GalaxyTheme {
         &self.warp_theme
     }
 

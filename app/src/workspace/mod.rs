@@ -714,7 +714,7 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::ToggleLeftPanel,
         )
         .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::ToggleWarpDrive),
+        .with_custom_action(CustomAction::ToggleGalaxyDrive),
         EditableBinding::new(
             TOGGLE_RIGHT_PANEL_BINDING_NAME,
             BindingDescription::new("Toggle code review")
@@ -764,7 +764,7 @@ pub fn init(app: &mut AppContext) {
         EditableBinding::new(
             LEFT_PANEL_WARP_DRIVE_BINDING_NAME,
             BindingDescription::new("Left Panel: Galaxy Drive"),
-            WorkspaceAction::ToggleWarpDrive,
+            WorkspaceAction::ToggleGalaxyDrive,
         )
         .with_group(bindings::BindingGroup::Navigation.as_str())
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE))
@@ -791,7 +791,7 @@ pub fn init(app: &mut AppContext) {
             TOGGLE_WARP_DRIVE_BINDING_NAME,
             BindingDescription::new("Toggle Galaxy Drive")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Galaxy Drive"),
-            WorkspaceAction::ToggleWarpDrive,
+            WorkspaceAction::ToggleGalaxyDrive,
         )
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE)),
         EditableBinding::new(
@@ -1401,7 +1401,7 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace"))
-        .with_custom_action(CustomAction::ShowAboutWarp),
+        .with_custom_action(CustomAction::ShowAboutGalaxy),
         EditableBinding::new(
             "workspace:show_settings_teams_page",
             BindingDescription::new("Open Settings: Teams")

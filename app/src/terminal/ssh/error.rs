@@ -6,7 +6,7 @@ use crate::terminal::warpify::render::build_description_row;
 use crate::terminal::warpify::settings::WarpifySettings;
 use crate::ui_components::icons::Icon as UiIcon;
 use galaxy_core::channel::ChannelState;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::HighlightedHyperlink;
 use galaxyui::elements::Hoverable;
 use galaxyui::elements::Icon;
@@ -170,7 +170,7 @@ impl SshErrorBlock {
     fn render_title_ui(
         &self,
         app: &AppContext,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         let header_contents = warpify::render::build_header_row(

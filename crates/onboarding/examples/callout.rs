@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, GalaxyTheme};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{Rect, Stack};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
@@ -115,7 +115,7 @@ impl TypedActionView for RootView {
     fn handle_action(&mut self, _action: &Self::Action, _ctx: &mut ViewContext<Self>) {}
 }
 
-fn mock_theme() -> WarpTheme {
+fn mock_theme() -> GalaxyTheme {
     let normal = AnsiColors::new(
         AnsiColor::from_u32(0x121212FF),
         AnsiColor::from_u32(0xC76156FF),
@@ -138,7 +138,7 @@ fn mock_theme() -> WarpTheme {
         AnsiColor::from_u32(0xFFFFFFFF),
     );
 
-    WarpTheme::new(
+    GalaxyTheme::new(
         Fill::Solid(ColorU::from_u32(0x1D2022FF)),
         ColorU::from_u32(0xE4EEF5FF),
         Fill::Solid(ColorU::from_u32(0x6C96B4FF)),
@@ -151,7 +151,7 @@ fn mock_theme() -> WarpTheme {
 }
 
 fn build_appearance(
-    theme: WarpTheme,
+    theme: GalaxyTheme,
     ui_font_family: FamilyId,
     ctx: &mut ModelContext<Appearance>,
 ) -> Appearance {

@@ -33,7 +33,7 @@ use crate::ui_components::buttons::icon_button_with_color;
 use crate::ui_components::icons;
 use crate::workspace::tab_settings::TabSettings;
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::ui::Icon as WarpIcon;
+use galaxy_core::ui::Icon as GalaxyIcon;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
     OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Shrinkable, Stack,
@@ -796,9 +796,9 @@ impl TerminalView {
         {
             ConstrainedBox::new(
                 if is_ambient_agent {
-                    WarpIcon::OzCloud
+                    GalaxyIcon::OzCloud
                 } else {
-                    WarpIcon::Oz
+                    GalaxyIcon::Oz
                 }
                 .to_galaxyui_icon(blended_colors::text_sub(theme, theme.background()).into())
                 .finish(),

@@ -29,7 +29,7 @@ use galaxy_cli::agent::Harness;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_error;
-use galaxy_core::ui::theme::{color::internal_colors, WarpTheme};
+use galaxy_core::ui::theme::{color::internal_colors, GalaxyTheme};
 use galaxyui::color::ColorU;
 use galaxyui::r#async::Timer;
 use galaxyui::windowing::{StateEvent, WindowManager};
@@ -334,7 +334,7 @@ impl AgentRunDisplayStatus {
         )
     }
 
-    pub fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    pub fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         match self {
             AgentRunDisplayStatus::TaskQueued
             | AgentRunDisplayStatus::TaskPending

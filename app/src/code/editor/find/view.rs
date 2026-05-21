@@ -20,7 +20,7 @@ use galaxyui::elements::{ChildAnchor, OffsetPositioning, Radius, SavePosition, S
 use galaxyui::keymap::EditableBinding;
 use galaxyui::ui_components::components::UiComponent;
 pub use galaxyui::{
-    accessibility::{AccessibilityContent, WarpA11yRole},
+    accessibility::{AccessibilityContent, GalaxyA11yRole},
     elements::{ParentElement as _, Stack},
     geometry::vector::vec2f,
     AppContext,
@@ -378,10 +378,10 @@ impl CodeEditorFind {
                     self.searcher.as_ref(ctx).match_count()
                 ),
                 "Use enter and shift-enter to navigate between matches. Escape to quit.",
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             )
         } else {
-            AccessibilityContent::new_without_help("No results.", WarpA11yRole::UserAction)
+            AccessibilityContent::new_without_help("No results.", GalaxyA11yRole::UserAction)
         };
         ctx.emit_a11y_content(content);
     }
@@ -396,12 +396,12 @@ impl CodeEditorFind {
                     "Successfully replaced match. Selected match is {match_index} of {remaining_matches}"
                 ),
                 "Continue pressing Enter to replace more matches, or use up/down arrows to navigate.",
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             )
         } else {
             AccessibilityContent::new_without_help(
                 "Successfully replaced the last match.",
-                WarpA11yRole::UserAction,
+                GalaxyA11yRole::UserAction,
             )
         };
         ctx.emit_a11y_content(content);
@@ -946,7 +946,7 @@ impl View for CodeEditorFind {
         Some(AccessibilityContent::new(
             description,
             help_text,
-            WarpA11yRole::TextareaRole,
+            GalaxyA11yRole::TextareaRole,
         ))
     }
 

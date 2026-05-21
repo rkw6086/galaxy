@@ -23,7 +23,7 @@ use galaxyui::AppContext;
 use galaxyui::SingletonEntity as _;
 
 use super::SkillManager;
-use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
+use crate::galaxy_managed_paths_watcher::galaxy_managed_skill_dirs;
 
 const SKILL_FILE_NAME: &str = "SKILL.md";
 
@@ -64,7 +64,7 @@ fn home_skill_dirs_for_resolution() -> Vec<PathBuf> {
     let mut skill_dirs = Vec::new();
     for provider in SKILL_PROVIDER_DEFINITIONS.iter() {
         if provider.provider == SkillProvider::Warp {
-            for dir in warp_managed_skill_dirs() {
+            for dir in galaxy_managed_skill_dirs() {
                 push_unique_path(&mut skill_dirs, dir);
             }
         } else if let Some(dir) = home_skills_path(provider.provider) {

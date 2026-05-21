@@ -517,14 +517,14 @@ fn snapshot_2x2_grid() {
 #[test]
 fn snapshot_non_terminal_leaf_replaced_with_terminal() {
     use crate::app_state::NotebookPaneSnapshot;
-    use crate::drive::OpenWarpDriveObjectSettings;
+    use crate::drive::OpenGalaxyDriveObjectSettings;
 
     let notebook_leaf = PaneNodeSnapshot::Leaf(LeafSnapshot {
         is_focused: false,
         custom_vertical_tabs_title: None,
         contents: LeafContents::Notebook(NotebookPaneSnapshot::CloudNotebook {
             notebook_id: None,
-            settings: OpenWarpDriveObjectSettings::default(),
+            settings: OpenGalaxyDriveObjectSettings::default(),
         }),
     });
     let snapshot = PaneNodeSnapshot::Branch(BranchSnapshot {

@@ -65,6 +65,7 @@ pub fn bedrock_stream_to_response_events(
     diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
     messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     model_id: String,
+    is_summarization: bool,
 ) -> BoxStream<'static, Event> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
@@ -470,6 +471,7 @@ pub fn bedrock_stream_to_response_events(
             cache_read_input_tokens,
             cache_write_input_tokens,
             &model_id,
+            is_summarization,
         );
         yield Ok(finished_event);
     };
@@ -555,6 +557,7 @@ pub(super) fn build_stream_finished(
     cache_read_input_tokens: i32,
     cache_write_input_tokens: i32,
     model_id: &str,
+    is_summarization: bool,
 ) -> ResponseEvent {
     let total_tokens =
         (input_tokens + output_tokens + cache_read_input_tokens + cache_write_input_tokens) as u32;
@@ -598,7 +601,7 @@ pub(super) fn build_stream_finished(
     #[allow(deprecated)]
     let conversation_usage_metadata = Some(stream_finished::ConversationUsageMetadata {
         context_window_usage: context_usage,
-        summarized: false,
+        summarized: is_summarization,
         credits_spent: 0.0,
         token_usage: vec![],
         tool_usage_metadata: None,

@@ -175,7 +175,7 @@ pub fn open_url_on_desktop(url: &Url) {
         | Ok(WebIntent::DriveObject(intent))
         | Ok(WebIntent::SessionView(intent))
         | Ok(WebIntent::Action(intent)) => {
-            crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::OpenOnNative {
+            crate::platform::wasm::emit_event(crate::platform::wasm::GalaxyEvent::OpenOnNative {
                 url: intent.into(),
             });
         }

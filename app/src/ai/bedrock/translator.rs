@@ -14,6 +14,7 @@ pub struct TranslatorRequest {
     pub root_task_id: Option<String>,
     pub bedrock_message_history: Vec<ConversationMessage>,
     pub bedrock_messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+    pub is_summarization: bool,
 }
 
 pub async fn execute(
@@ -100,6 +101,7 @@ pub async fn execute(
             user_query_text,
             diagnostic_logger,
             params.bedrock_messages_sent.clone(),
+            params.is_summarization,
         )
         .await?;
 

@@ -16,7 +16,7 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 
 use galaxy_core::ui::theme::Fill;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 
 use crate::appearance::Appearance;
 use crate::tab_configs::session_config::SessionType;
@@ -32,7 +32,7 @@ const PILL_GAP: f32 = 8.;
 fn session_type_item_color(
     is_selected: bool,
     on_accent_bg: bool,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
     bg_fill: Fill,
 ) -> ColorU {
     if on_accent_bg {

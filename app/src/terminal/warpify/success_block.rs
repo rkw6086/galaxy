@@ -11,7 +11,7 @@ use crate::ui_components::icons::Icon as UiIcon;
 use crate::workspace::WorkspaceAction;
 use channel_versions::overrides::TargetOS;
 use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
     CrossAxisAlignment, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, SelectableArea,
     SelectionHandle, Text,
@@ -145,7 +145,7 @@ impl WarpifySuccessBlock {
 
     pub fn render_spawning_command(
         &self,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         let spawning_command = self.spawning_command.clone();
@@ -154,7 +154,7 @@ impl WarpifySuccessBlock {
             .finish()
     }
 
-    pub fn render_title_ui(&self, theme: &WarpTheme, appearance: &Appearance) -> Box<dyn Element> {
+    pub fn render_title_ui(&self, theme: &GalaxyTheme, appearance: &Appearance) -> Box<dyn Element> {
         let header_contents = render::build_header_row(
             "Session Wormholed",
             Icon::new(UiIcon::Warp.into(), theme.active_ui_detail()),

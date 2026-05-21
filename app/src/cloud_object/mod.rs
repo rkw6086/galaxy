@@ -25,7 +25,7 @@ use crate::{
     drive::{
         folders::{CloudFolderModel, FolderId},
         items::WarpDriveItem,
-        CloudObjectTypeAndId, OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings,
+        CloudObjectTypeAndId, OpenGalaxyDriveObjectArgs, OpenGalaxyDriveObjectSettings,
     },
     env_vars::CloudEnvVarCollectionModel,
     notebooks::{CloudNotebookModel, NotebookId},
@@ -935,7 +935,7 @@ where
 /// can be opened natively in Warp with no web interaction.
 pub fn extract_server_id_and_object_type_from_warp_drive_link(
     url: &Url,
-) -> Option<OpenWarpDriveObjectArgs> {
+) -> Option<OpenGalaxyDriveObjectArgs> {
     let server_id = url
         .path_segments()
         .and_then(|mut segments| segments.next_back())
@@ -958,13 +958,13 @@ pub fn extract_server_id_and_object_type_from_warp_drive_link(
 
     let invitee_email: Option<String> = query_string.get("invitee_email").map(|s| s.to_string());
 
-    Some(OpenWarpDriveObjectArgs {
+    Some(OpenGalaxyDriveObjectArgs {
         object_type,
         server_id: match server_id {
             Some(server_id) => server_id.try_into().ok()?,
             _ => return None,
         },
-        settings: OpenWarpDriveObjectSettings {
+        settings: OpenGalaxyDriveObjectSettings {
             focused_folder_id,
             invitee_email,
         },

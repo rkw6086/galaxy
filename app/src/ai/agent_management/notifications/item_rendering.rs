@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use galaxy_core::ui::icons::Icon;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
@@ -331,7 +331,7 @@ fn render_timestamp_with_dot(item: &NotificationItem, appearance: &Appearance) -
 fn render_expand_chevron(
     expanded: bool,
     on_click: OnExpandClick,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let icon = if expanded {
         Icon::ChevronDown
@@ -411,7 +411,7 @@ const NOTIFICATION_AVATAR_SIZING: IconWithStatusSizing = IconWithStatusSizing {
 fn render_agent_avatar(
     agent: NotificationSourceAgent,
     category: NotificationCategory,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let status = notification_category_to_conversation_status(category);
     let variant = match agent {

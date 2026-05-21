@@ -37,7 +37,7 @@ fn test_config_local_dir_path() {
 }
 
 #[test]
-fn test_warp_home_config_dir_path() {
+fn test_galaxy_home_config_dir_path() {
     let home_dir = home_dir().expect("Should be able to compute home directory");
     let expected_dir_name = match ChannelState::data_profile() {
         Some(data_profile) => format!(".warp-core-oss-{data_profile}"),
@@ -45,20 +45,20 @@ fn test_warp_home_config_dir_path() {
     };
 
     assert_eq!(
-        warp_home_config_dir(),
+        galaxy_home_config_dir(),
         Some(home_dir.join(expected_dir_name))
     );
 }
 
 #[test]
 fn test_warp_home_skills_and_mcp_paths() {
-    let Some(config_dir) = warp_home_config_dir() else {
+    let Some(config_dir) = galaxy_home_config_dir() else {
         panic!("Should be able to compute Warp home config directory");
     };
 
-    assert_eq!(warp_home_skills_dir(), Some(config_dir.join("skills")));
+    assert_eq!(galaxy_home_skills_dir(), Some(config_dir.join("skills")));
     assert_eq!(
-        warp_home_mcp_config_file_path(),
+        galaxy_home_mcp_config_file_path(),
         Some(config_dir.join(".mcp.json"))
     );
 }
