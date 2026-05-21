@@ -1,4 +1,3 @@
-use crate::ai::agent::RenderableAIError;
 use crate::ai::blocklist::task_status_sync_model::classify_renderable_error;
 use crate::server::server_api::ai::TaskStatusUpdate;
 use galaxy_graphql::ai::{AgentTaskState, PlatformErrorCode};
@@ -300,31 +299,6 @@ pub fn classify_driver_error(error: &AgentDriverError) -> (AgentTaskState, TaskS
                 PlatformErrorCode::EnvironmentSetupFailed,
             ),
         ),
-    }
-}
-
-/// Returns true if an `AgentDriverError` represents a transient condition that
-/// a subagent can recover from by retrying (e.g., network issues, rate limits,
-/// server overload). Permanent errors (auth, config, cancelled) return false.
-pub fn is_self_recoverable(error: &AgentDriverError) -> bool {
-    match error {
-        AgentDriverError::ConversationError { error: renderable } => {
-            matches!(
-                renderable,
-                RenderableAIError::ServerOverloaded
-                    | RenderableAIError::Other {
-                        will_attempt_resume: true,
-                        ..
-                    }
-            )
-        }
-        AgentDriverError::WarpDriveSyncFailed
-        | AgentDriverError::TeamMetadataRefreshTimeout
-        | AgentDriverError::ShareSessionFailed {
-            error: ShareSessionError::Timeout,
-            ..
-        } => true,
-        _ => false,
     }
 }
 

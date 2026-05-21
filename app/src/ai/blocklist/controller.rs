@@ -1576,11 +1576,7 @@ impl BlocklistAIController {
                     source_conversation_id,
                     question_text,
                     options,
-                    ..
                 } => {
-                    // Auto-answer: pick the first option, or echo the question text
-                    // as a default answer. In a future version, this could invoke the
-                    // parent LLM for a contextual answer.
                     let answer = options.first().cloned().unwrap_or_else(|| {
                         format!("Proceed with: {}", question_text)
                     });
@@ -1590,15 +1586,11 @@ impl BlocklistAIController {
                     });
                 }
                 PendingEventDetail::SubagentAnswer {
-                    answer_text, ..
+                    answer_text,
                 } => {
-                    // This fires on the child's controller — complete its pending question.
                     self.complete_ask_user_question_with_answer(answer_text, ctx);
                 }
-                PendingEventDetail::SubagentCompletionSummary { .. } => {
-                    // Summary is consumed by the inline panel renderer directly.
-                    // No controller action needed.
-                }
+                PendingEventDetail::SubagentCompletionSummary => {}
                 _ => {}
             }
         }

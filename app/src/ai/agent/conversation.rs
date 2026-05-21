@@ -245,8 +245,6 @@ pub struct AIConversation {
     /// Set to true when auto-compact fires; reset when summarization completes.
     has_pending_auto_compact: bool,
 
-    /// Number of times this child agent conversation has been automatically
-    /// restarted after a transient error. Capped at MAX_SUBAGENT_RETRIES.
     subagent_retry_count: u8,
 }
 

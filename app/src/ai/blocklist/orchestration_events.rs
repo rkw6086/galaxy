@@ -19,7 +19,6 @@ use warp_multi_agent_api as api;
 
 const MAX_RETRY_ATTEMPTS: i32 = 3;
 const MAX_PENDING_LIFECYCLE_EVENTS_PER_TARGET: usize = 200;
-pub const MAX_SUBAGENT_RETRIES: u8 = 3;
 const MAX_SUBAGENT_QUESTION_DEPTH: u8 = 3;
 
 /// Stage associated with a lifecycle error detail.
@@ -71,18 +70,13 @@ pub enum PendingEventDetail {
         source_conversation_id: AIConversationId,
         question_text: String,
         options: Vec<String>,
-        depth: u8,
     },
     /// The parent's answer to a subagent's question.
     SubagentAnswer {
-        target_conversation_id: AIConversationId,
         answer_text: String,
     },
     /// A subagent reporting its completion summary to the parent.
-    SubagentCompletionSummary {
-        source_conversation_id: AIConversationId,
-        summary_text: String,
-    },
+    SubagentCompletionSummary,
 }
 
 /// A queued event consumed by the controller.
@@ -594,11 +588,10 @@ impl OrchestrationEventService {
                         }
                     });
 
-                    if let Some(summary_text) = summary {
+                    if summary.is_some() {
                         self.route_subagent_completion_summary(
                             conversation_id,
                             parent_id,
-                            summary_text,
                             ctx,
                         );
                     }
@@ -1032,7 +1025,7 @@ impl OrchestrationEventService {
                 // not converted to AIAgentInput or awaited for server echo.
                 PendingEventDetail::SubagentQuestion { .. }
                 | PendingEventDetail::SubagentAnswer { .. }
-                | PendingEventDetail::SubagentCompletionSummary { .. } => {}
+                | PendingEventDetail::SubagentCompletionSummary => {}
             }
         }
 
@@ -1070,7 +1063,7 @@ impl OrchestrationEventService {
         pending.retain(|event| match &event.detail {
             PendingEventDetail::SubagentQuestion { .. }
             | PendingEventDetail::SubagentAnswer { .. }
-            | PendingEventDetail::SubagentCompletionSummary { .. } => {
+            | PendingEventDetail::SubagentCompletionSummary => {
                 subagent_events.push(event.clone());
                 false
             }
@@ -1254,7 +1247,6 @@ impl OrchestrationEventService {
                 source_conversation_id: child_conversation_id,
                 question_text,
                 options,
-                depth,
             },
         };
 
@@ -1280,7 +1272,6 @@ impl OrchestrationEventService {
             source_agent_id: "parent".to_string(),
             attempt_count: 0,
             detail: PendingEventDetail::SubagentAnswer {
-                target_conversation_id: child_conversation_id,
                 answer_text,
             },
         };
@@ -1300,17 +1291,13 @@ impl OrchestrationEventService {
         &mut self,
         child_conversation_id: AIConversationId,
         parent_conversation_id: AIConversationId,
-        summary_text: String,
         ctx: &mut ModelContext<Self>,
     ) {
         let event = PendingEvent {
             event_id: Uuid::new_v4().to_string(),
             source_agent_id: child_conversation_id.to_string(),
             attempt_count: 0,
-            detail: PendingEventDetail::SubagentCompletionSummary {
-                source_conversation_id: child_conversation_id,
-                summary_text,
-            },
+            detail: PendingEventDetail::SubagentCompletionSummary,
         };
 
         self.pending_events
@@ -1351,7 +1338,7 @@ fn did_event_round_trip_through_server(
         // Local-only events never round-trip through the server.
         PendingEventDetail::SubagentQuestion { .. }
         | PendingEventDetail::SubagentAnswer { .. }
-        | PendingEventDetail::SubagentCompletionSummary { .. } => false,
+        | PendingEventDetail::SubagentCompletionSummary => false,
     }
 }
 

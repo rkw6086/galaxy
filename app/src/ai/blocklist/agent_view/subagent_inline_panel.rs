@@ -33,8 +33,6 @@ pub struct SubagentPanelState {
     pub conversation_id: AIConversationId,
     pub is_expanded: bool,
     pub header_mouse_state: MouseStateHandle,
-    pub expand_button_mouse_state: MouseStateHandle,
-    pub cancel_button_mouse_state: MouseStateHandle,
 }
 
 impl SubagentPanelState {
@@ -43,8 +41,6 @@ impl SubagentPanelState {
             conversation_id,
             is_expanded: false,
             header_mouse_state: MouseStateHandle::default(),
-            expand_button_mouse_state: MouseStateHandle::default(),
-            cancel_button_mouse_state: MouseStateHandle::default(),
         }
     }
 }
