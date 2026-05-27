@@ -126,7 +126,7 @@ impl From<api::message::tool_call::ApplyFileDiffs> for AIAgentActionType {
                 .chain(new_file_edits)
                 .chain(file_deletes)
                 .collect(),
-            title: Some(value.summary),
+            title: value.summary.none_if_default(),
         }
     }
 }

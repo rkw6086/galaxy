@@ -55,13 +55,13 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                         result,
                     )) => {
                         if !result.tool_call_id.is_empty() {
-                            let content = extract_tool_result_content(result);
+                            let (content, is_error) = extract_tool_result_content(result);
                             tool_results.push(ConversationMessage {
                                 role: MessageRole::User,
                                 content: MessageContent::ToolResult {
                                     tool_use_id: result.tool_call_id.clone(),
                                     content,
-                                    is_error: false,
+                                    is_error,
                                 },
                             });
                         }
@@ -306,7 +306,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                         result,
                     )) => {
                         if !result.tool_call_id.is_empty() {
-                            let content = extract_tool_result_content(result);
+                            let (content, _is_error) = extract_tool_result_content(result);
                             results.push(api::Message {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 task_id: task_id.clone(),
@@ -370,7 +370,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
         }
         api::request::input::Type::ToolCallResult(result) => {
             if !result.tool_call_id.is_empty() {
-                let content = extract_tool_result_content(result);
+                let (content, _is_error) = extract_tool_result_content(result);
                 results.push(api::Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     task_id: task_id.clone(),
@@ -1000,9 +1000,10 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
+                    "summary": { "type": "string", "description": "A brief summary of what these edits accomplish (e.g. 'Add error handling to parse_config')" },
                     "diffs": { "type": "array", "items": { "type": "object", "properties": { "file_path": { "type": "string", "description": "Absolute path to the file" }, "search": { "type": "string", "description": "Exact text to find (must match uniquely). Empty string to create a new file." }, "replace": { "type": "string", "description": "Text to replace with" } }, "required": ["file_path", "search", "replace"] }, "description": "Array of file edits to apply" }
                 },
-                "required": ["diffs"]
+                "required": ["summary", "diffs"]
             }),
         },
         ToolDefinition {
@@ -1179,92 +1180,119 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
     ]
 }
 
-fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> String {
+/// Returns `(content_text, is_error)` for a tool call result.
+fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> (String, bool) {
     if let Some(result_type) = &result.result {
         match result_type {
             api::request::input::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
                     Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
-                        if finished.output.is_empty() {
+                        let content = if finished.output.is_empty() {
                             format!("Exit code: {}\n(no output)", finished.exit_code)
                         } else {
                             format!("Exit code: {}\n{}", finished.exit_code, finished.output)
-                        }
+                        };
+                        let is_error = finished.exit_code != 0;
+                        (content, is_error)
                     }
                     Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
                         snapshot,
-                    )) => snapshot.output.clone(),
-                    _ => "Command completed.".to_string(),
+                    )) => (snapshot.output.clone(), false),
+                    Some(api::run_shell_command_result::Result::PermissionDenied(denied)) => {
+                        let reason = match &denied.reason {
+                            Some(api::permission_denied::Reason::DenylistedCommand(())) => {
+                                "command is on the deny list"
+                            }
+                            _ => "permission denied",
+                        };
+                        (format!("Error: Command not executed — {reason}."), true)
+                    }
+                    _ => ("Command completed.".to_string(), false),
                 }
             }
             api::request::input::tool_call_result::Result::ReadFiles(read_result) => {
                 match &read_result.result {
-                    Some(api::read_files_result::Result::TextFilesSuccess(success)) => success
-                        .files
-                        .iter()
-                        .map(|f| format!("{}:\n{}", f.file_path, f.content))
-                        .collect::<Vec<_>>()
-                        .join("\n\n"),
-                    Some(api::read_files_result::Result::AnyFilesSuccess(success)) => success
-                        .files
-                        .iter()
-                        .filter_map(|f| match &f.content {
-                            Some(api::any_file_content::Content::TextContent(t)) => {
-                                Some(format!("{}:\n{}", t.file_path, t.content))
-                            }
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n\n"),
-                    _ => "Failed to read files.".to_string(),
+                    Some(api::read_files_result::Result::TextFilesSuccess(success)) => (
+                        success
+                            .files
+                            .iter()
+                            .map(|f| format!("{}:\n{}", f.file_path, f.content))
+                            .collect::<Vec<_>>()
+                            .join("\n\n"),
+                        false,
+                    ),
+                    Some(api::read_files_result::Result::AnyFilesSuccess(success)) => (
+                        success
+                            .files
+                            .iter()
+                            .filter_map(|f| match &f.content {
+                                Some(api::any_file_content::Content::TextContent(t)) => {
+                                    Some(format!("{}:\n{}", t.file_path, t.content))
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n\n"),
+                        false,
+                    ),
+                    Some(api::read_files_result::Result::Error(error)) => {
+                        (format!("Error reading files: {}", error.message), true)
+                    }
+                    _ => ("Failed to read files.".to_string(), true),
                 }
             }
             api::request::input::tool_call_result::Result::Grep(grep_result) => {
                 match &grep_result.result {
                     Some(api::grep_result::Result::Success(success)) => {
                         if success.matched_files.is_empty() {
-                            "No matches found.".to_string()
+                            ("No matches found.".to_string(), false)
                         } else {
-                            success
-                                .matched_files
-                                .iter()
-                                .map(|f| {
-                                    let lines: String = f
-                                        .matched_lines
-                                        .iter()
-                                        .map(|l| format!("  line {}", l.line_number))
-                                        .collect::<Vec<_>>()
-                                        .join(", ");
-                                    format!("{} (matches at: {})", f.file_path, lines)
-                                })
-                                .collect::<Vec<_>>()
-                                .join("\n")
+                            (
+                                success
+                                    .matched_files
+                                    .iter()
+                                    .map(|f| {
+                                        let lines: String = f
+                                            .matched_lines
+                                            .iter()
+                                            .map(|l| format!("  line {}", l.line_number))
+                                            .collect::<Vec<_>>()
+                                            .join(", ");
+                                        format!("{} (matches at: {})", f.file_path, lines)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                false,
+                            )
                         }
                     }
                     Some(api::grep_result::Result::Error(error)) => {
-                        format!("Grep error: {}", error.message)
+                        (format!("Grep error: {}", error.message), true)
                     }
-                    None => "Grep completed (no result).".to_string(),
+                    None => ("Grep completed (no result).".to_string(), false),
                 }
             }
             api::request::input::tool_call_result::Result::FileGlobV2(glob_result) => {
                 match &glob_result.result {
                     Some(api::file_glob_v2_result::Result::Success(success)) => {
                         if success.matched_files.is_empty() {
-                            "No files matched.".to_string()
+                            ("No files matched.".to_string(), false)
                         } else {
-                            success
-                                .matched_files
-                                .iter()
-                                .map(|f| f.file_path.as_str())
-                                .collect::<Vec<_>>()
-                                .join("\n")
+                            (
+                                success
+                                    .matched_files
+                                    .iter()
+                                    .map(|f| f.file_path.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                false,
+                            )
                         }
                     }
                     Some(api::file_glob_v2_result::Result::Error(error)) => {
-                        format!("File glob error: {}", error.message)
+                        (format!("File glob error: {}", error.message), true)
                     }
-                    None => "File glob completed (no result).".to_string(),
+                    None => ("File glob completed (no result).".to_string(), false),
                 }
             }
             api::request::input::tool_call_result::Result::ApplyFileDiffs(diff_result) => {
@@ -1280,35 +1308,35 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                             parts.push(format!("Deleted: {}", f.file_path));
                         }
                         if parts.is_empty() {
-                            "Diffs applied successfully.".to_string()
+                            ("Diffs applied successfully.".to_string(), false)
                         } else {
-                            parts.join("\n")
+                            (parts.join("\n"), false)
                         }
                     }
                     Some(api::apply_file_diffs_result::Result::Error(error)) => {
-                        format!("Apply diffs error: {}", error.message)
+                        (format!("Apply diffs error: {}", error.message), true)
                     }
-                    None => "Apply diffs completed.".to_string(),
+                    None => ("Apply diffs completed.".to_string(), false),
                 }
             }
             api::request::input::tool_call_result::Result::FileGlob(glob_result) => {
                 match &glob_result.result {
                     Some(api::file_glob_result::Result::Success(success)) => {
                         if success.matched_files.is_empty() {
-                            "No files matched.".to_string()
+                            ("No files matched.".to_string(), false)
                         } else {
-                            success.matched_files.clone()
+                            (success.matched_files.clone(), false)
                         }
                     }
                     Some(api::file_glob_result::Result::Error(error)) => {
-                        format!("File glob error: {}", error.message)
+                        (format!("File glob error: {}", error.message), true)
                     }
-                    None => "File glob completed (no result).".to_string(),
+                    None => ("File glob completed (no result).".to_string(), false),
                 }
             }
             api::request::input::tool_call_result::Result::CallMcpTool(mcp_result) => {
                 match &mcp_result.result {
-                    Some(api::call_mcp_tool_result::Result::Success(success)) => {
+                    Some(api::call_mcp_tool_result::Result::Success(success)) => (
                         success
                             .results
                             .iter()
@@ -1319,18 +1347,61 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                                 _ => None,
                             })
                             .collect::<Vec<_>>()
-                            .join("\n")
-                    }
+                            .join("\n"),
+                        false,
+                    ),
                     Some(api::call_mcp_tool_result::Result::Error(error)) => {
-                        format!("MCP tool error: {}", error.message)
+                        (format!("MCP tool error: {}", error.message), true)
                     }
-                    None => "MCP tool completed.".to_string(),
+                    None => ("MCP tool completed.".to_string(), false),
                 }
             }
-            _ => "Tool completed successfully.".to_string(),
+            api::request::input::tool_call_result::Result::SearchCodebase(search_result) => {
+                match &search_result.result {
+                    Some(api::search_codebase_result::Result::Success(success)) => (
+                        success
+                            .files
+                            .iter()
+                            .map(|f| format!("{}:\n{}", f.file_path, f.content))
+                            .collect::<Vec<_>>()
+                            .join("\n\n"),
+                        false,
+                    ),
+                    Some(api::search_codebase_result::Result::Error(error)) => {
+                        (format!("Search codebase error: {}", error.message), true)
+                    }
+                    None => ("Search codebase completed (no result).".to_string(), false),
+                }
+            }
+            api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
+                write_result,
+            ) => match &write_result.result {
+                Some(
+                    api::write_to_long_running_shell_command_result::Result::LongRunningCommandSnapshot(
+                        snapshot,
+                    ),
+                ) => (snapshot.output.clone(), false),
+                Some(
+                    api::write_to_long_running_shell_command_result::Result::CommandFinished(
+                        finished,
+                    ),
+                ) => {
+                    let content = format!(
+                        "Exit code: {}\n{}",
+                        finished.exit_code, finished.output
+                    );
+                    let is_error = finished.exit_code != 0;
+                    (content, is_error)
+                }
+                Some(api::write_to_long_running_shell_command_result::Result::Error(_)) => {
+                    ("Error: shell command not found.".to_string(), true)
+                }
+                None => ("Write to shell command completed.".to_string(), false),
+            },
+            _ => ("Tool completed successfully.".to_string(), false),
         }
     } else {
-        "Tool completed.".to_string()
+        ("Tool completed.".to_string(), false)
     }
 }
 
@@ -1354,6 +1425,22 @@ pub fn extract_messages_from_request(request: &api::Request) -> Vec<Conversation
     ensure_starts_with_user_message(&mut messages);
     ensure_tool_results_paired(&mut messages);
     messages
+}
+
+/// Heuristic to detect whether a serialized `ServerResult` text represents an error.
+/// Used during session restoration where the structured result type is lost and we only
+/// have the serialized text to inspect.
+fn is_server_result_error(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.starts_with("error:")
+        || lower.starts_with("error reading")
+        || lower.starts_with("grep error:")
+        || lower.starts_with("file glob error:")
+        || lower.starts_with("apply diffs error:")
+        || lower.starts_with("mcp tool error:")
+        || lower.starts_with("search codebase error:")
+        || lower.starts_with("failed to read files")
+        || (lower.starts_with("exit code:") && !lower.starts_with("exit code: 0"))
 }
 
 /// Converts a proto `api::Message` into a `ConversationMessage` for the Bedrock message history.
@@ -1381,18 +1468,20 @@ pub fn convert_proto_message(msg: &api::Message) -> Option<ConversationMessage> 
             })
         }
         api::message::Message::ToolCallResult(result) => {
-            let content = match &result.result {
+            let (content, is_error) = match &result.result {
                 Some(api::message::tool_call_result::Result::Server(s)) => {
-                    s.serialized_result.clone()
+                    let text = s.serialized_result.clone();
+                    let is_err = is_server_result_error(&text);
+                    (text, is_err)
                 }
-                _ => "Tool completed.".to_string(),
+                _ => ("Tool completed.".to_string(), false),
             };
             Some(ConversationMessage {
                 role: MessageRole::User,
                 content: MessageContent::ToolResult {
                     tool_use_id: result.tool_call_id.clone(),
                     content,
-                    is_error: false,
+                    is_error,
                 },
             })
         }
