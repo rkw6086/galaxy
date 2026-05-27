@@ -667,9 +667,10 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
+                    "summary": { "type": "string", "description": "A brief summary of what these edits accomplish" },
                     "diffs": { "type": "array", "items": { "type": "object", "properties": { "file_path": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["file_path", "search", "replace"] } }
                 },
-                "required": ["diffs"]
+                "required": ["summary", "diffs"]
             }),
         },
         "grep" => ToolDefinition {

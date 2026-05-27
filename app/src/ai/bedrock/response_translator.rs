@@ -793,6 +793,11 @@ fn build_tool_call_message(
             ))
         }
         "apply_file_diffs" => {
+            let summary = input
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let diffs = input
                 .get("diffs")
                 .and_then(|v| v.as_array())
@@ -818,7 +823,7 @@ fn build_tool_call_message(
                 .unwrap_or_default();
             Some(api::message::tool_call::Tool::ApplyFileDiffs(
                 api::message::tool_call::ApplyFileDiffs {
-                    summary: String::new(),
+                    summary,
                     diffs,
                     new_files: vec![],
                     deleted_files: vec![],
