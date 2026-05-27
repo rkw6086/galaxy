@@ -9421,24 +9421,85 @@ impl TerminalView {
     /// from the command directly in the terminal. Also, `aws login` commands may require
     /// user interaction (e.g. "do you want to override X profile? y/n" is common)
     fn run_aws_login_command(&mut self, ctx: &mut ViewContext<Self>) {
-        let login_command = AISettings::as_ref(ctx)
+        let settings_command = AISettings::as_ref(ctx)
             .bedrock_auth_refresh_command
             .value()
             .clone();
+
+        // Use the configured command, but if it's the bare default ("aws sso login")
+        // prefer the external config's auth_refresh_command which includes --profile.
+        let login_command = if settings_command == "aws sso login" {
+            use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+            let external = ExternalBedrockConfig::load();
+            external.auth_refresh_command.unwrap_or(settings_command)
+        } else {
+            settings_command
+        };
 
         if login_command.is_empty() {
             log::warn!("AWS login command is not configured");
             return;
         }
 
-        // Track that we're running an AWS login command so we can detect
-        // "command not found" if AWS CLI isn't installed
-        self.is_pending_aws_login = true;
+        log::info!("[bedrock] Running AWS login command: {login_command}");
 
-        // Write the command to the PTY and execute it
-        let command_bytes = login_command.into_bytes();
-        self.clear_line_editor_and_write_to_pty(command_bytes, ctx);
-        self.write_to_pty(vec![escape_sequences::C0::CR], ctx);
+        // Spawn the login command as an async subprocess so it can open the browser
+        // for SSO authentication. Once it completes, refresh credentials and resume
+        // the conversation.
+        let _ = ctx.spawn(
+            async move {
+                let parts: Vec<&str> = login_command.split_whitespace().collect();
+                let Some((cmd, args)) = parts.split_first() else {
+                    return Err("Empty login command".to_string());
+                };
+                let result = tokio::process::Command::new(cmd)
+                    .args(args)
+                    .status()
+                    .await;
+                match result {
+                    Ok(status) if status.success() => Ok(()),
+                    Ok(status) => Err(format!("AWS login command exited with status: {status}")),
+                    Err(e) => Err(format!("Failed to spawn AWS login command: {e}")),
+                }
+            },
+            |_me, result, ctx| {
+                match result {
+                    Ok(()) => {
+                        log::info!("[bedrock] AWS login completed successfully, refreshing credentials and resuming");
+                        // Refresh credentials from the updated SSO cache
+                        ApiKeyManager::handle(ctx).update(
+                            ctx,
+                            |manager, ctx| {
+                                drop(crate::ai::aws_credentials::refresh_aws_credentials(manager, ctx));
+                            },
+                        );
+                        // Resume the conversation after a short delay to let credentials load
+                        let _ = ctx.spawn(
+                            async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            },
+                            |me, _, ctx| {
+                                // Find the active conversation and resume it directly
+                                let conversation_id = if FeatureFlag::AgentView.is_enabled() {
+                                    me.agent_view_controller
+                                        .as_ref(ctx)
+                                        .agent_view_state()
+                                        .active_conversation_id()
+                                } else {
+                                    BlocklistAIHistoryModel::as_ref(ctx).last_conversation_id(me.id())
+                                };
+                                if let Some(conversation_id) = conversation_id {
+                                    me.handle_resume_conversation(&conversation_id, ctx);
+                                }
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("[bedrock] AWS login failed: {e}");
+                    }
+                }
+            },
+        );
     }
 
     /// Checks if the current model request could be served via AWS Bedrock and the user
