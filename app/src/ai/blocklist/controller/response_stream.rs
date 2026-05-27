@@ -149,6 +149,11 @@ impl ResponseStream {
         &self.params.bedrock_messages_sent
     }
 
+    /// Returns the model ID associated with this response stream's request.
+    pub fn model_id(&self) -> &str {
+        self.params.model.as_str()
+    }
+
     /// Returns true if we should attempt to resume the conversation after the stream finishes.
     pub fn should_resume_conversation_after_stream_finished(&self) -> bool {
         self.should_resume_conversation_after_stream_finished

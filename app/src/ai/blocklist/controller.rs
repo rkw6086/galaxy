@@ -2508,7 +2508,22 @@ impl BlocklistAIController {
                             });
                         }
 
-                        let mut renderable_error: RenderableAIError = e.as_ref().into();
+                        let mut renderable_error: RenderableAIError =
+                            if let AIApiError::Stream { stream_type, source } = e.as_ref() {
+                                if *stream_type == "bedrock_converse"
+                                    && is_bedrock_credentials_error(&source.to_string())
+                                {
+                                    let model_name =
+                                        response_stream.as_ref(ctx).model_id().to_string();
+                                    RenderableAIError::AwsBedrockCredentialsExpiredOrInvalid {
+                                        model_name,
+                                    }
+                                } else {
+                                    e.as_ref().into()
+                                }
+                            } else {
+                                e.as_ref().into()
+                            };
                         if let RenderableAIError::Other {
                             will_attempt_resume,
                             waiting_for_network,
@@ -2992,6 +3007,24 @@ pub struct ClientIdentifiers {
     pub client_exchange_id: AIAgentExchangeId,
     /// Not populated for restored AI blocks.
     pub response_stream_id: Option<ResponseStreamId>,
+}
+
+/// Returns `true` if the given error message from a Bedrock stream indicates an
+/// AWS credentials issue (expired, invalid, or missing session token).
+fn is_bedrock_credentials_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    // "Session token not found or invalid" is the most common SSO expiry message.
+    // AccessDenied / ExpiredToken / UnrecognizedClient cover other credential failures.
+    // SSO cache file not found means the token file was deleted or never created.
+    lower.contains("session token not found")
+        || lower.contains("expiredtoken")
+        || lower.contains("expired token")
+        || lower.contains("unrecognizedclientexception")
+        || lower.contains("unauthorizedexception")
+        || (lower.contains("sso/cache") && lower.contains("notfound"))
+        || (lower.contains("sso/cache") && lower.contains("no such file"))
+        || (lower.contains("accessdenied")
+            && (lower.contains("token") || lower.contains("credential") || lower.contains("security")))
 }
 
 #[allow(clippy::too_many_arguments)]

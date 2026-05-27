@@ -1123,7 +1123,7 @@ define_settings_group!(AISettings, settings: [
     // Whether to automatically run the login command when Bedrock credentials expire.
     bedrock_auto_login: BedrockAutoLogin {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,

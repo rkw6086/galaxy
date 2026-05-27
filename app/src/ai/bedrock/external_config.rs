@@ -8,6 +8,7 @@ pub struct ExternalBedrockConfig {
     pub profile: Option<String>,
     pub region: Option<String>,
     pub models: Vec<BedrockModelConfig>,
+    pub auth_refresh_command: Option<String>,
 }
 
 impl ExternalBedrockConfig {
@@ -28,6 +29,7 @@ impl ExternalBedrockConfig {
             } else {
                 claude_config.models
             },
+            auth_refresh_command: claude_config.auth_refresh_command,
         }
     }
 
@@ -55,9 +57,18 @@ fn parse_claude_code_config(path: PathBuf) -> ExternalBedrockConfig {
         Err(_) => return ExternalBedrockConfig::default(),
     };
 
+    // Read the top-level awsAuthRefresh command (used by Claude Code for SSO login)
+    let auth_refresh_command = json
+        .get("awsAuthRefresh")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let env = match json.get("env").and_then(|v| v.as_object()) {
         Some(e) => e,
-        None => return ExternalBedrockConfig::default(),
+        None => return ExternalBedrockConfig {
+            auth_refresh_command,
+            ..Default::default()
+        },
     };
 
     let profile = env
@@ -76,6 +87,7 @@ fn parse_claude_code_config(path: PathBuf) -> ExternalBedrockConfig {
         profile,
         region,
         models,
+        auth_refresh_command,
     }
 }
 
@@ -221,6 +233,7 @@ fn parse_opencode_config(path: PathBuf) -> ExternalBedrockConfig {
         profile,
         region,
         models: Vec::new(),
+        auth_refresh_command: None,
     }
 }
 

@@ -310,6 +310,22 @@ impl AIApiError {
             {
                 false
             }
+            // Don't retry Bedrock credential/auth errors — they require user
+            // action (e.g. SSO re-login) and will always fail with the same token.
+            AIApiError::Stream { source, .. }
+                if {
+                    let msg = source.to_string().to_lowercase();
+                    msg.contains("session token not found")
+                        || msg.contains("expiredtoken")
+                        || msg.contains("expired token")
+                        || msg.contains("unrecognizedclientexception")
+                        || msg.contains("unauthorizedexception")
+                        || (msg.contains("sso/cache") && msg.contains("no such file"))
+                        || (msg.contains("sso/cache") && msg.contains("notfound"))
+                } =>
+            {
+                false
+            }
             // By default, retry on error.
             _ => true,
         }
