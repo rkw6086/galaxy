@@ -5,22 +5,36 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
-    Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
-    MainAxisSize, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Shrinkable, Text,
+    Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
+    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, HighlightedHyperlink,
+    Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, ScrollbarWidth, Shrinkable, Text,
 };
 use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
-use lsp::{CompletionItemData, CompletionKind, CompletionResult, CompletionTrigger};
+use lsp::{CompletionItem, CompletionItemData, CompletionKind, CompletionResult, CompletionTrigger};
+use markdown_parser::FormattedText;
 use pathfinder_geometry::vector::Vector2F;
 use string_offset::CharOffset;
 use vec1::Vec1;
 
-use super::local_code_editor::LocalCodeEditorView;
+use super::local_code_editor::{LocalCodeEditorAction, LocalCodeEditorView};
 
 pub const COMPLETION_DEBOUNCE_PERIOD: Duration = Duration::from_millis(50);
 const COMPLETION_MENU_MAX_HEIGHT: f32 = 220.;
 const COMPLETION_MENU_WIDTH: f32 = 340.;
+const COMPLETION_DOCS_PANEL_WIDTH: f32 = 320.;
+const COMPLETION_DOCS_PANEL_MAX_HEIGHT: f32 = 220.;
 const MAX_VISIBLE_ITEMS: usize = 10;
+
+/// Resolved documentation for a completion item.
+pub(super) struct ResolvedDocumentation {
+    /// The index into `items` that this documentation belongs to.
+    pub item_index: usize,
+    /// The documentation text (may be markdown).
+    pub text: FormattedText,
+    /// Scroll state for the docs panel.
+    pub scroll_state: ClippedScrollStateHandle,
+}
 
 pub(super) enum CompletionState {
     Idle,
@@ -30,6 +44,14 @@ pub(super) enum CompletionState {
         filtered_indices: Vec<usize>,
         selected_index: usize,
         trigger_offset: CharOffset,
+        /// Mouse state handles for each visible item (for hover detection).
+        item_mouse_states: Vec<MouseStateHandle>,
+        /// Resolved documentation for the currently hovered/selected item.
+        resolved_docs: Option<ResolvedDocumentation>,
+        /// Abort handle for an in-flight completion resolve request.
+        resolve_abort_handle: Option<AbortHandle>,
+        /// Scroll state for the completion menu items list.
+        menu_scroll_state: ClippedScrollStateHandle,
     },
 }
 
@@ -51,24 +73,64 @@ impl CompletionState {
         if let Self::Requesting { abort_handle, .. } = self {
             abort_handle.abort();
         }
+        if let Self::Showing {
+            resolve_abort_handle,
+            ..
+        } = self
+        {
+            if let Some(handle) = resolve_abort_handle.take() {
+                handle.abort();
+            }
+        }
         *self = Self::Idle;
         true
     }
 
-    pub fn move_selection(&mut self, delta: i32) {
+    pub fn move_selection(&mut self, delta: i32) -> bool {
         if let Self::Showing {
             filtered_indices,
             selected_index,
+            resolved_docs,
+            resolve_abort_handle,
             ..
         } = self
         {
             if filtered_indices.is_empty() {
-                return;
+                return false;
             }
             let len = filtered_indices.len() as i32;
             let new_idx = (*selected_index as i32 + delta).rem_euclid(len);
-            *selected_index = new_idx as usize;
+            if new_idx as usize != *selected_index {
+                *selected_index = new_idx as usize;
+                *resolved_docs = None;
+                if let Some(handle) = resolve_abort_handle.take() {
+                    handle.abort();
+                }
+                return true;
+            }
         }
+        false
+    }
+
+    pub fn set_selected_index(&mut self, index: usize) -> bool {
+        if let Self::Showing {
+            filtered_indices,
+            selected_index,
+            resolved_docs,
+            resolve_abort_handle,
+            ..
+        } = self
+        {
+            if index < filtered_indices.len() && index != *selected_index {
+                *selected_index = index;
+                *resolved_docs = None;
+                if let Some(handle) = resolve_abort_handle.take() {
+                    handle.abort();
+                }
+                return true;
+            }
+        }
+        false
     }
 
     pub fn filter(&mut self, query: &str) {
@@ -76,6 +138,9 @@ impl CompletionState {
             items,
             filtered_indices,
             selected_index,
+            resolved_docs,
+            resolve_abort_handle,
+            item_mouse_states,
             ..
         } = self
         {
@@ -95,6 +160,14 @@ impl CompletionState {
             }
             if *selected_index >= filtered_indices.len() {
                 *selected_index = 0;
+            }
+            *resolved_docs = None;
+            if let Some(handle) = resolve_abort_handle.take() {
+                handle.abort();
+            }
+            let visible_count = filtered_indices.len().min(MAX_VISIBLE_ITEMS);
+            while item_mouse_states.len() < visible_count {
+                item_mouse_states.push(MouseStateHandle::default());
             }
         }
     }
@@ -132,6 +205,11 @@ impl LocalCodeEditorView {
         }
 
         if self.lsp_server.is_none() {
+            return;
+        }
+
+        if self.suppress_next_completion {
+            self.suppress_next_completion = false;
             return;
         }
 
@@ -233,11 +311,29 @@ impl LocalCodeEditorView {
         if let CompletionState::Showing { trigger_offset, .. } = &self.completion_state {
             let query = self.get_completion_filter_query(*trigger_offset, ctx);
             self.completion_state.filter(&query);
+            self.resolve_selected_completion_docs(ctx);
             ctx.notify();
             return;
         }
 
-        self.request_completion(offset, CompletionTrigger::Invoked, ctx);
+        let word_start = self.find_word_start(offset, ctx);
+        self.request_completion(word_start, CompletionTrigger::Invoked, ctx);
+    }
+
+    /// Find the start of the current identifier word by walking backwards from `offset`.
+    fn find_word_start(&self, offset: CharOffset, ctx: &ViewContext<Self>) -> CharOffset {
+        let editor = self.editor().as_ref(ctx);
+        let mut pos = offset;
+        while pos > CharOffset::from(0) {
+            let prev = pos - CharOffset::from(1);
+            match editor.char_at(prev, ctx) {
+                Some(c) if c.is_alphanumeric() || c == '_' => {
+                    pos = prev;
+                }
+                _ => break,
+            }
+        }
+        pos
     }
 
     fn handle_completion_response(
@@ -257,17 +353,26 @@ impl LocalCodeEditorView {
         };
 
         let filtered_indices: Vec<usize> = (0..completion_result.items.len()).collect();
+        let visible_count = filtered_indices.len().min(MAX_VISIBLE_ITEMS);
+        let item_mouse_states = (0..visible_count)
+            .map(|_| MouseStateHandle::default())
+            .collect();
 
         self.completion_state = CompletionState::Showing {
             items: completion_result.items,
             filtered_indices,
             selected_index: 0,
             trigger_offset,
+            item_mouse_states,
+            resolved_docs: None,
+            resolve_abort_handle: None,
+            menu_scroll_state: ClippedScrollStateHandle::default(),
         };
 
         let query = self.get_completion_filter_query(trigger_offset, ctx);
         self.completion_state.filter(&query);
 
+        self.resolve_selected_completion_docs(ctx);
         self.sync_completion_intercept(ctx);
         ctx.notify();
     }
@@ -310,15 +415,16 @@ impl LocalCodeEditorView {
         };
 
         self.completion_state = CompletionState::Idle;
+        self.suppress_next_completion = true;
         self.sync_completion_intercept(ctx);
 
         self.editor.update(ctx, |editor, ctx| {
+            let cursor = editor.cursor_head_offset(ctx);
             let edit_range = if let Some(range) = text_edit_range {
                 let start = editor.lsp_location_to_offset(&range.start, ctx);
-                let end = editor.lsp_location_to_offset(&range.end, ctx);
-                start..end
+                // Extend the end to cover any text the user typed after the completion was requested
+                start..cursor
             } else {
-                let cursor = editor.cursor_head_offset(ctx);
                 trigger_offset..cursor
             };
 
@@ -331,11 +437,141 @@ impl LocalCodeEditorView {
         true
     }
 
+    /// Resolve documentation for the currently selected completion item.
+    pub(super) fn resolve_selected_completion_docs(&mut self, ctx: &mut ViewContext<Self>) {
+        let raw_item = match &self.completion_state {
+            CompletionState::Showing {
+                items,
+                filtered_indices,
+                selected_index,
+                resolved_docs,
+                ..
+            } => {
+                let Some(&item_idx) = filtered_indices.get(*selected_index) else {
+                    return;
+                };
+                // Already resolved for this item
+                if resolved_docs
+                    .as_ref()
+                    .is_some_and(|d| d.item_index == item_idx)
+                {
+                    return;
+                }
+                items[item_idx].raw_item.clone()
+            }
+            _ => return,
+        };
+
+        let Some(lsp_server) = &self.lsp_server else {
+            return;
+        };
+
+        let future = match lsp_server.as_ref(ctx).completion_resolve(raw_item) {
+            Ok(future) => future,
+            Err(_) => return,
+        };
+
+        let abort_handle = ctx
+            .spawn(future, |me, result, ctx| {
+                me.handle_completion_resolve_response(result, ctx);
+            })
+            .abort_handle();
+
+        if let CompletionState::Showing {
+            resolve_abort_handle,
+            ..
+        } = &mut self.completion_state
+        {
+            if let Some(old) = resolve_abort_handle.take() {
+                old.abort();
+            }
+            *resolve_abort_handle = Some(abort_handle);
+        }
+    }
+
+    fn handle_completion_resolve_response(
+        &mut self,
+        result: anyhow::Result<CompletionItem>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let resolved_item = match result {
+            Ok(item) => item,
+            Err(_) => return,
+        };
+
+        let doc_string = match resolved_item.documentation {
+            Some(lsp_types::Documentation::String(s)) => s,
+            Some(lsp_types::Documentation::MarkupContent(m)) => m.value,
+            None => return,
+        };
+
+        if doc_string.trim().is_empty() {
+            return;
+        }
+
+        let formatted = match markdown_parser::parse_markdown(&doc_string) {
+            Ok(text) => text,
+            Err(_) => {
+                use markdown_parser::{FormattedTextFragment, FormattedTextLine};
+                FormattedText::new([FormattedTextLine::Line(vec![
+                    FormattedTextFragment::plain_text(doc_string),
+                ])])
+            }
+        };
+
+        if let CompletionState::Showing {
+            filtered_indices,
+            selected_index,
+            resolved_docs,
+            resolve_abort_handle,
+            ..
+        } = &mut self.completion_state
+        {
+            *resolve_abort_handle = None;
+            if let Some(&item_idx) = filtered_indices.get(*selected_index) {
+                *resolved_docs = Some(ResolvedDocumentation {
+                    item_index: item_idx,
+                    text: formatted,
+                    scroll_state: ClippedScrollStateHandle::default(),
+                });
+                ctx.notify();
+            }
+        }
+    }
+
+    /// Handle hover over a completion item (triggered via action from Hoverable).
+    pub(super) fn handle_completion_hover_item(
+        &mut self,
+        display_index: usize,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if self.completion_state.set_selected_index(display_index) {
+            self.resolve_selected_completion_docs(ctx);
+            ctx.notify();
+        }
+    }
+
+    /// Manually trigger completion (Ctrl+Alt+Space).
+    pub(super) fn trigger_completion_manually(&mut self, ctx: &mut ViewContext<Self>) {
+        if !Self::is_completion_enabled() {
+            return;
+        }
+        if self.lsp_server.is_none() {
+            return;
+        }
+        let cursor_offset = self.editor().as_ref(ctx).cursor_head_offset(ctx);
+        let word_start = self.find_word_start(cursor_offset, ctx);
+        self.request_completion(word_start, CompletionTrigger::Invoked, ctx);
+    }
+
     pub(super) fn render_completion_menu(&self, app: &AppContext) -> Option<Box<dyn Element>> {
         let CompletionState::Showing {
             items,
             filtered_indices,
             selected_index,
+            item_mouse_states,
+            resolved_docs,
+            menu_scroll_state,
             ..
         } = &self.completion_state
         else {
@@ -357,36 +593,118 @@ impl LocalCodeEditorView {
         {
             let item = &items[item_idx];
             let is_selected = display_idx == *selected_index;
-            content_column.add_child(render_completion_item(item, is_selected, appearance));
+            let mouse_state = item_mouse_states
+                .get(display_idx)
+                .cloned()
+                .unwrap_or_default();
+
+            let item_element = render_completion_item(item, is_selected, appearance);
+            let hoverable_item = Hoverable::new(mouse_state, move |_| item_element)
+                .on_hover(move |is_hovered, ctx, _, _| {
+                    if is_hovered {
+                        ctx.dispatch_typed_action(
+                            LocalCodeEditorAction::CompletionHoverItem(display_idx),
+                        );
+                    }
+                })
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(LocalCodeEditorAction::CompletionConfirmItem);
+                })
+                .finish();
+
+            content_column.add_child(hoverable_item);
         }
 
-        let constrained_content = ConstrainedBox::new(content_column.finish())
+        let scrollable_content = ClippedScrollable::vertical(
+            menu_scroll_state.clone(),
+            content_column.finish(),
+            ScrollbarWidth::Custom(4.),
+            theme.disabled_ui_text_color().into(),
+            theme.active_ui_text_color().into(),
+            galaxyui::elements::Fill::None,
+        )
+        .finish();
+
+        let constrained_content = ConstrainedBox::new(scrollable_content)
             .with_width(COMPLETION_MENU_WIDTH)
             .with_max_height(COMPLETION_MENU_MAX_HEIGHT)
             .finish();
 
-        let menu = Container::new(constrained_content)
+        let menu_box = Container::new(constrained_content)
             .with_background(theme.background())
             .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
             .with_border(Border::all(1.).with_border_fill(internal_colors::neutral_4(theme)))
             .finish();
 
-        Some(menu)
+        // Build docs panel if we have resolved documentation
+        let docs_panel = resolved_docs.as_ref().map(|docs| {
+            let text_element = FormattedTextElement::new(
+                docs.text.clone(),
+                appearance.monospace_font_size(),
+                appearance.ui_font_family(),
+                appearance.monospace_font_family(),
+                theme.active_ui_text_color().into(),
+                HighlightedHyperlink::default(),
+            )
+            .finish();
+
+            let scrollable_content = ClippedScrollable::vertical(
+                docs.scroll_state.clone(),
+                text_element,
+                ScrollbarWidth::Auto,
+                theme.disabled_ui_text_color().into(),
+                theme.active_ui_text_color().into(),
+                galaxyui::elements::Fill::None,
+            )
+            .finish();
+
+            let constrained_docs = ConstrainedBox::new(scrollable_content)
+                .with_width(COMPLETION_DOCS_PANEL_WIDTH)
+                .with_max_height(COMPLETION_DOCS_PANEL_MAX_HEIGHT)
+                .finish();
+
+            Container::new(constrained_docs)
+                .with_horizontal_padding(8.)
+                .with_vertical_padding(6.)
+                .with_background(theme.background())
+                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
+                .with_border(Border::all(1.).with_border_fill(internal_colors::neutral_4(theme)))
+                .finish()
+        });
+
+        // If we have docs, lay them out side-by-side in a row
+        if let Some(docs_element) = docs_panel {
+            let row = Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Start)
+                .with_child(menu_box)
+                .with_child(
+                    Container::new(docs_element)
+                        .with_padding_left(2.)
+                        .finish(),
+                )
+                .finish();
+            Some(ConstrainedBox::new(row)
+                .with_max_height(COMPLETION_MENU_MAX_HEIGHT)
+                .finish())
+        } else {
+            Some(menu_box)
+        }
     }
 
     pub(super) fn completion_menu_positioning(
         &self,
         app: &AppContext,
     ) -> Option<OffsetPositioning> {
-        let trigger_offset = match &self.completion_state {
-            CompletionState::Showing { trigger_offset, .. } => *trigger_offset,
-            _ => return None,
-        };
+        if !self.completion_state.is_showing() {
+            return None;
+        }
+
+        let cursor_offset = self.editor().as_ref(app).cursor_head_offset(app);
 
         let bounds = self
             .editor()
             .as_ref(app)
-            .character_bounds_in_viewport(trigger_offset, app)?;
+            .character_bounds_in_viewport(cursor_offset, app)?;
 
         Some(OffsetPositioning::offset_from_parent(
             Vector2F::new(bounds.origin_x(), bounds.max_y()),

@@ -120,6 +120,11 @@ pub fn init(app: &mut AppContext) {
             LocalCodeEditorAction::StartRename,
             id!("LocalCodeEditorView"),
         ),
+        FixedBinding::new(
+            "ctrl-alt-space",
+            LocalCodeEditorAction::TriggerCompletion,
+            id!("LocalCodeEditorView"),
+        ),
     ]);
 }
 
@@ -217,6 +222,12 @@ pub enum LocalCodeEditorAction {
     OpenCodeActions,
     /// Start LSP rename at cursor (F2).
     StartRename,
+    /// Manually trigger completion (Ctrl+Alt+Space).
+    TriggerCompletion,
+    /// Hover over a completion item by display index.
+    CompletionHoverItem(usize),
+    /// Confirm completion via mouse click.
+    CompletionConfirmItem,
 }
 
 #[derive(Default)]
@@ -327,6 +338,8 @@ pub struct LocalCodeEditorView {
     pub(super) completion_state: CompletionState,
     /// Channel for debouncing completion requests triggered by typing.
     pub(super) completion_debounce_tx: async_channel::Sender<CharOffset>,
+    /// Suppresses the next content-changed completion trigger (after confirming a completion).
+    pub(super) suppress_next_completion: bool,
     /// State for LSP code actions (quick fixes, refactorings).
     pub(super) code_actions_state: CodeActionsState,
     /// Channel for debouncing code actions requests on cursor/selection change.
@@ -486,11 +499,15 @@ impl LocalCodeEditorView {
                 ctx.emit(LocalCodeEditorEvent::DelayedRenderingFlushed);
             }
             CodeEditorEvent::CompletionNavigateUp => {
-                me.completion_state.move_selection(-1);
+                if me.completion_state.move_selection(-1) {
+                    me.resolve_selected_completion_docs(ctx);
+                }
                 ctx.notify();
             }
             CodeEditorEvent::CompletionNavigateDown => {
-                me.completion_state.move_selection(1);
+                if me.completion_state.move_selection(1) {
+                    me.resolve_selected_completion_docs(ctx);
+                }
                 ctx.notify();
             }
             CodeEditorEvent::CompletionConfirm => {
@@ -562,6 +579,7 @@ impl LocalCodeEditorView {
             find_references_view: None,
             completion_state: CompletionState::default(),
             completion_debounce_tx,
+            suppress_next_completion: false,
             code_actions_state: CodeActionsState::default(),
             code_actions_debounce_tx,
             signature_help_state: SignatureHelpState::default(),
@@ -2375,6 +2393,15 @@ impl TypedActionView for LocalCodeEditorView {
             }
             LocalCodeEditorAction::StartRename => {
                 self.start_rename(ctx);
+            }
+            LocalCodeEditorAction::TriggerCompletion => {
+                self.trigger_completion_manually(ctx);
+            }
+            LocalCodeEditorAction::CompletionHoverItem(display_index) => {
+                self.handle_completion_hover_item(*display_index, ctx);
+            }
+            LocalCodeEditorAction::CompletionConfirmItem => {
+                self.confirm_completion(ctx);
             }
         }
     }

@@ -9,6 +9,8 @@ use galaxy_core::{
 };
 
 fn main() -> Result<()> {
+    use galaxy_core::features::FeatureFlag;
+
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
@@ -25,6 +27,12 @@ fn main() -> Result<()> {
     if cfg!(debug_assertions) {
         state = state.with_additional_features(galaxy_core::features::DEBUG_FLAGS);
     }
+    state = state.with_additional_features(&[
+        FeatureFlag::LspCompletion,
+        FeatureFlag::LspCodeActions,
+        FeatureFlag::LspRename,
+        FeatureFlag::LspSignatureHelp,
+    ]);
     ChannelState::set(state);
 
     galaxy::run()

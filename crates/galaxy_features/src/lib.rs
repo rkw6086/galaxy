@@ -918,6 +918,10 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::LocalDockerSandbox,
     FeatureFlag::VerticalTabsSummaryMode,
     FeatureFlag::CloudModeSetupV2,
+    FeatureFlag::LspCompletion,
+    FeatureFlag::LspCodeActions,
+    FeatureFlag::LspRename,
+    FeatureFlag::LspSignatureHelp,
 ];
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
