@@ -240,6 +240,8 @@ pub struct WarpingProps<'a, V> {
     pub secondary_element: Option<Box<dyn Element>>,
     /// When an LRC subagent has sent at least one snapshot, the timestamp of the most recent snapshot.
     pub last_snapshot_at: Option<instant::Instant>,
+    /// When the warping indicator started showing, used to display an elapsed timer.
+    pub warping_start_time: Option<instant::Instant>,
 }
 
 pub struct ButtonProps<'a> {
@@ -470,6 +472,11 @@ pub fn render_warping_indicator<V: View>(
                         }
                     }
                 } else {
+                    // Show elapsed timer alongside the random Galaxy status message.
+                    if let Some(start_time) = props.warping_start_time {
+                        non_shimmering_text =
+                            Some(format!(" ({})", format_elapsed_compact(start_time.elapsed())));
+                    }
                     props.default_warping_text.clone()
                 }
             }
@@ -722,6 +729,24 @@ pub fn format_elapsed_seconds(elapsed: std::time::Duration) -> String {
         "1 second".to_string()
     } else {
         format!("{total_seconds} seconds")
+    }
+}
+
+/// Formats elapsed time in a compact form for the warping indicator timer.
+/// - Less than 60 seconds: shows seconds (e.g. "5s", "42s")
+/// - Less than 120 minutes: shows minutes (e.g. "1m", "45m")
+/// - 120 minutes or more: shows hours (e.g. "2h", "3h")
+pub fn format_elapsed_compact(elapsed: std::time::Duration) -> String {
+    let total_seconds = elapsed.as_secs();
+    if total_seconds < 60 {
+        format!("{total_seconds}s")
+    } else {
+        let total_minutes = total_seconds / 60;
+        if total_minutes < 120 {
+            format!("{total_minutes}m")
+        } else {
+            format!("{}h", total_minutes / 60)
+        }
     }
 }
 

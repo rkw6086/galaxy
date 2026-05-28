@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use ai::skills::{ParsedSkill, SkillProvider, SkillScope};
 #[cfg(feature = "local_fs")]
@@ -10,9 +10,10 @@ use galaxyui::App;
 use super::{blocklist_image_asset_source, ResolvedBlocklistImageSources};
 use super::{
     collect_visual_markdown_lightbox_collection, compute_visual_section_width,
-    inline_image_source_label, lightbox_trigger_for_section, query_prefix_highlight_len,
-    render_scrollable_collapsible_content, text_sections_with_indices, CollapsibleElementState,
-    CollapsibleExpansionState, VisualMarkdownLightboxCollection,
+    format_elapsed_compact, inline_image_source_label, lightbox_trigger_for_section,
+    query_prefix_highlight_len, render_scrollable_collapsible_content,
+    text_sections_with_indices, CollapsibleElementState, CollapsibleExpansionState,
+    VisualMarkdownLightboxCollection,
 };
 use crate::{
     ai::agent::{
@@ -291,4 +292,28 @@ fn blocklist_image_asset_source_uses_cached_resolution_when_available() {
         Some(AssetSource::LocalFile { path }) => assert_eq!(path, cached_path),
         other => panic!("expected cached local file asset source, got {other:?}"),
     }
+}
+
+#[test]
+fn format_elapsed_compact_shows_seconds_under_one_minute() {
+    assert_eq!(format_elapsed_compact(Duration::from_secs(0)), "0s");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(1)), "1s");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(42)), "42s");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(59)), "59s");
+}
+
+#[test]
+fn format_elapsed_compact_shows_minutes_under_120_minutes() {
+    assert_eq!(format_elapsed_compact(Duration::from_secs(60)), "1m");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(90)), "1m");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(120)), "2m");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(45 * 60)), "45m");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(119 * 60 + 59)), "119m");
+}
+
+#[test]
+fn format_elapsed_compact_shows_hours_at_120_minutes_and_above() {
+    assert_eq!(format_elapsed_compact(Duration::from_secs(120 * 60)), "2h");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(180 * 60)), "3h");
+    assert_eq!(format_elapsed_compact(Duration::from_secs(600 * 60)), "10h");
 }

@@ -133,6 +133,13 @@ pub struct BlocklistAIStatusBar {
     /// the warping indicator while the active block has a recorded LRC snapshot.
     last_read_refresh_handle: Option<SpawnedFutureHandle>,
 
+    /// The time the warping indicator started showing for the current exchange.
+    warping_start_time: Option<Instant>,
+    /// The random loading message chosen for the current exchange, stable across re-renders.
+    warping_message: Option<&'static str>,
+    /// Handle for the periodic timer that updates the warping elapsed timer UI.
+    warping_timer_handle: Option<SpawnedFutureHandle>,
+
     latest_response_stream_id: Option<ResponseStreamId>,
 
     /// Agent tip to display below the warping indicator.
@@ -185,6 +192,7 @@ impl BlocklistAIStatusBar {
                 }
                 BlocklistAIHistoryEvent::ClearedConversationsInTerminalView { .. } => {
                     me.active_exchange_model = None;
+                    me.stop_warping_timer();
                     ctx.notify();
                 }
                 BlocklistAIHistoryEvent::ClearedActiveConversation {
@@ -199,6 +207,7 @@ impl BlocklistAIStatusBar {
                             .is_some_and(|id| id == *conversation_id)
                     }) {
                         me.active_exchange_model = None;
+                        me.stop_warping_timer();
                         ctx.notify();
                     }
                 }
@@ -394,6 +403,9 @@ impl BlocklistAIStatusBar {
             summarization_timer_handle: None,
             summarization_start_time: None,
             last_read_refresh_handle: None,
+            warping_start_time: None,
+            warping_message: None,
+            warping_timer_handle: None,
             ambient_agent_view_model,
             current_tip: None,
             ephemeral_message_model,
@@ -463,6 +475,7 @@ impl BlocklistAIStatusBar {
         }) {
             let Some(conversation) = conversation else {
                 self.active_exchange_model = None;
+                self.stop_warping_timer();
                 ctx.notify();
                 return;
             };
@@ -486,6 +499,7 @@ impl BlocklistAIStatusBar {
                 });
             self.is_summarization_cancel_dialog_open = false;
             self.stop_summarization_timer();
+            self.start_warping_timer(ctx);
 
             if FeatureFlag::AgentTips.is_enabled() {
                 self.update_agent_tip(ctx);
@@ -498,6 +512,13 @@ impl BlocklistAIStatusBar {
             return;
         };
         let status = model.status(ctx);
+
+        let is_finished = matches!(
+            status,
+            AIBlockOutputStatus::Complete { .. }
+                | AIBlockOutputStatus::Cancelled { .. }
+                | AIBlockOutputStatus::Failed { .. }
+        );
 
         // Auto-clear summarization confirmation dialog if summarization is no longer active
         if self.is_summarization_cancel_dialog_open
@@ -523,6 +544,13 @@ impl BlocklistAIStatusBar {
                 }
             }
             AIBlockOutputStatus::Pending | AIBlockOutputStatus::Failed { .. } => (),
+        }
+
+        // Stop the warping timer when the exchange is no longer streaming/pending.
+        // Placed after the match so `model` (which borrows self.active_exchange_model)
+        // is no longer used, avoiding borrow conflicts with &mut self.
+        if is_finished {
+            self.stop_warping_timer();
         }
 
         ctx.notify();
@@ -664,6 +692,58 @@ impl BlocklistAIStatusBar {
     fn stop_summarization_timer(&mut self) {
         self.summarization_start_time = None;
         if let Some(handle) = self.summarization_timer_handle.take() {
+            handle.abort();
+        }
+    }
+
+    /// Starts a 1-second periodic timer that keeps the warping elapsed-time indicator fresh.
+    fn start_warping_timer(&mut self, ctx: &mut ViewContext<Self>) {
+        self.warping_start_time = Some(Instant::now());
+        self.warping_message = Some(random_load_output_message());
+        // Don't start a new timer if one is already running
+        if self.warping_timer_handle.is_some() {
+            return;
+        }
+        let handle = ctx.spawn(
+            async move {
+                Timer::after(Duration::from_secs(1)).await;
+            },
+            |me, _, ctx| {
+                me.warping_timer_handle = None;
+                if me.warping_start_time.is_some() {
+                    ctx.notify();
+                    me.restart_warping_timer(ctx);
+                }
+            },
+        );
+        self.warping_timer_handle = Some(handle);
+    }
+
+    /// Restarts the warping timer for the next tick (called from within the timer callback).
+    fn restart_warping_timer(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.warping_timer_handle.is_some() {
+            return;
+        }
+        let handle = ctx.spawn(
+            async move {
+                Timer::after(Duration::from_secs(1)).await;
+            },
+            |me, _, ctx| {
+                me.warping_timer_handle = None;
+                if me.warping_start_time.is_some() {
+                    ctx.notify();
+                    me.restart_warping_timer(ctx);
+                }
+            },
+        );
+        self.warping_timer_handle = Some(handle);
+    }
+
+    /// Stops the warping elapsed-time timer.
+    fn stop_warping_timer(&mut self) {
+        self.warping_start_time = None;
+        self.warping_message = None;
+        if let Some(handle) = self.warping_timer_handle.take() {
             handle.abort();
         }
     }
@@ -813,7 +893,8 @@ impl BlocklistAIStatusBar {
         );
         let default_warping_text = fallback_warping_text
             .as_deref()
-            .unwrap_or(random_load_output_message())
+            .or(self.warping_message)
+            .unwrap_or_else(|| random_load_output_message())
             .to_owned();
         let secondary_element = if fallback_warping_text.is_some() {
             Some(render_fallback_explanation(model.as_ref(), app))
@@ -870,6 +951,7 @@ impl BlocklistAIStatusBar {
                 default_warping_text,
                 secondary_element,
                 last_snapshot_at,
+                warping_start_time: self.warping_start_time,
             },
             app,
         ))
