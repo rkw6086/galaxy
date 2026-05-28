@@ -3239,6 +3239,7 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
     let current_context = conversation.current_context_tokens();
     let cache_read = conversation.total_cache_read_tokens();
     let cache_write = conversation.total_cache_write_tokens();
+    let total_input = conversation.total_input_tokens();
     let cost_cents = conversation.total_cost_cents();
 
     let max_context: u32 = if context_usage > 0.0 {
@@ -3247,21 +3248,22 @@ fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
         200_000
     };
     let context_pct = context_usage * 100.0;
-    let cache_total = cache_read + cache_write;
-    let cache_hit_pct = if cache_total > 0 {
-        (cache_read as f64 / cache_total as f64) * 100.0
+    let cache_total_ops = cache_read + cache_write + total_input;
+    let cache_hit_pct = if cache_total_ops > 0 {
+        (cache_read as f64 / cache_total_ops as f64) * 100.0
     } else {
         0.0
     };
 
     let usage_text = format!(
-        "Context: {:.1}% ({} / {}) | Cache: {:.1}% (R: {}, W: {}) | Cost: ${:.2}",
+        "Context: {:.1}% ({} / {}) | Cache Hit: {:.1}% (R: {}, W: {}, M: {}) | Cost: ${:.2}",
         context_pct,
         format_token_count(current_context),
         format_token_count(max_context),
         cache_hit_pct,
         format_token_count(cache_read),
         format_token_count(cache_write),
+        format_token_count(total_input),
         cost_cents / 100.0,
     );
 
