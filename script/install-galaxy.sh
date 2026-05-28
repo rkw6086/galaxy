@@ -80,7 +80,8 @@ fi
 # ---------- 4. Clone the repo ----------
 if [[ -d "$CLONE_DIR/.git" ]]; then
     info "Repository already exists at $CLONE_DIR — pulling latest..."
-    git -C "$CLONE_DIR" pull --ff-only || warn "Pull failed; building with current checkout."
+    git -C "$CLONE_DIR" fetch origin
+    git -C "$CLONE_DIR" reset --hard origin/master
 else
     info "Cloning Galaxy into $CLONE_DIR..."
     mkdir -p "$(dirname "$CLONE_DIR")"
@@ -88,11 +89,8 @@ else
 fi
 
 # ---------- 5. Build ----------
-info "Building $BUNDLE_BIN (release)..."
+info "Building and bundling $APP_NAME (release)..."
 pushd "$CLONE_DIR" > /dev/null
-cargo build --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG"
-
-info "Bundling $APP_NAME..."
 cargo bundle --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG"
 popd > /dev/null
 
