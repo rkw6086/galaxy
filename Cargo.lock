@@ -5191,7 +5191,11 @@ dependencies = [
 
 [[package]]
 name = "galaxy"
+<<<<<<< HEAD
 version = "1.5.3"
+=======
+version = "1.5.4"
+>>>>>>> master
 dependencies = [
  "addr",
  "aho-corasick",

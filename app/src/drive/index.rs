@@ -1051,6 +1051,24 @@ impl DriveIndex {
         false
     }
 
+    fn can_trash_or_delete(
+        &self,
+        cloud_object_type_and_id: &CloudObjectTypeAndId,
+        app: &AppContext,
+    ) -> bool {
+        if let Some(object) = CloudModel::as_ref(app).get_by_uid(&cloud_object_type_and_id.uid()) {
+            if !object.metadata().has_pending_online_only_change() {
+                // Local-only objects can always be trashed/deleted.
+                if !cloud_object_type_and_id.has_server_id() {
+                    return true;
+                }
+                // Server-synced objects require online connectivity.
+                return self.is_online(app);
+            }
+        }
+        false
+    }
+
     fn is_online(&self, app: &AppContext) -> bool {
         NetworkStatus::as_ref(app).is_online()
     }
@@ -4357,6 +4375,7 @@ impl DriveIndex {
             return menu_items;
         };
         let can_move_or_trash = self.online_only_operation_allowed(cloud_object_type_and_id, app);
+        let can_trash = self.can_trash_or_delete(cloud_object_type_and_id, app);
         let cloud_view_model = CloudViewModel::as_ref(app);
         let access_level = cloud_view_model.access_level(&cloud_object_type_and_id.uid(), app);
         let editability = cloud_view_model.object_editability(&cloud_object_type_and_id.uid(), app);
@@ -4754,7 +4773,7 @@ impl DriveIndex {
             }
         }
 
-        if can_move_or_trash
+        if can_trash
             && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash())
         {
             menu_items.push(
@@ -4823,7 +4842,7 @@ impl DriveIndex {
             }
         }
 
-        if self.online_only_operation_allowed(cloud_object_type_and_id, app) {
+        if self.can_trash_or_delete(cloud_object_type_and_id, app) {
             if !FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash() {
                 menu_items.push(
                     MenuItemFields::new("Restore")

@@ -4211,12 +4211,14 @@ impl UpdateManager {
     }
 
     pub fn trash_object(&mut self, id: CloudObjectTypeAndId, ctx: &mut ModelContext<Self>) {
-        // // If the object isn't known to the server yet, we can't trash it.
+        let hashed_id = id.uid();
+
+        // If the object isn't known to the server, delete it permanently (no server-side trash).
         let Some(server_id) = id.server_id() else {
+            self.delete_object_by_user(id, ctx);
             return;
         };
 
-        let hashed_id = id.uid();
         // If there's a pending online-only operation for this object, don't trash it.
         let Some(has_pending_online_only_operation) =
             CloudModel::handle(ctx).read(ctx, |model, _| {
