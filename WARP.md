@@ -216,6 +216,27 @@ if FeatureFlag::YourNewFeature.is_enabled() {
 }
 ```
 
+### Code Editor IntelliSense (LSP Completion)
+
+The code editor has full LSP-powered autocompletion with documentation resolution:
+
+**Key files:**
+- `app/src/code/completion.rs` — Completion state, rendering (menu + docs panel), resolve logic
+- `app/src/code/local_code_editor.rs` — Keybindings and action handling
+
+**Behavior:**
+- Auto-completes as you type (triggered by alphanumeric/underscore with 50ms debounce)
+- Trigger characters: `.` and `::` fire immediately
+- Manual trigger: `Ctrl+Alt+Space`
+- Keyboard navigation: Up/Down to select, Tab/Enter to confirm
+- Mouse: hover an item to select it and show docs, click to confirm
+- Documentation panel appears beside the menu when the LSP returns docs for the selected item (via `completionItem/resolve`)
+
+**Architecture:**
+- `CompletionState::Showing` holds items, filtered indices, per-item `MouseStateHandle`s, and resolved docs
+- `resolve_selected_completion_docs()` sends `completionItem/resolve` to the LSP server
+- The docs panel renders markdown via `FormattedTextElement` in a scrollable container beside the menu
+
 ### Exhaustive Matching
 
 When adding/editing match statements, avoid using the wildcard _ when at all possible. Exhaustive matching is helpful for ensuring that all variants are handled, especially when adding new variants to enums in the future.
