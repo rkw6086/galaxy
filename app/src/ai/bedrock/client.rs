@@ -133,6 +133,7 @@ impl BedrockClient {
         needs_create_task: bool,
         messages: Vec<ConversationMessage>,
         system_prompt: Option<String>,
+        compact_summary: Option<String>,
         tools: Vec<ToolDefinition>,
         max_tokens: i32,
         temperature: Option<f32>,
@@ -158,6 +159,7 @@ impl BedrockClient {
         let converted = build_converse_request(
             messages.clone(),
             system_prompt.clone(),
+            compact_summary,
             tools.clone(),
             max_tokens,
             temperature,

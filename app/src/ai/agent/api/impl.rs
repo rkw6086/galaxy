@@ -153,6 +153,7 @@ pub async fn generate_multi_agent_output(
         model_id,
         root_task_id: params.root_task_id.clone(),
         bedrock_message_history: params.bedrock_message_history.clone(),
+        bedrock_compact_summary: params.bedrock_compact_summary.clone(),
         bedrock_messages_sent: params.bedrock_messages_sent.clone(),
         is_summarization: params.is_summarization,
     };

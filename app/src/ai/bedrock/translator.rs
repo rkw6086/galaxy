@@ -13,6 +13,7 @@ pub struct TranslatorRequest {
     pub model_id: String,
     pub root_task_id: Option<String>,
     pub bedrock_message_history: Vec<ConversationMessage>,
+    pub bedrock_compact_summary: Option<String>,
     pub bedrock_messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     pub is_summarization: bool,
 }
@@ -71,12 +72,14 @@ pub async fn execute(
     request_translator::sanitize_messages_for_bedrock(&mut messages);
 
     let system_prompt = request_translator::extract_system_prompt(request);
+    let compact_summary = params.bedrock_compact_summary;
     let tools = request_translator::extract_tools(request);
 
     log::info!(
-        "[bedrock] Sending {} messages, system_prompt={}, tools={}",
+        "[bedrock] Sending {} messages, system_prompt={}, compact_summary={}, tools={}",
         messages.len(),
         system_prompt.is_some(),
+        compact_summary.is_some(),
         tools.len()
     );
 
@@ -94,6 +97,7 @@ pub async fn execute(
             needs_create_task,
             messages.clone(),
             system_prompt,
+            compact_summary,
             tools,
             64000,
             None,

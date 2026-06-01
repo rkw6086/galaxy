@@ -23,7 +23,7 @@ mod tools;
 pub use context::PromptContext;
 pub use mode::Mode;
 pub use prompts::provider::Provider;
-pub use tools::ToolSet;
+pub use tools::tools_for_mode;
 
 use crate::ai::bedrock::convert::ToolDefinition;
 

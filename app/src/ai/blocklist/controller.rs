@@ -1963,6 +1963,7 @@ impl BlocklistAIController {
             parent_agent_id,
             agent_name,
             bedrock_history,
+            bedrock_compact_summary,
         ) = {
             let Some(conversation) = history_model
                 .as_ref(ctx)
@@ -1986,6 +1987,7 @@ impl BlocklistAIController {
                 conversation.parent_agent_id().map(str::to_string),
                 conversation.agent_name().map(str::to_string),
                 conversation.bedrock_message_history().to_vec(),
+                conversation.compact_summary().map(str::to_string),
             )
         };
 
@@ -2053,6 +2055,7 @@ impl BlocklistAIController {
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
         request_params.bedrock_message_history = bedrock_history;
+        request_params.bedrock_compact_summary = bedrock_compact_summary;
         request_params.is_summarization = request_input
             .all_inputs()
             .any(|input| matches!(input, AIAgentInput::SummarizeConversation { .. }));
@@ -2415,37 +2418,14 @@ impl BlocklistAIController {
                                                     });
 
                                                 if let Some(summary) = summary_text {
-                                                    use crate::ai::bedrock::convert::{
-                                                        ConversationMessage, MessageContent,
-                                                        MessageRole,
-                                                    };
-                                                    let assistant_reply = "Understood. I have the context from our previous conversation. How can I help you next?";
-                                                    let user_msg = format!(
-                                                        "Here is a summary of our conversation so far:\n\n{summary}"
-                                                    );
-                                                    let compacted = vec![
-                                                        ConversationMessage {
-                                                            role: MessageRole::User,
-                                                            content: MessageContent::Text(user_msg.clone()),
-                                                        },
-                                                        ConversationMessage {
-                                                            role: MessageRole::Assistant,
-                                                            content: MessageContent::Text(
-                                                                assistant_reply.to_string()
-                                                            ),
-                                                        },
-                                                    ];
                                                     log::info!(
-                                                        "[bedrock] Compacted conversation history from {} messages to {} (summary)",
-                                                        new_history.len(),
-                                                        compacted.len()
+                                                        "[bedrock] Compacted conversation history from {} messages to system-level summary",
+                                                        new_history.len()
                                                     );
-                                                    *conversation.bedrock_message_history_mut() =
-                                                        compacted;
+                                                    conversation.set_compact_summary(Some(summary.clone()));
+                                                    *conversation.bedrock_message_history_mut() = Vec::new();
 
-                                                    // Estimate new context size from the compacted content.
-                                                    // ~4 chars per token is a reasonable approximation.
-                                                    let estimated_tokens = ((user_msg.len() + assistant_reply.len()) / 4) as u32;
+                                                    let estimated_tokens = (summary.len() / 4) as u32;
                                                     let max_context = crate::ai::bedrock::response_translator::context_window_for_model("claude-opus-4-6-20250514[1m]");
                                                     let new_usage = estimated_tokens as f32 / max_context as f32;
                                                     conversation.set_context_window_usage(new_usage);

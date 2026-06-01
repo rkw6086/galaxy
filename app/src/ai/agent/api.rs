@@ -134,6 +134,9 @@ pub struct RequestParams {
     /// Full Bedrock conversation history for direct Bedrock calls.
     /// When present, the Bedrock path uses this instead of extracting from task_context.
     pub bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    /// Compacted summary from a prior summarization pass. Injected into the system
+    /// prompt so it benefits from system-level caching.
+    pub bedrock_compact_summary: Option<String>,
     /// Populated by the Bedrock path after building the message list.
     /// Contains the full messages sent (old history + new input) so the controller
     /// can store them back into the conversation for the next request cycle.
@@ -328,6 +331,7 @@ impl RequestParams {
             parent_agent_id: None,
             agent_name: None,
             bedrock_message_history: Vec::new(),
+            bedrock_compact_summary: None,
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             is_summarization: false,
         }

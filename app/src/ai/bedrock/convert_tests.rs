@@ -10,7 +10,7 @@ fn test_text_message_converts_to_single_block() {
         content: MessageContent::Text("Hello".to_string()),
     }];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
@@ -29,7 +29,7 @@ fn test_tool_use_produces_valid_json_input() {
         },
     }];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].role(), &ConversationRole::Assistant);
@@ -53,7 +53,7 @@ fn test_tool_result_with_matching_id() {
         },
     }];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 1);
     match &result.messages[0].content()[0] {
@@ -75,7 +75,7 @@ fn test_tool_result_error_status() {
         },
     }];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     match &result.messages[0].content()[0] {
         ContentBlock::ToolResult(block) => {
@@ -101,7 +101,7 @@ fn test_consecutive_same_role_messages_coalesced() {
         },
     ];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].content().len(), 2);
@@ -126,7 +126,7 @@ fn test_alternating_roles_not_coalesced() {
         },
     ];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 3);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
@@ -144,6 +144,7 @@ fn test_system_prompt_separated_from_messages() {
     let result = build_converse_request(
         messages,
         Some("You are a helpful assistant.".to_string()),
+        None,
         vec![],
         4096,
         None,
@@ -159,16 +160,16 @@ fn test_system_prompt_separated_from_messages() {
 #[test]
 fn test_empty_system_prompt_produces_empty_vec() {
     let result =
-        build_converse_request(vec![], Some("".to_string()), vec![], 4096, None, None, None);
+        build_converse_request(vec![], Some("".to_string()), None, vec![], 4096, None, None, None);
     assert!(result.system.is_empty());
 
-    let result2 = build_converse_request(vec![], None, vec![], 4096, None, None, None);
+    let result2 = build_converse_request(vec![], None, None, vec![], 4096, None, None, None);
     assert!(result2.system.is_empty());
 }
 
 #[test]
 fn test_empty_tools_produce_none_config() {
-    let result = build_converse_request(vec![], None, vec![], 4096, None, None, None);
+    let result = build_converse_request(vec![], None, None, vec![], 4096, None, None, None);
     assert!(result.tool_config.is_none());
 }
 
@@ -186,7 +187,7 @@ fn test_tool_definitions_produce_tool_config() {
         }),
     }];
 
-    let result = build_converse_request(vec![], None, tools, 4096, None, None, None);
+    let result = build_converse_request(vec![], None, None, tools, 4096, None, None, None);
 
     assert!(result.tool_config.is_some());
     let config = result.tool_config.unwrap();
@@ -195,7 +196,7 @@ fn test_tool_definitions_produce_tool_config() {
 
 #[test]
 fn test_inference_config_max_tokens_only() {
-    let result = build_converse_request(vec![], None, vec![], 8192, None, None, None);
+    let result = build_converse_request(vec![], None, None, vec![], 8192, None, None, None);
     assert_eq!(result.inference_config.max_tokens(), Some(8192));
     assert_eq!(result.inference_config.temperature(), None);
     assert_eq!(result.inference_config.top_p(), None);
@@ -206,6 +207,7 @@ fn test_inference_config_max_tokens_only() {
 fn test_inference_config_all_params() {
     let result = build_converse_request(
         vec![],
+        None,
         None,
         vec![],
         4096,
@@ -233,7 +235,7 @@ fn test_multipart_content_produces_multiple_blocks() {
         ]),
     }];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages[0].content().len(), 2);
     assert!(matches!(
@@ -271,7 +273,7 @@ fn test_tool_result_after_tool_use_coalesced_into_user_message() {
         },
     ];
 
-    let result = build_converse_request(messages, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
 
     assert_eq!(result.messages.len(), 3);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
