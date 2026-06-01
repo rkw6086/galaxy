@@ -59,6 +59,7 @@ async fn collect_stream_output(
             true,
             messages,
             system_prompt,
+            None,
             tools,
             8192,
             None,
@@ -66,6 +67,7 @@ async fn collect_stream_output(
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
+            false,
         )
         .await
         .expect("converse_stream should succeed");

@@ -85,7 +85,7 @@ pub enum ContentPart {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -95,6 +95,7 @@ pub struct ToolDefinition {
 pub fn build_converse_request(
     messages: Vec<ConversationMessage>,
     system_prompt: Option<String>,
+    compact_summary: Option<String>,
     tools: Vec<ToolDefinition>,
     max_tokens: i32,
     temperature: Option<f32>,
@@ -103,7 +104,7 @@ pub fn build_converse_request(
     caching_config: CachingConfig,
 ) -> ConvertedRequest {
     let bedrock_messages = convert_messages(messages, &caching_config);
-    let system = convert_system_prompt(system_prompt, &caching_config);
+    let system = convert_system_prompt(system_prompt, compact_summary, &caching_config);
     let inference_config = build_inference_config(max_tokens, temperature, top_p, stop_sequences);
     let tool_config = build_tool_config(tools, &caching_config);
 
@@ -297,23 +298,36 @@ fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessa
     result
 }
 
-fn convert_system_prompt(system_prompt: Option<String>, caching_config: &CachingConfig) -> Vec<SystemContentBlock> {
-    match system_prompt {
-        Some(prompt) if !prompt.is_empty() => {
-            let mut blocks = vec![SystemContentBlock::Text(prompt)];
-            if caching_config.enabled {
-                let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
-                if caching_config.extended_ttl_requested {
-                    builder = builder.ttl(CacheTtl::OneHour);
-                }
-                blocks.push(SystemContentBlock::CachePoint(
-                    builder.build().expect("valid cache point"),
-                ));
-            }
-            blocks
+fn convert_system_prompt(
+    system_prompt: Option<String>,
+    compact_summary: Option<String>,
+    caching_config: &CachingConfig,
+) -> Vec<SystemContentBlock> {
+    let mut blocks = Vec::new();
+
+    if let Some(prompt) = system_prompt {
+        if !prompt.is_empty() {
+            blocks.push(SystemContentBlock::Text(prompt));
         }
-        _ => vec![],
     }
+
+    if let Some(summary) = compact_summary {
+        blocks.push(SystemContentBlock::Text(format!(
+            "<conversation-summary>\n{summary}\n</conversation-summary>"
+        )));
+    }
+
+    if !blocks.is_empty() && caching_config.enabled {
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+        }
+        blocks.push(SystemContentBlock::CachePoint(
+            builder.build().expect("valid cache point"),
+        ));
+    }
+
+    blocks
 }
 
 fn build_inference_config(

@@ -241,6 +241,11 @@ pub struct AIConversation {
     /// context window size, NOT a cumulative total.
     current_context_tokens: u32,
 
+    /// When set, contains the compacted summary of prior conversation history.
+    /// Injected into the system prompt (not the messages array) so it benefits
+    /// from system-level caching at the 1-hour TTL.
+    compact_summary: Option<String>,
+
     /// Guards against repeated auto-compact triggers within the same high-usage window.
     /// Set to true when auto-compact fires; reset when summarization completes.
     has_pending_auto_compact: bool,
@@ -298,6 +303,7 @@ impl AIConversation {
             is_remote_child: false,
             last_event_sequence: None,
             bedrock_message_history: Vec::new(),
+            compact_summary: None,
             current_context_tokens: 0,
             has_pending_auto_compact: false,
             subagent_retry_count: 0,
@@ -498,6 +504,7 @@ impl AIConversation {
             is_remote_child: false,
             last_event_sequence,
             bedrock_message_history,
+            compact_summary: None,
             current_context_tokens: 0,
             has_pending_auto_compact: false,
             subagent_retry_count: 0,
@@ -523,6 +530,14 @@ impl AIConversation {
         messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
     ) {
         self.bedrock_message_history.extend(messages);
+    }
+
+    pub fn compact_summary(&self) -> Option<&str> {
+        self.compact_summary.as_deref()
+    }
+
+    pub fn set_compact_summary(&mut self, summary: Option<String>) {
+        self.compact_summary = summary;
     }
 
     /// Assigns fresh exchange IDs to all exchanges in this conversation.
