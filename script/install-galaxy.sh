@@ -89,8 +89,11 @@ else
 fi
 
 # ---------- 5. Build ----------
-info "Building and bundling $APP_NAME (release)..."
+info "Fetching dependencies..."
 pushd "$CLONE_DIR" > /dev/null
+cargo fetch
+
+info "Building and bundling $APP_NAME (release)..."
 cargo bundle --release --bin "$BUNDLE_BIN" --package "$BUNDLE_PKG"
 popd > /dev/null
 

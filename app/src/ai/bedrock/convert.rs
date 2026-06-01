@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use aws_sdk_bedrockruntime::types::{
-    CachePointBlock, CachePointType, ContentBlock, ConversationRole, InferenceConfiguration,
-    Message as BedrockMessage, SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema,
-    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole,
+    InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool,
+    ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus,
+    ToolSpecification, ToolUseBlock,
 };
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
@@ -220,6 +221,7 @@ fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
         content.push(ContentBlock::CachePoint(
             CachePointBlock::builder()
                 .r#type(CachePointType::Default)
+                .ttl(CacheTtl::OneHour)
                 .build()
                 .expect("valid cache point"),
         ));
@@ -273,6 +275,7 @@ fn convert_system_prompt(system_prompt: Option<String>) -> Vec<SystemContentBloc
                 SystemContentBlock::CachePoint(
                     CachePointBlock::builder()
                         .r#type(CachePointType::Default)
+                        .ttl(CacheTtl::OneHour)
                         .build()
                         .expect("valid cache point"),
                 ),
@@ -326,6 +329,7 @@ fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
     tool_specs.push(Tool::CachePoint(
         CachePointBlock::builder()
             .r#type(CachePointType::Default)
+            .ttl(CacheTtl::OneHour)
             .build()
             .expect("valid cache point"),
     ));
