@@ -89,15 +89,54 @@ impl View for SettingsView {
         }
 
         // Model Configuration
+        column = column.with_child(
+            Text::new(
+                "\n━━━ Model Selection ━━━",
+                appearance.ui_font_family(),
+                font_size - 1.0,
+            )
+            .with_color(label_color)
+            .finish(),
+        );
+
         if let Some(model) = &self.external_config.anthropic_model {
             column = column.with_child(
                 Text::new(
-                    format!("Primary Model: {}", model),
+                    format!("Default Model (ANTHROPIC_MODEL): {}", model),
                     appearance.ui_font_family(),
                     font_size,
                 )
                 .with_color(text_color)
                 .soft_wrap(true)
+                .finish(),
+            );
+            column = column.with_child(
+                Text::new(
+                    "Sets the initial model in dropdown. You can change it.",
+                    appearance.ui_font_family(),
+                    font_size - 1.0,
+                )
+                .with_color(label_color)
+                .soft_wrap(true)
+                .finish(),
+            );
+        } else {
+            column = column.with_child(
+                Text::new(
+                    "Default Model: Not set",
+                    appearance.ui_font_family(),
+                    font_size,
+                )
+                .with_color(label_color)
+                .finish(),
+            );
+            column = column.with_child(
+                Text::new(
+                    "Set ANTHROPIC_MODEL in settings.json to set initial model",
+                    appearance.ui_font_family(),
+                    font_size - 1.0,
+                )
+                .with_color(label_color)
                 .finish(),
             );
         }
@@ -134,11 +173,31 @@ impl View for SettingsView {
         if self.caching_config.extended_ttl_requested {
             column = column.with_child(
                 Text::new(
-                    "Extended 1h TTL: ✓ Requested",
+                    "Extended 1h Cache TTL: ✓ Active",
                     appearance.ui_font_family(),
                     font_size,
                 )
                 .with_color(text_color)
+                .finish(),
+            );
+            column = column.with_child(
+                Text::new(
+                    "All cache points use 1-hour TTL. Model list filtered to compatible models only.",
+                    appearance.ui_font_family(),
+                    font_size - 1.0,
+                )
+                .with_color(label_color)
+                .soft_wrap(true)
+                .finish(),
+            );
+            column = column.with_child(
+                Text::new(
+                    "Compatible: Claude Opus 4.5, Sonnet 4.5, Haiku 4.5",
+                    appearance.ui_font_family(),
+                    font_size - 1.0,
+                )
+                .with_color(label_color)
+                .soft_wrap(true)
                 .finish(),
             );
         }
@@ -173,7 +232,16 @@ impl View for SettingsView {
         // Help text
         column = column.with_child(
             Text::new(
-                "\nSettings loaded from ~/.claude/settings.json",
+                "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                appearance.ui_font_family(),
+                font_size,
+            )
+            .with_color(label_color)
+            .finish(),
+        );
+        column = column.with_child(
+            Text::new(
+                "Settings loaded from ~/.claude/settings.json",
                 appearance.ui_font_family(),
                 font_size - 1.0,
             )

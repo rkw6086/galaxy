@@ -646,7 +646,42 @@ impl LLMPreferences {
         let region = settings.bedrock_region.value().clone();
         let cross_region = *settings.bedrock_cross_region_inference.value();
 
-        let effective = get_effective_models(&user_models);
+        // Check if user wants only 1-hour cache models
+        use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+        let external_config = ExternalBedrockConfig::load();
+        let require_1h_cache = external_config.enable_prompt_caching_1h;
+
+        let mut effective = get_effective_models(&user_models);
+
+        // Filter out models that don't support 1-hour caching if required
+        if require_1h_cache {
+            effective.retain(|model| {
+                // 1-hour caching is supported by Claude 4.5+ models
+                // Opus 4.5+, Sonnet 4.5+, Haiku 4.5+
+                let supports_1h = model.model_id.contains("4-5")
+                    || model.model_id.contains("4.5")
+                    || model.model_id.contains("-4-6") // Opus/Sonnet 4.6+ also support 1h
+                    || model.model_id.contains("4.6")
+                    || model.model_id.contains("-4-7")
+                    || model.model_id.contains("4.7")
+                    || model.model_id.contains("-4-8")
+                    || model.model_id.contains("4.8");
+
+                if !supports_1h {
+                    log::info!(
+                        "[bedrock] Filtering out model {} - does not support 1-hour cache (ENABLE_PROMPT_CACHING_1H=1)",
+                        model.model_id
+                    );
+                }
+                supports_1h
+            });
+
+            if effective.is_empty() {
+                log::warn!("[bedrock] No models left after filtering for 1-hour cache support!");
+            }
+        }
+
+        let effective = effective;
         for model in effective {
             let model_id = if cross_region && !region.is_empty() {
                 super::bedrock::models::apply_cross_region_prefix(&model.model_id, &region)
@@ -700,15 +735,43 @@ impl LLMPreferences {
             cli.choices.retain(|m| m.provider != LLMProvider::Unknown);
         }
 
-        // Default agent mode to Claude Opus 4.6, falling back to the first available model.
-        if let Some(id) = self
-            .models_by_feature
-            .agent_mode
-            .choices
-            .iter()
-            .find(|m| m.display_name.contains("Opus 4.6"))
-            .or_else(|| self.models_by_feature.agent_mode.choices.first())
-            .map(|m| m.id.clone())
+        // Default agent mode to ANTHROPIC_MODEL from external config if set,
+        // otherwise Claude Opus 4.6, falling back to the first available model.
+        // Note: external_config already loaded above for filtering
+        let external_config_for_default = ExternalBedrockConfig::load();
+
+        if let Some(id) = external_config_for_default
+            .anthropic_model
+            .as_ref()
+            .and_then(|model_id| {
+                // Match by model_id (with or without cross-region prefix)
+                self.models_by_feature
+                    .agent_mode
+                    .choices
+                    .iter()
+                    .find(|m| {
+                        m.id.as_str() == model_id
+                            || m.id.as_str().ends_with(model_id)
+                            || model_id.ends_with(m.id.as_str())
+                    })
+                    .map(|m| {
+                        log::info!(
+                            "[bedrock] Setting default agent mode model from ANTHROPIC_MODEL: {} -> {}",
+                            model_id,
+                            m.display_name
+                        );
+                        m.id.clone()
+                    })
+            })
+            .or_else(|| {
+                self.models_by_feature
+                    .agent_mode
+                    .choices
+                    .iter()
+                    .find(|m| m.display_name.contains("Opus 4.6"))
+                    .or_else(|| self.models_by_feature.agent_mode.choices.first())
+                    .map(|m| m.id.clone())
+            })
         {
             self.models_by_feature.agent_mode.default_id = id;
         }

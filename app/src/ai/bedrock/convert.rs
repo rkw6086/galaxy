@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use aws_sdk_bedrockruntime::types::{
-    CachePointBlock, CachePointType, ContentBlock, ConversationRole, InferenceConfiguration,
-    Message as BedrockMessage, SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema,
-    ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole,
+    InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool,
+    ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock,
+    ToolResultStatus, ToolSpecification, ToolUseBlock,
 };
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
@@ -244,11 +245,15 @@ fn convert_messages(messages: Vec<ConversationMessage>, caching_config: &Caching
         let cache_idx = messages.len() - 2;
         let msg = messages.remove(cache_idx);
         let mut content = msg.content().to_vec();
+
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+            log::info!("[bedrock] Using 1-hour cache TTL (ENABLE_PROMPT_CACHING_1H=1)");
+        }
+
         content.push(ContentBlock::CachePoint(
-            CachePointBlock::builder()
-                .r#type(CachePointType::Default)
-                .build()
-                .expect("valid cache point"),
+            builder.build().expect("valid cache point"),
         ));
         let cached_msg = BedrockMessage::builder()
             .role(msg.role().clone())
@@ -256,11 +261,6 @@ fn convert_messages(messages: Vec<ConversationMessage>, caching_config: &Caching
             .build()
             .expect("valid message with cache point");
         messages.insert(cache_idx, cached_msg);
-
-        if caching_config.extended_ttl_requested {
-            log::info!("[bedrock] Extended 1-hour caching requested (ENABLE_PROMPT_CACHING_1H=1)");
-            // TODO: Use explicit TTL when AWS SDK supports it
-        }
     }
 
     messages
@@ -302,11 +302,12 @@ fn convert_system_prompt(system_prompt: Option<String>, caching_config: &Caching
         Some(prompt) if !prompt.is_empty() => {
             let mut blocks = vec![SystemContentBlock::Text(prompt)];
             if caching_config.enabled {
+                let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+                if caching_config.extended_ttl_requested {
+                    builder = builder.ttl(CacheTtl::OneHour);
+                }
                 blocks.push(SystemContentBlock::CachePoint(
-                    CachePointBlock::builder()
-                        .r#type(CachePointType::Default)
-                        .build()
-                        .expect("valid cache point"),
+                    builder.build().expect("valid cache point"),
                 ));
             }
             blocks
@@ -357,11 +358,12 @@ fn build_tool_config(tools: Vec<ToolDefinition>, caching_config: &CachingConfig)
         .collect();
 
     if caching_config.enabled {
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+        }
         tool_specs.push(Tool::CachePoint(
-            CachePointBlock::builder()
-                .r#type(CachePointType::Default)
-                .build()
-                .expect("valid cache point"),
+            builder.build().expect("valid cache point"),
         ));
     }
 
