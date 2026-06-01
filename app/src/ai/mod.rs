@@ -17,6 +17,7 @@ pub(crate) mod attachment_utils;
 pub mod aws_credentials;
 #[cfg(not(target_family = "wasm"))]
 pub mod bedrock;
+#[allow(dead_code)]
 pub mod prompt_builder;
 pub(crate) mod block_context;
 pub(crate) mod blocklist;
