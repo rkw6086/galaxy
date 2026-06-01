@@ -41,8 +41,10 @@ pub async fn execute(
         .map(|tc| tc.tasks.is_empty())
         .unwrap_or(true);
 
+    // Use the model from params (selected in UI or defaulted from ANTHROPIC_MODEL)
     let mut model_id = params.model_id;
     if model_id.is_empty() || model_id == "auto" {
+        // Fall back to default if nothing is set
         model_id = "us.anthropic.claude-opus-4-6".to_string();
     }
 

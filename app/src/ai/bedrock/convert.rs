@@ -3,11 +3,37 @@ use std::collections::HashMap;
 use aws_sdk_bedrockruntime::types::{
     CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole,
     InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool,
-    ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus,
-    ToolSpecification, ToolUseBlock,
+    ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock,
+    ToolResultStatus, ToolSpecification, ToolUseBlock,
 };
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
+
+use super::external_config::ExternalBedrockConfig;
+
+#[derive(Clone, Debug)]
+pub struct CachingConfig {
+    pub enabled: bool,
+    pub extended_ttl_requested: bool,
+}
+
+impl Default for CachingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extended_ttl_requested: false,
+        }
+    }
+}
+
+impl CachingConfig {
+    pub fn from_external_config(external: &ExternalBedrockConfig) -> Self {
+        Self {
+            enabled: !external.disable_prompt_caching,
+            extended_ttl_requested: external.enable_prompt_caching_1h,
+        }
+    }
+}
 
 pub struct ConvertedRequest {
     pub messages: Vec<BedrockMessage>,
@@ -59,7 +85,7 @@ pub enum ContentPart {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -75,11 +101,12 @@ pub fn build_converse_request(
     temperature: Option<f32>,
     top_p: Option<f32>,
     stop_sequences: Option<Vec<String>>,
+    caching_config: CachingConfig,
 ) -> ConvertedRequest {
-    let bedrock_messages = convert_messages(messages);
-    let system = convert_system_prompt(system_prompt, compact_summary);
+    let bedrock_messages = convert_messages(messages, &caching_config);
+    let system = convert_system_prompt(system_prompt, compact_summary, &caching_config);
     let inference_config = build_inference_config(max_tokens, temperature, top_p, stop_sequences);
-    let tool_config = build_tool_config(tools);
+    let tool_config = build_tool_config(tools, &caching_config);
 
     ConvertedRequest {
         messages: bedrock_messages,
@@ -114,7 +141,7 @@ fn json_to_document(value: JsonValue) -> Document {
     }
 }
 
-fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
+fn convert_messages(messages: Vec<ConversationMessage>, caching_config: &CachingConfig) -> Vec<BedrockMessage> {
     let mut result = Vec::new();
 
     for msg in messages {
@@ -215,16 +242,19 @@ fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
     // Add a cache point to the second-to-last message (the conversation prefix
     // that is stable between requests). This allows Bedrock to cache all prior
     // context and only process the latest message as new input tokens.
-    if messages.len() >= 2 {
+    if caching_config.enabled && messages.len() >= 2 {
         let cache_idx = messages.len() - 2;
         let msg = messages.remove(cache_idx);
         let mut content = msg.content().to_vec();
+
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+            log::info!("[bedrock] Using 1-hour cache TTL (ENABLE_PROMPT_CACHING_1H=1)");
+        }
+
         content.push(ContentBlock::CachePoint(
-            CachePointBlock::builder()
-                .r#type(CachePointType::Default)
-                .ttl(CacheTtl::OneHour)
-                .build()
-                .expect("valid cache point"),
+            builder.build().expect("valid cache point"),
         ));
         let cached_msg = BedrockMessage::builder()
             .role(msg.role().clone())
@@ -271,6 +301,7 @@ fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessa
 fn convert_system_prompt(
     system_prompt: Option<String>,
     compact_summary: Option<String>,
+    caching_config: &CachingConfig,
 ) -> Vec<SystemContentBlock> {
     let mut blocks = Vec::new();
 
@@ -286,13 +317,13 @@ fn convert_system_prompt(
         )));
     }
 
-    if !blocks.is_empty() {
+    if !blocks.is_empty() && caching_config.enabled {
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+        }
         blocks.push(SystemContentBlock::CachePoint(
-            CachePointBlock::builder()
-                .r#type(CachePointType::Default)
-                .ttl(CacheTtl::OneHour)
-                .build()
-                .expect("valid cache point"),
+            builder.build().expect("valid cache point"),
         ));
     }
 
@@ -320,7 +351,7 @@ fn build_inference_config(
     builder.build()
 }
 
-fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
+fn build_tool_config(tools: Vec<ToolDefinition>, caching_config: &CachingConfig) -> Option<ToolConfiguration> {
     if tools.is_empty() {
         return None;
     }
@@ -340,13 +371,15 @@ fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
         })
         .collect();
 
-    tool_specs.push(Tool::CachePoint(
-        CachePointBlock::builder()
-            .r#type(CachePointType::Default)
-            .ttl(CacheTtl::OneHour)
-            .build()
-            .expect("valid cache point"),
-    ));
+    if caching_config.enabled {
+        let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
+        if caching_config.extended_ttl_requested {
+            builder = builder.ttl(CacheTtl::OneHour);
+        }
+        tool_specs.push(Tool::CachePoint(
+            builder.build().expect("valid cache point"),
+        ));
+    }
 
     Some(
         ToolConfiguration::builder()

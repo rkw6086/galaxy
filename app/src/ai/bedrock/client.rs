@@ -8,7 +8,7 @@ use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use crate::settings::ai::BedrockAuthMethod;
 
 use super::external_config::ExternalBedrockConfig;
-use super::convert::{build_converse_request, ConversationMessage, ToolDefinition};
+use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
@@ -149,6 +149,13 @@ impl BedrockClient {
             model_id.to_string()
         };
 
+        let external_config = ExternalBedrockConfig::load();
+        let caching_config = CachingConfig::from_external_config(&external_config);
+
+        if !caching_config.enabled {
+            log::info!("[bedrock] Prompt caching disabled (DISABLE_PROMPT_CACHING=1)");
+        }
+
         log::info!(
             "[bedrock] converse_stream: model={effective_model_id}, region={}, messages={}, tools={}",
             self.region,
@@ -165,6 +172,7 @@ impl BedrockClient {
             temperature,
             None,
             None,
+            caching_config,
         );
 
         if let Some(ref logger) = diagnostic_logger {

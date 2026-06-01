@@ -10,7 +10,7 @@ fn test_text_message_converts_to_single_block() {
         content: MessageContent::Text("Hello".to_string()),
     }];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
@@ -29,7 +29,7 @@ fn test_tool_use_produces_valid_json_input() {
         },
     }];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].role(), &ConversationRole::Assistant);
@@ -53,7 +53,7 @@ fn test_tool_result_with_matching_id() {
         },
     }];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 1);
     match &result.messages[0].content()[0] {
@@ -75,7 +75,7 @@ fn test_tool_result_error_status() {
         },
     }];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     match &result.messages[0].content()[0] {
         ContentBlock::ToolResult(block) => {
@@ -101,7 +101,7 @@ fn test_consecutive_same_role_messages_coalesced() {
         },
     ];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 1);
     assert_eq!(result.messages[0].content().len(), 2);
@@ -126,7 +126,7 @@ fn test_alternating_roles_not_coalesced() {
         },
     ];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 3);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
@@ -150,6 +150,7 @@ fn test_system_prompt_separated_from_messages() {
         None,
         None,
         None,
+        CachingConfig::default(),
     );
 
     assert_eq!(result.system.len(), 1);
@@ -160,16 +161,16 @@ fn test_system_prompt_separated_from_messages() {
 #[test]
 fn test_empty_system_prompt_produces_empty_vec() {
     let result =
-        build_converse_request(vec![], Some("".to_string()), None, vec![], 4096, None, None, None);
+        build_converse_request(vec![], Some("".to_string()), None, vec![], 4096, None, None, None, CachingConfig::default());
     assert!(result.system.is_empty());
 
-    let result2 = build_converse_request(vec![], None, None, vec![], 4096, None, None, None);
+    let result2 = build_converse_request(vec![], None, None, vec![], 4096, None, None, None, CachingConfig::default());
     assert!(result2.system.is_empty());
 }
 
 #[test]
 fn test_empty_tools_produce_none_config() {
-    let result = build_converse_request(vec![], None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(vec![], None, None, vec![], 4096, None, None, None, CachingConfig::default());
     assert!(result.tool_config.is_none());
 }
 
@@ -187,7 +188,7 @@ fn test_tool_definitions_produce_tool_config() {
         }),
     }];
 
-    let result = build_converse_request(vec![], None, None, tools, 4096, None, None, None);
+    let result = build_converse_request(vec![], None, None, tools, 4096, None, None, None, CachingConfig::default());
 
     assert!(result.tool_config.is_some());
     let config = result.tool_config.unwrap();
@@ -196,7 +197,7 @@ fn test_tool_definitions_produce_tool_config() {
 
 #[test]
 fn test_inference_config_max_tokens_only() {
-    let result = build_converse_request(vec![], None, None, vec![], 8192, None, None, None);
+    let result = build_converse_request(vec![], None, None, vec![], 8192, None, None, None, CachingConfig::default());
     assert_eq!(result.inference_config.max_tokens(), Some(8192));
     assert_eq!(result.inference_config.temperature(), None);
     assert_eq!(result.inference_config.top_p(), None);
@@ -214,6 +215,7 @@ fn test_inference_config_all_params() {
         Some(0.7),
         Some(0.9),
         Some(vec!["STOP".to_string()]),
+        CachingConfig::default(),
     );
     assert_eq!(result.inference_config.max_tokens(), Some(4096));
     assert_eq!(result.inference_config.temperature(), Some(0.7));
@@ -235,7 +237,7 @@ fn test_multipart_content_produces_multiple_blocks() {
         ]),
     }];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages[0].content().len(), 2);
     assert!(matches!(
@@ -273,7 +275,7 @@ fn test_tool_result_after_tool_use_coalesced_into_user_message() {
         },
     ];
 
-    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None);
+    let result = build_converse_request(messages, None, None, vec![], 4096, None, None, None, CachingConfig::default());
 
     assert_eq!(result.messages.len(), 3);
     assert_eq!(result.messages[0].role(), &ConversationRole::User);
@@ -283,4 +285,130 @@ fn test_tool_result_after_tool_use_coalesced_into_user_message() {
         &result.messages[2].content()[0],
         ContentBlock::ToolResult(_)
     ));
+}
+
+#[test]
+fn test_caching_disabled_no_cache_points() {
+    let config = CachingConfig {
+        enabled: false,
+        extended_ttl_requested: false,
+    };
+
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("first message".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("response".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("second message".to_string()),
+        },
+    ];
+
+    let tools = vec![ToolDefinition {
+        name: "test_tool".to_string(),
+        description: "Test tool".to_string(),
+        input_schema: json!({"type": "object", "properties": {}}),
+    }];
+
+    let result = build_converse_request(
+        messages,
+        Some("System prompt".to_string()),
+        None,
+        tools,
+        4096,
+        None,
+        None,
+        None,
+        config,
+    );
+
+    // Check that no cache points exist in messages
+    for msg in &result.messages {
+        for content in msg.content() {
+            assert!(!matches!(content, ContentBlock::CachePoint(_)));
+        }
+    }
+
+    // Check that no cache points exist in system
+    for block in &result.system {
+        use aws_sdk_bedrockruntime::types::SystemContentBlock;
+        assert!(!matches!(block, SystemContentBlock::CachePoint(_)));
+    }
+
+    // Check that no cache points exist in tools
+    if let Some(tool_config) = result.tool_config {
+        for tool in tool_config.tools() {
+            use aws_sdk_bedrockruntime::types::Tool;
+            assert!(!matches!(tool, Tool::CachePoint(_)));
+        }
+    }
+}
+
+#[test]
+fn test_caching_enabled_has_cache_points() {
+    let config = CachingConfig::default(); // enabled by default
+
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("first message".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("response".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("second message".to_string()),
+        },
+    ];
+
+    let tools = vec![ToolDefinition {
+        name: "test_tool".to_string(),
+        description: "Test tool".to_string(),
+        input_schema: json!({"type": "object", "properties": {}}),
+    }];
+
+    let result = build_converse_request(
+        messages,
+        Some("System prompt".to_string()),
+        None,
+        tools,
+        4096,
+        None,
+        None,
+        None,
+        config,
+    );
+
+    // Check that cache point exists in second-to-last message (index 1 of 3)
+    let second_to_last_msg = &result.messages[1];
+    let has_cache_point = second_to_last_msg
+        .content()
+        .iter()
+        .any(|c| matches!(c, ContentBlock::CachePoint(_)));
+    assert!(has_cache_point, "Second-to-last message should have cache point");
+
+    // Check that cache point exists in system
+    use aws_sdk_bedrockruntime::types::SystemContentBlock;
+    let has_system_cache = result
+        .system
+        .iter()
+        .any(|b| matches!(b, SystemContentBlock::CachePoint(_)));
+    assert!(has_system_cache, "System should have cache point");
+
+    // Check that cache point exists in tools
+    if let Some(tool_config) = result.tool_config {
+        use aws_sdk_bedrockruntime::types::Tool;
+        let has_tool_cache = tool_config
+            .tools()
+            .iter()
+            .any(|t| matches!(t, Tool::CachePoint(_)));
+        assert!(has_tool_cache, "Tools should have cache point");
+    }
 }

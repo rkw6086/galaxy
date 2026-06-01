@@ -6,6 +6,7 @@ pub mod external_config;
 pub mod models;
 pub mod request_translator;
 pub mod response_translator;
+pub mod settings_view;
 pub mod translator;
 
 #[cfg(test)]
