@@ -424,6 +424,8 @@ pub enum TerminalAction {
     ToggleUsageFooter,
     /// Toggle the context window debug view showing bedrock_message_history.
     ToggleContextView,
+    /// Toggle the settings view showing Galaxy Bedrock configuration.
+    ToggleSettingsView,
     /// Reveal a hidden child agent pane from the orchestrator status card.
     RevealChildAgent {
         conversation_id: AIConversationId,
@@ -705,6 +707,7 @@ impl fmt::Debug for TerminalAction {
             AwsCliNotInstalledBanner(action) => write!(f, "AwsCliNotInstalledBanner({action:?})"),
             ToggleUsageFooter => write!(f, "ToggleUsageFooter"),
             ToggleContextView => write!(f, "ToggleContextView"),
+            ToggleSettingsView => write!(f, "ToggleSettingsView"),
             RevealChildAgent { .. } => write!(f, "RevealChildAgent"),
             ToggleSessionRecording => write!(f, "ToggleSessionRecording"),
             OpenCLIAgentRichInput => write!(f, "OpenCLIAgentRichInput"),

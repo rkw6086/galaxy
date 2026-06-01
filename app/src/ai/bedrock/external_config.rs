@@ -9,6 +9,10 @@ pub struct ExternalBedrockConfig {
     pub region: Option<String>,
     pub models: Vec<BedrockModelConfig>,
     pub auth_refresh_command: Option<String>,
+    pub disable_prompt_caching: bool,
+    pub enable_prompt_caching_1h: bool,
+    pub anthropic_model: Option<String>,
+    pub anthropic_small_fast_model: Option<String>,
 }
 
 impl ExternalBedrockConfig {
@@ -30,6 +34,10 @@ impl ExternalBedrockConfig {
                 claude_config.models
             },
             auth_refresh_command: claude_config.auth_refresh_command,
+            disable_prompt_caching: claude_config.disable_prompt_caching,
+            enable_prompt_caching_1h: claude_config.enable_prompt_caching_1h,
+            anthropic_model: claude_config.anthropic_model,
+            anthropic_small_fast_model: claude_config.anthropic_small_fast_model,
         }
     }
 
@@ -83,11 +91,37 @@ fn parse_claude_code_config(path: PathBuf) -> ExternalBedrockConfig {
 
     let models = parse_claude_code_model_map(env);
 
+    let disable_prompt_caching = env
+        .get("DISABLE_PROMPT_CACHING")
+        .and_then(|v| v.as_str())
+        .map(|s| s == "1")
+        .unwrap_or(false);
+
+    let enable_prompt_caching_1h = env
+        .get("ENABLE_PROMPT_CACHING_1H")
+        .and_then(|v| v.as_str())
+        .map(|s| s == "1")
+        .unwrap_or(false);
+
+    let anthropic_model = env
+        .get("ANTHROPIC_MODEL")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let anthropic_small_fast_model = env
+        .get("ANTHROPIC_SMALL_FAST_MODEL")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     ExternalBedrockConfig {
         profile,
         region,
         models,
         auth_refresh_command,
+        disable_prompt_caching,
+        enable_prompt_caching_1h,
+        anthropic_model,
+        anthropic_small_fast_model,
     }
 }
 
@@ -234,6 +268,10 @@ fn parse_opencode_config(path: PathBuf) -> ExternalBedrockConfig {
         region,
         models: Vec::new(),
         auth_refresh_command: None,
+        disable_prompt_caching: false,
+        enable_prompt_caching_1h: false,
+        anthropic_model: None,
+        anthropic_small_fast_model: None,
     }
 }
 

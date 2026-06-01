@@ -49,6 +49,73 @@ fn test_parse_claude_code_config_extracts_model_map() {
 }
 
 #[test]
+fn test_parse_claude_code_config_extracts_caching_flags() {
+    let mut file = NamedTempFile::new().unwrap();
+    write!(
+        file,
+        r#"{{
+            "env": {{
+                "AWS_PROFILE": "test",
+                "AWS_REGION": "us-east-1",
+                "DISABLE_PROMPT_CACHING": "1",
+                "ENABLE_PROMPT_CACHING_1H": "1"
+            }}
+        }}"#
+    )
+    .unwrap();
+
+    let config = parse_claude_code_config(file.path().to_path_buf());
+    assert!(config.disable_prompt_caching);
+    assert!(config.enable_prompt_caching_1h);
+}
+
+#[test]
+fn test_parse_claude_code_config_caching_flags_default_false() {
+    let mut file = NamedTempFile::new().unwrap();
+    write!(
+        file,
+        r#"{{
+            "env": {{
+                "AWS_PROFILE": "test",
+                "AWS_REGION": "us-east-1"
+            }}
+        }}"#
+    )
+    .unwrap();
+
+    let config = parse_claude_code_config(file.path().to_path_buf());
+    assert!(!config.disable_prompt_caching);
+    assert!(!config.enable_prompt_caching_1h);
+}
+
+#[test]
+fn test_parse_claude_code_config_extracts_model_env_vars() {
+    let mut file = NamedTempFile::new().unwrap();
+    write!(
+        file,
+        r#"{{
+            "env": {{
+                "AWS_PROFILE": "test",
+                "AWS_REGION": "us-east-1",
+                "ANTHROPIC_MODEL": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "ANTHROPIC_SMALL_FAST_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+            }}
+        }}"#
+    )
+    .unwrap();
+
+    let config = parse_claude_code_config(file.path().to_path_buf());
+    assert_eq!(
+        config.anthropic_model,
+        Some("us.anthropic.claude-sonnet-4-5-20250929-v1:0".to_string())
+    );
+    assert_eq!(
+        config.anthropic_small_fast_model,
+        Some("us.anthropic.claude-haiku-4-5-20251001-v1:0".to_string())
+    );
+}
+
+#[test]
 fn test_parse_claude_code_config_missing_file() {
     let config = parse_claude_code_config(PathBuf::from("/nonexistent/path/settings.json"));
     assert!(config.is_empty());

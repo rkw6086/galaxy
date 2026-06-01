@@ -712,6 +712,9 @@ impl Input {
                     ctx.dispatch_typed_action(&TerminalAction::ToggleContextView);
                 }
             }
+            _settings if command.name == commands::SETTINGS.name => {
+                ctx.dispatch_typed_action(&TerminalAction::ToggleSettingsView);
+            }
             _fork if command.name == commands::FORK.name => {
                 let Some(conversation_id) = self
                     .ai_context_model

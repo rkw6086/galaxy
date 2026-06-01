@@ -8,6 +8,32 @@ use aws_sdk_bedrockruntime::types::{
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
 
+use super::external_config::ExternalBedrockConfig;
+
+#[derive(Clone, Debug)]
+pub struct CachingConfig {
+    pub enabled: bool,
+    pub extended_ttl_requested: bool,
+}
+
+impl Default for CachingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extended_ttl_requested: false,
+        }
+    }
+}
+
+impl CachingConfig {
+    pub fn from_external_config(external: &ExternalBedrockConfig) -> Self {
+        Self {
+            enabled: !external.disable_prompt_caching,
+            extended_ttl_requested: external.enable_prompt_caching_1h,
+        }
+    }
+}
+
 pub struct ConvertedRequest {
     pub messages: Vec<BedrockMessage>,
     pub system: Vec<SystemContentBlock>,
@@ -73,11 +99,12 @@ pub fn build_converse_request(
     temperature: Option<f32>,
     top_p: Option<f32>,
     stop_sequences: Option<Vec<String>>,
+    caching_config: CachingConfig,
 ) -> ConvertedRequest {
-    let bedrock_messages = convert_messages(messages);
-    let system = convert_system_prompt(system_prompt);
+    let bedrock_messages = convert_messages(messages, &caching_config);
+    let system = convert_system_prompt(system_prompt, &caching_config);
     let inference_config = build_inference_config(max_tokens, temperature, top_p, stop_sequences);
-    let tool_config = build_tool_config(tools);
+    let tool_config = build_tool_config(tools, &caching_config);
 
     ConvertedRequest {
         messages: bedrock_messages,
@@ -112,7 +139,7 @@ fn json_to_document(value: JsonValue) -> Document {
     }
 }
 
-fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
+fn convert_messages(messages: Vec<ConversationMessage>, caching_config: &CachingConfig) -> Vec<BedrockMessage> {
     let mut result = Vec::new();
 
     for msg in messages {
@@ -213,7 +240,7 @@ fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
     // Add a cache point to the second-to-last message (the conversation prefix
     // that is stable between requests). This allows Bedrock to cache all prior
     // context and only process the latest message as new input tokens.
-    if messages.len() >= 2 {
+    if caching_config.enabled && messages.len() >= 2 {
         let cache_idx = messages.len() - 2;
         let msg = messages.remove(cache_idx);
         let mut content = msg.content().to_vec();
@@ -229,6 +256,11 @@ fn convert_messages(messages: Vec<ConversationMessage>) -> Vec<BedrockMessage> {
             .build()
             .expect("valid message with cache point");
         messages.insert(cache_idx, cached_msg);
+
+        if caching_config.extended_ttl_requested {
+            log::info!("[bedrock] Extended 1-hour caching requested (ENABLE_PROMPT_CACHING_1H=1)");
+            // TODO: Use explicit TTL when AWS SDK supports it
+        }
     }
 
     messages
@@ -265,18 +297,19 @@ fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessa
     result
 }
 
-fn convert_system_prompt(system_prompt: Option<String>) -> Vec<SystemContentBlock> {
+fn convert_system_prompt(system_prompt: Option<String>, caching_config: &CachingConfig) -> Vec<SystemContentBlock> {
     match system_prompt {
         Some(prompt) if !prompt.is_empty() => {
-            vec![
-                SystemContentBlock::Text(prompt),
-                SystemContentBlock::CachePoint(
+            let mut blocks = vec![SystemContentBlock::Text(prompt)];
+            if caching_config.enabled {
+                blocks.push(SystemContentBlock::CachePoint(
                     CachePointBlock::builder()
                         .r#type(CachePointType::Default)
                         .build()
                         .expect("valid cache point"),
-                ),
-            ]
+                ));
+            }
+            blocks
         }
         _ => vec![],
     }
@@ -303,7 +336,7 @@ fn build_inference_config(
     builder.build()
 }
 
-fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
+fn build_tool_config(tools: Vec<ToolDefinition>, caching_config: &CachingConfig) -> Option<ToolConfiguration> {
     if tools.is_empty() {
         return None;
     }
@@ -323,12 +356,14 @@ fn build_tool_config(tools: Vec<ToolDefinition>) -> Option<ToolConfiguration> {
         })
         .collect();
 
-    tool_specs.push(Tool::CachePoint(
-        CachePointBlock::builder()
-            .r#type(CachePointType::Default)
-            .build()
-            .expect("valid cache point"),
-    ));
+    if caching_config.enabled {
+        tool_specs.push(Tool::CachePoint(
+            CachePointBlock::builder()
+                .r#type(CachePointType::Default)
+                .build()
+                .expect("valid cache point"),
+        ));
+    }
 
     Some(
         ToolConfiguration::builder()

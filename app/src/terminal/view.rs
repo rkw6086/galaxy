@@ -2589,6 +2589,9 @@ pub struct TerminalView {
     /// View ID of the context window debug view, if visible.
     context_view_id: Option<EntityId>,
 
+    /// View ID of the settings view, if visible.
+    settings_view_id: Option<EntityId>,
+
     // Whether the block onboarding view is active or not.
     block_onboarding_active: bool,
 
@@ -4093,6 +4096,7 @@ impl TerminalView {
             rich_content_views: Vec::new(),
             usage_footer_view_ids: Default::default(),
             context_view_id: None,
+            settings_view_id: None,
             block_onboarding_active: false,
             onboarding_agentic_suggestions_block: None,
             onboarding_prompt_block: None,
@@ -5783,6 +5787,36 @@ impl TerminalView {
         self.insert_rich_content(
             None,
             context_view,
+            None,
+            RichContentInsertionPosition::Append {
+                insert_below_long_running_block: true,
+            },
+            ctx,
+        );
+        ctx.notify();
+    }
+
+    fn toggle_settings_view(&mut self, ctx: &mut ViewContext<Self>) {
+        use crate::ai::bedrock::settings_view::SettingsView;
+
+        // If already showing, remove it
+        if let Some(view_id) = self.settings_view_id.take() {
+            let mut model = self.model.lock();
+            model.block_list_mut().remove_rich_content(view_id);
+            drop(model);
+            self.rich_content_views.retain(|rc| rc.view_id() != view_id);
+            ctx.notify();
+            return;
+        }
+
+        // Create and insert the settings view
+        let settings_view = ctx.add_view(|_| SettingsView::new());
+        let view_id = settings_view.id();
+        self.settings_view_id = Some(view_id);
+
+        self.insert_rich_content(
+            None,
+            settings_view,
             None,
             RichContentInsertionPosition::Append {
                 insert_below_long_running_block: true,
@@ -24532,6 +24566,7 @@ impl TypedActionView for TerminalView {
             | ExecuteRewindFromInlineMenu { .. }
             | ToggleUsageFooter
             | ToggleContextView
+            | ToggleSettingsView
             | RevealChildAgent { .. }
             | OpenCLIAgentRichInput
             | ToggleSessionRecording => Empty,
@@ -25555,6 +25590,9 @@ impl TypedActionView for TerminalView {
             }
             ToggleContextView => {
                 self.toggle_context_view(ctx);
+            }
+            ToggleSettingsView => {
+                self.toggle_settings_view(ctx);
             }
             RevealChildAgent { conversation_id } => {
                 ctx.emit(Event::RevealChildAgent {

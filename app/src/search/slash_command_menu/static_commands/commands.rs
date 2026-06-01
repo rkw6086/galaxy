@@ -396,6 +396,15 @@ pub const CONTEXT: StaticCommand = StaticCommand {
     argument: None,
 };
 
+pub const SETTINGS: StaticCommand = StaticCommand {
+    name: "/settings",
+    description: "Show Galaxy configuration (Bedrock, models, caching)",
+    icon_path: "bundled/svg/settings-06.svg",
+    availability: Availability::ALWAYS,
+    auto_enter_ai_mode: false,
+    argument: None,
+};
+
 pub const CONVERSATIONS: StaticCommand = StaticCommand {
     name: "/conversations",
     description: "Open conversation history",
@@ -531,6 +540,7 @@ fn all_commands() -> Vec<StaticCommand> {
         CONVERSATIONS,
         EXPORT_TO_CLIPBOARD,
         MODEL.clone(),
+        SETTINGS,
     ];
 
     if FeatureFlag::LocalDockerSandbox.is_enabled() {
