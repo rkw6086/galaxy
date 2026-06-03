@@ -304,6 +304,39 @@ impl PassiveSuggestionsModel {
         if is_oz_environment_startup_command {
             return;
         }
+
+        // When a user-run command fails in agent view, offer an instant "fix it"
+        // suggestion so the user can hand off the error to the agent.
+        if FeatureFlag::AgentViewBlockContext.is_enabled()
+            && !block_completed.was_part_of_agent_interaction
+            && !block_completed.serialized_block.exit_code.was_successful()
+            && !block_completed.command.trim().is_empty()
+        {
+            let conversation_id = self
+                .terminal_model
+                .lock()
+                .block_list()
+                .block_at(block_completed.index)
+                .and_then(|block| {
+                    block
+                        .agent_view_visibility()
+                        .agent_view_conversation_id()
+                });
+
+            let prompt = format!(
+                "The command `{}` failed. Diagnose the error and suggest a fix.",
+                block_completed.command.trim()
+            );
+            ctx.emit(PassiveSuggestionsEvent::NewPromptSuggestion {
+                prompt,
+                label: Some("Fix this error".to_string()),
+                request_duration_ms: 0,
+                trigger: None,
+                conversation_id,
+                server_request_token: None,
+            });
+        }
+
         let is_prompt_suggestions_enabled = is_prompt_suggestions_enabled(ctx);
         let is_passive_code_diffs_enabled = is_passive_code_diffs_enabled(ctx);
         if !is_prompt_suggestions_enabled && !is_passive_code_diffs_enabled {
