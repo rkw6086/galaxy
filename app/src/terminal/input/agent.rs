@@ -634,9 +634,9 @@ fn render_session_status_bar(appearance: &Appearance, app: &AppContext, conversa
     let (cache_read, cache_write, cache_miss, cost_cents, context_usage, current_context) =
         if let Some(conversation) = BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id) {
             (
-                conversation.total_cache_read_tokens(),
-                conversation.total_cache_write_tokens(),
-                conversation.cache_miss_tokens(),
+                conversation.last_block_cache_read_tokens(),
+                conversation.last_block_cache_write_tokens(),
+                conversation.last_block_cache_miss_tokens(),
                 conversation.total_cost_cents(),
                 conversation.context_window_usage(),
                 conversation.current_context_tokens(),

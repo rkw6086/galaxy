@@ -62,6 +62,27 @@ impl SendMessageToAgentExecutor {
                 .and_then(|c| c.run_id())
                 .map(|s| s.to_string())
                 .unwrap_or_default();
+
+            // In local Bedrock mode, child agents run autonomously in their
+            // own conversation loop — there's no server API to relay messages.
+            // Return an error explaining the limitation so the model doesn't
+            // keep polling in a loop.
+            if sender_run_id.is_empty() {
+                log::info!(
+                    "[send_message] No run_id for conversation {:?}, assuming local mode — skipping server API call",
+                    conversation_id
+                );
+                return ActionExecution::<()>::Sync(AIAgentActionResultType::SendMessageToAgent(
+                    SendMessageToAgentResult::Error(
+                        "Child agents are running autonomously in local mode. \
+                         You cannot send messages to them. They will complete their \
+                         tasks independently. Continue with your own work or wait \
+                         for the user to share the results."
+                            .to_string(),
+                    ),
+                ))
+                .into();
+            }
             let log_addresses = addresses.clone();
             let log_subject = subject.clone();
             let log_sender_run_id = sender_run_id.clone();

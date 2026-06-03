@@ -2656,6 +2656,30 @@ impl BlocklistAIController {
                         "[bedrock-debug] AfterStreamFinished: NO actions to queue, was_passive={}, is_any_unfinished={}",
                         was_passive_request, is_any_exchange_unfinished
                     );
+
+                    // If this is a child conversation (has a parent) and the
+                    // stream ended with EndTurn and no actions, the child agent
+                    // is done. Mark it as Success so the StartAgentExecutor
+                    // can resolve and return the output to the parent.
+                    let is_child = history_model
+                        .as_ref(ctx)
+                        .conversation(&conversation_id)
+                        .and_then(|c| c.parent_conversation_id())
+                        .is_some();
+                    if is_child && !was_passive_request {
+                        log::info!(
+                            "[bedrock-debug] AfterStreamFinished: child conversation {:?} completed, setting status to Success",
+                            conversation_id
+                        );
+                        history_model.update(ctx, |history_model, ctx| {
+                            history_model.update_conversation_status(
+                                self.terminal_view_id,
+                                conversation_id,
+                                crate::ai::agent::conversation::ConversationStatus::Success,
+                                ctx,
+                            );
+                        });
+                    }
                 }
 
                 // Cancelled streams will handle pending_response_stream updates synchronously.

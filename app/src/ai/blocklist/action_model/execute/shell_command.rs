@@ -212,6 +212,10 @@ impl ShellCommandExecutor {
         input: ExecuteActionInput,
         ctx: &mut ModelContext<Self>,
     ) -> impl Into<AnyActionExecution> {
+        log::info!(
+            "[tool-debug] ShellCommandExecutor::execute: action_type={:?}",
+            std::mem::discriminant(&input.action.action)
+        );
         let model = self.terminal_model.lock();
 
         // Determine the action we want to take based on the input.

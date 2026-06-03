@@ -888,6 +888,10 @@ pub struct PaneGroup {
     /// be revealed from the parent's status card.
     child_agent_panes: HashMap<AIConversationId, PaneId>,
 
+    /// Child agent conversations that the user has explicitly closed.
+    /// Prevents them from being re-created on app restart.
+    dismissed_child_agents: HashSet<AIConversationId>,
+
     /// Tab-level custom title set via the rename-tab flow.
     custom_title: Option<String>,
 }
@@ -3001,6 +3005,7 @@ impl PaneGroup {
             is_right_panel_maximized: false,
             pending_ambient_agent_conversation_restorations: HashMap::new(),
             child_agent_panes: HashMap::new(),
+            dismissed_child_agents: HashSet::new(),
             custom_title: None,
         };
 
@@ -3052,14 +3057,18 @@ impl PaneGroup {
             // Check in-memory children (live conversations).
             for child in history_model.child_conversations_of(parent_id) {
                 let child_id = child.id();
-                if !self.child_agent_panes.contains_key(&child_id) {
+                if !self.child_agent_panes.contains_key(&child_id)
+                    && !self.dismissed_child_agents.contains(&child_id)
+                {
                     children_to_create.insert(child_id);
                 }
             }
 
             // Check the startup index for children not yet in memory.
             for &child_id in history_model.child_conversation_ids_of(&parent_id) {
-                if !self.child_agent_panes.contains_key(&child_id) {
+                if !self.child_agent_panes.contains_key(&child_id)
+                    && !self.dismissed_child_agents.contains(&child_id)
+                {
                     children_to_create.insert(child_id);
                 }
             }
@@ -4448,16 +4457,28 @@ impl PaneGroup {
             return;
         }
 
-        // If this pane is a child agent, re-hide it instead of closing it.
+        // If this pane is a child agent, remove it from tracking and
+        // discard it fully so it doesn't reappear on re-launch.
         if self.is_child_agent_pane(pane_id) {
+            let dismissed_id = self
+                .child_agent_panes
+                .iter()
+                .find(|(_, p)| **p == pane_id)
+                .map(|(id, _)| *id);
+            if let Some(id) = dismissed_id {
+                self.dismissed_child_agents.insert(id);
+            }
+            self.child_agent_panes.retain(|_, &mut p| p != pane_id);
             if !self.panes.is_pane_hidden(&pane_id) {
                 self.panes.hide_pane_for_child_agent(pane_id);
             }
+            self.panes.remove_hidden_pane(pane_id);
             self.focus_next_terminal_pane_and_activate_session(
                 pane_id,
                 PaneRemovalReason::Close,
                 ctx,
             );
+            self.pane_contents.remove(&pane_id);
             self.handle_pane_count_change(ctx);
             ctx.emit(Event::TerminalViewStateChanged);
             ctx.emit(Event::AppStateChanged);

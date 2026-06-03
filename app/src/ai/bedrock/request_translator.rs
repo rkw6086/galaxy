@@ -1109,7 +1109,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "start_agent".to_string(),
-            description: "Start a sub-agent to handle a specific task autonomously. Use for delegating independent work that can run in parallel. The agent gets its own conversation context and tool access.".to_string(),
+            description: "Start a sub-agent to handle a specific task autonomously. Use for delegating independent work that can run in parallel. The agent gets its own conversation context and tool access. IMPORTANT: Only use this for the initial investigation or when genuinely new research is needed. Do NOT re-spawn agents for follow-up questions if you already have their output in context — just answer from the information you already have.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1119,18 +1119,9 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["name", "prompt"]
             }),
         },
-        ToolDefinition {
-            name: "send_message_to_agent".to_string(),
-            description: "Send a message to a running sub-agent. Use to provide additional context, ask for updates, or redirect the agent's work.".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string", "description": "ID of the target sub-agent" },
-                    "message": { "type": "string", "description": "Message to send to the agent" }
-                },
-                "required": ["agent_id", "message"]
-            }),
-        },
+        // send_message_to_agent removed — child agents in local/Bedrock mode
+        // run autonomously and cannot receive messages. Exposing this tool
+        // causes the model to poll in a loop.
         ToolDefinition {
             name: "ask_user_question".to_string(),
             description: "Ask the user a question when you need clarification or a decision. Present clear options when possible. Use sparingly — prefer making reasonable assumptions.".to_string(),
@@ -1143,18 +1134,10 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["question"]
             }),
         },
-        ToolDefinition {
-            name: "suggest_next_prompt".to_string(),
-            description: "After completing a task, suggest a relevant follow-up action. Only call once at the end of your response. Keep labels concise and action-oriented.".to_string(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "prompt": { "type": "string", "description": "The full prompt text sent to the agent if the user clicks" },
-                    "label": { "type": "string", "description": "Short display label (under 40 chars)" }
-                },
-                "required": ["prompt", "label"]
-            }),
-        },
+        // suggest_next_prompt removed — its executor hangs waiting for UI
+        // interaction that doesn't exist in the Bedrock path. The stream-level
+        // skip (response_translator) prevents deadlocks, but removing the tool
+        // definition avoids wasting output tokens on calls that will be discarded.
         ToolDefinition {
             name: "read_skill".to_string(),
             description: "Read a skill definition to understand available capabilities and how to use them.".to_string(),
@@ -1398,6 +1381,28 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                 }
                 None => ("Write to shell command completed.".to_string(), false),
             },
+            api::request::input::tool_call_result::Result::StartAgent(start_agent_result) => {
+                match &start_agent_result.result {
+                    Some(api::start_agent_result::Result::Success(success)) => {
+                        (success.agent_id.clone(), false)
+                    }
+                    Some(api::start_agent_result::Result::Error(error)) => {
+                        (format!("Agent error: {}", error.error), true)
+                    }
+                    None => ("Agent completed.".to_string(), false),
+                }
+            }
+            api::request::input::tool_call_result::Result::StartAgentV2(start_agent_result) => {
+                match &start_agent_result.result {
+                    Some(api::start_agent_v2_result::Result::Success(success)) => {
+                        (success.agent_id.clone(), false)
+                    }
+                    Some(api::start_agent_v2_result::Result::Error(error)) => {
+                        (format!("Agent error: {}", error.error), true)
+                    }
+                    None => ("Agent completed.".to_string(), false),
+                }
+            }
             _ => ("Tool completed successfully.".to_string(), false),
         }
     } else {

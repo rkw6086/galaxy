@@ -465,6 +465,16 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        let pending_count = self
+            .pending_actions
+            .get(&conversation_id)
+            .map(|q| q.len())
+            .unwrap_or(0);
+        log::info!(
+            "[tool-debug] try_to_execute_available_actions: conversation={:?}, pending_count={}",
+            conversation_id,
+            pending_count
+        );
         loop {
             let Some(front_action) = self
                 .pending_actions
@@ -472,8 +482,15 @@ impl BlocklistAIActionModel {
                 .and_then(|queue| queue.front())
                 .cloned()
             else {
+                log::info!("[tool-debug] try_to_execute_available_actions: no more pending actions");
                 return;
             };
+
+            log::info!(
+                "[tool-debug] try_to_execute_available_actions: trying action id={:?}, type={:?}",
+                front_action.id,
+                std::mem::discriminant(&front_action.action)
+            );
 
             if let Some(current_phase) = self.action_execution_phase(conversation_id) {
                 if !self.can_start_action_in_current_phase(
@@ -482,6 +499,10 @@ impl BlocklistAIActionModel {
                     current_phase,
                     ctx,
                 ) {
+                    log::info!(
+                        "[tool-debug] try_to_execute_available_actions: cannot start in current phase {:?}",
+                        current_phase
+                    );
                     return;
                 }
             }
@@ -489,8 +510,14 @@ impl BlocklistAIActionModel {
             let Some(result) =
                 self.start_pending_action_by_id(&front_action.id, conversation_id, false, ctx)
             else {
+                log::info!("[tool-debug] try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
                 return;
             };
+
+            log::info!(
+                "[tool-debug] try_to_execute_available_actions: action started, result={:?}",
+                std::mem::discriminant(&result)
+            );
 
             if matches!(
                 result,
@@ -498,6 +525,7 @@ impl BlocklistAIActionModel {
                     phase: RunningActionPhase::Serial
                 }
             ) {
+                log::info!("[tool-debug] try_to_execute_available_actions: serial async action, stopping loop");
                 return;
             }
         }
@@ -853,6 +881,19 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        log::info!(
+            "[tool-debug] queue_actions: queuing {} actions for conversation {:?}",
+            actions.len(),
+            conversation_id
+        );
+        for (i, action) in actions.iter().enumerate() {
+            log::info!(
+                "[tool-debug] queue_actions:   [{}] id={:?}, type={:?}",
+                i,
+                action.id,
+                std::mem::discriminant(&action.action)
+            );
+        }
         self.action_order.insert(
             conversation_id,
             actions
@@ -1135,6 +1176,12 @@ impl BlocklistAIActionModel {
         cancellation_reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
     ) {
+        log::info!(
+            "[tool-debug] handle_action_result: action_id={:?}, result_type={:?}, cancellation={:?}",
+            action_result.id,
+            std::mem::discriminant(&action_result.result),
+            cancellation_reason
+        );
         let should_remove_entry =
             self.running_actions
                 .get_mut(&conversation_id)

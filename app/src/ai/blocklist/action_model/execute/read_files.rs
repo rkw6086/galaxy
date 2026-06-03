@@ -95,6 +95,10 @@ impl ReadFilesExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
+        log::info!(
+            "[tool-debug] ReadFilesExecutor::execute: {} files requested",
+            locations.len()
+        );
 
         BlocklistAIPermissions::handle(ctx).update(ctx, |model, _ctx| {
             model.add_temporary_file_read_permissions(

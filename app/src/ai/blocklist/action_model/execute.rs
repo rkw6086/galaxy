@@ -405,6 +405,9 @@ impl BlocklistAIActionExecutor {
             {
                 RunningActionPhase::Parallel(ParallelExecutionPolicy::ReadOnlyLocalContext)
             }
+            AIAgentActionType::StartAgent { .. } => {
+                RunningActionPhase::Parallel(ParallelExecutionPolicy::ReadOnlyLocalContext)
+            }
             _ => RunningActionPhase::Serial,
         }
     }
@@ -527,8 +530,16 @@ impl BlocklistAIActionExecutor {
         is_user_initiated: bool,
         ctx: &mut ModelContext<Self>,
     ) -> TryExecuteResult {
+        log::info!(
+            "[tool-debug] try_to_execute_action: action_id={:?}, type={:?}, is_user_initiated={}",
+            action.id,
+            std::mem::discriminant(&action.action),
+            is_user_initiated
+        );
+
         // We should never actually execute actions in view-only mode.
         if self.is_shared_session_viewer() {
+            log::info!("[tool-debug] try_to_execute_action: BLOCKED - shared session viewer mode");
             return TryExecuteResult::NotExecuted {
                 reason: NotExecutedReason::WaitingOnSharer,
                 action: Box::new(action),
@@ -541,6 +552,11 @@ impl BlocklistAIActionExecutor {
         };
         let can_auto_execute = self.should_autoexecute(input, ctx);
         let is_agent_autonomous = AppExecutionMode::as_ref(ctx).is_autonomous();
+        log::info!(
+            "[tool-debug] try_to_execute_action: can_auto_execute={}, is_agent_autonomous={}",
+            can_auto_execute,
+            is_agent_autonomous
+        );
 
         // The agent cannot auto execute and either:
         // - the agent is interactive, OR
@@ -549,6 +565,10 @@ impl BlocklistAIActionExecutor {
             || can_auto_execute
             || (is_agent_autonomous && action.action.is_request_command_output()));
         if needs_confirmation {
+            log::info!(
+                "[tool-debug] try_to_execute_action: NEEDS CONFIRMATION - action_id={:?}",
+                action.id
+            );
             return TryExecuteResult::NotExecuted {
                 action: Box::new(action),
                 reason: NotExecutedReason::NeedsConfirmation,
@@ -580,6 +600,11 @@ impl BlocklistAIActionExecutor {
             }
         }
 
+        log::info!(
+            "[tool-debug] try_to_execute_action: EXECUTING action_id={:?}, type={:?}",
+            action.id,
+            std::mem::discriminant(&action.action)
+        );
         let action_clone = action.clone();
         let execution = match &action.action {
             AIAgentActionType::RequestCommandOutput { .. }
@@ -702,12 +727,26 @@ impl BlocklistAIActionExecutor {
         };
 
         let action_id = action_clone.id.clone();
-        match execution {
-            AnyActionExecution::NotReady => TryExecuteResult::NotExecuted {
-                reason: NotExecutedReason::NotReady,
-                action: Box::new(action_clone),
+        log::info!(
+            "[tool-debug] try_to_execute_action: execution result type={:?} for action_id={:?}",
+            match &execution {
+                AnyActionExecution::NotReady => "NotReady",
+                AnyActionExecution::InvalidAction => "InvalidAction",
+                AnyActionExecution::Async { .. } => "Async",
+                AnyActionExecution::Sync(_) => "Sync",
             },
+            action_id
+        );
+        match execution {
+            AnyActionExecution::NotReady => {
+                log::info!("[tool-debug] try_to_execute_action: NOT READY - action_id={:?}", action_id);
+                TryExecuteResult::NotExecuted {
+                    reason: NotExecutedReason::NotReady,
+                    action: Box::new(action_clone),
+                }
+            }
             AnyActionExecution::InvalidAction => {
+                log::error!("[tool-debug] try_to_execute_action: INVALID ACTION - action_id={:?}", action_id);
                 debug_assert!(false, "Tried to execute AIAgentAction with wrong executor.");
                 TryExecuteResult::NotExecuted {
                     reason: NotExecutedReason::NotReady,
@@ -728,11 +767,18 @@ impl BlocklistAIActionExecutor {
                 ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
                     action_id: action_id.clone(),
                 });
+                log::info!("[tool-debug] try_to_execute_action: spawning ASYNC execution for action_id={:?}", action_id);
                 ctx.spawn(execute_future, move |me, result, ctx| {
                     let Some(running) = me.async_executing_actions.remove(&action_id) else {
+                        log::warn!("[tool-debug] try_to_execute_action: async action completed but not found in executing map, action_id={:?}", action_id);
                         return;
                     };
                     let result = on_complete(result, ctx);
+                    log::info!(
+                        "[tool-debug] try_to_execute_action: ASYNC action COMPLETED action_id={:?}, result_type={:?}",
+                        action_id,
+                        std::mem::discriminant(&result)
+                    );
                     ctx.emit(BlocklistAIActionExecutorEvent::FinishedAction {
                         result: Arc::new(AIAgentActionResult {
                             id: action_id,

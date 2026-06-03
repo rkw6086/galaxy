@@ -3320,7 +3320,28 @@ impl AIConversation {
     pub fn cache_miss_tokens(&self) -> u32 {
         self.total_token_usage_by_model
             .values()
-            .map(|u| u.total_input)
+            .map(|u| u.total_input.saturating_sub(u.input_cache_read + u.input_cache_write))
+            .sum()
+    }
+
+    pub fn last_block_cache_read_tokens(&self) -> u32 {
+        self.last_block_token_usage_by_model
+            .values()
+            .map(|u| u.input_cache_read)
+            .sum()
+    }
+
+    pub fn last_block_cache_write_tokens(&self) -> u32 {
+        self.last_block_token_usage_by_model
+            .values()
+            .map(|u| u.input_cache_write)
+            .sum()
+    }
+
+    pub fn last_block_cache_miss_tokens(&self) -> u32 {
+        self.last_block_token_usage_by_model
+            .values()
+            .map(|u| u.total_input.saturating_sub(u.input_cache_read + u.input_cache_write))
             .sum()
     }
 

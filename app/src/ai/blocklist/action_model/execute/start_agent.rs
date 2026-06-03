@@ -1,7 +1,7 @@
 use futures::{future::BoxFuture, FutureExt};
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 
-use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionResultType, AIAgentActionType, LifecycleEventType,
     StartAgentExecutionMode, StartAgentResult,
@@ -18,6 +18,8 @@ use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessA
 enum StartAgentDecision {
     /// The child conversation was created successfully.
     Started { agent_id: String },
+    /// The child agent completed and here is its output (local/blocking mode).
+    Completed { agent_id: String, output: String },
     /// An error occurred while starting the agent.
     Error(String),
 }
@@ -43,19 +45,22 @@ pub struct StartAgentRequest {
     pub parent_run_id: Option<String>,
 }
 
-/// Tracks a single in-flight StartAgent action. At most one can be pending at
-/// a time because StartAgent actions execute serially (RunningActionPhase::Serial).
+/// Tracks a single in-flight StartAgent action.
 struct PendingStartAgent {
     parent_conversation_id: AIConversationId,
     /// Set when `StartedNewConversation` fires for a conversation whose
     /// `parent_conversation_id` matches.
     child_conversation_id: Option<AIConversationId>,
     sender: async_channel::Sender<StartAgentDecision>,
+    /// When true, the executor blocks until the child agent finishes and
+    /// returns its output as the tool result (local Bedrock mode).
+    wait_for_completion: bool,
 }
 
 pub struct StartAgentExecutor {
-    /// The currently pending StartAgent action, if any.
-    pending: Option<PendingStartAgent>,
+    /// All in-flight StartAgent actions. Multiple agents can be spawned
+    /// concurrently from the same parent.
+    pending: Vec<PendingStartAgent>,
 }
 
 impl StartAgentExecutor {
@@ -63,7 +68,7 @@ impl StartAgentExecutor {
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, Self::handle_history_event);
 
-        Self { pending: None }
+        Self { pending: Vec::new() }
     }
 
     fn handle_history_event(
@@ -76,44 +81,106 @@ impl StartAgentExecutor {
                 new_conversation_id,
                 ..
             } => {
-                let Some(pending) = self.pending.as_mut() else {
-                    return;
-                };
-                if pending.child_conversation_id.is_some() {
+                if self.pending.is_empty() {
                     return;
                 }
                 let history = BlocklistAIHistoryModel::as_ref(ctx);
                 let Some(conversation) = history.conversation(new_conversation_id) else {
                     return;
                 };
-                if conversation.parent_conversation_id() == Some(pending.parent_conversation_id) {
+                let parent_id = conversation.parent_conversation_id();
+                // Find the first pending entry that matches this parent and hasn't been assigned a child yet.
+                if let Some(pending) = self.pending.iter_mut().find(|p| {
+                    p.child_conversation_id.is_none()
+                        && parent_id == Some(p.parent_conversation_id)
+                }) {
                     pending.child_conversation_id = Some(*new_conversation_id);
                 }
             }
             BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
                 conversation_id, ..
             } => {
-                let matches = self
-                    .pending
-                    .as_ref()
-                    .is_some_and(|p| p.child_conversation_id.as_ref() == Some(conversation_id));
-                if !matches {
+                let Some(idx) = self.pending.iter().position(|p| {
+                    p.child_conversation_id.as_ref() == Some(conversation_id)
+                }) else {
+                    return;
+                };
+                // Don't remove yet if we're waiting for completion — we need
+                // the entry to stay so UpdatedConversationStatus can find it.
+                if self.pending[idx].wait_for_completion {
+                    // Just log and continue — we'll resolve on Success status.
+                    let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                        .conversation(conversation_id);
+                    let agent_id = conversation
+                        .and_then(|c| c.orchestration_agent_id())
+                        .or_else(|| {
+                            conversation.and_then(|c| {
+                                c.server_conversation_token()
+                                    .map(|t| t.as_str().to_string())
+                            })
+                        })
+                        .unwrap_or_else(|| conversation_id.to_string());
+                    log::info!(
+                        "[start_agent] Child agent started: conversation_id={:?}, agent_id={}",
+                        conversation_id,
+                        agent_id
+                    );
+                    log::info!(
+                        "[start_agent] Local mode: waiting for child {:?} to complete",
+                        conversation_id
+                    );
                     return;
                 }
-                let pending = self.pending.take().unwrap();
-                let agent_id = BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation(conversation_id)
-                    .and_then(|c| c.orchestration_agent_id());
-                match agent_id {
-                    Some(id) => {
-                        let _ = pending.sender.try_send(StartAgentDecision::Started {
-                            agent_id: id.clone(),
-                        });
+                let pending = self.pending.remove(idx);
+                let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(conversation_id);
+                // orchestration_agent_id() uses run_id in v2 mode, which won't
+                // exist for locally-spawned Bedrock child agents. Fall back to
+                // the server conversation token (set by the stream Init event)
+                // or the conversation ID itself as the agent identifier.
+                let agent_id = conversation
+                    .and_then(|c| c.orchestration_agent_id())
+                    .or_else(|| {
+                        conversation.and_then(|c| {
+                            c.server_conversation_token()
+                                .map(|t| t.as_str().to_string())
+                        })
+                    })
+                    .unwrap_or_else(|| conversation_id.to_string());
+
+                log::info!(
+                    "[start_agent] Child agent started: conversation_id={:?}, agent_id={}",
+                    conversation_id,
+                    agent_id
+                );
+
+                // Only register with the orchestration streamer if the parent
+                // has a run_id (server-assigned). Local Bedrock child agents
+                // don't have server-side orchestration — attempting to open an
+                // SSE stream to a non-existent server freezes the app.
+                let parent_has_run_id = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&pending.parent_conversation_id)
+                    .and_then(|c| c.run_id())
+                    .is_some();
+
+                if pending.wait_for_completion {
+                    // Local mode: don't resolve yet — wait for the child to
+                    // finish (UpdatedConversationStatus → Success) so we can
+                    // return its output as the tool result.
+                    log::info!(
+                        "[start_agent] Local mode: waiting for child {:?} to complete",
+                        conversation_id
+                    );
+                } else {
+                    let _ = pending.sender.try_send(StartAgentDecision::Started {
+                        agent_id: agent_id.clone(),
+                    });
+                    if parent_has_run_id {
                         if FeatureFlag::OrchestrationV2.is_enabled() {
                             OrchestrationEventStreamer::handle(ctx).update(ctx, |streamer, ctx| {
                                 streamer.register_watched_run_id(
                                     pending.parent_conversation_id,
-                                    id,
+                                    agent_id,
                                     ctx,
                                 );
                             });
@@ -123,59 +190,69 @@ impl StartAgentExecutor {
                             });
                         }
                     }
-                    None => {
-                        log::error!(
-                            "ConversationServerTokenAssigned fired but no agent identifier for \
-                             {conversation_id:?}"
-                        );
-                        let _ = pending.sender.try_send(StartAgentDecision::Error(
-                            "Server did not assign an agent identifier".to_string(),
-                        ));
-                        if !FeatureFlag::OrchestrationV2.is_enabled() {
-                            OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
-                                svc.emit_child_startup_errored(
-                                    *conversation_id,
-                                    "missing_agent_id".to_string(),
-                                    "Server did not assign an agent identifier".to_string(),
-                                    ctx,
-                                );
-                            });
-                        }
-                    }
                 }
             }
             BlocklistAIHistoryEvent::UpdatedConversationStatus {
                 conversation_id, ..
             } => {
-                let matches = self
-                    .pending
-                    .as_ref()
-                    .is_some_and(|p| p.child_conversation_id.as_ref() == Some(conversation_id));
-                if !matches {
+                let Some(idx) = self.pending.iter().position(|p| {
+                    p.child_conversation_id.as_ref() == Some(conversation_id)
+                }) else {
                     return;
-                }
+                };
                 let history = BlocklistAIHistoryModel::as_ref(ctx);
                 let Some(conversation) = history.conversation(conversation_id) else {
                     return;
                 };
-                let error_msg = start_agent_error_message_for_status(
-                    conversation.status(),
-                    conversation.status_error_message(),
-                );
-                if let Some(error_msg) = error_msg {
-                    let pending = self.pending.take().unwrap();
-                    let _ = pending
-                        .sender
-                        .try_send(StartAgentDecision::Error(error_msg.clone()));
-                    if !FeatureFlag::OrchestrationV2.is_enabled() {
-                        OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
-                            svc.emit_child_startup_errored(
-                                *conversation_id,
-                                "conversation_status".to_string(),
-                                error_msg,
-                                ctx,
-                            );
+
+                match conversation.status() {
+                    ConversationStatus::Success => {
+                        if !self.pending[idx].wait_for_completion {
+                            // Non-blocking mode — already resolved on token assignment.
+                            return;
+                        }
+                        let pending = self.pending.remove(idx);
+                        // Extract the child's text output from its last exchange.
+                        let output = extract_child_output(conversation);
+                        log::info!(
+                            "[start_agent] Child agent {:?} completed with {} chars of output",
+                            conversation_id,
+                            output.len()
+                        );
+                        let agent_id = conversation
+                            .orchestration_agent_id()
+                            .or_else(|| {
+                                conversation
+                                    .server_conversation_token()
+                                    .map(|t| t.as_str().to_string())
+                            })
+                            .unwrap_or_else(|| conversation_id.to_string());
+                        let _ = pending.sender.try_send(StartAgentDecision::Completed {
+                            agent_id,
+                            output,
                         });
+                    }
+                    status => {
+                        let error_msg = start_agent_error_message_for_status(
+                            status,
+                            conversation.status_error_message(),
+                        );
+                        if let Some(error_msg) = error_msg {
+                            let pending = self.pending.remove(idx);
+                            let _ = pending
+                                .sender
+                                .try_send(StartAgentDecision::Error(error_msg.clone()));
+                            if !FeatureFlag::OrchestrationV2.is_enabled() {
+                                OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
+                                    svc.emit_child_startup_errored(
+                                        *conversation_id,
+                                        "conversation_status".to_string(),
+                                        error_msg,
+                                        ctx,
+                                    );
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -356,11 +433,16 @@ impl StartAgentExecutor {
             }
         };
 
+        // In local mode (no parent_run_id), block until the child finishes
+        // so the parent model receives the child's output as the tool result.
+        let wait_for_completion = parent_run_id.is_none();
+
         let (sender, receiver) = async_channel::bounded(1);
-        self.pending = Some(PendingStartAgent {
+        self.pending.push(PendingStartAgent {
             parent_conversation_id,
             child_conversation_id: None,
             sender,
+            wait_for_completion,
         });
 
         ctx.emit(StartAgentExecutorEvent::CreateAgent(StartAgentRequest {
@@ -380,6 +462,15 @@ impl StartAgentExecutor {
                         version,
                     })
                 }
+                Ok(StartAgentDecision::Completed { agent_id, output }) => {
+                    // Return the child's output as a "success" with the output
+                    // embedded in the agent_id field. The Display impl on
+                    // StartAgentResult will show this to the model.
+                    AIAgentActionResultType::StartAgent(StartAgentResult::Success {
+                        agent_id: format!("{agent_id}\n\nAgent output:\n{output}"),
+                        version,
+                    })
+                }
                 Ok(StartAgentDecision::Error(error)) => {
                     AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, version })
                 }
@@ -396,6 +487,25 @@ impl StartAgentExecutor {
         _ctx: &mut ModelContext<Self>,
     ) -> BoxFuture<'static, ()> {
         futures::future::ready(()).boxed()
+    }
+}
+
+/// Extracts the text output from a child agent's conversation.
+/// Collects text from all exchanges in the conversation.
+fn extract_child_output(conversation: &AIConversation) -> String {
+    let mut output_parts = Vec::new();
+    for exchange in conversation.all_exchanges() {
+        if let Some(output) = exchange.output_status.output() {
+            let text = output.get().format_for_copy(None);
+            if !text.is_empty() {
+                output_parts.push(text);
+            }
+        }
+    }
+    if output_parts.is_empty() {
+        "Agent completed but produced no text output.".to_string()
+    } else {
+        output_parts.join("\n\n")
     }
 }
 

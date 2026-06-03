@@ -151,9 +151,10 @@ impl RequestFileEditsExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
+        log::info!("[tool-debug] RequestFileEditsExecutor::execute: action_id={:?}", id);
 
         let Some(diff_view) = self.diff_views.get(id) else {
-            log::warn!("Tried to execute a RequestFileEdits action without a diff view");
+            log::warn!("[tool-debug] RequestFileEditsExecutor: no diff view found for action_id={:?}", id);
             return ActionExecution::NotReady;
         };
 

@@ -104,6 +104,7 @@ pub fn bedrock_stream_to_response_events(
         let mut current_tool_name = String::new();
         let mut current_tool_input_json = String::new();
         let mut _has_tool_calls = false;
+        let mut has_start_agent_calls = false;
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
         let mut cache_read_input_tokens: i32 = 0;
@@ -275,6 +276,9 @@ pub fn bedrock_stream_to_response_events(
                                         current_tool_name, current_tool_use_id, current_tool_input_json
                                     ));
                                 }
+                                if current_tool_name == "start_agent" {
+                                    has_start_agent_calls = true;
+                                }
                                 let tool_msg = build_tool_call_message(
                                     &task_id,
                                     &current_tool_use_id,
@@ -372,9 +376,26 @@ pub fn bedrock_stream_to_response_events(
             if !text_flushed {
                 let add_msg = build_add_agent_output_message(&task_id, &msg_id, &buffered_text);
                 yield Ok(add_msg);
+                text_flushed = true;
+                current_text_message_id = Some(msg_id);
             } else {
                 let append = build_append_text(&task_id, &msg_id, &buffered_text);
                 yield Ok(append);
+            }
+        }
+
+        // Show a status message while sub-agents are working so the user
+        // knows we're waiting on them.
+        if has_start_agent_calls {
+            let status_text = "\n\n*Waiting for sub-agents to finish, then I'll review and continue...*";
+            if text_flushed {
+                let msg_id = current_text_message_id.as_ref().unwrap();
+                let append = build_append_text(&task_id, msg_id, status_text);
+                yield Ok(append);
+            } else {
+                let msg_id = Uuid::new_v4().to_string();
+                let add_msg = build_add_agent_output_message(&task_id, &msg_id, status_text);
+                yield Ok(add_msg);
             }
         }
 
@@ -985,13 +1006,14 @@ fn build_tool_call_message(
             ))
         }
         "start_agent" => {
-            let _name = input.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            Some(api::message::tool_call::Tool::Subagent(
-                api::message::tool_call::Subagent {
-                    task_id: String::new(),
-                    payload: prompt,
-                    metadata: None,
+            Some(api::message::tool_call::Tool::StartAgent(
+                api::StartAgent {
+                    name,
+                    prompt,
+                    execution_mode: None,
+                    lifecycle_subscription: None,
                 },
             ))
         }

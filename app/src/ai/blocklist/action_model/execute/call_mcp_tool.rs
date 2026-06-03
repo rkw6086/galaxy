@@ -84,6 +84,7 @@ impl CallMCPToolExecutor {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            log::info!("[tool-debug] CallMCPToolExecutor::execute called");
             let server_output_id = get_server_output_id(input.conversation_id, ctx);
             let AIAgentAction {
                 action:
@@ -95,13 +96,21 @@ impl CallMCPToolExecutor {
                 ..
             } = input.action
             else {
+                log::error!("[tool-debug] CallMCPToolExecutor::execute: action type mismatch!");
                 return ActionExecution::InvalidAction;
             };
 
             let name_owned = name.to_owned();
             let name_clone = name_owned.clone();
+            log::info!(
+                "[tool-debug] CallMCPToolExecutor: tool_name={}, server_id={:?}, input={}",
+                name,
+                server_id,
+                serde_json::to_string(input).unwrap_or_else(|_| "<serialize error>".to_string())
+            );
 
             let serde_json::Value::Object(mut arguments) = input.clone() else {
+                log::error!("[tool-debug] CallMCPToolExecutor: input is not an object!");
                 return ActionExecution::Sync(AIAgentActionResultType::CallMCPTool(
                     CallMCPToolResult::Error("MCP server tool input not an object".to_owned()),
                 ));
@@ -132,10 +141,12 @@ impl CallMCPToolExecutor {
             };
 
             let Some(reconnecting_peer) = templatable_peer else {
+                log::error!("[tool-debug] CallMCPToolExecutor: MCP server for tool '{}' NOT FOUND", name_owned);
                 return ActionExecution::Sync(AIAgentActionResultType::CallMCPTool(
                     CallMCPToolResult::Error("MCP server for tool not found".to_owned()),
                 ));
             };
+            log::info!("[tool-debug] CallMCPToolExecutor: found MCP server peer for tool '{}'", name_owned);
 
             let name_owned_inner = name_owned.clone();
             ActionExecution::new_async(
@@ -210,6 +221,11 @@ fn handle_call_tool_result(
     tool_name: String,
     ctx: &galaxyui::AppContext,
 ) -> AIAgentActionResultType {
+    log::info!(
+        "[tool-debug] handle_call_tool_result: tool_name={}, is_ok={}",
+        tool_name,
+        res.is_ok()
+    );
     let action_result = match res {
         Ok(result) => {
             // Even if the call was successful, the response could still be an error so we need to check.
