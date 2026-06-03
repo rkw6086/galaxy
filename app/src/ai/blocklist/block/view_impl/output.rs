@@ -41,12 +41,9 @@ use galaxy_core::ui::theme::color::internal_colors;
 #[allow(unused_imports)]
 use galaxy_util::path::{common_path, CleanPathResult};
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
-use galaxyui::elements::{
-    ChildAnchor, NewScrollable, OffsetPositioning, ParentAnchor, ParentOffsetBounds, Stack,
-};
+use galaxyui::elements::NewScrollable;
 use galaxyui::EntityId;
 use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use ui_components::{button, Component as _, Options as _};
 
 use crate::ai::blocklist::block::{
@@ -130,7 +127,7 @@ use super::{
 use galaxyui::{
     elements::{
         Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        Empty, Expanded, Fill, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
+        Expanded, Fill, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
         MainAxisSize, ParentElement, Radius, Shrinkable, Text, Wrap,
     },
     keymap::Keystroke,
@@ -186,7 +183,6 @@ pub(crate) struct Props<'a> {
     pub(super) current_todo_list: Option<&'a AIAgentTodoList>,
     pub(super) has_accepted_edits: bool,
     pub(super) finish_reason: Option<&'a FinishReason>,
-    pub(super) is_usage_footer_expanded: bool,
     pub(super) shared_session_status: &'a SharedSessionStatus,
     pub(super) terminal_view_id: EntityId,
     pub(super) is_conversation_transcript_viewer: bool,
@@ -3182,7 +3178,6 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
         flex.add_child(fork_button);
     }
 
-    flex.add_child(render_usage_button(props, app));
 
     // Review changes button.
     if props.has_accepted_edits && !props.shared_session_status.is_viewer() {
@@ -3214,155 +3209,6 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
     Some(flex.finish().with_content_item_spacing().finish())
 }
 
-/// Renders the usage button that, on click, will expand & collapse the usage summary footer.
-fn render_usage_button(props: Props, app: &AppContext) -> Box<dyn Element> {
-    let Some(conversation) = props.model.conversation(app) else {
-        return Empty::new().finish();
-    };
-
-    let has_any_usage = conversation.total_tokens() > 0
-        || conversation.total_cost_cents() > 0.0;
-    if !has_any_usage {
-        return Empty::new().finish();
-    }
-
-    let appearance = Appearance::as_ref(app);
-    let ui_builder = appearance.ui_builder().clone();
-
-    let expansion_icon = if props.is_usage_footer_expanded {
-        Icon::ChevronDown
-    } else {
-        Icon::ChevronRight
-    };
-
-    let context_usage = conversation.context_window_usage();
-    let current_context = conversation.current_context_tokens();
-    let cache_read = conversation.total_cache_read_tokens();
-    let cache_write = conversation.total_cache_write_tokens();
-    let total_input = conversation.total_input_tokens();
-    let cost_cents = conversation.total_cost_cents();
-
-    let max_context: u32 = if context_usage > 0.0 {
-        (current_context as f32 / context_usage).round() as u32
-    } else {
-        200_000
-    };
-    let context_pct = context_usage * 100.0;
-    let cache_total_ops = cache_read + cache_write + total_input;
-    let cache_hit_pct = if cache_total_ops > 0 {
-        (cache_read as f64 / cache_total_ops as f64) * 100.0
-    } else {
-        0.0
-    };
-
-    let usage_text = format!(
-        "Context: {:.1}% ({} / {}) | Cache Hit: {:.1}% (R: {}, W: {}, M: {}) | Cost: ${:.2}",
-        context_pct,
-        format_token_count(current_context),
-        format_token_count(max_context),
-        cache_hit_pct,
-        format_token_count(cache_read),
-        format_token_count(cache_write),
-        format_token_count(total_input),
-        cost_cents / 100.0,
-    );
-
-    let icon_size = icon_size(app);
-    let button_row = Flex::row()
-        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-        .with_main_axis_size(MainAxisSize::Min)
-        .with_child(
-            Container::new(
-                Text::new_inline(
-                    usage_text,
-                    appearance.ui_font_family(),
-                    appearance.monospace_font_size(),
-                )
-                .with_color(
-                    appearance
-                        .theme()
-                        .sub_text_color(appearance.theme().background())
-                        .into(),
-                )
-                .with_selectable(false)
-                .finish(),
-            )
-            .with_padding_top(2.)
-            .with_margin_left(4.)
-            .finish(),
-        )
-        .with_child(
-            Container::new(
-                ConstrainedBox::new(
-                    expansion_icon
-                        .to_galaxyui_icon(
-                            appearance
-                                .theme()
-                                .sub_text_color(appearance.theme().background()),
-                        )
-                        .finish(),
-                )
-                .with_width(icon_size)
-                .with_height(icon_size)
-                .finish(),
-            )
-            .with_margin_top(1.)
-            .finish(),
-        );
-
-    Hoverable::new(
-        props.state_handles.usage_button_handle.clone(),
-        |mouse_state| {
-            let mut content = Container::new(button_row.finish());
-
-            if mouse_state.is_hovered() || mouse_state.is_clicked() {
-                let background = if mouse_state.is_clicked() {
-                    appearance.theme().background()
-                } else {
-                    blended_colors::neutral_4(appearance.theme()).into()
-                };
-
-                content = content
-                    .with_background(background)
-                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
-
-                let mut stack = Stack::new().with_child(content.finish());
-                let tooltip = ui_builder
-                    .tool_tip("Show usage details".to_string())
-                    .build()
-                    .finish();
-                stack.add_positioned_overlay_child(
-                    tooltip,
-                    OffsetPositioning::offset_from_parent(
-                        vec2f(0., 8.),
-                        ParentOffsetBounds::WindowByPosition,
-                        ParentAnchor::BottomMiddle,
-                        ChildAnchor::TopMiddle,
-                    ),
-                );
-
-                stack.finish()
-            } else {
-                content.finish()
-            }
-        },
-    )
-    .on_click(|ctx, _, _| {
-        ctx.dispatch_typed_action(AIBlockAction::ToggleIsUsageFooterExpanded);
-    })
-    .with_cursor(Cursor::PointingHand)
-    .finish()
-}
-
-fn format_token_count(tokens: u32) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}k", tokens as f64 / 1_000.0)
-    } else {
-        format!("{tokens}")
-    }
-}
 
 pub fn action_icon<V: View>(
     action_id: &AIAgentActionId,

@@ -470,6 +470,28 @@ impl AIConversation {
 
         let task_store = TaskStore::from_tasks(tasks_by_id, root_task_id);
 
+        let restored_token_usage = {
+            let mut map = HashMap::new();
+            let cache_read = conversation_usage_metadata.total_cache_read_tokens;
+            let cache_write = conversation_usage_metadata.total_cache_write_tokens;
+            let cache_miss = conversation_usage_metadata.total_cache_miss_tokens;
+            let cost = conversation_usage_metadata.total_cost_cents;
+            if cache_read > 0 || cache_write > 0 || cache_miss > 0 || cost > 0.0 {
+                map.insert(
+                    "restored".to_string(),
+                    TokenUsage {
+                        model_id: "restored".to_string(),
+                        total_input: cache_miss,
+                        output: 0,
+                        input_cache_read: cache_read,
+                        input_cache_write: cache_write,
+                        cost_in_cents: cost,
+                    },
+                );
+            }
+            map
+        };
+
         Ok(Self {
             id,
             is_viewing_shared_session: false,
@@ -493,7 +515,7 @@ impl AIConversation {
             reverted_action_ids,
             dismissed_suggestion_ids: Default::default(),
             total_request_cost: RequestCost::new(0.),
-            total_token_usage_by_model: Default::default(),
+            total_token_usage_by_model: restored_token_usage,
             last_block_token_usage_by_model: Default::default(),
             optimistic_cli_subagent_subtask_id: None,
             fallback_display_title: None,
@@ -1734,6 +1756,12 @@ impl AIConversation {
             last_block_entry.input_cache_write += usage.input_cache_write;
             last_block_entry.cost_in_cents += usage.cost_in_cents;
         }
+
+        // Sync accumulated cache/cost totals into persisted metadata
+        self.conversation_usage_metadata.total_cache_read_tokens = self.total_cache_read_tokens();
+        self.conversation_usage_metadata.total_cache_write_tokens = self.total_cache_write_tokens();
+        self.conversation_usage_metadata.total_cache_miss_tokens = self.cache_miss_tokens();
+        self.conversation_usage_metadata.total_cost_cents = self.total_cost_cents();
 
         if let Some(request_cost) = request_cost {
             let credits_spent_for_last_block = self

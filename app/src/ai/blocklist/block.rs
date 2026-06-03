@@ -391,8 +391,6 @@ pub(super) struct AIBlockStateHandles {
     /// Mouse state handle for the fork conversation button
     fork_conversation_handle: MouseStateHandle,
 
-    /// Mouse state handle for the usage button
-    usage_button_handle: MouseStateHandle,
 
     /// Mouse state handles per citation.
     /// A given citation should only appear once per block.
@@ -926,9 +924,6 @@ pub struct AIBlock {
     /// When set, CopyCommand will copy this specific command instead of all commands.
     last_right_clicked_command: Option<String>,
 
-    /// Whether the usage summary footer is expanded.
-    is_usage_footer_expanded: bool,
-
     /// Controller for reading/modifying `AgentView` state for this terminal pane (e.g. if there is
     /// an active agent view or not, which affects whether or not this block should be hidden).
     ///
@@ -1354,7 +1349,6 @@ impl AIBlock {
             rewind_button,
             view_screenshot_buttons: Default::default(),
             last_right_clicked_command: None,
-            is_usage_footer_expanded: false,
             agent_view_controller,
             aws_bedrock_credentials_error_view: None,
             imported_comments: Default::default(),
@@ -5591,12 +5585,6 @@ pub enum AIBlockEvent {
     /// commands and requested actions have been executed or cancelled).
     Finished,
 
-    /// Emitted when we want to show or hide the usage footer.
-    UsageFooterToggled {
-        conversation_id: AIConversationId,
-        is_expanded: bool,
-    },
-
     /// Emitted when the AI block requires user confirmation to execute.
     ActionBlockedOnUserConfirmation,
 
@@ -5826,8 +5814,6 @@ pub enum AIBlockAction {
     CopyDebugId(String),
     /// Open Warp feedback documentation
     OpenFeedbackDocs,
-    /// Toggle the usage summary footer expansion state
-    ToggleIsUsageFooterExpanded,
     CommentExpanded {
         id: CommentId,
     },
@@ -6026,13 +6012,6 @@ impl TypedActionView for AIBlock {
             }
             AIBlockAction::ToggleReferencesSection => {
                 self.is_references_section_open = !self.is_references_section_open;
-            }
-            AIBlockAction::ToggleIsUsageFooterExpanded => {
-                self.is_usage_footer_expanded = !self.is_usage_footer_expanded;
-                ctx.emit(AIBlockEvent::UsageFooterToggled {
-                    conversation_id: self.client_ids.conversation_id,
-                    is_expanded: self.is_usage_footer_expanded,
-                });
             }
             AIBlockAction::CommentExpanded { id } => {
                 let Some(comment) = self.comment_states.get_mut(id) else {

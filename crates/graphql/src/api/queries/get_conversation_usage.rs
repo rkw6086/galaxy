@@ -171,6 +171,10 @@ impl From<&ConversationUsageMetadata> for persistence::model::ConversationUsageM
             credits_spent_for_last_block: None,
             token_usage: convert_token_usage(&gql.warp_token_usage, &gql.byok_token_usage),
             tool_usage_metadata: (&gql.tool_usage_metadata).into(),
+            total_cache_read_tokens: 0,
+            total_cache_write_tokens: 0,
+            total_cache_miss_tokens: 0,
+            total_cost_cents: 0.0,
         }
     }
 }

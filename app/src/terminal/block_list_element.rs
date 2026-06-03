@@ -6,7 +6,7 @@ use crate::drive::settings::WarpDriveSettings;
 use crate::features::FeatureFlag;
 use crate::pane_group::SplitPaneState;
 use crate::settings::{
-    AISettings, DebugSettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing,
+    AISettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing,
 };
 use crate::terminal::alt_screen::{should_intercept_mouse, should_intercept_scroll};
 use crate::terminal::block_list_viewport::AutoscrollBehavior;
@@ -23,7 +23,6 @@ use crate::terminal::{grid_renderer, SizeInfo};
 use crate::themes::theme::{Fill, GalaxyTheme};
 use crate::ui_components::{self, icons as UIIcon};
 use crate::util::color::Opacity;
-use crate::BlocklistAIHistoryModel;
 use enum_iterator::Sequence;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::builder::UiBuilder;
@@ -3547,38 +3546,6 @@ impl Element for BlockListElement {
         // references to the terminal model
         drop(viewport_iter);
 
-        if DebugSettings::as_ref(app).should_show_memory_stats() {
-            let history_model = BlocklistAIHistoryModel::as_ref(app);
-            for block_index in &visible_block_indices {
-                if let Some(block) = model.block_list().block_at(*block_index) {
-                    if !block.has_footer() {
-                        continue;
-                    }
-                    let request_tokens = block
-                        .agent_view_visibility()
-                        .agent_view_conversation_id()
-                        .and_then(|conversation_id| history_model.conversation(&conversation_id))
-                        .map_or(0, |conversation| conversation.last_block_total_tokens());
-                    let text = if request_tokens > 0 {
-                        format!("Request tokens: {request_tokens}")
-                    } else {
-                        "Request tokens: --".to_string()
-                    };
-
-                    let mut element = Text::new_inline(text, self.ui_font_family, self.font_size)
-                        .with_style(Properties::default().weight(self.font_weight))
-                        .with_color(
-                            self.warp_theme
-                                .sub_text_color(self.warp_theme.background())
-                                .into(),
-                        )
-                        .finish();
-
-                    element.layout(constraint, ctx, app);
-                    self.block_footer_elements.insert(*block_index, element);
-                }
-            }
-        }
 
         // Explicitly drop the terminal model mutex guard so that it can be freed up for other
         // threads

@@ -2063,7 +2063,7 @@ impl Block {
     }
 
     pub fn has_footer(&self) -> bool {
-        self.show_memory_stats
+        false
     }
 
     pub fn footer_top_padding(&self) -> Lines {

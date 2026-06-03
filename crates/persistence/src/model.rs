@@ -1304,6 +1304,14 @@ pub struct ConversationUsageMetadata {
     pub token_usage: Vec<ModelTokenUsage>,
     #[serde(default)]
     pub tool_usage_metadata: ToolUsageMetadata,
+    #[serde(default)]
+    pub total_cache_read_tokens: u32,
+    #[serde(default)]
+    pub total_cache_write_tokens: u32,
+    #[serde(default)]
+    pub total_cache_miss_tokens: u32,
+    #[serde(default)]
+    pub total_cost_cents: f32,
 }
 
 impl ConversationUsageMetadata {
