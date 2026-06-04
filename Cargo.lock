@@ -5313,7 +5313,7 @@ dependencies = [
 
 [[package]]
 name = "galaxy"
-version = "1.6.0"
+version = "1.6.2"
 dependencies = [
  "addr",
  "aho-corasick",

@@ -268,10 +268,15 @@ impl ShellCommandExecutor {
 
                 let block_selector = BlockSelector::RequestedCommandId(action_id.clone());
                 let command = command.clone();
+                let delay = if *wait_until_completion {
+                    Some(ShellCommandDelay::OnCompletion)
+                } else {
+                    None
+                };
                 drop(model);
 
                 ActionExecution::new_async(
-                    self.action_result_future(block_selector.clone(), None),
+                    self.action_result_future(block_selector.clone(), delay),
                     move |result, ctx| {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {

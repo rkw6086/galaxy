@@ -153,6 +153,7 @@ impl Element for Rect {
     }
 
     #[cfg_attr(debug_assertions, track_caller)]
+    #[allow(unused_mut)]
     fn finish(mut self) -> Box<dyn Element>
     where
         Self: 'static + Sized,
