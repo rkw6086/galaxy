@@ -148,9 +148,6 @@ impl PromptBuilder {
         if !ctx.git_branch.is_empty() {
             lines.push(format!("- Git branch: {}", ctx.git_branch));
         }
-        if !ctx.current_time.is_empty() {
-            lines.push(format!("- Current time (UTC): {}", ctx.current_time));
-        }
 
         Some(lines.join("\n"))
     }

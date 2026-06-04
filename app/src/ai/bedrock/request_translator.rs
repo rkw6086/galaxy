@@ -867,9 +867,6 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
                     prompt.push_str(&format!("- Git branch: {}\n", git.branch));
                 }
             }
-            if let Some(ts) = &context.current_time {
-                prompt.push_str(&format!("- Current time (UTC): {}\n", ts));
-            }
             prompt.push('\n');
 
             if !context.project_rules.is_empty() {
