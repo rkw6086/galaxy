@@ -111,7 +111,11 @@ impl FileGlobExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!("[tool-debug] FileGlobExecutor::execute: patterns={:?}, path={:?}", patterns, path);
+        log::info!(
+            "[tool-debug] FileGlobExecutor::execute: patterns={:?}, path={:?}",
+            patterns,
+            path
+        );
 
         // If the path is not provided, use the current working directory.
         let path = path.clone().unwrap_or_else(|| ".".to_string());

@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::sanitize_messages_for_bedrock;
+use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 
 #[test]
 fn test_sanitize_messages_prepends_synthetic_tool_result_before_existing_user_text() {

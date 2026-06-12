@@ -236,19 +236,28 @@ pub struct AIConversation {
     /// request cycles. This is the source of truth for what Bedrock sees.
     bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
 
+    /// Archived tool_use/tool_result pairs from messages that were drained by
+    /// progressive summarization. Kept separately so `recall_tool_history` can
+    /// find results even after they've been summarized away from live history.
+    tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+
     /// Live context token count from the most recent Bedrock response.
     /// This is the actual input_tokens reported by Bedrock — represents the current
     /// context window size, NOT a cumulative total.
     current_context_tokens: u32,
 
-    /// When set, contains the compacted summary of prior conversation history.
-    /// Injected into the system prompt (not the messages array) so it benefits
-    /// from system-level caching at the 1-hour TTL.
-    compact_summary: Option<String>,
+    /// Progressive summary of older conversation history.
+    /// Prepended as the first message in the messages array sent to Bedrock,
+    /// while recent messages are kept verbatim.
+    progressive_summary: Option<String>,
 
-    /// Guards against repeated auto-compact triggers within the same high-usage window.
-    /// Set to true when auto-compact fires; reset when summarization completes.
-    has_pending_auto_compact: bool,
+    /// The number of messages that were drained from bedrock_message_history
+    /// when the progressive summary was last produced. Used to handle race
+    /// conditions if new messages arrive during an in-flight summarization.
+    messages_summarized_up_to: usize,
+
+    /// Guards against concurrent progressive summarization requests.
+    has_pending_progressive_summary: bool,
 
     subagent_retry_count: u8,
 }
@@ -303,9 +312,11 @@ impl AIConversation {
             is_remote_child: false,
             last_event_sequence: None,
             bedrock_message_history: Vec::new(),
-            compact_summary: None,
+            tool_result_archive: Vec::new(),
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
             current_context_tokens: 0,
-            has_pending_auto_compact: false,
+            has_pending_progressive_summary: false,
             subagent_retry_count: 0,
         }
     }
@@ -401,6 +412,8 @@ impl AIConversation {
             run_id,
             autoexecute_override,
             last_event_sequence,
+            progressive_summary,
+            messages_summarized_up_to,
         ) = if let Some(data) = conversation_data {
             let server_conversation_token = data
                 .server_conversation_token
@@ -432,6 +445,8 @@ impl AIConversation {
                 AIConversationAutoexecuteMode::default()
             };
             let last_event_sequence = data.last_event_sequence;
+            let progressive_summary = data.progressive_summary;
+            let messages_summarized_up_to = data.messages_summarized_up_to;
 
             (
                 server_conversation_token,
@@ -445,6 +460,8 @@ impl AIConversation {
                 run_id,
                 autoexecute_override,
                 last_event_sequence,
+                progressive_summary,
+                messages_summarized_up_to,
             )
         } else {
             (
@@ -459,6 +476,8 @@ impl AIConversation {
                 None,
                 AIConversationAutoexecuteMode::default(),
                 None,
+                None,
+                0,
             )
         };
 
@@ -526,9 +545,11 @@ impl AIConversation {
             is_remote_child: false,
             last_event_sequence,
             bedrock_message_history,
-            compact_summary: None,
+            tool_result_archive: Vec::new(),
+            progressive_summary,
+            messages_summarized_up_to,
             current_context_tokens: 0,
-            has_pending_auto_compact: false,
+            has_pending_progressive_summary: false,
             subagent_retry_count: 0,
         })
     }
@@ -547,6 +568,56 @@ impl AIConversation {
         &mut self.bedrock_message_history
     }
 
+    pub fn tool_result_archive(&self) -> &[crate::ai::bedrock::convert::ConversationMessage] {
+        &self.tool_result_archive
+    }
+
+    pub fn archive_tool_results(
+        &mut self,
+        messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    ) {
+        use crate::ai::bedrock::convert::{ContentPart, MessageContent};
+
+        let mut pending_tool_uses: Vec<crate::ai::bedrock::convert::ConversationMessage> =
+            Vec::new();
+
+        for msg in messages {
+            match &msg.content {
+                MessageContent::ToolUse { .. } => pending_tool_uses.push(msg),
+                MessageContent::ToolResult { .. } => {
+                    if !pending_tool_uses.is_empty() {
+                        let tool_use = pending_tool_uses.remove(pending_tool_uses.len() - 1);
+                        self.tool_result_archive.push(tool_use);
+                    }
+                    self.tool_result_archive.push(msg);
+                }
+                MessageContent::MultiPart(parts) => {
+                    for part in parts {
+                        match part {
+                            ContentPart::ToolUse { .. } => {
+                                pending_tool_uses.push(msg.clone());
+                            }
+                            ContentPart::ToolResult { .. } => {
+                                if !pending_tool_uses.is_empty() {
+                                    let tool_use =
+                                        pending_tool_uses.remove(pending_tool_uses.len() - 1);
+                                    self.tool_result_archive.push(tool_use);
+                                }
+                                self.tool_result_archive.push(msg.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for tool_use in pending_tool_uses {
+            self.tool_result_archive.push(tool_use);
+        }
+    }
+
     pub fn append_to_bedrock_history(
         &mut self,
         messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
@@ -554,12 +625,21 @@ impl AIConversation {
         self.bedrock_message_history.extend(messages);
     }
 
-    pub fn compact_summary(&self) -> Option<&str> {
-        self.compact_summary.as_deref()
+    pub fn progressive_summary(&self) -> Option<&str> {
+        self.progressive_summary.as_deref()
     }
 
-    pub fn set_compact_summary(&mut self, summary: Option<String>) {
-        self.compact_summary = summary;
+    pub fn set_progressive_summary(&mut self, summary: Option<String>, messages_summarized: usize) {
+        self.progressive_summary = summary;
+        self.messages_summarized_up_to = messages_summarized;
+    }
+
+    pub fn messages_summarized_up_to(&self) -> usize {
+        self.messages_summarized_up_to
+    }
+
+    pub fn reset_messages_summarized_up_to(&mut self) {
+        self.messages_summarized_up_to = 0;
     }
 
     /// Assigns fresh exchange IDs to all exchanges in this conversation.
@@ -601,12 +681,12 @@ impl AIConversation {
         self.current_context_tokens = tokens;
     }
 
-    pub fn has_pending_auto_compact(&self) -> bool {
-        self.has_pending_auto_compact
+    pub fn has_pending_progressive_summary(&self) -> bool {
+        self.has_pending_progressive_summary
     }
 
-    pub fn set_has_pending_auto_compact(&mut self, value: bool) {
-        self.has_pending_auto_compact = value;
+    pub fn set_has_pending_progressive_summary(&mut self, value: bool) {
+        self.has_pending_progressive_summary = value;
     }
 
     pub fn credits_spent(&self) -> f32 {
@@ -1424,22 +1504,18 @@ impl AIConversation {
         self.all_exchanges()
             .into_iter()
             .flat_map(|exchange| {
-                exchange
-                    .output_status
-                    .output()
-                    .into_iter()
-                    .map(|output| {
-                        output
-                            .get()
-                            .actions()
-                            .filter(|a| {
-                                matches!(
-                                    a.action,
-                                    super::AIAgentActionType::RequestCommandOutput { .. }
-                                )
-                            })
-                            .count()
-                    })
+                exchange.output_status.output().into_iter().map(|output| {
+                    output
+                        .get()
+                        .actions()
+                        .filter(|a| {
+                            matches!(
+                                a.action,
+                                super::AIAgentActionType::RequestCommandOutput { .. }
+                            )
+                        })
+                        .count()
+                })
             })
             .sum()
     }
@@ -1825,7 +1901,7 @@ impl AIConversation {
             // so we only update the summarized flag if it's going from false to true.
             if usage_metadata.summarized && !self.conversation_usage_metadata.was_summarized {
                 self.conversation_usage_metadata.was_summarized = usage_metadata.summarized;
-                self.has_pending_auto_compact = false;
+                self.has_pending_progressive_summary = false;
             }
         }
         Ok(())
@@ -2783,16 +2859,12 @@ impl AIConversation {
                     Some(result) => match result {
                         Ok(todos_op) => todos_op,
                         Err(e) => {
-                            log::error!(
-                                "[bedrock] AppendToMessageContent failed: {e:?}"
-                            );
+                            log::error!("[bedrock] AppendToMessageContent failed: {e:?}");
                             return Err(e.into());
                         }
                     },
                     None => {
-                        log::error!(
-                            "[bedrock] AppendToMessageContent: TaskNotFound in task_store"
-                        );
+                        log::error!("[bedrock] AppendToMessageContent: TaskNotFound in task_store");
                         return Err(UpdateConversationError::TaskNotFound);
                     }
                 };
@@ -3125,6 +3197,8 @@ impl AIConversation {
                 run_id: self.task_id.map(|id| id.to_string()),
                 autoexecute_override: Some(self.autoexecute_override.into()),
                 last_event_sequence: self.last_event_sequence,
+                progressive_summary: self.progressive_summary.clone(),
+                messages_summarized_up_to: self.messages_summarized_up_to,
             },
         };
         ctx.spawn(
@@ -3320,7 +3394,10 @@ impl AIConversation {
     pub fn cache_miss_tokens(&self) -> u32 {
         self.total_token_usage_by_model
             .values()
-            .map(|u| u.total_input.saturating_sub(u.input_cache_read + u.input_cache_write))
+            .map(|u| {
+                u.total_input
+                    .saturating_sub(u.input_cache_read + u.input_cache_write)
+            })
             .sum()
     }
 
@@ -3341,7 +3418,10 @@ impl AIConversation {
     pub fn last_block_cache_miss_tokens(&self) -> u32 {
         self.last_block_token_usage_by_model
             .values()
-            .map(|u| u.total_input.saturating_sub(u.input_cache_read + u.input_cache_write))
+            .map(|u| {
+                u.total_input
+                    .saturating_sub(u.input_cache_read + u.input_cache_write)
+            })
             .sum()
     }
 

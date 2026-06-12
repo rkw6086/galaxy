@@ -56,18 +56,22 @@ Key files in `app/src/ai/bedrock/`:
 - `convert.rs` — Shared types (`ConversationMessage`, `ToolDefinition`) and Bedrock SDK type builders
 - `client.rs` — AWS SDK client construction and `converse_stream` call
 - `models.rs` — Model registry and cross-region inference prefix logic
-- `discovery.rs` — AWS profile and model listing
+- `discovery.rs` — AWS profile listing and model discovery (STS identity check + ListFoundationModels)
 - `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
 - `external_config.rs` — Fallback config from Claude Code/OpenCode settings
 
 Key invariants:
 - Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`
-- Tool definitions are built via `tool_definition_for_name()` in `request_translator.rs`
-- Unknown/hallucinated tool calls are caught in the stream, paired with synthetic error results
+- Tool definitions are built via `tool_definition_for_name()` in `convert_request.rs`; includes `recall_tool_history` for retrieving past tool results
+- Unknown/hallucinated tool calls are caught in the stream, paired with synthetic error results, and now emit a visible `AgentOutput` text message to the UI
+- `recall_tool_history` is handled inline in the response translator (synthetic result from `messages_sent`)
+- Tool result archive: before progressive summarization drains messages, `ConversationMessage::archive_tool_results()` extracts all tool_use/tool_result pairs into a separate `tool_result_archive` vec. `recall_tool_history` searches both live history + archived results, and supports a `tool_use_id` parameter for exact ID lookup
 - Prompt caching uses three cache points: system prompt, conversation history (second-to-last message), tool config
 - `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`
 - `inject_input_messages_into_task()` and `extract_user_query_text()` ensure user queries persist for session restore
 - The stream emits a `UserQuery` proto message at the start of each response for conversation title
+- Progressive summary (if present) is prepended to the messages array as a user/assistant pair in `translator.rs`
+- Loop prevention guardrail in `controller.rs` detects repeated tool failures (3+ identical) and injects corrective instructions
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup (calls platform-specific bootstrap scripts)

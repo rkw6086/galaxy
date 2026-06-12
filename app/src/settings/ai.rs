@@ -451,6 +451,13 @@ pub struct BedrockModelConfig {
     #[serde(default)]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
+    #[serde(default = "default_context_size")]
+    #[schemars(description = "Maximum context window size in tokens.")]
+    pub context_size: u32,
+}
+
+fn default_context_size() -> u32 {
+    200_000
 }
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
@@ -823,6 +830,18 @@ define_settings_group!(AISettings, settings: [
         private: false,
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
+    }
+    // Whether to use the local AI model for input classification and suggestions
+    // instead of making Bedrock API calls. When enabled, SmolLM2-135M handles
+    // autodetection, prompt suggestions, and code banners locally.
+    use_local_model: UseLocalModel {
+        type: bool,
+        default: true,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "agents.warp_agent.input.use_local_model",
+        description: "Use a locally downloaded AI model for command recognition and suggestions instead of Bedrock.",
     },
     // This field should not be referenced directly to lookup intelligent autosuggestion enablement
     // -- use the `is_intelligent_autosuggestions_enabled()` getter.
@@ -1640,6 +1659,10 @@ impl AISettings {
 
     pub fn is_code_suggestions_enabled(&self, app: &galaxyui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.code_suggestions_enabled_internal
+    }
+
+    pub fn should_use_local_model(&self) -> bool {
+        *self.use_local_model
     }
 
     pub fn is_natural_language_autosuggestions_enabled(&self, app: &galaxyui::AppContext) -> bool {

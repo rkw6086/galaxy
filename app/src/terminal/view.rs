@@ -12371,11 +12371,9 @@ impl TerminalView {
         }
     }
 
-    fn summarize_conversation(&mut self, ctx: &mut ViewContext<Self>) {
-        self.ai_controller.update(ctx, |controller, ctx| {
-            controller
-                .send_slash_command_request(SlashCommandRequest::Summarize { prompt: None }, ctx);
-        });
+    fn summarize_conversation(&mut self, _ctx: &mut ViewContext<Self>) {
+        // /compact command has been removed; progressive summarization is now automatic
+        log::info!("summarize_conversation called but /compact is no longer supported");
     }
 
     fn init_project(
@@ -25227,7 +25225,9 @@ impl TypedActionView for TerminalView {
                     galaxy_md_path.push(GALAXY_MD_PATH);
                     #[cfg(feature = "local_fs")]
                     ctx.emit(Event::OpenCodeInWarp {
-                        source: CodeSource::ProjectRules { path: galaxy_md_path },
+                        source: CodeSource::ProjectRules {
+                            path: galaxy_md_path,
+                        },
                         layout: *crate::util::file::external_editor::EditorSettings::as_ref(ctx)
                             .open_file_layout
                             .value(),

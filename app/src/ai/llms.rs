@@ -424,11 +424,11 @@ impl Default for ModelsByFeature {
     fn default() -> Self {
         Self {
             agent_mode: AvailableLLMs {
-                default_id: "anthropic.claude-opus-4-6".to_owned().into(),
+                default_id: "anthropic.claude-opus-4-6[1m]".to_owned().into(),
                 choices: vec![LLMInfo {
                     display_name: "Claude Opus 4.6".to_owned(),
                     base_model_name: "Claude Opus 4.6".to_owned(),
-                    id: "anthropic.claude-opus-4-6".to_owned().into(),
+                    id: "anthropic.claude-opus-4-6[1m]".to_owned().into(),
                     reasoning_level: None,
                     usage_metadata: LLMUsageMetadata {
                         request_multiplier: 1,
@@ -445,11 +445,11 @@ impl Default for ModelsByFeature {
                 preferred_codex_model_id: None,
             },
             coding: AvailableLLMs {
-                default_id: "anthropic.claude-sonnet-4-6".to_owned().into(),
+                default_id: "anthropic.claude-sonnet-4-6[1m]".to_owned().into(),
                 choices: vec![LLMInfo {
                     display_name: "Claude Sonnet 4.6".to_owned(),
                     base_model_name: "Claude Sonnet 4.6".to_owned(),
-                    id: "anthropic.claude-sonnet-4-6".to_owned().into(),
+                    id: "anthropic.claude-sonnet-4-6[1m]".to_owned().into(),
                     reasoning_level: None,
                     usage_metadata: LLMUsageMetadata {
                         request_multiplier: 1,
@@ -508,8 +508,6 @@ pub struct LLMPreferences {
     models_by_feature: ModelsByFeature,
     last_update: Option<AvailableLLMsUpdate>,
     base_llm_for_terminal_view: HashMap<EntityId, LLMId>,
-    #[cfg(not(target_family = "wasm"))]
-    bedrock_models_fetched: bool,
 }
 
 impl LLMPreferences {
@@ -550,12 +548,6 @@ impl LLMPreferences {
                     | AISettingsChangedEvent::BedrockCrossRegionInference { .. }
                     | AISettingsChangedEvent::BedrockRegion { .. }
             ) {
-                if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
-                    let enabled = *AISettings::as_ref(ctx).bedrock_enabled.value();
-                    if enabled && !me.bedrock_models_fetched {
-                        me.trigger_bedrock_discovery(ctx);
-                    }
-                }
                 me.inject_bedrock_models(ctx);
                 ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
             }
@@ -567,8 +559,6 @@ impl LLMPreferences {
             models_by_feature,
             last_update: None,
             base_llm_for_terminal_view,
-            #[cfg(not(target_family = "wasm"))]
-            bedrock_models_fetched: false,
         };
 
         // In agent mode eval builds, eagerly kick off a fetch of the model list from the server
@@ -580,47 +570,46 @@ impl LLMPreferences {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            Self::ensure_default_models_in_settings(ctx);
             me.inject_bedrock_models(ctx);
-            if *AISettings::as_ref(ctx).bedrock_enabled.value() {
-                me.trigger_bedrock_discovery(ctx);
-            }
         }
 
         me
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn trigger_bedrock_discovery(&mut self, ctx: &mut ModelContext<Self>) {
-        use crate::ai::bedrock::client::BedrockClientConfig;
-        use crate::ai::bedrock::discovery::discover_inference_profiles;
-
-        self.bedrock_models_fetched = true;
+    fn ensure_default_models_in_settings(ctx: &mut ModelContext<Self>) {
+        use crate::ai::bedrock::models::DEFAULT_BEDROCK_MODELS;
 
         let settings = AISettings::as_ref(ctx);
-        let config = BedrockClientConfig {
-            auth_method: settings.bedrock_auth_method.value().clone(),
-            profile: settings.bedrock_profile.value().clone(),
-            region: settings.bedrock_region.value().clone(),
-            access_key_id: settings.bedrock_access_key_id.value().clone(),
-            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-        }.with_external_fallbacks();
+        let mut current_models: Vec<BedrockModelConfig> =
+            settings.bedrock_models.value().clone();
 
-        ctx.spawn(
-            async move { discover_inference_profiles(&config).await },
-            |me, result, ctx| match result {
-                Ok(models) => {
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let _ = settings.bedrock_models.set_value(models, ctx);
-                    });
-                    me.inject_bedrock_models(ctx);
-                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
-                }
-                Err(e) => {
-                    log::error!("Failed to discover Bedrock inference profiles: {e}");
-                }
-            },
-        );
+        let existing_ids: std::collections::HashSet<String> =
+            current_models.iter().map(|m| m.model_id.clone()).collect();
+
+        let mut added = false;
+        for default in DEFAULT_BEDROCK_MODELS {
+            if !existing_ids.contains(default.model_id as &str) {
+                current_models.push(BedrockModelConfig {
+                    model_id: default.model_id.to_string(),
+                    display_name: default.display_name.to_string(),
+                    vision_supported: default.vision_supported,
+                    context_size: default.context_size,
+                });
+                added = true;
+            }
+        }
+
+        if added {
+            log::info!(
+                "[bedrock] Added missing default models to settings — now {} total",
+                current_models.len()
+            );
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                let _ = settings.bedrock_models.set_value(current_models, ctx);
+            });
+        }
     }
 
     #[cfg(not(target_family = "wasm"))]

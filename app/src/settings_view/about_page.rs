@@ -66,7 +66,8 @@ impl SettingsWidget for AboutPageWidget {
     ) -> Box<dyn Element> {
         let ui_builder = appearance.ui_builder();
 
-        let icon_file = AppIconSettings::get_base_icon_file_name(*AppIconSettings::as_ref(_app).app_icon);
+        let icon_file =
+            AppIconSettings::get_base_icon_file_name(*AppIconSettings::as_ref(_app).app_icon);
         let image_path = match icon_file {
             "galaxy" => "bundled/png/galaxy.png",
             "galaxy_dotmatrix" => "bundled/png/galaxy_dotmatrix.png",

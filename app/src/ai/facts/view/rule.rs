@@ -298,12 +298,7 @@ impl RuleView {
                             content: rule.content.to_string(),
                             suggested_logging_id: None,
                         });
-                        update_manager.create_ai_fact(
-                            ai_fact,
-                            ClientId::default(),
-                            owner,
-                            ctx,
-                        );
+                        update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
                     }
                 });
             }
@@ -517,22 +512,10 @@ impl RuleView {
                     suggested_logging_id: None,
                 });
 
-                if let Some((sync_id, revision)) =
-                    existing_system_rules.get(rule.name)
-                {
-                    update_manager.update_ai_fact(
-                        ai_fact,
-                        *sync_id,
-                        revision.clone(),
-                        ctx,
-                    );
+                if let Some((sync_id, revision)) = existing_system_rules.get(rule.name) {
+                    update_manager.update_ai_fact(ai_fact, *sync_id, revision.clone(), ctx);
                 } else {
-                    update_manager.create_ai_fact(
-                        ai_fact,
-                        ClientId::default(),
-                        owner,
-                        ctx,
-                    );
+                    update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
                 }
             }
         });
@@ -913,34 +896,30 @@ impl RuleView {
 
         if is_delete_allowed(ai_row.fact.clone(), app) {
             let delete_sync_id = ai_row.fact.sync_id();
-            let delete_button = Hoverable::new(
-                ai_row.mouse_states.delete_hover.clone(),
-                |state| {
-                    let mut container = Container::new(
-                        ConstrainedBox::new(
-                            Icon::Trash
-                                .to_galaxyui_icon(
-                                    appearance
-                                        .theme()
-                                        .sub_text_color(appearance.theme().background()),
-                                )
-                                .finish(),
-                        )
-                        .with_width(16.)
-                        .with_height(16.)
-                        .finish(),
+            let delete_button = Hoverable::new(ai_row.mouse_states.delete_hover.clone(), |state| {
+                let mut container = Container::new(
+                    ConstrainedBox::new(
+                        Icon::Trash
+                            .to_galaxyui_icon(
+                                appearance
+                                    .theme()
+                                    .sub_text_color(appearance.theme().background()),
+                            )
+                            .finish(),
                     )
-                    .with_uniform_padding(4.)
-                    .with_corner_radius(CornerRadius::with_all(
-                        galaxyui::elements::Radius::Pixels(4.),
-                    ));
-                    if state.is_hovered() {
-                        container =
-                            container.with_background(appearance.theme().surface_2());
-                    }
-                    container.finish()
-                },
-            )
+                    .with_width(16.)
+                    .with_height(16.)
+                    .finish(),
+                )
+                .with_uniform_padding(4.)
+                .with_corner_radius(CornerRadius::with_all(
+                    galaxyui::elements::Radius::Pixels(4.),
+                ));
+                if state.is_hovered() {
+                    container = container.with_background(appearance.theme().surface_2());
+                }
+                container.finish()
+            })
             .with_cursor(Cursor::PointingHand)
             .on_click(move |ctx, _, _| {
                 ctx.dispatch_typed_action(RuleViewAction::Delete(delete_sync_id));

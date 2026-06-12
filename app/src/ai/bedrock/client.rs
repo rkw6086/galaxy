@@ -7,12 +7,22 @@ use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 
 use crate::settings::ai::BedrockAuthMethod;
 
-use super::external_config::ExternalBedrockConfig;
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
+use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
 use crate::ai::agent::api::ResponseStream;
+
+fn strip_context_marker(model_id: &str) -> String {
+    if let Some(base) = model_id.strip_suffix("[1m]") {
+        base.to_string()
+    } else if let Some(base) = model_id.strip_suffix("[1M]") {
+        base.to_string()
+    } else {
+        model_id.to_string()
+    }
+}
 
 pub struct BedrockClient {
     runtime_client: BedrockRuntimeClient,
@@ -141,12 +151,13 @@ impl BedrockClient {
         user_query: Option<String>,
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
         messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
-        is_summarization: bool,
+        tool_result_archive: Vec<ConversationMessage>,
     ) -> Result<ResponseStream, BedrockError> {
+        let base_model_id = strip_context_marker(model_id);
         let effective_model_id = if cross_region_inference {
-            apply_cross_region_prefix(model_id, &self.region)
+            apply_cross_region_prefix(&base_model_id, &self.region)
         } else {
-            model_id.to_string()
+            base_model_id
         };
 
         let external_config = ExternalBedrockConfig::load();
@@ -238,9 +249,74 @@ impl BedrockClient {
             user_query,
             diagnostic_logger,
             messages_sent,
-            effective_model_id,
-            is_summarization,
+            model_id.to_string(),
+            tool_result_archive,
         )))
     }
 
+    /// Performs a non-streaming converse call and collects the full response text.
+    /// Used for background progressive summarization where we don't need streaming UI.
+    /// Returns (response_text, input_tokens, output_tokens).
+    pub async fn converse_collect(
+        &self,
+        model_id: &str,
+        messages: Vec<ConversationMessage>,
+        system_prompt: Option<String>,
+        max_tokens: i32,
+        cross_region_inference: bool,
+    ) -> Result<(String, u32, u32), BedrockError> {
+        let base_model_id = strip_context_marker(model_id);
+        let effective_model_id = if cross_region_inference {
+            apply_cross_region_prefix(&base_model_id, &self.region)
+        } else {
+            base_model_id
+        };
+
+        let external_config = ExternalBedrockConfig::load();
+        let caching_config = CachingConfig::from_external_config(&external_config);
+
+        let converted = build_converse_request(
+            messages,
+            system_prompt,
+            None,
+            vec![],
+            max_tokens,
+            None,
+            None,
+            None,
+            caching_config,
+        );
+
+        let request = self
+            .runtime_client
+            .converse()
+            .model_id(&effective_model_id)
+            .set_system(Some(converted.system))
+            .set_messages(Some(converted.messages))
+            .inference_config(converted.inference_config);
+
+        let output = request.send().await.map_err(|e| {
+            let msg = format!("{e}");
+            log::error!("[bedrock] converse_collect error: {msg}");
+            BedrockError::ApiError(msg)
+        })?;
+
+        let mut response_text = String::new();
+        if let Some(output_msg) = output.output() {
+            if let aws_sdk_bedrockruntime::types::ConverseOutput::Message(msg) = output_msg {
+                for block in msg.content() {
+                    if let aws_sdk_bedrockruntime::types::ContentBlock::Text(text) = block {
+                        response_text.push_str(text);
+                    }
+                }
+            }
+        }
+
+        let (input_tokens, output_tokens) = output
+            .usage()
+            .map(|u| (u.input_tokens() as u32, u.output_tokens() as u32))
+            .unwrap_or((0, 0));
+
+        Ok((response_text, input_tokens, output_tokens))
+    }
 }

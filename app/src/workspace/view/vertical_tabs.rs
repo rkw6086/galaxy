@@ -2089,10 +2089,14 @@ fn render_group_action_buttons(
 
     let kebab_button = Hoverable::new(kebab_mouse_state, move |button_state| {
         let mut container = Container::new(
-            ConstrainedBox::new(GalaxyIcon::DotsVertical.to_galaxyui_icon(meta_color).finish())
-                .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
-                .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
-                .finish(),
+            ConstrainedBox::new(
+                GalaxyIcon::DotsVertical
+                    .to_galaxyui_icon(meta_color)
+                    .finish(),
+            )
+            .with_width(GROUP_ACTION_BUTTON_ICON_SIZE)
+            .with_height(GROUP_ACTION_BUTTON_ICON_SIZE)
+            .finish(),
         )
         .with_padding(Padding::uniform(GROUP_ACTION_BUTTON_PADDING))
         .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)));
@@ -5243,10 +5247,13 @@ fn render_detail_status_pill(
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(4.)
             .with_child(
-                ConstrainedBox::new(icon.to_galaxyui_icon(GalaxyThemeFill::Solid(color)).finish())
-                    .with_width(12.)
-                    .with_height(12.)
-                    .finish(),
+                ConstrainedBox::new(
+                    icon.to_galaxyui_icon(GalaxyThemeFill::Solid(color))
+                        .finish(),
+                )
+                .with_width(12.)
+                .with_height(12.)
+                .finish(),
             )
             .with_child(
                 Text::new_inline(status.to_string(), appearance.ui_font_family(), 10.)

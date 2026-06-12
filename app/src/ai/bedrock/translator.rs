@@ -13,9 +13,9 @@ pub struct TranslatorRequest {
     pub model_id: String,
     pub root_task_id: Option<String>,
     pub bedrock_message_history: Vec<ConversationMessage>,
-    pub bedrock_compact_summary: Option<String>,
+    pub bedrock_tool_result_archive: Vec<ConversationMessage>,
+    pub bedrock_progressive_summary: Option<String>,
     pub bedrock_messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
-    pub is_summarization: bool,
 }
 
 pub async fn execute(
@@ -45,7 +45,7 @@ pub async fn execute(
     let mut model_id = params.model_id;
     if model_id.is_empty() || model_id == "auto" {
         // Fall back to default if nothing is set
-        model_id = "us.anthropic.claude-opus-4-6".to_string();
+        model_id = "us.anthropic.claude-opus-4-6[1m]".to_string();
     }
 
     log::info!("[bedrock] Translator: model={model_id}, task_id={task_id}, needs_create_task={needs_create_task}");
@@ -60,13 +60,38 @@ pub async fn execute(
     request_translator::inject_input_messages_into_task(request);
 
     let new_input_messages = request_translator::extract_new_input_messages(request);
+    let new_input_count = new_input_messages.len();
 
-    let mut messages = params.bedrock_message_history;
+    let mut messages = Vec::new();
+
+    // Prepend progressive summary as the first message pair if present
+    if let Some(ref summary) = params.bedrock_progressive_summary {
+        use crate::ai::bedrock::convert::{MessageContent, MessageRole};
+        messages.push(ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text(format!(
+                "<conversation-history-summary>\n{}\n</conversation-history-summary>\n\n\
+                 The above summarizes earlier conversation history. The detailed messages below are the most recent exchanges.",
+                summary
+            )),
+        });
+        messages.push(ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text(
+                "Understood, I have the prior context. Continuing with the recent conversation."
+                    .to_string(),
+            ),
+        });
+    }
+
+    let history_len = params.bedrock_message_history.len();
+    messages.extend(params.bedrock_message_history);
+
     if !new_input_messages.is_empty() {
         log::info!(
             "[bedrock] Appending {} new input messages to history of {}",
             new_input_messages.len(),
-            messages.len()
+            history_len
         );
         messages.extend(new_input_messages);
     }
@@ -74,20 +99,24 @@ pub async fn execute(
     request_translator::sanitize_messages_for_bedrock(&mut messages);
 
     let system_prompt = request_translator::extract_system_prompt(request);
-    let compact_summary = params.bedrock_compact_summary;
     let tools = request_translator::extract_tools(request);
 
     log::info!(
-        "[bedrock] Sending {} messages, system_prompt={}, compact_summary={}, tools={}",
+        "[bedrock] Sending {} messages, system_prompt={}, progressive_summary={}, tools={}",
         messages.len(),
         system_prompt.is_some(),
-        compact_summary.is_some(),
+        params.bedrock_progressive_summary.is_some(),
         tools.len()
     );
 
     for (i, msg) in messages.iter().enumerate() {
         let content_desc = describe_message_content(&msg.content);
-        log::info!("[bedrock] msg[{}]: role={:?}, content={}", i, msg.role, content_desc);
+        log::info!(
+            "[bedrock] msg[{}]: role={:?}, content={}",
+            i,
+            msg.role,
+            content_desc
+        );
     }
 
     let user_query_text = request_translator::extract_user_query_text(request);
@@ -99,7 +128,7 @@ pub async fn execute(
             needs_create_task,
             messages.clone(),
             system_prompt,
-            compact_summary,
+            None, // progressive summary is in messages array, not system prompt
             tools,
             64000,
             None,
@@ -107,12 +136,20 @@ pub async fn execute(
             user_query_text,
             diagnostic_logger,
             params.bedrock_messages_sent.clone(),
-            params.is_summarization,
+            params.bedrock_tool_result_archive,
         )
         .await?;
 
     if let Ok(mut sent) = params.bedrock_messages_sent.lock() {
-        *sent = messages;
+        // Only persist the actual conversation history (history + new inputs), not the
+        // ephemeral prepended summary pair, so we don't duplicate the summary on every
+        // subsequent write-back. The summary is prepended at request time each turn.
+        let persistent_count = history_len + new_input_count;
+        if persistent_count > 0 && messages.len() >= persistent_count {
+            *sent = messages.split_off(messages.len() - persistent_count);
+        } else {
+            *sent = messages;
+        }
     }
 
     Ok(stream)

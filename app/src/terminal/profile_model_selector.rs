@@ -2,10 +2,10 @@ use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
 use galaxyui::{
     elements::{
         Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
-        CrossAxisAlignment, DropShadow, Empty, Expanded, Flex, Hoverable, MainAxisAlignment,
-        MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement as _,
-        ParentOffsetBounds, Percentage, PositionedElementAnchor, PositionedElementOffsetBounds,
-        Radius, Rect, SavePosition, Stack, Text, DEFAULT_UI_LINE_HEIGHT_RATIO,
+        CrossAxisAlignment, Empty, Flex, Hoverable, MouseStateHandle, OffsetPositioning,
+        ParentAnchor, ParentElement as _, ParentOffsetBounds, PositionedElementAnchor,
+        PositionedElementOffsetBounds, Radius, SavePosition, Stack, Text,
+        DEFAULT_UI_LINE_HEIGHT_RATIO,
     },
     platform::Cursor,
     text_layout::ClipConfig,
@@ -16,11 +16,9 @@ use galaxyui::{
 use indexmap::IndexMap;
 use instant::{Duration, Instant};
 use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use std::sync::Arc;
 
-const SIDECAR_HORIZONTAL_GAP: f32 = 8.;
 const SIDECAR_POSITION_ID: &str = "model_sidecar_panel";
 
 use crate::{
@@ -34,8 +32,7 @@ use crate::{
             profiles::{AIExecutionProfilesModel, AIExecutionProfilesModelEvent, ClientProfileId},
         },
         llms::{
-            dedupe_model_display_names, is_using_api_key_for_provider, LLMId, LLMInfo,
-            LLMPreferences, LLMPreferencesEvent, LLMSpec,
+            dedupe_model_display_names, LLMId, LLMInfo, LLMPreferences, LLMPreferencesEvent,
         },
     },
     appearance::Appearance,
@@ -53,10 +50,9 @@ use crate::{
     },
     ui_components::icons::Icon,
     view_components::{
-        action_button::{ActionButton, ActionButtonTheme, ButtonSize, SecondaryTheme},
+        action_button::{ActionButton, ActionButtonTheme, ButtonSize},
         FeaturePopup, NewFeaturePopupEvent, NewFeaturePopupLabel,
     },
-    workspace::WorkspaceAction,
 };
 
 use galaxy_core::ui::theme::{color::internal_colors, Fill};
@@ -176,7 +172,6 @@ pub struct ProfileModelSelector {
     ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
     render_compact: bool,
     hovered_llm_info: Option<LLMInfo>,
-    manage_api_key_button: ViewHandle<ActionButton>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
     all_model_choices: Vec<LLMInfo>,
 }
@@ -507,18 +502,6 @@ impl ProfileModelSelector {
             },
         );
 
-        let manage_api_key_button = ctx.add_typed_action_view(|_ctx| {
-            ActionButton::new("Manage", SecondaryTheme)
-                .with_tooltip("Manage API keys")
-                .with_size(ButtonSize::XSmall)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(WorkspaceAction::ShowSettingsPageWithSearch {
-                        search_query: "api".to_string(),
-                        section: Some(SettingsSection::WarpAgent),
-                    });
-                })
-        });
-
         let mut me = Self {
             profile_button,
             model_button,
@@ -543,7 +526,6 @@ impl ProfileModelSelector {
             ambient_agent_view_model,
             render_compact: false,
             hovered_llm_info: None,
-            manage_api_key_button,
             terminal_model,
             all_model_choices: Vec::new(),
         };
@@ -1226,46 +1208,6 @@ impl ProfileModelSelector {
         }
     }
 
-    fn should_render_model_sidecar_left(&self, position_id: &str, app: &AppContext) -> bool {
-        // When AgentView is enabled, the model picker is right-aligned, so we default to
-        // showing the sidecar on the left side to avoid overlap.
-        let default_to_left = FeatureFlag::AgentView.is_enabled();
-
-        let window_id = self.model_dropdown.window_id(app);
-        let Some(window) = app.windows().platform_window(window_id) else {
-            return default_to_left;
-        };
-
-        // If we don't have the anchor position cached yet, use the default based on AgentView.
-        let Some(anchor_rect) = app.element_position_by_id_at_last_frame(window_id, position_id)
-        else {
-            return default_to_left;
-        };
-
-        // Sidecar is positioned center-to-center off the hovered menu item's position.
-        // Check both sides for overflow and pick the side that fits.
-        let anchor_center_x = (anchor_rect.min_x() + anchor_rect.max_x()) / 2.0;
-        let sidecar_half_width = MENU_WIDTH / 2.0;
-
-        // Calculate where the sidecar edges would be on each side
-        let sidecar_left_edge_if_on_left =
-            anchor_center_x - (MENU_WIDTH + SIDECAR_HORIZONTAL_GAP) - sidecar_half_width;
-        let sidecar_right_edge_if_on_right =
-            anchor_center_x + (MENU_WIDTH + SIDECAR_HORIZONTAL_GAP) + sidecar_half_width;
-
-        let would_overflow_left = sidecar_left_edge_if_on_left < 0.0;
-        let would_overflow_right = sidecar_right_edge_if_on_right >= window.size().x();
-
-        // If both sides overflow, prefer the default based on AgentView state.
-        // If only one side fits, use that side.
-        // If neither overflows, use the default based on AgentView state.
-        match (would_overflow_left, would_overflow_right) {
-            (true, false) => false, // Only right fits, show on right
-            (false, true) => true,  // Only left fits, show on left
-            _ => default_to_left,   // Both fit or both overflow, use default
-        }
-    }
-
     fn render_profile_section(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
@@ -1535,265 +1477,6 @@ impl ProfileModelSelector {
         }
     }
 
-    fn render_model_spec_header(
-        &self,
-        title: String,
-        description: String,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let title = Text::new(title, appearance.ui_font_family(), 14.)
-            .with_color(internal_colors::neutral_7(theme))
-            .finish();
-
-        let description = Text::new(
-            description,
-            appearance.ui_font_family(),
-            appearance.ui_font_size(),
-        )
-        .with_color(theme.disabled_ui_text_color().into())
-        .finish();
-
-        Container::new(
-            Flex::column()
-                .with_child(title)
-                .with_child(Container::new(description).with_margin_top(4.).finish())
-                .finish(),
-        )
-        .with_horizontal_margin(16.)
-        .with_vertical_padding(16.)
-        .with_border(
-            Border::bottom(BORDER_WIDTH).with_border_color(internal_colors::neutral_3(theme)),
-        )
-        .finish()
-    }
-
-    fn render_model_spec_value_label(&self, name: String, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-
-        Container::new(
-            ConstrainedBox::new(
-                Text::new(name, appearance.ui_font_family(), 14.)
-                    .with_color(internal_colors::neutral_7(theme))
-                    .finish(),
-            )
-            .with_width(72.)
-            .finish(),
-        )
-        .with_margin_right(8.)
-        .finish()
-    }
-
-    // Renders a single model spec value, including the label and the progress bar
-    fn render_model_spec_value(
-        &self,
-        name: String,
-        value: f32,
-        bg_bar_color: ColorU,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let background_bar = Rect::new()
-            .with_background_color(bg_bar_color)
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CORNER_RADIUS)))
-            .finish();
-        let filled_bar = Rect::new()
-            .with_background_color(internal_colors::neutral_6(theme))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CORNER_RADIUS)))
-            .finish();
-
-        Container::new(
-            Flex::row()
-                .with_child(self.render_model_spec_value_label(name, app))
-                .with_child(
-                    Expanded::new(
-                        1.,
-                        ConstrainedBox::new(
-                            Stack::new()
-                                .with_child(background_bar)
-                                .with_child(Percentage::width(value, filled_bar).finish())
-                                .finish(),
-                        )
-                        .with_height(16.)
-                        .finish(),
-                    )
-                    .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_top(12.)
-        .finish()
-    }
-
-    fn render_model_spec_api_key(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-
-        Container::new(
-            Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(self.render_model_spec_value_label("Cost".to_string(), app))
-                .with_child(
-                    Expanded::new(
-                        1.,
-                        Flex::row()
-                            .with_main_axis_size(MainAxisSize::Max)
-                            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                            .with_child(
-                                Container::new(
-                                    Text::new(
-                                        "Billed to API".to_string(),
-                                        appearance.ui_font_family(),
-                                        14.,
-                                    )
-                                    .with_color(theme.disabled_ui_text_color().into())
-                                    .finish(),
-                                )
-                                .finish(),
-                            )
-                            .with_child(ChildView::new(&self.manage_api_key_button).finish())
-                            .finish(),
-                    )
-                    .finish(),
-                )
-                .finish(),
-        )
-        .with_margin_top(12.)
-        .finish()
-    }
-
-    // Renders all model spec values for a given model spec
-    fn render_all_model_spec_values(
-        &self,
-        spec: &LLMSpec,
-        is_using_api_key: bool,
-        bg_bar_color: ColorU,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let mut spec_values = vec![
-            self.render_model_spec_value(
-                "Intelligence".to_string(),
-                spec.quality,
-                bg_bar_color,
-                app,
-            ),
-            self.render_model_spec_value("Speed".to_string(), spec.speed, bg_bar_color, app),
-        ];
-        if is_using_api_key {
-            spec_values.push(self.render_model_spec_api_key(app));
-        } else {
-            spec_values.push(self.render_model_spec_value(
-                "Cost".to_string(),
-                spec.cost,
-                bg_bar_color,
-                app,
-            ));
-        }
-        Flex::column().with_children(spec_values).finish()
-    }
-
-    // Renders entire modal for a given model spec
-    fn render_model_spec(
-        &self,
-        spec: &LLMSpec,
-        is_using_api_key: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-        let header = self.render_model_spec_header(
-            "Model Specs".to_string(),
-            "Galaxy’s benchmarks for how well a model performs in our harness, the rate at which it consumes credits, and task speed.".to_string(),
-            app,
-        );
-        let spec = self.render_all_model_spec_values(
-            spec,
-            is_using_api_key,
-            internal_colors::neutral_3(theme),
-            app,
-        );
-
-        ConstrainedBox::new(
-            Container::new(
-                Flex::column()
-                    .with_child(header)
-                    .with_child(Container::new(spec).with_horizontal_padding(16.).finish())
-                    .finish(),
-            )
-            .with_padding_bottom(12.)
-            .with_vertical_margin(8.)
-            .with_background_color(internal_colors::neutral_2(theme))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CORNER_RADIUS)))
-            .with_drop_shadow(DropShadow::default())
-            .finish(),
-        )
-        .with_width(MENU_WIDTH)
-        .finish()
-    }
-
-    fn render_sidecar_spec_panel(
-        &self,
-        kind: &ModelSpecSidecarKind,
-        spec: &Option<LLMSpec>,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let theme = appearance.theme();
-
-        let (title, description) = match kind {
-            ModelSpecSidecarKind::Auto => (
-                "Auto mode",
-                "Auto will select the best model for the task. Cost-efficiency optimizes for cost, Responsiveness optimizes for response speed.",
-            ),
-            ModelSpecSidecarKind::Reasoning => (
-                "Reasoning level",
-                "Increased reasoning levels consume more credits and have higher latency, but higher performance for complicated tasks.",
-            ),
-        };
-
-        let header = self.render_model_spec_header(title.to_string(), description.to_string(), app);
-        let sidecar_menu = ChildView::new(&self.model_spec_sidecar.dropdown).finish();
-        let spec_values = self.render_all_model_spec_values(
-            &spec.clone().unwrap_or_default(),
-            false,
-            internal_colors::neutral_5(theme),
-            app,
-        );
-
-        ConstrainedBox::new(
-            Container::new(
-                Flex::column()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .with_child(header)
-                    .with_child(sidecar_menu)
-                    .with_child(
-                        Container::new(spec_values)
-                            .with_horizontal_margin(8.)
-                            .with_horizontal_padding(16.)
-                            .with_padding_top(4.)
-                            .with_padding_bottom(16.)
-                            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(
-                                CORNER_RADIUS,
-                            )))
-                            .with_background_color(internal_colors::neutral_3(theme))
-                            .finish(),
-                    )
-                    .finish(),
-            )
-            .with_padding_bottom(8.)
-            .with_background_color(internal_colors::neutral_2(theme))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(CORNER_RADIUS)))
-            .with_drop_shadow(DropShadow::default())
-            .finish(),
-        )
-        .with_width(MENU_WIDTH)
-        .finish()
-    }
 }
 
 impl TypedActionView for ProfileModelSelector {
@@ -1932,56 +1615,6 @@ impl View for ProfileModelSelector {
             let positioning = self.get_menu_positioning(app, false);
             stack.add_positioned_overlay_child(model_menu, positioning);
 
-            if let Some(info) = self.hovered_llm_info.as_ref() {
-                // Decide whether to show a sidecar purely from the hovered item
-                let sidecar_kind = if is_auto(info) {
-                    Some(ModelSpecSidecarKind::Auto)
-                } else if self.has_multiple_reasoning_variants(info) {
-                    Some(ModelSpecSidecarKind::Reasoning)
-                } else {
-                    None
-                };
-
-                let model_spec_sidecar = if let Some(kind) = sidecar_kind {
-                    // Show sidecar panel with default spec if none exists
-                    let sidecar_spec = self
-                        .model_spec_sidecar
-                        .hovered_info
-                        .as_ref()
-                        .and_then(|i| i.spec.as_ref())
-                        .cloned();
-                    Some(self.render_sidecar_spec_panel(&kind, &sidecar_spec, app))
-                } else if let Some(spec) = info.spec.as_ref() {
-                    let is_using_api_key = is_using_api_key_for_provider(&info.provider, app);
-                    Some(self.render_model_spec(spec, is_using_api_key, app))
-                } else {
-                    None
-                };
-
-                if let Some(model_spec_sidecar) = model_spec_sidecar {
-                    let position_id = self.model_menu_item_position_id(&info.id);
-                    let flip_left = self.should_render_model_sidecar_left(&position_id, app);
-                    let offset_x = if flip_left {
-                        -(MENU_WIDTH + SIDECAR_HORIZONTAL_GAP)
-                    } else {
-                        MENU_WIDTH + SIDECAR_HORIZONTAL_GAP
-                    };
-
-                    let sidecar_with_position =
-                        SavePosition::new(model_spec_sidecar, SIDECAR_POSITION_ID).finish();
-
-                    stack.add_positioned_overlay_child(
-                        sidecar_with_position,
-                        OffsetPositioning::offset_from_save_position_element(
-                            position_id,
-                            vec2f(offset_x, 0.),
-                            PositionedElementOffsetBounds::WindowByPosition,
-                            PositionedElementAnchor::Center,
-                            ChildAnchor::Center,
-                        ),
-                    );
-                }
-            }
         }
 
         let is_udi_enabled =

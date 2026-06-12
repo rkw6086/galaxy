@@ -118,7 +118,7 @@ impl SettingsFileError {
 use crate::{
     root_view::QuakeModePinPosition,
     terminal::{BlockListSettings, BlockPadding},
-    themes::theme::{ThemeKind, GalaxyTheme},
+    themes::theme::{GalaxyTheme, ThemeKind},
     user_config::GalaxyConfig,
 };
 use galaxy_core::features::FeatureFlag;

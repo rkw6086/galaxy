@@ -252,7 +252,11 @@ impl GrepExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!("[tool-debug] GrepExecutor::execute: queries={:?}, path={:?}", queries, path);
+        log::info!(
+            "[tool-debug] GrepExecutor::execute: queries={:?}, path={:?}",
+            queries,
+            path
+        );
 
         let shell_launch_data = self.active_session.as_ref(ctx).shell_launch_data(ctx);
         let shell_type = self.active_session.as_ref(ctx).shell_type(ctx);

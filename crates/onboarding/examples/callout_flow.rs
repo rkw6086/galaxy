@@ -1,6 +1,6 @@
 use anyhow::Result;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, GalaxyTheme};
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
 use galaxyui::platform;
 use galaxyui::prelude::CrossAxisAlignment;

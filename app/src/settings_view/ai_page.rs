@@ -24,11 +24,10 @@ use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAuthMethod,
-    BedrockAutoLogin, BedrockCrossRegionInference, BedrockEnabled,
-    CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled, GitOperationsAutogenEnabled,
-    IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled, MemoryEnabled,
-    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, RuleSuggestionsEnabled,
-    SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
+    BedrockAutoLogin, BedrockEnabled, CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
+    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled,
+    MemoryEnabled, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
+    RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
     ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
     ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
 };
@@ -1326,8 +1325,9 @@ impl AISettingsPageView {
             dropdown
         });
 
+        let (page, _) = Self::build_page(None, ctx);
         Self {
-            page: Self::build_page(None, ctx),
+            page,
             active_subpage: None,
             voice_input_toggle_key_dropdown,
             autodetection_denylist_editor,
@@ -1387,12 +1387,16 @@ impl AISettingsPageView {
     pub fn set_active_subpage(&mut self, subpage: Option<AISubpage>, ctx: &mut ViewContext<Self>) {
         if self.active_subpage != subpage {
             self.active_subpage = subpage;
-            self.page = Self::build_page(subpage, ctx);
+            let (page, _) = Self::build_page(subpage, ctx);
+            self.page = page;
             ctx.notify();
         }
     }
 
-    fn build_page(subpage: Option<AISubpage>, ctx: &mut ViewContext<Self>) -> PageType<Self> {
+    fn build_page(
+        subpage: Option<AISubpage>,
+        ctx: &mut ViewContext<Self>,
+    ) -> (PageType<Self>, Option<ViewHandle<ActionButton>>) {
         let ai_settings = AISettings::as_ref(ctx);
 
         let mut widgets: Vec<Box<dyn SettingsWidget<View = AISettingsPageView>>> = Vec::new();
@@ -1496,14 +1500,17 @@ impl AISettingsPageView {
                 widgets.push(Box::new(CLIAgentWidget::default()));
             }
             Some(AISubpage::Bedrock) => {
-                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
+                let widget = BedrockSettingsWidget::new(ctx);
+                widgets.push(Box::new(widget));
+                let title: Option<&str> = None;
+                return (PageType::new_uncategorized(widgets, title), None);
             }
         }
 
         // Subpage widgets render their own subheader-sized titles internally,
         // so we don't pass a page-level title to PageType.
         let title: Option<&str> = None;
-        PageType::new_uncategorized(widgets, title)
+        (PageType::new_uncategorized(widgets, title), None)
     }
 
     fn handle_detection_denylist_editor_event(
@@ -2727,37 +2734,7 @@ impl TypedActionView for AISettingsPageView {
                 ctx.notify();
             }
             AISettingsPageAction::RefreshAwsBedrock => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    use crate::ai::bedrock::client::BedrockClientConfig;
-                    use crate::ai::bedrock::discovery::discover_inference_profiles;
-                    use settings::Setting;
-
-                    let ai_settings = AISettings::as_ref(ctx);
-                    let config = BedrockClientConfig {
-                        auth_method: ai_settings.bedrock_auth_method.value().clone(),
-                        profile: ai_settings.bedrock_profile.value().clone(),
-                        region: ai_settings.bedrock_region.value().clone(),
-                        access_key_id: ai_settings.bedrock_access_key_id.value().clone(),
-                        secret_access_key: ai_settings.bedrock_secret_access_key.value().clone(),
-                        cross_region_inference: *ai_settings.bedrock_cross_region_inference.value(),
-                    }.with_external_fallbacks();
-
-                    ctx.spawn(
-                        async move { discover_inference_profiles(&config).await },
-                        |_me, result, ctx| match result {
-                            Ok(models) => {
-                                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                                    let _ = settings.bedrock_models.set_value(models, ctx);
-                                });
-                            }
-                            Err(e) => {
-                                log::error!("Failed to discover Bedrock inference profiles: {e}");
-                            }
-                        },
-                    );
-                }
-                ctx.notify();
+                // Discovery removed — models are configured via settings.toml
             }
             AISettingsPageAction::SetBedrockAuthMethod(method) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3753,6 +3730,7 @@ impl SettingsWidget for ActiveAIWidget {
                 .with_padding_bottom(HEADER_PADDING)
                 .finish(),
             );
+
 
         if self.is_next_command_toggleable(app) {
             column.add_child(self.render_next_command_section(view, app));
@@ -5828,7 +5806,6 @@ mod tests;
 
 struct BedrockSettingsWidget {
     enabled_toggle: SwitchStateHandle,
-    cross_region_toggle: SwitchStateHandle,
     auto_login_toggle: SwitchStateHandle,
     auth_method_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
     profile_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
@@ -5836,13 +5813,12 @@ struct BedrockSettingsWidget {
     auth_refresh_command_editor: ViewHandle<EditorView>,
     access_key_editor: ViewHandle<EditorView>,
     secret_key_editor: ViewHandle<EditorView>,
-    refresh_button: ViewHandle<ActionButton>,
 }
 
 impl BedrockSettingsWidget {
     fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
         let ai_settings = AISettings::as_ref(ctx);
-        let is_enabled = *ai_settings.bedrock_enabled.value();
+        let _is_enabled = *ai_settings.bedrock_enabled.value();
 
         let region_val = ai_settings.bedrock_region.value().clone();
         let auth_cmd_val = ai_settings.bedrock_auth_refresh_command.value().clone();
@@ -5856,7 +5832,7 @@ impl BedrockSettingsWidget {
                 BedrockAuthMethod::StaticKeys,
                 BedrockAuthMethod::Sso,
             ];
-            let current = AISettings::as_ref(ctx).bedrock_auth_method.value().clone();
+            let current = *AISettings::as_ref(ctx).bedrock_auth_method.value();
             let selected_index = methods.iter().position(|m| *m == current).unwrap_or(0);
             dropdown.add_items(
                 methods
@@ -5875,7 +5851,7 @@ impl BedrockSettingsWidget {
         });
 
         let profile_dropdown = ctx.add_typed_action_view(|ctx| {
-            use crate::ai::bedrock::discovery::list_aws_profiles;
+            use crate::ai::bedrock::external_config::list_aws_profiles;
 
             let mut dropdown = Dropdown::new(ctx);
             let profiles = list_aws_profiles();
@@ -6025,24 +6001,11 @@ impl BedrockSettingsWidget {
             }
         });
 
-        let refresh_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Refresh AWS Bedrock", SecondaryTheme)
-                .with_icon(Icon::RefreshCw04)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAwsBedrock);
-                })
-        });
-        refresh_button.update(ctx, |button, ctx| {
-            button.set_disabled(!is_enabled, ctx);
-        });
-
         let profile_dropdown_clone = profile_dropdown.clone();
         let region_editor_clone = region_editor.clone();
         let auth_refresh_command_editor_clone = auth_refresh_command_editor.clone();
         let access_key_editor_clone = access_key_editor.clone();
         let secret_key_editor_clone = secret_key_editor.clone();
-        let refresh_button_clone = refresh_button.clone();
         ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
             if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
                 let is_enabled = *AISettings::as_ref(ctx).bedrock_enabled.value();
@@ -6073,16 +6036,12 @@ impl BedrockSettingsWidget {
                     is_enabled,
                     ctx,
                 );
-                refresh_button_clone.update(ctx, |button, ctx| {
-                    button.set_disabled(!is_enabled, ctx);
-                });
                 ctx.notify();
             }
         });
 
         Self {
             enabled_toggle: SwitchStateHandle::default(),
-            cross_region_toggle: SwitchStateHandle::default(),
             auto_login_toggle: SwitchStateHandle::default(),
             auth_method_dropdown,
             profile_dropdown,
@@ -6090,7 +6049,6 @@ impl BedrockSettingsWidget {
             auth_refresh_command_editor,
             access_key_editor,
             secret_key_editor,
-            refresh_button,
         }
     }
 
@@ -6151,8 +6109,7 @@ impl SettingsWidget for BedrockSettingsWidget {
     ) -> Box<dyn Element> {
         let ai_settings = AISettings::as_ref(app);
         let is_enabled = *ai_settings.bedrock_enabled.value();
-        let auth_method = ai_settings.bedrock_auth_method.value().clone();
-        let cross_region = *ai_settings.bedrock_cross_region_inference.value();
+        let auth_method = *ai_settings.bedrock_auth_method.value();
         let auto_login = *ai_settings.bedrock_auto_login.value();
 
         let mut column = Flex::column().with_spacing(16.);
@@ -6267,29 +6224,23 @@ impl SettingsWidget for BedrockSettingsWidget {
             app,
         ));
 
-        column.add_child(
-            Flex::column()
-                .with_child(render_ai_setting_toggle::<BedrockCrossRegionInference>(
-                    "Cross-region inference",
-                    AISettingsPageAction::ToggleBedrockCrossRegionInference,
-                    cross_region,
-                    is_enabled,
-                    self.cross_region_toggle.clone(),
-                    &RefCell::new(HashMap::new()),
-                    app,
-                ))
-                .with_child(render_ai_setting_description(
-                    "Automatically add geographic prefixes to model IDs for higher availability.",
-                    is_enabled,
-                    app,
-                ))
-                .finish(),
-        );
-
-
         column.add_child(render_separator(appearance));
 
-        column.add_child(ChildView::new(&self.refresh_button).finish());
+        let configured_models: Vec<_> = ai_settings.bedrock_models.value().clone();
+        if !configured_models.is_empty() {
+            let description = format!(
+                "{} model{} configured via settings.toml.",
+                configured_models.len(),
+                if configured_models.len() == 1 { "" } else { "s" }
+            );
+            column.add_child(render_ai_setting_description(description, is_enabled, app));
+        } else {
+            column.add_child(render_ai_setting_description(
+                "No models configured. Add models to ~/.galaxy/settings.toml under [ai.bedrock].",
+                is_enabled,
+                app,
+            ));
+        }
 
         column.finish()
     }

@@ -65,7 +65,7 @@ pub fn bedrock_stream_to_response_events(
     diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
     messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     model_id: String,
-    is_summarization: bool,
+    tool_result_archive: Vec<ConversationMessage>,
 ) -> BoxStream<'static, Event> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
@@ -224,6 +224,50 @@ pub fn bedrock_stream_to_response_events(
                                 current_tool_use_id.clear();
                                 current_tool_name.clear();
                                 current_tool_input_json.clear();
+                            } else if current_tool_name == "recall_tool_history" {
+                                // Handle recall_tool_history locally by searching
+                                // the conversation messages that were sent.
+                                log::info!("[bedrock] Handling recall_tool_history locally");
+                                let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
+                                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                                let search_query = input_json.get("search_query")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let tool_name_filter = input_json.get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let tool_use_id = input_json.get("tool_use_id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let offset = input_json.get("offset_from_end")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0) as usize;
+
+                                let recall_result = match messages_sent.lock() {
+                                    Ok(sent) => recall_from_history(
+                                        &sent,
+                                        &tool_result_archive,
+                                        search_query,
+                                        tool_name_filter,
+                                        tool_use_id,
+                                        offset,
+                                    ),
+                                    Err(_) => "Error: could not access conversation history.".to_string(),
+                                };
+
+                                history_tool_calls.push(ContentPart::ToolUse {
+                                    tool_use_id: current_tool_use_id.clone(),
+                                    name: current_tool_name.clone(),
+                                    input: input_json,
+                                });
+                                synthetic_tool_results.push(ContentPart::ToolResult {
+                                    tool_use_id: current_tool_use_id.clone(),
+                                    content: recall_result,
+                                    is_error: false,
+                                });
+                                current_tool_use_id.clear();
+                                current_tool_name.clear();
+                                current_tool_input_json.clear();
                             } else if !is_known_tool(&current_tool_name) {
                                 // Unknown/hallucinated tool: record it in history
                                 // with a paired error result so the conversation
@@ -232,6 +276,10 @@ pub fn bedrock_stream_to_response_events(
                                 log::warn!(
                                     "[bedrock] Model called unknown tool '{}' (id={}), synthesizing error result",
                                     current_tool_name, current_tool_use_id
+                                );
+                                let error_text = format!(
+                                    "Error: '{}' is not a valid tool. Available tools are: run_shell_command, read_files, apply_file_diffs, grep, file_glob. Please use one of these tools instead.",
+                                    current_tool_name
                                 );
                                 let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
                                     .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
@@ -245,12 +293,20 @@ pub fn bedrock_stream_to_response_events(
                                 // fix it up later (and so the executor doesn't hang).
                                 synthetic_tool_results.push(ContentPart::ToolResult {
                                     tool_use_id: current_tool_use_id.clone(),
-                                    content: format!(
-                                        "Error: '{}' is not a valid tool. Available tools are: run_shell_command, read_files, apply_file_diffs, grep, file_glob. Please use one of these tools instead.",
-                                        current_tool_name
-                                    ),
+                                    content: error_text.clone(),
                                     is_error: true,
                                 });
+                                // Emit to the UI so the user sees the failed tool call
+                                let error_msg_id = Uuid::new_v4().to_string();
+                                let error_display = format!(
+                                    "Failed tool call: `{}`\n\n{}",
+                                    current_tool_name, error_text
+                                );
+                                yield Ok(build_add_agent_output_message(
+                                    &task_id,
+                                    &error_msg_id,
+                                    &error_display,
+                                ));
                                 if let Some(ref logger) = diagnostic_logger {
                                     logger.log_stream_event(&format!(
                                         "UnknownToolCall: name={}, id={} — synthesized error result",
@@ -496,7 +552,7 @@ pub fn bedrock_stream_to_response_events(
             cache_read_input_tokens,
             cache_write_input_tokens,
             &model_id,
-            is_summarization,
+            false,
         );
         yield Ok(finished_event);
     };
@@ -537,12 +593,10 @@ fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
-        message: Some(api::message::Message::UserQuery(
-            api::message::UserQuery {
-                query: query_text.to_string(),
-                ..Default::default()
-            },
-        )),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: query_text.to_string(),
+            ..Default::default()
+        })),
     };
 
     let action = ClientAction {
@@ -656,7 +710,7 @@ pub(super) fn build_stream_finished(
 ///   Nova Lite:    input $0.06, output $0.24
 ///   Nova Micro:   input $0.035, output $0.14
 ///   DeepSeek R1:  input $1.35, output $5.40
-fn estimate_cost_cents(
+pub fn estimate_cost_cents(
     input_tokens: u32,
     output_tokens: u32,
     cache_read_tokens: u32,
@@ -666,23 +720,22 @@ fn estimate_cost_cents(
     let lower = model_id.to_lowercase();
 
     // (input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m) in dollars
-    let (input_rate, output_rate, cache_read_rate, cache_write_rate) =
-        if lower.contains("opus") {
-            (15.0, 75.0, 1.50, 18.75)
-        } else if lower.contains("haiku") {
-            (0.80, 4.0, 0.08, 1.0)
-        } else if lower.contains("nova-pro") {
-            (0.80, 3.20, 0.0, 0.0)
-        } else if lower.contains("nova-lite") {
-            (0.06, 0.24, 0.0, 0.0)
-        } else if lower.contains("nova-micro") {
-            (0.035, 0.14, 0.0, 0.0)
-        } else if lower.contains("deepseek") {
-            (1.35, 5.40, 0.0, 0.0)
-        } else {
-            // Default to Sonnet pricing
-            (3.0, 15.0, 0.30, 3.75)
-        };
+    let (input_rate, output_rate, cache_read_rate, cache_write_rate) = if lower.contains("opus") {
+        (15.0, 75.0, 1.50, 18.75)
+    } else if lower.contains("haiku") {
+        (0.80, 4.0, 0.08, 1.0)
+    } else if lower.contains("nova-pro") {
+        (0.80, 3.20, 0.0, 0.0)
+    } else if lower.contains("nova-lite") {
+        (0.06, 0.24, 0.0, 0.0)
+    } else if lower.contains("nova-micro") {
+        (0.035, 0.14, 0.0, 0.0)
+    } else if lower.contains("deepseek") {
+        (1.35, 5.40, 0.0, 0.0)
+    } else {
+        // Default to Sonnet pricing
+        (3.0, 15.0, 0.30, 3.75)
+    };
 
     // Convert from dollars per 1M tokens to cents per token
     let input_cost = input_tokens as f64 * input_rate * 100.0 / 1_000_000.0;
@@ -914,22 +967,22 @@ fn build_tool_call_message(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            Some(api::message::tool_call::Tool::WriteToLongRunningShellCommand(
-                api::message::tool_call::WriteToLongRunningShellCommand {
-                    input: text_input.into_bytes(),
-                    mode: None,
-                    command_id: String::new(),
-                },
-            ))
+            Some(
+                api::message::tool_call::Tool::WriteToLongRunningShellCommand(
+                    api::message::tool_call::WriteToLongRunningShellCommand {
+                        input: text_input.into_bytes(),
+                        mode: None,
+                        command_id: String::new(),
+                    },
+                ),
+            )
         }
-        "read_shell_command_output" => {
-            Some(api::message::tool_call::Tool::ReadShellCommandOutput(
-                api::message::tool_call::ReadShellCommandOutput {
-                    command_id: String::new(),
-                    delay: None,
-                },
-            ))
-        }
+        "read_shell_command_output" => Some(api::message::tool_call::Tool::ReadShellCommandOutput(
+            api::message::tool_call::ReadShellCommandOutput {
+                command_id: String::new(),
+                delay: None,
+            },
+        )),
         "read_mcp_resource" => {
             let server_id = input
                 .get("server_id")
@@ -942,10 +995,7 @@ fn build_tool_call_message(
                 .unwrap_or("")
                 .to_string();
             Some(api::message::tool_call::Tool::ReadMcpResource(
-                api::message::tool_call::ReadMcpResource {
-                    uri,
-                    server_id,
-                },
+                api::message::tool_call::ReadMcpResource { uri, server_id },
             ))
         }
         "read_documents" => {
@@ -994,8 +1044,16 @@ fn build_tool_call_message(
                         .filter_map(|d| {
                             Some(api::message::tool_call::edit_documents::DocumentDiff {
                                 document_id: d.get("document_id")?.as_str()?.to_string(),
-                                search: d.get("search").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                replace: d.get("replace").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                search: d
+                                    .get("search")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                replace: d
+                                    .get("replace")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
                             })
                         })
                         .collect()
@@ -1006,20 +1064,34 @@ fn build_tool_call_message(
             ))
         }
         "start_agent" => {
-            let name = input.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            Some(api::message::tool_call::Tool::StartAgent(
-                api::StartAgent {
-                    name,
-                    prompt,
-                    execution_mode: None,
-                    lifecycle_subscription: None,
-                },
-            ))
+            let name = input
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let prompt = input
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(api::message::tool_call::Tool::StartAgent(api::StartAgent {
+                name,
+                prompt,
+                execution_mode: None,
+                lifecycle_subscription: None,
+            }))
         }
         "send_message_to_agent" => {
-            let agent_id = input.get("agent_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let message = input.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let agent_id = input
+                .get("agent_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let message = input
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(api::message::tool_call::Tool::SendMessageToAgent(
                 api::SendMessageToAgent {
                     addresses: vec![agent_id],
@@ -1029,28 +1101,36 @@ fn build_tool_call_message(
             ))
         }
         "ask_user_question" => {
-            let question_text = input.get("question").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let question_text = input
+                .get("question")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let options: Vec<api::ask_user_question::Option> = input
                 .get("options")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|o| o.as_str())
-                        .map(|label| api::ask_user_question::Option { label: label.to_string() })
+                        .map(|label| api::ask_user_question::Option {
+                            label: label.to_string(),
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
             let question = api::ask_user_question::Question {
                 question_id: Uuid::new_v4().to_string(),
                 question: question_text,
-                question_type: Some(api::ask_user_question::question::QuestionType::MultipleChoice(
-                    api::ask_user_question::MultipleChoice {
-                        options,
-                        is_multiselect: false,
-                        supports_other: true,
-                        recommended_option_index: 0,
-                    },
-                )),
+                question_type: Some(
+                    api::ask_user_question::question::QuestionType::MultipleChoice(
+                        api::ask_user_question::MultipleChoice {
+                            options,
+                            is_multiselect: false,
+                            supports_other: true,
+                            recommended_option_index: 0,
+                        },
+                    ),
+                ),
             };
             Some(api::message::tool_call::Tool::AskUserQuestion(
                 api::AskUserQuestion {
@@ -1059,7 +1139,11 @@ fn build_tool_call_message(
             ))
         }
         "read_skill" => {
-            let skill = input.get("skill").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let skill = input
+                .get("skill")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(api::message::tool_call::Tool::ReadSkill(
                 api::message::tool_call::ReadSkill {
                     name: skill.clone(),
@@ -1070,7 +1154,11 @@ fn build_tool_call_message(
             ))
         }
         "fetch_conversation" => {
-            let conversation_id = input.get("conversation_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let conversation_id = input
+                .get("conversation_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             Some(api::message::tool_call::Tool::FetchConversation(
                 api::message::tool_call::FetchConversation { conversation_id },
             ))
@@ -1103,7 +1191,10 @@ fn build_tool_call_message(
             let (server_name, mcp_tool_name) = if parts.len() == 3 {
                 (parts[1].to_string(), parts[2].to_string())
             } else {
-                (String::new(), name.strip_prefix("mcp__").unwrap_or(name).to_string())
+                (
+                    String::new(),
+                    name.strip_prefix("mcp__").unwrap_or(name).to_string(),
+                )
             };
             let args = json_to_prost_struct(&input);
             Some(api::message::tool_call::Tool::CallMcpTool(
@@ -1193,8 +1284,143 @@ const KNOWN_TOOLS: &[&str] = &[
     "suggest_next_prompt",
     "read_skill",
     "fetch_conversation",
+    "recall_tool_history",
 ];
 
 fn is_known_tool(name: &str) -> bool {
     KNOWN_TOOLS.contains(&name) || name.starts_with("mcp__")
+}
+
+/// Searches conversation message history for tool call results matching the given criteria.
+fn recall_from_history(
+    messages: &[ConversationMessage],
+    archive: &[ConversationMessage],
+    search_query: &str,
+    tool_name_filter: &str,
+    tool_use_id: &str,
+    offset_from_end: usize,
+) -> String {
+    use super::convert::{ContentPart, MessageContent};
+
+    struct ToolEntry {
+        tool_use_id: String,
+        name: String,
+        input: String,
+        result: String,
+    }
+
+    let mut tool_entries: Vec<ToolEntry> = Vec::new();
+
+    let mut pending_tool_uses: Vec<(String, String, String)> = Vec::new(); // (id, name, input)
+
+    for msg in messages.iter().chain(archive.iter()) {
+        match &msg.content {
+            MessageContent::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            } => {
+                pending_tool_uses.push((tool_use_id.clone(), name.clone(), input.to_string()));
+            }
+            MessageContent::ToolResult {
+                tool_use_id,
+                content,
+                ..
+            } => {
+                if let Some(pos) = pending_tool_uses
+                    .iter()
+                    .position(|(id, _, _)| id == tool_use_id)
+                {
+                    let (tuid, name, input) = pending_tool_uses.remove(pos);
+                    tool_entries.push(ToolEntry {
+                        tool_use_id: tuid,
+                        name,
+                        input,
+                        result: content.clone(),
+                    });
+                }
+            }
+            MessageContent::MultiPart(parts) => {
+                for part in parts {
+                    match part {
+                        ContentPart::ToolUse {
+                            tool_use_id,
+                            name,
+                            input,
+                        } => {
+                            pending_tool_uses.push((
+                                tool_use_id.clone(),
+                                name.clone(),
+                                input.to_string(),
+                            ));
+                        }
+                        ContentPart::ToolResult {
+                            tool_use_id,
+                            content,
+                            ..
+                        } => {
+                            if let Some(pos) = pending_tool_uses
+                                .iter()
+                                .position(|(id, _, _)| id == tool_use_id)
+                            {
+                                let (tuid, name, input) = pending_tool_uses.remove(pos);
+                                tool_entries.push(ToolEntry {
+                                    tool_use_id: tuid,
+                                    name,
+                                    input,
+                                    result: content.clone(),
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let filtered: Vec<&ToolEntry> = tool_entries
+        .iter()
+        .filter(|entry| {
+            if !tool_use_id.is_empty() && entry.tool_use_id != tool_use_id {
+                return false;
+            }
+            if !tool_name_filter.is_empty() && entry.name != tool_name_filter {
+                return false;
+            }
+            if !search_query.is_empty() {
+                let haystack = format!("{} {} {}", entry.name, entry.input, entry.result);
+                let query_lower = search_query.to_lowercase();
+                if !haystack.to_lowercase().contains(&query_lower) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        return "No matching tool calls found in conversation history.".to_string();
+    }
+
+    // Get the entry at offset_from_end (0 = most recent)
+    let idx = if offset_from_end >= filtered.len() {
+        0
+    } else {
+        filtered.len() - 1 - offset_from_end
+    };
+
+    let entry = &filtered[idx];
+    let result_display = if entry.result.len() > 50000 {
+        let trunc = entry.result.chars().take(50000).collect::<String>();
+        format!("{trunc}... [truncated, {} total chars]", entry.result.len())
+    } else {
+        entry.result.clone()
+    };
+
+    format!(
+        "Tool: {}\nTool Use ID: {}\nInput: {}\nResult:\n{}",
+        entry.name, entry.tool_use_id, entry.input, result_display
+    )
 }

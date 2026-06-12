@@ -58,20 +58,16 @@ pub fn is_prefix_of_natural_language_word(input: &str) -> bool {
 
 pub async fn is_likely_shell_command(
     input: &ParsedTokensSnapshot,
-    word_tokens_count: usize,
+    _word_tokens_count: usize,
 ) -> bool {
     const YIELD_BATCH_SIZE: usize = 5;
 
     let mut likely_command_token_count = 0;
     let total_token_count = input.parsed_tokens.len();
-    let mut is_first_token_command = false;
     for (idx, token) in input.parsed_tokens.iter().enumerate() {
-        // Periodically, yield to the executor so this task can be aborted if
-        // requested.
         if idx % YIELD_BATCH_SIZE == 0 {
             futures_lite::future::yield_now().await;
         }
-        // Early return if we encounter a one-off command / keyword at the beginning of the line.
         if token.token_index == 0 && ONE_OFF_SHELL_COMMAND_KEYWORDS.contains(&token.token.as_str())
         {
             return true;
@@ -81,10 +77,6 @@ pub async fn is_likely_shell_command(
             || check_if_token_has_shell_syntax(token.token.as_str())
         {
             likely_command_token_count += 1;
-        }
-
-        if token.token_index == 0 {
-            is_first_token_command = token.token_description.is_some();
         }
     }
 
@@ -98,16 +90,17 @@ pub async fn is_likely_shell_command(
         DETECT_AS_COMMAND_THRESHOLD
     };
 
-    // Classify as shell if:
-    // 1) We hit significant threshold of likely shell command tokens.
-    // 2) When there are fewer than 3 tokens, the first token is a valid top-level command.
-    if likely_command_token_count >= (total_token_count as f32 * command_threshold) as usize
-        || (word_tokens_count < 3 && is_first_token_command)
-    {
-        return true;
-    }
-
-    false
+    let threshold_count = (total_token_count as f32 * command_threshold) as usize;
+    let is_shell = likely_command_token_count >= threshold_count;
+    log::info!(
+        "[input-classifier] is_likely_shell_command: tokens={}, cmd_tokens={}, threshold={:.2} (need {}), result={}",
+        total_token_count,
+        likely_command_token_count,
+        command_threshold,
+        threshold_count,
+        is_shell
+    );
+    is_shell
 }
 
 /// Returns true if the first token is a command that is installed on the system.

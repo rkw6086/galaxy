@@ -98,8 +98,7 @@ impl ProjectRules {
                 }
             } else {
                 for project_rule in rule.all_rules() {
-                    available_rule_paths
-                        .push(project_rule.path.to_string_lossy().to_string());
+                    available_rule_paths.push(project_rule.path.to_string_lossy().to_string());
                 }
             }
         }

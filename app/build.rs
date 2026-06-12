@@ -69,7 +69,6 @@ fn main() -> Result<()> {
         let plugin_src = Path::new("DockTilePlugin/GalaxyDockTilePlugin.docktileplugin");
         let plugin_dst = target_dir.join("GalaxyDockTilePlugin.docktileplugin");
 
-
         if !status.success() {
             fs::remove_dir_all(plugin_src).expect("Failed to clean up plugin directory");
             panic!("Dock tile plugin build failed");
@@ -170,6 +169,7 @@ fn add_features(target_family: &str, target_os: &str) {
     if env::var("PROFILE").ok().is_some_and(|val| val == "debug") {
         println!("cargo:rustc-cfg=feature=\"agent_mode_debug\"");
     }
+
 }
 
 fn build_and_link_sentry() {

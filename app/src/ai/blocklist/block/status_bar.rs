@@ -4,10 +4,9 @@ use super::{
     cli_controller::{CLISubagentController, CLISubagentEvent, UserTakeOverReason},
     model::{AIBlockModel, AIBlockModelImpl, AIBlockOutputStatus},
     view_impl::common::{
-        render_switch_control_to_user_button, render_warping_indicator,
+        random_load_output_message, render_switch_control_to_user_button, render_warping_indicator,
         render_warping_indicator_base, ButtonProps, ForceRefreshButtonProps, MaybeShimmeringText,
-        WarpingIndicatorProps, WarpingProps, random_load_output_message,
-        WAITING_FOR_USER_INPUT_MESSAGE,
+        WarpingIndicatorProps, WarpingProps, WAITING_FOR_USER_INPUT_MESSAGE,
     },
 };
 use crate::{

@@ -10,7 +10,6 @@ pub use collector::*;
 pub use context::telemetry_context;
 pub use events::*;
 
-
 /// No-op stub. Telemetry has been removed from Galaxy.
 pub struct TelemetryApi {
     pub client: http_client::Client,

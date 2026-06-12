@@ -13,15 +13,8 @@ use crate::{
     },
 };
 
-/// Minimum number of tokens users' input should have before kicking off input detection
-/// to switch from AI input to command input.
-/// This could be tuned.
-const MINIMUM_COMMAND_DETECTION_TOKEN_LENGTH: u8 = 2;
-
-/// Minimum number of tokens users' input should have before kicking off input detection
-/// to switch from command input to AI input.
-/// This could be tuned.
-const MINIMUM_NATURAL_LANGUAGE_DETECTION_TOKEN_LENGTH: u8 = 2;
+/// Minimum number of characters the input buffer must have before classification runs.
+const MINIMUM_CLASSIFICATION_CHAR_LENGTH: usize = 3;
 
 /// The percentage of input tokens that can be recognized as a natural language word before
 /// we consider the input as natural language. This could be tuned.
@@ -43,20 +36,32 @@ impl InputClassifier for HeuristicClassifier {
         let word_tokens = parse_query_into_tokens(input.buffer_text.as_str());
         let total_word_token_count = word_tokens.len();
 
+        log::info!(
+            "[input-classifier] detect_input_type called: buffer={:?}, word_tokens={}, current={:?}",
+            &input.buffer_text,
+            total_word_token_count,
+            context.current_input_type
+        );
+
         if total_word_token_count == 1
             && is_one_off_natural_language_word_or_prefix(&word_tokens[0].to_lowercase())
         {
+            log::info!("[input-classifier] → one-off NL word, returning AI");
             return InputType::AI;
         }
 
         if is_likely_shell_command(&input, total_word_token_count).await {
+            log::info!("[input-classifier] → is_likely_shell_command=true, returning Shell");
             return InputType::Shell;
         }
 
-        self.classify_input(input, context)
+        let result = self.classify_input(input, context)
             .await
             .map(|result| result.to_input_type())
-            .unwrap_or(context.current_input_type)
+            .unwrap_or(context.current_input_type);
+
+        log::info!("[input-classifier] → classify_input returned {:?}", result);
+        result
     }
 
     async fn classify_input(
@@ -96,18 +101,12 @@ impl InputClassifier for HeuristicClassifier {
 async fn natural_language_detection_heuristic(
     input: ParsedTokensSnapshot,
     word_tokens: Vec<String>,
-    current_input_type: InputType,
+    _current_input_type: InputType,
     include_last_token: bool,
 ) -> ClassificationResult {
-    let word_tokens_count = word_tokens.len();
+    let _word_tokens_count = word_tokens.len();
 
-    let min_token_length = if matches!(current_input_type, InputType::AI) {
-        MINIMUM_COMMAND_DETECTION_TOKEN_LENGTH
-    } else {
-        MINIMUM_NATURAL_LANGUAGE_DETECTION_TOKEN_LENGTH
-    };
-
-    if min_token_length > word_tokens_count as u8 {
+    if input.buffer_text.len() < MINIMUM_CLASSIFICATION_CHAR_LENGTH {
         return ClassificationResult::pure_shell();
     }
 

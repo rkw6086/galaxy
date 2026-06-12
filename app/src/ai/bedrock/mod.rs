@@ -1,7 +1,6 @@
 pub mod client;
 pub mod convert;
 pub mod diagnostic;
-pub mod discovery;
 pub mod external_config;
 pub mod models;
 pub mod request_translator;

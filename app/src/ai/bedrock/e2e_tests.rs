@@ -558,7 +558,7 @@ impl AgentSimulation {
                 None,
                 None,
                 Arc::new(Mutex::new(Vec::new())),
-                false,
+                Vec::new(),
             )
             .await
             .expect("converse_stream should succeed");
@@ -1147,7 +1147,7 @@ async fn test_reasoning_model_produces_substantial_output() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("converse_stream should succeed");
@@ -1272,7 +1272,7 @@ async fn test_event_sequence_matches_controller_expectations() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("should connect");
@@ -1389,7 +1389,7 @@ async fn test_followup_turn_does_not_send_create_task() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("should connect");
@@ -1475,7 +1475,7 @@ async fn run_slash_command_test(
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("stream should connect");
@@ -1705,7 +1705,7 @@ async fn test_slash_resume_conversation() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("stream should connect");
@@ -1819,7 +1819,7 @@ async fn test_empty_messages_safety_check() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("safety fallback message should work");
@@ -1982,7 +1982,7 @@ async fn test_full_proto_round_trip_with_tool_history() {
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await;
 

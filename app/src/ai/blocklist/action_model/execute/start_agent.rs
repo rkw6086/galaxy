@@ -68,7 +68,9 @@ impl StartAgentExecutor {
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, Self::handle_history_event);
 
-        Self { pending: Vec::new() }
+        Self {
+            pending: Vec::new(),
+        }
     }
 
     fn handle_history_event(
@@ -91,8 +93,7 @@ impl StartAgentExecutor {
                 let parent_id = conversation.parent_conversation_id();
                 // Find the first pending entry that matches this parent and hasn't been assigned a child yet.
                 if let Some(pending) = self.pending.iter_mut().find(|p| {
-                    p.child_conversation_id.is_none()
-                        && parent_id == Some(p.parent_conversation_id)
+                    p.child_conversation_id.is_none() && parent_id == Some(p.parent_conversation_id)
                 }) {
                     pending.child_conversation_id = Some(*new_conversation_id);
                 }
@@ -100,17 +101,19 @@ impl StartAgentExecutor {
             BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
                 conversation_id, ..
             } => {
-                let Some(idx) = self.pending.iter().position(|p| {
-                    p.child_conversation_id.as_ref() == Some(conversation_id)
-                }) else {
+                let Some(idx) = self
+                    .pending
+                    .iter()
+                    .position(|p| p.child_conversation_id.as_ref() == Some(conversation_id))
+                else {
                     return;
                 };
                 // Don't remove yet if we're waiting for completion — we need
                 // the entry to stay so UpdatedConversationStatus can find it.
                 if self.pending[idx].wait_for_completion {
                     // Just log and continue — we'll resolve on Success status.
-                    let conversation = BlocklistAIHistoryModel::as_ref(ctx)
-                        .conversation(conversation_id);
+                    let conversation =
+                        BlocklistAIHistoryModel::as_ref(ctx).conversation(conversation_id);
                     let agent_id = conversation
                         .and_then(|c| c.orchestration_agent_id())
                         .or_else(|| {
@@ -132,8 +135,8 @@ impl StartAgentExecutor {
                     return;
                 }
                 let pending = self.pending.remove(idx);
-                let conversation = BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation(conversation_id);
+                let conversation =
+                    BlocklistAIHistoryModel::as_ref(ctx).conversation(conversation_id);
                 // orchestration_agent_id() uses run_id in v2 mode, which won't
                 // exist for locally-spawned Bedrock child agents. Fall back to
                 // the server conversation token (set by the stream Init event)
@@ -195,9 +198,11 @@ impl StartAgentExecutor {
             BlocklistAIHistoryEvent::UpdatedConversationStatus {
                 conversation_id, ..
             } => {
-                let Some(idx) = self.pending.iter().position(|p| {
-                    p.child_conversation_id.as_ref() == Some(conversation_id)
-                }) else {
+                let Some(idx) = self
+                    .pending
+                    .iter()
+                    .position(|p| p.child_conversation_id.as_ref() == Some(conversation_id))
+                else {
                     return;
                 };
                 let history = BlocklistAIHistoryModel::as_ref(ctx);
@@ -227,10 +232,9 @@ impl StartAgentExecutor {
                                     .map(|t| t.as_str().to_string())
                             })
                             .unwrap_or_else(|| conversation_id.to_string());
-                        let _ = pending.sender.try_send(StartAgentDecision::Completed {
-                            agent_id,
-                            output,
-                        });
+                        let _ = pending
+                            .sender
+                            .try_send(StartAgentDecision::Completed { agent_id, output });
                     }
                     status => {
                         let error_msg = start_agent_error_message_for_status(

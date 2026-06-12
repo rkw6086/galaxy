@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use aws_sdk_bedrockruntime::types::{
     CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole,
-    InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool,
-    ToolConfiguration, ToolInputSchema, ToolResultBlock, ToolResultContentBlock,
-    ToolResultStatus, ToolSpecification, ToolUseBlock,
+    InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool, ToolConfiguration,
+    ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification,
+    ToolUseBlock,
 };
 use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
@@ -141,7 +141,10 @@ fn json_to_document(value: JsonValue) -> Document {
     }
 }
 
-fn convert_messages(messages: Vec<ConversationMessage>, caching_config: &CachingConfig) -> Vec<BedrockMessage> {
+fn convert_messages(
+    messages: Vec<ConversationMessage>,
+    caching_config: &CachingConfig,
+) -> Vec<BedrockMessage> {
     let mut result = Vec::new();
 
     for msg in messages {
@@ -300,7 +303,7 @@ fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessa
 
 fn convert_system_prompt(
     system_prompt: Option<String>,
-    compact_summary: Option<String>,
+    _compact_summary: Option<String>,
     caching_config: &CachingConfig,
 ) -> Vec<SystemContentBlock> {
     let mut blocks = Vec::new();
@@ -311,11 +314,9 @@ fn convert_system_prompt(
         }
     }
 
-    if let Some(summary) = compact_summary {
-        blocks.push(SystemContentBlock::Text(format!(
-            "<conversation-summary>\n{summary}\n</conversation-summary>"
-        )));
-    }
+    // Progressive summary is now prepended to the messages array instead of
+    // being injected here. The compact_summary parameter is kept for API compat
+    // but ignored.
 
     if !blocks.is_empty() && caching_config.enabled {
         let mut builder = CachePointBlock::builder().r#type(CachePointType::Default);
@@ -351,7 +352,10 @@ fn build_inference_config(
     builder.build()
 }
 
-fn build_tool_config(tools: Vec<ToolDefinition>, caching_config: &CachingConfig) -> Option<ToolConfiguration> {
+fn build_tool_config(
+    tools: Vec<ToolDefinition>,
+    caching_config: &CachingConfig,
+) -> Option<ToolConfiguration> {
     if tools.is_empty() {
         return None;
     }

@@ -482,7 +482,9 @@ impl BlocklistAIActionModel {
                 .and_then(|queue| queue.front())
                 .cloned()
             else {
-                log::info!("[tool-debug] try_to_execute_available_actions: no more pending actions");
+                log::info!(
+                    "[tool-debug] try_to_execute_available_actions: no more pending actions"
+                );
                 return;
             };
 

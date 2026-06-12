@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use bitflags::bitflags;
-use galaxy_core::ui::theme::{AnsiColors, TerminalColors, GalaxyTheme};
+use galaxy_core::ui::theme::{AnsiColors, GalaxyTheme, TerminalColors};
 use galaxyui::{
     fonts::FontInfo, keymap::Keystroke, platform::mac::utils::unicode_char_to_key, DisplayIdx,
 };

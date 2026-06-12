@@ -92,14 +92,17 @@ impl ResponseStream {
             return None;
         }
         let auth_method = *settings.bedrock_auth_method.value();
-        Some(BedrockClientConfig {
-            auth_method,
-            profile: settings.bedrock_profile.value().clone(),
-            region: settings.bedrock_region.value().clone(),
-            access_key_id: settings.bedrock_access_key_id.value().clone(),
-            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-        }.with_external_fallbacks())
+        Some(
+            BedrockClientConfig {
+                auth_method,
+                profile: settings.bedrock_profile.value().clone(),
+                region: settings.bedrock_region.value().clone(),
+                access_key_id: settings.bedrock_access_key_id.value().clone(),
+                secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+                cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            }
+            .with_external_fallbacks(),
+        )
     }
 
     pub fn new(
@@ -190,14 +193,15 @@ impl ResponseStream {
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
         let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
-        let _ = ctx.spawn(
-            async move {
-                generate_multi_agent_output(bedrock_config, params, cancellation_rx).await
-            },
-            move |me, stream, ctx| {
-                me.handle_response_stream_result(request_id, stream, ctx);
-            },
-        );
+        let _ =
+            ctx.spawn(
+                async move {
+                    generate_multi_agent_output(bedrock_config, params, cancellation_rx).await
+                },
+                move |me, stream, ctx| {
+                    me.handle_response_stream_result(request_id, stream, ctx);
+                },
+            );
     }
 
     /// Cancels the stream. The conversation_id is preserved in the emitted event for async handling.

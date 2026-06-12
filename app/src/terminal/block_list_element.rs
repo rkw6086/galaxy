@@ -5,9 +5,7 @@ use crate::appearance::Appearance;
 use crate::drive::settings::WarpDriveSettings;
 use crate::features::FeatureFlag;
 use crate::pane_group::SplitPaneState;
-use crate::settings::{
-    AISettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing,
-};
+use crate::settings::{AISettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing};
 use crate::terminal::alt_screen::{should_intercept_mouse, should_intercept_scroll};
 use crate::terminal::block_list_viewport::AutoscrollBehavior;
 use crate::terminal::input::inline_menu::InlineMenuPositioner;
@@ -3545,7 +3543,6 @@ impl Element for BlockListElement {
         // Explicitly drop `viewport_iter` so that we're not longer holding on to any immutable
         // references to the terminal model
         drop(viewport_iter);
-
 
         // Explicitly drop the terminal model mutex guard so that it can be freed up for other
         // threads

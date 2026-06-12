@@ -63,9 +63,24 @@ impl TryFrom<RequestCommandOutputResult> for api::request::input::tool_call_resu
                     },
                 ),
             ),
-            RequestCommandOutputResult::CancelledBeforeExecution => {
-                Err(ConvertToAPITypeError::Ignore)
-            }
+            RequestCommandOutputResult::CancelledBeforeExecution => Ok(
+                api::request::input::tool_call_result::Result::RunShellCommand(
+                    #[allow(deprecated)]
+                    api::RunShellCommandResult {
+                        command: "cancelled".to_string(),
+                        output: Default::default(),
+                        exit_code: Default::default(),
+                        result: Some(api::run_shell_command_result::Result::CommandFinished(
+                            api::ShellCommandFinished {
+                                command_id: String::new(),
+                                output: "User cancelled the command before it executed."
+                                    .to_string(),
+                                exit_code: 130,
+                            },
+                        )),
+                    },
+                ),
+            ),
             RequestCommandOutputResult::Denylisted { command } =>
             {
                 #[allow(deprecated)]
@@ -125,8 +140,21 @@ impl TryFrom<WriteToLongRunningShellCommandResult>
                     },
                 ),
             ),
-            WriteToLongRunningShellCommandResult::Cancelled =>
-                Err(ConvertToAPITypeError::Ignore),
+            WriteToLongRunningShellCommandResult::Cancelled => {
+                Ok(
+                    api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
+                        api::WriteToLongRunningShellCommandResult {
+                            result: Some(api::write_to_long_running_shell_command_result::Result::CommandFinished(
+                                api::ShellCommandFinished {
+                                    command_id: String::new(),
+                                    output: "User cancelled the long-running shell command.".to_string(),
+                                    exit_code: 130,
+                                }
+                            ))
+                        },
+                    ),
+                )
+            }
             WriteToLongRunningShellCommandResult::Error(ShellCommandError::BlockNotFound) => {
                 Ok(api::request::input::tool_call_result::Result::WriteToLongRunningShellCommand(
                         api::WriteToLongRunningShellCommandResult {
@@ -169,7 +197,15 @@ impl TryFrom<ReadFilesResult> for api::request::input::tool_call_result::Result 
                     )),
                 }),
             ),
-            ReadFilesResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            ReadFilesResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::ReadFiles(api::ReadFilesResult {
+                    result: Some(api::read_files_result::Result::Error(
+                        api::read_files_result::Error {
+                            message: "User cancelled the file read.".to_string(),
+                        },
+                    )),
+                }),
+            ),
         }
     }
 }
@@ -206,7 +242,17 @@ impl TryFrom<UploadArtifactResult> for api::request::input::tool_call_result::Re
                     },
                 ),
             ),
-            UploadArtifactResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            UploadArtifactResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::UploadFileArtifact(
+                    api::UploadFileArtifactResult {
+                        result: Some(api::upload_file_artifact_result::Result::Error(
+                            api::upload_file_artifact_result::Error {
+                                message: "User cancelled the upload.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -239,7 +285,17 @@ impl TryFrom<SearchCodebaseResult> for api::request::input::tool_call_result::Re
                     },
                 ),
             ),
-            SearchCodebaseResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            SearchCodebaseResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::SearchCodebase(
+                    api::SearchCodebaseResult {
+                        result: Some(api::search_codebase_result::Result::Error(
+                            api::search_codebase_result::Error {
+                                message: "User cancelled the codebase search.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -285,7 +341,17 @@ impl TryFrom<RequestFileEditsResult> for api::request::input::tool_call_result::
                     },
                 ),
             ),
-            RequestFileEditsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            RequestFileEditsResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::ApplyFileDiffs(
+                    api::ApplyFileDiffsResult {
+                        result: Some(api::apply_file_diffs_result::Result::Error(
+                            api::apply_file_diffs_result::Error {
+                                message: "User cancelled the file edits.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -362,7 +428,13 @@ impl TryFrom<GrepResult> for api::request::input::tool_call_result::Result {
                     })),
                 },
             )),
-            GrepResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            GrepResult::Cancelled => Ok(api::request::input::tool_call_result::Result::Grep(
+                api::GrepResult {
+                    result: Some(api::grep_result::Result::Error(api::grep_result::Error {
+                        message: "User cancelled the grep.".to_string(),
+                    })),
+                },
+            )),
         }
     }
 }
@@ -386,7 +458,15 @@ impl TryFrom<FileGlobResult> for api::request::input::tool_call_result::Result {
                     )),
                 }),
             ),
-            FileGlobResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            FileGlobResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::FileGlob(api::FileGlobResult {
+                    result: Some(api::file_glob_result::Result::Error(
+                        api::file_glob_result::Error {
+                            message: "User cancelled the file glob.".to_string(),
+                        },
+                    )),
+                }),
+            ),
         }
     }
 }
@@ -416,7 +496,15 @@ impl TryFrom<FileGlobV2Result> for api::request::input::tool_call_result::Result
                     )),
                 }),
             ),
-            FileGlobV2Result::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            FileGlobV2Result::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::FileGlobV2(api::FileGlobV2Result {
+                    result: Some(api::file_glob_v2_result::Result::Error(
+                        api::file_glob_v2_result::Error {
+                            message: "User cancelled the file glob.".to_string(),
+                        },
+                    )),
+                }),
+            ),
         }
     }
 }
@@ -468,7 +556,17 @@ impl TryFrom<ReadMCPResourceResult> for api::request::input::tool_call_result::R
                     },
                 ),
             ),
-            ReadMCPResourceResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            ReadMCPResourceResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::ReadMcpResource(
+                    api::ReadMcpResourceResult {
+                        result: Some(api::read_mcp_resource_result::Result::Error(
+                            api::read_mcp_resource_result::Error {
+                                message: "User cancelled the MCP resource read.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -494,7 +592,17 @@ impl TryFrom<CallMCPToolResult> for api::request::input::tool_call_result::Resul
                     },
                 ))
             }
-            CallMCPToolResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            CallMCPToolResult::Cancelled => {
+                Ok(api::request::input::tool_call_result::Result::CallMcpTool(
+                    api::CallMcpToolResult {
+                        result: Some(api::call_mcp_tool_result::Result::Error(
+                            api::call_mcp_tool_result::Error {
+                                message: "User cancelled the MCP tool call.".to_string(),
+                            },
+                        )),
+                    },
+                ))
+            }
         }
     }
 }
@@ -530,7 +638,15 @@ impl TryFrom<ReadSkillResult> for api::request::input::tool_call_result::Result 
                     )),
                 }),
             ),
-            ReadSkillResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            ReadSkillResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::ReadSkill(api::ReadSkillResult {
+                    result: Some(api::read_skill_result::Result::Error(
+                        api::read_skill_result::Error {
+                            message: "User cancelled reading the skill.".to_string(),
+                        },
+                    )),
+                }),
+            ),
         }
     }
 }
@@ -564,7 +680,17 @@ impl TryFrom<ReadDocumentsResult> for api::request::input::tool_call_result::Res
                     },
                 ),
             ),
-            ReadDocumentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            ReadDocumentsResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::ReadDocuments(
+                    api::ReadDocumentsResult {
+                        result: Some(api::read_documents_result::Result::Error(
+                            api::read_documents_result::Error {
+                                message: "User cancelled reading the documents.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -600,7 +726,17 @@ impl TryFrom<EditDocumentsResult> for api::request::input::tool_call_result::Res
                     },
                 ),
             ),
-            EditDocumentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            EditDocumentsResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::EditDocuments(
+                    api::EditDocumentsResult {
+                        result: Some(api::edit_documents_result::Result::Error(
+                            api::edit_documents_result::Error {
+                                message: "User cancelled editing the documents.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -636,7 +772,17 @@ impl TryFrom<CreateDocumentsResult> for api::request::input::tool_call_result::R
                     },
                 ),
             ),
-            CreateDocumentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            CreateDocumentsResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::CreateDocuments(
+                    api::CreateDocumentsResult {
+                        result: Some(api::create_documents_result::Result::Error(
+                            api::create_documents_result::Error {
+                                message: "User cancelled creating the documents.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -760,7 +906,17 @@ impl TryFrom<TransferShellCommandControlToUserResult>
                     },
                 ),
             ),
-            TransferShellCommandControlToUserResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            TransferShellCommandControlToUserResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::TransferShellCommandControlToUser(
+                    api::TransferShellCommandControlToUserResult {
+                        result: Some(api::transfer_shell_command_control_to_user_result::Result::Error(
+                            api::ShellCommandError {
+                                r#type: Some(api::shell_command_error::Type::CommandNotFound(())),
+                            },
+                        )),
+                    },
+                ),
+            ),
             TransferShellCommandControlToUserResult::Error(ShellCommandError::BlockNotFound) => {
                 Ok(api::request::input::tool_call_result::Result::TransferShellCommandControlToUser(
                         api::TransferShellCommandControlToUserResult {
@@ -1027,7 +1183,17 @@ impl TryFrom<UseComputerResult> for api::request::input::tool_call_result::Resul
                     },
                 ))
             }
-            UseComputerResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            UseComputerResult::Cancelled => {
+                Ok(api::request::input::tool_call_result::Result::UseComputer(
+                    api::UseComputerResult {
+                        result: Some(api::use_computer_result::Result::Error(
+                            api::use_computer_result::Error {
+                                message: "User cancelled the computer use.".to_string(),
+                            },
+                        )),
+                    },
+                ))
+            }
         }
     }
 }
@@ -1121,7 +1287,17 @@ impl TryFrom<FetchConversationResult> for api::request::input::tool_call_result:
                     },
                 ),
             ),
-            FetchConversationResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            FetchConversationResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::FetchConversation(
+                    api::FetchConversationResult {
+                        result: Some(api::fetch_conversation_result::Result::Error(
+                            api::fetch_conversation_result::Error {
+                                message: "User cancelled fetching the conversation.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }
@@ -1312,7 +1488,18 @@ impl TryFrom<InsertReviewCommentsResult> for api::request::input::tool_call_resu
                     },
                 ),
             ),
-            InsertReviewCommentsResult::Cancelled => Err(ConvertToAPITypeError::Ignore),
+            InsertReviewCommentsResult::Cancelled => Ok(
+                api::request::input::tool_call_result::Result::InsertReviewComments(
+                    api::InsertReviewCommentsResult {
+                        repo_path: String::new(),
+                        result: Some(api::insert_review_comments_result::Result::Error(
+                            api::insert_review_comments_result::Error {
+                                message: "User cancelled inserting review comments.".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            ),
         }
     }
 }

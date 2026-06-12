@@ -22,7 +22,7 @@ use pathfinder_color::ColorU;
 use settings::Setting as _;
 
 use crate::resource_center::{mark_feature_used_and_write_to_user_defaults, Tip, TipAction};
-use crate::themes::theme::{RespectSystemTheme, ThemeKind, GalaxyTheme};
+use crate::themes::theme::{GalaxyTheme, RespectSystemTheme, ThemeKind};
 use crate::util::traffic_lights::traffic_light_data;
 use crate::workspace::PANEL_HEADER_HEIGHT;
 use crate::{

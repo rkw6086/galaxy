@@ -2,7 +2,7 @@ use crate::appearance::Appearance;
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{active_theme_kind, ThemeSettings};
-use crate::themes::theme::{ThemeKind, GalaxyTheme};
+use crate::themes::theme::{GalaxyTheme, ThemeKind};
 use crate::user_config;
 use crate::user_config::util::from_yaml;
 use galaxyui::assets::asset_cache::AssetSource;

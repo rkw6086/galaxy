@@ -6,53 +6,105 @@ pub struct DefaultModel {
     pub model_id: &'static str,
     pub display_name: &'static str,
     pub vision_supported: bool,
+    pub context_size: u32,
 }
 
 pub const DEFAULT_BEDROCK_MODELS: &[DefaultModel] = &[
     DefaultModel {
-        model_id: "anthropic.claude-opus-4-6",
-        display_name: "Claude Opus 4.6",
+        model_id: "us.anthropic.claude-opus-4-6-v1[1m]",
+        display_name: "Claude Opus 4.6 (1M)",
         vision_supported: true,
+        context_size: 1_000_000,
     },
     DefaultModel {
-        model_id: "anthropic.claude-opus-4-7",
-        display_name: "Claude Opus 4.7",
+        model_id: "us.anthropic.claude-sonnet-4-6[1m]",
+        display_name: "Claude Sonnet 4.6 (1M)",
         vision_supported: true,
+        context_size: 1_000_000,
     },
     DefaultModel {
-        model_id: "anthropic.claude-sonnet-4-6",
-        display_name: "Claude Sonnet 4.6",
+        model_id: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        display_name: "Claude Sonnet 4.5",
         vision_supported: true,
+        context_size: 200_000,
     },
     DefaultModel {
-        model_id: "anthropic.claude-sonnet-4-20250514-v1:0",
+        model_id: "us.anthropic.claude-sonnet-4-20250514-v1:0",
         display_name: "Claude Sonnet 4",
         vision_supported: true,
+        context_size: 200_000,
     },
     DefaultModel {
-        model_id: "anthropic.claude-haiku-4-5-20251001-v1:0",
+        model_id: "us.anthropic.claude-3-sonnet-20240229-v1:0",
+        display_name: "Claude 3 Sonnet",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "global.anthropic.claude-sonnet-4-6",
+        display_name: "Claude Sonnet 4.6 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        display_name: "Claude Sonnet 4.5 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "global.anthropic.claude-sonnet-4-20250514-v1:0",
+        display_name: "Claude Sonnet 4 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "us.anthropic.claude-opus-4-5-20251101-v1:0",
+        display_name: "Claude Opus 4.5",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "us.anthropic.claude-opus-4-1-20250805-v1:0",
+        display_name: "Claude Opus 4.1",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "global.anthropic.claude-opus-4-6-v1",
+        display_name: "Claude Opus 4.6 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "global.anthropic.claude-opus-4-5-20251101-v1:0",
+        display_name: "Claude Opus 4.5 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
+    },
+    DefaultModel {
+        model_id: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         display_name: "Claude Haiku 4.5",
         vision_supported: true,
+        context_size: 200_000,
     },
     DefaultModel {
-        model_id: "amazon.nova-pro-v1:0",
-        display_name: "Amazon Nova Pro",
+        model_id: "us.anthropic.claude-3-haiku-20240307-v1:0",
+        display_name: "Claude 3 Haiku",
         vision_supported: true,
+        context_size: 200_000,
     },
     DefaultModel {
-        model_id: "amazon.nova-lite-v1:0",
-        display_name: "Amazon Nova Lite",
+        model_id: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        display_name: "Claude 3.5 Haiku",
         vision_supported: true,
+        context_size: 200_000,
     },
     DefaultModel {
-        model_id: "amazon.nova-micro-v1:0",
-        display_name: "Amazon Nova Micro",
-        vision_supported: false,
-    },
-    DefaultModel {
-        model_id: "deepseek.r1-v1:0",
-        display_name: "DeepSeek R1",
-        vision_supported: false,
+        model_id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        display_name: "Claude Haiku 4.5 (Global)",
+        vision_supported: true,
+        context_size: 200_000,
     },
 ];
 
@@ -76,6 +128,7 @@ pub fn get_effective_models(user_models: &[BedrockModelConfig]) -> Vec<BedrockMo
                 model_id: m.model_id.to_string(),
                 display_name: m.display_name.to_string(),
                 vision_supported: m.vision_supported,
+                context_size: m.context_size,
             })
             .collect();
         for default in defaults {
@@ -92,6 +145,7 @@ pub fn get_effective_models(user_models: &[BedrockModelConfig]) -> Vec<BedrockMo
             model_id: m.model_id.to_string(),
             display_name: m.display_name.to_string(),
             vision_supported: m.vision_supported,
+            context_size: m.context_size,
         })
         .collect()
 }

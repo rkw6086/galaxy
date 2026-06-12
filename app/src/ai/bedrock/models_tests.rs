@@ -82,7 +82,7 @@ fn test_cross_region_prefix_unknown_region() {
 fn test_get_effective_models_empty_returns_defaults() {
     let models = get_effective_models(&[]);
     assert_eq!(models.len(), DEFAULT_BEDROCK_MODELS.len());
-    assert_eq!(models[0].model_id, "anthropic.claude-opus-4-6");
+    assert_eq!(models[0].model_id, "anthropic.claude-opus-4-6[1m]");
     assert_eq!(models[0].display_name, "Claude Opus 4.6");
 }
 

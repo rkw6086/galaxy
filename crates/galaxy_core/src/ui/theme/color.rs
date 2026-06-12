@@ -8,7 +8,7 @@ use self::internal_colors::{
     neutral_4,
 };
 
-use super::{AnsiColor, AnsiColorIdentifier, Fill, TerminalColors, GalaxyTheme};
+use super::{AnsiColor, AnsiColorIdentifier, Fill, GalaxyTheme, TerminalColors};
 
 use crate::ui::color::{
     blend::Blend,

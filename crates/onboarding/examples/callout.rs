@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, GalaxyTheme};
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{Rect, Stack};
 use galaxyui::fonts::{Cache, FamilyId, Weight};

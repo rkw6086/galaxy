@@ -134,16 +134,18 @@ pub struct RequestParams {
     /// Full Bedrock conversation history for direct Bedrock calls.
     /// When present, the Bedrock path uses this instead of extracting from task_context.
     pub bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
-    /// Compacted summary from a prior summarization pass. Injected into the system
-    /// prompt so it benefits from system-level caching.
-    pub bedrock_compact_summary: Option<String>,
+    /// Progressive summary of older conversation history. Prepended as the first
+    /// message pair in the messages array sent to Bedrock.
+    pub bedrock_progressive_summary: Option<String>,
+    /// Archived tool_use/tool_result pairs from previous summarization drains.
+    /// Passed to the Bedrock translator so `recall_tool_history` can search archived
+    /// results even after they've been summarized away from live history.
+    pub bedrock_tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
     /// Populated by the Bedrock path after building the message list.
     /// Contains the full messages sent (old history + new input) so the controller
     /// can store them back into the conversation for the next request cycle.
     pub bedrock_messages_sent:
         std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
-    /// Whether this request is a conversation summarization/compaction.
-    pub is_summarization: bool,
 }
 
 pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
@@ -331,9 +333,9 @@ impl RequestParams {
             parent_agent_id: None,
             agent_name: None,
             bedrock_message_history: Vec::new(),
-            bedrock_compact_summary: None,
+            bedrock_progressive_summary: None,
+            bedrock_tool_result_archive: Vec::new(),
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
-            is_summarization: false,
         }
     }
 }

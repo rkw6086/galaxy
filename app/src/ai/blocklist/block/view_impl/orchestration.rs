@@ -433,9 +433,7 @@ pub(super) fn render_start_agent(
         }
         if let Some(card_data) = child_conversation_card_data {
             // Render inline subagent panel instead of navigation card
-            if let Some(panel_state) =
-                props.state_handles.subagent_panel_states.get(action_id)
-            {
+            if let Some(panel_state) = props.state_handles.subagent_panel_states.get(action_id) {
                 column.add_child(
                     crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
                         panel_state,

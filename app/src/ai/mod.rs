@@ -17,8 +17,6 @@ pub(crate) mod attachment_utils;
 pub mod aws_credentials;
 #[cfg(not(target_family = "wasm"))]
 pub mod bedrock;
-#[allow(dead_code)]
-pub mod prompt_builder;
 pub(crate) mod block_context;
 pub(crate) mod blocklist;
 pub mod control_code_parser;
@@ -33,6 +31,8 @@ pub(crate) mod llms;
 pub mod onboarding;
 pub(crate) mod persisted_workspace;
 pub(crate) mod predict;
+#[allow(dead_code)]
+pub mod prompt_builder;
 pub mod request_usage_model;
 pub(crate) mod restored_conversations;
 pub(crate) mod skills;

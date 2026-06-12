@@ -156,18 +156,18 @@ fn test_claude_code_takes_priority_over_opencode() {
     let claude = ExternalBedrockConfig {
         profile: Some("claude-profile".to_string()),
         region: Some("us-east-1".to_string()),
-        models: Vec::new(),
+        ..Default::default()
     };
     let opencode = ExternalBedrockConfig {
         profile: Some("opencode-profile".to_string()),
         region: Some("eu-west-1".to_string()),
-        models: Vec::new(),
+        ..Default::default()
     };
 
     let merged = ExternalBedrockConfig {
         profile: claude.profile.or(opencode.profile),
         region: claude.region.or(opencode.region),
-        models: Vec::new(),
+        ..Default::default()
     };
 
     assert_eq!(merged.profile, Some("claude-profile".to_string()));

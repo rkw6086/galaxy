@@ -739,14 +739,20 @@ impl BlocklistAIActionExecutor {
         );
         match execution {
             AnyActionExecution::NotReady => {
-                log::info!("[tool-debug] try_to_execute_action: NOT READY - action_id={:?}", action_id);
+                log::info!(
+                    "[tool-debug] try_to_execute_action: NOT READY - action_id={:?}",
+                    action_id
+                );
                 TryExecuteResult::NotExecuted {
                     reason: NotExecutedReason::NotReady,
                     action: Box::new(action_clone),
                 }
             }
             AnyActionExecution::InvalidAction => {
-                log::error!("[tool-debug] try_to_execute_action: INVALID ACTION - action_id={:?}", action_id);
+                log::error!(
+                    "[tool-debug] try_to_execute_action: INVALID ACTION - action_id={:?}",
+                    action_id
+                );
                 debug_assert!(false, "Tried to execute AIAgentAction with wrong executor.");
                 TryExecuteResult::NotExecuted {
                     reason: NotExecutedReason::NotReady,

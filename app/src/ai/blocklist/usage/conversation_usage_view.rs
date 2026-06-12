@@ -261,8 +261,8 @@ impl ConversationUsageView {
         }
 
         // Cache usage (cumulative session totals)
-        let total_cache = self.usage_info.total_cache_read_tokens
-            + self.usage_info.total_cache_write_tokens;
+        let total_cache =
+            self.usage_info.total_cache_read_tokens + self.usage_info.total_cache_write_tokens;
         if total_cache > 0 {
             if self.usage_info.total_cache_read_tokens > 0 {
                 labels.push(render_label_text("Cache read", appearance));
@@ -290,10 +290,7 @@ impl ConversationUsageView {
                     / total_cache_ops as f32)
                     * 100.0;
                 labels.push(render_label_text("Cache hit rate", appearance));
-                values.push(render_value_text(
-                    format!("{:.1}%", hit_rate),
-                    appearance,
-                ));
+                values.push(render_value_text(format!("{:.1}%", hit_rate), appearance));
             }
         }
 

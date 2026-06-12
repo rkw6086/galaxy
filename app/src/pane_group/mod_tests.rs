@@ -21,6 +21,7 @@ use crate::{
     cloud_object::model::persistence::CloudModel,
     context_chips::prompt::Prompt,
     experiments,
+    galaxy_managed_paths_watcher::GalaxyManagedPathsWatcher,
     network::NetworkStatus,
     notebooks::{
         editor::keys::NotebookKeybindings, manager::NotebookManager, notebook::NotebookView,
@@ -49,7 +50,6 @@ use crate::{
     },
     test_util::settings::initialize_settings_for_tests,
     undo_close::UndoCloseStack,
-    galaxy_managed_paths_watcher::GalaxyManagedPathsWatcher,
     workflows::local_workflows::LocalWorkflows,
     workspace::{
         sync_inputs::SyncedInputState, ActiveSession, OneTimeModalModel, WorkspaceRegistry,

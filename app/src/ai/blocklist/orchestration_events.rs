@@ -578,9 +578,15 @@ impl OrchestrationEventService {
                 if let Some(parent_id) = parent_id {
                     // Merge child's token usage and costs into parent
                     BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _ctx| {
-                        let child_usage: Option<(HashMap<String, api::response_event::stream_finished::TokenUsage>, crate::ai::agent::RequestCost)> = history_model
-                            .conversation(&conversation_id)
-                            .map(|c| (c.total_token_usage_by_model().clone(), c.total_request_cost()));
+                        let child_usage: Option<(
+                            HashMap<String, api::response_event::stream_finished::TokenUsage>,
+                            crate::ai::agent::RequestCost,
+                        )> = history_model.conversation(&conversation_id).map(|c| {
+                            (
+                                c.total_token_usage_by_model().clone(),
+                                c.total_request_cost(),
+                            )
+                        });
                         if let Some((token_usage, request_cost)) = child_usage {
                             if let Some(parent) = history_model.conversation_mut(&parent_id) {
                                 parent.merge_child_usage_raw(&token_usage, request_cost);
@@ -589,11 +595,7 @@ impl OrchestrationEventService {
                     });
 
                     if summary.is_some() {
-                        self.route_subagent_completion_summary(
-                            conversation_id,
-                            parent_id,
-                            ctx,
-                        );
+                        self.route_subagent_completion_summary(conversation_id, parent_id, ctx);
                     }
                 }
             }
@@ -1271,9 +1273,7 @@ impl OrchestrationEventService {
             event_id: Uuid::new_v4().to_string(),
             source_agent_id: "parent".to_string(),
             attempt_count: 0,
-            detail: PendingEventDetail::SubagentAnswer {
-                answer_text,
-            },
+            detail: PendingEventDetail::SubagentAnswer { answer_text },
         };
 
         self.pending_events

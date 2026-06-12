@@ -68,6 +68,18 @@ Global rules are loaded from `~/.galaxy-ai/rules/*.md` (filename = rule name, co
 
 Project rules are loaded from `GALAXY.md` or `AGENTS.md` files found in the project directory tree.
 
+**Model Discovery** (`app/src/ai/bedrock/discovery.rs`):
+At startup (and on manual refresh from the Bedrock settings page), Galaxy discovers available models using the user-selected auth settings (profile/SSO/static keys — no external config fallback) via:
+1. **STS GetCallerIdentity** — validates AWS credentials before proceeding
+2. **ListInferenceProfiles** (system-defined) + **ListFoundationModels** (TEXT output, ON_DEMAND) — fetched in parallel; results are deduplicated by underlying foundation model ID with inference profiles taking priority (they include cross-region routing)
+3. Filters out legacy/deprecated models and non-LLM models (embedding, image gen, etc.)
+4. **Invoke probe** — each candidate gets a minimal `Converse` call (max_tokens=1); only a successful probe (or a transient throttling/capacity error) counts as accessible. Validation errors (no Converse/on-demand support), access denials, and missing resources are rejected to avoid listing unusable models
+5. Tags Claude 4.6+ models with `[1m]` suffix to signal 1M context window support
+
+The settings page refresh (`RefreshAwsBedrock` in `app/src/settings_view/ai_page.rs`) clears the cached model list immediately, shows a shimmer progress indicator while discovery runs, and repopulates the list when it completes.
+
+The `[1m]` suffix is an internal marker stripped by `strip_context_marker()` in `client.rs` before API calls. It's used by `context_window_for_model()` in `response_translator.rs` to report the correct context window size.
+
 **External Config Fallback** (`app/src/ai/bedrock/external_config.rs`):
 When Galaxy's own Bedrock settings are at defaults, it falls back to configurations from:
 1. **Claude Code** (`~/.claude/settings.json`) — reads `env.AWS_PROFILE`, `env.AWS_REGION`, and `env.DCP_MODEL_MAP` (ARN-based model mappings)
@@ -75,10 +87,30 @@ When Galaxy's own Bedrock settings are at defaults, it falls back to configurati
 
 Priority: Galaxy explicit settings > Claude Code > OpenCode > hardcoded defaults. Fallback only applies when profile is `"default"` (for profile) or empty (for region/models). External model ARNs are merged with Galaxy's built-in default model list.
 
-**Token Usage & Cost Tracking** (`app/src/ai/bedrock/stream.rs`):
-The Bedrock stream extracts full token metadata from responses: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`. These flow through `build_stream_finished` → `TokenUsage` struct → `conversation.update_cost_and_usage_for_request()`. Cost is estimated using Sonnet-tier Bedrock pricing as a conservative default. Displayed in:
+**Token Usage & Cost Tracking** (`app/src/ai/bedrock/response_translator.rs`):
+The Bedrock stream extracts full token metadata from responses: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`. These flow through `build_stream_finished` → `TokenUsage` struct → `conversation.update_cost_and_usage_for_request()`. Cost is estimated per-model using Bedrock pricing. Displayed in:
 - **Agent management cards** — total token count in metadata row
 - **Conversation usage footer** — full breakdown (input/output/cache read/cache write) + estimated cost
+
+**Progressive Summarization** (`app/src/ai/blocklist/controller.rs`):
+When context window usage reaches 85%, Galaxy automatically summarizes older messages while keeping the last 100 `ConversationMessage` entries verbatim. This replaces the old `/compact` hard-compact that destroyed all context. The summary is prepended to the messages array (not the system prompt) as a `<conversation-history-summary>` block. Key details:
+- Trigger: automatic at 85% context usage, >100 messages in history
+- Uses Sonnet via `BedrockClient::converse_collect` in a background `ctx.spawn`
+- Cost attributed to conversation totals transparently
+- No UI shown — user only sees context usage drop
+- `recall_tool_history` tool lets the agent retrieve past tool outputs that were summarized away
+
+**Failed Tool Call Visibility** (`app/src/ai/bedrock/response_translator.rs`):
+When the model calls an unknown/hallucinated tool name, the response translator now emits a visible `AgentOutput` text message to the UI (via `build_add_agent_output_message`) showing what tool was attempted and the error. Previously, synthetic error results were only stored in history (for Bedrock message ordering) but never rendered.
+
+**Loop Prevention Guardrail** (`app/src/ai/blocklist/controller.rs`):
+Detects when the agent gets stuck in a recursive failure loop (same tool + same input failing repeatedly) and injects a corrective system instruction to break the cycle. Key details:
+- Tracks last 10 failed action results per conversation via `LoopDetectionState`
+- Uses tool discriminant + Display hash to identify repeated patterns
+- Threshold: 3 identical failures triggers intervention
+- Intervention: injects a `[SYSTEM] Loop detected` user message instructing the model to take a different approach
+- Clears on any successful action result (progress = not looping)
+- Resets when user sends a new query
 
 ### Key Architectural Patterns
 

@@ -14,7 +14,9 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType, ObjectType};
 use crate::drive::export::ExportManager;
 use crate::drive::items::WarpDriveItemId;
-use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectArgs, OpenGalaxyDriveObjectSettings};
+use crate::drive::{
+    CloudObjectTypeAndId, OpenGalaxyDriveObjectArgs, OpenGalaxyDriveObjectSettings,
+};
 use crate::experiments::{BlockOnboarding, Experiment};
 use crate::interval_timer::IntervalTimer;
 use crate::launch_configs::launch_config;
@@ -49,7 +51,7 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::{cell_size_and_padding, TerminalAction};
 use crate::themes::onboarding_theme_picker_themes;
-use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, GalaxyThemeConfig};
+use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, GalaxyThemeConfig, ThemeKind};
 use crate::uri::OpenMCPSettingsArgs;
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::util::traffic_lights::{traffic_light_data, TrafficLightData, TrafficLightMouseStates};

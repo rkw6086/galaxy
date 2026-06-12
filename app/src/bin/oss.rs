@@ -29,6 +29,8 @@ fn main() -> Result<()> {
         state = state.with_additional_features(galaxy_core::features::DEBUG_FLAGS);
     }
     state = state.with_additional_features(&[
+        FeatureFlag::AgentMode,
+        FeatureFlag::AgentView,
         FeatureFlag::LspCompletion,
         FeatureFlag::LspCodeActions,
         FeatureFlag::LspRename,

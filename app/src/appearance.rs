@@ -25,7 +25,7 @@ use crate::{
         active_theme_kind, FontSettings, FontSettingsChangedEvent, MonospaceFontSize, Settings,
         ThemeSettings,
     },
-    themes::theme::{ThemeKind, GalaxyTheme},
+    themes::theme::{GalaxyTheme, ThemeKind},
     ASSETS,
 };
 
@@ -246,7 +246,8 @@ impl AppearanceManager {
                 return;
             };
 
-            let ns_data: id = msg_send![class!(NSData), dataWithBytes:icon_data.as_ptr() length:icon_data.len()];
+            let ns_data: id =
+                msg_send![class!(NSData), dataWithBytes:icon_data.as_ptr() length:icon_data.len()];
             let image: id = msg_send![class!(NSImage), alloc];
             let image: id = msg_send![image, initWithData:ns_data];
 

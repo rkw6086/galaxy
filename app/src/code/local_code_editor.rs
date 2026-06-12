@@ -85,18 +85,18 @@ const DROP_SHADOW_COLOR: ColorU = ColorU {
 
 const HOVER_DEBOUNCE_PERIOD: Duration = Duration::from_millis(500);
 
+use super::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
+use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
 use super::diff_viewer::DiffViewer;
 use super::editor::{
     scroll::{ScrollPosition, ScrollTrigger},
     view::{CodeEditorEvent, CodeEditorView},
 };
-use super::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
-use super::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
-use super::rename::RenameState;
-use super::signature_help::SignatureHelpState;
 use super::find_references_view::{FindReferencesView, FindReferencesViewEvent};
 use super::language_server_extension::ProcessedDiagnostic;
 use super::lsp_telemetry::LspTelemetryEvent;
+use super::rename::RenameState;
+use super::signature_help::SignatureHelpState;
 use super::ImmediateSaveError;
 use galaxy_core::send_telemetry_from_ctx;
 

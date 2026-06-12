@@ -19,7 +19,7 @@ fn test_build_stream_init_has_valid_ids() {
 #[test]
 fn test_build_stream_finished_done_reason() {
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let event = build_stream_finished(reason, 100, 50, 20, 10, "anthropic.claude-sonnet-4-6");
+    let event = build_stream_finished(reason, 100, 50, 20, 10, "anthropic.claude-sonnet-4-6", false);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {
@@ -53,7 +53,7 @@ fn test_build_stream_finished_done_reason() {
 #[test]
 fn test_build_stream_finished_max_token_limit() {
     let reason = stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {});
-    let event = build_stream_finished(reason, 200, 100, 0, 0, "anthropic.claude-sonnet-4-6");
+    let event = build_stream_finished(reason, 200, 100, 0, 0, "anthropic.claude-sonnet-4-6", false);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {
@@ -69,7 +69,7 @@ fn test_build_stream_finished_max_token_limit() {
 #[test]
 fn test_build_stream_finished_other_reason() {
     let reason = stream_finished::Reason::Other(stream_finished::Other {});
-    let event = build_stream_finished(reason, 0, 0, 0, 0, "anthropic.claude-sonnet-4-6");
+    let event = build_stream_finished(reason, 0, 0, 0, 0, "anthropic.claude-sonnet-4-6", false);
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {
@@ -121,16 +121,34 @@ fn test_build_create_task_has_no_parent() {
 
 #[test]
 fn test_context_window_for_model_1m_marker() {
-    assert_eq!(context_window_for_model("anthropic.claude-opus-4-6[1m]"), 1_000_000);
-    assert_eq!(context_window_for_model("us.anthropic.claude-opus-4-6[1M]"), 1_000_000);
-    assert_eq!(context_window_for_model("anthropic.claude-sonnet-4-6[1m]"), 1_000_000);
+    assert_eq!(
+        context_window_for_model("anthropic.claude-opus-4-6[1m]"),
+        1_000_000
+    );
+    assert_eq!(
+        context_window_for_model("us.anthropic.claude-opus-4-6[1M]"),
+        1_000_000
+    );
+    assert_eq!(
+        context_window_for_model("anthropic.claude-sonnet-4-6[1m]"),
+        1_000_000
+    );
 }
 
 #[test]
 fn test_context_window_for_model_standard_claude() {
-    assert_eq!(context_window_for_model("anthropic.claude-opus-4-6"), 200_000);
-    assert_eq!(context_window_for_model("us.anthropic.claude-sonnet-4-6"), 200_000);
-    assert_eq!(context_window_for_model("anthropic.claude-haiku-4-5-20251001-v1:0"), 200_000);
+    assert_eq!(
+        context_window_for_model("anthropic.claude-opus-4-6"),
+        200_000
+    );
+    assert_eq!(
+        context_window_for_model("us.anthropic.claude-sonnet-4-6"),
+        200_000
+    );
+    assert_eq!(
+        context_window_for_model("anthropic.claude-haiku-4-5-20251001-v1:0"),
+        200_000
+    );
 }
 
 #[test]
@@ -148,11 +166,35 @@ fn test_context_window_for_model_deepseek() {
 #[test]
 fn test_cost_varies_by_model() {
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let opus_event = build_stream_finished(reason.clone(), 1000, 1000, 0, 0, "anthropic.claude-opus-4-6");
+    let opus_event = build_stream_finished(
+        reason.clone(),
+        1000,
+        1000,
+        0,
+        0,
+        "anthropic.claude-opus-4-6",
+        false,
+    );
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let sonnet_event = build_stream_finished(reason.clone(), 1000, 1000, 0, 0, "anthropic.claude-sonnet-4-6");
+    let sonnet_event = build_stream_finished(
+        reason.clone(),
+        1000,
+        1000,
+        0,
+        0,
+        "anthropic.claude-sonnet-4-6",
+        false,
+    );
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let haiku_event = build_stream_finished(reason, 1000, 1000, 0, 0, "anthropic.claude-haiku-4-5-20251001-v1:0");
+    let haiku_event = build_stream_finished(
+        reason,
+        1000,
+        1000,
+        0,
+        0,
+        "anthropic.claude-haiku-4-5-20251001-v1:0",
+        false,
+    );
 
     let opus_cost = match opus_event.r#type {
         Some(api::response_event::Type::Finished(f)) => f.token_usage[0].cost_in_cents,
@@ -168,14 +210,20 @@ fn test_cost_varies_by_model() {
     };
 
     assert!(opus_cost > sonnet_cost, "Opus should cost more than Sonnet");
-    assert!(sonnet_cost > haiku_cost, "Sonnet should cost more than Haiku");
-    assert!(haiku_cost > 0.0, "All costs should be positive for non-zero tokens");
+    assert!(
+        sonnet_cost > haiku_cost,
+        "Sonnet should cost more than Haiku"
+    );
+    assert!(
+        haiku_cost > 0.0,
+        "All costs should be positive for non-zero tokens"
+    );
 }
 
 #[test]
 fn test_cost_zero_for_zero_tokens() {
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let event = build_stream_finished(reason, 0, 0, 0, 0, "anthropic.claude-sonnet-4-6");
+    let event = build_stream_finished(reason, 0, 0, 0, 0, "anthropic.claude-sonnet-4-6", false);
 
     let cost = match event.r#type {
         Some(api::response_event::Type::Finished(f)) => f.token_usage[0].cost_in_cents,

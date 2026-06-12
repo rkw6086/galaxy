@@ -474,8 +474,10 @@ pub fn render_warping_indicator<V: View>(
                 } else {
                     // Show elapsed timer alongside the random Galaxy status message.
                     if let Some(start_time) = props.warping_start_time {
-                        non_shimmering_text =
-                            Some(format!(" ({})", format_elapsed_compact(start_time.elapsed())));
+                        non_shimmering_text = Some(format!(
+                            " ({})",
+                            format_elapsed_compact(start_time.elapsed())
+                        ));
                     }
                     props.default_warping_text.clone()
                 }
@@ -3430,19 +3432,59 @@ pub struct FindContext<'a> {
 
 /// A palette of colors for the user avatar silhouette, randomly selected per session.
 const USER_AVATAR_PALETTE: &[ColorU] = &[
-    ColorU { r: 99, g: 179, b: 237, a: 255 },  // blue
-    ColorU { r: 129, g: 230, b: 217, a: 255 },  // teal
-    ColorU { r: 183, g: 148, b: 244, a: 255 },  // purple
-    ColorU { r: 252, g: 165, b: 165, a: 255 },  // red/coral
-    ColorU { r: 251, g: 191, b: 36, a: 255 },   // amber
-    ColorU { r: 110, g: 231, b: 183, a: 255 },  // green
-    ColorU { r: 249, g: 168, b: 212, a: 255 },  // pink
-    ColorU { r: 253, g: 186, b: 116, a: 255 },  // orange
+    ColorU {
+        r: 99,
+        g: 179,
+        b: 237,
+        a: 255,
+    }, // blue
+    ColorU {
+        r: 129,
+        g: 230,
+        b: 217,
+        a: 255,
+    }, // teal
+    ColorU {
+        r: 183,
+        g: 148,
+        b: 244,
+        a: 255,
+    }, // purple
+    ColorU {
+        r: 252,
+        g: 165,
+        b: 165,
+        a: 255,
+    }, // red/coral
+    ColorU {
+        r: 251,
+        g: 191,
+        b: 36,
+        a: 255,
+    }, // amber
+    ColorU {
+        r: 110,
+        g: 231,
+        b: 183,
+        a: 255,
+    }, // green
+    ColorU {
+        r: 249,
+        g: 168,
+        b: 212,
+        a: 255,
+    }, // pink
+    ColorU {
+        r: 253,
+        g: 186,
+        b: 116,
+        a: 255,
+    }, // orange
 ];
 
 fn session_avatar_color() -> ColorU {
-    use std::sync::OnceLock;
     use rand::Rng;
+    use std::sync::OnceLock;
     static COLOR: OnceLock<ColorU> = OnceLock::new();
     *COLOR.get_or_init(|| {
         let idx = rand::thread_rng().gen_range(0..USER_AVATAR_PALETTE.len());

@@ -154,7 +154,11 @@ impl WarpifySuccessBlock {
             .finish()
     }
 
-    pub fn render_title_ui(&self, theme: &GalaxyTheme, appearance: &Appearance) -> Box<dyn Element> {
+    pub fn render_title_ui(
+        &self,
+        theme: &GalaxyTheme,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
         let header_contents = render::build_header_row(
             "Session Wormholed",
             Icon::new(UiIcon::Warp.into(), theme.active_ui_detail()),

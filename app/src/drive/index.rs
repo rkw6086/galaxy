@@ -4773,9 +4773,7 @@ impl DriveIndex {
             }
         }
 
-        if can_trash
-            && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash())
-        {
+        if can_trash && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash()) {
             menu_items.push(
                 MenuItemFields::new("Trash")
                     .with_on_select_action(DriveIndexAction::TrashObject {

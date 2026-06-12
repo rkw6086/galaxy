@@ -6,12 +6,14 @@ use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
-    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, HighlightedHyperlink,
-    Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
+    MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Radius, ScrollbarWidth, Shrinkable, Text,
 };
 use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
-use lsp::{CompletionItem, CompletionItemData, CompletionKind, CompletionResult, CompletionTrigger};
+use lsp::{
+    CompletionItem, CompletionItemData, CompletionKind, CompletionResult, CompletionTrigger,
+};
 use markdown_parser::FormattedText;
 use pathfinder_geometry::vector::Vector2F;
 use string_offset::CharOffset;
@@ -38,7 +40,9 @@ pub(super) struct ResolvedDocumentation {
 
 pub(super) enum CompletionState {
     Idle,
-    Requesting { abort_handle: AbortHandle },
+    Requesting {
+        abort_handle: AbortHandle,
+    },
     Showing {
         items: Vec<CompletionItemData>,
         filtered_indices: Vec<usize>,
@@ -281,16 +285,17 @@ impl LocalCodeEditorView {
             .as_ref(ctx)
             .offset_to_lsp_position(trigger_offset, ctx);
 
-        let future = match lsp_server
-            .as_ref(ctx)
-            .completion(file_path.to_path_buf(), lsp_position, trigger)
-        {
-            Ok(future) => future,
-            Err(e) => {
-                log::warn!("Failed to call lsp.completion: {e}");
-                return;
-            }
-        };
+        let future =
+            match lsp_server
+                .as_ref(ctx)
+                .completion(file_path.to_path_buf(), lsp_position, trigger)
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    log::warn!("Failed to call lsp.completion: {e}");
+                    return;
+                }
+            };
 
         self.completion_state.dismiss();
 
@@ -588,9 +593,7 @@ impl LocalCodeEditorView {
 
         let mut content_column = Flex::column();
 
-        for (display_idx, &item_idx) in
-            filtered_indices.iter().enumerate().take(visible_count)
-        {
+        for (display_idx, &item_idx) in filtered_indices.iter().enumerate().take(visible_count) {
             let item = &items[item_idx];
             let is_selected = display_idx == *selected_index;
             let mouse_state = item_mouse_states
@@ -602,9 +605,9 @@ impl LocalCodeEditorView {
             let hoverable_item = Hoverable::new(mouse_state, move |_| item_element)
                 .on_hover(move |is_hovered, ctx, _, _| {
                     if is_hovered {
-                        ctx.dispatch_typed_action(
-                            LocalCodeEditorAction::CompletionHoverItem(display_idx),
-                        );
+                        ctx.dispatch_typed_action(LocalCodeEditorAction::CompletionHoverItem(
+                            display_idx,
+                        ));
                     }
                 })
                 .on_click(move |ctx, _, _| {
@@ -677,15 +680,13 @@ impl LocalCodeEditorView {
             let row = Flex::row()
                 .with_cross_axis_alignment(CrossAxisAlignment::Start)
                 .with_child(menu_box)
-                .with_child(
-                    Container::new(docs_element)
-                        .with_padding_left(2.)
-                        .finish(),
-                )
+                .with_child(Container::new(docs_element).with_padding_left(2.).finish())
                 .finish();
-            Some(ConstrainedBox::new(row)
-                .with_max_height(COMPLETION_MENU_MAX_HEIGHT)
-                .finish())
+            Some(
+                ConstrainedBox::new(row)
+                    .with_max_height(COMPLETION_MENU_MAX_HEIGHT)
+                    .finish(),
+            )
         } else {
             Some(menu_box)
         }

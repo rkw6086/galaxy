@@ -206,6 +206,16 @@ impl RequestCommandOutputResult {
             Self::CancelledBeforeExecution | Self::LongRunningCommandSnapshot { .. } => false,
         }
     }
+
+    /// Returns a stable identity string for loop detection (command input only, no output).
+    pub fn loop_description(&self) -> String {
+        match self {
+            Self::Completed { command, .. }
+            | Self::LongRunningCommandSnapshot { command, .. }
+            | Self::Denylisted { command } => command.clone(),
+            Self::CancelledBeforeExecution => "cancelled".to_string(),
+        }
+    }
 }
 
 impl Display for RequestCommandOutputResult {
@@ -820,6 +830,88 @@ impl AIAgentActionResultType {
                 TransferShellCommandControlToUserResult::Error(_),
             ) => true,
             _ => false,
+        }
+    }
+
+    /// Stable identity for loop detection: tool type + input, no variable output.
+    pub fn loop_description(&self) -> String {
+        match self {
+            Self::RequestCommandOutput(r) => {
+                format!("run_shell_command: {}", r.loop_description())
+            }
+            Self::ReadFiles(ReadFilesResult::Success { files }) => {
+                format!(
+                    "read_files: [{}]",
+                    files
+                        .iter()
+                        .map(|f| f.file_name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Self::ReadFiles(ReadFilesResult::Error(error)) => {
+                format!("read_files: error={error}")
+            }
+            Self::ReadFiles(ReadFilesResult::Cancelled) => "read_files: cancelled".to_string(),
+            Self::RequestFileEdits(RequestFileEditsResult::Success {
+                updated_files,
+                deleted_files,
+                ..
+            }) => {
+                let mut names: Vec<&str> = updated_files
+                    .iter()
+                    .map(|f| f.file_context.file_name.as_str())
+                    .collect();
+                names.extend(deleted_files.iter().map(|s| s.as_str()));
+                format!("apply_file_diffs: [{}]", names.join(", "))
+            }
+            Self::RequestFileEdits(RequestFileEditsResult::DiffApplicationFailed { error }) => {
+                format!("apply_file_diffs: failed={error}")
+            }
+            Self::RequestFileEdits(RequestFileEditsResult::Cancelled) => {
+                "apply_file_diffs: cancelled".to_string()
+            }
+            Self::Grep(GrepResult::Success { matched_files }) => {
+                format!(
+                    "grep: [{}]",
+                    matched_files
+                        .iter()
+                        .map(|f| f.file_path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Self::Grep(GrepResult::Error(error)) => format!("grep: error={error}"),
+            Self::Grep(GrepResult::Cancelled) => "grep: cancelled".to_string(),
+            Self::FileGlobV2(FileGlobV2Result::Success { matched_files, .. }) => {
+                format!(
+                    "file_glob: [{}]",
+                    matched_files
+                        .iter()
+                        .map(|f| f.file_path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Self::FileGlobV2(FileGlobV2Result::Error(error)) => format!("file_glob: error={error}"),
+            Self::FileGlobV2(FileGlobV2Result::Cancelled) => "file_glob: cancelled".to_string(),
+            Self::SearchCodebase(SearchCodebaseResult::Success { files }) => {
+                format!(
+                    "search_codebase: [{}]",
+                    files
+                        .iter()
+                        .map(|f| f.file_name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+            Self::SearchCodebase(SearchCodebaseResult::Failed { reason, message }) => {
+                format!("search_codebase: failed={reason:?} {message}")
+            }
+            Self::SearchCodebase(SearchCodebaseResult::Cancelled) => {
+                "search_codebase: cancelled".to_string()
+            }
+            other => format!("{other}"),
         }
     }
 

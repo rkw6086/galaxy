@@ -72,7 +72,7 @@ fn execute_returns_error_when_child_startup_is_blocked_before_initialization() {
             assert_eq!(
                 executor
                     .pending
-                    .as_ref()
+                    .first()
                     .and_then(|pending| pending.child_conversation_id),
                 Some(child_conversation_id)
             );
@@ -102,7 +102,7 @@ fn execute_returns_error_when_child_startup_is_blocked_before_initialization() {
         ));
 
         executor.read(&app, |executor, _| {
-            assert!(executor.pending.is_none());
+            assert!(executor.pending.is_empty());
         });
     });
 }

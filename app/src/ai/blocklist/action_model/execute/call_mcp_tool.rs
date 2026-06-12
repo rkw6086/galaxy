@@ -141,12 +141,18 @@ impl CallMCPToolExecutor {
             };
 
             let Some(reconnecting_peer) = templatable_peer else {
-                log::error!("[tool-debug] CallMCPToolExecutor: MCP server for tool '{}' NOT FOUND", name_owned);
+                log::error!(
+                    "[tool-debug] CallMCPToolExecutor: MCP server for tool '{}' NOT FOUND",
+                    name_owned
+                );
                 return ActionExecution::Sync(AIAgentActionResultType::CallMCPTool(
                     CallMCPToolResult::Error("MCP server for tool not found".to_owned()),
                 ));
             };
-            log::info!("[tool-debug] CallMCPToolExecutor: found MCP server peer for tool '{}'", name_owned);
+            log::info!(
+                "[tool-debug] CallMCPToolExecutor: found MCP server peer for tool '{}'",
+                name_owned
+            );
 
             let name_owned_inner = name_owned.clone();
             ActionExecution::new_async(

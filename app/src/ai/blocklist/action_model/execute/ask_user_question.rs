@@ -55,7 +55,8 @@ impl AskUserQuestionExecutor {
 
         // For child agent conversations, route the question to the parent
         // for silent auto-answer instead of presenting UI to the user.
-        if let Some(parent_conversation_id) = self.parent_conversation_id(input.conversation_id, ctx)
+        if let Some(parent_conversation_id) =
+            self.parent_conversation_id(input.conversation_id, ctx)
         {
             let question_text = questions
                 .iter()
@@ -86,14 +87,12 @@ impl AskUserQuestionExecutor {
                 async move { receiver.recv().await },
                 |result, _ctx| match result {
                     Ok(AskUserQuestionDecision::Completed(answers)) => {
-                        AIAgentActionResultType::AskUserQuestion(
-                            AskUserQuestionResult::Success { answers },
-                        )
+                        AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Success {
+                            answers,
+                        })
                     }
                     Ok(AskUserQuestionDecision::Cancelled) | Err(_) => {
-                        AIAgentActionResultType::AskUserQuestion(
-                            AskUserQuestionResult::Cancelled,
-                        )
+                        AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Cancelled)
                     }
                 },
             );

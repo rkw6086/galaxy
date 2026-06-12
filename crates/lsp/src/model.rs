@@ -749,14 +749,20 @@ impl LspServerModel {
             CompletionTrigger::TriggerCharacter(ch) => {
                 (CompletionTriggerKind::TRIGGER_CHARACTER, Some(ch))
             }
-            CompletionTrigger::Incomplete => {
-                (CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS, None)
-            }
+            CompletionTrigger::Incomplete => (
+                CompletionTriggerKind::TRIGGER_FOR_INCOMPLETE_COMPLETIONS,
+                None,
+            ),
         };
         Ok(async move {
             service
                 .text_document()
-                .completion(&path, position.into_lsp(), Some(trigger_kind), trigger_character)
+                .completion(
+                    &path,
+                    position.into_lsp(),
+                    Some(trigger_kind),
+                    trigger_character,
+                )
                 .await
         })
     }

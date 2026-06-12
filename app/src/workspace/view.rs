@@ -233,7 +233,8 @@ use crate::drive::import::modal::{ImportModal, ImportModalEvent};
 use crate::drive::workflows::arguments::ArgumentsState;
 use crate::drive::workflows::modal::{WorkflowModal, WorkflowModalEvent};
 use crate::drive::{
-    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent, OpenGalaxyDriveObjectSettings,
+    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent,
+    OpenGalaxyDriveObjectSettings,
 };
 use crate::experiments::{BlockOnboarding, Experiment};
 use crate::menu::{
@@ -2467,19 +2468,22 @@ impl Workspace {
     /// `SettingsErrorsCleared` to update the workspace settings-error banner
     /// and mirror the state into the settings pane for its nav-rail footer.
     fn subscribe_to_settings_errors(ctx: &mut ViewContext<Self>) {
-        ctx.subscribe_to_model(&GalaxyConfig::handle(ctx), |me, _, event, ctx| match event {
-            GalaxyConfigUpdateEvent::SettingsErrors(error) => {
-                me.settings_file_error = Some(error.clone());
-                me.sync_settings_error_state_into_settings_pane(ctx);
-                ctx.notify();
-            }
-            GalaxyConfigUpdateEvent::SettingsErrorsCleared => {
-                me.settings_file_error = None;
-                me.sync_settings_error_state_into_settings_pane(ctx);
-                ctx.notify();
-            }
-            _ => {}
-        });
+        ctx.subscribe_to_model(
+            &GalaxyConfig::handle(ctx),
+            |me, _, event, ctx| match event {
+                GalaxyConfigUpdateEvent::SettingsErrors(error) => {
+                    me.settings_file_error = Some(error.clone());
+                    me.sync_settings_error_state_into_settings_pane(ctx);
+                    ctx.notify();
+                }
+                GalaxyConfigUpdateEvent::SettingsErrorsCleared => {
+                    me.settings_file_error = None;
+                    me.sync_settings_error_state_into_settings_pane(ctx);
+                    ctx.notify();
+                }
+                _ => {}
+            },
+        );
     }
 
     /// Pushes the current settings-file error + banner-dismissal state into
@@ -11657,7 +11661,7 @@ impl Workspace {
     fn handle_forked_conversation_prompts(
         terminal_view: ViewHandle<TerminalView>,
         summarize_after_fork: bool,
-        summarization_prompt: Option<String>,
+        _summarization_prompt: Option<String>,
         initial_prompt: Option<String>,
         forked_conversation_id: AIConversationId,
         ctx: &mut ViewContext<Self>,
@@ -11670,12 +11674,10 @@ impl Workspace {
             if summarize_after_fork {
                 terminal_view
                     .ai_controller()
-                    .update(terminal_view_ctx, |controller, ctx| {
-                        controller.send_slash_command_request(
-                            SlashCommandRequest::Summarize {
-                                prompt: summarization_prompt,
-                            },
-                            ctx,
+                    .update(terminal_view_ctx, |_controller, _ctx| {
+                        // /compact command has been removed; progressive summarization is now automatic
+                        log::info!(
+                            "Fork summarize request skipped; /compact is no longer supported"
                         );
                     });
 
@@ -11758,7 +11760,7 @@ impl Workspace {
 
     fn summarize_active_ai_conversation(
         &mut self,
-        prompt: Option<String>,
+        _prompt: Option<String>,
         initial_prompt: Option<String>,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -11771,9 +11773,11 @@ impl Workspace {
         };
 
         terminal_view.update(ctx, |terminal, ctx| {
-            terminal.ai_controller().update(ctx, |controller, ctx| {
-                controller
-                    .send_slash_command_request(SlashCommandRequest::Summarize { prompt }, ctx);
+            terminal.ai_controller().update(ctx, |_controller, _ctx| {
+                // /compact command has been removed; progressive summarization is now automatic
+                log::info!(
+                    "summarize_active_ai_conversation skipped; /compact is no longer supported"
+                );
             });
 
             if let Some(prompt) = initial_prompt {

@@ -14,11 +14,11 @@ use super::{
 };
 use watcher::{BulkFilesystemWatcherEvent, HomeDirectoryWatcher, HomeDirectoryWatcherEvent};
 
-use crate::server::datetime_ext::DateTimeExt;
 use crate::galaxy_managed_paths_watcher::{
     filter_repository_update_by_prefix, galaxy_managed_skill_dirs, GalaxyManagedPathsWatcher,
     GalaxyManagedPathsWatcherEvent,
 };
+use crate::server::datetime_ext::DateTimeExt;
 use ai::skills::{
     home_skills_path, parse_skill, ParsedSkill, SkillProvider, SKILL_PROVIDER_DEFINITIONS,
 };

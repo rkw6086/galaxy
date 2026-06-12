@@ -5,7 +5,7 @@ description = "Galaxy - AI-powered terminal"
 edition = "2021"
 autobins = false
 name = "galaxy"
-version = "1.6.2"
+version = "1.6.3"
 publish.workspace = true
 license.workspace = true
 
@@ -123,6 +123,7 @@ lsp-types = "0.97.0"
 indexmap = { version = "2.0.2", features = ["serde"] }
 input_classifier.workspace = true
 instant.workspace = true
+local_inference = { workspace = true, optional = true }
 ipc.workspace = true
 itertools.workspace = true
 kmeans_colors = { version = "0.5", default-features = false, features = [
@@ -613,6 +614,7 @@ default = [
     "drag_tabs_to_windows",
     "plugin_host",
     "file_and_diff_set_comments",
+    "local_ai",
 ]
 # Enable this feature to automatically perform heap profiling.  NOTE: This will
 # substantially slow down program execution.
@@ -832,6 +834,8 @@ projects = []
 vim_code_editor = []
 allow_opening_file_links_using_editor_env = []
 nld_improvements = ["nld_onnx_model"]
+local_ai = ["dep:local_inference"]
+local_ai_metal = ["local_ai", "local_inference/metal"]
 undo_closed_panes = []
 revert_diff_hunk = []
 code_review_save_changes = []

@@ -408,12 +408,10 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                 timestamp: None,
                 server_message_data: String::new(),
                 citations: vec![],
-                message: Some(api::message::Message::UserQuery(
-                    api::message::UserQuery {
-                        query: prompt,
-                        ..Default::default()
-                    },
-                )),
+                message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+                    query: prompt,
+                    ..Default::default()
+                })),
             });
         }
         _ => {}
@@ -440,8 +438,13 @@ pub fn sanitize_messages_for_bedrock(messages: &mut Vec<ConversationMessage>) {
 /// If the last message is an assistant message (e.g. after compaction),
 /// append a continuation prompt.
 fn ensure_ends_with_user_message(messages: &mut Vec<ConversationMessage>) {
-    if messages.last().is_some_and(|m| m.role == MessageRole::Assistant) {
-        log::info!("[bedrock] Appending continuation prompt (conversation ended with assistant message)");
+    if messages
+        .last()
+        .is_some_and(|m| m.role == MessageRole::Assistant)
+    {
+        log::info!(
+            "[bedrock] Appending continuation prompt (conversation ended with assistant message)"
+        );
         messages.push(ConversationMessage {
             role: MessageRole::User,
             content: MessageContent::Text("Continue.".to_string()),
@@ -514,12 +517,24 @@ fn strip_tool_result_parts(content: &mut MessageContent) {
             let part = parts.remove(0);
             *content = match part {
                 ContentPart::Text(t) => MessageContent::Text(t),
-                ContentPart::ToolUse { tool_use_id, name, input } => {
-                    MessageContent::ToolUse { tool_use_id, name, input }
-                }
-                ContentPart::ToolResult { tool_use_id, content: c, is_error } => {
-                    MessageContent::ToolResult { tool_use_id, content: c, is_error }
-                }
+                ContentPart::ToolUse {
+                    tool_use_id,
+                    name,
+                    input,
+                } => MessageContent::ToolUse {
+                    tool_use_id,
+                    name,
+                    input,
+                },
+                ContentPart::ToolResult {
+                    tool_use_id,
+                    content: c,
+                    is_error,
+                } => MessageContent::ToolResult {
+                    tool_use_id,
+                    content: c,
+                    is_error,
+                },
             };
         }
     }
@@ -544,12 +559,24 @@ fn strip_orphaned_tool_result_parts(
                 let part = parts.remove(0);
                 *content = match part {
                     ContentPart::Text(t) => MessageContent::Text(t),
-                    ContentPart::ToolUse { tool_use_id, name, input } => {
-                        MessageContent::ToolUse { tool_use_id, name, input }
-                    }
-                    ContentPart::ToolResult { tool_use_id, content: c, is_error } => {
-                        MessageContent::ToolResult { tool_use_id, content: c, is_error }
-                    }
+                    ContentPart::ToolUse {
+                        tool_use_id,
+                        name,
+                        input,
+                    } => MessageContent::ToolUse {
+                        tool_use_id,
+                        name,
+                        input,
+                    },
+                    ContentPart::ToolResult {
+                        tool_use_id,
+                        content: c,
+                        is_error,
+                    } => MessageContent::ToolResult {
+                        tool_use_id,
+                        content: c,
+                        is_error,
+                    },
                 };
             }
         }
@@ -565,7 +592,10 @@ fn is_empty_content(content: &MessageContent) -> bool {
     }
 }
 
-fn collect_tool_use_ids_into(content: &MessageContent, ids: &mut std::collections::HashSet<String>) {
+fn collect_tool_use_ids_into(
+    content: &MessageContent,
+    ids: &mut std::collections::HashSet<String>,
+) {
     match content {
         MessageContent::ToolUse { tool_use_id, .. } => {
             ids.insert(tool_use_id.clone());
@@ -895,7 +925,9 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
     prompt.push_str("- For tasks that require interacting with external services, web UIs, or capabilities not covered by your filesystem and shell tools, use your MCP tools.\n");
     prompt.push_str("- For complex multi-step tasks where a single script would replace many tool calls, write code (Python, Node, bash) via `run_shell_command` to reduce round-trips. But never use scripts for simple operations that a single command handles.\n\n");
     prompt.push_str("**Critical rules:**\n");
-    prompt.push_str("- Use ONLY the tools in your tool configuration. Never invent or guess tool names.\n");
+    prompt.push_str(
+        "- Use ONLY the tools in your tool configuration. Never invent or guess tool names.\n",
+    );
     prompt.push_str("- ALWAYS pass `--no-pager` (or equivalent) flags to CLI tools like git, less, man, etc. Tools that lock stdin will freeze the session.\n");
     prompt.push_str("- Output text directly in your response instead of using `echo` — echo requires user approval and adds unnecessary friction.\n");
     prompt.push_str("- Use absolute paths based on the working directory shown above.\n");
@@ -1442,6 +1474,7 @@ fn is_server_result_error(text: &str) -> bool {
         || lower.starts_with("mcp tool error:")
         || lower.starts_with("search codebase error:")
         || lower.starts_with("failed to read files")
+        || lower.starts_with("user cancelled")
         || (lower.starts_with("exit code:") && !lower.starts_with("exit code: 0"))
 }
 
@@ -1532,7 +1565,6 @@ fn extract_tool_call_info(tool_call: &api::message::ToolCall) -> (String, serde_
 fn convert_proto_message_for_test(msg: &api::Message) -> Option<ConversationMessage> {
     convert_proto_message(msg)
 }
-
 
 #[cfg(test)]
 #[path = "request_translator_tests.rs"]

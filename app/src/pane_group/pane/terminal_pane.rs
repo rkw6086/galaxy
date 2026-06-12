@@ -418,9 +418,7 @@ impl PaneContent for TerminalPane {
             if ambient_model.is_ambient_agent() {
                 let task_id = ambient_model.task_id();
 
-                log::info!(
-                    "[session-save] pane=viewer/ambient task_id={task_id:?}"
-                );
+                log::info!("[session-save] pane=viewer/ambient task_id={task_id:?}");
                 return LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
                     uuid: self.uuid.clone(),
                     task_id,
@@ -428,9 +426,7 @@ impl PaneContent for TerminalPane {
             }
 
             let cwd = view.pwd_if_local(app);
-            log::info!(
-                "[session-save] pane=viewer cwd={cwd:?} is_active={is_active}"
-            );
+            log::info!("[session-save] pane=viewer cwd={cwd:?} is_active={is_active}");
             LeafContents::Terminal(TerminalPaneSnapshot {
                 uuid: self.uuid.clone(),
                 cwd,
@@ -448,18 +444,14 @@ impl PaneContent for TerminalPane {
             // can be restored via the ambient agent task if one exists.
             let task_id = view.model.lock().ambient_agent_task_id();
             if task_id.is_some() {
-                log::info!(
-                    "[session-save] pane=transcript/ambient task_id={task_id:?}"
-                );
+                log::info!("[session-save] pane=transcript/ambient task_id={task_id:?}");
                 LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
                     uuid: self.uuid.clone(),
                     task_id,
                 })
             } else {
                 let cwd = view.pwd_if_local(app);
-                log::info!(
-                    "[session-save] pane=transcript cwd={cwd:?} is_active={is_active}"
-                );
+                log::info!("[session-save] pane=transcript cwd={cwd:?} is_active={is_active}");
                 LeafContents::Terminal(TerminalPaneSnapshot {
                     uuid: self.uuid.clone(),
                     cwd,

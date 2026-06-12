@@ -46,7 +46,11 @@ impl DataSource {
         Self { searcher }
     }
 
-    fn handle_config_event(&mut self, event: &GalaxyConfigUpdateEvent, ctx: &mut ModelContext<Self>) {
+    fn handle_config_event(
+        &mut self,
+        event: &GalaxyConfigUpdateEvent,
+        ctx: &mut ModelContext<Self>,
+    ) {
         if matches!(event, GalaxyConfigUpdateEvent::LaunchConfigs) {
             self.searcher.refresh_search_index(ctx);
         }

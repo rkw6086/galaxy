@@ -50,10 +50,7 @@ impl LocalCodeEditorView {
     }
 
     /// Check if a trigger character was typed and request signature help.
-    pub(super) fn on_content_changed_for_signature_help(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    pub(super) fn on_content_changed_for_signature_help(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_signature_help_enabled() {
             return;
         }
@@ -85,11 +82,7 @@ impl LocalCodeEditorView {
         }
     }
 
-    fn request_signature_help(
-        &mut self,
-        trigger_offset: CharOffset,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn request_signature_help(&mut self, trigger_offset: CharOffset, ctx: &mut ViewContext<Self>) {
         let Some(file_path) = self.file_path() else {
             return;
         };
@@ -187,10 +180,7 @@ impl LocalCodeEditorView {
     }
 
     /// Position the signature help tooltip above the cursor.
-    pub(super) fn signature_help_positioning(
-        &self,
-        app: &AppContext,
-    ) -> Option<OffsetPositioning> {
+    pub(super) fn signature_help_positioning(&self, app: &AppContext) -> Option<OffsetPositioning> {
         let anchor_offset = match &self.signature_help_state {
             SignatureHelpState::Showing { anchor_offset, .. } => *anchor_offset,
             _ => return None,

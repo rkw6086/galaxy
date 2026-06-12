@@ -1,8 +1,10 @@
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::elements::shimmering_text::{ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle};
+use galaxyui::elements::shimmering_text::{
+    ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle,
+};
 use galaxyui::elements::{
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Flex,
-    MainAxisAlignment, ParentElement, Radius, Shrinkable, Text,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Flex, MainAxisAlignment,
+    ParentElement, Radius, Shrinkable, Text,
 };
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext};
@@ -73,20 +75,14 @@ impl SummarizationView {
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
         // Clock loader icon (magenta, matches InProgress convention)
-        let icon_element = galaxyui::elements::Icon::new(
-            Icon::ClockLoader.into(),
-            theme.ansi_fg_magenta(),
-        )
-        .finish();
+        let icon_element =
+            galaxyui::elements::Icon::new(Icon::ClockLoader.into(), theme.ansi_fg_magenta())
+                .finish();
         let icon_box = ConstrainedBox::new(icon_element)
             .with_width(icon_size(app))
             .with_height(icon_size(app))
             .finish();
-        header_row.add_child(
-            Container::new(icon_box)
-                .with_margin_right(8.)
-                .finish(),
-        );
+        header_row.add_child(Container::new(icon_box).with_margin_right(8.).finish());
 
         // Shimmering "Summarizing conversation..." text
         let base_color = theme.disabled_text_color(header_background).into_solid();
@@ -133,20 +129,13 @@ impl SummarizationView {
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
         // Checkmark-style icon for completed
-        let icon_element = galaxyui::elements::Icon::new(
-            Icon::Check.into(),
-            theme.ansi_fg_green(),
-        )
-        .finish();
+        let icon_element =
+            galaxyui::elements::Icon::new(Icon::Check.into(), theme.ansi_fg_green()).finish();
         let icon_box = ConstrainedBox::new(icon_element)
             .with_width(icon_size(app))
             .with_height(icon_size(app))
             .finish();
-        header_row.add_child(
-            Container::new(icon_box)
-                .with_margin_right(8.)
-                .finish(),
-        );
+        header_row.add_child(Container::new(icon_box).with_margin_right(8.).finish());
 
         let elapsed = self.start_time.elapsed();
         let elapsed_text = format_elapsed(elapsed);

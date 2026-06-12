@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod prompt_builder_tests {
-    use super::*;
+    use crate::ai::prompt_builder::*;
 
     #[test]
     fn test_code_mode_builds_successfully() {
@@ -87,7 +87,10 @@ mod prompt_builder_tests {
             .with_mcp_tools(vec![mcp_tool.clone()])
             .build();
 
-        assert!(prompt.tools.iter().any(|t| t.name == "mcp__github__create_pr"));
+        assert!(prompt
+            .tools
+            .iter()
+            .any(|t| t.name == "mcp__github__create_pr"));
     }
 
     #[test]

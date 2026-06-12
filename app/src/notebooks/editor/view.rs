@@ -3089,15 +3089,21 @@ impl TypedActionView for RichTextEditorView {
             EditorViewAction::CutLineLeft => ActionAccessibilityContent::Custom(
                 AccessibilityContent::new_without_help("Cut line left", GalaxyA11yRole::UserAction),
             ),
-            EditorViewAction::CutLineRight => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut line right", GalaxyA11yRole::UserAction),
-            ),
+            EditorViewAction::CutLineRight => {
+                ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
+                    "Cut line right",
+                    GalaxyA11yRole::UserAction,
+                ))
+            }
             EditorViewAction::CutWordLeft => ActionAccessibilityContent::Custom(
                 AccessibilityContent::new_without_help("Cut word left", GalaxyA11yRole::UserAction),
             ),
-            EditorViewAction::CutWordRight => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Cut word right", GalaxyA11yRole::UserAction),
-            ),
+            EditorViewAction::CutWordRight => {
+                ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
+                    "Cut word right",
+                    GalaxyA11yRole::UserAction,
+                ))
+            }
 
             EditorViewAction::ShowCharacterPalette => {
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
@@ -3159,9 +3165,12 @@ impl TypedActionView for RichTextEditorView {
                 format!("Change code block language to {code_block_type}"),
                 GalaxyA11yRole::UserAction,
             )),
-            EditorViewAction::CopyTextToClipboard { .. } => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help("Copy code block", GalaxyA11yRole::UserAction),
-            ),
+            EditorViewAction::CopyTextToClipboard { .. } => {
+                ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
+                    "Copy code block",
+                    GalaxyA11yRole::UserAction,
+                ))
+            }
             EditorViewAction::ToggleTaskList(_) => {
                 // TODO(ben): Is it useful to include the text and/or on/off state here?
                 ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(

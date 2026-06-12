@@ -12,12 +12,16 @@ use super::local_code_editor::LocalCodeEditorView;
 
 pub(super) enum RenameState {
     Idle,
-    Preparing { abort_handle: AbortHandle },
+    Preparing {
+        abort_handle: AbortHandle,
+    },
     InputActive {
         editor: ViewHandle<EditorView>,
         anchor_offset: CharOffset,
     },
-    Applying { abort_handle: AbortHandle },
+    Applying {
+        abort_handle: AbortHandle,
+    },
 }
 
 impl Default for RenameState {
@@ -141,17 +145,11 @@ impl LocalCodeEditorView {
         ctx.notify();
     }
 
-    fn handle_rename_editor_event(
-        &mut self,
-        event: &EditorEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
+    fn handle_rename_editor_event(&mut self, event: &EditorEvent, ctx: &mut ViewContext<Self>) {
         match event {
             EditorEvent::Enter => {
                 let new_name = match &self.rename_state {
-                    RenameState::InputActive { editor, .. } => {
-                        editor.as_ref(ctx).buffer_text(ctx)
-                    }
+                    RenameState::InputActive { editor, .. } => editor.as_ref(ctx).buffer_text(ctx),
                     _ => return,
                 };
                 self.confirm_rename(new_name, ctx);
@@ -191,19 +189,20 @@ impl LocalCodeEditorView {
             .as_ref(ctx)
             .offset_to_lsp_position(anchor_offset, ctx);
 
-        let future = match lsp_server
-            .as_ref(ctx)
-            .rename(file_path.to_path_buf(), lsp_position, new_name)
-        {
-            Ok(future) => future,
-            Err(e) => {
-                log::warn!("Failed to call lsp.rename: {e}");
-                self.rename_state = RenameState::Idle;
-                ctx.focus(self.editor());
-                ctx.notify();
-                return;
-            }
-        };
+        let future =
+            match lsp_server
+                .as_ref(ctx)
+                .rename(file_path.to_path_buf(), lsp_position, new_name)
+            {
+                Ok(future) => future,
+                Err(e) => {
+                    log::warn!("Failed to call lsp.rename: {e}");
+                    self.rename_state = RenameState::Idle;
+                    ctx.focus(self.editor());
+                    ctx.notify();
+                    return;
+                }
+            };
 
         let abort_handle = ctx
             .spawn(future, move |me, result, ctx| {

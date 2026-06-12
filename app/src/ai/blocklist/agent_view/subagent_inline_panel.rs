@@ -60,10 +60,7 @@ pub fn render_subagent_inline_panel(
     };
 
     let status = conversation.status().clone();
-    let agent_name = conversation
-        .agent_name()
-        .unwrap_or("Subagent")
-        .to_string();
+    let agent_name = conversation.agent_name().unwrap_or("Subagent").to_string();
 
     let panel_bg = blended_colors::neutral_2(theme);
 
@@ -76,13 +73,7 @@ pub fn render_subagent_inline_panel(
     let header_expanded = state.is_expanded;
     column.add_child(
         Hoverable::new(header_mouse_state, move |_mouse_state| {
-            render_panel_header(
-                &agent_name,
-                &header_status,
-                header_expanded,
-                panel_bg,
-                app,
-            )
+            render_panel_header(&agent_name, &header_status, header_expanded, panel_bg, app)
         })
         .on_click(move |ctx, _, _| {
             ctx.dispatch_typed_action(AIBlockAction::ToggleSubagentPanel {
@@ -137,12 +128,11 @@ fn render_panel_header(
     let mut left_side = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
 
     let (icon, icon_color) = status.status_icon_and_color(theme);
-    let status_icon_element = ConstrainedBox::new(
-        galaxyui::elements::Icon::new(icon.into(), icon_color).finish(),
-    )
-    .with_width(icon_size(app))
-    .with_height(icon_size(app))
-    .finish();
+    let status_icon_element =
+        ConstrainedBox::new(galaxyui::elements::Icon::new(icon.into(), icon_color).finish())
+            .with_width(icon_size(app))
+            .with_height(icon_size(app))
+            .finish();
 
     left_side.add_child(
         Container::new(status_icon_element)
@@ -192,11 +182,7 @@ fn render_panel_header(
     .with_width(icon_size(app))
     .with_height(icon_size(app))
     .finish();
-    right_side.add_child(
-        Container::new(chevron)
-            .with_margin_right(4.)
-            .finish(),
-    );
+    right_side.add_child(Container::new(chevron).with_margin_right(4.).finish());
 
     header_row.add_child(right_side.finish());
 
@@ -208,10 +194,7 @@ fn render_panel_header(
         .finish()
 }
 
-fn collect_mini_transcript(
-    conversation_id: &AIConversationId,
-    app: &AppContext,
-) -> Vec<String> {
+fn collect_mini_transcript(conversation_id: &AIConversationId, app: &AppContext) -> Vec<String> {
     let history_model = BlocklistAIHistoryModel::as_ref(app);
     let Some(conversation) = history_model.conversation(conversation_id) else {
         return vec![];
@@ -290,10 +273,7 @@ fn render_mini_transcript(
     .finish()
 }
 
-fn get_completion_summary(
-    conversation_id: &AIConversationId,
-    app: &AppContext,
-) -> Option<String> {
+fn get_completion_summary(conversation_id: &AIConversationId, app: &AppContext) -> Option<String> {
     let history_model = BlocklistAIHistoryModel::as_ref(app);
     let conversation = history_model.conversation(conversation_id)?;
 
@@ -317,11 +297,7 @@ fn get_completion_summary(
     None
 }
 
-fn render_summary_footer(
-    summary: &str,
-    _background: ColorU,
-    app: &AppContext,
-) -> Box<dyn Element> {
+fn render_summary_footer(summary: &str, _background: ColorU, app: &AppContext) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let surface = theme.surface_2();

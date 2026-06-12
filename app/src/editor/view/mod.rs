@@ -8367,9 +8367,12 @@ impl TypedActionView for EditorView {
         ctx: &mut ViewContext<Self>,
     ) -> ActionAccessibilityContent {
         match action {
-            EditorAction::UserInsert(text) => ActionAccessibilityContent::Custom(
-                AccessibilityContent::new_without_help(text.to_string(), GalaxyA11yRole::UserAction),
-            ),
+            EditorAction::UserInsert(text) => {
+                ActionAccessibilityContent::Custom(AccessibilityContent::new_without_help(
+                    text.to_string(),
+                    GalaxyA11yRole::UserAction,
+                ))
+            }
             EditorAction::SelectLeft
             | EditorAction::SelectToLineEnd
             | EditorAction::SelectLine(_)

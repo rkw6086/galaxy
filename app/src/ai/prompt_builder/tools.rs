@@ -218,7 +218,8 @@ fn read_mcp_resource() -> ToolDefinition {
 fn read_documents() -> ToolDefinition {
     ToolDefinition {
         name: "read_documents".to_string(),
-        description: "Read the contents of one or more Galaxy notebook documents by their IDs.".to_string(),
+        description: "Read the contents of one or more Galaxy notebook documents by their IDs."
+            .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -232,7 +233,8 @@ fn read_documents() -> ToolDefinition {
 fn create_documents() -> ToolDefinition {
     ToolDefinition {
         name: "create_documents".to_string(),
-        description: "Create new Galaxy notebook documents with the specified title and content.".to_string(),
+        description: "Create new Galaxy notebook documents with the specified title and content."
+            .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -246,7 +248,8 @@ fn create_documents() -> ToolDefinition {
 fn edit_documents() -> ToolDefinition {
     ToolDefinition {
         name: "edit_documents".to_string(),
-        description: "Edit existing Galaxy notebook documents using search/replace diffs.".to_string(),
+        description: "Edit existing Galaxy notebook documents using search/replace diffs."
+            .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -305,7 +308,9 @@ fn ask_user_question() -> ToolDefinition {
 fn read_skill() -> ToolDefinition {
     ToolDefinition {
         name: "read_skill".to_string(),
-        description: "Read a skill definition to understand available capabilities and how to use them.".to_string(),
+        description:
+            "Read a skill definition to understand available capabilities and how to use them."
+                .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {

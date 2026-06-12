@@ -13,8 +13,8 @@ use crate::{
         templatable_installation::TemplatableMCPServerInstallation,
         ParsedTemplatableMCPServerResult,
     },
-    settings::{ai::AISettings, AISettingsChangedEvent},
     galaxy_managed_paths_watcher::galaxy_data_dir,
+    settings::{ai::AISettings, AISettingsChangedEvent},
 };
 
 /// Singleton model to manage file-based MCP servers.

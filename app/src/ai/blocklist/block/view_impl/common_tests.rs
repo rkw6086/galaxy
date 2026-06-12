@@ -11,9 +11,8 @@ use super::{blocklist_image_asset_source, ResolvedBlocklistImageSources};
 use super::{
     collect_visual_markdown_lightbox_collection, compute_visual_section_width,
     format_elapsed_compact, inline_image_source_label, lightbox_trigger_for_section,
-    query_prefix_highlight_len, render_scrollable_collapsible_content,
-    text_sections_with_indices, CollapsibleElementState, CollapsibleExpansionState,
-    VisualMarkdownLightboxCollection,
+    query_prefix_highlight_len, render_scrollable_collapsible_content, text_sections_with_indices,
+    CollapsibleElementState, CollapsibleExpansionState, VisualMarkdownLightboxCollection,
 };
 use crate::{
     ai::agent::{
@@ -308,7 +307,10 @@ fn format_elapsed_compact_shows_minutes_under_120_minutes() {
     assert_eq!(format_elapsed_compact(Duration::from_secs(90)), "1m");
     assert_eq!(format_elapsed_compact(Duration::from_secs(120)), "2m");
     assert_eq!(format_elapsed_compact(Duration::from_secs(45 * 60)), "45m");
-    assert_eq!(format_elapsed_compact(Duration::from_secs(119 * 60 + 59)), "119m");
+    assert_eq!(
+        format_elapsed_compact(Duration::from_secs(119 * 60 + 59)),
+        "119m"
+    );
 }
 
 #[test]

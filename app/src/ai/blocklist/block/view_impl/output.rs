@@ -85,8 +85,8 @@ use crate::{
                 },
                 requested_command::RequestedCommand,
                 search_codebase::SearchCodebaseView,
-                summarization::SummarizationView,
                 suggested_unit_tests::SuggestedUnitTestsView,
+                summarization::SummarizationView,
                 web_fetch::WebFetchView,
                 web_search::WebSearchView,
             },
@@ -127,8 +127,8 @@ use super::{
 use galaxyui::{
     elements::{
         Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        Expanded, Fill, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
-        MainAxisSize, ParentElement, Radius, Shrinkable, Text, Wrap,
+        Expanded, Fill, Flex, FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize,
+        ParentElement, Radius, Shrinkable, Text, Wrap,
     },
     keymap::Keystroke,
     platform::{Cursor, OperatingSystem},
@@ -217,9 +217,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
         .iter()
         .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }));
     if is_summarize_input {
-        let key = crate::ai::agent::MessageId::new(
-            "__summarization_inline_view__".to_string(),
-        );
+        let key = crate::ai::agent::MessageId::new("__summarization_inline_view__".to_string());
         if let Some(summarization_view) = props.summarization_views.get(&key) {
             output_items.add_child(ChildView::new(summarization_view).finish());
         }
@@ -827,8 +825,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             if let Some(summarization_view) =
                                 props.summarization_views.get(&output_message.id)
                             {
-                                output_items
-                                    .add_child(ChildView::new(summarization_view).finish());
+                                output_items.add_child(ChildView::new(summarization_view).finish());
                             } else if !are_all_text_sections_empty(&text.sections) {
                                 let header_text = "Conversation summarized".to_string();
                                 if let Some(element) = render_collapsible_block(
@@ -3178,7 +3175,6 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
         flex.add_child(fork_button);
     }
 
-
     // Review changes button.
     if props.has_accepted_edits && !props.shared_session_status.is_viewer() {
         // Only show Review Changes button if we're in a git repository
@@ -3208,7 +3204,6 @@ fn render_response_footer(props: Props, app: &AppContext) -> Option<Box<dyn Elem
 
     Some(flex.finish().with_content_item_spacing().finish())
 }
-
 
 pub fn action_icon<V: View>(
     action_id: &AIAgentActionId,

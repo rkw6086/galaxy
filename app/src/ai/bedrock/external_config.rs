@@ -22,12 +22,8 @@ impl ExternalBedrockConfig {
 
         // Claude Code takes priority over OpenCode since it has richer model mappings
         Self {
-            profile: claude_config
-                .profile
-                .or(opencode_config.profile),
-            region: claude_config
-                .region
-                .or(opencode_config.region),
+            profile: claude_config.profile.or(opencode_config.profile),
+            region: claude_config.region.or(opencode_config.region),
             models: if claude_config.models.is_empty() {
                 opencode_config.models
             } else {
@@ -73,10 +69,12 @@ fn parse_claude_code_config(path: PathBuf) -> ExternalBedrockConfig {
 
     let env = match json.get("env").and_then(|v| v.as_object()) {
         Some(e) => e,
-        None => return ExternalBedrockConfig {
-            auth_refresh_command,
-            ..Default::default()
-        },
+        None => {
+            return ExternalBedrockConfig {
+                auth_refresh_command,
+                ..Default::default()
+            }
+        }
     };
 
     let profile = env
@@ -146,6 +144,7 @@ fn parse_claude_code_model_map(
                 model_id: arn,
                 display_name,
                 vision_supported: true,
+                context_size: 200_000,
             }
         })
         .collect()
@@ -175,10 +174,7 @@ fn derive_display_name(model_id: &str) -> String {
 
 fn prettify_model_slug(slug: &str) -> String {
     // Remove version suffixes like "-v1:0", "-v1", "-v2:0"
-    let slug = slug
-        .split("-v")
-        .next()
-        .unwrap_or(slug);
+    let slug = slug.split("-v").next().unwrap_or(slug);
 
     // Remove date suffixes like "-20250514" or "-20251001"
     let parts: Vec<&str> = slug.split('-').collect();
@@ -272,6 +268,53 @@ fn parse_opencode_config(path: PathBuf) -> ExternalBedrockConfig {
         enable_prompt_caching_1h: false,
         anthropic_model: None,
         anthropic_small_fast_model: None,
+    }
+}
+
+pub fn list_aws_profiles() -> Vec<String> {
+    use std::collections::BTreeSet;
+
+    let mut profiles = BTreeSet::new();
+
+    if let Some(home) = dirs::home_dir() {
+        parse_aws_config_file(home.join(".aws").join("config"), &mut profiles);
+        parse_aws_credentials_file(home.join(".aws").join("credentials"), &mut profiles);
+    }
+
+    profiles.into_iter().collect()
+}
+
+fn parse_aws_config_file(path: PathBuf, profiles: &mut std::collections::BTreeSet<String>) {
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let section = &trimmed[1..trimmed.len() - 1];
+            if section == "default" {
+                profiles.insert("default".to_string());
+            } else if let Some(name) = section.strip_prefix("profile ") {
+                profiles.insert(name.trim().to_string());
+            }
+        }
+    }
+}
+
+fn parse_aws_credentials_file(path: PathBuf, profiles: &mut std::collections::BTreeSet<String>) {
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            let name = &trimmed[1..trimmed.len() - 1];
+            profiles.insert(name.trim().to_string());
+        }
     }
 }
 

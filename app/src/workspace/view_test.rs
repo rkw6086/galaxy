@@ -64,11 +64,11 @@ use crate::ai::mcp::{
     gallery::MCPGalleryManager, templatable_manager::TemplatableMCPServerManager,
     FileBasedMCPManager, FileMCPWatcher,
 };
+use crate::galaxy_managed_paths_watcher::GalaxyManagedPathsWatcher;
 use crate::resource_center::Tip;
 use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseSettings;
-use crate::galaxy_managed_paths_watcher::GalaxyManagedPathsWatcher;
 use crate::workflows::local_workflows::LocalWorkflows;
 use crate::{experiments, workspace, GlobalResourceHandlesProvider};
 use crate::{AgentNotificationsModel, ObjectActions};

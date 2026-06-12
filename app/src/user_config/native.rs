@@ -9,13 +9,13 @@ use itertools::Itertools;
 use repo_metadata::RepositoryUpdate;
 
 use crate::features::FeatureFlag;
-use crate::launch_configs::launch_config::LaunchConfig;
-use crate::tab_configs::{TabConfig, TabConfigError};
-use crate::themes::theme::GalaxyThemeConfig;
 use crate::galaxy_managed_paths_watcher::{
     repository_update_touches_path, repository_update_touches_prefix, GalaxyManagedPathsWatcher,
     GalaxyManagedPathsWatcherEvent,
 };
+use crate::launch_configs::launch_config::LaunchConfig;
+use crate::tab_configs::{TabConfig, TabConfigError};
+use crate::themes::theme::GalaxyThemeConfig;
 use crate::workflows::workflow::Workflow;
 
 use super::util::{

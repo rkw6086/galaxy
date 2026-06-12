@@ -3,9 +3,7 @@ use crate::ai::bedrock::external_config::ExternalBedrockConfig;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use galaxyui::{
-    elements::{
-        Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text,
-    },
+    elements::{Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
 

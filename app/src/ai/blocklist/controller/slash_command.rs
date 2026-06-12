@@ -11,7 +11,6 @@ use crate::{
         },
         blocklist::agent_view::AgentViewEntryOrigin,
     },
-    search::slash_command_menu::static_commands::commands,
     terminal::input::slash_commands::SlashCommandTrigger,
     BlocklistAIHistoryModel,
 };
@@ -33,9 +32,6 @@ pub enum SlashCommandRequest {
         repos: Vec<String>,
         use_current_dir: bool,
     },
-    Summarize {
-        prompt: Option<String>,
-    },
     FetchReviewComments {
         repo_path: String,
     },
@@ -53,13 +49,6 @@ impl SlashCommandRequest {
         // Check if this is an exact /init query and route it to InitProjectRules instead
         if query == "/init" {
             return Some(Self::InitProjectRules);
-        }
-
-        // Check if query starts with /compact and route to summarize conversation
-        if let Some(prompt) = query.strip_prefix(commands::COMPACT.name) {
-            return Some(Self::Summarize {
-                prompt: prompt.strip_prefix(' ').map(String::from),
-            });
         }
 
         None
@@ -85,7 +74,6 @@ impl SlashCommandRequest {
             ctx,
         );
         let entrypoint = self.entrypoint();
-        let is_summarize = matches!(self, Self::Summarize { .. });
         let inputs = self.input(context, controller.context_model.as_ref(ctx), ctx);
         if inputs.is_empty() {
             return;
@@ -155,14 +143,12 @@ impl SlashCommandRequest {
                     });
                 }
                 // Emit SentRequest event to trigger buffer clearing
-                if is_summarize {
-                    ctx.emit(BlocklistAIControllerEvent::SentRequest {
-                        contains_user_query: true,
-                        is_queued_prompt,
-                        model_id,
-                        stream_id,
-                    });
-                }
+                ctx.emit(BlocklistAIControllerEvent::SentRequest {
+                    contains_user_query: true,
+                    is_queued_prompt,
+                    model_id,
+                    stream_id,
+                });
             }
             Err(e) => log::error!("Failed to send agent slash command request: {e:?}"),
         }
@@ -174,8 +160,7 @@ impl SlashCommandRequest {
         app: &AppContext,
     ) -> Option<AIConversationId> {
         match self {
-            Self::Summarize { .. }
-            | Self::CreateEnvironment { .. }
+            Self::CreateEnvironment { .. }
             | Self::InvokeSkill { .. }
             | Self::FetchReviewComments { .. } => controller
                 .context_model
@@ -226,9 +211,6 @@ impl SlashCommandRequest {
                     repo_paths: repos,
                 }]
             }
-            SlashCommandRequest::Summarize { prompt, .. } => {
-                vec![AIAgentInput::SummarizeConversation { prompt }]
-            }
             SlashCommandRequest::FetchReviewComments { repo_path } => {
                 vec![AIAgentInput::FetchReviewComments { repo_path, context }]
             }
@@ -263,7 +245,6 @@ impl SlashCommandRequest {
             SlashCommandRequest::InitProjectRules => EntrypointType::InitProjectRules,
             SlashCommandRequest::CreateNewProject { .. }
             | SlashCommandRequest::CreateEnvironment { .. }
-            | SlashCommandRequest::Summarize { .. }
             | SlashCommandRequest::FetchReviewComments { .. }
             | SlashCommandRequest::InvokeSkill { .. } => EntrypointType::UserInitiated,
         }

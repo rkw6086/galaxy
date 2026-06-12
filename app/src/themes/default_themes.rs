@@ -2,8 +2,8 @@ use asset_macro::bundled_or_fetched_asset;
 use galaxy_core::ui::{
     color::{blend::Blend, coloru_with_opacity, OPAQUE},
     theme::{
-        color::CustomDetails, AnsiColor, AnsiColors, Details, Fill, HorizontalGradient, Image,
-        TerminalColors, VerticalGradient, GalaxyTheme,
+        color::CustomDetails, AnsiColor, AnsiColors, Details, Fill, GalaxyTheme,
+        HorizontalGradient, Image, TerminalColors, VerticalGradient,
     },
 };
 use pathfinder_color::ColorU;

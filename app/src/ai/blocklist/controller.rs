@@ -73,7 +73,7 @@ use itertools::Itertools;
 use parking_lot::FairMutex;
 use pending_response_streams::PendingResponseStreams;
 use session_sharing_protocol::common::ParticipantId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 use warp_multi_agent_api::{message, Task, ToolType};
@@ -166,6 +166,60 @@ pub enum BlocklistAIControllerEvent {
     },
 
     FreeTierLimitCheckTriggered,
+}
+
+/// Tracks recent failed action signatures for loop detection.
+/// When the same tool+input pattern fails repeatedly, we inject
+/// corrective instructions to break the cycle.
+#[derive(Debug, Clone)]
+struct LoopDetectionEntry {
+    /// Discriminant of the action result type (e.g. RequestCommandOutput, ApplyFileDiffs)
+    tool_discriminant: std::mem::Discriminant<AIAgentActionResultType>,
+    /// Hash of the action's identifying input (command string, file paths, etc.)
+    input_hash: u64,
+    /// Human-readable description of what failed
+    description: String,
+}
+
+#[derive(Debug, Default, Clone)]
+struct LoopDetectionState {
+    recent_failures: VecDeque<LoopDetectionEntry>,
+}
+
+const LOOP_DETECTION_WINDOW: usize = 10;
+const LOOP_DETECTION_THRESHOLD: usize = 3;
+
+impl LoopDetectionState {
+    fn record_failure(&mut self, entry: LoopDetectionEntry) {
+        self.recent_failures.push_back(entry);
+        if self.recent_failures.len() > LOOP_DETECTION_WINDOW {
+            self.recent_failures.pop_front();
+        }
+    }
+
+    fn detect_loop(&self) -> Option<&LoopDetectionEntry> {
+        use std::collections::HashMap as CountMap;
+        let mut counts: CountMap<
+            (std::mem::Discriminant<AIAgentActionResultType>, u64),
+            (usize, usize),
+        > = CountMap::new();
+        for (idx, entry) in self.recent_failures.iter().enumerate() {
+            let key = (entry.tool_discriminant, entry.input_hash);
+            let counter = counts.entry(key).or_insert((0, 0));
+            counter.0 += 1;
+            counter.1 = idx; // Track most recent occurrence
+        }
+        for ((_disc, _hash), (count, latest_idx)) in &counts {
+            if *count >= LOOP_DETECTION_THRESHOLD {
+                return self.recent_failures.get(*latest_idx);
+            }
+        }
+        None
+    }
+
+    fn clear(&mut self) {
+        self.recent_failures.clear();
+    }
 }
 
 #[derive(Debug)]
@@ -317,6 +371,9 @@ pub struct BlocklistAIController {
     pending_auto_resume_handles: HashMap<AIConversationId, SpawnedFutureHandle>,
     /// Passive conversations explicitly requested to follow up after actions complete.
     pending_passive_follow_ups: HashSet<AIConversationId>,
+
+    /// Per-conversation loop detection state for preventing recursive tool failures.
+    loop_detection: HashMap<AIConversationId, LoopDetectionState>,
     /// Passive suggestion results that should be included with the next request
     /// for a given conversation (e.g. accepted/iterated code diffs that weren't
     /// auto-resumed).
@@ -555,6 +612,7 @@ impl BlocklistAIController {
             pending_auto_resume_handles: HashMap::new(),
             pending_passive_follow_ups: HashSet::new(),
             pending_passive_suggestion_results: HashMap::new(),
+            loop_detection: HashMap::new(),
         }
     }
 
@@ -1026,6 +1084,9 @@ impl BlocklistAIController {
         is_queued_prompt: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        // User sending a new query resets loop detection — fresh context.
+        self.loop_detection.remove(&conversation_id);
+
         let is_viewer = self
             .terminal_model
             .lock()
@@ -1418,6 +1479,9 @@ impl BlocklistAIController {
             return;
         }
 
+        // Loop detection: record failures and check for repeated patterns
+        let loop_warning = self.check_and_record_loop_detection(conversation_id, &finished_results);
+
         // Check whether any result will trigger a server-side subagent (e.g. CLI
         // subagent for LRC), or if one is already active. If so, we must not
         // piggyback orchestration events because the subagent cannot interpret
@@ -1446,6 +1510,34 @@ impl BlocklistAIController {
             self.terminal_view_id,
             ctx,
         );
+
+        // If a loop was detected, inject a corrective instruction alongside
+        // the action results so the model avoids repeating the same failure.
+        if let Some(warning_msg) = loop_warning {
+            log::warn!(
+                "[loop-detection] Injecting corrective instruction for conversation {:?}: {}",
+                conversation_id,
+                warning_msg
+            );
+            if let Some(conversation) =
+                BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+            {
+                let root_task_id = conversation.get_root_task_id().clone();
+                request_input
+                    .input_messages
+                    .entry(root_task_id)
+                    .or_default()
+                    .push(AIAgentInput::UserQuery {
+                        query: warning_msg,
+                        context: Arc::from([]),
+                        static_query_type: None,
+                        referenced_attachments: HashMap::new(),
+                        user_query_mode: UserQueryMode::Normal,
+                        running_command: None,
+                        intended_agent: None,
+                    });
+            }
+        }
 
         // Include any pending orchestration events in this follow-up rather
         // than waiting for a separate idle injection turn. Skip when a server
@@ -1493,6 +1585,67 @@ impl BlocklistAIController {
         }
 
         self.pending_passive_follow_ups.remove(&conversation_id);
+    }
+
+    /// Records failed actions into the loop detection state and returns a
+    /// corrective instruction if a loop is detected.
+    fn check_and_record_loop_detection(
+        &mut self,
+        conversation_id: AIConversationId,
+        results: &[AIAgentActionResult],
+    ) -> Option<String> {
+        use std::hash::{Hash, Hasher};
+
+        let state = self.loop_detection.entry(conversation_id).or_default();
+        let mut has_success = false;
+
+        for result in results {
+            if result.result.is_failed() {
+                let discriminant = std::mem::discriminant(&result.result);
+                // Use a stable description that includes the tool type and the *input*
+                // (command, file paths, etc.) but NOT the variable output, so the same
+                // failing command with different output is still recognized as a loop.
+                let description = result.result.loop_description();
+
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                discriminant.hash(&mut hasher);
+                description.hash(&mut hasher);
+                let input_hash = hasher.finish();
+
+                state.record_failure(LoopDetectionEntry {
+                    tool_discriminant: discriminant,
+                    input_hash,
+                    description: description.clone(),
+                });
+            } else if result.result.is_successful() {
+                has_success = true;
+            }
+        }
+
+        // If we had at least one success in this batch, clear loop state —
+        // the agent is making progress.
+        if has_success {
+            state.clear();
+            return None;
+        }
+
+        // Check for loops
+        if let Some(looping_entry) = state.detect_loop() {
+            let warning = format!(
+                "[SYSTEM] Loop detected: the same action has failed {} or more times consecutively. \
+                 Do NOT repeat this action or any similar approach.\n\n\
+                 Failing action: {}\n\n\
+                 Take a completely different approach to accomplish the goal. \
+                 If you cannot find an alternative, explain to the user what is failing and why.",
+                LOOP_DETECTION_THRESHOLD,
+                looping_entry.description
+            );
+            // Clear the state so we don't keep injecting on every subsequent turn
+            state.clear();
+            Some(warning)
+        } else {
+            None
+        }
     }
 
     /// Handles the EventsReady signal. Checks readiness, drains
@@ -1566,9 +1719,8 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let events = OrchestrationEventService::handle(ctx).update(ctx, |svc, _ctx| {
-            svc.drain_subagent_events(&conversation_id)
-        });
+        let events = OrchestrationEventService::handle(ctx)
+            .update(ctx, |svc, _ctx| svc.drain_subagent_events(&conversation_id));
 
         for event in events {
             match event.detail {
@@ -1577,17 +1729,16 @@ impl BlocklistAIController {
                     question_text,
                     options,
                 } => {
-                    let answer = options.first().cloned().unwrap_or_else(|| {
-                        format!("Proceed with: {}", question_text)
-                    });
+                    let answer = options
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| format!("Proceed with: {}", question_text));
 
                     OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
                         svc.route_answer_to_subagent(source_conversation_id, answer, ctx);
                     });
                 }
-                PendingEventDetail::SubagentAnswer {
-                    answer_text,
-                } => {
+                PendingEventDetail::SubagentAnswer { answer_text } => {
                     self.complete_ask_user_question_with_answer(answer_text, ctx);
                 }
                 PendingEventDetail::SubagentCompletionSummary => {}
@@ -1604,7 +1755,10 @@ impl BlocklistAIController {
     ) {
         use ai::agent::action_result::AskUserQuestionAnswerItem;
 
-        let executor = self.action_model.as_ref(ctx).ask_user_question_executor(ctx);
+        let executor = self
+            .action_model
+            .as_ref(ctx)
+            .ask_user_question_executor(ctx);
         let answer_item = AskUserQuestionAnswerItem::Answered {
             question_id: String::new(),
             selected_options: vec![answer_text.clone()],
@@ -1963,7 +2117,8 @@ impl BlocklistAIController {
             parent_agent_id,
             agent_name,
             bedrock_history,
-            bedrock_compact_summary,
+            bedrock_tool_result_archive,
+            bedrock_progressive_summary,
         ) = {
             let Some(conversation) = history_model
                 .as_ref(ctx)
@@ -1987,7 +2142,8 @@ impl BlocklistAIController {
                 conversation.parent_agent_id().map(str::to_string),
                 conversation.agent_name().map(str::to_string),
                 conversation.bedrock_message_history().to_vec(),
-                conversation.compact_summary().map(str::to_string),
+                conversation.tool_result_archive().to_vec(),
+                conversation.progressive_summary().map(str::to_string),
             )
         };
 
@@ -2055,11 +2211,8 @@ impl BlocklistAIController {
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
         request_params.bedrock_message_history = bedrock_history;
-        request_params.bedrock_compact_summary = bedrock_compact_summary;
-        request_params.is_summarization = request_input
-            .all_inputs()
-            .any(|input| matches!(input, AIAgentInput::SummarizeConversation { .. }));
-
+        request_params.bedrock_tool_result_archive = bedrock_tool_result_archive;
+        request_params.bedrock_progressive_summary = bedrock_progressive_summary;
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
 
@@ -2084,13 +2237,9 @@ impl BlocklistAIController {
         let input_contains_user_query = request_input
             .all_inputs()
             .any(|input| input.is_user_query());
-        let input_is_summarization = request_input
-            .all_inputs()
-            .any(|input| matches!(input, AIAgentInput::SummarizeConversation { .. }));
         ctx.subscribe_to_model(&response_stream, move |me, event, ctx| {
             me.handle_response_stream_event(
                 input_contains_user_query,
-                input_is_summarization,
                 event,
                 &response_stream_clone,
                 ctx,
@@ -2280,7 +2429,6 @@ impl BlocklistAIController {
     fn handle_response_stream_event(
         &mut self,
         did_input_contain_user_query: bool,
-        is_summarization_request: bool,
         event: &ResponseStreamEvent,
         response_stream: &ModelHandle<ResponseStream>,
         ctx: &mut ModelContext<Self>,
@@ -2384,69 +2532,32 @@ impl BlocklistAIController {
                                         Some(sent.clone())
                                     }
                                 });
-                                if let Some(new_history) = new_history {
+                                if let Some(mut new_history) = new_history {
                                     let history_model = BlocklistAIHistoryModel::handle(ctx);
                                     history_model.update(ctx, |history_model, _| {
-                                        if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
-                                            // If this was a summarization request, compact the
-                                            // history to just the summary instead of keeping
-                                            // the full message list. This is what actually
-                                            // frees up context window space.
-                                            let is_summarization = is_summarization_request;
-
-                                            if is_summarization {
-                                                // Extract the assistant's summary from the last
-                                                // message in the history (the response).
-                                                let summary_text = new_history
+                                        if let Some(conversation) =
+                                            history_model.conversation_mut(&conversation_id)
+                                        {
+                                            let skip = conversation.messages_summarized_up_to();
+                                            if skip > 0 && skip <= new_history.len() {
+                                                let drained: Vec<_> = new_history
                                                     .iter()
-                                                    .rev()
-                                                    .find_map(|msg| {
-                                                        use crate::ai::bedrock::convert::{
-                                                            MessageContent, MessageRole,
-                                                        };
-                                                        if msg.role == MessageRole::Assistant {
-                                                            if let MessageContent::Text(text) =
-                                                                &msg.content
-                                                            {
-                                                                Some(text.clone())
-                                                            } else {
-                                                                None
-                                                            }
-                                                        } else {
-                                                            None
-                                                        }
-                                                    });
-
-                                                if let Some(summary) = summary_text {
-                                                    log::info!(
-                                                        "[bedrock] Compacted conversation history from {} messages to system-level summary",
-                                                        new_history.len()
-                                                    );
-                                                    conversation.set_compact_summary(Some(summary.clone()));
-                                                    *conversation.bedrock_message_history_mut() = Vec::new();
-
-                                                    let estimated_tokens = (summary.len() / 4) as u32;
-                                                    let max_context = crate::ai::bedrock::response_translator::context_window_for_model("claude-opus-4-6-20250514[1m]");
-                                                    let new_usage = estimated_tokens as f32 / max_context as f32;
-                                                    conversation.set_context_window_usage(new_usage);
-                                                    conversation.set_current_context_tokens(estimated_tokens);
-                                                    log::info!(
-                                                        "[bedrock] Post-compact context estimate: ~{} tokens ({:.1}% of context window)",
-                                                        estimated_tokens,
-                                                        new_usage * 100.0
-                                                    );
-                                                } else {
-                                                    *conversation.bedrock_message_history_mut() =
-                                                        new_history;
-                                                }
+                                                    .take(skip)
+                                                    .cloned()
+                                                    .collect();
+                                                conversation.archive_tool_results(drained);
+                                                let reconciled = new_history.split_off(skip);
+                                                conversation.reset_messages_summarized_up_to();
+                                                *conversation.bedrock_message_history_mut() =
+                                                    reconciled;
                                             } else {
                                                 *conversation.bedrock_message_history_mut() =
                                                     new_history;
-                                                log::info!(
-                                                    "[bedrock] Updated conversation bedrock history: {} messages",
-                                                    conversation.bedrock_message_history().len()
-                                                );
                                             }
+                                            log::info!(
+                                    "[bedrock] Updated conversation bedrock history: {} messages",
+                                    conversation.bedrock_message_history().len()
+                                );
                                         }
                                     });
                                 }
@@ -2488,22 +2599,24 @@ impl BlocklistAIController {
                             });
                         }
 
-                        let mut renderable_error: RenderableAIError =
-                            if let AIApiError::Stream { stream_type, source } = e.as_ref() {
-                                if *stream_type == "bedrock_converse"
-                                    && is_bedrock_credentials_error(&source.to_string())
-                                {
-                                    let model_name =
-                                        response_stream.as_ref(ctx).model_id().to_string();
-                                    RenderableAIError::AwsBedrockCredentialsExpiredOrInvalid {
-                                        model_name,
-                                    }
-                                } else {
-                                    e.as_ref().into()
+                        let mut renderable_error: RenderableAIError = if let AIApiError::Stream {
+                            stream_type,
+                            source,
+                        } = e.as_ref()
+                        {
+                            if *stream_type == "bedrock_converse"
+                                && is_bedrock_credentials_error(&source.to_string())
+                            {
+                                let model_name = response_stream.as_ref(ctx).model_id().to_string();
+                                RenderableAIError::AwsBedrockCredentialsExpiredOrInvalid {
+                                    model_name,
                                 }
                             } else {
                                 e.as_ref().into()
-                            };
+                            }
+                        } else {
+                            e.as_ref().into()
+                        };
                         if let RenderableAIError::Other {
                             will_attempt_resume,
                             waiting_for_network,
@@ -2555,7 +2668,9 @@ impl BlocklistAIController {
                     log::warn!("Conversation not found.");
                     return;
                 };
-                let new_exchange_ids: Vec<_> = conversation.new_exchange_ids_for_response(&stream_id).collect();
+                let new_exchange_ids: Vec<_> = conversation
+                    .new_exchange_ids_for_response(&stream_id)
+                    .collect();
                 log::info!(
                     "[bedrock-debug] AfterStreamFinished: stream_id={:?}, conversation_id={:?}, new_exchange_ids count={}",
                     stream_id, conversation_id, new_exchange_ids.len()
@@ -2963,41 +3078,310 @@ impl BlocklistAIController {
             ctx.emit(BlocklistAIControllerEvent::FreeTierLimitCheckTriggered);
         }
 
-        // Auto-compact: trigger summarization when context window usage >= 85%.
-        let should_auto_compact = {
+        // Progressive summarization: when context window usage >= 85% and we have
+        // more than 100 messages, summarize the oldest messages while keeping the
+        // most recent 100 verbatim. This runs as a background Bedrock call — no UI,
+        // no exchange created, no tool execution shown.
+        let should_progressive_summarize = {
             let history_model = BlocklistAIHistoryModel::as_ref(ctx);
             history_model
                 .conversation(&conversation_id)
                 .is_some_and(|conversation| {
-                    let is_summarization_request = conversation
-                        .latest_exchange()
-                        .is_some_and(|exchange| {
+                    let is_summarization_request =
+                        conversation.latest_exchange().is_some_and(|exchange| {
                             exchange
                                 .input
                                 .iter()
                                 .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }))
                         });
                     conversation.context_window_usage() >= 0.85
-                        && !conversation.has_pending_auto_compact()
+                        && !conversation.has_pending_progressive_summary()
                         && !is_summarization_request
+                        && conversation.bedrock_message_history().len() > 100
                 })
         };
 
-        if should_auto_compact {
-            log::info!(
-                "[auto-compact] Context window usage >= 85% for conversation {:?}, triggering summarization",
-                conversation_id
-            );
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
-                if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
-                    conversation.set_has_pending_auto_compact(true);
-                }
-            });
-            self.send_slash_command_request(
-                SlashCommandRequest::Summarize { prompt: None },
-                ctx,
-            );
+        if should_progressive_summarize {
+            self.trigger_progressive_summarization(conversation_id, ctx);
         }
+    }
+
+    fn trigger_progressive_summarization(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
+        use crate::ai::bedrock::convert::{ConversationMessage, MessageContent, MessageRole};
+        use crate::ai::bedrock::response_translator::{
+            context_window_for_model, estimate_cost_cents,
+        };
+        use crate::settings::ai::AISettings;
+        use settings::Setting;
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.bedrock_enabled.value() {
+            return;
+        }
+
+        let config = BedrockClientConfig {
+            auth_method: *settings.bedrock_auth_method.value(),
+            profile: settings.bedrock_profile.value().clone(),
+            region: settings.bedrock_region.value().clone(),
+            access_key_id: settings.bedrock_access_key_id.value().clone(),
+            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+        }
+        .with_external_fallbacks();
+
+        let cross_region = config.cross_region_inference;
+        // Use Sonnet for summarization — cheaper and fast enough for this task
+        let model_id = "us.anthropic.claude-sonnet-4-6-20250514-v1:0".to_string();
+
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+
+        // Extract the messages to summarize and set the guard flag
+        let (messages_to_summarize, existing_summary, messages_count) = {
+            let history = history_model.as_ref(ctx);
+            let Some(conversation) = history.conversation(&conversation_id) else {
+                return;
+            };
+
+            let history_len = conversation.bedrock_message_history().len();
+            let split_point = history_len.saturating_sub(100);
+            if split_point == 0 {
+                return;
+            }
+
+            let msgs: Vec<ConversationMessage> =
+                conversation.bedrock_message_history()[..split_point].to_vec();
+            let existing = conversation.progressive_summary().map(str::to_string);
+
+            (msgs, existing, split_point)
+        };
+
+        history_model.update(ctx, |history_model, _| {
+            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                conversation.set_has_pending_progressive_summary(true);
+            }
+        });
+
+        log::info!(
+            "[progressive-summary] Triggering for conversation {:?}: summarizing {} messages, keeping last 100",
+            conversation_id,
+            messages_count
+        );
+
+        // Build the summarization input
+        let mut summarize_content = String::new();
+        if let Some(ref prior) = existing_summary {
+            summarize_content.push_str("<prior-summary>\n");
+            summarize_content.push_str(prior);
+            summarize_content.push_str("\n</prior-summary>\n\n");
+        }
+        summarize_content.push_str("<messages-to-summarize>\n");
+        fn safe_truncate(s: &str, max_chars: usize) -> String {
+            if s.len() <= max_chars {
+                s.to_string()
+            } else {
+                let trunc = s.chars().take(max_chars).collect::<String>();
+                format!("{trunc}... [truncated, {len} total chars]", len = s.len())
+            }
+        }
+
+        for msg in &messages_to_summarize {
+            let role_str = match msg.role {
+                MessageRole::User => "User",
+                MessageRole::Assistant => "Assistant",
+            };
+            let content_str = match &msg.content {
+                MessageContent::Text(t) => t.clone(),
+                MessageContent::ToolUse { name, input, .. } => {
+                    format!("[Tool Call: {}] {}", name, input)
+                }
+                MessageContent::ToolResult { content, .. } => safe_truncate(content, 2000),
+                MessageContent::MultiPart(parts) => {
+                    use crate::ai::bedrock::convert::ContentPart;
+                    parts
+                        .iter()
+                        .map(|p| match p {
+                            ContentPart::Text(t) => t.clone(),
+                            ContentPart::ToolUse { name, input, .. } => {
+                                format!("[Tool: {}] {}", name, input)
+                            }
+                            ContentPart::ToolResult { content, .. } => safe_truncate(content, 2000),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            };
+            summarize_content.push_str(&format!("[{}]: {}\n", role_str, content_str));
+        }
+        summarize_content.push_str("</messages-to-summarize>");
+
+        let summarize_prompt = "Summarize the following conversation history. Preserve:\n\
+            - All decisions made and their rationale\n\
+            - All file paths modified and what was changed\n\
+            - All tool calls with their significant results (commands run, files read, errors encountered)\n\
+            - Current task state and any pending work\n\
+            - Technical details, code patterns, and architecture discussed\n\n\
+            Be comprehensive. This summary will be the only record of these exchanges.";
+
+        let summarize_messages = vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text(format!("{}\n\n{}", summarize_prompt, summarize_content)),
+        }];
+
+        // Spawn the background Bedrock call
+        let model_id_clone = model_id.clone();
+        ctx.spawn(
+            async move {
+                let client = BedrockClient::from_config(config).await?;
+                client
+                    .converse_collect(
+                        &model_id_clone,
+                        summarize_messages,
+                        None,
+                        16000,
+                        cross_region,
+                    )
+                    .await
+            },
+            move |me, result, ctx| {
+                let history_model = BlocklistAIHistoryModel::handle(ctx);
+                match result {
+                    Ok((summary_text, input_tokens, output_tokens)) => {
+                        log::info!(
+                            "[progressive-summary] Completed for {:?}: {} chars, input={} output={} tokens",
+                            conversation_id,
+                            summary_text.len(),
+                            input_tokens,
+                            output_tokens,
+                        );
+
+                        let cost_cents = estimate_cost_cents(
+                            input_tokens,
+                            output_tokens,
+                            0,
+                            0,
+                            &model_id,
+                        );
+
+                        // Use the conversation's active model for context window sizing,
+                        // not the summarizer model.
+                        let active_model_id = crate::ai::llms::LLMPreferences::as_ref(ctx)
+                            .get_active_base_model(ctx, Some(me.terminal_view_id))
+                            .id
+                            .to_string();
+
+                        history_model.update(ctx, |history_model, _| {
+                            if let Some(conversation) =
+                                history_model.conversation_mut(&conversation_id)
+                            {
+                                // Drain the summarized messages from history
+                                let drain_count =
+                                    messages_count.min(conversation.bedrock_message_history().len());
+                                let drained: Vec<_> = conversation
+                                    .bedrock_message_history()
+                                    .iter()
+                                    .take(drain_count)
+                                    .cloned()
+                                    .collect();
+                                conversation.archive_tool_results(drained);
+                                conversation
+                                    .bedrock_message_history_mut()
+                                    .drain(0..drain_count);
+
+                                conversation
+                                    .set_progressive_summary(Some(summary_text.clone()), drain_count);
+                                conversation.set_has_pending_progressive_summary(false);
+
+                                // Estimate new context window usage
+                                let summary_tokens = (summary_text.len() / 4) as u32;
+                                let remaining_msgs_tokens: u32 = conversation
+                                    .bedrock_message_history()
+                                    .iter()
+                                    .map(|m| match &m.content {
+                                        MessageContent::Text(t) => (t.len() / 4) as u32,
+                                        MessageContent::ToolUse { input, .. } => {
+                                            (input.to_string().len() / 4) as u32 + 20
+                                        }
+                                        MessageContent::ToolResult { content, .. } => {
+                                            (content.len() / 4) as u32
+                                        }
+                                        MessageContent::MultiPart(parts) => {
+                                            use crate::ai::bedrock::convert::ContentPart;
+                                            parts
+                                                .iter()
+                                                .map(|p| match p {
+                                                    ContentPart::Text(t) => (t.len() / 4) as u32,
+                                                    ContentPart::ToolUse { input, .. } => {
+                                                        (input.to_string().len() / 4) as u32
+                                                    }
+                                                    ContentPart::ToolResult { content, .. } => {
+                                                        (content.len() / 4) as u32
+                                                    }
+                                                })
+                                                .sum()
+                                        }
+                                    })
+                                    .sum();
+
+                                let max_ctx = context_window_for_model(&active_model_id);
+                                let new_usage =
+                                    (summary_tokens + remaining_msgs_tokens) as f32 / max_ctx as f32;
+                                conversation.set_context_window_usage(new_usage);
+                                conversation
+                                    .set_current_context_tokens(summary_tokens + remaining_msgs_tokens);
+
+                                log::info!(
+                                    "[progressive-summary] Post-summary: ~{} tokens ({:.1}% of {} context), {} messages retained",
+                                    summary_tokens + remaining_msgs_tokens,
+                                    new_usage * 100.0,
+                                    active_model_id,
+                                    conversation.bedrock_message_history().len()
+                                );
+                            }
+                        });
+
+                        // Update cost tracking
+                        history_model.update(ctx, |history_model, _| {
+                            use warp_multi_agent_api::response_event::stream_finished;
+                            let token_usage = vec![stream_finished::TokenUsage {
+                                model_id: "bedrock".to_string(),
+                                total_input: input_tokens,
+                                output: output_tokens,
+                                input_cache_read: 0,
+                                input_cache_write: 0,
+                                cost_in_cents: cost_cents,
+                            }];
+                            history_model.update_conversation_cost_and_usage_for_request(
+                                conversation_id,
+                                None,
+                                token_usage,
+                                None,
+                                false,
+                            );
+                        });
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "[progressive-summary] Failed for {:?}: {:?}",
+                            conversation_id,
+                            e
+                        );
+                        history_model.update(ctx, |history_model, _| {
+                            if let Some(conversation) =
+                                history_model.conversation_mut(&conversation_id)
+                            {
+                                conversation.set_has_pending_progressive_summary(false);
+                            }
+                        });
+                    }
+                }
+                let _ = me;
+            },
+        );
     }
 }
 
@@ -3028,7 +3412,9 @@ fn is_bedrock_credentials_error(msg: &str) -> bool {
         || (lower.contains("sso/cache") && lower.contains("notfound"))
         || (lower.contains("sso/cache") && lower.contains("no such file"))
         || (lower.contains("accessdenied")
-            && (lower.contains("token") || lower.contains("credential") || lower.contains("security")))
+            && (lower.contains("token")
+                || lower.contains("credential")
+                || lower.contains("security")))
 }
 
 #[allow(clippy::too_many_arguments)]

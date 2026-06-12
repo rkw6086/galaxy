@@ -14,8 +14,8 @@ use crate::ai::mcp::{
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::ai::skills::SkillManager;
 use crate::code_review::git_status_update::GitStatusUpdateModel;
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use crate::galaxy_managed_paths_watcher::GalaxyManagedPathsWatcher;
+use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
 use galaxyui::SingletonEntity;
 use galaxyui::{platform::WindowStyle, App, ViewHandle, WindowId};
 use watcher::HomeDirectoryWatcher;

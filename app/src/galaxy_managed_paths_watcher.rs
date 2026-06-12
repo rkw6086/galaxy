@@ -365,8 +365,8 @@ mod tests {
     use repo_metadata::{RepositoryUpdate, TargetFile};
 
     use super::{
-        filter_repository_update_by_prefix, galaxy_home_mcp_config_file_path, galaxy_home_skills_dir,
-        galaxy_managed_mcp_config_path, galaxy_managed_skill_dirs,
+        filter_repository_update_by_prefix, galaxy_home_mcp_config_file_path,
+        galaxy_home_skills_dir, galaxy_managed_mcp_config_path, galaxy_managed_skill_dirs,
     };
 
     #[test]

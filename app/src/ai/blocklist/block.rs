@@ -391,12 +391,12 @@ pub(super) struct AIBlockStateHandles {
     /// Mouse state handle for the fork conversation button
     fork_conversation_handle: MouseStateHandle,
 
-
     /// Mouse state handles per citation.
     /// A given citation should only appear once per block.
     footer_citation_chip_handles: HashMap<AIAgentCitation, MouseStateHandle>,
     orchestration_navigation_card_handles: HashMap<AIAgentActionId, MouseStateHandle>,
-    pub(super) subagent_panel_states: HashMap<AIAgentActionId, super::agent_view::subagent_inline_panel::SubagentPanelState>,
+    pub(super) subagent_panel_states:
+        HashMap<AIAgentActionId, super::agent_view::subagent_inline_panel::SubagentPanelState>,
 
     references_section_collapsible_handle: MouseStateHandle,
 

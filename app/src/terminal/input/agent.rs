@@ -630,9 +630,15 @@ fn cache_hit_color(pct: f64, theme: &galaxy_core::ui::theme::GalaxyTheme) -> Col
     }
 }
 
-fn render_session_status_bar(appearance: &Appearance, app: &AppContext, conversation_id: crate::ai::agent::conversation::AIConversationId) -> Option<Box<dyn Element>> {
+fn render_session_status_bar(
+    appearance: &Appearance,
+    app: &AppContext,
+    conversation_id: crate::ai::agent::conversation::AIConversationId,
+) -> Option<Box<dyn Element>> {
     let (cache_read, cache_write, cache_miss, cost_cents, context_usage, current_context) =
-        if let Some(conversation) = BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id) {
+        if let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)
+        {
             (
                 conversation.last_block_cache_read_tokens(),
                 conversation.last_block_cache_write_tokens(),

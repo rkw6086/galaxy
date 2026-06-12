@@ -23,7 +23,9 @@ const MAX_VISIBLE_ACTIONS: usize = 12;
 
 pub(super) enum CodeActionsState {
     Idle,
-    Requesting { abort_handle: AbortHandle },
+    Requesting {
+        abort_handle: AbortHandle,
+    },
     Available {
         actions: Vec<CodeActionData>,
         anchor_offset: CharOffset,
@@ -118,10 +120,11 @@ impl LocalCodeEditorView {
             })
             .collect();
 
-        let future = match lsp_server
-            .as_ref(ctx)
-            .code_actions(file_path.to_path_buf(), lsp_range, diagnostics_at_cursor)
-        {
+        let future = match lsp_server.as_ref(ctx).code_actions(
+            file_path.to_path_buf(),
+            lsp_range,
+            diagnostics_at_cursor,
+        ) {
             Ok(future) => future,
             Err(e) => {
                 log::warn!("Failed to call lsp.code_actions: {e}");

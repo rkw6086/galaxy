@@ -1041,6 +1041,12 @@ pub struct AgentConversationData {
     /// delivery without re-delivering already-processed events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_event_sequence: Option<i64>,
+    /// Progressive summary of older conversation messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progressive_summary: Option<String>,
+    /// Number of messages that were summarized into progressive_summary.
+    #[serde(default)]
+    pub messages_summarized_up_to: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1358,6 +1364,8 @@ mod tests {
             run_id: None,
             autoexecute_override: None,
             last_event_sequence: Some(42),
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
         let json = serde_json::to_string(&data).expect("serialize");
         let roundtripped: AgentConversationData = serde_json::from_str(&json).expect("deserialize");
@@ -1388,6 +1396,8 @@ mod tests {
             run_id: None,
             autoexecute_override: None,
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
         let json = serde_json::to_string(&data).expect("serialize");
         assert!(

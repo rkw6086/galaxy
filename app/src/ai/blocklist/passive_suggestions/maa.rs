@@ -317,11 +317,7 @@ impl PassiveSuggestionsModel {
                 .lock()
                 .block_list()
                 .block_at(block_completed.index)
-                .and_then(|block| {
-                    block
-                        .agent_view_visibility()
-                        .agent_view_conversation_id()
-                });
+                .and_then(|block| block.agent_view_visibility().agent_view_conversation_id());
 
             let prompt = format!(
                 "The command `{}` failed. Diagnose the error and suggest a fix.",
@@ -436,6 +432,7 @@ impl PassiveSuggestionsModel {
             );
         }
     }
+
 }
 
 impl Entity for PassiveSuggestionsModel {

@@ -29,7 +29,10 @@ use super::iterm_parser::ITermProfile;
 
 #[derive(Debug)]
 pub enum ThemeType {
-    LightAndDark { light: GalaxyTheme, dark: GalaxyTheme },
+    LightAndDark {
+        light: GalaxyTheme,
+        dark: GalaxyTheme,
+    },
     Single(GalaxyTheme),
 }
 

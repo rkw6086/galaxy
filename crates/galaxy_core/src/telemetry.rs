@@ -100,7 +100,9 @@ macro_rules! send_telemetry_from_app_ctx {
 pub enum EnablementState {
     Always,
     Flag(FeatureFlag),
-    ChannelSpecific { channels: Vec<crate::channel::Channel> },
+    ChannelSpecific {
+        channels: Vec<crate::channel::Channel>,
+    },
 }
 
 impl EnablementState {

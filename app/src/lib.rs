@@ -41,11 +41,14 @@ mod experiments;
 mod external_secrets;
 #[cfg(target_family = "wasm")]
 mod font_fallback;
+mod galaxy_managed_paths_watcher;
 mod global_resource_handles;
 mod gpu_state;
 mod input_classifier;
 mod interval_timer;
 mod linear;
+#[cfg(feature = "local_ai")]
+mod local_inference;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;
 mod menu;
@@ -93,7 +96,6 @@ mod view_components;
 mod vim_registers;
 mod voice;
 mod voltron;
-mod galaxy_managed_paths_watcher;
 #[cfg(target_family = "wasm")]
 mod wasm_nux_dialog;
 mod window_settings;
@@ -216,6 +218,9 @@ use crate::context_chips::prompt::Prompt;
 use crate::default_terminal::DefaultTerminal;
 use crate::drive::export::ExportManager;
 use crate::env_vars::manager::EnvVarCollectionManager;
+use crate::galaxy_managed_paths_watcher::{
+    ensure_galaxy_watch_roots_exist, GalaxyManagedPathsWatcher,
+};
 use crate::gpu_state::GPUState;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
@@ -243,7 +248,6 @@ use crate::terminal::{AudibleBell, History};
 use crate::undo_close::UndoCloseStack;
 use crate::user_config::GalaxyConfig;
 use crate::vim_registers::VimRegisters;
-use crate::galaxy_managed_paths_watcher::{ensure_galaxy_watch_roots_exist, GalaxyManagedPathsWatcher};
 use crate::workflows::aliases::WorkflowAliases;
 use crate::workflows::local_workflows::LocalWorkflows;
 use crate::workspace::{ActiveSession, OneTimeModalModel, ToastStack};

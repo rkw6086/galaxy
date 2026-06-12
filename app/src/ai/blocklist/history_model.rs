@@ -1095,6 +1095,8 @@ impl BlocklistAIHistoryModel {
             // The event cursor belongs to the source conversation's run; the
             // forked conversation will establish its own cursor.
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
         let forked_conversation_id = AIConversationId::new();
         if let Err(e) = sqlite_sender.send(ModelEvent::UpdateMultiAgentConversation {
@@ -1250,6 +1252,8 @@ impl BlocklistAIHistoryModel {
             // The event cursor belongs to the source conversation's run; the
             // forked conversation will establish its own cursor.
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
 
         let forked_conversation_id = AIConversationId::new();

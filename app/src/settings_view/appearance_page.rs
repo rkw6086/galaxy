@@ -45,7 +45,9 @@ use crate::terminal::settings::{
 };
 use crate::terminal::{BlockListSettings, ShowBlockDividers};
 use crate::terminal::{ShowJumpToBottomOfBlockButton, SizeInfo};
-use crate::themes::theme::{self, RespectSystemTheme, SelectedSystemThemes, ThemeKind, GalaxyTheme};
+use crate::themes::theme::{
+    self, GalaxyTheme, RespectSystemTheme, SelectedSystemThemes, ThemeKind,
+};
 use crate::user_config::GalaxyConfig;
 use crate::util::bindings;
 use crate::window_settings::{

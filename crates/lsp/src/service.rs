@@ -780,10 +780,7 @@ impl<'a> TextDocumentService<'a> {
         Ok(result?.map(Into::into))
     }
 
-    pub async fn completion_resolve(
-        &self,
-        item: CompletionItem,
-    ) -> anyhow::Result<CompletionItem> {
+    pub async fn completion_resolve(&self, item: CompletionItem) -> anyhow::Result<CompletionItem> {
         let result = self
             .service
             .send_request::<request::ResolveCompletionItem>(item)
@@ -931,10 +928,7 @@ impl<'a> TextDocumentService<'a> {
             work_done_progress_params: Default::default(),
         };
 
-        let result = self
-            .service
-            .send_request::<request::Rename>(params)
-            .await;
+        let result = self.service.send_request::<request::Rename>(params).await;
 
         if let Err(e) = &result {
             self.service.log_to_server_log(
@@ -975,16 +969,18 @@ fn workspace_edit_to_file_edits(
                     let path = lsp_uri_to_path(&edit.text_document.uri)?;
                     result.push(FileEdits {
                         path,
-                        edits: edit.edits.into_iter().map(|e| match e {
-                            lsp_types::OneOf::Left(text_edit) => text_edit.into(),
-                            lsp_types::OneOf::Right(annotated) => {
-                                lsp_types::TextEdit {
+                        edits: edit
+                            .edits
+                            .into_iter()
+                            .map(|e| match e {
+                                lsp_types::OneOf::Left(text_edit) => text_edit.into(),
+                                lsp_types::OneOf::Right(annotated) => lsp_types::TextEdit {
                                     range: annotated.text_edit.range,
                                     new_text: annotated.text_edit.new_text,
                                 }
-                                .into()
-                            }
-                        }).collect(),
+                                .into(),
+                            })
+                            .collect(),
                     });
                 }
             }

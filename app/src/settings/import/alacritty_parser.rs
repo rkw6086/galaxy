@@ -3,7 +3,7 @@ use async_recursion::async_recursion;
 use async_trait::async_trait;
 use galaxy_core::ui::{
     color::hex_color::coloru_from_hex_string,
-    theme::{AnsiColor, AnsiColors, TerminalColors, GalaxyTheme},
+    theme::{AnsiColor, AnsiColors, GalaxyTheme, TerminalColors},
 };
 use galaxyui::fonts::FontInfo;
 use serde::Deserialize;

@@ -11,12 +11,12 @@ use crate::{
     SizeConstraint,
 };
 
+#[cfg(debug_assertions)]
+use super::ScrollableAxis;
 use super::{
     util::{scroll_clipped_scrollable_handle_with_delta, scroll_delta_for_axis},
     NewScrollableElement,
 };
-#[cfg(debug_assertions)]
-use super::ScrollableAxis;
 
 use crate::elements::{ScrollTarget, ScrollToPositionMode};
 

@@ -328,6 +328,10 @@ fn create_server_metadata(
         credits_spent_for_last_block: None,
         token_usage: vec![],
         tool_usage_metadata: Default::default(),
+        total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0,
+        total_cache_miss_tokens: 0,
+        total_cost_cents: 0.0,
     };
 
     ServerAIConversationMetadata {
@@ -1133,6 +1137,8 @@ fn test_find_by_token_after_insert_forked_conversation_from_tasks() {
             run_id: None,
             autoexecute_override: None,
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
         let tasks = vec![warp_multi_agent_api::Task {
             id: "root-task".to_string(),

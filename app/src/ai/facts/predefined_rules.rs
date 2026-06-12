@@ -6,8 +6,7 @@ pub struct PredefinedRule {
 pub const SYSTEM_DEFINED_RULE_PREFIX: &str = "System Defined Rule";
 
 pub fn is_predefined_rule(name: &str) -> bool {
-    PREDEFINED_RULES.iter().any(|r| r.name == name)
-        || name.starts_with(SYSTEM_DEFINED_RULE_PREFIX)
+    PREDEFINED_RULES.iter().any(|r| r.name == name) || name.starts_with(SYSTEM_DEFINED_RULE_PREFIX)
 }
 
 pub fn predefined_rule_index(name: &str) -> Option<usize> {

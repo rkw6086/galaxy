@@ -2,9 +2,7 @@ use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageConte
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use galaxyui::{
-    elements::{
-        Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text,
-    },
+    elements::{Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
 };
 
@@ -60,13 +58,9 @@ impl View for ContextWindowView {
             format_tokens(estimated_tokens as u32),
         );
         column = column.with_child(
-            Text::new(
-                header_text,
-                appearance.ui_font_family(),
-                font_size + 1.0,
-            )
-            .with_color(label_color)
-            .finish(),
+            Text::new(header_text, appearance.ui_font_family(), font_size + 1.0)
+                .with_color(label_color)
+                .finish(),
         );
 
         // Messages — show full content, no truncation.
@@ -89,7 +83,11 @@ impl View for ContextWindowView {
             // Full content
             let content_text = match &msg.content {
                 MessageContent::Text(t) => t.clone(),
-                MessageContent::ToolUse { name, tool_use_id, input } => {
+                MessageContent::ToolUse {
+                    name,
+                    tool_use_id,
+                    input,
+                } => {
                     format!(
                         "[ToolUse] name={}, id={}\ninput={}",
                         name, tool_use_id, input
@@ -112,13 +110,21 @@ impl View for ContextWindowView {
                             ContentPart::Text(t) => {
                                 out.push_str(&format!("[Part {} Text] {}\n", pi, t));
                             }
-                            ContentPart::ToolUse { name, tool_use_id, input } => {
+                            ContentPart::ToolUse {
+                                name,
+                                tool_use_id,
+                                input,
+                            } => {
                                 out.push_str(&format!(
                                     "[Part {} ToolUse] name={}, id={}, input={}\n",
                                     pi, name, tool_use_id, input
                                 ));
                             }
-                            ContentPart::ToolResult { tool_use_id, content, is_error } => {
+                            ContentPart::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => {
                                 out.push_str(&format!(
                                     "[Part {} ToolResult] id={}, error={}\n{}\n",
                                     pi, tool_use_id, is_error, content

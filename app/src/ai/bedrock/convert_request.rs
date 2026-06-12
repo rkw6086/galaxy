@@ -705,6 +705,31 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
                 "required": ["prompt", "label"]
             }),
         },
+        "recall_tool_history" => ToolDefinition {
+            name: "recall_tool_history".to_string(),
+            description: "Retrieve the full output of a past tool execution from conversation history. Use when you need details from a tool call that is no longer in your current context window.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "search_query": {
+                        "type": "string",
+                        "description": "Search text to match against tool names, inputs, or outputs"
+                    },
+                    "tool_name": {
+                        "type": "string",
+                        "description": "Filter by tool name (run_shell_command, read_files, grep, file_glob, apply_file_diffs)"
+                    },
+                    "tool_use_id": {
+                        "type": "string",
+                        "description": "Exact tool_use_id to look up (most precise)"
+                    },
+                    "offset_from_end": {
+                        "type": "integer",
+                        "description": "How many matching tool calls back from most recent (0 = most recent match)"
+                    }
+                }
+            }),
+        },
         _ => ToolDefinition {
             name: name.to_string(),
             description: format!("Tool: {}", name),
@@ -724,6 +749,7 @@ fn default_tool_definitions() -> Vec<ToolDefinition> {
         tool_definition_for_name("grep"),
         tool_definition_for_name("file_glob"),
         tool_definition_for_name("suggest_next_prompt"),
+        tool_definition_for_name("recall_tool_history"),
     ]
 }
 

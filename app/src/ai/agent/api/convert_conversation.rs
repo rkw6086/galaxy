@@ -85,6 +85,8 @@ pub fn convert_conversation_data_to_ai_conversation(
             run_id: None,
             autoexecute_override: None,
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         },
         RestorationMode::Continue => AgentConversationData {
             server_conversation_token: Some(
@@ -104,6 +106,8 @@ pub fn convert_conversation_data_to_ai_conversation(
             run_id: None,
             autoexecute_override: None,
             last_event_sequence: None,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         },
     };
 

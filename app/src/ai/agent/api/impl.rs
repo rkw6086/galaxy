@@ -153,9 +153,9 @@ pub async fn generate_multi_agent_output(
         model_id,
         root_task_id: params.root_task_id.clone(),
         bedrock_message_history: params.bedrock_message_history.clone(),
-        bedrock_compact_summary: params.bedrock_compact_summary.clone(),
+        bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
+        bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
         bedrock_messages_sent: params.bedrock_messages_sent.clone(),
-        is_summarization: params.is_summarization,
     };
 
     match translator::execute(translator_request, &mut request).await {

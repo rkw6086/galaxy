@@ -67,7 +67,7 @@ async fn collect_stream_output(
             None,
             None,
             Arc::new(Mutex::new(Vec::new())),
-            false,
+            Vec::new(),
         )
         .await
         .expect("converse_stream should succeed");
@@ -624,7 +624,11 @@ async fn test_all_tools_visible_to_model() {
     let tools = super::request_translator::default_tool_definitions();
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
 
-    println!("[test] Sending {} tools to Bedrock: {:?}", tools.len(), tool_names);
+    println!(
+        "[test] Sending {} tools to Bedrock: {:?}",
+        tools.len(),
+        tool_names
+    );
 
     let messages = vec![ConversationMessage {
         role: MessageRole::User,
@@ -656,7 +660,10 @@ async fn test_all_tools_visible_to_model() {
     }
 
     if !missing_tools.is_empty() {
-        println!("[test] WARNING: Model did not mention these tools: {:?}", missing_tools);
+        println!(
+            "[test] WARNING: Model did not mention these tools: {:?}",
+            missing_tools
+        );
     }
 
     let expected_core_tools = [
