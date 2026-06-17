@@ -31,9 +31,7 @@ use crate::{
             model_menu_items::{available_model_menu_items, has_reasoning_variants, is_auto},
             profiles::{AIExecutionProfilesModel, AIExecutionProfilesModelEvent, ClientProfileId},
         },
-        llms::{
-            dedupe_model_display_names, LLMId, LLMInfo, LLMPreferences, LLMPreferencesEvent,
-        },
+        llms::{dedupe_model_display_names, LLMId, LLMInfo, LLMPreferences, LLMPreferencesEvent},
     },
     appearance::Appearance,
     cloud_object::model::generic_string_model::StringModel,
@@ -1476,7 +1474,6 @@ impl ProfileModelSelector {
             container.finish()
         }
     }
-
 }
 
 impl TypedActionView for ProfileModelSelector {
@@ -1614,7 +1611,6 @@ impl View for ProfileModelSelector {
             let model_menu = ChildView::new(&self.model_dropdown).finish();
             let positioning = self.get_menu_positioning(app, false);
             stack.add_positioned_overlay_child(model_menu, positioning);
-
         }
 
         let is_udi_enabled =

@@ -92,6 +92,7 @@ fn test_get_effective_models_custom_overrides() {
         model_id: "custom.model-v1:0".to_string(),
         display_name: "Custom Model".to_string(),
         vision_supported: false,
+        context_size: 200_000,
     }];
     let models = get_effective_models(&custom);
     assert_eq!(models.len(), 1);

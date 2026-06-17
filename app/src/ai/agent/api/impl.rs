@@ -5,13 +5,14 @@ use futures_util::StreamExt;
 use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
-use crate::ai::bedrock::client::BedrockClientConfig;
 use crate::ai::bedrock::translator::{self, TranslatorRequest};
+use crate::ai::openai::translator as openai_translator;
+use crate::ai::provider::ProviderConfig;
 
 use super::{convert_to::convert_input, ConvertToAPITypeError, RequestParams, ResponseStream};
 
 pub async fn generate_multi_agent_output(
-    bedrock_config: Option<BedrockClientConfig>,
+    provider_config: ProviderConfig,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
@@ -128,19 +129,6 @@ pub async fn generate_multi_agent_output(
         mcp_context: params.mcp_context.map(Into::into),
     };
 
-    let Some(config) = bedrock_config else {
-        log::error!("[bedrock] No Bedrock config available. Cannot process request.");
-        let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-            stream_type: "bedrock_converse",
-            source: anyhow::anyhow!(
-                "No AI backend available. Please configure Bedrock credentials in Settings > AI."
-            ),
-        });
-        let (tx, rx) = async_channel::unbounded();
-        let _ = tx.send(Err(err)).await;
-        return Ok(Box::pin(rx));
-    };
-
     let model_id = request
         .settings
         .as_ref()
@@ -148,26 +136,70 @@ pub async fn generate_multi_agent_output(
         .map(|mc| mc.base.clone())
         .unwrap_or_default();
 
-    let translator_request = TranslatorRequest {
-        config,
-        model_id,
-        root_task_id: params.root_task_id.clone(),
-        bedrock_message_history: params.bedrock_message_history.clone(),
-        bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
-        bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
-        bedrock_messages_sent: params.bedrock_messages_sent.clone(),
-    };
+    match provider_config {
+        ProviderConfig::Bedrock(config) => {
+            let translator_request = TranslatorRequest {
+                config,
+                model_id,
+                root_task_id: params.root_task_id.clone(),
+                bedrock_message_history: params.bedrock_message_history.clone(),
+                bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
+                bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
+                bedrock_messages_sent: params.bedrock_messages_sent.clone(),
+            };
 
-    match translator::execute(translator_request, &mut request).await {
-        Ok(stream) => {
-            let output_stream = stream.take_until(cancellation_rx);
-            Ok(Box::pin(output_stream))
+            match translator::execute(translator_request, &mut request).await {
+                Ok(stream) => {
+                    let output_stream = stream.take_until(cancellation_rx);
+                    Ok(Box::pin(output_stream))
+                }
+                Err(e) => {
+                    log::error!("[bedrock] Translator error: {e}");
+                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                        stream_type: "bedrock_converse",
+                        source: anyhow::anyhow!("{e}"),
+                    });
+                    let (tx, rx) = async_channel::unbounded();
+                    let _ = tx.send(Err(err)).await;
+                    Ok(Box::pin(rx))
+                }
+            }
         }
-        Err(e) => {
-            log::error!("[bedrock] Translator error: {e}");
+        ProviderConfig::OpenAI(config) => {
+            let translator_request = openai_translator::TranslatorRequest {
+                config,
+                model_id,
+                root_task_id: params.root_task_id.clone(),
+                message_history: params.bedrock_message_history.clone(),
+                tool_result_archive: params.bedrock_tool_result_archive.clone(),
+                progressive_summary: params.bedrock_progressive_summary.clone(),
+                messages_sent: params.bedrock_messages_sent.clone(),
+            };
+
+            match openai_translator::execute(translator_request, &mut request).await {
+                Ok(stream) => {
+                    let output_stream = stream.take_until(cancellation_rx);
+                    Ok(Box::pin(output_stream))
+                }
+                Err(e) => {
+                    log::error!("[openai] Translator error: {e}");
+                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                        stream_type: "openai_chat_completions",
+                        source: anyhow::anyhow!("{e}"),
+                    });
+                    let (tx, rx) = async_channel::unbounded();
+                    let _ = tx.send(Err(err)).await;
+                    Ok(Box::pin(rx))
+                }
+            }
+        }
+        ProviderConfig::None => {
+            log::error!("No AI provider configured. Cannot process request.");
             let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-                stream_type: "bedrock_converse",
-                source: anyhow::anyhow!("{e}"),
+                stream_type: "provider_dispatch",
+                source: anyhow::anyhow!(
+                    "No AI backend available. Please configure a provider in Settings > AI."
+                ),
             });
             let (tx, rx) = async_channel::unbounded();
             let _ = tx.send(Err(err)).await;

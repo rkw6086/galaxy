@@ -15,6 +15,8 @@ use crate::{
             AIIdentifiers, CancellationReason,
         },
         bedrock::client::BedrockClientConfig,
+        openai::client::OpenAIClientConfig,
+        provider::ProviderConfig,
     },
     network::NetworkStatus,
     report_error, send_telemetry_from_ctx,
@@ -83,26 +85,54 @@ pub struct ResponseStream {
 }
 
 impl ResponseStream {
-    fn bedrock_config_if_applicable(
-        _model_id: &str,
-        ctx: &ModelContext<Self>,
-    ) -> Option<BedrockClientConfig> {
+    fn resolve_provider_config(model_id: &str, ctx: &ModelContext<Self>) -> ProviderConfig {
         let settings = AISettings::as_ref(ctx);
-        if !*settings.bedrock_enabled.value() {
-            return None;
+
+        // Check if OpenAI/LiteLLM provider is enabled
+        if *settings.openai_enabled.value() {
+            let base_url = settings.openai_base_url.value().clone();
+            let api_key = {
+                let key = settings.openai_api_key.value().clone();
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(key)
+                }
+            };
+            // Use the model override from settings if set, otherwise use the selected model ID.
+            // This allows LiteLLM models to pass through their actual model_id to the proxy.
+            let model = {
+                let m = settings.openai_model.value().clone();
+                if m.is_empty() {
+                    Some(model_id.to_string())
+                } else {
+                    Some(m)
+                }
+            };
+            return ProviderConfig::OpenAI(OpenAIClientConfig {
+                base_url,
+                api_key,
+                model,
+            });
         }
-        let auth_method = *settings.bedrock_auth_method.value();
-        Some(
-            BedrockClientConfig {
-                auth_method,
-                profile: settings.bedrock_profile.value().clone(),
-                region: settings.bedrock_region.value().clone(),
-                access_key_id: settings.bedrock_access_key_id.value().clone(),
-                secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-                cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-            }
-            .with_external_fallbacks(),
-        )
+
+        // Fall back to Bedrock
+        if *settings.bedrock_enabled.value() {
+            let auth_method = *settings.bedrock_auth_method.value();
+            return ProviderConfig::Bedrock(
+                BedrockClientConfig {
+                    auth_method,
+                    profile: settings.bedrock_profile.value().clone(),
+                    region: settings.bedrock_region.value().clone(),
+                    access_key_id: settings.bedrock_access_key_id.value().clone(),
+                    secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+                    cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+                }
+                .with_external_fallbacks(),
+            );
+        }
+
+        ProviderConfig::None
     }
 
     pub fn new(
@@ -115,11 +145,11 @@ impl ResponseStream {
         let start_time = Local::now();
 
         let request_id = Uuid::new_v4();
-        let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
+        let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
         let params_clone = params.clone();
         let _ = ctx.spawn(
             async move {
-                generate_multi_agent_output(bedrock_config, params_clone, cancellation_rx).await
+                generate_multi_agent_output(provider_config, params_clone, cancellation_rx).await
             },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
@@ -192,11 +222,11 @@ impl ResponseStream {
         let request_id = Uuid::new_v4();
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
-        let bedrock_config = Self::bedrock_config_if_applicable(params.model.as_str(), ctx);
+        let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
         let _ =
             ctx.spawn(
                 async move {
-                    generate_multi_agent_output(bedrock_config, params, cancellation_rx).await
+                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
                 },
                 move |me, stream, ctx| {
                     me.handle_response_stream_result(request_id, stream, ctx);

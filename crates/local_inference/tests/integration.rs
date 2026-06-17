@@ -270,7 +270,10 @@ async fn test_classify_multiple_sequential_calls() {
         ("git status", InputCategory::Shell),
         ("what does this error mean?", InputCategory::AgentPrompt),
         ("npm install express", InputCategory::Shell),
-        ("refactor this to use async/await", InputCategory::AgentPrompt),
+        (
+            "refactor this to use async/await",
+            InputCategory::AgentPrompt,
+        ),
     ];
 
     for (input, expected_category) in inputs {
@@ -286,7 +289,10 @@ async fn test_classify_multiple_sequential_calls() {
             .await
             .expect("classification failed");
 
-        println!("\"{input}\" -> {:?} (confidence: {:.2})", result.category, result.confidence);
+        println!(
+            "\"{input}\" -> {:?} (confidence: {:.2})",
+            result.category, result.confidence
+        );
         assert_eq!(
             result.category, expected_category,
             "expected {expected_category:?} for \"{input}\", got {:?}",

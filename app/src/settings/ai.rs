@@ -462,6 +462,50 @@ fn default_context_size() -> u32 {
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
 
+/// Configuration for a single OpenAI-compatible (LiteLLM) model.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(description = "Configuration for a single OpenAI-compatible model (e.g. via LiteLLM).")]
+pub struct OpenAIModelConfig {
+    #[schemars(description = "The model ID to send in the API request (e.g. claude-sonnet-4-20250514).")]
+    pub model_id: String,
+    #[schemars(description = "Display name shown in the model picker.")]
+    pub display_name: String,
+    #[serde(default)]
+    #[schemars(description = "Whether the model supports image/vision input.")]
+    pub vision_supported: bool,
+    #[serde(default = "default_context_size")]
+    #[schemars(description = "Maximum context window size in tokens.")]
+    pub context_size: u32,
+    #[serde(default)]
+    #[schemars(description = "Optional provider hint (e.g. anthropic, openai, google) for icon display.")]
+    pub provider: Option<String>,
+}
+
+impl settings_value::SettingsValue for OpenAIModelConfig {}
+
+/// Configuration for a single OpenAI-compatible provider endpoint.
+///
+/// Multiple providers can be configured simultaneously (e.g. LiteLLM for cloud models,
+/// Ollama for local models, etc.). Each provider has its own endpoint, credentials, and model list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(
+    description = "Configuration for an OpenAI-compatible provider endpoint (e.g. LiteLLM, Ollama, vLLM)."
+)]
+pub struct OpenAIProviderConfig {
+    #[schemars(description = "Display name for this provider (shown in model picker).")]
+    pub name: String,
+    #[schemars(description = "Base URL for the OpenAI-compatible API endpoint.")]
+    pub base_url: String,
+    #[serde(default)]
+    #[schemars(description = "API key for this endpoint (optional if the proxy handles auth).")]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    #[schemars(description = "Models available from this provider.")]
+    pub models: Vec<OpenAIModelConfig>,
+}
+
+impl settings_value::SettingsValue for OpenAIProviderConfig {}
+
 /// Tracks the state of the quota reset banner
 #[derive(
     Debug,
@@ -1183,6 +1227,67 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: true,
     }
+    // Whether the OpenAI-compatible (LiteLLM) provider is enabled.
+    openai_enabled: OpenAIEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.openai.enabled",
+        description: "Whether to use an OpenAI-compatible endpoint (e.g. LiteLLM) for AI requests.",
+    }
+    // Base URL for the OpenAI-compatible API endpoint.
+    openai_base_url: OpenAIBaseUrl {
+        type: String,
+        default: "http://localhost:4000/v1".to_string(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.openai.base_url",
+        description: "Base URL for the OpenAI-compatible API endpoint (e.g. LiteLLM proxy).",
+    }
+    // API key for the OpenAI-compatible endpoint (optional if proxy handles auth).
+    openai_api_key: OpenAIApiKey {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.openai.api_key",
+        description: "API key for the OpenAI-compatible endpoint (optional if proxy handles auth).",
+    }
+    // Model name to send to the OpenAI-compatible endpoint. Empty = use selected model ID.
+    openai_model: OpenAIModel {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.openai.model",
+        description: "Model name to send to the OpenAI-compatible endpoint. Leave empty to use the selected model ID.",
+    }
+    // Custom OpenAI-compatible model configurations (fetched from LiteLLM or manually configured).
+    openai_models: OpenAIModels {
+        type: Vec<OpenAIModelConfig>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.openai.models",
+        description: "Custom OpenAI-compatible model configurations (e.g. from LiteLLM).",
+    }
+    // Multiple OpenAI-compatible provider endpoints (LiteLLM, Ollama, vLLM, etc.).
+    // Each provider has its own name, base_url, api_key, and model list.
+    openai_providers: OpenAIProviders {
+        type: Vec<OpenAIProviderConfig>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "ai.providers",
+        description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",
+    }
     // Whether or not the user wants agent mode requests to use their saved rules.
     memory_enabled: MemoryEnabled {
         type: bool,
@@ -1728,8 +1833,8 @@ impl AISettings {
         *self.file_based_mcp_enabled
     }
 
-    pub fn is_orchestration_enabled(&self, app: &galaxyui::AppContext) -> bool {
-        FeatureFlag::Orchestration.is_enabled() && self.is_any_ai_enabled(app)
+    pub fn is_orchestration_enabled(&self, _app: &galaxyui::AppContext) -> bool {
+        false
     }
 
     /// Determines whether a quota reset banner should be displayed to the user.

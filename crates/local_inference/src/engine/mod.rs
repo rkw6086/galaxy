@@ -2,8 +2,8 @@ mod generation;
 mod model_loader;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use candle_core::{DType, Tensor};

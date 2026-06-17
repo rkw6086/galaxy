@@ -81,6 +81,7 @@ fn make_item_fields<A: Action + Clone>(
     };
     let is_using_api_key = is_using_api_key_for_provider(&llm.provider, app);
     let is_bedrock = llm.provider == LLMProvider::Bedrock;
+    let is_litellm = llm.provider == LLMProvider::LiteLLM;
 
     let mut item = if let Some(position_id_fn) = position_id_fn {
         let position_id = position_id_fn(&llm.id);
@@ -92,6 +93,10 @@ fn make_item_fields<A: Action + Clone>(
                 let icon_container = Container::new(
                     ConstrainedBox::new(if is_bedrock {
                         Icon::BedrockLogo
+                            .to_galaxyui_icon(appearance.theme().foreground())
+                            .finish()
+                    } else if is_litellm {
+                        Icon::OpenAILogo
                             .to_galaxyui_icon(appearance.theme().foreground())
                             .finish()
                     } else if is_using_api_key {

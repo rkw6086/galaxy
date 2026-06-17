@@ -560,7 +560,7 @@ pub fn bedrock_stream_to_response_events(
     Box::pin(stream)
 }
 
-pub(crate) fn build_create_task(task_id: &str) -> ResponseEvent {
+pub fn build_create_task(task_id: &str) -> ResponseEvent {
     let task = api::Task {
         id: task_id.to_string(),
         description: String::new(),
@@ -617,7 +617,7 @@ fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
     }
 }
 
-pub(super) fn build_stream_init(request_id: &str, conversation_id: &str) -> ResponseEvent {
+pub fn build_stream_init(request_id: &str, conversation_id: &str) -> ResponseEvent {
     ResponseEvent {
         r#type: Some(api::response_event::Type::Init(
             api::response_event::StreamInit {
@@ -629,7 +629,7 @@ pub(super) fn build_stream_init(request_id: &str, conversation_id: &str) -> Resp
     }
 }
 
-pub(super) fn build_stream_finished(
+pub fn build_stream_finished(
     reason: stream_finished::Reason,
     input_tokens: i32,
     output_tokens: i32,
@@ -820,7 +820,7 @@ fn build_append_text(task_id: &str, message_id: &str, text_delta: &str) -> Respo
     }
 }
 
-fn build_tool_call_message(
+pub fn build_tool_call_message(
     task_id: &str,
     tool_use_id: &str,
     tool_name: &str,

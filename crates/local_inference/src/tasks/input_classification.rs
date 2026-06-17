@@ -91,7 +91,9 @@ impl InputClassificationTask {
             temperature: 0.0,
             top_p: 1.0,
         };
-        let output = engine.generate_cancellable(&prompt, &config, cancel).await?;
+        let output = engine
+            .generate_cancellable(&prompt, &config, cancel)
+            .await?;
         Ok(Self::parse_output(&output))
     }
 }

@@ -179,7 +179,11 @@ async fn scenario_tab_naming_development_contexts() {
         },
         TabCase {
             label: "Python data science",
-            commands: vec!["jupyter notebook", "pip install pandas", "python analysis.py"],
+            commands: vec![
+                "jupyter notebook",
+                "pip install pandas",
+                "python analysis.py",
+            ],
             cwd: "/home/user/research/data-pipeline",
         },
         TabCase {

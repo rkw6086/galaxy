@@ -19,7 +19,15 @@ fn test_build_stream_init_has_valid_ids() {
 #[test]
 fn test_build_stream_finished_done_reason() {
     let reason = stream_finished::Reason::Done(stream_finished::Done {});
-    let event = build_stream_finished(reason, 100, 50, 20, 10, "anthropic.claude-sonnet-4-6", false);
+    let event = build_stream_finished(
+        reason,
+        100,
+        50,
+        20,
+        10,
+        "anthropic.claude-sonnet-4-6",
+        false,
+    );
 
     match event.r#type {
         Some(api::response_event::Type::Finished(finished)) => {

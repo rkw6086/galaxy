@@ -11,6 +11,11 @@ use serde_json::Value as JsonValue;
 
 use super::external_config::ExternalBedrockConfig;
 
+// Re-export shared provider types so existing imports from bedrock::convert continue to work.
+pub use crate::ai::provider::types::{
+    ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
+};
+
 #[derive(Clone, Debug)]
 pub struct CachingConfig {
     pub enabled: bool,
@@ -40,56 +45,6 @@ pub struct ConvertedRequest {
     pub system: Vec<SystemContentBlock>,
     pub inference_config: InferenceConfiguration,
     pub tool_config: Option<ToolConfiguration>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ConversationMessage {
-    pub role: MessageRole,
-    pub content: MessageContent,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum MessageRole {
-    User,
-    Assistant,
-}
-
-#[derive(Clone, Debug)]
-pub enum MessageContent {
-    Text(String),
-    ToolUse {
-        tool_use_id: String,
-        name: String,
-        input: JsonValue,
-    },
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-        is_error: bool,
-    },
-    MultiPart(Vec<ContentPart>),
-}
-
-#[derive(Clone, Debug)]
-pub enum ContentPart {
-    Text(String),
-    ToolUse {
-        tool_use_id: String,
-        name: String,
-        input: JsonValue,
-    },
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-        is_error: bool,
-    },
-}
-
-#[derive(Clone, Debug)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub input_schema: JsonValue,
 }
 
 pub fn build_converse_request(

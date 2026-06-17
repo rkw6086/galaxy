@@ -29,10 +29,14 @@ pub(crate) mod get_relevant_files;
 pub(crate) mod harness_display;
 pub(crate) mod llms;
 pub mod onboarding;
+#[cfg(not(target_family = "wasm"))]
+pub mod openai;
 pub(crate) mod persisted_workspace;
 pub(crate) mod predict;
 #[allow(dead_code)]
 pub mod prompt_builder;
+#[cfg(not(target_family = "wasm"))]
+pub mod provider;
 pub mod request_usage_model;
 pub(crate) mod restored_conversations;
 pub(crate) mod skills;

@@ -55,7 +55,8 @@ impl InputClassifier for HeuristicClassifier {
             return InputType::Shell;
         }
 
-        let result = self.classify_input(input, context)
+        let result = self
+            .classify_input(input, context)
             .await
             .map(|result| result.to_input_type())
             .unwrap_or(context.current_input_type);

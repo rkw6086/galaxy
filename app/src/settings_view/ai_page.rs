@@ -26,7 +26,7 @@ use crate::settings::{
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAuthMethod,
     BedrockAutoLogin, BedrockEnabled, CodeSettings, CodebaseContextEnabled, FileBasedMcpEnabled,
     GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, IntelligentAutosuggestionsEnabled,
-    MemoryEnabled, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled,
+    MemoryEnabled, NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled,
     RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
     ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
     ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
@@ -97,6 +97,8 @@ pub enum AISubpage {
     ThirdPartyCLIAgents,
     /// AWS Bedrock direct provider configuration.
     Bedrock,
+    /// OpenAI-compatible (LiteLLM) provider configuration.
+    OpenAI,
 }
 
 impl AISubpage {
@@ -107,6 +109,7 @@ impl AISubpage {
             SettingsSection::Knowledge => Some(Self::Knowledge),
             SettingsSection::ThirdPartyCLIAgents => Some(Self::ThirdPartyCLIAgents),
             SettingsSection::Bedrock => Some(Self::Bedrock),
+            SettingsSection::OpenAI => Some(Self::OpenAI),
             // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
             _ => None,
         }
@@ -1393,6 +1396,130 @@ impl AISettingsPageView {
         }
     }
 
+    /// Fetches models from the LiteLLM endpoint and updates settings.
+    fn fetch_litellm_models(&mut self, ctx: &mut ViewContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        let base_url = settings.openai_base_url.value().clone();
+        let api_key = {
+            let key = settings.openai_api_key.value().clone();
+            if key.is_empty() {
+                None
+            } else {
+                Some(key)
+            }
+        };
+
+        let _ = ctx.spawn(
+            async move {
+                use crate::settings::ai::OpenAIModelConfig;
+
+                let url = format!("{}/models", base_url.trim_end_matches('/'));
+                let client = reqwest::Client::new();
+                let mut request = client.get(&url);
+                if let Some(ref key) = api_key {
+                    request = request.header("Authorization", format!("Bearer {key}"));
+                }
+
+                let response = match request.send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log::error!("[litellm] Failed to fetch models: {e}");
+                        return Vec::new();
+                    }
+                };
+
+                if !response.status().is_success() {
+                    log::error!(
+                        "[litellm] Model fetch returned HTTP {}",
+                        response.status()
+                    );
+                    return Vec::new();
+                }
+
+                let body: serde_json::Value = match response.json().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::error!("[litellm] Failed to parse models response: {e}");
+                        return Vec::new();
+                    }
+                };
+
+                // LiteLLM /models endpoint returns OpenAI-compatible format:
+                // { "data": [{ "id": "model-name", "max_model_len": N, ... }] }
+                let models: Vec<OpenAIModelConfig> = body["data"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|m| {
+                        let id = m["id"].as_str()?;
+                        // Try multiple context window fields used by different proxies
+                        let context_size = m["max_model_len"]
+                            .as_u64()
+                            .or_else(|| m["context_window"].as_u64())
+                            .or_else(|| m["max_input_tokens"].as_u64())
+                            .unwrap_or(200_000) as u32;
+
+                        // Derive display name from model ID
+                        let display_name = id
+                            .split('/')
+                            .last()
+                            .unwrap_or(id)
+                            .replace('-', " ")
+                            .replace('_', " ");
+                        // Capitalize first letter of each word
+                        let display_name = display_name
+                            .split_whitespace()
+                            .map(|word| {
+                                let mut chars = word.chars();
+                                match chars.next() {
+                                    None => String::new(),
+                                    Some(c) => {
+                                        c.to_uppercase().to_string() + chars.as_str()
+                                    }
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+
+                        // Infer provider from model ID prefix
+                        let provider = if id.contains("claude") || id.contains("anthropic") {
+                            Some("anthropic".to_string())
+                        } else if id.contains("gpt") || id.contains("o1") || id.contains("o3") {
+                            Some("openai".to_string())
+                        } else if id.contains("gemini") {
+                            Some("google".to_string())
+                        } else {
+                            None
+                        };
+
+                        Some(OpenAIModelConfig {
+                            model_id: id.to_string(),
+                            display_name,
+                            vision_supported: m["supports_vision"].as_bool().unwrap_or(false),
+                            context_size,
+                            provider,
+                        })
+                    })
+                    .collect();
+
+                log::info!(
+                    "[litellm] Fetched {} model(s) from {}",
+                    models.len(),
+                    url
+                );
+                models
+            },
+            |_view, models, ctx| {
+                if !models.is_empty() {
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        let _ = settings.openai_models.set_value(models, ctx);
+                    });
+                }
+                ctx.notify();
+            },
+        );
+    }
+
     fn build_page(
         subpage: Option<AISubpage>,
         ctx: &mut ViewContext<Self>,
@@ -1501,6 +1628,12 @@ impl AISettingsPageView {
             }
             Some(AISubpage::Bedrock) => {
                 let widget = BedrockSettingsWidget::new(ctx);
+                widgets.push(Box::new(widget));
+                let title: Option<&str> = None;
+                return (PageType::new_uncategorized(widgets, title), None);
+            }
+            Some(AISubpage::OpenAI) => {
+                let widget = OpenAISettingsWidget::new(ctx);
                 widgets.push(Box::new(widget));
                 let title: Option<&str> = None;
                 return (PageType::new_uncategorized(widgets, title), None);
@@ -2088,6 +2221,8 @@ pub enum AISettingsPageAction {
     SetBedrockAuthMethod(BedrockAuthMethod),
     SetBedrockProfile(String),
     ToggleBedrockCrossRegionInference,
+    ToggleOpenAIEnabled,
+    FetchOpenAIModels,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -2755,6 +2890,16 @@ impl TypedActionView for AISettingsPageView {
                         .toggle_and_save_value(ctx));
                 });
                 ctx.notify();
+            }
+            AISettingsPageAction::ToggleOpenAIEnabled => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.openai_enabled.toggle_and_save_value(ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::FetchOpenAIModels => {
+                // Trigger a fetch of models from the LiteLLM endpoint
+                self.fetch_litellm_models(ctx);
             }
             AISettingsPageAction::ToggleFileBasedMcp => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3730,7 +3875,6 @@ impl SettingsWidget for ActiveAIWidget {
                 .with_padding_bottom(HEADER_PADDING)
                 .finish(),
             );
-
 
         if self.is_next_command_toggleable(app) {
             column.add_child(self.render_next_command_section(view, app));
@@ -6231,12 +6375,284 @@ impl SettingsWidget for BedrockSettingsWidget {
             let description = format!(
                 "{} model{} configured via settings.toml.",
                 configured_models.len(),
-                if configured_models.len() == 1 { "" } else { "s" }
+                if configured_models.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
             );
             column.add_child(render_ai_setting_description(description, is_enabled, app));
         } else {
             column.add_child(render_ai_setting_description(
                 "No models configured. Add models to ~/.galaxy/settings.toml under [ai.bedrock].",
+                is_enabled,
+                app,
+            ));
+        }
+
+        column.finish()
+    }
+}
+
+struct OpenAISettingsWidget {
+    enabled_toggle: SwitchStateHandle,
+    base_url_editor: ViewHandle<EditorView>,
+    api_key_editor: ViewHandle<EditorView>,
+    fetch_button: MouseStateHandle,
+}
+
+impl OpenAISettingsWidget {
+    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
+        let ai_settings = AISettings::as_ref(ctx);
+
+        let base_url_val = ai_settings.openai_base_url.value().clone();
+        let api_key_val = ai_settings.openai_api_key.value().clone();
+
+        let base_url_editor = ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password: false,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text("http://localhost:4000/v1", ctx);
+            editor.set_buffer_text(&base_url_val, ctx);
+            editor
+        });
+        ctx.subscribe_to_view(&base_url_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let _ = settings.openai_base_url.set_value(value, ctx);
+                });
+            }
+        });
+
+        let api_key_editor = ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password: true,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text("sk-... (optional)", ctx);
+            editor.set_buffer_text(&api_key_val, ctx);
+            editor
+        });
+        ctx.subscribe_to_view(&api_key_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let _ = settings.openai_api_key.set_value(value, ctx);
+                });
+            }
+        });
+
+        let base_url_editor_clone = base_url_editor.clone();
+        let api_key_editor_clone = api_key_editor.clone();
+        ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
+            if matches!(event, AISettingsChangedEvent::OpenAIEnabled { .. }) {
+                let is_enabled = *AISettings::as_ref(ctx).openai_enabled.value();
+                AISettingsPageView::update_editor_interaction_state(
+                    base_url_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                AISettingsPageView::update_editor_interaction_state(
+                    api_key_editor_clone.clone(),
+                    is_enabled,
+                    ctx,
+                );
+                ctx.notify();
+            }
+        });
+
+        Self {
+            enabled_toggle: SwitchStateHandle::default(),
+            base_url_editor,
+            api_key_editor,
+            fetch_button: MouseStateHandle::default(),
+        }
+    }
+
+    fn render_input(
+        appearance: &Appearance,
+        label: &'static str,
+        editor: ViewHandle<EditorView>,
+        is_enabled: bool,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let padding = Some(Coords {
+            top: 10.,
+            bottom: 10.,
+            left: 16.,
+            right: 16.,
+        });
+        let editor_style = UiComponentStyles {
+            padding,
+            background: Some(appearance.theme().surface_2().into()),
+            ..Default::default()
+        };
+
+        let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+            .with_color(styles::header_font_color(is_enabled, app).into())
+            .finish();
+
+        let input = appearance
+            .ui_builder()
+            .text_input(editor)
+            .with_style(editor_style)
+            .build()
+            .finish();
+
+        Flex::column()
+            .with_spacing(8.)
+            .with_child(label)
+            .with_child(input)
+            .finish()
+    }
+}
+
+impl SettingsWidget for OpenAISettingsWidget {
+    type View = AISettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "openai litellm custom provider endpoint api key models"
+    }
+
+    fn should_render(&self, _app: &AppContext) -> bool {
+        true
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let ai_settings = AISettings::as_ref(app);
+        let is_enabled = *ai_settings.openai_enabled.value();
+
+        let mut column = Flex::column().with_spacing(16.);
+
+        column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
+            "Enable OpenAI-Compatible Provider",
+            AISettingsPageAction::ToggleOpenAIEnabled,
+            is_enabled,
+            true,
+            self.enabled_toggle.clone(),
+            &RefCell::new(HashMap::new()),
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Route AI requests through an OpenAI-compatible endpoint (e.g. LiteLLM proxy).",
+            true,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        column.add_child(Self::render_input(
+            appearance,
+            "Base URL",
+            self.base_url_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "The OpenAI-compatible API base URL (e.g. http://localhost:4000/v1).",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(Self::render_input(
+            appearance,
+            "API Key",
+            self.api_key_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Optional. Leave empty if the proxy handles authentication.",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        // Fetch models button
+        let fetch_button = appearance
+            .ui_builder()
+            .button(ButtonVariant::Secondary, self.fetch_button.clone())
+            .with_text_label("Fetch Models from Endpoint".to_owned())
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(AISettingsPageAction::FetchOpenAIModels);
+            })
+            .finish();
+        column.add_child(fetch_button);
+        column.add_child(render_ai_setting_description(
+            "Queries the /models endpoint and populates the model list with available models and their context window sizes.",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        // Show configured models count
+        let configured_models: Vec<_> = ai_settings.openai_models.value().clone();
+        if !configured_models.is_empty() {
+            let description = format!(
+                "{} model{} configured via settings.toml.",
+                configured_models.len(),
+                if configured_models.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            );
+            column.add_child(render_ai_setting_description(description, is_enabled, app));
+
+            // Show first few model names
+            let preview: String = configured_models
+                .iter()
+                .take(5)
+                .map(|m| m.display_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let suffix = if configured_models.len() > 5 {
+                format!(" (+{} more)", configured_models.len() - 5)
+            } else {
+                String::new()
+            };
+            column.add_child(render_ai_setting_description(
+                format!("Models: {preview}{suffix}"),
+                is_enabled,
+                app,
+            ));
+        } else {
+            column.add_child(render_ai_setting_description(
+                "No models configured. Use 'Fetch Models' or add them to ~/.galaxy/settings.toml under [ai.openai].",
                 is_enabled,
                 app,
             ));

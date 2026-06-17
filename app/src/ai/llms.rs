@@ -16,7 +16,7 @@ use crate::{
     network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind},
     report_error,
     server::server_api::ServerApiProvider,
-    settings::ai::{AISettings, AISettingsChangedEvent, BedrockModelConfig},
+    settings::ai::{AISettings, AISettingsChangedEvent, BedrockModelConfig, OpenAIModelConfig},
     workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent},
 };
 
@@ -43,6 +43,7 @@ pub fn is_using_api_key_for_provider(provider: &LLMProvider, app: &AppContext) -
         LLMProvider::Anthropic => api_keys.is_some_and(|keys| keys.anthropic.is_some()),
         LLMProvider::Google => api_keys.is_some_and(|keys| keys.google.is_some()),
         LLMProvider::Bedrock => true,
+        LLMProvider::LiteLLM => true,
         _ => false,
     }
 }
@@ -97,6 +98,8 @@ pub enum LLMProvider {
     Google,
     Xai,
     Bedrock,
+    /// Models served through an OpenAI-compatible proxy (e.g. LiteLLM).
+    LiteLLM,
     Unknown,
 }
 
@@ -108,6 +111,7 @@ impl LLMProvider {
             LLMProvider::Anthropic => Some(Icon::ClaudeLogo),
             LLMProvider::Google => Some(Icon::GeminiLogo),
             LLMProvider::Bedrock => Some(Icon::BedrockLogo),
+            LLMProvider::LiteLLM => Some(Icon::OpenAILogo),
             LLMProvider::Xai => None,
             LLMProvider::Unknown => None,
         }
@@ -551,6 +555,15 @@ impl LLMPreferences {
                 me.inject_bedrock_models(ctx);
                 ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
             }
+            if matches!(
+                event,
+                AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::OpenAIModels { .. }
+                    | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+            ) {
+                me.inject_openai_models(ctx);
+                ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            }
         });
 
         let base_llm_for_terminal_view = HashMap::new();
@@ -572,6 +585,7 @@ impl LLMPreferences {
         {
             Self::ensure_default_models_in_settings(ctx);
             me.inject_bedrock_models(ctx);
+            me.inject_openai_models(ctx);
         }
 
         me
@@ -582,8 +596,7 @@ impl LLMPreferences {
         use crate::ai::bedrock::models::DEFAULT_BEDROCK_MODELS;
 
         let settings = AISettings::as_ref(ctx);
-        let mut current_models: Vec<BedrockModelConfig> =
-            settings.bedrock_models.value().clone();
+        let mut current_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
 
         let existing_ids: std::collections::HashSet<String> =
             current_models.iter().map(|m| m.model_id.clone()).collect();
@@ -784,6 +797,80 @@ impl LLMPreferences {
                 cli.default_id = id;
             }
         }
+    }
+
+    /// Injects models from the OpenAI-compatible (LiteLLM) provider into the available model lists.
+    #[cfg(not(target_family = "wasm"))]
+    fn inject_openai_models(&mut self, ctx: &AppContext) {
+        // Remove any previously injected LiteLLM models
+        self.models_by_feature
+            .agent_mode
+            .choices
+            .retain(|m| m.provider != LLMProvider::LiteLLM);
+        self.models_by_feature
+            .coding
+            .choices
+            .retain(|m| m.provider != LLMProvider::LiteLLM);
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM);
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.openai_enabled.value() {
+            return;
+        }
+
+        let user_models: Vec<OpenAIModelConfig> = settings.openai_models.value().clone();
+        if user_models.is_empty() {
+            return;
+        }
+
+        let base_url = settings.openai_base_url.value().clone();
+        let description_label = if base_url.contains("localhost") || base_url.contains("127.0.0.1")
+        {
+            "LiteLLM (local)".to_string()
+        } else {
+            "LiteLLM".to_string()
+        };
+
+        for model in &user_models {
+            let llm_info = LLMInfo {
+                id: LLMId::from(model.model_id.as_str()),
+                display_name: model.display_name.clone(),
+                base_model_name: model.display_name.clone(),
+                reasoning_level: None,
+                usage_metadata: LLMUsageMetadata {
+                    request_multiplier: 1,
+                    credit_multiplier: None,
+                },
+                description: Some(description_label.clone()),
+                disable_reason: None,
+                vision_supported: model.vision_supported,
+                spec: None,
+                provider: LLMProvider::LiteLLM,
+                host_configs: HashMap::from([(
+                    LLMModelHost::DirectApi,
+                    RoutingHostConfig {
+                        enabled: true,
+                        model_routing_host: LLMModelHost::DirectApi,
+                    },
+                )]),
+                discount_percentage: None,
+            };
+            self.models_by_feature
+                .agent_mode
+                .choices
+                .push(llm_info.clone());
+            self.models_by_feature.coding.choices.push(llm_info.clone());
+            if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                cli.choices.push(llm_info);
+            }
+        }
+
+        log::info!(
+            "[openai/litellm] Injected {} model(s) into available choices",
+            user_models.len()
+        );
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.

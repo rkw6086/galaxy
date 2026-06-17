@@ -992,7 +992,12 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
     // Filter out suggest_next_prompt — its action executor waits on a oneshot
     // channel for UI interaction that never fires in the Bedrock path, causing
     // the conversation to stay InProgress forever.
-    tools.retain(|t| t.name != "suggest_next_prompt");
+    // Filter out start_agent/send_message_to_agent — sub-agents are disabled.
+    tools.retain(|t| {
+        t.name != "suggest_next_prompt"
+            && t.name != "start_agent"
+            && t.name != "send_message_to_agent"
+    });
 
     tools
 }

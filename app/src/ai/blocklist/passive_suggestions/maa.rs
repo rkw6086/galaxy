@@ -432,7 +432,6 @@ impl PassiveSuggestionsModel {
             );
         }
     }
-
 }
 
 impl Entity for PassiveSuggestionsModel {

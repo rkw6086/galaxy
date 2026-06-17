@@ -41,24 +41,52 @@ Environment variables:
   - `Error_<timestamp>.txt` snapshot files written to the repository root on request/stream failures (includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails)
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
 
-### Bedrock Translator Architecture
-The Bedrock integration uses a **translator service pattern** where Warp proto types flow in, get converted to Bedrock SDK types, and responses are translated back:
+### AI Provider Architecture
+
+Galaxy supports multiple AI backends via a **provider dispatch pattern**. Provider selection
+is controlled by settings (`ai.openai.enabled` takes priority over `ai.bedrock.enabled`).
 
 ```
-Warp UI (proto) → translator.rs → request_translator.rs → Bedrock API
-Warp UI (proto) ← response_translator.rs ← Bedrock stream
+Provider dispatch: response_stream.rs → resolve_provider_config() → ProviderConfig enum
+                                       ↓ Bedrock          ↓ OpenAI
+                              bedrock/translator.rs    openai/translator.rs
 ```
 
-Key files in `app/src/ai/bedrock/`:
+**Shared types** in `app/src/ai/provider/`:
+- `types.rs` — `ConversationMessage`, `MessageRole`, `MessageContent`, `ContentPart`, `ToolDefinition`
+- `mod.rs` — `ProviderConfig` enum (Bedrock | OpenAI | None)
+
+**Bedrock provider** in `app/src/ai/bedrock/`:
 - `translator.rs` — Orchestrator: takes `api::Request` + config, returns `ResponseStream`
 - `request_translator.rs` — Converts Warp proto → Bedrock SDK types (messages, system prompt, tools, sanitization)
 - `response_translator.rs` — Converts Bedrock stream events → Warp proto `ResponseEvent`s
-- `convert.rs` — Shared types (`ConversationMessage`, `ToolDefinition`) and Bedrock SDK type builders
+- `convert.rs` — Re-exports shared types + Bedrock SDK type builders
 - `client.rs` — AWS SDK client construction and `converse_stream` call
 - `models.rs` — Model registry and cross-region inference prefix logic
 - `discovery.rs` — AWS profile listing and model discovery (STS identity check + ListFoundationModels)
 - `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
 - `external_config.rs` — Fallback config from Claude Code/OpenCode settings
+
+**OpenAI/LiteLLM provider** in `app/src/ai/openai/`:
+- `translator.rs` — Orchestrator: same pattern as Bedrock, targets OpenAI chat completions API
+- `client.rs` — `reqwest`-based HTTP client for `POST /v1/chat/completions` with streaming
+- `convert.rs` — `ConversationMessage` → OpenAI JSON format (system/user/assistant/tool roles, function calling)
+- `request_translator.rs` — OpenAI-specific message sanitization (lighter than Bedrock's strict alternation rules)
+- `response_translator.rs` — SSE stream parser → Warp proto `ResponseEvent`s
+
+**Provider settings** (in settings TOML):
+- `ai.bedrock.enabled` — Use AWS Bedrock directly (default: true)
+- `ai.openai.enabled` — Use OpenAI-compatible endpoint, e.g. LiteLLM (default: false, takes priority)
+- `ai.openai.base_url` — Endpoint URL (default: `http://localhost:4000/v1`)
+- `ai.openai.api_key` — Optional API key (stored in keychain)
+- `ai.openai.model` — Model name override sent to the endpoint
+- `ai.openai.models` — Array of `OpenAIModelConfig` objects (model_id, display_name, vision_supported, context_size, provider)
+
+**OpenAI/LiteLLM model discovery**:
+- Models can be auto-fetched from the `/models` endpoint via the Settings > OpenAI / LiteLLM page
+- Fetched models include context window sizes from `max_model_len` / `context_window` / `max_input_tokens` fields
+- Models injected into `LLMPreferences` use `LLMProvider::LiteLLM` and show the OpenAI icon in the picker
+- Provider is inferred from model ID (claude→anthropic, gpt→openai, gemini→google)
 
 Key invariants:
 - Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`
