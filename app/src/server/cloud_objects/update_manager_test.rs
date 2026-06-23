@@ -5,7 +5,7 @@ use futures_lite::future;
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::{object_permissions::AccessLevel, scalars::time::ServerTimestamp};
 use galaxyui::{App, ModelHandle, SingletonEntity};
-use settings::{RespectUserSyncSetting, SyncToCloud};
+use settings::{SyncToCloud};
 
 #[cfg(test)]
 use crate::server::server_api::object::MockObjectClient;
@@ -745,7 +745,7 @@ fn test_sync_state_after_creation_item_not_in_sync_queue_generic_object() {
                 Preference::new(
                     "foo".to_owned(),
                     "{\"test_key\": \"test_value\"}",
-                    SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                    SyncToCloud::Never,
                 )
                 .expect("error creating preference"),
             ),
@@ -1290,7 +1290,7 @@ fn test_bulk_create_generic_string_objects() {
                     Preference::new(
                         "storage_key_1".to_string(),
                         "{\"test_key\": \"test_value_1\"}",
-                        SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        SyncToCloud::Never,
                     )
                     .expect("error creating preference"),
                 ),
@@ -1303,7 +1303,7 @@ fn test_bulk_create_generic_string_objects() {
                     Preference::new(
                         "storage_key_2".to_string(),
                         "{\"test_key\": \"test_value_2\"}",
-                        SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        SyncToCloud::Never,
                     )
                     .expect("error creating preference"),
                 ),
@@ -1444,7 +1444,7 @@ fn test_sync_state_after_update_item_not_in_sync_queue_generic_string_object() {
                 Preference::new(
                     "foo".to_owned(),
                     "{\"test_key\": \"test_value\"}",
-                    SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                    SyncToCloud::Never,
                 )
                 .expect("error creating preference"),
             ),
@@ -1458,7 +1458,7 @@ fn test_sync_state_after_update_item_not_in_sync_queue_generic_string_object() {
                         Preference::new(
                             "foo".to_owned(),
                             "{\"test_key\": \"test_value_2\"}",
-                            SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                            SyncToCloud::Never,
                         )
                         .expect("error creating preference"),
                     ),
@@ -2679,7 +2679,7 @@ fn test_pending_metadata_update_with_polling() {
                     Preference::new(
                         "test_storage_key".to_string(),
                         "{\"test_key\": \"test_value\"}",
-                        SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                        SyncToCloud::Never,
                     )
                     .expect("error creating preference"),
                 ),

@@ -1,6 +1,6 @@
 use crate::banner::BannerState;
 use galaxy_core::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
+use settings::{SupportedPlatforms, SyncToCloud};
 
 // This isn't exactly a setting, but rather a record of a
 // user action that should be persisted the same way we would a setting.
@@ -14,7 +14,7 @@ define_settings_group!(VimBannerSettings, settings: [
         type: BannerState,
         default: BannerState::NotDismissed,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
 ]);

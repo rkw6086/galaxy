@@ -1,6 +1,6 @@
 use crate::terminal::block_list_viewport::InputMode;
 use settings::{
-    macros::define_settings_group, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
 };
 
 define_settings_group!(InputModeSettings, settings: [
@@ -10,7 +10,7 @@ define_settings_group!(InputModeSettings, settings: [
         // to set it to InputMode::Waterfall.
         default: InputMode::PinnedToBottom,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "InputMode",
         toml_path: "appearance.input.input_mode",

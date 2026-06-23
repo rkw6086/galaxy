@@ -1,5 +1,5 @@
 use settings::{
-    macros::define_settings_group, RespectUserSyncSetting, SupportedPlatforms, SyncToCloud,
+    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
 };
 
 define_settings_group!(SshSettings,
@@ -8,7 +8,7 @@ define_settings_group!(SshSettings,
             type: bool,
             default: true,
             supported_platforms: SupportedPlatforms::ALL,
-            sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+            sync_to_cloud: SyncToCloud::Never,
             private: false,
             storage_key: "EnableSSHWrapper",
             toml_path: "warpify.ssh.enable_legacy_ssh_wrapper",

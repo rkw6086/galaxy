@@ -1,5 +1,5 @@
 use galaxy_core::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
+use settings::{SupportedPlatforms, SyncToCloud};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,7 +41,7 @@ define_settings_group!(SameLinePromptBlockSettings, settings: [
         type: SLPBlockState,
         default: SLPBlockState::NotShown,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
 ]);

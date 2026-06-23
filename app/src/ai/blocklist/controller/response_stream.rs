@@ -90,6 +90,19 @@ impl ResponseStream {
 
         // Check if OpenAI/LiteLLM provider is enabled
         if *settings.openai_enabled.value() {
+            // First, check if this specific model has a per-provider routing entry
+            // (from the multi-provider `ai.providers[]` config or legacy `ai.openai.models`).
+            use crate::ai::llms::LLMPreferences;
+            let prefs = LLMPreferences::as_ref(ctx);
+            if let Some(config) = prefs.openai_client_config_for_model(model_id) {
+                return ProviderConfig::OpenAI(OpenAIClientConfig {
+                    base_url: config.base_url.clone(),
+                    api_key: config.api_key.clone(),
+                    model: Some(model_id.to_string()),
+                });
+            }
+
+            // Fall back to the legacy single-provider config
             let base_url = settings.openai_base_url.value().clone();
             let api_key = {
                 let key = settings.openai_api_key.value().clone();
@@ -99,8 +112,6 @@ impl ResponseStream {
                     Some(key)
                 }
             };
-            // Use the model override from settings if set, otherwise use the selected model ID.
-            // This allows LiteLLM models to pass through their actual model_id to the proxy.
             let model = {
                 let m = settings.openai_model.value().clone();
                 if m.is_empty() {

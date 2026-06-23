@@ -76,17 +76,45 @@ Provider dispatch: response_stream.rs → resolve_provider_config() → Provider
 
 **Provider settings** (in settings TOML):
 - `ai.bedrock.enabled` — Use AWS Bedrock directly (default: true)
-- `ai.openai.enabled` — Use OpenAI-compatible endpoint, e.g. LiteLLM (default: false, takes priority)
-- `ai.openai.base_url` — Endpoint URL (default: `http://localhost:4000/v1`)
-- `ai.openai.api_key` — Optional API key (stored in keychain)
+- `ai.openai.enabled` — Use OpenAI-compatible endpoint(s) (default: false, takes priority over Bedrock)
+- `ai.openai.base_url` — Legacy single-provider endpoint URL (default: `http://localhost:4000/v1`)
+- `ai.openai.api_key` — Legacy single-provider API key (stored in keychain)
 - `ai.openai.model` — Model name override sent to the endpoint
-- `ai.openai.models` — Array of `OpenAIModelConfig` objects (model_id, display_name, vision_supported, context_size, provider)
+- `ai.openai.models` — Legacy single-provider model list (`Vec<OpenAIModelConfig>`)
+- `ai.providers` — **Multi-provider config** (`Vec<OpenAIProviderConfig>`): each entry has `name`, `base_url`, `api_key`, `models[]`
+
+**Multi-provider example** (settings.toml):
+```toml
+[ai.openai]
+enabled = true
+
+[[ai.providers]]
+name = "LiteLLM"
+base_url = "http://localhost:4000/v1"
+api_key = "sk-..."
+
+[[ai.providers.models]]
+model_id = "claude-sonnet-4-20250514[1m]"
+display_name = "Claude Sonnet 4 (1M)"
+context_size = 1000000
+
+[[ai.providers]]
+name = "Ollama (Local)"
+base_url = "http://localhost:11434/v1"
+
+[[ai.providers.models]]
+model_id = "llama3.2"
+display_name = "Llama 3.2"
+context_size = 128000
+```
 
 **OpenAI/LiteLLM model discovery**:
 - Models can be auto-fetched from the `/models` endpoint via the Settings > OpenAI / LiteLLM page
-- Fetched models include context window sizes from `max_model_len` / `context_window` / `max_input_tokens` fields
-- Models injected into `LLMPreferences` use `LLMProvider::LiteLLM` and show the OpenAI icon in the picker
-- Provider is inferred from model ID (claude→anthropic, gpt→openai, gemini→google)
+- For each model, the system probes `{model_id}[1m]` with a minimal chat completion request
+- If the `[1m]` variant is accepted (HTTP 200 or 429), it's used with 1M context window
+- Otherwise, the base model ID is used with its reported context size
+- Models injected via `ai.providers[]` are routed to their specific endpoint (per-model routing map)
+- Provider name shown as the description label in the model picker; icon shows OpenAI logo for all OpenAI-compatible providers
 
 Key invariants:
 - Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`

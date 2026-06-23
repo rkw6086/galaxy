@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Error;
 use galaxy_core::{
     define_settings_group,
-    settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud},
+    settings::{Setting, SupportedPlatforms, SyncToCloud},
 };
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ define_settings_group!(WorkflowAliases, settings: [
         type: Vec<WorkflowAlias>,
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
         storage_key: "WorkflowAliases",
     }

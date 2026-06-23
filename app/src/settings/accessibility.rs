@@ -1,6 +1,6 @@
 use galaxyui::accessibility::AccessibilityVerbosity;
 use settings::{
-    macros::define_settings_group, RespectUserSyncSetting, SupportedPlatforms, SyncToCloud,
+    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
 };
 
 define_settings_group!(AccessibilitySettings, settings: [
@@ -8,7 +8,7 @@ define_settings_group!(AccessibilitySettings, settings: [
         type: AccessibilityVerbosity,
         default: AccessibilityVerbosity::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "AccessibilityVerbosity",
         toml_path: "accessibility.accessibility_verbosity",

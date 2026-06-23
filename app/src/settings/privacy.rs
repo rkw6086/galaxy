@@ -22,7 +22,7 @@ use crate::terminal::safe_mode_settings::SafeModeSettings;
 
 use settings::{
     macros::{define_settings_group, maybe_define_setting, register_settings_events},
-    RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+    Setting, SupportedPlatforms, SyncToCloud,
 };
 
 use serde::{Deserialize, Serialize};
@@ -98,7 +98,7 @@ define_settings_group!(WarpDrivePrivacySettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "TelemetryEnabled",
         toml_path: "privacy.telemetry_enabled",
@@ -108,7 +108,7 @@ define_settings_group!(WarpDrivePrivacySettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "CrashReportingEnabled",
         toml_path: "privacy.crash_reporting_enabled",
@@ -118,7 +118,7 @@ define_settings_group!(WarpDrivePrivacySettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "CloudConversationStorageEnabled",
         toml_path: "agents.cloud_conversation_storage_enabled",
@@ -130,7 +130,7 @@ maybe_define_setting!(CustomSecretRegexList, group: PrivacySettings, {
     type: Vec<CustomSecretRegex>,
     default: Vec::new(),
     supported_platforms: SupportedPlatforms::ALL,
-    sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+    sync_to_cloud: SyncToCloud::Never,
     private: false,
     toml_path: "privacy.custom_secret_regex_list",
     description: "Custom regex patterns for detecting and redacting secrets.",
@@ -140,7 +140,7 @@ maybe_define_setting!(HasInitializedDefaultSecretRegexes, group: PrivacySettings
     type: bool,
     default: false,
     supported_platforms: SupportedPlatforms::ALL,
-    sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+    sync_to_cloud: SyncToCloud::Never,
     private: true,
 });
 

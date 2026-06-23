@@ -1,5 +1,5 @@
 use settings::{
-    macros::define_settings_group, RespectUserSyncSetting, SupportedPlatforms, SyncToCloud,
+    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
 };
 
 define_settings_group!(CodeSettings, settings: [
@@ -16,7 +16,7 @@ define_settings_group!(CodeSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "AgentModeCodebaseContext",
         toml_path: "code.indexing.agent_mode_codebase_context",
@@ -26,7 +26,7 @@ define_settings_group!(CodeSettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "AgentModeCodebaseContextAutoIndexing",
         toml_path: "code.indexing.agent_mode_codebase_context_auto_indexing",
@@ -37,7 +37,7 @@ define_settings_group!(CodeSettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     // Controls whether the project explorer / file tree appears in the tools panel.
@@ -45,7 +45,7 @@ define_settings_group!(CodeSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "code.editor.show_project_explorer",
         description: "Whether the project explorer is shown in the tools panel.",
@@ -55,7 +55,7 @@ define_settings_group!(CodeSettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "code.editor.show_global_search",
         description: "Whether global file search is shown in the tools panel.",

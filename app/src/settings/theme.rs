@@ -2,7 +2,7 @@ use galaxyui::{platform::SystemTheme, AppContext};
 
 use crate::themes::theme::{RespectSystemTheme, SelectedSystemThemes, ThemeKind};
 use settings::{
-    macros::define_settings_group, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
 };
 
 // Settings group for themes related settings.
@@ -18,7 +18,7 @@ define_settings_group!(ThemeSettings, settings: [
         // to set the default theme to Phenomenon.
         default: ThemeKind::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "appearance.themes.theme",
         max_table_depth: 0,
@@ -28,7 +28,7 @@ define_settings_group!(ThemeSettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "SystemTheme",
         toml_path: "appearance.themes.system_theme",
@@ -38,7 +38,7 @@ define_settings_group!(ThemeSettings, settings: [
         type: SelectedSystemThemes,
         default: SelectedSystemThemes::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         storage_key: "SelectedSystemThemes",
         toml_path: "appearance.themes.selected_system_themes",

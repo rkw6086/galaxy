@@ -1,7 +1,7 @@
 use chrono::Utc;
 use galaxyui::{App, ModelHandle};
 use lazy_static::lazy_static;
-use settings::{RespectUserSyncSetting, SyncToCloud};
+use settings::{SyncToCloud};
 
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::user::TEST_USER_UID;
@@ -507,7 +507,7 @@ fn test_create_json_object() {
             Preference::new(
                 "test_storage_key".to_owned(),
                 "{\"test_key\": \"test_value\"}",
-                SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+                SyncToCloud::Never,
             )
             .expect("error creating preference"),
         ),

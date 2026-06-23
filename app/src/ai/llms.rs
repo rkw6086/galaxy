@@ -16,7 +16,10 @@ use crate::{
     network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind},
     report_error,
     server::server_api::ServerApiProvider,
-    settings::ai::{AISettings, AISettingsChangedEvent, BedrockModelConfig, OpenAIModelConfig},
+    settings::ai::{
+        AISettings, AISettingsChangedEvent, BedrockModelConfig, OpenAIModelConfig,
+        OpenAIProviderConfig,
+    },
     workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent},
 };
 
@@ -512,6 +515,10 @@ pub struct LLMPreferences {
     models_by_feature: ModelsByFeature,
     last_update: Option<AvailableLLMsUpdate>,
     base_llm_for_terminal_view: HashMap<EntityId, LLMId>,
+    /// Maps model IDs from OpenAI-compatible providers to their client configs.
+    /// Used by `resolve_provider_config` to route requests to the correct endpoint.
+    #[cfg(not(target_family = "wasm"))]
+    openai_provider_routing: HashMap<String, super::openai::client::OpenAIClientConfig>,
 }
 
 impl LLMPreferences {
@@ -560,6 +567,7 @@ impl LLMPreferences {
                 AISettingsChangedEvent::OpenAIEnabled { .. }
                     | AISettingsChangedEvent::OpenAIModels { .. }
                     | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+                    | AISettingsChangedEvent::OpenAIProviders { .. }
             ) {
                 me.inject_openai_models(ctx);
                 ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
@@ -572,6 +580,8 @@ impl LLMPreferences {
             models_by_feature,
             last_update: None,
             base_llm_for_terminal_view,
+            #[cfg(not(target_family = "wasm"))]
+            openai_provider_routing: HashMap::new(),
         };
 
         // In agent mode eval builds, eagerly kick off a fetch of the model list from the server
@@ -799,9 +809,18 @@ impl LLMPreferences {
         }
     }
 
-    /// Injects models from the OpenAI-compatible (LiteLLM) provider into the available model lists.
+    /// Injects models from OpenAI-compatible providers into the available model lists.
+    ///
+    /// Supports two configuration paths:
+    /// 1. Legacy single-provider: `ai.openai.{base_url, api_key, models}`
+    /// 2. Multi-provider: `ai.providers[]` (each with name, base_url, api_key, models)
+    ///
+    /// Also populates `openai_provider_routing` so that `resolve_provider_config` can
+    /// dispatch requests to the correct endpoint per model.
     #[cfg(not(target_family = "wasm"))]
     fn inject_openai_models(&mut self, ctx: &AppContext) {
+        use super::openai::client::OpenAIClientConfig;
+
         // Remove any previously injected LiteLLM models
         self.models_by_feature
             .agent_mode
@@ -814,63 +833,117 @@ impl LLMPreferences {
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
             cli.choices.retain(|m| m.provider != LLMProvider::LiteLLM);
         }
+        self.openai_provider_routing.clear();
 
         let settings = AISettings::as_ref(ctx);
         if !*settings.openai_enabled.value() {
             return;
         }
 
-        let user_models: Vec<OpenAIModelConfig> = settings.openai_models.value().clone();
-        if user_models.is_empty() {
+        // Collect all (provider_name, base_url, api_key, models) tuples from both config paths.
+        let mut provider_entries: Vec<(String, String, Option<String>, Vec<OpenAIModelConfig>)> =
+            Vec::new();
+
+        // Path 1: Multi-provider `ai.providers[]`
+        let providers: Vec<OpenAIProviderConfig> = settings.openai_providers.value().clone();
+        for provider in providers {
+            if provider.models.is_empty() {
+                continue;
+            }
+            provider_entries.push((
+                provider.name,
+                provider.base_url,
+                provider.api_key,
+                provider.models,
+            ));
+        }
+
+        // Path 2: Legacy single-provider `ai.openai.{base_url, models}`
+        let legacy_models: Vec<OpenAIModelConfig> = settings.openai_models.value().clone();
+        if !legacy_models.is_empty() {
+            let base_url = settings.openai_base_url.value().clone();
+            let api_key = {
+                let key = settings.openai_api_key.value().clone();
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(key)
+                }
+            };
+            let name =
+                if base_url.contains("localhost") || base_url.contains("127.0.0.1") {
+                    "LiteLLM (local)".to_string()
+                } else {
+                    "LiteLLM".to_string()
+                };
+            provider_entries.push((name, base_url, api_key, legacy_models));
+        }
+
+        if provider_entries.is_empty() {
             return;
         }
 
-        let base_url = settings.openai_base_url.value().clone();
-        let description_label = if base_url.contains("localhost") || base_url.contains("127.0.0.1")
-        {
-            "LiteLLM (local)".to_string()
-        } else {
-            "LiteLLM".to_string()
-        };
-
-        for model in &user_models {
-            let llm_info = LLMInfo {
-                id: LLMId::from(model.model_id.as_str()),
-                display_name: model.display_name.clone(),
-                base_model_name: model.display_name.clone(),
-                reasoning_level: None,
-                usage_metadata: LLMUsageMetadata {
-                    request_multiplier: 1,
-                    credit_multiplier: None,
-                },
-                description: Some(description_label.clone()),
-                disable_reason: None,
-                vision_supported: model.vision_supported,
-                spec: None,
-                provider: LLMProvider::LiteLLM,
-                host_configs: HashMap::from([(
-                    LLMModelHost::DirectApi,
-                    RoutingHostConfig {
-                        enabled: true,
-                        model_routing_host: LLMModelHost::DirectApi,
-                    },
-                )]),
-                discount_percentage: None,
+        let mut total_injected = 0;
+        for (provider_name, base_url, api_key, models) in provider_entries {
+            let client_config = OpenAIClientConfig {
+                base_url: base_url.clone(),
+                api_key: api_key.clone(),
+                model: None, // filled per-request from model_id
             };
-            self.models_by_feature
-                .agent_mode
-                .choices
-                .push(llm_info.clone());
-            self.models_by_feature.coding.choices.push(llm_info.clone());
-            if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-                cli.choices.push(llm_info);
+
+            for model in &models {
+                // Register the routing entry
+                self.openai_provider_routing
+                    .insert(model.model_id.clone(), client_config.clone());
+
+                let llm_info = LLMInfo {
+                    id: LLMId::from(model.model_id.as_str()),
+                    display_name: model.display_name.clone(),
+                    base_model_name: model.display_name.clone(),
+                    reasoning_level: None,
+                    usage_metadata: LLMUsageMetadata {
+                        request_multiplier: 1,
+                        credit_multiplier: None,
+                    },
+                    description: Some(provider_name.clone()),
+                    disable_reason: None,
+                    vision_supported: model.vision_supported,
+                    spec: None,
+                    provider: LLMProvider::LiteLLM,
+                    host_configs: HashMap::from([(
+                        LLMModelHost::DirectApi,
+                        RoutingHostConfig {
+                            enabled: true,
+                            model_routing_host: LLMModelHost::DirectApi,
+                        },
+                    )]),
+                    discount_percentage: None,
+                };
+                self.models_by_feature
+                    .agent_mode
+                    .choices
+                    .push(llm_info.clone());
+                self.models_by_feature.coding.choices.push(llm_info.clone());
+                if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                    cli.choices.push(llm_info);
+                }
+                total_injected += 1;
             }
         }
 
         log::info!(
-            "[openai/litellm] Injected {} model(s) into available choices",
-            user_models.len()
+            "[openai/litellm] Injected {total_injected} model(s) into available choices"
         );
+    }
+
+    /// Returns the OpenAI client config for a given model ID, if it was injected
+    /// from an OpenAI-compatible provider.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn openai_client_config_for_model(
+        &self,
+        model_id: &str,
+    ) -> Option<&super::openai::client::OpenAIClientConfig> {
+        self.openai_provider_routing.get(model_id)
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.
