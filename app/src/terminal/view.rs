@@ -6960,6 +6960,11 @@ impl TerminalView {
                 self.agent_view_controller.update(ctx, |controller, ctx| {
                     controller.clear_pending_exit_confirmation(ctx);
                 });
+                // Also cancel any in-progress conversation so that Ctrl+C while
+                // composing a message (or after submitting when the buffer hasn't
+                // cleared yet) properly stops the agent query and returns the
+                // terminal to a ready state.
+                self.cancel_active_conversation_via_status_bar(ctx);
                 return;
             }
 

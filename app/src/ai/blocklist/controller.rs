@@ -2213,6 +2213,27 @@ impl BlocklistAIController {
         request_params.bedrock_message_history = bedrock_history;
         request_params.bedrock_tool_result_archive = bedrock_tool_result_archive;
         request_params.bedrock_progressive_summary = bedrock_progressive_summary;
+
+        // For the Bedrock path, when this is the first request in a new conversation
+        // (no tasks established yet), use the conversation's root task ID so the
+        // CreateTask response action can correctly upgrade the optimistic root task.
+        //
+        // However, for CLI subagent requests (long-running command interactions), the
+        // input_messages key is the subagent task ID, and we must keep that so response
+        // messages (AddMessagesToTask) are routed to the correct task/exchange. Overriding
+        // with the root task ID would cause the output to be added to a hidden root-task
+        // exchange instead of the visible subagent exchange.
+        {
+            let history_model = BlocklistAIHistoryModel::as_ref(ctx);
+            if let Some(conversation) = history_model.conversation(&conversation_id) {
+                let has_optimistic_cli_subagent =
+                    conversation.has_active_subagent();
+                if !has_optimistic_cli_subagent {
+                    request_params.root_task_id =
+                        Some(conversation.get_root_task_id().to_string());
+                }
+            }
+        }
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
 
@@ -2394,11 +2415,38 @@ impl BlocklistAIController {
             .in_flight_response_streams
             .try_cancel_streams_for_conversation(conversation_id, reason, ctx)
         {
-            // Otherwise, cancel pending actions and update the input state.
+            // No in-flight streams to cancel. Cancel pending actions and update the input state.
             self.action_model.update(ctx, |action_model, ctx| {
                 action_model.cancel_all_pending_actions(conversation_id, Some(reason), ctx);
             });
             self.set_input_mode_for_cancellation(ctx);
+
+            // Force-cancel all streaming exchanges and set the conversation status to
+            // Cancelled. This handles the case where a query gets stuck (e.g. a subagent
+            // hangs or the stream ended unexpectedly without proper cleanup) and repeated
+            // Ctrl+C presses cannot resolve it. Without this, the conversation remains
+            // InProgress indefinitely, hiding the input box and blocking user interaction.
+            if !reason.is_follow_up_for_same_conversation() {
+                let history_model = BlocklistAIHistoryModel::handle(ctx);
+                if history_model
+                    .as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .is_some_and(|c| c.status().is_in_progress())
+                {
+                    let terminal_view_id = self.terminal_view_id;
+                    history_model.update(ctx, |history_model, ctx| {
+                        if let Some(conversation) =
+                            history_model.conversation_mut(&conversation_id)
+                        {
+                            conversation.force_cancel_all_streaming_exchanges(
+                                terminal_view_id,
+                                reason,
+                                ctx,
+                            );
+                        }
+                    });
+                }
+            }
         }
     }
 

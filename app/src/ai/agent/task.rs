@@ -138,6 +138,7 @@ mod optimistic {
     #[derive(Debug, Clone)]
     pub(super) enum Task {
         Root,
+        #[allow(dead_code)] // Used in the server-mode path; Bedrock direct creates Server tasks directly
         CLIAgent(CLIAgentSubtask),
     }
 
@@ -184,12 +185,42 @@ impl Task {
         }
     }
 
-    pub(super) fn new_optimistic_cli_agent_subtask(block_id: BlockId) -> Self {
+    pub(super) fn new_optimistic_cli_agent_subtask(block_id: BlockId, parent_task_id: Option<String>) -> Self {
+        let task_id = Uuid::new_v4().to_string();
         Self {
-            id: TaskId::new(Uuid::new_v4().to_string()),
-            data: TaskImpl::Optimistic(optimistic::Task::CLIAgent(optimistic::CLIAgentSubtask {
-                block_id,
-            })),
+            id: TaskId::new(task_id.clone()),
+            // Use a Server task with a source and CLI subagent_params so that:
+            // 1. add_messages can immediately append response messages without
+            //    needing a CreateTask upgrade from the server (Bedrock direct path
+            //    has no server to emit CreateTask).
+            // 2. cli_subagent_block_id() returns the correct block ID so the
+            //    CLISubagentController can set up the monitoring view.
+            // 3. is_cli_subagent() returns true so the task is filtered from the
+            //    main blocklist (responses only show in the CLI subagent panel).
+            data: TaskImpl::Server(ServerTask {
+                source: api::Task {
+                    id: task_id.clone(),
+                    description: String::new(),
+                    dependencies: parent_task_id.map(|parent_id| api::task::Dependencies {
+                        parent_task_id: parent_id,
+                    }),
+                    messages: vec![],
+                    summary: String::new(),
+                    server_data: String::new(),
+                },
+                subagent_params: Some(SubagentParams {
+                    tool_call_id: String::new(),
+                    call: api::message::tool_call::Subagent {
+                        task_id: task_id,
+                        payload: String::new(),
+                        metadata: Some(Metadata::Cli(
+                            api::message::tool_call::subagent::CliSubagent {
+                                command_id: block_id.as_str().to_owned(),
+                            },
+                        )),
+                    },
+                }),
+            }),
             exchanges: vec![],
         }
     }

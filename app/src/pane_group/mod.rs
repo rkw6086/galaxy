@@ -1552,10 +1552,14 @@ impl PaneGroup {
                     });
 
                 let raw_cwd = terminal_snapshot.cwd.clone();
-                let startup_directory = terminal_snapshot
-                    .cwd
-                    .map(PathBuf::from)
-                    .filter(|path| path.is_dir());
+                // Trust the persisted CWD without re-checking is_dir(). The path
+                // was validated at save time. If the directory no longer exists at
+                // restore time (e.g. deleted, network mount unavailable), the shell
+                // bootstrap script's `cd` will fail gracefully and fall back to HOME.
+                // Previously, the is_dir() check here would discard valid paths that
+                // were temporarily unavailable (e.g. network mounts not yet mounted
+                // at startup), causing sessions to always restore to ~/.
+                let startup_directory = terminal_snapshot.cwd.map(PathBuf::from);
 
                 log::info!(
                     "[session-restore] pane=terminal raw_cwd={raw_cwd:?} \

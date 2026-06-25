@@ -1866,6 +1866,11 @@ fn app_callbacks(is_integration_test: bool) -> galaxyui::platform::AppCallbacks 
             );
         })),
         on_will_terminate: Some(Box::new(move |ctx| {
+            // Persist the final app state before tearing down the writer.
+            // This ensures the latest session (tabs, CWD, conversations) is saved
+            // even if the termination bypassed individual window-close events.
+            ctx.dispatch_global_action("workspace:save_app", &());
+
             NotebookManager::handle(ctx).update(ctx, |manager, ctx| {
                 // Notebooks are only saved periodically, so ensure that any pending changes have
                 // been sent to the writer thread before terminating.

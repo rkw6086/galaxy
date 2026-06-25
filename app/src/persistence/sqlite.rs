@@ -2755,7 +2755,17 @@ fn read_sqlite_data(
             let saved_tabs: Vec<_> = tabs_for_window
                 .into_iter()
                 .filter_map(|tab| {
-                    let root = read_root_node(conn, tab.id).ok()?;
+                    let root = match read_root_node(conn, tab.id) {
+                        Ok(node) => node,
+                        Err(err) => {
+                            log::warn!(
+                                "[session-restore] Failed to read root node for tab {}: {err}. \
+                                 This tab will not be restored.",
+                                tab.id,
+                            );
+                            return None;
+                        }
+                    };
                     let panel = db_panels.get(&tab.id);
 
                     let left_panel = panel

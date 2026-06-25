@@ -74,6 +74,36 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                             });
                         }
                     }
+                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                        cli_query,
+                    )) => {
+                        if let Some(user_query) = &cli_query.user_query {
+                            if !user_query.query.is_empty() {
+                                let query_text = if let Some(running_cmd) = &cli_query.running_command {
+                                    let mut context = format!(
+                                        "[Running command: {}]\n",
+                                        running_cmd.command
+                                    );
+                                    if let Some(snapshot) = &running_cmd.snapshot {
+                                        if !snapshot.output.is_empty() {
+                                            context.push_str(&format!(
+                                                "[Terminal output:\n{}\n]\n",
+                                                snapshot.output
+                                            ));
+                                        }
+                                    }
+                                    context.push_str(&user_query.query);
+                                    context
+                                } else {
+                                    user_query.query.clone()
+                                };
+                                user_queries.push(ConversationMessage {
+                                    role: MessageRole::User,
+                                    content: MessageContent::Text(query_text),
+                                });
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -220,12 +250,22 @@ pub fn extract_user_query_text(request: &api::Request) -> Option<String> {
     match input_type {
         api::request::input::Type::UserInputs(user_inputs) => {
             for user_input in &user_inputs.inputs {
-                if let Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) =
-                    &user_input.input
-                {
-                    if !query.query.is_empty() {
-                        return Some(query.query.clone());
+                match &user_input.input {
+                    Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) => {
+                        if !query.query.is_empty() {
+                            return Some(query.query.clone());
+                        }
                     }
+                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                        cli_query,
+                    )) => {
+                        if let Some(user_query) = &cli_query.user_query {
+                            if !user_query.query.is_empty() {
+                                return Some(user_query.query.clone());
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             None
@@ -346,6 +386,46 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                     },
                                 )),
                             });
+                        }
+                    }
+                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                        cli_query,
+                    )) => {
+                        if let Some(user_query) = &cli_query.user_query {
+                            if !user_query.query.is_empty() {
+                                let query_text = if let Some(running_cmd) = &cli_query.running_command {
+                                    let mut context = format!(
+                                        "[Running command: {}]\n",
+                                        running_cmd.command
+                                    );
+                                    if let Some(snapshot) = &running_cmd.snapshot {
+                                        if !snapshot.output.is_empty() {
+                                            context.push_str(&format!(
+                                                "[Terminal output:\n{}\n]\n",
+                                                snapshot.output
+                                            ));
+                                        }
+                                    }
+                                    context.push_str(&user_query.query);
+                                    context
+                                } else {
+                                    user_query.query.clone()
+                                };
+                                results.push(api::Message {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    task_id: task_id.clone(),
+                                    request_id: String::new(),
+                                    timestamp: None,
+                                    server_message_data: String::new(),
+                                    citations: vec![],
+                                    message: Some(api::message::Message::UserQuery(
+                                        api::message::UserQuery {
+                                            query: query_text,
+                                            ..Default::default()
+                                        },
+                                    )),
+                                });
+                            }
                         }
                     }
                     _ => {}

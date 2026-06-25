@@ -12372,8 +12372,19 @@ impl Input {
 
         // If the agent view is inactive but the current input is detected as AI, submitting
         // this query triggers entering the agent view.
+        //
+        // Exception: when the agent is "tagged in" for a long-running command, we skip entering
+        // the agent view (which would fail because `can_start_new_conversation` returns false
+        // while a command is running). Instead, we fall through to the normal query submission
+        // path below, which correctly detects the running command and creates a CLI subagent task.
         if FeatureFlag::AgentView.is_enabled()
             && !self.agent_view_controller.as_ref(ctx).is_active()
+            && !self
+                .model
+                .lock()
+                .block_list()
+                .active_block()
+                .is_agent_tagged_in()
         {
             let prompt = self.editor.as_ref(ctx).buffer_text(ctx);
             let prompt = prompt.trim().to_owned();

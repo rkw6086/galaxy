@@ -2090,6 +2090,59 @@ impl AIConversation {
         Ok(())
     }
 
+    /// Force-cancels all streaming exchanges in this conversation.
+    ///
+    /// This is used as a fallback when Ctrl+C is pressed but there are no in-flight
+    /// response streams to cancel (e.g. the stream ended without proper cleanup, or a
+    /// subagent got stuck). It walks all exchanges and transitions any that are still
+    /// in `Streaming` state to `Cancelled`, emitting the appropriate UI update events.
+    pub fn force_cancel_all_streaming_exchanges(
+        &mut self,
+        terminal_view_id: EntityId,
+        reason: CancellationReason,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) {
+        if self.transaction.is_some() {
+            self.commit_transaction();
+        }
+
+        let streaming_exchange_ids: Vec<_> = self
+            .task_store
+            .all_exchanges()
+            .filter(|exchange| matches!(exchange.output_status, AIAgentOutputStatus::Streaming { .. }))
+            .map(|exchange| exchange.id)
+            .collect();
+
+        for exchange_id in streaming_exchange_ids {
+            if let Ok(exchange) = self.get_exchange_to_update(exchange_id) {
+                let output = match &exchange.output_status {
+                    AIAgentOutputStatus::Streaming { output } => {
+                        output.as_ref().map(Shared::get_owned)
+                    }
+                    _ => continue,
+                };
+                exchange.output_status = AIAgentOutputStatus::Finished {
+                    finished_output: FinishedAIAgentOutput::Cancelled { output, reason },
+                };
+                exchange.finish_time = Some(Local::now());
+
+                let is_hidden = self.is_exchange_hidden(exchange_id);
+                ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+                    exchange_id,
+                    terminal_view_id,
+                    conversation_id: self.id,
+                    is_hidden,
+                });
+            }
+        }
+
+        self.write_updated_conversation_state(ctx);
+
+        if !reason.is_follow_up_for_same_conversation() {
+            self.update_status(ConversationStatus::Cancelled, terminal_view_id, ctx);
+        }
+    }
+
     pub fn mark_request_cancelled_due_to_revert(
         &mut self,
         terminal_view_id: EntityId,
@@ -3002,7 +3055,8 @@ impl AIConversation {
             );
         }
 
-        let new_task = Task::new_optimistic_cli_agent_subtask(block_id.clone());
+        let parent_task_id = Some(self.task_store.root_task_id().to_string());
+        let new_task = Task::new_optimistic_cli_agent_subtask(block_id.clone(), parent_task_id);
         let new_task_id = new_task.id().clone();
         self.optimistic_cli_subagent_subtask_id = Some(new_task_id.clone());
         self.task_store.insert(new_task);
