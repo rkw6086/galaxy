@@ -1,47 +1,41 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
-use super::color::{blend::Blend, contrast::MinimumAllowedContrast, ContrastingColor};
-use super::theme::color::internal_colors::{self, text_main};
-use super::theme::{Fill, GalaxyTheme};
-use galaxyui::color::ColorU;
-use galaxyui::elements::{
+use galaxyui_core::color::ColorU;
+use galaxyui_core::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
-    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Stack, Text,
+    Icon, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds,
+    Radius, Stack, Text,
 };
-use galaxyui::fonts::{Properties, Weight};
-use galaxyui::geometry::vector::{vec2f, Vector2F};
-use galaxyui::platform::Cursor;
-use galaxyui::ui_components::components::UiComponent;
-use galaxyui::ui_components::keyboard_shortcut::KeyboardShortcut;
-use galaxyui::ui_components::link::{LinkStyles, OnClickFn};
-use galaxyui::ui_components::list::{List, ListStyle};
-use galaxyui::ui_components::radio_buttons::{
+use galaxyui_core::fonts::{FamilyId, Properties, Weight};
+use galaxyui_core::geometry::vector::{vec2f, Vector2F};
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::ui_components::button::{Button, ButtonVariant};
+use galaxyui_core::ui_components::checkbox::Checkbox;
+use galaxyui_core::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui_core::ui_components::keyboard_shortcut::KeyboardShortcut;
+use galaxyui_core::ui_components::link::{Link, LinkStyles, OnClickFn};
+use galaxyui_core::ui_components::list::{List, ListStyle};
+use galaxyui_core::ui_components::progress_bar::ProgressBar;
+use galaxyui_core::ui_components::radio_buttons::{
     RadioButtonItem, RadioButtonLayout, RadioButtonStateHandle, RadioButtons,
 };
-use galaxyui::ui_components::slider::{Slider, SliderStateHandle};
-use galaxyui::ui_components::switch::{Switch, SwitchStateHandle, TRACK_COLOR};
-use galaxyui::ui_components::text::WrappableText;
-use galaxyui::ui_components::toggle_menu::{
+use galaxyui_core::ui_components::slider::{Slider, SliderStateHandle};
+use galaxyui_core::ui_components::switch::{Switch, SwitchStateHandle, TRACK_COLOR};
+use galaxyui_core::ui_components::text::{Paragraph, Span, WrappableText};
+use galaxyui_core::ui_components::text_input::TextInput;
+use galaxyui_core::ui_components::toggle_menu::{
     ToggleMenu, ToggleMenuCallback, ToggleMenuItem, ToggleMenuStateHandle,
 };
-use galaxyui::ui_components::tool_tip::{Tooltip, TooltipWithSublabel};
-use galaxyui::View;
-use galaxyui::{
-    elements::{Icon, MouseStateHandle},
-    fonts::FamilyId,
-    keymap::Keystroke,
-    ui_components::{
-        button::{Button, ButtonVariant},
-        checkbox::Checkbox,
-        components::{Coords, UiComponentStyles},
-        link::Link,
-        progress_bar::ProgressBar,
-        text::{Paragraph, Span},
-        text_input::TextInput,
-    },
-    Element, ViewHandle,
-};
+use galaxyui_core::ui_components::tool_tip::{Tooltip, TooltipWithSublabel};
+use galaxyui_core::{Element, View, ViewHandle};
+
+use super::color::blend::Blend;
+use super::color::contrast::MinimumAllowedContrast;
+use super::color::ContrastingColor;
+use super::theme::color::internal_colors::{self, text_main};
+use super::theme::{Fill, GalaxyTheme};
 
 const CLOSE_SVG_PATH: &str = "bundled/svg/close.svg";
 const COPY_SVG_PATH: &str = "bundled/svg/copy.svg";

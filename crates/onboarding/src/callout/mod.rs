@@ -4,6 +4,6 @@ mod view;
 pub use model::{FinalState, OnboardingQuery};
 pub use view::{OnboardingCalloutView, OnboardingCalloutViewEvent, OnboardingKeybindings};
 
-pub fn init(app: &mut galaxyui::AppContext) {
+pub fn init(app: &mut galaxyui_core::AppContext) {
     view::init(app);
 }

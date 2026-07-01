@@ -1,4 +1,6 @@
-use crate::CaptureConfig;
+use std::sync::{Arc, Mutex};
+
+use image::ImageEncoder;
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container, Empty, Fill, Flex,
@@ -10,12 +12,12 @@ use galaxyui::fonts::FamilyId;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::CapturedFrame;
 use galaxyui::presenter::ChildView;
-use galaxyui::SingletonEntity as _;
 use galaxyui::{
-    AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle, WindowId,
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+    ViewHandle, WindowId,
 };
-use image::ImageEncoder;
-use std::sync::{Arc, Mutex};
+
+use crate::CaptureConfig;
 
 const TOTAL_DEMOS: usize = 13;
 

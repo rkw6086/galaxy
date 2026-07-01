@@ -1,11 +1,14 @@
+use std::borrow::Cow;
+
 use anyhow::{anyhow, Result};
 use pathfinder_geometry::vector::vec2f;
-use std::borrow::Cow;
 pub mod root_view;
 
 extern crate galaxyui;
 use galaxyui::{platform, platform::WindowBounds, AssetProvider};
 use rust_embed::RustEmbed;
+use galaxyui::platform::WindowBounds;
+use galaxyui::{platform, AssetProvider};
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "examples/assets"]

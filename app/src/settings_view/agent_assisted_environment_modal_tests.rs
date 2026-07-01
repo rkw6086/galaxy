@@ -1,14 +1,15 @@
-use super::*;
+use std::path::PathBuf;
 
-use crate::server::server_api::ServerApiProvider;
-use crate::test_util::settings::initialize_settings_for_tests;
-use crate::workspace::ToastStack;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{ChildView, Empty};
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
-use std::path::PathBuf;
+
+use super::*;
+use crate::server::server_api::ServerApiProvider;
+use crate::test_util::settings::initialize_settings_for_tests;
+use crate::workspace::ToastStack;
 
 fn init_modal_test_models(app: &mut App) {
     initialize_settings_for_tests(app);

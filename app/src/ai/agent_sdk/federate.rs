@@ -7,6 +7,12 @@ use galaxy_core::{features::FeatureFlag, report_error};
 use galaxy_managed_secrets::ManagedSecretManager;
 use galaxyui::{platform::TerminationMode, AppContext, SingletonEntity as _};
 use serde_json::json;
+use galaxy_cli::agent::OutputFormat;
+use galaxy_cli::GlobalOptions;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::report_error;
+use galaxyui::platform::TerminationMode;
+use galaxyui::{AppContext, SingletonEntity as _};
 
 use super::common::set_ambient_task_context_from_run_id;
 
@@ -30,7 +36,7 @@ fn issue_token(
     args: IssueTokenArgs,
     output_format: OutputFormat,
 ) -> Result<()> {
-    // Set the task ID so the ambient workload token header is sent.
+    // Set the task ID so the ambient agent workload token header is sent.
     set_ambient_task_context_from_run_id(ctx, &args.run_id)?;
 
     let duration: std::time::Duration = args.duration.into();
@@ -85,7 +91,7 @@ fn issue_token(
     Ok(())
 }
 fn issue_gcp_token(ctx: &mut AppContext, args: IssueGcpTokenArgs) -> Result<()> {
-    // Set the task ID so the ambient workload token header is sent.
+    // Set the task ID so the ambient agent workload token header is sent.
     set_ambient_task_context_from_run_id(ctx, &args.run_id)?;
 
     let duration: std::time::Duration = args.duration.into();

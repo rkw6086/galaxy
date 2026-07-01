@@ -1,8 +1,9 @@
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{elements::ScrollOffset, units::Pixels, ViewContext, ViewHandle};
-
+use galaxyui::elements::ScrollOffset;
+use galaxyui::units::Pixels;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui::{AppContext, WeakViewHandle};
+use galaxyui::{ViewContext, ViewHandle};
 
 #[cfg(not(target_family = "wasm"))]
 use super::FILE_HEADER_HEIGHT;

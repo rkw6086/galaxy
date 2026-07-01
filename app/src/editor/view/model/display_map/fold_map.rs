@@ -1,17 +1,15 @@
+use std::cmp::{self, Ordering};
+use std::iter::Take;
+use std::ops::Range;
+
+use anyhow::{anyhow, Result};
+use string_offset::CharOffset;
+use sum_tree::{self, Cursor, Dimension, SeekBias, SumTree};
+
 use super::super::buffer::{AnchorRangeExt, TextSummary};
 use super::buffer::StylizedChar;
 use super::{buffer, Anchor, Buffer, DisplayPoint, Edit, Point, ToCharOffset};
 use crate::util::extensions::SliceExt as _;
-use anyhow::{anyhow, Result};
-use galaxyui::text_layout::TextStyle;
-use galaxyui::{AppContext, ModelHandle};
-use std::{
-    cmp::{self, Ordering},
-    iter::Take,
-    ops::Range,
-};
-use string_offset::CharOffset;
-use sum_tree::{self, Cursor, Dimension, SeekBias, SumTree};
 
 pub struct FoldMap {
     buffer: ModelHandle<Buffer>,
@@ -509,5 +507,5 @@ impl<'a> Dimension<'a, TransformSummary> for CharOffset {
 }
 
 #[cfg(test)]
-#[path = "fold_map_test.rs"]
+#[path = "fold_map_tests.rs"]
 mod tests;

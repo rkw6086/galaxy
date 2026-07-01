@@ -1,13 +1,12 @@
 //! This module defines CellGlyphCache, a struct which manages the caching of glyph values for cells
 //! when rendering Grids within Warp.
-use galaxyui::elements::DEFAULT_LINE_HEIGHT_RATIO;
+use std::collections::HashMap;
 
+use galaxyui::elements::DEFAULT_LINE_HEIGHT_RATIO;
 use galaxyui::fonts::{Cache as FontCache, FamilyId, FontId, GlyphId, Properties};
 use galaxyui::platform::LineStyle;
 use galaxyui::text_layout::{StyleAndFont, DEFAULT_TOP_BOTTOM_RATIO};
 use galaxyui::PaintContext;
-
-use std::collections::HashMap;
 
 /// Stores cached glyph values for characters/strings. Note that we normally only need to look up
 /// characters - we only look up strings in the case of zerowidth characters (which act as modifiers

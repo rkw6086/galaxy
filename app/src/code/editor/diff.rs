@@ -1,7 +1,10 @@
 #![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
 // Adding this file level gate as some of the code around editability is not used in WASM yet.
 
-use std::{collections::HashMap, ops::Range, rc::Rc, sync::Arc};
+use std::collections::HashMap;
+use std::ops::Range;
+use std::rc::Rc;
+use std::sync::Arc;
 
 use futures::stream::AbortHandle;
 use galaxy_core::ui::theme::Fill;
@@ -16,14 +19,16 @@ use pathfinder_color::ColorU;
 use rangemap::RangeMap;
 use similar::{ChangeTag, DiffOp, TextDiff};
 use string_offset::CharOffset;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
+use galaxy_editor::content::edit::TemporaryBlock;
+use galaxy_editor::content::version::BufferVersion;
+use galaxy_editor::multiline::{AnyMultilineString, MultilineStr, MultilineString, LF};
+use galaxy_editor::render::model::{Decoration, LineCount, LineDecoration};
 
 use super::super::DiffResult;
-
-use crate::{
-    appearance::Appearance,
-    code::editor::{line::EditorLineLocation, line_iterator::LineIterator},
-};
-use galaxy_core::ui::theme::AnsiColorIdentifier;
+use crate::appearance::Appearance;
+use crate::code::editor::line::EditorLineLocation;
+use crate::code::editor::line_iterator::LineIterator;
 
 const OVERLAY_ALPHA: u8 = 56;
 const INLINE_OVERLAY_ALPHA: u8 = 71;

@@ -14,8 +14,8 @@ mod tests {
     use futures::channel::oneshot;
     use futures::executor::block_on;
     use galaxy_util::standardized_path::StandardizedPath;
-    use galaxyui::r#async::FutureExt as _;
-    use galaxyui::App;
+    use galaxyui_core::r#async::FutureExt as _;
+    use galaxyui_core::App;
     use ignore::gitignore::Gitignore;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -1038,7 +1038,6 @@ Thumbs.db
 
     #[test]
     fn test_canonicalized_path_functionality() {
-        use galaxy_util::standardized_path::StandardizedPath;
         VirtualFS::test("canonicalized_path_test", |dirs, mut vfs| {
             let repo_path = dirs.tests();
 
@@ -1107,7 +1106,6 @@ Thumbs.db
 
     #[test]
     fn test_repository_operations_with_standardized_paths() {
-        use galaxy_util::standardized_path::StandardizedPath;
 
         VirtualFS::test("repo_canonicalized_test", |dirs, mut vfs| {
             let test_root = dirs.tests();
@@ -1220,7 +1218,6 @@ Thumbs.db
 
     #[test]
     fn test_standardized_path_edge_cases() {
-        use galaxy_util::standardized_path::StandardizedPath;
 
         VirtualFS::test("canonicalized_edge_cases", |dirs, mut vfs| {
             let test_root = dirs.tests();

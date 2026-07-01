@@ -12,3 +12,4 @@ rust-embed.workspace = true
 arborium.workspace = true
 lazy_static.workspace = true
 galaxy_editor = { path = "../editor" }
+galaxy_util.workspace = true

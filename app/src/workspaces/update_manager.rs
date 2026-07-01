@@ -1,3 +1,14 @@
+use std::sync::mpsc::SyncSender;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use futures::channel::oneshot::{self, Receiver};
+use futures::stream::AbortHandle;
+use warpui::r#async::Timer;
+use warpui::{
+    duration_with_jitter, Entity, ModelContext, ModelHandle, RequestState, SingletonEntity,
+};
+
 use super::team_tester::{TeamTesterStatus, TeamTesterStatusEvent};
 use super::user_workspaces::{
     CreateTeamResponse, UserWorkspaces, WorkspacesMetadataResponse, WorkspacesMetadataWithPricing,
@@ -17,14 +28,6 @@ use crate::server::retry_strategies::{
 use crate::server::server_api::team::TeamClient;
 use crate::server::server_api::ServerApiProvider;
 use crate::{report_error, report_if_error};
-use anyhow::{Context, Result};
-use futures::channel::oneshot::{self, Receiver};
-use futures::stream::AbortHandle;
-use galaxyui::r#async::Timer;
-use galaxyui::{duration_with_jitter, RequestState};
-use galaxyui::{Entity, ModelContext, SingletonEntity};
-use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
 
 pub enum TeamUpdateManagerEvent {
     LeaveSuccess,
@@ -77,6 +80,7 @@ impl TeamUpdateManager {
 
     fn handle_network_status_changed(
         &mut self,
+        _: ModelHandle<NetworkStatus>,
         network_status: &NetworkStatusEvent,
         ctx: &mut ModelContext<Self>,
     ) {
@@ -94,6 +98,7 @@ impl TeamUpdateManager {
 
     fn handle_team_tester_status_changed(
         &mut self,
+        _: ModelHandle<TeamTesterStatus>,
         event: &TeamTesterStatusEvent,
         ctx: &mut ModelContext<Self>,
     ) {

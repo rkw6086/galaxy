@@ -1,10 +1,9 @@
 //! Utilities to check whether a command at the cursor position is likely a package installer command.
 
+use string_offset::ByteOffset;
+
 use crate::completer::SessionContext;
 use crate::terminal::alias::is_expandable_alias;
-use galaxy_completer::parsers::simple::command_at_cursor_position;
-use galaxy_util::path::ShellFamily;
-use string_offset::ByteOffset;
 
 /// Returns true if the command at the cursor position is likely a package installer command that would allow `@` at the start of the package name.
 /// This excludes package managers like Rust or Go that do not allow `@` at the start of the package name.
@@ -81,5 +80,5 @@ fn is_at_context_package_installer_prefix(buffer_text: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "package_installers_test.rs"]
+#[path = "package_installers_tests.rs"]
 mod tests;

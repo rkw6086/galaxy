@@ -1,5 +1,6 @@
+use galaxyui_core::elements::Icon as WarpUiIcon;
+
 use crate::ui::theme::Fill;
-use galaxyui::elements::Icon as WarpUiIcon;
 
 pub enum ExternalProductIcon {
     Heroku,

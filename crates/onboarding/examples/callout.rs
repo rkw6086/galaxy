@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::{anyhow, Result};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
@@ -11,8 +13,13 @@ use onboarding::components::onboarding_callout::{
     StepStatus,
 };
 use rust_embed::RustEmbed;
-use std::borrow::Cow;
 use ui_components::Component as _;
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
+use galaxyui_core::color::ColorU;
+use galaxyui_core::elements::{Rect, Stack};
+use galaxyui_core::fonts::{Cache, FamilyId, Weight};
+use galaxyui_core::prelude::*;
+use galaxyui_core::{platform, AddWindowOptions, AssetProvider, ModelContext};
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -29,8 +36,11 @@ impl AssetProvider for Assets {
 }
 
 fn main() -> platform::app::TerminationResult {
-    let app_builder =
-        platform::AppBuilder::new(platform::AppCallbacks::default(), Box::new(ASSETS), None);
+    let app_builder = warpui::platform::AppBuilder::new(
+        platform::AppCallbacks::default(),
+        Box::new(ASSETS),
+        None,
+    );
 
     app_builder.run(move |ctx| {
         let font_name = if cfg!(target_os = "macos") {

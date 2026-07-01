@@ -1,28 +1,22 @@
 //! The renderer for a single context chip.
 
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
-    ConstrainedBox, DraggableState, Hoverable, MouseStateHandle, OffsetPositioning, ParentElement,
-    ParentOffsetBounds, Stack,
+    ConstrainedBox, Container, CrossAxisAlignment, DraggableState, Flex, Hoverable,
+    MouseStateHandle, OffsetPositioning, ParentElement, ParentOffsetBounds, Stack, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::Action;
-use galaxyui::{
-    elements::{Container, CrossAxisAlignment, Flex, Text},
-    Element,
-};
-use pathfinder_color::ColorU;
-
-use crate::appearance::Appearance;
-use crate::ui_components::icons;
+use galaxyui::{Action, Element};
 
 use super::context_chip::ContextChip;
 use super::display_chip::{chip_container, udi_font_size};
-use super::spacing;
-use super::{ChipAvailability, ChipValue, ContextChipKind};
-use pathfinder_geometry::vector::vec2f;
+use super::{spacing, ChipAvailability, ChipValue, ContextChipKind};
+use crate::appearance::Appearance;
+use crate::ui_components::icons;
 
 /// Styling consts.
 const CORNER_RADIUS_PIXELS: f32 = 4.;
@@ -249,5 +243,5 @@ impl Renderer {
 }
 
 #[cfg(test)]
-#[path = "renderer_test.rs"]
+#[path = "renderer_tests.rs"]
 mod tests;

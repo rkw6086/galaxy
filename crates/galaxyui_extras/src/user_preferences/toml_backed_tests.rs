@@ -1,6 +1,6 @@
-use super::*;
-
 use toml_edit::Item;
+
+use super::*;
 
 #[test]
 fn test_json_to_toml_round_trip_bool() {
@@ -220,7 +220,6 @@ fn test_write_and_read_with_hierarchy() {
 
 #[test]
 fn test_write_and_read_struct_value() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("test_settings.toml");
@@ -257,7 +256,6 @@ fn test_write_and_read_struct_value() {
 
 #[test]
 fn test_new_with_invalid_toml_returns_error_and_recovers_on_reload() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("broken_settings.toml");
@@ -298,7 +296,6 @@ fn test_new_with_invalid_toml_returns_error_and_recovers_on_reload() {
 
 #[test]
 fn test_writes_inhibited_when_file_initially_broken() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("broken_settings.toml");
@@ -338,7 +335,6 @@ fn test_writes_inhibited_when_file_initially_broken() {
 
 #[test]
 fn test_string_value_for_numeric_setting_reads_as_json_string() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("test_settings.toml");
@@ -370,7 +366,6 @@ fn test_string_value_for_numeric_setting_reads_as_json_string() {
 
 #[test]
 fn test_remove_with_hierarchy() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("test_settings.toml");
@@ -397,7 +392,6 @@ fn test_remove_with_hierarchy() {
 
 #[test]
 fn test_per_key_write_inhibition_preserves_value_in_file() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("settings.toml");
@@ -441,7 +435,6 @@ fn test_per_key_write_inhibition_preserves_value_in_file() {
 
 #[test]
 fn test_per_key_write_inhibition_blocks_remove() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("settings.toml");
@@ -464,7 +457,6 @@ fn test_per_key_write_inhibition_blocks_remove() {
 
 #[test]
 fn test_reload_clears_per_key_inhibitions() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("settings.toml");
@@ -491,7 +483,6 @@ fn test_reload_clears_per_key_inhibitions() {
 
 #[test]
 fn test_clear_all_write_inhibitions() {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("settings.toml");
@@ -592,7 +583,6 @@ fn write_and_read_file(
     value_json: &str,
     max_table_depth: Option<u32>,
 ) -> String {
-    use super::super::UserPreferences;
 
     let dir = tempfile::tempdir().unwrap();
     let file_path = dir.path().join("settings.toml");

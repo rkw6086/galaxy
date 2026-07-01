@@ -3,8 +3,8 @@
 //! This modal is displayed when users click "New agent" to choose between
 //! cloud and local agent modes.
 
-use crate::appearance::Appearance;
-use crate::ui_components::icons::Icon;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
@@ -17,8 +17,9 @@ use galaxyui::keymap::{FixedBinding, Keystroke};
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
+
+use crate::appearance::Appearance;
+use crate::ui_components::icons::Icon;
 
 // Modal dimensions based on Figma design.
 const MODAL_WIDTH: f32 = 440.;

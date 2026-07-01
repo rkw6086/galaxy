@@ -1,26 +1,15 @@
 use anyhow::Result;
-use galaxy_core::{
-    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
-    features, AppId,
-};
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::features;
 
 fn main() -> Result<()> {
-    let mut state = ChannelState::new(
-        Channel::Local,
-        ChannelConfig {
-            app_id: AppId::new("com", "samsung", "Galaxy-Local"),
-            logfile_name: "galaxy.log".into(),
-            server_config: WarpServerConfig::production(),
-            oz_config: OzConfig::production(),
-            telemetry_config: None,
-            crash_reporting_config: None,
-            autoupdate_config: None,
-            mcp_static_config: None,
-        },
-    )
-    .with_additional_features(features::DEBUG_FLAGS)
-    .with_additional_features(features::DOGFOOD_FLAGS)
-    .with_additional_features(features::PREVIEW_FLAGS);
+    let config = warp_channel_config::load_config!("local");
+
+    let mut state = ChannelState::new(Channel::Local, config)
+        .with_additional_features(features::DEBUG_FLAGS)
+        .with_additional_features(features::DOGFOOD_FLAGS)
+        .with_additional_features(features::PREVIEW_FLAGS)
+        .with_additional_features(features::LOCAL_FLAGS);
 
     // Enable sandbox telemetry feature flag if the env var is set.
     if std::env::var("WITH_SANDBOX_TELEMETRY").is_ok() {

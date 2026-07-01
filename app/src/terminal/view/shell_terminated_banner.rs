@@ -1,19 +1,19 @@
-use std::{borrow::Cow, cell::RefCell};
+use std::borrow::Cow;
+use std::cell::RefCell;
 
-use galaxy_core::ui::{
-    appearance::Appearance,
-    builder::UiBuilder,
-    theme::{color::internal_colors, GalaxyTheme},
-};
-use galaxyui::{
-    clipboard::ClipboardContent,
-    elements::*,
-    text_layout::ClipConfig,
-    ui_components::{button::ButtonVariant, components::UiComponent as _},
-    Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
-};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::builder::UiBuilder;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::*;
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{Entity, SingletonEntity as _, TypedActionView, View, ViewContext};
 
-use crate::{terminal::model::terminal_model::ExitReason, ui_components};
+use crate::terminal::model::terminal_model::ExitReason;
+use crate::ui_components;
 
 const FILE_ISSUE_TEXT: &str = "File issue";
 const MORE_INFO_TEXT: &str = "More info";

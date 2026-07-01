@@ -1,19 +1,15 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-use crate::{
-    appearance::Appearance,
-    editor::{EditorOptions, EditorView, Event as EditorEvent, TextOptions},
-};
+use galaxyui::elements::{Container, CornerRadius, Dismiss, MouseStateHandle, Radius};
+use galaxyui::fonts::Weight;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{Container, CornerRadius, Dismiss, MouseStateHandle, Radius},
-    fonts::Weight,
-    platform::Cursor,
-    ui_components::{
-        button::ButtonVariant,
-        components::{UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+
+use crate::appearance::Appearance;
+use crate::editor::{EditorOptions, EditorView, Event as EditorEvent, TextOptions};
 
 /// This View is a text that can be hovered over. Upon clicking,
 /// the text becomes a text input that can be submitted

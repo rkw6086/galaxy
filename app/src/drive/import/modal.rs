@@ -1,29 +1,27 @@
-use crate::{
-    appearance::Appearance,
-    cloud_object::{model::persistence::CloudModel, CloudObject, Owner},
-    server::{ids::SyncId, sync_queue::SyncQueue},
-    themes::theme::GalaxyTheme,
-    workspaces::user_workspaces::UserWorkspaces,
-};
+use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
+    Container, CornerRadius, CrossAxisAlignment, Flex, Highlight, MouseStateHandle,
+    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, ScrollbarWidth,
+    Shrinkable, Stack, Text,
+};
+use galaxyui::platform::{FilePickerConfiguration, FileType};
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Align, Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-        Container, CornerRadius, CrossAxisAlignment, Flex, Highlight, MouseStateHandle,
-        OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, ScrollbarWidth,
-        Shrinkable, Stack, Text,
-    },
-    platform::{FilePickerConfiguration, FileType},
-    presenter::ChildView,
-    ui_components::{
-        button::ButtonVariant,
-        components::{UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
-use pathfinder_geometry::vector::vec2f;
 
 use super::modal_body::{ImportModalBody, ImportModalBodyAction, ImportModalBodyEvent};
+use crate::appearance::Appearance;
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::cloud_object::{CloudObject, Owner};
+use crate::server::ids::SyncId;
+use crate::server::sync_queue::SyncQueue;
+use crate::themes::theme::WarpTheme;
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const CLOSE_BUTTON_SIZE: f32 = 24.;
 const HEADER_FONT_SIZE: f32 = 16.;

@@ -1,17 +1,17 @@
-use galaxyui::SingletonEntity as _;
-use galaxyui::{
-    elements::{
-        Align, ConstrainedBox, Container, DispatchEventResult, EventHandler, Padding,
-        ParentElement, Rect, Stack, Text,
-    },
-    fonts::{Cache as FontCache, FamilyId},
-    platform::CapturedFrame,
-    AppContext, Element, Entity, TypedActionView, View, ViewContext,
-};
-use image::ImageEncoder;
-use pathfinder_color::ColorU;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use image::ImageEncoder;
+use pathfinder_color::ColorU;
+use galaxyui::elements::{
+    Align, ConstrainedBox, Container, DispatchEventResult, EventHandler, Padding, ParentElement,
+    Rect, Stack, Text,
+};
+use galaxyui::fonts::{Cache as FontCache, FamilyId};
+use galaxyui::platform::CapturedFrame;
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+};
 
 #[derive(Clone, Debug)]
 pub enum RootViewAction {

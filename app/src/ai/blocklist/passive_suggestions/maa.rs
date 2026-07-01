@@ -2,13 +2,21 @@
 
 use std::sync::Arc;
 
+use ai::agent::action::{AIAgentActionType, FileEdit};
+use ai::diff_validation::ParsedDiff;
+use chrono::{DateTime, Utc};
+use parking_lot::FairMutex;
+use galaxy_core::features::FeatureFlag;
+use warpui::r#async::SpawnedFutureHandle;
+use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+
 use super::super::controller::{BlocklistAIController, BlocklistAIControllerEvent};
 use crate::ai::agent::api::generate_multi_agent_output;
-use crate::ai::agent::AIIdentifiers;
-use crate::ai::agent::FileContext;
-use crate::ai::agent::PassiveCodeDiffEntry;
-use crate::ai::agent::PassiveSuggestionTrigger;
-use crate::ai::agent::{conversation::AIConversationId, ShellCommandCompletedTrigger};
+use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::{
+    AIIdentifiers, FileContext, PassiveCodeDiffEntry, PassiveSuggestionTrigger,
+    ShellCommandCompletedTrigger,
+};
 use crate::ai::block_context::BlockContext;
 use crate::ai::blocklist::inline_action::code_diff_view::FileDiff;
 use crate::ai::blocklist::{
@@ -25,13 +33,6 @@ use crate::terminal::model::terminal_model::TerminalModel;
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::view::ambient_agent::AmbientAgentViewModel;
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use ai::agent::action::{AIAgentActionType, FileEdit};
-use ai::diff_validation::ParsedDiff;
-use chrono::{DateTime, Utc};
-use galaxy_core::features::FeatureFlag;
-use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
-use parking_lot::FairMutex;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
@@ -96,7 +97,7 @@ pub struct PassiveSuggestionsModel {
     latest_request: Option<Request>,
     pending_file_read_handle: Option<SpawnedFutureHandle>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
-    ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
+    ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
 
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     terminal_view_id: EntityId,
@@ -110,14 +111,14 @@ impl PassiveSuggestionsModel {
         terminal_model: Arc<FairMutex<TerminalModel>>,
         ai_controller: ModelHandle<BlocklistAIController>,
         model_event_dispatcher: &ModelHandle<ModelEventDispatcher>,
-        ambient_agent_view_model: ModelHandle<AmbientAgentViewModel>,
+        ambient_agent_view_model: Option<ModelHandle<AmbientAgentViewModel>>,
         terminal_view_id: EntityId,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        ctx.subscribe_to_model(model_event_dispatcher, |me, event, ctx| {
+        ctx.subscribe_to_model(model_event_dispatcher, |me, _, event, ctx| {
             me.handle_model_event(event, ctx);
         });
-        ctx.subscribe_to_model(&ai_controller, |me, event, ctx| {
+        ctx.subscribe_to_model(&ai_controller, |me, _, event, ctx| {
             me.handle_controller_event(event, ctx);
         });
 
@@ -138,6 +139,12 @@ impl PassiveSuggestionsModel {
         }
         // Dropping the [`Request`] aborts the spawned stream handle.
         self.latest_request.take();
+    }
+
+    fn is_ambient_agent_session(&self, ctx: &ModelContext<Self>) -> bool {
+        self.ambient_agent_view_model
+            .as_ref()
+            .is_some_and(|model| model.as_ref(ctx).is_ambient_agent())
     }
 
     /// Sends a MAA request to generate passive suggestions.
@@ -239,7 +246,7 @@ impl PassiveSuggestionsModel {
         }
 
         // Suppress passive suggestions in cloud mode sessions.
-        if self.ambient_agent_view_model.as_ref(ctx).is_ambient_agent() {
+        if self.is_ambient_agent_session(ctx) {
             return;
         }
 
@@ -288,7 +295,7 @@ impl PassiveSuggestionsModel {
     ) {
         self.abort_pending_requests(ctx);
         // Suppress passive suggestions in cloud mode sessions.
-        if self.ambient_agent_view_model.as_ref(ctx).is_ambient_agent() {
+        if self.is_ambient_agent_session(ctx) {
             return;
         }
 
@@ -466,9 +473,10 @@ async fn extract_suggestion_from_stream(
         ai::agent::convert::ConvertToAPITypeError,
     >,
 ) -> Option<StreamExtractionResult> {
-    use crate::ai::agent::task::helper::MessageExt;
     use futures_util::StreamExt;
     use warp_multi_agent_api as api;
+
+    use crate::ai::agent::task::helper::MessageExt;
 
     let Ok(mut stream) = stream_result else {
         return None;
@@ -548,9 +556,9 @@ async fn extract_suggestion_from_stream(
 fn coalesce_messages_from_client_actions(
     client_actions: &[warp_multi_agent_api::ClientAction],
 ) -> Vec<warp_multi_agent_api::Message> {
-    use field_mask::FieldMaskOperation;
     use std::collections::HashMap;
-    use warp_multi_agent_api as api;
+
+    use field_mask::FieldMaskOperation;
     use warp_multi_agent_api::client_action::Action;
 
     let mut messages_by_id: HashMap<String, api::Message> = HashMap::new();

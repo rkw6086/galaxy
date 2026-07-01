@@ -1,7 +1,6 @@
 use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 use serde_json::{json, Value};
-use strum_macros::EnumDiscriminants;
-use strum_macros::EnumIter;
+use strum_macros::{EnumDiscriminants, EnumIter};
 
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]

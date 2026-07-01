@@ -1,14 +1,15 @@
-use super::*;
-use crate::{
-    elements::{ConstrainedBox, DispatchEventResult, EventHandler, Rect, ZIndex},
-    platform::WindowStyle,
-    App, AppContext, Entity, Event, Presenter, TypedActionView, ViewContext, WindowInvalidation,
-};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use pathfinder_geometry::vector::vec2f;
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
+
+use super::*;
+use crate::elements::{ConstrainedBox, DispatchEventResult, EventHandler, Rect, ZIndex};
+use crate::platform::WindowStyle;
+use crate::{
+    App, AppContext, Entity, EntityIdSet, Event, Presenter, TypedActionView, ViewContext,
+    WindowInvalidation,
 };
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
@@ -79,7 +80,7 @@ fn test_container_element_overlay_click_handling() {
 
         let mut presenter = Presenter::new(window_id);
 
-        let mut updated = HashSet::new();
+        let mut updated = EntityIdSet::default();
         updated.insert(app.root_view_id(window_id).unwrap());
         let invalidation = WindowInvalidation {
             updated,

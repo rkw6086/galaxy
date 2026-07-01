@@ -1,16 +1,10 @@
 use std::sync::Arc;
 
-use galaxyui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
-use galaxyui::image_cache::ImageType;
-use galaxyui::keymap::{FixedBinding, Keystroke};
-use galaxyui::prelude::*;
-use galaxyui::{AppContext, BlurContext, Element, Entity, SingletonEntity, View, ViewContext};
+pub use lightbox::LightboxImage;
 use pathfinder_geometry::vector::Vector2F;
 use ui_components::{lightbox, Component as _};
 
 use crate::appearance::Appearance;
-
-pub use lightbox::LightboxImage;
 
 pub fn init(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

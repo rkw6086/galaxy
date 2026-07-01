@@ -6,6 +6,14 @@
 //! - StaticWorkflowEnumSuggestions
 //! - DynamicWorkflowEnumSuggestions
 
+use warpui::elements::{
+    Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragBarSide,
+    DropShadow, Element, Empty, Flex, ParentElement, Radius, Resizable, Shrinkable,
+    SizeConstraintCondition, SizeConstraintSwitch, Text,
+};
+use warpui::presenter::ChildView;
+use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+
 use super::{
     DynamicEnumSuggestionStatus, Input, InputAction, MenuPositioning, DYNAMIC_ENUM_FAILURE_MESSAGE,
     DYNAMIC_ENUM_GENERATE_MESSAGE, DYNAMIC_ENUM_HORIZONTAL_TEXT_PADDING,
@@ -18,14 +26,7 @@ use crate::input_suggestions::{
     DETAILS_PANEL_MARGIN, DETAILS_PANEL_PADDING, HISTORY_DETAILS_PANEL_WIDTH,
     LABEL_PADDING as InputSuggestionsLabelPadding,
 };
-use crate::themes::theme::GalaxyTheme;
-use galaxyui::elements::{
-    Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragBarSide,
-    DropShadow, Element, Empty, Flex, ParentElement, Radius, Resizable, Shrinkable,
-    SizeConstraintCondition, SizeConstraintSwitch, Text,
-};
-use galaxyui::presenter::ChildView;
-use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use crate::themes::theme::WarpTheme;
 
 enum SuggestionsResizeConfig {
     WidthAndHeight,

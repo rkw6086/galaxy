@@ -10,10 +10,11 @@ use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::ViewHandle;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 use string_offset::ByteOffset;
+use galaxyui::{Entity, ModelContext, SingletonEntity, ViewHandle};
 
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;
-use crate::debounce::debounce;
+use crate::debounce;
 use crate::editor::{EditorView, TextStyleOperation};
 use crate::terminal::input::decorations::{
     parse_current_commands_and_tokens, ParsedTokenData, ParsedTokensSnapshot,

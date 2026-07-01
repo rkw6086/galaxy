@@ -19,8 +19,9 @@ fn test_user_friendly_path_with_home() {
 
 #[test]
 fn test_to_relative_path() {
-    use super::to_relative_path;
     use std::path::Path;
+
+    use super::to_relative_path;
 
     // Basic relative path conversion
     #[cfg(not(windows))]
@@ -204,7 +205,6 @@ fn test_to_relative_path() {
 
 #[test]
 fn test_normalize_relative_path_for_glob() {
-    use std::path::Path;
 
     assert_eq!(
         normalize_relative_path_for_glob(Path::new("app/src/main.rs")),
@@ -704,8 +704,9 @@ fn test_canonicalize_git_bash_path() {
 // ── group_roots_by_common_ancestor tests ─────────────────────────────
 
 mod group_roots_by_common_ancestor_tests {
-    use crate::path::group_roots_by_common_ancestor;
     use std::path::PathBuf;
+
+    use crate::path::group_roots_by_common_ancestor;
 
     fn pb(s: &str) -> PathBuf {
         PathBuf::from(s)

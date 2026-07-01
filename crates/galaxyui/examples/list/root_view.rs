@@ -1,16 +1,14 @@
-use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, Fill, Flex, List, ListState, MainAxisSize,
-        ParentElement, Rect, ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth,
-        Stack, Text,
-    },
-    AppContext, Element, Entity, TypedActionView, View, ViewContext,
-};
+use std::sync::{Arc, Mutex};
 
 use galaxyui::color::ColorU;
-use std::sync::{Arc, Mutex};
+use galaxyui::elements::{
+    Border, ConstrainedBox, Container, Fill, Flex, List, ListState, MainAxisSize, ParentElement,
+    Rect, ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Stack, Text,
+};
+use galaxyui::fonts::FamilyId;
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+};
 
 pub struct RootView {
     font_family: FamilyId,

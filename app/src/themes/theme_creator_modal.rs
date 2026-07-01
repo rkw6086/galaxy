@@ -1,3 +1,16 @@
+use std::default::Default;
+use std::path::PathBuf;
+
+use warpui::fonts::Weight;
+use warpui::keymap::FixedBinding;
+use warpui::platform::{FilePickerConfiguration, FileType};
+use warpui::presenter::ChildView;
+use warpui::ui_components::components::{Coords, UiComponentStyles};
+use warpui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
+
 use crate::modal::Modal;
 use crate::themes::theme::ThemeKind;
 use crate::themes::theme_creator_body::{
@@ -5,16 +18,6 @@ use crate::themes::theme_creator_body::{
 };
 use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
-use galaxyui::fonts::Weight;
-use galaxyui::keymap::FixedBinding;
-use galaxyui::platform::{FilePickerConfiguration, FileType};
-use galaxyui::presenter::ChildView;
-use galaxyui::ui_components::components::{Coords, UiComponentStyles};
-use galaxyui::ViewHandle;
-use galaxyui::{AppContext, SingletonEntity as _};
-use galaxyui::{Element, Entity, TypedActionView, View, ViewContext};
-use std::default::Default;
-use std::path::PathBuf;
 
 const THEME_CREATOR_MODAL_HEADER: &str = "Create new theme from image";
 

@@ -1,6 +1,6 @@
 use ai::skills::SkillReference;
 use galaxyui::elements::ChildView;
-use galaxyui::{Element, Entity, ModelHandle, View, ViewContext, ViewHandle};
+use galaxyui::{Element, Entity, EntityId, ModelHandle, View, ViewContext, ViewHandle};
 
 use crate::ai::blocklist::agent_view::AgentViewController;
 use crate::search::data_source::Query;
@@ -14,7 +14,6 @@ use crate::terminal::input::suggestions_mode_model::{
     InputSuggestionsModeEvent, InputSuggestionsModeModel,
 };
 use crate::terminal::model::session::active_session::ActiveSession;
-use galaxyui::EntityId;
 
 #[derive(Debug, Clone)]
 pub enum InlineSkillSelectorEvent {

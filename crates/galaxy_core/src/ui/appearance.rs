@@ -1,9 +1,8 @@
-use galaxyui::{
-    fonts::{FamilyId, Weight},
-    Entity, ModelContext, SingletonEntity,
-};
+use galaxyui_core::fonts::{FamilyId, Weight};
+use galaxyui_core::{Entity, ModelContext, SingletonEntity};
 
-use super::{builder::UiBuilder, theme::GalaxyTheme};
+use super::builder::UiBuilder;
+use super::theme::GalaxyTheme;
 
 /// The standard font size to use for headers (e.g.: in dialogs).
 const HEADER_FONT_SIZE: f32 = 18.;
@@ -35,7 +34,7 @@ pub struct Appearance {
 /// Defines appearance change events.
 ///
 /// For any properties that are read from appearance (e.g.: theme, font, etc.),
-/// users should listen for these events rather than directly listenting to
+/// users should listen for these events rather than directly listening to
 /// settings change events for the underlying properties.
 ///
 /// NOTE: You do NOT need to set up subscriptions for these events and use them
@@ -101,7 +100,7 @@ impl Appearance {
 
     #[cfg(feature = "test-util")]
     pub fn mock() -> Self {
-        use galaxyui::color::ColorU;
+        use galaxyui_core::color::ColorU;
 
         use crate::ui::theme::{mock_terminal_colors, Details, Fill};
 

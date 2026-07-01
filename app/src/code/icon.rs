@@ -1,11 +1,9 @@
 use std::path::Path;
 
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    assets::asset_cache::AssetSource,
-    elements::{CacheOption, Icon, Image},
-    Element,
-};
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::elements::{CacheOption, Icon, Image};
+use galaxyui::Element;
 
 /// Returns a special icon for the given file path, if any.
 pub fn icon_from_file_path(path: &str, appearance: &Appearance) -> Option<Box<dyn Element>> {

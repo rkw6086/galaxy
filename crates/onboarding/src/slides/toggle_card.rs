@@ -1,19 +1,18 @@
-use galaxy_core::ui::theme::Fill;
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use galaxyui::prelude::Align;
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
-        FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-        ParentElement, Radius, Shrinkable, Text, Wrap,
-    },
-    fonts::Weight,
-    platform::Cursor,
-    presenter::EventContext,
-    text_layout::TextAlignment,
-    AppContext, Element,
-};
 use pathfinder_geometry::vector::Vector2F;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::Fill;
+use galaxyui_core::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
+    FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, Radius, Shrinkable, Text, Wrap,
+};
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::prelude::Align;
+use galaxyui_core::presenter::EventContext;
+use galaxyui_core::text_layout::TextAlignment;
+use galaxyui_core::{AppContext, Element};
 
 pub(super) type ClickCallback = Box<dyn FnMut(&mut EventContext, &AppContext, Vector2F) + 'static>;
 pub(super) type HoverCallback =

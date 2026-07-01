@@ -1,14 +1,13 @@
-use crate::appearance::Appearance;
-use galaxy_core::ui::theme::AnsiColorIdentifier;
-use galaxyui::{
-    elements::{
-        ChildAnchor, ConstrainedBox, Container, CornerRadius, Empty, Fill, OffsetPositioning,
-        ParentAnchor, ParentElement as _, ParentOffsetBounds, Radius, Stack,
-    },
-    ui_components::components::UiComponentStyles,
-    Element,
-};
 use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxyui::elements::{
+    ChildAnchor, ConstrainedBox, Container, CornerRadius, Empty, Fill, OffsetPositioning,
+    ParentAnchor, ParentElement as _, ParentOffsetBounds, Radius, Stack,
+};
+use galaxyui::ui_components::components::UiComponentStyles;
+use galaxyui::Element;
+
+use crate::appearance::Appearance;
 
 pub struct RedNotificationDot {}
 

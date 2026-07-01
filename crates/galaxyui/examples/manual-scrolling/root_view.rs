@@ -6,26 +6,19 @@ use galaxyui::elements::new_scrollable::ScrollableAppearance;
 use galaxyui::elements::new_scrollable::ScrollableAxis;
 use galaxyui::elements::Axis;
 use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::vec2f;
-use pathfinder_geometry::vector::Vector2F;
-
-use galaxyui::elements::ChildView;
-use galaxyui::elements::ClippedScrollStateHandle;
-use galaxyui::elements::NewScrollable;
-use galaxyui::elements::Point;
-use galaxyui::elements::ScrollData;
-use galaxyui::elements::ScrollStateHandle;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use galaxyui::color::ColorU;
+use galaxyui::elements::new_scrollable::{
+    AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
+    ScrollableAppearance, ScrollableAxis,
+};
+use galaxyui::elements::{
+    Axis, ChildView, ClippedScrollStateHandle, ConstrainedBox, NewScrollable, ParentElement, Point,
+    Rect, ScrollData, ScrollStateHandle, ScrollbarWidth, Stack,
+};
 use galaxyui::keymap::FixedBinding;
 use galaxyui::units::Pixels;
-use galaxyui::AppContext;
-use galaxyui::TypedActionView;
-use galaxyui::ViewHandle;
-use galaxyui::{
-    elements::{ConstrainedBox, ParentElement, Rect, ScrollbarWidth, Stack},
-    Element, Entity, View, ViewContext,
-};
-
-use galaxyui::color::ColorU;
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 
 pub fn init(ctx: &mut AppContext) {
     use galaxyui::keymap::macros::*;

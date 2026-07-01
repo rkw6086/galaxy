@@ -4,13 +4,14 @@ use std::ops::Range;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 use rangemap::RangeSet;
 use string_offset::CharOffset;
-
-use crate::content::edit::EditDelta;
-use crate::content::selection_model::BufferSelectionModel;
-use crate::content::version::BufferVersion;
-use crate::content::{buffer::Buffer, text::LineCount};
+use galaxyui_core::{AppContext, Entity, ModelContext, ModelHandle};
 
 use super::anchor::{Anchor, AnchorSide};
+use crate::content::buffer::Buffer;
+use crate::content::edit::EditDelta;
+use crate::content::selection_model::BufferSelectionModel;
+use crate::content::text::LineCount;
+use crate::content::version::BufferVersion;
 
 /// A model that tracks hidden line ranges independently of the buffer content.
 /// This allows multiple editors to have different hidden line states for the same buffer.

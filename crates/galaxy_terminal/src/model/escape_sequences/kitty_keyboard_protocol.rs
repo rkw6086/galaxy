@@ -1,6 +1,6 @@
-use galaxyui::keymap::Keystroke;
-use galaxyui::platform::keyboard::KeyCode;
-use galaxyui::platform::OperatingSystem;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::keyboard::KeyCode;
+use galaxyui_core::platform::OperatingSystem;
 
 use super::{ModeProvider, TermMode};
 

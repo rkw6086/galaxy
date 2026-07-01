@@ -1,16 +1,12 @@
-use galaxyui::elements::ZIndex;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use galaxyui::elements::{ScrollData, ScrollableElement, ZIndex};
 use galaxyui::event::ModifiersState;
 use galaxyui::units::{IntoLines, IntoPixels, Pixels};
-use galaxyui::ModelHandle;
-use galaxyui::{
-    elements::{ScrollData, ScrollableElement},
-    AppContext, Element, EventContext, SizeConstraint,
-};
-use pathfinder_geometry::vector::{vec2f, Vector2F};
+use galaxyui::{AppContext, Element, EventContext, ModelHandle, SizeConstraint};
 
+use super::block_list_element::BlockListMenuSource;
+use super::view::TerminalAction;
 use crate::terminal::input::inline_menu::InlineMenuPositioner;
-
-use super::{block_list_element::BlockListMenuSource, view::TerminalAction};
 
 /// An element that renders the input, block_list and "gap" created after a
 /// clear or ctrl-l when in waterfall input mode.

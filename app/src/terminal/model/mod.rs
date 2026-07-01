@@ -22,7 +22,6 @@ pub mod bootstrap;
 pub mod completions;
 pub mod header_grid;
 pub mod rich_content;
-pub mod tmux;
 
 pub mod early_output;
 pub mod find;
@@ -35,7 +34,7 @@ pub mod secrets;
 pub mod selection;
 pub mod session;
 pub mod terminal_model;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_utils;
 
 pub use galaxy_terminal::model::{char_or_str, escape_sequences, grid::cell, mouse, BlockId};
@@ -43,3 +42,5 @@ pub use secrets::{
     set_user_and_enterprise_secret_regexes, ObfuscateSecrets, RespectObfuscatedSecrets, Secret,
     SecretHandle,
 };
+pub use galaxy_terminal::model::grid::cell;
+pub use galaxy_terminal::model::{char_or_str, escape_sequences, mouse, BlockId};

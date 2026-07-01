@@ -1,6 +1,7 @@
-use super::{DisplayMap, DisplayPoint};
 use anyhow::Result;
 use galaxyui::AppContext;
+
+use super::{DisplayMap, DisplayPoint};
 
 pub fn left(
     map: &DisplayMap,

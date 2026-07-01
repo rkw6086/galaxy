@@ -1,3 +1,27 @@
+use std::default::Default;
+use std::fmt;
+use std::path::PathBuf;
+#[cfg(feature = "local_fs")]
+use std::{fs::copy, io::Write};
+
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+#[cfg(feature = "local_fs")]
+use galaxy_core::ui::theme::WarpTheme;
+use galaxyui::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
+    EventHandler, Fill, Flex, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, Radius, Rect, SavePosition, Shrinkable, Text,
+};
+use galaxyui::fonts::Weight;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::ui_components::text_input::TextInput;
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+
 use crate::appearance::{Appearance, AppearanceManager};
 use crate::editor::{EditorView, Event as EditorEvent};
 use crate::themes::theme::{InMemoryThemeOptions, ThemeKind};
@@ -6,29 +30,6 @@ use crate::user_config;
 use crate::{
     send_telemetry_from_ctx, server::telemetry::TelemetryEvent, themes::theme::CustomTheme,
 };
-#[cfg(feature = "local_fs")]
-use galaxy_core::ui::theme::GalaxyTheme;
-use galaxyui::elements::{
-    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
-    EventHandler, Fill, Flex, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-    ParentElement, Radius, Rect, SavePosition, Shrinkable, Text,
-};
-use galaxyui::fonts::Weight;
-use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
-use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use galaxyui::ui_components::text_input::TextInput;
-use galaxyui::ViewHandle;
-use galaxyui::{
-    platform::Cursor, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
-    ViewContext,
-};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use std::default::Default;
-use std::fmt;
-use std::path::PathBuf;
-#[cfg(feature = "local_fs")]
-use std::{fs::copy, io::Write};
 
 const BUTTON_PADDING: f32 = 12.;
 const BUTTON_FONT_SIZE: f32 = 14.;

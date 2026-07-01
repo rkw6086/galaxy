@@ -527,7 +527,6 @@ fn test_caching_enabled_has_cache_points() {
     );
 
     // Check that cache point exists in system
-    use aws_sdk_bedrockruntime::types::SystemContentBlock;
     let has_system_cache = result
         .system
         .iter()
@@ -536,7 +535,6 @@ fn test_caching_enabled_has_cache_points() {
 
     // Check that cache point exists in tools
     if let Some(tool_config) = result.tool_config {
-        use aws_sdk_bedrockruntime::types::Tool;
         let has_tool_cache = tool_config
             .tools()
             .iter()

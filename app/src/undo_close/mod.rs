@@ -1,11 +1,13 @@
 pub mod settings;
 mod stack;
 
-use galaxyui::{keymap::EditableBinding, AppContext};
+use galaxyui::keymap::EditableBinding;
+use galaxyui::AppContext;
 
-use crate::{util::bindings::CustomAction, workspace::WorkspaceAction};
-
-pub use self::{settings::UndoCloseSettings, stack::UndoCloseStack, stack::UndoCloseStackEvent};
+pub use self::settings::UndoCloseSettings;
+pub use self::stack::{UndoCloseStack, UndoCloseStackEvent};
+use crate::util::bindings::CustomAction;
+use crate::workspace::WorkspaceAction;
 
 /// Register keybindings for undo close functionality.
 pub fn init(ctx: &mut AppContext) {

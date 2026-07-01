@@ -1,13 +1,11 @@
+use galaxyui::color::ColorU;
+use galaxyui::elements::{
+    resizable_state_handle, Container, CrossAxisAlignment, DragBarSide, Flex, MainAxisAlignment,
+    MainAxisSize, ParentElement, Rect, Resizable, ResizableStateHandle, Shrinkable, Stack, Text,
+};
 use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
 use galaxyui::{
-    color::ColorU,
-    elements::{
-        resizable_state_handle, Container, CrossAxisAlignment, DragBarSide, Flex,
-        MainAxisAlignment, MainAxisSize, ParentElement, Rect, Resizable, ResizableStateHandle,
-        Shrinkable, Stack, Text,
-    },
-    AppContext, Element, Entity, TypedActionView, View, ViewContext,
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
 };
 
 pub struct RootView {

@@ -7,23 +7,21 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::Weight;
 use galaxyui::keymap::macros::id;
-use galaxyui::keymap::FixedBinding;
-use galaxyui::keymap::Keystroke;
+use galaxyui::keymap::{FixedBinding, Keystroke};
 use galaxyui::platform::file_picker::FilePickerConfiguration;
-use galaxyui::FocusContext;
 use galaxyui::{
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 use pathfinder_geometry::vector::vec2f;
 
+use super::session_config::{is_git_repo, SessionConfigSelection, SessionType};
+use super::session_config_rendering;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use crate::view_components::action_button::{
     ActionButton, ButtonSize, KeystrokeSource, NakedTheme, PrimaryTheme,
 };
-
-use super::session_config::{is_git_repo, SessionConfigSelection, SessionType};
-use super::session_config_rendering;
 
 pub fn init(app: &mut galaxyui::AppContext) {
     app.register_fixed_bindings([FixedBinding::new(

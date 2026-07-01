@@ -1,34 +1,22 @@
 //! This module contains common utilities for rendering Blocklist AI UI.
 use std::sync::LazyLock;
 
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
-        MouseStateHandle, ParentElement,
-    },
-    fonts::Weight,
-    ui_components::{
-        button::ButtonVariant,
-        components::{UiComponent, UiComponentStyles},
-        text::Span,
-    },
-    AppContext, Element, EntityId, EventContext, SingletonEntity,
-};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-
-use crate::{
-    themes::theme::{AnsiColorIdentifier, Fill, GalaxyTheme},
-    ui_components::icons::Icon,
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
+    ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Stack,
 };
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::ui_components::text::Span;
+use galaxyui::{AppContext, Element, EntityId, EventContext, SingletonEntity};
 
-use galaxyui::elements::ChildAnchor;
-use galaxyui::elements::Hoverable;
-use galaxyui::elements::OffsetPositioning;
-use galaxyui::elements::ParentAnchor;
-use galaxyui::elements::ParentOffsetBounds;
-use galaxyui::elements::Stack;
+use crate::themes::theme::{AnsiColorIdentifier, Fill, WarpTheme};
+use crate::ui_components::icons::Icon;
 
 const PROVIDER_BUTTON_ICON_SIZE: f32 = 14.;
 const PROVIDER_BUTTON_ICON_TEXT_GAP: f32 = 8.;

@@ -1,6 +1,7 @@
-use galaxyui::keymap::Keystroke;
-use regex::Regex;
 use std::ops::Range;
+
+use regex::Regex;
+use galaxyui::keymap::Keystroke;
 
 use crate::terminal::model::escape_sequences::C0;
 

@@ -5,17 +5,15 @@ use galaxyui::{Entity, ModelContext, ModelHandle, r#async::SpawnedFutureHandle};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
-
-use crate::{
-    content::{
-        anchor::Anchor,
-        buffer::{Buffer, BufferEvent},
-        find::{Query, SearchConfig, SearchResults},
-        selection_model::BufferSelectionModel,
-    },
-    render::model::Decoration,
-};
 use string_offset::CharOffset;
+use galaxyui_core::r#async::SpawnedFutureHandle;
+use galaxyui_core::{Entity, ModelContext, ModelHandle};
+
+use crate::content::anchor::Anchor;
+use crate::content::buffer::{Buffer, BufferEvent};
+use crate::content::find::{Query, SearchConfig, SearchResults};
+use crate::content::selection_model::BufferSelectionModel;
+use crate::render::model::Decoration;
 
 #[cfg(test)]
 #[path = "search_tests.rs"]
@@ -267,7 +265,12 @@ impl Searcher {
         self.buffer.as_ref(ctx).prepare_search(&config)
     }
 
-    fn handle_buffer_event(&mut self, event: &BufferEvent, ctx: &mut ModelContext<Self>) {
+    fn handle_buffer_event(
+        &mut self,
+        _: ModelHandle<Buffer>,
+        event: &BufferEvent,
+        ctx: &mut ModelContext<Self>,
+    ) {
         if let BufferEvent::ContentChanged { .. } = event {
             self.run_search(ctx);
         }
@@ -276,7 +279,7 @@ impl Searcher {
     #[cfg(test)]
     pub fn search_finished(
         &self,
-        ctx: &mut galaxyui::AppContext,
+        ctx: &mut galaxyui_core::AppContext,
     ) -> impl std::future::Future<Output = ()> + use<> {
         let maybe_search = self
             .search_handle

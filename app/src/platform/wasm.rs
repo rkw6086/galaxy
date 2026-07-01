@@ -1,8 +1,7 @@
 use js_sys::ReferenceError;
 use thiserror::Error;
+pub use galaxy_web_event_bus::{emit_event, WarpEvent};
 use wasm_bindgen::{JsCast, JsValue};
-
-pub use galaxy_web_event_bus::{emit_event, GalaxyEvent};
 
 /// This function should be called early in application initialization to ensure that
 /// static variables are initialized.

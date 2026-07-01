@@ -13,19 +13,11 @@
 //!
 //!
 
-use crate::appearance::Appearance;
-use crate::editor::EditorView;
-use crate::editor::{
-    Event as EditorEvent, PlainTextEditorViewAction, PropagateAndNoOpNavigationKeys,
-    SingleLineEditorOptions,
-};
-use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
-use crate::terminal::input::MenuPositioning;
-use crate::terminal::resizable_data::{ModalType, ResizableData, DEFAULT_VOLTRON_WIDTH};
-use crate::util::bindings::{self, CustomAction};
-use crate::workflows::categories::CategoriesView;
+use std::path::PathBuf;
 
 use enclose::enclose;
+use pathfinder_geometry::vector::Vector2F;
+use vec1::Vec1;
 use galaxyui::accessibility::AccessibilityContent;
 use galaxyui::elements::{
     resizable_state_handle, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,
@@ -41,9 +33,17 @@ use galaxyui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
-use pathfinder_geometry::vector::Vector2F;
-use std::path::PathBuf;
-use vec1::Vec1;
+
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorView, Event as EditorEvent, PlainTextEditorViewAction, PropagateAndNoOpNavigationKeys,
+    SingleLineEditorOptions,
+};
+use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
+use crate::terminal::input::MenuPositioning;
+use crate::terminal::resizable_data::{ModalType, ResizableData, DEFAULT_VOLTRON_WIDTH};
+use crate::util::bindings::{self, CustomAction};
+use crate::workflows::categories::CategoriesView;
 
 const DROPDOWN_BUTTON_WIDTH: f32 = 200.;
 const DROPDOWN_PADDING: f32 = 6.;

@@ -1,6 +1,6 @@
-use super::*;
-use galaxyui::keymap::BindingId;
 use itertools::Itertools;
+
+use super::*;
 
 #[test]
 fn test_enqueue_new_item() {

@@ -1,18 +1,17 @@
 use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
+    Border, Container, CornerRadius, DispatchEventResult, EventHandler, Flex, MainAxisAlignment,
+    MouseStateHandle, ParentElement as _, Radius, Text,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
 use galaxyui::{
-    elements::{
-        Border, Container, CornerRadius, DispatchEventResult, EventHandler, Flex,
-        MainAxisAlignment, MouseStateHandle, ParentElement as _, Radius, Text,
-    },
-    fonts::{Properties, Weight},
-    platform::Cursor,
     AppContext, BlurContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
 
-use crate::editor::EditorView;
-
 use super::EnvironmentsPageAction;
+use crate::editor::EditorView;
 
 pub struct NewEnvironmentButtonView {
     trigger_mouse_state: MouseStateHandle,

@@ -6,11 +6,11 @@
 
 use std::ops::Deref;
 
-use galaxyui::SingletonEntity;
+use galaxyui_core::SingletonEntity;
 use galaxyui_extras::user_preferences::UserPreferences;
 use settings::PrivatePreferences;
 
-/// An extension trait on [`galaxyui::AppContext`] for accessing private user
+/// An extension trait on [`galaxyui_core::AppContext`] for accessing private user
 /// preferences.
 ///
 /// Private settings are always stored in the platform-native store (e.g.
@@ -24,7 +24,7 @@ pub trait GetUserPreferences {
     fn private_user_preferences(&self) -> &dyn UserPreferences;
 }
 
-impl GetUserPreferences for galaxyui::AppContext {
+impl GetUserPreferences for galaxyui_core::AppContext {
     fn private_user_preferences(&self) -> &dyn UserPreferences {
         <PrivatePreferences as SingletonEntity>::as_ref(self).deref()
     }

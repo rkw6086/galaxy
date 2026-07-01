@@ -1,4 +1,4 @@
-use galaxyui::text::TextBuffer;
+use galaxyui_core::text::TextBuffer;
 use string_offset::CharOffset;
 
 /// Returns the offset of the first newline above a paragraph start before the current position.

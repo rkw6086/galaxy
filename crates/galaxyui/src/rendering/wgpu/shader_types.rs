@@ -200,7 +200,6 @@ impl RectData {
     }
 
     pub(super) fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
 
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<Self>() as wgpu::BufferAddress,

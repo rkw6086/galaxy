@@ -1,12 +1,9 @@
-use galaxyui::elements::ClippedScrollStateHandle;
-use galaxyui::elements::ClippedScrollable;
-
-use galaxyui::{
-    elements::{ConstrainedBox, Container, Flex, ParentElement, Rect, ScrollbarWidth, Stack},
-    AppContext, Element, Entity, TypedActionView, View, ViewContext,
-};
-
 use galaxyui::color::ColorU;
+use galaxyui::elements::{
+    ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container, Flex, ParentElement,
+    Rect, ScrollbarWidth, Stack,
+};
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
 
 #[derive(Default)]
 pub struct RootView {

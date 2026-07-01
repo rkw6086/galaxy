@@ -8,7 +8,8 @@ use serde::Serialize;
 use serde_json::json;
 use strum_macros::{EnumDiscriminants, EnumIter};
 
-use crate::ai::{agent::AIIdentifiers, blocklist::RequestedEditResolution};
+use crate::ai::agent::AIIdentifiers;
+use crate::ai::blocklist::RequestedEditResolution;
 
 /// Telemetry events associated with the `RequestFileEdits` AI agent action.
 #[derive(Serialize, Debug, EnumDiscriminants)]

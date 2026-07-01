@@ -1,4 +1,4 @@
-use galaxyui::color::ColorU;
+use galaxyui_core::color::ColorU;
 
 pub trait Blend<Rhs = Self> {
     type Output;

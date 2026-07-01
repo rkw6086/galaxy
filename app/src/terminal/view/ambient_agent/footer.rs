@@ -1,13 +1,11 @@
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment,
-        MainAxisSize, ParentElement, Text,
-    },
-    fonts::{Properties, Weight},
-    Element,
-};
 use pathfinder_color::ColorU;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
+    Border, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
+    ParentElement, Text,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::Element;
 
 use crate::ui_components::blended_colors;
 

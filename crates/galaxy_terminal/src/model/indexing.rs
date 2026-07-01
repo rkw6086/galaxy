@@ -6,6 +6,7 @@ use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
 use galaxyui::units::Lines;
 use serde::{Deserialize, Serialize};
+use galaxyui_core::units::Lines;
 
 use super::grid::Dimensions;
 

@@ -1,4 +1,5 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use galaxy_cli::agent::OutputFormat;
@@ -6,18 +7,17 @@ use galaxy_cli::artifact::{
     ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs,
 };
 use galaxy_cli::GlobalOptions;
-use galaxyui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
-use serde::Serialize;
+use galaxyui::platform::TerminationMode;
+use galaxyui::{AppContext, ModelContext, SingletonEntity};
 
+use super::artifact_upload::{
+    CompletedFileArtifactUpload, FileArtifactUploadRequest, FileArtifactUploader,
+};
 use crate::ai::artifact_download::{download_artifact_bytes, download_destination};
 #[cfg(test)]
 use crate::server::server_api::ai::FileArtifactRecord;
 use crate::server::server_api::ai::{AIClient, ArtifactDownloadResponse};
 use crate::server::server_api::{ServerApi, ServerApiProvider};
-
-use super::artifact_upload::{
-    CompletedFileArtifactUpload, FileArtifactUploadRequest, FileArtifactUploader,
-};
 
 /// Run artifact-related commands.
 pub fn run(

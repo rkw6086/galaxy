@@ -1,6 +1,7 @@
 use galaxy_editor::render::model::{LineCount, RenderLineLocation};
 use std::ops::Range;
 
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorLineLocation {
     Collapsed {

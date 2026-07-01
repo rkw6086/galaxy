@@ -1,3 +1,12 @@
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use galaxyui::elements::{
+    AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext, Point,
+    SizeConstraint,
+};
+use galaxyui::event::DispatchedEvent;
+use galaxyui::geometry::rect::RectF;
+
+use super::blockgrid_renderer::GridRenderParams;
 use crate::appearance::Appearance;
 use crate::settings::EnforceMinimumContrast;
 use crate::terminal::blockgrid_renderer::BlockGridParams;
@@ -5,15 +14,6 @@ use crate::terminal::model::blockgrid::BlockGrid;
 use crate::terminal::model::grid::Dimensions;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::{color, SizeInfo};
-use galaxyui::elements::{
-    AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext, Point,
-    SizeConstraint,
-};
-use galaxyui::event::DispatchedEvent;
-use galaxyui::geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-
-use super::blockgrid_renderer::GridRenderParams;
 
 pub struct BlockGridElement {
     block_grid: BlockGrid,

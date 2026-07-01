@@ -6,5 +6,5 @@ pub mod user_defaults;
 pub mod util;
 
 pub use builder::Builder;
-pub use galaxy::integration_testing::view_getters;
-pub use galaxyui::integration::TestStep;
+pub use warp::integration_testing::view_getters;
+pub use galaxyui_core::integration::TestStep;

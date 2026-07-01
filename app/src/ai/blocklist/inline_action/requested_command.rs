@@ -1,66 +1,63 @@
-use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::Icon;
-use galaxy_editor::render::element::VerticalExpansionBehavior;
-use galaxyui::elements::{ConstrainedBox, ScrollbarWidth};
-use galaxyui::ui_components::components::UiComponent as _;
-use galaxyui::{
-    elements::{
-        Align, Border, ChildView, Clipped, Container, CornerRadius, CrossAxisAlignment, Expanded,
-        Flex, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, Radius,
-        SelectableArea, SelectionHandle, Stack, Text,
-    },
-    keymap::{Context, EditableBinding, FixedBinding, Keystroke},
-    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, UpdateView, View,
-    ViewContext, ViewHandle,
-};
-use lazy_static::lazy_static;
-use parking_lot::FairMutex;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
 use std::borrow::Cow;
 use std::cmp::{Ordering, PartialEq};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::ai::agent::{AIAgentActionResult, AIAgentActionType};
-use galaxyui::{EntityId, EventContext};
+use lazy_static::lazy_static;
+use parking_lot::FairMutex;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::Icon;
+use galaxy_editor::render::element::VerticalExpansionBehavior;
+use galaxyui::elements::{
+    Align, Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Expanded, Flex, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, Radius,
+    ScrollbarWidth, SelectableArea, SelectionHandle, Stack, Text,
+};
+use galaxyui::keymap::{Context, EditableBinding, FixedBinding, Keystroke};
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{
+    AppContext, Element, Entity, EntityId, EventContext, ModelHandle, SingletonEntity,
+    TypedActionView, UpdateView, View, ViewContext, ViewHandle,
+};
 
-use crate::ai::agent::RequestCommandOutputResult;
-use crate::ai::agent::{icons, AIAgentActionResultType};
+use super::inline_action_icons::{self, icon_size};
+use crate::ai::agent::conversation::ConversationStatus;
+use crate::ai::agent::{
+    icons, AIAgentActionId, AIAgentActionResult, AIAgentActionResultType, AIAgentActionType,
+    AIAgentCitation, AIAgentOutputMessageType, CallMCPToolResult, RequestCommandOutputResult,
+};
+use crate::ai::blocklist::action_model::AIActionStatus;
 use crate::ai::blocklist::block::cli_controller::{
     LongRunningCommandControlState, UserTakeOverReason,
 };
 use crate::ai::blocklist::block::view_impl::output::action_icon;
-use crate::ai::blocklist::inline_action::inline_action_header::RightClickConfig;
+use crate::ai::blocklist::block::view_impl::{
+    render_autonomy_checkbox_setting_speedbump_footer, render_citation, render_citation_chips,
+    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
+};
+use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
+use crate::ai::blocklist::inline_action::inline_action_header::{
+    ExpandedConfig, HeaderConfig, InteractionMode, RightClickConfig,
+    INLINE_ACTION_HORIZONTAL_PADDING,
+};
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
-    AIBlock, BlocklistAIActionEvent, BlocklistAIHistoryModel, ClientIdentifiers,
+    AIBlock, BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIHistoryModel,
+    ClientIdentifiers,
 };
-use crate::ai::{
-    agent::{AIAgentActionId, AIAgentCitation, AIAgentOutputMessageType, CallMCPToolResult},
-    blocklist::{
-        action_model::AIActionStatus,
-        block::{
-            view_impl::{
-                render_autonomy_checkbox_setting_speedbump_footer, render_citation,
-                render_citation_chips, CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
-            },
-            AIBlockAction, AutonomySettingSpeedbump,
-        },
-        inline_action::{
-            inline_action_header::INLINE_ACTION_HORIZONTAL_PADDING,
-            inline_action_header::{ExpandedConfig, HeaderConfig, InteractionMode},
-        },
-        BlocklistAIActionModel,
-    },
-};
+use crate::cmd_or_ctrl_shift;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
 use crate::editor::InteractionState;
 use crate::menu::{Event as MenuEvent, Menu, MenuItemFields, MenuVariant};
+use crate::settings::InputModeSettings;
 use crate::terminal::block_list_viewport::InputMode;
 use crate::terminal::model::block::Block;
 use crate::terminal::TerminalModel;
+use crate::ui_components::blended_colors;
+use crate::ui_components::json_tree::{JsonTreeState, PathSegment};
 use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::view_components::action_button::{ButtonSize, KeystrokeSource, NakedTheme};
 use crate::view_components::compactible_action_button::{
@@ -68,9 +65,6 @@ use crate::view_components::compactible_action_button::{
     MEDIUM_SIZE_SWITCH_THRESHOLD, SMALL_SIZE_SWITCH_THRESHOLD,
 };
 use crate::view_components::compactible_split_action_button::CompactibleSplitActionButton;
-use crate::{cmd_or_ctrl_shift, settings::InputModeSettings, ui_components::blended_colors};
-
-use super::inline_action_icons::{self, icon_size};
 
 /// The vertical padding applied to the requested command row's content body.
 /// For horizontal padding, use [`INLINE_ACTION_HORIZONTAL_PADDING`] for consistency.
@@ -96,6 +90,7 @@ const VIEWING_MCP_TOOL_DETAIL_MESSAGE: &str = "Viewing MCP tool call detail";
 const EDIT_COMMAND_ACTION_NAME: &str = "requested_command:edit";
 
 const EDIT_MODE_OPEN_KEYMAP_CONTEXT: &str = "RequestedCommandViewEditModeOpen";
+const REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT: &str = "RequestedActionBlocked";
 
 const SCROLLBAR_WIDTH: ScrollbarWidth = ScrollbarWidth::Auto;
 const MAX_EDITOR_HEIGHT: f32 = 500.0;
@@ -126,32 +121,42 @@ pub fn init(app: &mut AppContext) {
         FixedBinding::new(
             "ctrl-c",
             RequestedCommandViewAction::Reject,
-            id!(RequestedCommandView::ui_name()),
+            id!(RequestedCommandView::ui_name()) & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT),
         ),
         FixedBinding::new(
             "enter",
             RequestedCommandViewAction::Accept,
-            id!(RequestedCommandView::ui_name()) & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+            id!(RequestedCommandView::ui_name())
+                & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+                & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
         ),
         FixedBinding::new(
             "numpadenter",
             RequestedCommandViewAction::Accept,
-            id!(RequestedCommandView::ui_name()) & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+            id!(RequestedCommandView::ui_name())
+                & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+                & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
         ),
         FixedBinding::new(
             "cmdorctrl-enter",
             RequestedCommandViewAction::Accept,
-            id!(RequestedCommandView::ui_name()) & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+            id!(RequestedCommandView::ui_name())
+                & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+                & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
         ),
         FixedBinding::new(
             "escape",
             RequestedCommandViewAction::CloseEditMode,
-            id!(RequestedCommandView::ui_name()) & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+            id!(RequestedCommandView::ui_name())
+                & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+                & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
         ),
         FixedBinding::new(
             "tab",
             RequestedCommandViewAction::FocusEditor,
-            id!(RequestedCommandView::ui_name()) & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+            id!(RequestedCommandView::ui_name())
+                & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+                & id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
         ),
     ]);
 
@@ -162,8 +167,75 @@ pub fn init(app: &mut AppContext) {
     )
     .with_key_binding(cmd_or_ctrl_shift("e"))
     .with_context_predicate(
-        id!(RequestedCommandView::ui_name()) & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
+        id!(RequestedCommandView::ui_name())
+            & id!(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT)
+            & !id!(EDIT_MODE_OPEN_KEYMAP_CONTEXT),
     )]);
+}
+
+/// Structured representation of an MCP tool call request, held so the
+/// detail view can render it as a JSON tree rather than a flat string.
+// Fields are consumed by the MCP tree-rendering layer.
+#[allow(dead_code)]
+pub struct McpRequest {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+/// The normalized, renderable form of a `CallMCPToolResult`.
+///
+/// Converts the raw result (which may carry text content, structured JSON, an
+/// error message, or a cancellation signal) into a form the tree-rendering
+/// layer can act on without further conditionals.
+// Consumed by the MCP tree-rendering layer.
+#[allow(dead_code)]
+pub(crate) enum McpRenderable {
+    Tree(serde_json::Value),
+    Error(String),
+    Cancelled,
+}
+
+/// Normalizes a `CallMCPToolResult` into a `McpRenderable` for display.
+///
+/// Prefers `structured_content` when present; otherwise tries to parse joined
+/// text content as JSON; falls back to wrapping the raw text as a JSON
+/// string value so the tree renderer always receives a `serde_json::Value`.
+// Called by the MCP tree-rendering layer.
+#[allow(dead_code)]
+pub(crate) fn mcp_result_to_renderable(result: &CallMCPToolResult) -> McpRenderable {
+    match result {
+        CallMCPToolResult::Success { result } => {
+            if let Some(v) = &result.structured_content {
+                return McpRenderable::Tree(v.clone());
+            }
+            let text = result
+                .content
+                .iter()
+                .filter_map(|c| {
+                    if let rmcp::model::RawContent::Text(t) = &c.raw {
+                        Some(t.text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                McpRenderable::Tree(v)
+            } else {
+                McpRenderable::Tree(serde_json::Value::String(text))
+            }
+        }
+        CallMCPToolResult::Error(e) => McpRenderable::Error(e.clone()),
+        CallMCPToolResult::Cancelled => McpRenderable::Cancelled,
+    }
+}
+
+/// Identifies which of the two JSON trees (request or response) an action targets.
+#[derive(Debug, Clone)]
+pub enum McpTree {
+    Request,
+    Response,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,6 +278,18 @@ pub enum RequestedCommandViewAction {
     ToggleExpanded,
     OpenActiveAgentProfileEditor,
     SelectText,
+    /// Toggle the expanded/collapsed state of an object or array node in the
+    /// MCP request or response JSON tree.
+    ToggleJsonNode {
+        path: Vec<PathSegment>,
+        tree: McpTree,
+    },
+    /// Toggle the expanded/collapsed state of a long string value in the MCP
+    /// request or response JSON tree.
+    ToggleJsonString {
+        path: Vec<PathSegment>,
+        tree: McpTree,
+    },
 }
 
 pub struct RequestedCommandView {
@@ -251,6 +335,14 @@ pub struct RequestedCommandView {
     // Selection support for MCP tool call detail text
     mcp_content_selection_handle: SelectionHandle,
     mcp_content_selected_text: Arc<std::sync::RwLock<Option<String>>>,
+
+    // Structured request data and per-tree expansion state for JSON tree rendering.
+    // `mcp_request` is populated from the stream as soon as the tool name
+    // and arguments are known. Separate states ensure request-tree paths start
+    // at depth 0 and are not confused with response-tree paths.
+    mcp_request: Option<McpRequest>,
+    mcp_request_tree_state: JsonTreeState,
+    mcp_response_tree_state: JsonTreeState,
 }
 
 impl RequestedCommandView {
@@ -485,6 +577,9 @@ impl RequestedCommandView {
             ai_block_view_id,
             mcp_content_selection_handle: SelectionHandle::default(),
             mcp_content_selected_text: Arc::new(std::sync::RwLock::new(None)),
+            mcp_request: None,
+            mcp_request_tree_state: Default::default(),
+            mcp_response_tree_state: Default::default(),
         }
     }
 
@@ -624,6 +719,13 @@ impl RequestedCommandView {
 
     fn get_position_id_for_accept_split_button(prefix: &str) -> String {
         format!("RequestedCommandView-{prefix}-accept-split")
+    }
+
+    fn is_waiting_for_user_confirmation(&self, app: &AppContext) -> bool {
+        self.action_model
+            .as_ref(app)
+            .get_action_status(&self.action_id)
+            .is_some_and(|status| status.is_blocked())
     }
 
     pub fn is_header_expanded(&self) -> bool {
@@ -979,6 +1081,14 @@ impl RequestedCommandView {
         }
     }
 
+    /// Stores the structured MCP tool request data for JSON tree rendering.
+    ///
+    /// Called each time a stream update arrives so the view always reflects
+    /// the latest known arguments.
+    pub(crate) fn update_mcp_request(&mut self, name: String, args: serde_json::Value) {
+        self.mcp_request = Some(McpRequest { name, args });
+    }
+
     /// Extracts the tool name from MCP tool command text, removing parameters.
     /// For example, "tool_name(param1, param2)" becomes "tool_name".
     fn extract_mcp_tool_name(&self, command_text: &str) -> String {
@@ -1088,6 +1198,11 @@ impl RequestedCommandView {
                             appearance.theme().surface_2(),
                         ));
                     }
+                } else if requested_command_block.is_some_and(|block| block.finished()) {
+                    // If a finished command block exists but there's no action status,
+                    // treat the same as a finished command (normal text styling).
+                    title = self.get_header_title_text().into();
+                    font_override = Some(appearance.monospace_font_family());
                 } else {
                     // If there is no action status and response is not streaming, it was cancelled
                     // mid-flight.
@@ -1220,19 +1335,27 @@ impl RequestedCommandView {
                 ));
             }
             Some(AIActionStatus::Finished(result)) => {
-                // Determine if command should be expandable based on whether it actually executed
-                let should_be_expandable = match &result.result {
-                    AIAgentActionResultType::RequestCommandOutput(command_result) => {
-                        match command_result {
-                            // All completed commands are expandable (including interrupted ones)
-                            RequestCommandOutputResult::Completed { .. } => true,
-                            // Cancelled before execution are not expandable
-                            RequestCommandOutputResult::CancelledBeforeExecution => false,
-                            _ => result.result.is_successful() || result.result.is_failed(),
+                // Determine if command should be expandable based on whether it actually executed.
+                // If a finished command block exists for this action, the command definitely ran,
+                // so it should be expandable regardless of the action result type. This handles
+                // cases where the action result is stale (e.g. a LongRunningCommandSnapshot
+                // converted to CancelledBeforeExecution on restore, even though the command
+                // completed successfully).
+                let has_finished_command_block =
+                    requested_command_block.is_some_and(|block| block.finished());
+                let should_be_expandable = has_finished_command_block
+                    || match &result.result {
+                        AIAgentActionResultType::RequestCommandOutput(command_result) => {
+                            match command_result {
+                                // All completed commands are expandable (including interrupted ones)
+                                RequestCommandOutputResult::Completed { .. } => true,
+                                // Cancelled before execution are not expandable
+                                RequestCommandOutputResult::CancelledBeforeExecution => false,
+                                _ => result.result.is_successful() || result.result.is_failed(),
+                            }
                         }
-                    }
-                    _ => result.result.is_successful() || result.result.is_failed(),
-                };
+                        _ => result.result.is_successful() || result.result.is_failed(),
+                    };
 
                 if should_be_expandable {
                     config = config.with_interaction_mode(InteractionMode::ManuallyExpandable(
@@ -1255,7 +1378,15 @@ impl RequestedCommandView {
                     ));
                 }
             }
-            _ => (),
+            _ => {
+                // Even without a known action status, if a finished command block exists
+                // for this action, the command ran and the header should be expandable.
+                if requested_command_block.is_some_and(|block| block.finished()) {
+                    config = config.with_interaction_mode(InteractionMode::ManuallyExpandable(
+                        self.get_expansion_config(requested_command_block, app),
+                    ));
+                }
+            }
         };
 
         config.render(app)
@@ -1491,23 +1622,26 @@ impl View for RequestedCommandView {
         let should_remove_bottom_margin = is_rendered_above_expanded_command_block
             || ((self.action_type.is_requested_command() || self.action_type.is_mcp_tool())
                 && is_last_output_message_in_output
-                && BlocklistAIHistoryModel::as_ref(app)
+                && (BlocklistAIHistoryModel::as_ref(app)
                     .conversation(&self.client_ids.conversation_id)
                     .is_some_and(|conversation| {
-                        let mut exchanges = conversation.root_task_exchanges();
-                        while let Some(exchange) = exchanges.next() {
-                            if exchange.id == self.client_ids.client_exchange_id {
-                                // If the next exchange doesn't contain a user query, don't render bottom margin for continuity.
-                                return exchanges.next().is_some_and(|exchange| {
+                        // Prevents an issue where the bottom margin is removed when the requested command is the last message and we cancel it.
+                        // We want to keep the margin in this case so that there's visual separation between the cancelled command and footer.
+                        conversation.status() != &ConversationStatus::Cancelled
+                            // If the next exchange doesn't contain a user query, don't render bottom margin for continuity.
+                            && conversation
+                                .root_task_exchanges()
+                                .skip_while(|exchange| {
+                                    exchange.id != self.client_ids.client_exchange_id
+                                })
+                                .nth(1)
+                                .is_some_and(|exchange| {
                                     !exchange
                                         .input
                                         .iter()
-                                        .any(|input| input.user_query().is_some())
-                                });
-                            }
-                        }
-                        false
-                    })
+                                        .any(|input| input.display_query().is_some())
+                                })
+                    }))
                 && !is_input_pinned_to_top);
 
         let container = Container::new(content.finish())
@@ -1555,8 +1689,11 @@ impl View for RequestedCommandView {
         root_stack.finish()
     }
 
-    fn keymap_context(&self, _app: &AppContext) -> Context {
+    fn keymap_context(&self, app: &AppContext) -> Context {
         let mut context = Self::default_keymap_context();
+        if self.is_waiting_for_user_confirmation(app) {
+            context.set.insert(REQUESTED_ACTION_BLOCKED_KEYMAP_CONTEXT);
+        }
 
         if self.is_editing {
             context.set.insert(EDIT_MODE_OPEN_KEYMAP_CONTEXT);
@@ -1569,6 +1706,19 @@ impl TypedActionView for RequestedCommandView {
     type Action = RequestedCommandViewAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        if matches!(
+            action,
+            RequestedCommandViewAction::Accept
+                | RequestedCommandViewAction::AcceptAndAutoExecute
+                | RequestedCommandViewAction::ToggleAcceptMenu
+                | RequestedCommandViewAction::Reject
+                | RequestedCommandViewAction::OpenEditMode
+                | RequestedCommandViewAction::CloseEditMode
+                | RequestedCommandViewAction::FocusEditor
+        ) && !self.is_waiting_for_user_confirmation(ctx)
+        {
+            return;
+        }
         match action {
             RequestedCommandViewAction::Accept => {
                 self.commit_editor_contents(ctx);
@@ -1598,6 +1748,21 @@ impl TypedActionView for RequestedCommandView {
             }
             RequestedCommandViewAction::SelectText => {
                 ctx.emit(RequestedCommandViewEvent::TextSelected);
+            }
+            RequestedCommandViewAction::ToggleJsonNode { path, tree } => {
+                let depth = path.len();
+                match tree {
+                    McpTree::Request => self.mcp_request_tree_state.toggle(path, depth),
+                    McpTree::Response => self.mcp_response_tree_state.toggle(path, depth),
+                }
+                ctx.notify();
+            }
+            RequestedCommandViewAction::ToggleJsonString { path, tree } => {
+                match tree {
+                    McpTree::Request => self.mcp_request_tree_state.toggle_string(path),
+                    McpTree::Response => self.mcp_response_tree_state.toggle_string(path),
+                }
+                ctx.notify();
             }
         }
     }
@@ -1642,5 +1807,5 @@ pub fn format_command_text(text: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "requested_command_test.rs"]
+#[path = "requested_command_tests.rs"]
 mod tests;

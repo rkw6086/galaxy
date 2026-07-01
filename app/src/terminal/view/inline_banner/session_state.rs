@@ -1,6 +1,6 @@
-use crate::settings::{AISettings, AISettingsChangedEvent};
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 use settings::Setting;
+
+use crate::settings::{AISettings, AISettingsChangedEvent};
 
 /// Tracks whether the BYO LLM auth banner (e.g., AWS Bedrock login) has been dismissed.
 ///
@@ -21,8 +21,8 @@ impl ByoLlmAuthBannerSessionState {
             .value();
 
         // Subscribe to changes in the permanent dismissal setting
-        ctx.subscribe_to_model(&AISettings::handle(ctx), |state, event, ctx| {
-            if let AISettingsChangedEvent::BedrockLoginBannerDismissed { .. } = event {
+        ctx.subscribe_to_model(&AISettings::handle(ctx), |state, _, event, ctx| {
+            if let AISettingsChangedEvent::AwsBedrockLoginBannerDismissed { .. } = event {
                 let permanently_dismissed = *AISettings::as_ref(ctx)
                     .bedrock_login_banner_dismissed
                     .value();

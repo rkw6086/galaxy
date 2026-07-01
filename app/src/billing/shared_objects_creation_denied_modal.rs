@@ -1,3 +1,17 @@
+use std::default::Default;
+
+use galaxy_core::ui::appearance::Appearance;
+use warpui::fonts::Weight;
+use warpui::keymap::FixedBinding;
+use warpui::presenter::ChildView;
+use warpui::ui_components::components::{Coords, UiComponentStyles};
+use warpui::{
+    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+
+use super::shared_objects_creation_denied_body::{
+    SharedObjectsCreationDeniedBody, SharedObjectsCreationDeniedBodyEvent,
+};
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
 use crate::drive::DriveObjectType;
 use crate::modal::{Modal, ModalEvent};
@@ -6,20 +20,6 @@ use crate::themes::theme::Fill;
 use crate::ui_components::icons::Icon;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::fonts::Weight;
-use galaxyui::keymap::FixedBinding;
-use galaxyui::presenter::ChildView;
-use galaxyui::ui_components::components::{Coords, UiComponentStyles};
-use galaxyui::AppContext;
-use galaxyui::SingletonEntity;
-use galaxyui::ViewHandle;
-use galaxyui::{Element, Entity, TypedActionView, View, ViewContext};
-use std::default::Default;
-
-use super::shared_objects_creation_denied_body::{
-    SharedObjectsCreationDeniedBody, SharedObjectsCreationDeniedBodyEvent,
-};
 
 const DEFAULT_LIMIT_REACHED_MODAL_HEADER: &str = "Shared object limit reached";
 

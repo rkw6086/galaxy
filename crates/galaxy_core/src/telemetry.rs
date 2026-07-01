@@ -1,4 +1,4 @@
-use galaxyui::{AppContext, Entity, SingletonEntity};
+use galaxyui_core::{AppContext, Entity, SingletonEntity};
 use serde_json::Value;
 use strum::IntoEnumIterator;
 

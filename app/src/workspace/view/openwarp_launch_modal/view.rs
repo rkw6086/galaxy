@@ -1,4 +1,10 @@
-use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
+};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::theme::phenomenon::PhenomenonStyle;
+use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{
     Align, CacheOption, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
@@ -14,8 +20,6 @@ use galaxyui::{
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
 };
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;
@@ -190,15 +194,23 @@ impl OpenWarpLaunchModal {
     }
 
     fn render_badge(appearance: &Appearance) -> Box<dyn Element> {
-        Container::new(
-            Text::new_inline("New".to_string(), appearance.ui_font_family(), 14.)
-                .with_color(PhenomenonStyle::modal_badge_text())
-                .finish(),
+        let text = Text::new_inline("New".to_string(), appearance.ui_font_family(), 14.)
+            .with_color(PhenomenonStyle::modal_badge_text())
+            .finish();
+        ConstrainedBox::new(
+            Container::new(
+                Flex::row()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_main_axis_size(MainAxisSize::Min)
+                    .with_child(text)
+                    .finish(),
+            )
+            .with_horizontal_padding(8.)
+            .with_background(Fill::Solid(PhenomenonStyle::modal_badge_background()))
+            .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
+            .finish(),
         )
-        .with_horizontal_padding(8.)
-        .with_vertical_padding(2.)
-        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-        .with_background(Fill::Solid(PhenomenonStyle::modal_badge_background()))
+        .with_height(24.)
         .finish()
     }
 

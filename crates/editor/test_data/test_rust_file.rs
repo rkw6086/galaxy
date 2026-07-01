@@ -5743,12 +5743,9 @@ impl<T: core::error::Error> core::error::Error for Box<T> {
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use core::error::Error;
-use core::fmt;
 use core::hash;
 #[cfg(not(no_global_oom_handling))]
 use core::iter::from_fn;
-use core::iter::FusedIterator;
 #[cfg(not(no_global_oom_handling))]
 use core::ops::Add;
 #[cfg(not(no_global_oom_handling))]
@@ -5767,7 +5764,6 @@ use crate::collections::TryReserveError;
 use crate::str::{self, from_utf8_unchecked_mut, Chars, Utf8Error};
 #[cfg(not(no_global_oom_handling))]
 use crate::str::{from_boxed_utf8_unchecked, FromStr};
-use crate::vec::Vec;
 
 /// A UTF-8–encoded, growable string.
 ///

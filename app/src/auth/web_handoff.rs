@@ -1,6 +1,23 @@
-use galaxyui::{AppContext, Element, Entity, View, ViewContext};
+use anyhow::anyhow;
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, View, ViewContext};
+use wasm_bindgen::prelude::*;
 
-#[derive(Clone, Debug)]
+use super::auth_manager::{AuthManager, AuthManagerEvent};
+use crate::auth::auth_view_modal::AuthRedirectPayload;
+use crate::auth::credentials::RefreshToken;
+use crate::auth::login_error_modal::LoginErrorModal;
+use crate::platform::wasm::{user_handoff, AuthHandoffError};
+use crate::report_error;
+
+#[wasm_bindgen]
+extern "C" {}
+
+pub struct WebHandoffView {
+    state: HandoffState,
+}
+
+#[derive(Debug, Clone)]
 pub enum WebHandoffEvent {
     Unsupported,
 }

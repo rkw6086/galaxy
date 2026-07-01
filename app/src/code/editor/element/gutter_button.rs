@@ -1,6 +1,3 @@
-use crate::view_components::action_button::{
-    ActionButtonTheme, DisabledSecondaryTheme, SecondaryTheme,
-};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
 use galaxy_core::ui::color::ContrastingColor;
@@ -8,6 +5,10 @@ use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::MouseState;
+
+use crate::view_components::action_button::{
+    ActionButtonTheme, DisabledSecondaryTheme, SecondaryTheme,
+};
 
 /// A button rendered within the gutter of the editor.
 pub(super) trait GutterButton {

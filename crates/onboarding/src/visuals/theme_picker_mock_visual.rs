@@ -1,6 +1,9 @@
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::elements::Align;
+use galaxyui_core::Element;
+
 use super::onboarding_visual::{OnboardingVisual, Pill, RectPct};
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{elements::Align, Element};
 
 pub(crate) fn theme_picker_visual(appearance: &Appearance) -> Box<dyn Element> {
     let theme = appearance.theme();

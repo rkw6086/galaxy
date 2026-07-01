@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-channel.workspace = true
+bounded-vec-deque.workspace = true
 command.workspace = true
 dashmap.workspace = true
 futures.workspace = true
@@ -21,7 +22,7 @@ thiserror.workspace = true
 uuid.workspace = true
 galaxy_core.workspace = true
 galaxy_util.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-io.workspace = true

@@ -1,12 +1,9 @@
-use galaxyui::{
-    assets::asset_cache::AssetSource,
-    elements::{
-        CacheOption, ConstrainedBox, CrossAxisAlignment, Flex, Image, ParentElement, Shrinkable,
-        Stack,
-    },
-    AppContext, Element, Entity, TypedActionView, View,
-};
 use instant::Instant;
+use galaxyui::assets::asset_cache::AssetSource;
+use galaxyui::elements::{
+    CacheOption, ConstrainedBox, CrossAxisAlignment, Flex, Image, ParentElement, Shrinkable, Stack,
+};
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View};
 
 pub struct RootView {
     animation_start_time: Instant,

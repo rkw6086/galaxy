@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
 
-use crate::{persistence::ModelEvent, GlobalResourceHandlesProvider};
+use crate::persistence::ModelEvent;
+use crate::GlobalResourceHandlesProvider;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum SuggestionType {

@@ -1,21 +1,21 @@
 mod items;
+use std::collections::HashMap;
+
+pub use items::Items;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
-pub use items::Items;
-
-use crate::appearance::Appearance;
-use crate::search::command_palette::FilterChipRenderer;
-
-use crate::drive::settings::WarpDriveSettings;
-use crate::search::QueryFilter;
-use crate::settings::AISettings;
-use crate::workspace::Workspace;
 use galaxyui::elements::{Container, Flex, MouseStateHandle, ParentElement, Shrinkable, Wrap};
 use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     WindowId,
 };
-use std::collections::HashMap;
+
+use crate::appearance::Appearance;
+use crate::drive::settings::WarpDriveSettings;
+use crate::search::command_palette::FilterChipRenderer;
+use crate::search::QueryFilter;
+use crate::settings::AISettings;
+use crate::workspace::Workspace;
 
 /// A zero-state view for the command palette.
 pub struct ZeroState {

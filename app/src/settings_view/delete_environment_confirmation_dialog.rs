@@ -1,15 +1,13 @@
+use galaxyui::elements::{ChildView, Container, Dismiss, Empty};
+use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
-    elements::{ChildView, Container, Dismiss, Empty},
-    ui_components::components::UiComponent,
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use crate::{
-    appearance::Appearance,
-    server::ids::SyncId,
-    ui_components::dialog::{dialog_styles, Dialog},
-    view_components::action_button::{ActionButton, DangerPrimaryTheme, NakedTheme},
-};
+use crate::appearance::Appearance;
+use crate::server::ids::SyncId;
+use crate::ui_components::dialog::{dialog_styles, Dialog};
+use crate::view_components::action_button::{ActionButton, DangerPrimaryTheme, NakedTheme};
 
 const DIALOG_WIDTH: f32 = 450.;
 

@@ -15,4 +15,8 @@ futures = { workspace = true }
 log = { workspace = true }
 thiserror.workspace = true
 galaxy_core = { workspace = true }
-galaxyui.workspace = true
+galaxyui_core.workspace = true
+
+[dev-dependencies]
+instant = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }

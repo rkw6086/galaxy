@@ -1,18 +1,12 @@
-use galaxyui::{
-    elements::MouseStateHandle,
-    fonts::Weight,
-    platform::Cursor,
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
-};
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::fonts::Weight;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
-use crate::{
-    appearance::Appearance,
-    ui_components::dialog::{dialog_styles, Dialog},
-};
+use crate::appearance::Appearance;
+use crate::ui_components::dialog::{dialog_styles, Dialog};
 
 const CANCEL_TEXT: &str = "Cancel";
 

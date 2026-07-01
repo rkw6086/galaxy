@@ -1,13 +1,13 @@
-use galaxyui::{keymap::Keystroke, AppContext, DisplayIdx, ModelContext};
-use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
+use settings::macros::define_settings_group;
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
+use galaxyui::keymap::Keystroke;
+use galaxyui::{AppContext, DisplayIdx, ModelContext};
 
-use crate::{
-    report_if_error,
-    root_view::{update_quake_window_bounds, QuakeModePinPosition},
-    settings::{
-        CtrlTabBehavior, ExtraMetaKeys as ExtraMetaKeysEnum, GlobalHotkeyMode, SizePercentages,
-        DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES,
-    },
+use crate::report_if_error;
+use crate::root_view::{update_quake_window_bounds, QuakeModePinPosition};
+use crate::settings::{
+    CtrlTabBehavior, ExtraMetaKeys as ExtraMetaKeysEnum, GlobalHotkeyMode, SizePercentages,
+    DEFAULT_QUAKE_MODE_SIZE_PERCENTAGES,
 };
 
 define_settings_group!(KeysSettings, settings: [

@@ -8,15 +8,13 @@ use galaxy_core::{
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
 use settings_value::SettingsValue;
+use galaxy_core::define_settings_group;
+use galaxy_core::settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
-use crate::{
-    cloud_object::{
-        model::persistence::{CloudModel, CloudModelEvent},
-        CloudObject as _,
-    },
-    drive::CloudObjectTypeAndId,
-    server::ids::SyncId,
-};
+use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
+use crate::cloud_object::CloudObject as _;
+use crate::drive::CloudObjectTypeAndId;
+use crate::server::ids::SyncId;
 
 define_settings_group!(WorkflowAliases, settings: [
     aliases: Aliases {
@@ -45,7 +43,7 @@ pub struct WorkflowAlias {
 impl WorkflowAliases {
     /// Call once to subscribe to UpdateManager notifications that a workflow has been deleted.
     pub fn connect(&self, ctx: &mut ModelContext<Self>) {
-        ctx.subscribe_to_model(&CloudModel::handle(ctx), |me, event, ctx| {
+        ctx.subscribe_to_model(&CloudModel::handle(ctx), |me, _, event, ctx| {
             let result = match event {
                 CloudModelEvent::ObjectTrashed {
                     type_and_id: CloudObjectTypeAndId::Workflow(server_id),
@@ -151,5 +149,5 @@ impl WorkflowAliases {
 }
 
 #[cfg(test)]
-#[path = "aliases_test.rs"]
+#[path = "aliases_tests.rs"]
 mod tests;

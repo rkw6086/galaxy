@@ -8,8 +8,10 @@ use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 use galaxyui::ui_components::segmented_control::{
     LabelConfig, RenderableOptionConfig, SegmentedControl, SegmentedControlEvent,
 };
-use galaxyui::SingletonEntity as _;
-use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayMode {

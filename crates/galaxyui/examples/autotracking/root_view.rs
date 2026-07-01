@@ -1,14 +1,13 @@
-use galaxyui::elements::DispatchEventResult;
+use pathfinder_color::ColorU;
+use galaxyui::elements::{
+    Align, Border, ChildView, Container, CornerRadius, DispatchEventResult, EventHandler, Flex,
+    ParentElement, Radius, Rect, Stack, Text,
+};
 use galaxyui::fonts::FamilyId;
 use galaxyui::{
-    elements::{
-        Align, Border, ChildView, Container, CornerRadius, EventHandler, Flex, ParentElement,
-        Radius, Rect, Stack, Text,
-    },
     AppContext, Element, Entity, ModelHandle, SingletonEntity, Tracked, TypedActionView, View,
     ViewContext, ViewHandle,
 };
-use pathfinder_color::ColorU;
 
 pub fn init(ctx: &mut AppContext) {
     ctx.add_singleton_model(|_| Settings {

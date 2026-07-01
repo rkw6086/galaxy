@@ -1,14 +1,13 @@
-use std::{iter, ops::Range};
+use std::iter;
+use std::ops::Range;
 
 use arborium::tree_sitter::{Node, Query, QueryCursor, TextProvider, Tree};
-use galaxy_editor::content::{
-    buffer::{Buffer, ToBufferByteOffset, ToBufferCharOffset},
-    text::Bytes,
-};
-use galaxyui::color::ColorU;
 use rangemap::RangeMap;
 use streaming_iterator::StreamingIterator;
 use string_offset::{ByteOffset, CharOffset};
+use galaxy_editor::content::buffer::{Buffer, ToBufferByteOffset, ToBufferCharOffset};
+use galaxy_editor::content::text::Bytes;
+use galaxyui_core::color::ColorU;
 
 /// Color mapping from parsed syntax token name to its corresponding highlighting color.
 #[derive(Clone, Copy)]

@@ -1,6 +1,8 @@
-use galaxy_core::ui::{appearance::Appearance, theme::AnsiColorIdentifier};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
 
-use crate::ui_components::{blended_colors, icons::Icon};
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
 
 pub fn todo_list_icon(appearance: &Appearance) -> galaxyui::elements::Icon {
     galaxyui::elements::Icon::new(

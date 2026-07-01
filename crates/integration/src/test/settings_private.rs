@@ -5,16 +5,13 @@
 
 use std::collections::HashMap;
 
-use galaxy::{
-    features::FeatureFlag,
-    integration_testing::{
-        step::new_step_with_default_assertions,
-        terminal::wait_until_bootstrapped_single_pane_for_tab,
-    },
-    settings::{CodeSettings, DebugSettings, FontSettings},
-};
-use galaxyui::{async_assert, async_assert_eq, integration::TestStep, SingletonEntity};
 use settings::Setting as _;
+use warp::features::FeatureFlag;
+use warp::integration_testing::step::new_step_with_default_assertions;
+use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
+use warp::settings::{CodeSettings, DebugSettings, FontSettings};
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::{async_assert, async_assert_eq, SingletonEntity};
 
 use super::{new_builder, Builder};
 

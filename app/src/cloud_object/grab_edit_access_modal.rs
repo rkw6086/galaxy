@@ -1,14 +1,13 @@
+use galaxyui::elements::{Container, Element, MouseStateHandle, Text};
 use galaxyui::fonts::{Properties, Style, Weight};
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
-use galaxyui::{elements::Element, AppContext, View};
-use galaxyui::{Entity, SingletonEntity, TypedActionView, ViewContext};
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::appearance::Appearance;
 use crate::ui_components::buttons::close_button;
 use crate::ui_components::dialog::{dialog_styles, Dialog};
-use galaxyui::elements::{Container, MouseStateHandle, Text};
-use galaxyui::ui_components::components::UiComponent;
 
 const EDIT_ANYWAY_CTA_LABEL: &str = "Edit anyway";
 const CANCEL_CTA_LABEL: &str = "Cancel";

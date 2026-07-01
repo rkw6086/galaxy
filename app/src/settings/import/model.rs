@@ -1,21 +1,17 @@
 use std::collections::HashMap;
 
-use crate::interval_timer::IntervalTimer;
-use crate::settings::import::config::{Config, ConfigError};
-use crate::{send_telemetry_from_ctx, TelemetryEvent};
-
-use galaxy_core::features::FeatureFlag;
-use galaxyui::Entity;
-use galaxyui::ModelContext;
-use galaxyui::SingletonEntity;
 use serde::Serialize;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumDiscriminants, EnumIter};
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 #[cfg(target_os = "macos")]
 use super::config::HotkeyError;
-use super::config::SettingType;
-use super::config::ThemeType;
+use super::config::{SettingType, ThemeType};
+use crate::interval_timer::IntervalTimer;
+use crate::settings::import::config::{Config, ConfigError};
+use crate::{send_telemetry_from_ctx, TelemetryEvent};
 
 #[derive(Clone, Copy, Debug, EnumDiscriminants, Eq, Hash, PartialEq)]
 #[strum_discriminants(derive(EnumIter, Hash, Serialize))]
@@ -45,9 +41,9 @@ impl ImportedConfigModel {
 
     #[cfg(feature = "local_fs")]
     pub fn search_for_settings_to_import(&mut self, ctx: &mut ModelContext<Self>) {
-        use itertools::Itertools;
         use std::sync::Arc;
-        use strum::IntoEnumIterator;
+
+        use itertools::Itertools;
         self.started = true;
 
         let loaded_system_fonts = galaxyui::fonts::Cache::handle(ctx)

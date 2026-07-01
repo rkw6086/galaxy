@@ -1,26 +1,20 @@
-use crate::{
-    content::text::BufferBlockStyle,
-    editor::EditorView,
-    extract_block,
-    render::model::{BlockItem, RenderState, RichTextStyles, bounds, viewport::ViewportItem},
-};
-use galaxyui::elements::ListIndentLevel;
-use galaxyui::{
-    AppContext, Element, SizeConstraint, WeakViewHandle,
-    elements::{
-        Align, Border, ConstrainedBox, Container, CornerRadius, Hoverable, Icon, MouseStateHandle,
-        Radius, Rect,
-    },
-    geometry::vector::vec2f,
-    platform::Cursor,
-};
 use pathfinder_color::ColorU;
-
-use super::{
-    RenderableBlock, RichTextAction,
-    paint::RenderContext,
-    placeholder::{self, BlockPlaceholder},
+use galaxyui_core::elements::{
+    Align, Border, ConstrainedBox, Container, CornerRadius, Hoverable, Icon, ListIndentLevel,
+    MouseStateHandle, Radius, Rect,
 };
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::{AppContext, Element, SizeConstraint, WeakViewHandle};
+
+use super::paint::RenderContext;
+use super::placeholder::{self, BlockPlaceholder};
+use super::{RenderableBlock, RichTextAction};
+use crate::content::text::BufferBlockStyle;
+use crate::editor::EditorView;
+use crate::extract_block;
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RenderState, RichTextStyles, bounds};
 
 // Minimum size constraint for the checkbox point. If the size is smaller than the constraint,
 // the svg won't render.
@@ -112,8 +106,8 @@ impl RenderableBlock for RenderableTaskList {
     fn layout(
         &mut self,
         model: &RenderState,
-        ctx: &mut galaxyui::LayoutContext,
-        app: &galaxyui::AppContext,
+        ctx: &mut galaxyui_core::LayoutContext,
+        app: &galaxyui_core::AppContext,
     ) {
         self.task_list_icon.layout(
             SizeConstraint::strict(vec2f(self.icon_size, self.icon_size)),
@@ -142,7 +136,12 @@ impl RenderableBlock for RenderableTaskList {
             })
     }
 
-    fn paint(&mut self, model: &RenderState, ctx: &mut RenderContext, app: &galaxyui::AppContext) {
+    fn paint(
+        &mut self,
+        model: &RenderState,
+        ctx: &mut RenderContext,
+        app: &galaxyui_core::AppContext,
+    ) {
         let content = model.content();
         let task_list = extract_block!(self.viewport_item, content, (block, BlockItem::TaskList{ paragraph: inner, ..}) => block.task_list(inner));
         let text_styling = &model.styles().base_text;
@@ -174,8 +173,8 @@ impl RenderableBlock for RenderableTaskList {
     fn dispatch_event(
         &mut self,
         _model: &crate::render::model::RenderState,
-        event: &galaxyui::event::DispatchedEvent,
-        ctx: &mut galaxyui::EventContext,
+        event: &galaxyui_core::event::DispatchedEvent,
+        ctx: &mut galaxyui_core::EventContext,
         app: &AppContext,
     ) -> bool {
         self.task_list_icon.dispatch_event(event, ctx, app)

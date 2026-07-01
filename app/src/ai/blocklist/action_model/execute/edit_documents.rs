@@ -1,18 +1,17 @@
-use ai::diff_validation::DiffDelta;
-use futures::{future::BoxFuture, FutureExt};
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 use std::collections::HashMap;
 
-use crate::ai::{
-    agent::{
-        AIAgentAction, AIAgentActionType, DocumentContext, EditDocumentsRequest,
-        EditDocumentsResult,
-    },
-    document::ai_document_model::{AIDocumentId, AIDocumentModel, AIDocumentUpdateSource},
-};
-use crate::notebooks::post_process_notebook;
+use ai::diff_validation::DiffDelta;
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
+use crate::ai::agent::{
+    AIAgentAction, AIAgentActionType, DocumentContext, EditDocumentsRequest, EditDocumentsResult,
+};
+use crate::ai::document::ai_document_model::{
+    AIDocumentId, AIDocumentModel, AIDocumentUpdateSource,
+};
 
 pub struct EditDocumentsExecutor;
 
@@ -66,8 +65,8 @@ impl EditDocumentsExecutor {
 
             // Apply the diff using fuzzy matching logic
             let search_replace = ai::diff_validation::SearchAndReplace {
-                search: post_process_notebook(&diff.search),
-                replace: post_process_notebook(&diff.replace),
+                search: diff.search.clone(),
+                replace: diff.replace.clone(),
             };
 
             let content_name = format!("document_{}", diff.document_id);

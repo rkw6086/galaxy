@@ -1,4 +1,4 @@
-use galaxyui::text::TextBuffer;
+use galaxyui_core::text::TextBuffer;
 use itertools::Itertools;
 use string_offset::CharOffset;
 

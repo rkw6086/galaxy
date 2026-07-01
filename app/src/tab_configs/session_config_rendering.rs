@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::theme::{Fill, WarpTheme};
 use galaxyui::elements::{
     Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Expanded,
     Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
@@ -10,13 +13,7 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::geometry::vector::Vector2F;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::Element;
-use galaxyui::EventContext;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-
-use galaxy_core::ui::theme::Fill;
-use galaxy_core::ui::theme::GalaxyTheme;
+use galaxyui::{Element, EventContext};
 
 use crate::appearance::Appearance;
 use crate::tab_configs::session_config::SessionType;

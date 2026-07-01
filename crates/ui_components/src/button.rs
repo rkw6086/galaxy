@@ -1,17 +1,13 @@
 mod params;
 pub mod themes;
 
-use galaxy_core::ui::{
-    appearance::Appearance,
-    color::{ContrastingColor as _, contrast::MinimumAllowedContrast},
-};
-use galaxyui::{
-    elements::{MouseState, MouseStateHandle},
-    prelude::*,
-};
-
 pub use params::*;
 pub use themes::Theme;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::ContrastingColor as _;
+use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
+use galaxyui_core::elements::{MouseState, MouseStateHandle};
+use galaxyui_core::prelude::*;
 
 use crate::{keyboard_shortcut, tooltip};
 

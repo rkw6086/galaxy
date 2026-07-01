@@ -1,7 +1,9 @@
-use super::{Event, Heartbeat};
+use std::time::Duration;
+
 use galaxyui::r#async::Timer;
 use galaxyui::App;
-use std::time::Duration;
+
+use super::{Event, Heartbeat};
 
 #[test]
 #[ignore = "Flakes in CI"]

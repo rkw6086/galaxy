@@ -1,29 +1,24 @@
-use galaxy_editor::{
-    editor::NavigationKey, model::RichTextEditorModel, render::model::RenderState,
+use galaxy_editor::editor::NavigationKey;
+use galaxy_editor::model::RichTextEditorModel;
+use galaxy_editor::render::model::RenderState;
+use galaxyui::elements::{
+    AnchorPair, Container, Flex, MouseStateHandle, OffsetPositioning, OffsetType, ParentElement,
+    PositionedElementOffsetBounds, PositioningAxis, XAxisAnchor, YAxisAnchor,
 };
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        AnchorPair, Container, Flex, MouseStateHandle, OffsetPositioning, OffsetType,
-        ParentElement, PositionedElementOffsetBounds, PositioningAxis, XAxisAnchor, YAxisAnchor,
-    },
-    fonts::Weight,
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
     AppContext, BlurContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
 
-use crate::{
-    appearance::Appearance,
-    editor::{
-        EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
-        TextOptions,
-    },
-};
-
 use super::model::NotebooksEditorModel;
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
+    TextOptions,
+};
 
 const EDITOR_WIDTH: f32 = 368.;
 const EDITOR_VERTICAL_PADDING: f32 = 12.;

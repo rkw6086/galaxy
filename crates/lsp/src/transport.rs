@@ -3,17 +3,13 @@ use std::sync::Arc;
 use async_process::{Child, ChildStdin, ChildStdout, Stdio};
 use async_trait::async_trait;
 use command::r#async::Command;
+use futures::future::FutureExt;
+use futures::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use futures::lock::Mutex;
-use futures::{
-    future::FutureExt,
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
-};
-use galaxyui::r#async::{
-    executor::{Background, BackgroundTask},
-    Timer,
-};
 use jsonrpc::Transport;
 use simple_logger::SimpleLogger;
+use galaxyui_core::r#async::executor::{Background, BackgroundTask};
+use galaxyui_core::r#async::Timer;
 
 /// Transport implementation for LSP communication over process stdin/stdout.
 /// Also manages the LSP server process lifecycle with graceful shutdown capabilities.

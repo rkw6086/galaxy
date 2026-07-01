@@ -4,8 +4,9 @@ use galaxyui::elements::shimmering_text::{
 };
 use galaxyui::elements::{Align, ConstrainedBox, ParentElement, Rect, Stack};
 use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
-use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+};
 
 pub struct RootView {
     text: String,

@@ -1,10 +1,3 @@
-use crate::appearance::Appearance;
-use crate::ui_components::buttons::{icon_button, icon_button_with_color};
-use crate::ui_components::icons::Icon;
-
-use super::super::header_content::HeaderRenderContext;
-use super::{ActionPayload, PaneHeaderAction};
-
 use galaxy_core::ui::icons::ICON_DIMENSIONS;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -15,6 +8,12 @@ use galaxyui::elements::{
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::Element;
+
+use super::super::header_content::HeaderRenderContext;
+use super::{ActionPayload, PaneHeaderAction};
+use crate::appearance::Appearance;
+use crate::ui_components::buttons::{icon_button, icon_button_with_color};
+use crate::ui_components::icons::Icon;
 
 /// Horizontal padding applied inside each edge column of the three-column header.
 pub const HEADER_EDGE_PADDING: f32 = 4.;

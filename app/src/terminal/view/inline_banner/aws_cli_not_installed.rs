@@ -1,12 +1,13 @@
-use galaxyui::{elements::MouseStateHandle, Element};
-
-use crate::{appearance::Appearance, terminal::view::TerminalAction};
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::Element;
 
 use super::{
     render_inline_block_list_banner, InlineBannerButtonState, InlineBannerCloseButton,
     InlineBannerContent, InlineBannerIcon, InlineBannerStyle, InlineBannerTextButton,
     InlineBannerTextButtonVariant,
 };
+use crate::appearance::Appearance;
+use crate::terminal::view::TerminalAction;
 
 const AWS_CLI_INSTALL_DOCS_URL: &str =
     "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html";

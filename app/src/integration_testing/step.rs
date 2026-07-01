@@ -1,11 +1,8 @@
-use galaxyui::{
-    async_assert,
-    integration::{AssertionCallback, TestStep},
-};
-
-use crate::integration_testing::view_getters::terminal_view;
+use galaxyui::async_assert;
+use galaxyui::integration::{AssertionCallback, TestStep};
 
 use super::terminal::assert_no_block_executing;
+use crate::integration_testing::view_getters::terminal_view;
 
 pub fn new_step_with_default_assertions(name: &str) -> TestStep {
     new_step_with_default_assertions_for_pane(name, 0, 0)

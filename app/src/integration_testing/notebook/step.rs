@@ -1,23 +1,19 @@
 use std::sync::Arc;
 
-use galaxy_editor::model::CoreEditorModel;
-use galaxyui::{
-    async_assert, integration::TestStep, windowing::WindowManager, App, SingletonEntity,
-    ViewHandle, WindowId,
-};
 use string_offset::CharOffset;
+use galaxy_editor::model::CoreEditorModel;
+use galaxyui::integration::TestStep;
+use galaxyui::windowing::WindowManager;
+use galaxyui::{async_assert, App, SingletonEntity, ViewHandle, WindowId};
 
-use crate::{
-    cloud_object::{model::persistence::CloudModel, CloudObjectEventEntrypoint, Space},
-    drive::OpenGalaxyDriveObjectSettings,
-    integration_testing::view_getters::{notebook_view, workspace_view},
-    notebooks::manager::NotebookSource,
-    server::{
-        cloud_objects::update_manager::UpdateManager,
-        ids::{ClientId, SyncId},
-    },
-    workspaces::user_workspaces::UserWorkspaces,
-};
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::cloud_object::{CloudObjectEventEntrypoint, Space};
+use crate::drive::OpenWarpDriveObjectSettings;
+use crate::integration_testing::view_getters::{notebook_view, workspace_view};
+use crate::notebooks::manager::NotebookSource;
+use crate::server::cloud_objects::update_manager::UpdateManager;
+use crate::server::ids::{ClientId, SyncId};
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 fn notebook_editor(
     app: &App,

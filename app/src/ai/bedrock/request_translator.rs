@@ -728,7 +728,6 @@ fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {
 /// 4. Removes trailing assistant tool_use messages that have no following user message.
 /// 5. Ensures strict user/assistant role alternation.
 fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
-    use std::collections::HashSet;
 
     // Collect all tool_result IDs that exist anywhere in the conversation.
     let mut all_result_ids = HashSet::new();

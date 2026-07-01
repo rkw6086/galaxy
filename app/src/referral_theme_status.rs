@@ -1,13 +1,10 @@
 use std::sync::Arc;
 
-use crate::{
-    auth::AuthStateProvider,
-    safe_info,
-    server::server_api::referral::{ReferralInfo, ReferralsClient},
-};
-use galaxy_core::user_preferences::GetUserPreferences as _;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
+
+use crate::auth::AuthStateProvider;
+use crate::safe_info;
+use crate::server::server_api::referral::{ReferralInfo, ReferralsClient};
 
 // Note: The name of this key is from before this model was created. For consistency, it should
 // remain the same value

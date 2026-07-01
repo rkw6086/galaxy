@@ -10,10 +10,10 @@ use galaxy_editor::render::layout::TextLayout;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use serde_yaml::Mapping;
 use uuid::Uuid;
-
+use galaxy_editor::render::model::viewport::ViewportItem;
 use galaxy_editor::render::model::{
-    viewport::ViewportItem, BlockSpacing, EmbeddedItem, EmbeddedItemHTMLRepresentation,
-    EmbeddedItemRichFormat, LaidOutEmbeddedItem, RenderState,
+    BlockSpacing, EmbeddedItem, EmbeddedItemHTMLRepresentation, EmbeddedItemRichFormat,
+    LaidOutEmbeddedItem, RenderState,
 };
 use galaxyui::event::DispatchedEvent;
 use galaxyui::units::Pixels;

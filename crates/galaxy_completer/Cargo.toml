@@ -33,7 +33,7 @@ thiserror.workspace = true
 galaxy_cli.workspace = true
 galaxy_core.workspace = true
 galaxy_js = { workspace = true, optional = true }
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 galaxy_util.workspace = true
 typed-path.workspace = true
 

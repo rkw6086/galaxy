@@ -1,15 +1,15 @@
+use pathfinder_color::ColorU;
 use galaxy_core::ui::Icon;
-use galaxyui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
-use galaxyui::geometry::rect::RectF;
-use galaxyui::geometry::vector::{vec2f, Vector2F};
-use galaxyui::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
-use galaxyui::{
-    elements::{CornerRadius, Fill, Point, Radius},
-    event::DispatchedEvent,
+use galaxyui_core::assets::asset_cache::{AssetCache, AssetSource, AssetState};
+use galaxyui_core::elements::{CornerRadius, Fill, Point, Radius};
+use galaxyui_core::event::DispatchedEvent;
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::{vec2f, Vector2F};
+use galaxyui_core::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
+use galaxyui_core::{
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext,
     SingletonEntity as _, SizeConstraint,
 };
-use pathfinder_color::ColorU;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RectPct {

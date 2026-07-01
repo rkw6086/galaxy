@@ -1,41 +1,36 @@
-use crate::{
-    config::{lsp_uri_to_path, LanguageId},
-    server_repo_watcher::LspRepoWatcher,
-    supported_servers::LSPServerType,
-    types::{
-        CodeActionData, CompletionResult, CompletionTrigger, DefinitionLocation, DocumentVersion,
-        HoverResult, Location, PrepareRenameResult, ReferenceLocation, RenameResult,
-        SignatureHelpResult, TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
-    },
-    LspServerConfig, LspServerLogLevel, LspService,
-};
-use instant::Instant;
-use lsp_types::{
-    notification::{self, Notification},
-    CompletionItem, CompletionTriggerKind, FormattingOptions, NumberOrString, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, Range as LspRange, WorkDoneProgress,
-};
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-};
+use std::collections::HashMap;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{spawn_lsp_service, LspServiceInitializationResult};
 use anyhow::{Error, Result};
-#[cfg(not(target_arch = "wasm32"))]
-use galaxy_core::features::FeatureFlag;
-#[cfg(not(target_arch = "wasm32"))]
-use galaxyui::SingletonEntity;
-use galaxyui::{r#async::executor::Background, Entity, ModelContext};
+use instant::Instant;
 use jsonrpc::ServerNotificationEvent;
+use lsp_types::notification::{self, Notification};
+use lsp_types::{
+    FormattingOptions, NumberOrString, ProgressParams, ProgressParamsValue,
+    PublishDiagnosticsParams, WorkDoneProgress,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use simple_logger::manager::LogManager;
+#[cfg(not(target_arch = "wasm32"))]
+use galaxy_core::features::FeatureFlag;
+use galaxyui_core::r#async::executor::Background;
+#[cfg(not(target_arch = "wasm32"))]
+use galaxyui_core::SingletonEntity;
+use galaxyui_core::{Entity, ModelContext};
+
+use crate::config::{lsp_uri_to_path, LanguageId};
+use crate::server_repo_watcher::LspRepoWatcher;
+use crate::supported_servers::LSPServerType;
+use crate::types::{
+    DefinitionLocation, DocumentVersion, HoverResult, Location, ReferenceLocation,
+    TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{spawn_lsp_service, LspServiceInitializationResult};
+use crate::{LspServerConfig, LspServerLogLevel, LspService};
 
 static NEXT_LANGUAGE_SERVER_ID: AtomicUsize = AtomicUsize::new(0);
 

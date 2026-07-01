@@ -1,21 +1,17 @@
 use float_cmp::ApproxEq;
-use galaxyui::{
-    SizeConstraint,
-    geometry::{
-        rect::RectF,
-        vector::{Vector2F, vec2f},
-    },
-    units::{IntoPixels, Pixels},
-};
-use sum_tree::{SeekBias, SumTree};
-
-use crate::render::element::RenderContext;
 use string_offset::CharOffset;
+use sum_tree::{SeekBias, SumTree};
+use galaxyui_core::SizeConstraint;
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::{Vector2F, vec2f};
+use galaxyui_core::units::{IntoPixels, Pixels};
 
+use super::positioned::PositionedCursor;
 use super::{
     AUTO_SCROLL_MARGIN, BlockItem, BlockSpacing, Height, HitTestOptions, LayoutSummary, Location,
-    RenderState, UNIT_MARGIN, bounds, positioned::PositionedCursor,
+    RenderState, UNIT_MARGIN, bounds,
 };
+use crate::render::element::RenderContext;
 
 /// For horizontal autoscrolling, it is very easy to "stuck" on a character if it is aligned exactly on the viewport boundary.
 /// To help make scrolling more smooth, add a small margin here to overcome these boundaries.

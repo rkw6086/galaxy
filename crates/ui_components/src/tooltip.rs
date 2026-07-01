@@ -1,7 +1,9 @@
 use std::borrow::Cow;
 
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{keymap::Keystroke, prelude::*};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::*;
 
 use crate::{Component, keyboard_shortcut};
 
@@ -39,7 +41,7 @@ impl Component for Tooltip {
         &self,
         appearance: &Appearance,
         params: Self::Params<'a>,
-    ) -> Box<dyn galaxyui::Element> {
+    ) -> Box<dyn galaxyui_core::Element> {
         let font_family = appearance.ui_font_family();
         let font_size = appearance.ui_font_size() + UI_FONT_SIZE_ADJUSTMENT;
 

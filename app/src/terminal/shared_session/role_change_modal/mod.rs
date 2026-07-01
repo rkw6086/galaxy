@@ -1,10 +1,8 @@
+use session_sharing_protocol::common::{ParticipantId, Role, RoleRequestId};
 use galaxyui::elements::Empty;
 use galaxyui::presenter::ChildView;
-use galaxyui::{
-    ui_components::components::{Coords, UiComponentStyles},
-    AppContext, Element, Entity, View, ViewContext, ViewHandle,
-};
-use session_sharing_protocol::common::{ParticipantId, Role, RoleRequestId};
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, View, ViewContext, ViewHandle};
 
 use crate::modal::Modal;
 use crate::pane_group::TerminalPaneId;

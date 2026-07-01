@@ -1,25 +1,23 @@
 use std::sync::Arc;
 
 use ai::agent::action::{AIAgentActionType, ShellCommandDelay};
+use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{CornerRadius, Radius};
 use galaxyui::{
-    elements::{CornerRadius, Radius},
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, View, ViewContext,
 };
-use parking_lot::FairMutex;
 
-use crate::{
-    ai::{
-        agent::icons,
-        blocklist::{
-            block::cli_controller::LongRunningCommandControlState,
-            inline_action::inline_action_header::HeaderConfig, BlocklistAIActionModel,
-            BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
-        },
-    },
-    terminal::{model::session::Sessions, TerminalModel},
-    ui_components::{blended_colors, icons::Icon},
+use crate::ai::agent::icons;
+use crate::ai::blocklist::block::cli_controller::LongRunningCommandControlState;
+use crate::ai::blocklist::inline_action::inline_action_header::HeaderConfig;
+use crate::ai::blocklist::{
+    BlocklistAIActionModel, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
 };
+use crate::terminal::model::session::Sessions;
+use crate::terminal::TerminalModel;
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
 
 const AGENT_PROMPT_TO_INTERACT_MESSAGE: &str = "Prompt agent to interact with";
 const AGENT_WAITING_ON_INSTRUCTIONS_MESSAGE: &str = "Agent is waiting on instructions";
@@ -47,7 +45,7 @@ impl InlineAgentViewHeader {
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, move |me, _, event, ctx| {
             if event
-                .terminal_view_id()
+                .terminal_surface_id()
                 .is_some_and(|id| id != me.terminal_view_id)
             {
                 return;

@@ -1,18 +1,13 @@
 use std::any::Any;
 
-use galaxyui::elements::{AcceptedByDropTarget, DropTarget, DropTargetData};
-use galaxyui::{
-    elements::{
-        Align, ConstrainedBox, Container, DragAxis, Draggable, DraggableState, ParentElement, Rect,
-        Stack,
-    },
-    AppContext, Element, Entity, TypedActionView, View,
-};
 use pathfinder_color::ColorU;
-use pathfinder_geometry::{
-    rect::RectF,
-    vector::{vec2f, Vector2F},
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use galaxyui::elements::{
+    AcceptedByDropTarget, Align, ConstrainedBox, Container, DragAxis, Draggable, DraggableState,
+    DropTarget, DropTargetData, ParentElement, Rect, Stack,
 };
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View};
 
 #[derive(Default)]
 pub struct RootView {

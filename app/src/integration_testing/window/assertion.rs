@@ -1,9 +1,6 @@
-use galaxyui::{
-    async_assert_eq,
-    integration::{AssertionCallback, AssertionOutcome, StepData},
-    windowing::WindowManager,
-    SingletonEntity,
-};
+use galaxyui::integration::{AssertionCallback, AssertionOutcome, StepData};
+use galaxyui::windowing::WindowManager;
+use galaxyui::{async_assert_eq, SingletonEntity};
 
 /// Saves the active window id with the given step data key.
 pub fn save_active_window_id<K>(window_key: K) -> AssertionCallback

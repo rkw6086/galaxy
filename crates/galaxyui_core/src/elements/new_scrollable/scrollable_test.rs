@@ -1,30 +1,28 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 
-use crate::{
-    elements::{
-        Axis, ClippedScrollStateHandle, ConstrainedBox, DispatchEventResult, EventHandler, Fill,
-        ParentElement, Point, Rect, SavePosition, ScrollData, ScrollStateHandle, ScrollTarget,
-        ScrollToPositionMode, ScrollbarWidth, SelectableElement, SelectionFragment, Stack, ZIndex,
-    },
-    event::DispatchedEvent,
-    platform::{TerminationMode, WindowStyle},
-    text::{word_boundaries::WordBoundariesPolicy, IsRect, SelectionDirection, SelectionType},
-    units::Pixels,
-    AfterLayoutContext, App, AppContext, Element, Entity, EntityId, Event, EventContext,
-    LayoutContext, PaintContext, Presenter, SizeConstraint, TypedActionView, View, ViewContext,
-    WindowInvalidation,
-};
-
 use super::{
     AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollable,
     NewScrollableElement, ScrollableAppearance, ScrollableAxis, SingleAxisConfig,
+};
+use crate::elements::{
+    Axis, ClippedScrollStateHandle, ConstrainedBox, DispatchEventResult, EventHandler, Fill,
+    ParentElement, Point, Rect, SavePosition, ScrollData, ScrollStateHandle, ScrollTarget,
+    ScrollToPositionMode, ScrollbarWidth, SelectableElement, SelectionFragment, Stack, ZIndex,
+};
+use crate::event::DispatchedEvent;
+use crate::platform::{TerminationMode, WindowStyle};
+use crate::text::word_boundaries::WordBoundariesPolicy;
+use crate::text::{IsRect, SelectionDirection, SelectionType};
+use crate::units::Pixels;
+use crate::{
+    AfterLayoutContext, App, AppContext, Element, Entity, EntityId, EntityIdSet, Event,
+    EventContext, LayoutContext, PaintContext, Presenter, SizeConstraint, TypedActionView, View,
+    ViewContext, WindowInvalidation,
 };
 
 const TOTAL_SCROLLABLE_SIZE: f32 = 500.;
@@ -562,7 +560,7 @@ impl TypedActionView for BasicScrollableView {
 }
 
 fn render(presenter: &mut Presenter, view_id: EntityId, ctx: &mut AppContext) {
-    let mut updated = HashSet::new();
+    let mut updated = EntityIdSet::default();
     updated.insert(view_id);
     let invalidation = WindowInvalidation {
         updated,

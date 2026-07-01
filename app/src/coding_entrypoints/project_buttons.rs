@@ -1,23 +1,25 @@
 use std::borrow::Cow;
 
-use galaxy_core::{
-    features::FeatureFlag,
-    ui::{appearance::Appearance, color::blend::Blend as _, theme::color::internal_colors, Icon},
-};
-use galaxyui::{
-    elements::{
-        ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow,
-        Expanded, Flex, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor,
-        ParentElement as _, ParentOffsetBounds, Radius, Stack,
-    },
-    fonts::Weight,
-    keymap::EditableBinding,
-    platform::{file_picker::FilePickerError, Cursor, FilePickerConfiguration},
-    ui_components::components::{UiComponent as _, UiComponentStyles},
-    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
-};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::Vector2F;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::blend::Blend as _;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::{
+    ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Expanded,
+    Flex, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement as _,
+    ParentOffsetBounds, Radius, Stack,
+};
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::EditableBinding;
+use galaxyui::platform::file_picker::FilePickerError;
+use galaxyui::platform::{Cursor, FilePickerConfiguration};
+use galaxyui::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+};
 
 use crate::util::bindings::{keybinding_name_to_display_string, BindingGroup, CustomAction};
 

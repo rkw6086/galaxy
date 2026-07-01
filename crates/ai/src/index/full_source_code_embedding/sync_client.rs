@@ -1,28 +1,23 @@
-use anyhow::{anyhow, Result};
-use galaxy_core::sync_queue::{IsTransientError, SyncQueue, SyncQueueTaskTrait};
-use itertools::Itertools;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::mem;
 use std::ops::AddAssign;
 use std::pin::Pin;
-use std::{
-    collections::{HashMap, HashSet},
-    mem,
-    sync::Arc,
-};
+use std::sync::Arc;
 
-use super::{CodebaseContextConfig, NodeHash};
+use anyhow::{anyhow, Result};
+use itertools::Itertools;
+use galaxy_core::sync_queue::{IsTransientError, SyncQueue, SyncQueueTaskTrait};
 
-use crate::index::full_source_code_embedding::store_client::IntermediateNode;
-
+use super::changed_files::ChangedFiles;
+use super::codebase_index::{build_fragments_from_metadata, SyncProgress};
+use super::fragment_metadata::LeafToFragmentMetadataMapping;
+use super::merkle_tree::{MerkleTree, NodeLens};
+use super::store_client::StoreClient;
 use super::{
-    changed_files::ChangedFiles,
-    codebase_index::{build_fragments_from_metadata, SyncProgress},
-    fragment_metadata::LeafToFragmentMetadataMapping,
-    merkle_tree::{MerkleTree, NodeLens},
-    store_client::StoreClient,
-    EmbeddingConfig, Error, RepoMetadata,
+    CodebaseContextConfig, ContentHash, EmbeddingConfig, Error, Fragment, NodeHash, RepoMetadata,
 };
-use super::{ContentHash, Fragment};
+use crate::index::full_source_code_embedding::store_client::IntermediateNode;
 
 const SYNC_NODE_BATCH_SIZE: usize = 500;
 // Minimum node batch size used for updates.

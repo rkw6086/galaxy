@@ -3,20 +3,17 @@
 
 use std::sync::Arc;
 
-use galaxyui::{
-    geometry::vector::Vector2F,
-    text_layout::Line,
-    units::{IntoPixels, Pixels},
-};
-use sum_tree::{Cursor, Dimension};
-
-use crate::render::layout::line_height;
 use string_offset::CharOffset;
+use sum_tree::{Cursor, Dimension};
+use galaxyui_core::geometry::vector::Vector2F;
+use galaxyui_core::text_layout::Line;
+use galaxyui_core::units::{IntoPixels, Pixels};
 
 use super::{
     BlockItem, BlockSpacing, HorizontalRuleConfig, ImageBlockConfig, LaidOutEmbeddedItem,
     LaidOutTable, LayoutSummary, LineCount, Paragraph, ParagraphBlock, RenderContext, bounds,
 };
+use crate::render::layout::line_height;
 
 /// Wrapper to track an item's position, both in the buffer and on the screen.
 #[derive(Debug)]

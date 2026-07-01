@@ -1,12 +1,9 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-use galaxyui::{
-    elements::{Align, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text},
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+use galaxyui::elements::{
+    Align, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text,
 };
+use warpui::ui_components::button::ButtonVariant;
+use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::appearance::Appearance;
 use crate::auth::UserUid;

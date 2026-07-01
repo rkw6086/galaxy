@@ -1,47 +1,38 @@
-use galaxy_core::ui::builder::AnimatedButtonOptions;
-use galaxyui::clipboard::ClipboardContent;
-use galaxyui::elements::{DispatchEventResult, Stack};
-use galaxyui::units::Pixels;
-use galaxyui::{
-    elements::{
-        Align, Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
-        Container, CornerRadius, CrossAxisAlignment, EventHandler, Fill, Flex,
-        FormattedTextElement, HyperlinkUrl, Icon, MainAxisAlignment, MainAxisSize,
-        MouseStateHandle, ParentAnchor, ParentElement, Radius, SavePosition, ScrollbarWidth,
-        Shrinkable, Text, Wrap,
-    },
-    keymap::Keystroke,
-    platform::Cursor,
-    ui_components::components::{UiComponent, UiComponentStyles},
-    units::IntoPixels,
-    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
-    WeakViewHandle,
-};
-use galaxyui::{BlurContext, FocusContext};
 use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::CodeBlockText;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::builder::AnimatedButtonOptions;
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
+    Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, EventHandler, Fill, Flex,
+    FormattedTextElement, HyperlinkUrl, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentAnchor, ParentElement, Radius, SavePosition, ScrollbarWidth, Shrinkable, Stack, Text,
+    Wrap,
+};
+use galaxyui::keymap::Keystroke;
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::units::{IntoPixels, Pixels};
+use galaxyui::{
+    AppContext, BlurContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity,
+    TypedActionView, View, ViewContext, WeakViewHandle,
+};
 
+use super::panel::{HEADER_HEIGHT, HEXAGON_ALERT_SVG_PATH};
+use super::requests::{RequestStatus, Requests};
+use super::utils::{
+    code_block_position_id, markdown_segments_from_text, render_prepared_response_button,
+    render_request_limit_info, save_as_workflow_position_id, AssistantTranscriptPart,
+    CodeBlockIndex, FormattedTranscriptMessage, MarkdownSegment, TranscriptPartSubType,
+};
+use super::AI_ASSISTANT_SVG_PATH;
+use crate::appearance::Appearance;
+use crate::send_telemetry_from_ctx;
+use crate::server::telemetry::{SaveAsWorkflowModalSource, TelemetryEvent, WarpAIActionType};
+use crate::ui_components::blended_colors;
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use crate::{
-    appearance::Appearance,
-    send_telemetry_from_ctx,
-    server::telemetry::{SaveAsWorkflowModalSource, TelemetryEvent, WarpAIActionType},
-    ui_components::blended_colors,
-};
-
-use super::panel::HEADER_HEIGHT;
-use super::{
-    panel::HEXAGON_ALERT_SVG_PATH,
-    requests::{RequestStatus, Requests},
-    utils::{
-        code_block_position_id, markdown_segments_from_text, render_prepared_response_button,
-        render_request_limit_info, save_as_workflow_position_id, AssistantTranscriptPart,
-        CodeBlockIndex, FormattedTranscriptMessage, MarkdownSegment, TranscriptPartSubType,
-    },
-    AI_ASSISTANT_SVG_PATH,
-};
 
 const TRANSCRIPT_POSITION_ID: &str = "ai_assistant::transcript";
 

@@ -1,31 +1,28 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
+use std::sync::Arc;
 
-use galaxy_core::ui::{
-    color::hex_color::HexColorError as UiHexColorError,
-    theme::{AnsiColors, GalaxyTheme},
-};
+use async_trait::async_trait;
 use pathfinder_color::ColorU;
 use serde::Serialize;
 use strum_macros::EnumIter;
-
-use async_trait::async_trait;
-use galaxyui::{fonts::FontInfo, keymap::Keystroke, DisplayIdx};
 use thiserror::Error;
+use galaxy_core::ui::color::hex_color::HexColorError as UiHexColorError;
+use galaxy_core::ui::theme::{AnsiColors, WarpTheme};
+use galaxyui::fonts::FontInfo;
+use galaxyui::keymap::Keystroke;
+use galaxyui::DisplayIdx;
 
-use crate::{
-    interval_timer::IntervalTimer,
-    root_view::QuakeModePinPosition,
-    settings::ExtraMetaKeys,
-    terminal::session_settings::{StartupShell, WorkingDirectoryConfig},
-    themes::theme_creator::pick_accent_color_from_options,
-};
-#[cfg(feature = "local_fs")]
-use crate::{themes::theme_creator_body::ThemeCreatorBody, user_config};
-
-use super::{alacritty_parser::AlacrittyConfig, model::TerminalType};
-
+use super::alacritty_parser::AlacrittyConfig;
 #[cfg(target_os = "macos")]
 use super::iterm_parser::ITermProfile;
+use super::model::TerminalType;
+use crate::interval_timer::IntervalTimer;
+use crate::root_view::QuakeModePinPosition;
+use crate::settings::ExtraMetaKeys;
+use crate::terminal::session_settings::{StartupShell, WorkingDirectoryConfig};
+use crate::themes::theme_creator::pick_accent_color_from_options;
+#[cfg(feature = "local_fs")]
+use crate::{themes::theme_creator_body::ThemeCreatorBody, user_config};
 
 #[derive(Debug)]
 pub enum ThemeType {

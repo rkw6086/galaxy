@@ -1,7 +1,10 @@
 use std::borrow::Cow;
 
-use galaxy_core::ui::{appearance::Appearance, icons::Icon};
-use galaxyui::{keymap::Keystroke, platform::OperatingSystem, prelude::*};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::icons::Icon;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::OperatingSystem;
+use galaxyui_core::prelude::*;
 
 use crate::Component;
 

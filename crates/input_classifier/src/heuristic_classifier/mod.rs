@@ -5,12 +5,13 @@ use galaxy_completer::ParsedTokensSnapshot;
 use itertools::Itertools as _;
 use natural_language_detection::natural_language_words_score;
 
+use crate::parser::parse_query_into_tokens;
+use crate::util::{
+    is_installed_binary, is_likely_shell_command, is_one_off_natural_language_word_or_prefix,
+};
 use crate::{
-    ClassificationResult, Context, InputClassifier, InputType,
-    parser::parse_query_into_tokens,
-    util::{
-        is_installed_binary, is_likely_shell_command, is_one_off_natural_language_word_or_prefix,
-    },
+    ClassificationResult, Context, InputClassificationResult, InputClassifier,
+    InputClassifierDecisionSource, InputType,
 };
 
 /// Minimum number of characters the input buffer must have before classification runs.
@@ -32,7 +33,11 @@ pub struct HeuristicClassifier;
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl InputClassifier for HeuristicClassifier {
-    async fn detect_input_type(&self, input: ParsedTokensSnapshot, context: &Context) -> InputType {
+    async fn detect_input_type(
+        &self,
+        input: ParsedTokensSnapshot,
+        context: &Context,
+    ) -> InputClassificationResult {
         let word_tokens = parse_query_into_tokens(input.buffer_text.as_str());
         let total_word_token_count = word_tokens.len();
 
@@ -46,23 +51,27 @@ impl InputClassifier for HeuristicClassifier {
         if total_word_token_count == 1
             && is_one_off_natural_language_word_or_prefix(&word_tokens[0].to_lowercase())
         {
-            log::info!("[input-classifier] → one-off NL word, returning AI");
-            return InputType::AI;
+            return InputClassificationResult::new(
+                InputType::AI,
+                InputClassifierDecisionSource::NaturalLanguageOneOffAllowlist,
+            );
         }
 
         if is_likely_shell_command(&input, total_word_token_count).await {
-            log::info!("[input-classifier] → is_likely_shell_command=true, returning Shell");
-            return InputType::Shell;
+            return InputClassificationResult::new(
+                InputType::Shell,
+                InputClassifierDecisionSource::ShellHeuristic,
+            );
         }
 
         let result = self
             .classify_input(input, context)
             .await
-            .map(|result| result.to_input_type())
-            .unwrap_or(context.current_input_type);
-
-        log::info!("[input-classifier] → classify_input returned {:?}", result);
-        result
+            .map(|result| InputClassificationResult::new(result.to_input_type(), result.source))
+            .unwrap_or(InputClassificationResult::new(
+                context.current_input_type,
+                InputClassifierDecisionSource::InputClassifierFallbackHeuristic,
+            ))
     }
 
     async fn classify_input(
@@ -105,10 +114,17 @@ async fn natural_language_detection_heuristic(
     _current_input_type: InputType,
     include_last_token: bool,
 ) -> ClassificationResult {
-    let _word_tokens_count = word_tokens.len();
+    let source = InputClassifierDecisionSource::InputClassifierFallbackHeuristic;
+    let word_tokens_count = word_tokens.len();
 
-    if input.buffer_text.len() < MINIMUM_CLASSIFICATION_CHAR_LENGTH {
-        return ClassificationResult::pure_shell();
+    let min_token_length = if matches!(current_input_type, InputType::AI) {
+        MINIMUM_COMMAND_DETECTION_TOKEN_LENGTH
+    } else {
+        MINIMUM_NATURAL_LANGUAGE_DETECTION_TOKEN_LENGTH
+    };
+
+    if min_token_length > word_tokens_count as u8 {
+        return ClassificationResult::pure_shell(source);
     }
 
     let mut word_tokens = word_tokens.into_iter().map(Cow::Owned).collect_vec();
@@ -136,10 +152,10 @@ async fn natural_language_detection_heuristic(
     };
 
     if likely_english_token_count >= (updated_word_token_count as f32 * threshold) as usize {
-        return ClassificationResult::pure_ai();
+        return ClassificationResult::pure_ai(source);
     }
 
-    ClassificationResult::pure_shell()
+    ClassificationResult::pure_shell(source)
 }
 
 #[cfg(test)]

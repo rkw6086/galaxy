@@ -1,6 +1,8 @@
-use crate::search::result_renderer::ItemHighlightState;
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{elements::Icon, Element};
+use galaxyui::elements::Icon;
+use galaxyui::Element;
+
+use crate::search::result_renderer::ItemHighlightState;
 
 /// Assumes the path is a file, not a folder
 pub fn icon_from_file_path(

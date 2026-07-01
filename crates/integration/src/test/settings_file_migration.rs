@@ -3,13 +3,12 @@
 
 use std::collections::HashMap;
 
-use galaxy::{
-    features::FeatureFlag,
-    integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab,
-    settings::{BlockVisibilitySettings, ScrollSettings},
-};
-use galaxyui::{async_assert, async_assert_eq, integration::AssertionOutcome, SingletonEntity};
 use settings::Setting as _;
+use warp::features::FeatureFlag;
+use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
+use warp::settings::{BlockVisibilitySettings, ScrollSettings};
+use galaxyui_core::integration::AssertionOutcome;
+use galaxyui_core::{async_assert, async_assert_eq, SingletonEntity};
 
 use super::{new_builder, Builder};
 

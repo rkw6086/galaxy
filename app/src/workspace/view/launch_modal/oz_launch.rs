@@ -1,3 +1,9 @@
+use asset_macro::bundled_or_fetched_asset;
+use markdown_parser::{FormattedTextFragment, FormattedTextLine};
+use galaxy_core::send_telemetry_from_ctx;
+use warpui::assets::asset_cache::AssetSource;
+use warpui::{AppContext, SingletonEntity};
+
 use super::{CTAButton, CheckboxConfig, LaunchModalEvent, Slide};
 use crate::ai::ambient_agents::telemetry::{CloudAgentTelemetryEvent, CloudModeEntryPoint};
 use crate::terminal::view::OnboardingIntention;
@@ -6,11 +12,6 @@ use crate::workspace::action::WorkspaceAction;
 use crate::workspace::view::OnboardingTutorial;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::{AdminEnablementSetting, UgcCollectionEnablementSetting};
-use asset_macro::bundled_or_fetched_asset;
-use galaxy_core::send_telemetry_from_ctx;
-use galaxyui::assets::asset_cache::AssetSource;
-use galaxyui::{AppContext, SingletonEntity};
-use markdown_parser::{FormattedTextFragment, FormattedTextLine};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OzLaunchSlide {

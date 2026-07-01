@@ -1,12 +1,12 @@
 use asset_macro::bundled_or_fetched_asset;
-use galaxy_core::ui::{
-    color::{blend::Blend, coloru_with_opacity, OPAQUE},
-    theme::{
-        color::CustomDetails, AnsiColor, AnsiColors, Details, Fill, GalaxyTheme,
-        HorizontalGradient, Image, TerminalColors, VerticalGradient,
-    },
-};
 use pathfinder_color::ColorU;
+use galaxy_core::ui::color::blend::Blend;
+use galaxy_core::ui::color::{coloru_with_opacity, OPAQUE};
+use galaxy_core::ui::theme::color::CustomDetails;
+use galaxy_core::ui::theme::{
+    AnsiColor, AnsiColors, Details, Fill, HorizontalGradient, Image, TerminalColors,
+    VerticalGradient, WarpTheme,
+};
 
 const DARK_MODE_NORMAL_COLORS: AnsiColors = AnsiColors::new(
     AnsiColor::from_u32(0x616161FF),

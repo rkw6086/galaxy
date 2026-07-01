@@ -9,13 +9,9 @@
 //! * The **reserved box** is the rectangle containing a block's content, padding, borders, and
 //!   margin - all space reserved for the block.
 
-use galaxyui::{
-    geometry::{
-        rect::RectF,
-        vector::{Vector2F, vec2f},
-    },
-    units::Pixels,
-};
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::{Vector2F, vec2f};
+use galaxyui_core::units::Pixels;
 
 use super::BlockSpacing;
 

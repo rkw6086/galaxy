@@ -1,7 +1,10 @@
-use crate::render::model::{
-    EmbeddedItem,
-    table_offset_map::{TableCellOffsetMap, TableOffsetMap},
-};
+use std::borrow::Cow;
+use std::collections::HashSet;
+use std::fmt::{self, Display};
+use std::hash::{Hash, Hasher};
+use std::ops::{Add, AddAssign, BitXor, BitXorAssign, Range, Sub, SubAssign};
+use std::sync::{Arc, OnceLock};
+
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
 use galaxy_core::features::FeatureFlag;
@@ -14,13 +17,13 @@ use galaxyui::{
 };
 use lazy_static::lazy_static;
 pub use markdown_parser::markdown_parser::TABLE_BLOCK_MARKDOWN_LANG;
+use markdown_parser::markdown_parser::{
+    CODE_BLOCK_DEFAULT_MARKDOWN_LANG, EMBED_BLOCK_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
+};
+use markdown_parser::weight::CustomWeight;
 use markdown_parser::{
     CodeBlockText, FormattedImage, FormattedTextLine, FormattedTextStyles, Hyperlink,
-    markdown_parser::{
-        CODE_BLOCK_DEFAULT_MARKDOWN_LANG, EMBED_BLOCK_MARKDOWN_LANG, RUNNABLE_BLOCK_MARKDOWN_LANG,
-    },
     parse_markdown,
-    weight::CustomWeight,
 };
 pub use markdown_parser::{
     FormattedTable, FormattedTableAlignment, FormattedTextFragment, FormattedTextInline,
@@ -28,18 +31,19 @@ pub use markdown_parser::{
 use pathfinder_color::ColorU;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::Cow,
-    collections::HashSet,
-    fmt::{self, Display},
-    hash::{Hash, Hasher},
-    ops::{Add, AddAssign, BitXor, BitXorAssign, Range, Sub, SubAssign},
-    sync::{Arc, OnceLock},
-};
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
+use galaxyui_core::AppContext;
+use galaxyui_core::elements::ListIndentLevel;
+use galaxyui_core::fonts::{Properties, Style, Weight};
+use galaxyui_core::text::BlockHeaderSize as HeaderSize;
+use galaxyui_core::text::point::Point;
 
-use super::{buffer::Buffer, core::CursorType, markdown::MarkdownStyle};
+use super::buffer::Buffer;
+use super::core::CursorType;
+use super::markdown::MarkdownStyle;
+use crate::render::model::EmbeddedItem;
+use crate::render::model::table_offset_map::{TableCellOffsetMap, TableOffsetMap};
 
 /// Collect the plain text from a `FormattedTextInline` (a slice of fragments).
 pub fn inline_to_text(inline: &[FormattedTextFragment]) -> String {

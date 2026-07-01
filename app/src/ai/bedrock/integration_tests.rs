@@ -104,7 +104,6 @@ async fn collect_stream_output(
                                 Action::AppendToMessageContent(append) => {
                                     if let Some(msg) = append.message {
                                         if let Some(msg_content) = msg.message {
-                                            use warp_multi_agent_api::message::Message;
                                             if let Message::AgentOutput(output) = msg_content {
                                                 text.push_str(&output.text);
                                             }

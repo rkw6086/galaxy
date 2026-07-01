@@ -66,6 +66,7 @@ impl Command {
     ///     .expect("sh command failed to start");
     /// ```
     pub fn new<S: AsRef<OsStr>>(program: S) -> Command {
+        let program = crate::wsl::translate_program_for_spawn(program.as_ref());
         #[cfg_attr(not(windows), expect(unused_mut))]
         let mut inner = std::process::Command::new(program);
 
@@ -97,7 +98,6 @@ impl Command {
     ///
     /// [1]: https://msdn.microsoft.com/en-us/library/windows/desktop/ms684863(v=vs.85).aspx
     pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
-        use std::os::windows::process::CommandExt;
         let flags = windows::Win32::System::Threading::CREATE_NO_WINDOW.0 | flags;
         self.inner.creation_flags(flags);
         self

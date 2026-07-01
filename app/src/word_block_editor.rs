@@ -1,22 +1,22 @@
-#![allow(dead_code, unused_imports, unused_variables)]
+use pathfinder_color::ColorU;
 use galaxy_editor::editor::NavigationKey;
+use galaxyui::elements::{
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, ParentElement, Radius, Wrap, WrapFill,
+};
+use galaxyui::fonts::FamilyId;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisAlignment,
-        MainAxisSize, MouseStateHandle, ParentElement, Radius, Wrap, WrapFill,
-    },
-    fonts::FamilyId,
-    ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
-use pathfinder_color::ColorU;
 
-use crate::{
-    appearance::Appearance,
-    editor::{EditorView, Event, SingleLineEditorOptions, TextOptions},
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorView, Event, InteractionState, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
+    TextOptions,
 };
-use crate::{editor::PropagateAndNoOpNavigationKeys, themes::theme::Fill};
+use crate::themes::theme::Fill;
 
 pub struct WordBlockEditorView {
     editor_view: ViewHandle<EditorView>,
@@ -206,6 +206,14 @@ impl WordBlockEditorView {
             editor.set_buffer_text(word, ctx);
         });
         ctx.notify();
+    }
+
+    /// Forwards the interaction state to the inner editor view.
+    pub fn set_interaction_state(&mut self, state: InteractionState, ctx: &mut ViewContext<Self>) {
+        self.editor_view.update(ctx, |editor, ctx| {
+            editor.set_interaction_state(state, ctx);
+            ctx.notify();
+        });
     }
 
     fn delete_word(&mut self, index: usize, ctx: &mut ViewContext<Self>) {

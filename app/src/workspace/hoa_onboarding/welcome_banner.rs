@@ -1,4 +1,6 @@
-use galaxy_core::ui::theme::{phenomenon::PhenomenonStyle, Fill};
+use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::theme::phenomenon::PhenomenonStyle;
+use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{
     CacheOption, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
@@ -6,14 +8,11 @@ use galaxyui::elements::{
     ParentElement, ParentOffsetBounds, Radius, Stack, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
-use galaxyui::Element;
-use pathfinder_geometry::vector::vec2f;
+use galaxyui::{Element, ViewHandle};
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::ActionButton;
-
-use galaxyui::ViewHandle;
 
 const BANNER_WIDTH: f32 = 420.;
 const HERO_HEIGHT: f32 = 92.;
@@ -85,15 +84,23 @@ pub fn render_welcome_banner(
     );
 
     // "New" badge
-    let badge = Container::new(
-        Text::new_inline("New".to_string(), appearance.ui_font_family(), 14.)
-            .with_color(PhenomenonStyle::modal_badge_text())
-            .finish(),
+    let text = Text::new_inline("New".to_string(), appearance.ui_font_family(), 14.)
+        .with_color(PhenomenonStyle::modal_badge_text())
+        .finish();
+    let badge = ConstrainedBox::new(
+        Container::new(
+            Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_main_axis_size(MainAxisSize::Min)
+                .with_child(text)
+                .finish(),
+        )
+        .with_horizontal_padding(8.)
+        .with_background(Fill::Solid(PhenomenonStyle::modal_badge_background()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Percentage(50.)))
+        .finish(),
     )
-    .with_horizontal_padding(8.)
-    .with_vertical_padding(2.)
-    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-    .with_background(Fill::Solid(PhenomenonStyle::modal_badge_background()))
+    .with_height(24.)
     .finish();
 
     // Title

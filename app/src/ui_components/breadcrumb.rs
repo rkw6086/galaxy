@@ -1,14 +1,11 @@
 use std::fmt::Debug;
 
-use galaxyui::{
-    elements::{
-        CrossAxisAlignment, Flex, Hoverable, MainAxisSize, MouseStateHandle, ParentElement,
-        Shrinkable,
-    },
-    ui_components::components::{UiComponent, UiComponentStyles},
-    AppContext, Element, EventContext,
-};
 use itertools::{Itertools, Position};
+use galaxyui::elements::{
+    CrossAxisAlignment, Flex, Hoverable, MainAxisSize, MouseStateHandle, ParentElement, Shrinkable,
+};
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, EventContext};
 
 use crate::appearance::Appearance;
 

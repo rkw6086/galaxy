@@ -1,6 +1,8 @@
-use galaxyui::color::ColorU;
+use std::borrow::Cow;
+use std::fmt;
+
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use std::{borrow::Cow, fmt};
+use galaxyui_core::color::ColorU;
 
 use super::OPAQUE;
 

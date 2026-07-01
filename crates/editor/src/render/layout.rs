@@ -1,22 +1,22 @@
 //! Shared text-layout utilities needed throughout the editor implementation.
 
-#[cfg(test)]
-use markdown_parser::FormattedTextInline;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::content::text::{BufferBlockStyle, TextStylesWithMetadata};
-use galaxyui::fonts::TextLayoutSystem;
 #[cfg(test)]
-use galaxyui::fonts::{Style, Weight};
-use galaxyui::text_layout::{
-    ClipConfig, LayoutCache, Line, StyleAndFont, TextAlignment, TextBorder, TextStyle,
+use markdown_parser::FormattedTextInline;
+use galaxyui_core::color::ColorU;
+use galaxyui_core::fonts::TextLayoutSystem;
+#[cfg(test)]
+use galaxyui_core::fonts::{Style, Weight};
+use galaxyui_core::text_layout::{
+    ClipConfig, LayoutCache, Line, StyleAndFont, TextAlignment, TextBorder, TextFrame, TextStyle,
 };
-use galaxyui::units::{IntoPixels, Pixels};
-use galaxyui::{AppContext, LayoutContext};
-use galaxyui::{color::ColorU, text_layout::TextFrame};
+use galaxyui_core::units::{IntoPixels, Pixels};
+use galaxyui_core::{AppContext, LayoutContext};
 
 use super::model::{BlockSpacing, ParagraphStyles, RenderState, RichTextStyles};
+use crate::content::text::{BufferBlockStyle, TextStylesWithMetadata};
 
 const HYPERLINK_UNDERLINE_COLOR: u32 = 0x7aa6daff;
 

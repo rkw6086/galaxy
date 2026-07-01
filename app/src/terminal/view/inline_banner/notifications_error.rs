@@ -1,17 +1,15 @@
 use galaxyui::{elements::MouseStateHandle, Element};
 use serde::Serialize;
-
-use crate::{
-    appearance::Appearance,
-    terminal::view::{InlineBannerId, TerminalAction},
-};
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::notification::NotificationSendError;
+use galaxyui::Element;
 
 use super::{
     render_inline_block_list_banner, InlineBannerButtonState, InlineBannerCloseButton,
     InlineBannerContent, InlineBannerStyle, InlineBannerTextButton, InlineBannerTextButtonVariant,
 };
-
-use galaxyui::notification::NotificationSendError;
+use crate::appearance::Appearance;
+use crate::terminal::view::{InlineBannerId, TerminalAction};
 
 #[derive(Clone, Copy, Debug, Serialize)]
 pub enum NotificationsErrorBannerAction {

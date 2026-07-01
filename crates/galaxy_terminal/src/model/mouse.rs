@@ -1,4 +1,4 @@
-use galaxyui::event::ModifiersState;
+use galaxyui_core::event::ModifiersState;
 
 use super::indexing::Point;
 

@@ -1,43 +1,43 @@
-use crate::ai::blocklist::{render_ai_agent_mode_icon, AIQueryHistory, AIQueryHistoryOutputStatus};
-use crate::terminal::model::session::SessionId;
-use crate::ui_components::icons::Icon as UIComponentsIcon;
+use std::cmp::Ordering;
+use std::collections::HashSet;
+use std::ops::Range;
+use std::{cmp, vec};
+
 use async_channel::Sender;
 use chrono::{DateTime, Local};
 use fuzzy_match::match_indices;
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use warp_command_signatures::IconType;
 use galaxy_completer::completer::{
     MatchType, PathSeparators, Suggestion, SuggestionResults, SuggestionType,
 };
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
 use galaxyui::elements::{
-    ChildAnchor, DispatchEventResult, Expanded, Hoverable, MouseStateHandle, ParentAnchor,
-    ParentOffsetBounds, ScrollbarWidth,
+    Align, AnchorPair, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
+    CrossAxisAlignment, DispatchEventResult, DropShadow, Element, Empty, EventHandler, Expanded,
+    Flex, Highlight, Hoverable, Icon, MouseStateHandle, OffsetPositioning, OffsetType,
+    ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementOffsetBounds,
+    PositioningAxis, Radius, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement,
+    ScrollbarWidth, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    UniformList, UniformListState, XAxisAnchor, YAxisAnchor,
 };
+use galaxyui::fonts::{Cache, Properties, Weight};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    accessibility::{AccessibilityContent, GalaxyA11yRole},
-    elements::{
-        Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        DropShadow, Element, Empty, EventHandler, Flex, Highlight, Icon, OffsetPositioning,
-        OffsetType, ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius,
-        SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, Shrinkable,
-        SizeConstraintCondition, SizeConstraintSwitch, Stack, Text, UniformList, UniformListState,
-        XAxisAnchor, YAxisAnchor,
-    },
-    fonts::{Cache, Properties, Weight},
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
 };
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::{cmp, ops::Range, vec};
-use warp_command_signatures::IconType;
 
+use crate::ai::blocklist::{render_ai_agent_mode_icon, AIQueryHistory, AIQueryHistoryOutputStatus};
 use crate::appearance::Appearance;
 use crate::terminal::history::LinkedWorkflowData;
+use crate::terminal::model::session::SessionId;
 use crate::terminal::rich_history::{render_ai_query_rich_history, render_rich_history};
 use crate::terminal::HistoryEntry;
+use crate::ui_components::icons::Icon as UIComponentsIcon;
 use crate::util::time_format::format_approx_duration_from_now;
 
 /// This enum allows the parent view to indicate which type of details panel is shown.
@@ -1245,5 +1245,5 @@ impl From<&AIQueryHistory> for AIQueryHistoryEntryDetails {
 }
 
 #[cfg(test)]
-#[path = "input_suggestions_test.rs"]
+#[path = "input_suggestions_tests.rs"]
 mod tests;

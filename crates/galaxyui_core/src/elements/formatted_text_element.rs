@@ -1,44 +1,40 @@
-use super::{Highlight, ListNumbering, Selection};
-use crate::elements::{
-    ClickableCharRange, CornerRadius, Fill, HighlightedRange, HoverableCharRange, MouseStateHandle,
-    PartialClickableElement, Radius, SecretRange, SelectableElement, SelectionFragment,
-    SmartSelectFn, ZIndex, SELECTED_HIGHLIGHT_COLOR,
-};
-use crate::event::ModifiersState;
-use crate::fonts::Weight;
-use crate::geometry::rect::RectF;
-use crate::platform::Cursor;
-use crate::text::word_boundaries::WordBoundariesPolicy;
-use crate::text::{
-    char_slice, count_chars_up_to_byte, BlockHeaderSize, IsRect, SelectionDirection, SelectionType,
-    TextBuffer,
-};
-use crate::text_layout::{ClipConfig, TextAlignment, DEFAULT_TOP_BOTTOM_RATIO};
-use crate::Event;
-use crate::{
-    elements::{Axis, Point},
-    event::DispatchedEvent,
-    fonts::{FamilyId, Properties, Style},
-    platform::LineStyle,
-    text_layout::{StyleAndFont, TextFrame, TextStyle},
-    AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext,
-    SizeConstraint,
-};
-use itertools::Itertools;
-use markdown_parser::{Action, FormattedText, FormattedTextFragment, FormattedTextLine, Hyperlink};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::default::Default;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::Once;
+use std::sync::{Arc, Mutex, Once};
+
+use itertools::Itertools;
+use markdown_parser::{Action, FormattedText, FormattedTextFragment, FormattedTextLine, Hyperlink};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 use string_offset::{ByteOffset, CharOffset};
 use vec1::vec1;
+
+use super::{Highlight, ListNumbering, Selection};
+use crate::elements::{
+    Axis, ClickableCharRange, CornerRadius, Fill, HighlightedRange, HoverableCharRange,
+    MouseStateHandle, PartialClickableElement, Point, Radius, SecretRange, SelectableElement,
+    SelectionFragment, SmartSelectFn, ZIndex, SELECTED_HIGHLIGHT_COLOR,
+};
+use crate::event::{DispatchedEvent, ModifiersState};
+use crate::fonts::{FamilyId, Properties, Style, Weight};
+use crate::geometry::rect::RectF;
+use crate::platform::{Cursor, LineStyle};
+use crate::text::word_boundaries::WordBoundariesPolicy;
+use crate::text::{
+    char_slice, count_chars_up_to_byte, BlockHeaderSize, IsRect, SelectionDirection, SelectionType,
+    TextBuffer,
+};
+use crate::text_layout::{
+    ClipConfig, StyleAndFont, TextAlignment, TextFrame, TextStyle, DEFAULT_TOP_BOTTOM_RATIO,
+};
+use crate::{
+    AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, PaintContext,
+    SizeConstraint,
+};
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeadingFontSizeMultipliers {
     pub h1: f32,
@@ -1032,6 +1028,53 @@ impl FormattedTextElement {
                 }
             });
         handled
+    }
+
+    /// Returns `true` if `position` lands on a registered clickable range (e.g. a hyperlink),
+    /// *without* invoking the click handler. Used to report a single click as handled across the
+    /// whole down/up lifecycle: `handle_mouse_down` fires the click on press, and this lets the
+    /// matching release also be reported as handled so an enclosing `SelectableArea` does not run
+    /// its mouse-up selection handler (which dispatches a selection action that dismisses the link
+    /// tooltip the press just opened).
+    fn point_is_on_clickable_range(
+        &self,
+        position: Vector2F,
+        z_index: ZIndex,
+        ctx: &EventContext,
+    ) -> bool {
+        if self.is_mouse_interaction_disabled
+            || ctx.is_covered(Point::from_vec2f(position, z_index))
+        {
+            return false;
+        }
+
+        if !self
+            .bounds()
+            .is_some_and(|bounds| bounds.contains_point(position))
+        {
+            return false;
+        }
+
+        let Some(click_pos) =
+            self.position_for_point(position, SnappingPolicy::precise_char_range())
+        else {
+            return false;
+        };
+        let handlers = match self.laid_out_text.get(click_pos.frame_index) {
+            Some(
+                LaidOutTextFrame::Text { mouse_handlers, .. }
+                | LaidOutTextFrame::Indented { mouse_handlers, .. },
+            ) => mouse_handlers,
+            _ => return false,
+        };
+
+        let handlers = handlers.borrow();
+        let glyph_offset = handlers.glyph_offset;
+        handlers.click_handlers.iter().any(|clickable_range| {
+            let handler_char_range = (clickable_range.char_range.start + glyph_offset.as_usize())
+                ..(clickable_range.char_range.end + glyph_offset.as_usize());
+            handler_char_range.contains(&click_pos.glyph_index)
+        })
     }
 
     fn frame_index_to_line_index(&self, frame_index: usize) -> usize {
@@ -2226,15 +2269,33 @@ impl Element for FormattedTextElement {
             Some(Event::LeftMouseDown {
                 position,
                 modifiers,
+                click_count,
                 ..
             }) => {
-                self.handle_mouse_down(*position, z_index, modifiers, ctx, app);
-                false
+                // Only a single click can land on a clickable range (e.g. a hyperlink). When it
+                // does, report the event as handled so an enclosing `SelectableArea` does not also
+                // treat the press as the start of a text selection. Otherwise the selection path
+                // dispatches its selection handler on the same press, which clears the link
+                // tooltip/click that `handle_mouse_down` just triggered — making clicks on
+                // markdown links appear to do nothing. Multi-clicks fall through so word/line
+                // selection still works when it begins on top of a link.
+                if *click_count == 1 {
+                    self.handle_mouse_down(*position, z_index, modifiers, ctx, app)
+                } else {
+                    false
+                }
+            }
+            Some(Event::LeftMouseUp { position, .. }) => {
+                // Report the release of a click that lands on a link as handled too. The press is
+                // handled above; if the matching release is left unhandled, an enclosing
+                // `SelectableArea` runs its mouse-up selection handler on the same click, which
+                // dispatches a selection action that dismisses the link tooltip the press opened.
+                // A genuine drag selection bypasses the child on mouse-up, so this only affects
+                // plain clicks on a link.
+                self.point_is_on_clickable_range(*position, z_index, ctx)
             }
             _ => false,
         }
-
-        // false
     }
 
     fn origin(&self) -> Option<Point> {
@@ -2360,18 +2421,13 @@ impl SelectableElement for FormattedTextElement {
                         ..
                     } => {
                         let frame_bounds = frame.get_frame_bounds();
-                        let inner_point = if matches!(direction, SelectionDirection::Backward) {
-                            raw_text.word_starts_backward_from_offset_exclusive(CharOffset::from(
-                                text_selection_bound.glyph_index,
-                            ))
-                        } else {
-                            raw_text.word_ends_from_offset_exclusive(CharOffset::from(
-                                text_selection_bound.glyph_index,
-                            ))
-                        }
-                        .ok()?
-                        .with_policy(word_boundaries_policy)
-                        .next()?;
+                        let inner_point = raw_text
+                            .semantic_expansion_target(
+                                CharOffset::from(text_selection_bound.glyph_index),
+                                direction,
+                                word_boundaries_policy,
+                            )
+                            .ok()?;
 
                         let offset = raw_text.to_offset(inner_point).ok()?.as_usize();
 

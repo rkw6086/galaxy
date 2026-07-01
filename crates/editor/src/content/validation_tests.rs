@@ -1,11 +1,10 @@
-use crate::content::{
-    cursor::BufferSumTree,
-    text::{
-        BlockHeaderSize, BufferBlockItem, BufferBlockStyle, BufferText, BufferTextStyle, MarkerDir,
-    },
-};
-use galaxyui::elements::ListIndentLevel;
 use sum_tree::SumTree;
+use galaxyui_core::elements::ListIndentLevel;
+
+use crate::content::cursor::BufferSumTree;
+use crate::content::text::{
+    BlockHeaderSize, BufferBlockItem, BufferBlockStyle, BufferText, BufferTextStyle, MarkerDir,
+};
 
 #[test]
 #[should_panic(

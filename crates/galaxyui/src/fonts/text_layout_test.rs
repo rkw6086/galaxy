@@ -1,18 +1,16 @@
 //! Platform-independent text layout tests.
-use crate::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
-use crate::fonts::{FamilyId, Properties, Style, Weight};
-use crate::platform::FontDB as _;
-use crate::platform::LineStyle;
-use crate::text_layout::{
-    ClipConfig, Line, StyleAndFont, TextAlignment, TextFrame, TextStyle, DEFAULT_TOP_BOTTOM_RATIO,
-};
 use anyhow::Result;
 use itertools::Itertools;
 use pathfinder_color::ColorU;
 
+use crate::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
+use crate::fonts::{FamilyId, Properties, Style, Weight};
 #[cfg(target_os = "macos")]
 use crate::platform::mac::fonts::FontDB;
-
+use crate::platform::{FontDB as _, LineStyle};
+use crate::text_layout::{
+    ClipConfig, Line, StyleAndFont, TextAlignment, TextFrame, TextStyle, DEFAULT_TOP_BOTTOM_RATIO,
+};
 #[cfg(not(target_os = "macos"))]
 use crate::windowing::winit::fonts::FontDB;
 
@@ -70,7 +68,8 @@ fn test_fixed_width_tab_size_matches_spaces_width() -> Result<()> {
 
 /// Read the bundled Roboto font's bytes from the filesystem.
 fn load_roboto_bytes() -> Vec<Vec<u8>> {
-    use std::{fs::read, path::PathBuf};
+    use std::fs::read;
+    use std::path::PathBuf;
     let root = env!("CARGO_MANIFEST_DIR");
     let typeface_files = ["Roboto-Italic.ttf", "Roboto-Bold.ttf", "Roboto-Regular.ttf"];
     typeface_files
@@ -483,7 +482,7 @@ fn test_char_indices() -> Result<()> {
     // characters get combined to become a single glyph. At a high level, what this is testing
     // is that after laying out the string, we see some characters get combined into a single
     // glyph. For example, the text "Zapfino" gets combined into a single glyph, which is why
-    // there is a jump from 23 to 30 in in the list of glyph indices below.
+    // there is a jump from 23 to 30 in the list of glyph indices below.
     // See https://docs.google.com/drawings/d/18qOKhzA5rWaMuxKVeWFDXh7ebrDjxongarAckkm0qnE/edit
     // for a full diagram of what's happening here.
     assert_eq!(

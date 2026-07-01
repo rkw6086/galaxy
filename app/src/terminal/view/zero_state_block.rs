@@ -1,42 +1,38 @@
-use galaxy_core::{report_if_error, ui::Icon};
+use settings::Setting;
+use galaxy_core::report_if_error;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::{
+    ChildAnchor, Container, CrossAxisAlignment, Flex, MainAxisSize, OffsetPositioning,
+    ParentAnchor, ParentElement, ParentOffsetBounds, Shrinkable, Stack, Text,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::Keystroke;
+use galaxyui::prelude::{vec2f, ConstrainedBox, Cursor, Empty, Hoverable, MouseStateHandle};
+use galaxyui::scene::{Border, CornerRadius, Radius};
+use galaxyui::ui_components::checkbox::Checkbox;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        ChildAnchor, Container, CrossAxisAlignment, Flex, MainAxisSize, OffsetPositioning,
-        ParentAnchor, ParentElement, ParentOffsetBounds, Shrinkable, Stack, Text,
-    },
-    fonts::{Properties, Weight},
-    keymap::Keystroke,
-    prelude::{vec2f, ConstrainedBox, Cursor, Empty, Hoverable, MouseStateHandle},
-    scene::{Border, CornerRadius, Radius},
-    ui_components::{
-        checkbox::Checkbox,
-        components::{UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
-use settings::Setting;
 
-use crate::{
-    ai::blocklist::agent_view::{
-        AgentViewController, AgentViewControllerEvent, ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
-    },
-    appearance::Appearance,
-    settings::{AISettings, AISettingsChangedEvent, InputModeSettings},
-    terminal::{
-        self,
-        event::BlockType,
-        input::message_bar::{common::render_standard_message, Message, MessageItem},
-        model_events::{ModelEvent, ModelEventDispatcher},
-        settings::{TerminalSettings, TerminalSettingsChangedEvent},
-        view::TerminalAction,
-    },
-    ui_components::blended_colors,
-    util::bindings::keybinding_name_to_keystroke,
-    workspace::tab_settings::TabSettings,
-    workspace::tab_settings::TabSettingsChangedEvent,
-    workspace::view::TOGGLE_RIGHT_PANEL_BINDING_NAME,
-    WorkspaceAction,
+use crate::ai::blocklist::agent_view::{
+    AgentViewController, AgentViewControllerEvent, AgentViewEntryOrigin,
+    ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE, ENTER_CLOUD_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
 };
+use crate::appearance::Appearance;
+use crate::settings::{AISettings, AISettingsChangedEvent, InputModeSettings};
+use crate::terminal::event::BlockType;
+use crate::terminal::input::message_bar::common::render_standard_message;
+use crate::terminal::input::message_bar::{Message, MessageItem};
+use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
+use crate::terminal::settings::{TerminalSettings, TerminalSettingsChangedEvent};
+use crate::terminal::view::TerminalAction;
+use crate::terminal::{self};
+use crate::ui_components::blended_colors;
+use crate::util::bindings::keybinding_name_to_keystroke;
+use crate::workspace::tab_settings::{TabSettings, TabSettingsChangedEvent};
+use crate::workspace::view::TOGGLE_RIGHT_PANEL_BINDING_NAME;
+use crate::WorkspaceAction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalViewZeroStateAction {
@@ -193,7 +189,11 @@ impl View for TerminalViewZeroStateBlock {
                         MessageItem::text("start a new agent conversation"),
                     ],
                     |ctx| {
-                        ctx.dispatch_typed_action(TerminalAction::StartNewAgentConversation);
+                        ctx.dispatch_typed_action(TerminalAction::StartNewAgentConversation {
+                            origin: AgentViewEntryOrigin::Input {
+                                was_prompt_autodetected: false,
+                            },
+                        });
                     },
                     self.state_handles.start_new_conversation.clone(),
                 )]),

@@ -1,6 +1,24 @@
-use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
+use pathfinder_color::ColorU;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{ChildView, Container, Fill};
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
+use galaxyui::{
+    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
 
-use super::auth_view_modal::AuthRedirectPayload;
+use super::auth_manager::{AuthManager, AuthManagerEvent};
+use super::auth_override_warning_body::AuthOverrideWarningBodyEvent;
+use crate::auth::auth_override_warning_body::AuthOverrideWarningBody;
+use crate::auth::auth_view_modal::AuthRedirectPayload;
+use crate::modal::Modal;
+use crate::root_view::unthemed_window_border;
+
+pub struct AuthOverrideWarningModal {
+    auth_override_warning_modal: ViewHandle<Modal<AuthOverrideWarningBody>>,
+    interrupted_auth_payload: Option<AuthRedirectPayload>,
+    variant: AuthOverrideWarningModalVariant,
+}
 
 #[derive(Clone, Debug)]
 pub enum AuthOverrideWarningModalVariant {

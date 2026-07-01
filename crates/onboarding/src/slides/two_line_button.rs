@@ -1,20 +1,18 @@
-use super::agent_slide::AgentSlideAction;
-use galaxy_core::ui::{
-    appearance::Appearance,
-    icons::Icon,
-    theme::{color::internal_colors, Fill},
-};
-use galaxyui::{
-    elements::{
-        Align, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        Flex, Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
-        ParentElement, ParentOffsetBounds, Radius, Stack, Text,
-    },
-    fonts::{Properties, Weight},
-    platform::Cursor,
-    Element,
-};
 use pathfinder_geometry::vector::vec2f;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::icons::Icon;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::Fill;
+use galaxyui_core::elements::{
+    Align, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
+    Hoverable, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, Stack, Text,
+};
+use galaxyui_core::fonts::{Properties, Weight};
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::Element;
+
+use super::agent_slide::AgentSlideAction;
 
 pub(super) struct TwoLineButtonSpec {
     pub(super) is_selected: bool,

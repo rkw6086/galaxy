@@ -2,14 +2,12 @@
 
 use std::ops::Range;
 
-use galaxyui::text::TextBuffer;
+use galaxyui_core::text::TextBuffer;
 use itertools::Itertools;
 use string_offset::CharOffset;
 
-use crate::{
-    vim::{BracketChar, BracketEnd, BracketType},
-    vim_find_matching_bracket,
-};
+use crate::vim::{BracketChar, BracketEnd, BracketType};
+use crate::vim_find_matching_bracket;
 
 /// Vim's block-based text objects, e.g. `di{`. This includes a string of text enclosed by any pair
 /// of [`BracketType`], not including the brackets themselves.

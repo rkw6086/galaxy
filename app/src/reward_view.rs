@@ -1,12 +1,10 @@
 use galaxy_core::ui::builder::UiBuilder;
-use galaxyui::{
-    accessibility::{AccessibilityContent, GalaxyA11yRole},
-    elements::{Align, Container, Element, Flex, MouseStateHandle, ParentElement},
-    keymap::FixedBinding,
-    ui_components::button::ButtonVariant,
-    ui_components::components::{Coords, UiComponent, UiComponentStyles},
-    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext,
-};
+use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::elements::{Align, Container, Element, Flex, MouseStateHandle, ParentElement};
+use galaxyui::keymap::FixedBinding;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use crate::appearance::Appearance;
 

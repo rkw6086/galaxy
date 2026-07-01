@@ -1,16 +1,17 @@
-use galaxy_core::ui::{appearance::Appearance, Icon};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::Icon;
+use galaxyui::elements::{
+    Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
+    MainAxisAlignment, ParentElement as _, Radius, Shrinkable,
+};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{BorderStyle, Coords, UiComponent as _, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
-        MainAxisAlignment, ParentElement as _, Radius, Shrinkable,
-    },
-    fonts::Weight,
-    ui_components::components::{BorderStyle, Coords, UiComponent as _, UiComponentStyles},
     AppContext, Element, Entity, FocusContext, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle,
 };
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 
 use crate::editor::{EditorOptions, EditorView, Event as EditorEvent, TextOptions};
 

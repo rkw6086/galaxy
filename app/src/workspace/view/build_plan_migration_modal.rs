@@ -1,9 +1,3 @@
-use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
-use crate::terminal::general_settings::GeneralSettings;
-use crate::ui_components::blended_colors;
-use crate::view_components::{Dropdown, DropdownEvent, DropdownItem, ToastFlavor};
-use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
-use crate::workspaces::workspace::CustomerType;
 use asset_macro::bundled_or_fetched_asset;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
@@ -27,6 +21,13 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting as _;
 use thousands::Separable;
+
+use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
+use crate::terminal::general_settings::GeneralSettings;
+use crate::ui_components::blended_colors;
+use crate::view_components::{Dropdown, DropdownEvent, DropdownItem, ToastFlavor};
+use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
+use crate::workspaces::workspace::CustomerType;
 
 const BUTTON_DIAMETER: f32 = 20.;
 const DROPDOWN_WIDTH: f32 = 160.;

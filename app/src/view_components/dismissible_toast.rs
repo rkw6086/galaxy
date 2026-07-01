@@ -1,31 +1,29 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use galaxy_core::ui::builder::UiBuilder;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::elements::ChildView;
-use galaxyui::keymap::Keystroke;
-use galaxyui::r#async::Timer;
-use galaxyui::{
-    elements::{
-        Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        DispatchEventResult, EventHandler, Flex, Hoverable, Icon, MainAxisAlignment, MainAxisSize,
-        MouseStateHandle, OffsetPositioning, ParentElement, PositionedElementAnchor,
-        PositionedElementOffsetBounds, Radius, SavePosition, Shrinkable, Stack,
-    },
-    fonts::Weight,
-    r#async::SpawnedFutureHandle,
-    ui_components::components::{Coords, UiComponent, UiComponentStyles},
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
-};
-use galaxyui::{Action, ViewHandle};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use uuid::Uuid;
-
-use crate::{appearance::Appearance, themes::theme::Fill};
+use galaxy_core::ui::builder::UiBuilder;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{
+    Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    DispatchEventResult, EventHandler, Flex, Hoverable, Icon, MainAxisAlignment, MainAxisSize,
+    MouseStateHandle, OffsetPositioning, ParentElement, PositionedElementAnchor,
+    PositionedElementOffsetBounds, Radius, SavePosition, Shrinkable, Stack,
+};
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::Keystroke;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
+    Action, AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
 
 use super::action_button::ActionButton;
+use crate::appearance::Appearance;
+use crate::themes::theme::Fill;
 
 const TOAST_WIDTH: f32 = 464.;
 const TOAST_CORNER_RADIUS: f32 = 4.;

@@ -4,13 +4,12 @@ use galaxyui::{AppContext, Entity, ModelHandle};
 use itertools::Itertools;
 use string_offset::CharOffset;
 use vec1::{Vec1, vec1};
+use galaxyui_core::{AppContext, Entity, ModelHandle};
 
-use crate::content::{
-    anchor::{Anchor, AnchorSide, AnchorUpdate, Anchors},
-    buffer::{Buffer, SelectionOffsets, ToBufferPoint},
-    selection::{Selection, SelectionSet},
-    text::{BlockType, TextStylesWithMetadata},
-};
+use crate::content::anchor::{Anchor, AnchorSide, AnchorUpdate, Anchors};
+use crate::content::buffer::{Buffer, SelectionOffsets, ToBufferPoint};
+use crate::content::selection::{Selection, SelectionSet};
+use crate::content::text::{BlockType, TextStylesWithMetadata};
 
 /// A snapshot of the selection state. This includes all data reported by [`BufferEvent::SelectionChanged`].
 #[derive(PartialEq, Eq)]
@@ -309,7 +308,7 @@ impl BufferSelectionModel {
     }
 
     /// Validate the buffer content with this selection model's anchors.
-    pub fn validate_buffer(&self, ctx: &impl galaxyui::ModelAsRef) {
+    pub fn validate_buffer(&self, ctx: &impl galaxyui_core::ModelAsRef) {
         self.buffer.as_ref(ctx).validate(&self.anchors);
     }
 

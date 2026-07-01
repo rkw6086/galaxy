@@ -1,12 +1,12 @@
-use crate::appearance::Appearance;
-use crate::search::command_palette::mixer::CommandPaletteItemAction;
-use crate::search::result_renderer::QueryResultRenderer;
-use crate::search::search_bar::SelectionUpdate;
-
 use galaxyui::elements::{Container, Flex, ParentElement};
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text::WrappableText;
 use galaxyui::{AppContext, Element, Entity, ModelContext, SingletonEntity};
+
+use crate::appearance::Appearance;
+use crate::search::command_palette::mixer::CommandPaletteItemAction;
+use crate::search::result_renderer::QueryResultRenderer;
+use crate::search::search_bar::SelectionUpdate;
 
 /// List of items shown within the zero state. "Recent" items are shown first followed by
 /// "Suggested" items.

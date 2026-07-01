@@ -1,45 +1,40 @@
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::collections::HashMap;
+use std::ops::Range;
+use std::sync::Arc;
 
-use galaxy_core::ui::appearance::Appearance;
-use galaxy_editor::{
-    content::{markdown::MarkdownStyle, text::TextStylesWithMetadata},
-    editor::EmbeddedItemModel,
-    extract_block,
-    render::{
-        element::{CursorData, CursorDisplayType, RenderContext, RenderableBlock},
-        layout::TextLayout,
-        model::{
-            viewport::ViewportItem, BlockItem, BlockSpacing, BrokenBlockEmbedding, EmbeddedItem,
-            EmbeddedItemHTMLRepresentation, EmbeddedItemRichFormat, LaidOutEmbeddedItem,
-            ParagraphStyles, RenderState, EMBEDDED_ITEM_FIRST_LINE_HEIGHT,
-        },
-        BLOCK_FOOTER_HEIGHT,
-    },
-};
-use galaxyui::{
-    elements::{Border, Empty},
-    SingletonEntity,
-};
-use galaxyui::{
-    elements::{ConstrainedBox, CornerRadius, Margin, Padding, Radius},
-    text_layout::TextFrame,
-    units::{IntoPixels, Pixels},
-    AppContext, Element, LayoutContext, SizeConstraint,
-};
 use itertools::Itertools;
 use markdown_parser::html_parser::WARP_EMBED_ATTRIBUTE_NAME;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use serde_yaml::Mapping;
 use string_offset::ByteOffset;
-
-use crate::{
-    cloud_object::{model::persistence::CloudModel, CloudObject},
-    drive::{cloud_object_styling::warp_drive_icon_color, DriveObjectType},
-    server::ids::{HashableId, ToServerId},
-    ui_components::icons::Icon,
-    workflows::{workflow::Workflow, CloudWorkflow, WorkflowId},
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_editor::content::markdown::MarkdownStyle;
+use galaxy_editor::content::text::TextStylesWithMetadata;
+use galaxy_editor::editor::EmbeddedItemModel;
+use galaxy_editor::extract_block;
+use galaxy_editor::render::element::{CursorData, CursorDisplayType, RenderContext, RenderableBlock};
+use galaxy_editor::render::layout::TextLayout;
+use galaxy_editor::render::model::viewport::ViewportItem;
+use galaxy_editor::render::model::{
+    BlockItem, BlockSpacing, BrokenBlockEmbedding, EmbeddedItem, EmbeddedItemHTMLRepresentation,
+    EmbeddedItemRichFormat, LaidOutEmbeddedItem, ParagraphStyles, RenderState,
+    EMBEDDED_ITEM_FIRST_LINE_HEIGHT,
 };
+use galaxy_editor::render::BLOCK_FOOTER_HEIGHT;
+use galaxyui::elements::{Border, ConstrainedBox, CornerRadius, Empty, Margin, Padding, Radius};
+use galaxyui::text_layout::TextFrame;
+use galaxyui::units::{IntoPixels, Pixels};
+use galaxyui::{AppContext, Element, LayoutContext, SingletonEntity, SizeConstraint};
+
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::cloud_object::CloudObject;
+use crate::drive::cloud_object_styling::warp_drive_icon_color;
+use crate::drive::DriveObjectType;
+use crate::server::ids::{HashableId, ToServerId};
+use crate::ui_components::icons::Icon;
+use crate::workflows::workflow::Workflow;
+use crate::workflows::{CloudWorkflow, WorkflowId};
 
 // Spacing for the embedded workflow card.
 const EMBED_WORKFLOW_SPACING: BlockSpacing = BlockSpacing {

@@ -5,8 +5,7 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::geometry::vector::Vector2F;
-use galaxyui::Element;
-use galaxyui::EventContext;
+use galaxyui::{Element, EventContext};
 
 use crate::appearance::Appearance;
 use crate::tab_configs::session_config::SessionType;

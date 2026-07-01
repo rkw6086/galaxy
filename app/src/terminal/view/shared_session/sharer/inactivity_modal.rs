@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use crate::modal::Modal;
-use crate::ui_components::blended_colors;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     ChildView, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text,
@@ -14,6 +12,9 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+
+use crate::modal::Modal;
+use crate::ui_components::blended_colors;
 
 pub const MODAL_WIDTH: f32 = 400.;
 pub const MODAL_PADDING: f32 = 24.;

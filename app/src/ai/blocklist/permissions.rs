@@ -1,25 +1,5 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
-
-use crate::{
-    ai::{
-        agent::conversation::AIConversationId,
-        execution_profiles::{
-            profiles::{AIExecutionProfilesModel, ClientProfileId},
-            AIExecutionProfile, ActionPermission, AskUserQuestionPermission, WriteToPtyPermission,
-        },
-    },
-    report_if_error,
-    settings::{AISettings, AgentModeCodingPermissionsType, AgentModeCommandExecutionPredicate},
-    workspaces::{user_workspaces::UserWorkspaces, workspace::AiAutonomySettings},
-};
-use galaxy_core::execution_mode::AppExecutionMode;
-
-use crate::ai::mcp::mcp_provider_from_file_path;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::mcp::TemplatableMCPServerManager;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use galaxy_completer::parsers::simple::decompose_command;
@@ -28,8 +8,26 @@ use galaxy_core::{features::FeatureFlag, settings::Setting};
 use galaxy_util::path::EscapeChar;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
+use galaxy_completer::parsers::simple::{command_without_leading_env_vars, decompose_command};
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::settings::Setting;
 
 use super::BlocklistAIHistoryModel;
+use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::execution_profiles::profiles::{AIExecutionProfilesModel, ClientProfileId};
+use crate::ai::execution_profiles::{
+    AIExecutionProfile, ActionPermission, AskUserQuestionPermission, WriteToPtyPermission,
+};
+use crate::ai::mcp::mcp_provider_from_file_path;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::mcp::TemplatableMCPServerManager;
+use crate::report_if_error;
+use crate::settings::{
+    AISettings, AgentModeCodingPermissionsType, AgentModeCommandExecutionPredicate,
+};
+use crate::workspaces::user_workspaces::UserWorkspaces;
+use crate::workspaces::workspace::AiAutonomySettings;
 
 /// Whether or not a command can be auto-executed, along with a detailed reason.
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -198,6 +196,7 @@ impl BlocklistAIPermissions {
             mcp_denylist: self.get_mcp_denylist_for_profile(ctx, profile_id),
             computer_use: self.get_computer_use_setting_for_profile(ctx, profile_id),
             ask_user_question: self.get_ask_user_question_setting_for_profile(ctx, profile_id),
+            run_agents: self.get_run_agents_setting_for_profile(ctx, profile_id),
 
             // Some fields are read directly from the profile.
             name: profile_data.name.clone(),
@@ -206,6 +205,7 @@ impl BlocklistAIPermissions {
             coding_model: profile_data.coding_model.clone(),
             cli_agent_model: profile_data.cli_agent_model.clone(),
             computer_use_model: profile_data.computer_use_model.clone(),
+            context_window_limit: profile_data.context_window_limit,
             autosync_plans_to_warp_drive: profile_data.autosync_plans_to_warp_drive,
             web_search_enabled: profile_data.web_search_enabled,
         }
@@ -397,18 +397,35 @@ impl BlocklistAIPermissions {
         profile_id: ClientProfileId,
     ) -> Vec<AgentModeCommandExecutionPredicate> {
         let autonomy_settings = Self::workspace_autonomy_settings(ctx);
+        let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
+        let user_denylist = profiles_model
+            .get_profile_by_id(profile_id, ctx)
+            .unwrap_or_else(|| profiles_model.default_profile(ctx))
+            .data()
+            .command_denylist
+            .clone();
 
+        match autonomy_settings.execute_commands_denylist {
+            Some(org_denylist) => {
+                let mut merged = org_denylist;
+                for item in user_denylist {
+                    if !merged.contains(&item) {
+                        merged.push(item);
+                    }
+                }
+                merged
+            }
+            None => user_denylist,
+        }
+    }
+
+    pub fn get_org_execute_commands_denylist(
+        ctx: &AppContext,
+    ) -> Vec<AgentModeCommandExecutionPredicate> {
+        let autonomy_settings = Self::workspace_autonomy_settings(ctx);
         autonomy_settings
             .execute_commands_denylist
-            .unwrap_or_else(|| {
-                let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
-                profiles_model
-                    .get_profile_by_id(profile_id, ctx)
-                    .unwrap_or_else(|| profiles_model.default_profile(ctx))
-                    .data()
-                    .command_denylist
-                    .clone()
-            })
+            .unwrap_or_default()
     }
 
     /// Returns a denylist of command regexes that AM should not auto-execute.
@@ -616,6 +633,29 @@ impl BlocklistAIPermissions {
         let active_profile =
             AIExecutionProfilesModel::as_ref(ctx).active_profile(terminal_view_id, ctx);
         self.get_ask_user_question_setting_for_profile(ctx, *active_profile.id())
+    }
+
+    pub fn get_run_agents_setting_for_profile(
+        &self,
+        ctx: &AppContext,
+        profile_id: ClientProfileId,
+    ) -> crate::ai::execution_profiles::RunAgentsPermission {
+        let profiles_model = AIExecutionProfilesModel::as_ref(ctx);
+        profiles_model
+            .get_profile_by_id(profile_id, ctx)
+            .unwrap_or_else(|| profiles_model.default_profile(ctx))
+            .data()
+            .run_agents
+    }
+
+    pub fn get_run_agents_setting(
+        &self,
+        ctx: &AppContext,
+        terminal_view_id: Option<EntityId>,
+    ) -> crate::ai::execution_profiles::RunAgentsPermission {
+        let active_profile =
+            AIExecutionProfilesModel::as_ref(ctx).active_profile(terminal_view_id, ctx);
+        self.get_run_agents_setting_for_profile(ctx, *active_profile.id())
     }
 
     /// Returns whether or not Agent Mode can auto-read the given files.
@@ -849,10 +889,14 @@ impl BlocklistAIPermissions {
         // The command string might be composed of multiple commands so let's
         // break it up first.
         let (commands, contains_redirection) = decompose_command(&normalized_command, escape_char);
+        let commands_for_denylist = commands
+            .iter()
+            .map(|command| command_for_execution_predicates(command, escape_char))
+            .collect::<Vec<_>>();
 
         // The denylist takes precedence over all other conditions.
         let denylist = self.get_execute_commands_denylist(ctx, terminal_view_id);
-        if commands
+        if commands_for_denylist
             .iter()
             .any(|c| denylist.iter().any(|d| d.matches(c)))
         {
@@ -1159,6 +1203,12 @@ impl BlocklistAIPermissions {
     }
 }
 
+fn command_for_execution_predicates(command: &str, escape_char: EscapeChar) -> String {
+    command_without_leading_env_vars(command, escape_char)
+        .filter(|command| !command.is_empty())
+        .unwrap_or_else(|| command.to_string())
+}
+
 /// Returns `Some(Denied(ProtectedPath))` if any of the given paths are system-protected
 /// and must never be auto-written regardless of user autonomy settings.
 /// Returns `None` if no paths are protected.
@@ -1191,5 +1241,5 @@ pub fn is_agent_mode_autonomy_allowed(ctx: &AppContext) -> bool {
 }
 
 #[cfg(test)]
-#[path = "permissions_test.rs"]
+#[path = "permissions_tests.rs"]
 mod tests;

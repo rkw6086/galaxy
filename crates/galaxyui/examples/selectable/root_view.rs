@@ -1,16 +1,15 @@
 //! A UI sample demonstrating how the SelectableArea element can be used.
 
-use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
-use galaxyui::{
-    elements::{
-        Border, ChildView, ConstrainedBox, Container, Flex, ParentElement, Rect, SelectableArea,
-        SelectionHandle, Stack, Text,
-    },
-    AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
-};
-
 use galaxyui::color::ColorU;
+use galaxyui::elements::{
+    Border, ChildView, ConstrainedBox, Container, Flex, ParentElement, Rect, SelectableArea,
+    SelectionHandle, Stack, Text,
+};
+use galaxyui::fonts::FamilyId;
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+    ViewHandle,
+};
 
 pub struct RootView {
     sub_view: ViewHandle<SelectableExampleView>,

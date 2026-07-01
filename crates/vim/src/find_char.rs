@@ -1,5 +1,6 @@
+use galaxyui_core::text::TextBuffer;
+
 use crate::vim::{Direction, FindCharDestination, FindCharMotion};
-use galaxyui::text::TextBuffer;
 
 /// Find the destination column for Vim's f/F/t/T motions on a single line.
 ///

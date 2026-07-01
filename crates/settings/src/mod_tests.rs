@@ -1,9 +1,7 @@
-use galaxyui::SingletonEntity;
+use galaxyui_core::SingletonEntity;
 
 use crate::manager::SettingsManager;
-use crate::{Setting, SupportedPlatforms, SyncToCloud};
-
-use crate::*;
+use crate::{Setting, SupportedPlatforms, SyncToCloud, *};
 
 define_settings_group!(TestSettings, settings: [
     never_sync_setting: SimpleSetting {
@@ -63,7 +61,7 @@ pub fn init_and_register_user_preferences(ctx: &mut AppContext) {
 
 #[test]
 fn test_is_setting_syncable_on_current_platform() {
-    galaxyui::App::test((), |mut app| async move {
+    galaxyui_core::App::test((), |mut app| async move {
         app.update(init_and_register_user_preferences);
         app.add_singleton_model(|_| SettingsManager::default());
 
@@ -155,12 +153,7 @@ fn test_is_setting_syncable_on_current_platform() {
 }
 
 mod reload_all_public_settings_tests {
-    use galaxyui::SingletonEntity;
 
-    use crate::manager::SettingsManager;
-    use crate::{Setting, SupportedPlatforms, SyncToCloud};
-
-    use crate::*;
 
     define_settings_group!(ReloadTestSettings, settings: [
         public_flag: PublicFlag {
@@ -197,7 +190,7 @@ mod reload_all_public_settings_tests {
     /// in the preferences backend.
     #[test]
     fn test_loads_present_keys() {
-        galaxyui::App::test((), |mut app| async move {
+        galaxyui_core::App::test((), |mut app| async move {
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -231,7 +224,7 @@ mod reload_all_public_settings_tests {
     /// reload (the key-deletion scenario).
     #[test]
     fn test_resets_absent_keys_to_defaults() {
-        galaxyui::App::test((), |mut app| async move {
+        galaxyui_core::App::test((), |mut app| async move {
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -272,7 +265,7 @@ mod reload_all_public_settings_tests {
     /// This is the property that prevents the infinite watcher loop.
     #[test]
     fn test_absent_keys_are_not_written_back() {
-        galaxyui::App::test((), |mut app| async move {
+        galaxyui_core::App::test((), |mut app| async move {
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -313,7 +306,7 @@ mod reload_all_public_settings_tests {
     /// of settings that fail to deserialize (invalid value in file).
     #[test]
     fn test_reload_returns_failed_keys_for_invalid_values() {
-        galaxyui::App::test((), |mut app| async move {
+        galaxyui_core::App::test((), |mut app| async move {
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -354,7 +347,7 @@ mod reload_all_public_settings_tests {
     /// when all values are valid.
     #[test]
     fn test_reload_returns_empty_vec_on_success() {
-        galaxyui::App::test((), |mut app| async move {
+        galaxyui_core::App::test((), |mut app| async move {
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -384,8 +377,8 @@ mod reload_all_public_settings_tests {
     /// values without modifying in-memory state.
     #[test]
     fn test_validate_detects_invalid_values() {
-        galaxyui::App::test((), |mut app| async move {
-            crate::set_settings_file_enabled(true);
+        galaxyui_core::App::test((), |mut app| async move {
+            let _guard = galaxy_features::FeatureFlag::SettingsFile.override_enabled(true);
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -423,8 +416,8 @@ mod reload_all_public_settings_tests {
     /// stored values are valid.
     #[test]
     fn test_validate_returns_empty_when_all_valid() {
-        galaxyui::App::test((), |mut app| async move {
-            crate::set_settings_file_enabled(true);
+        galaxyui_core::App::test((), |mut app| async move {
+            let _guard = galaxy_features::FeatureFlag::SettingsFile.override_enabled(true);
             app.update(init_prefs);
             app.add_singleton_model(|_| SettingsManager::default());
             ReloadTestSettings::register(&mut app);
@@ -543,6 +536,7 @@ mod write_to_preferences_tests {
         use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
         use std::collections::HashMap;
 
+
         #[derive(
             Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
         )]
@@ -604,7 +598,6 @@ mod write_to_preferences_tests {
     /// null-stripping and key-reordering happens.
     #[test]
     fn test_no_spurious_write_with_toml_backend() {
-        use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
 
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("settings.toml");

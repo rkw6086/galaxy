@@ -1,7 +1,8 @@
-use galaxy_core::ui::{
-    appearance::Appearance, color::coloru_with_opacity, theme::Fill, theme::color::internal_colors,
-};
 use pathfinder_color::ColorU;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::theme::Fill;
+use galaxy_core::ui::theme::color::internal_colors;
 
 /// Theming delegate for a button.
 pub trait Theme {

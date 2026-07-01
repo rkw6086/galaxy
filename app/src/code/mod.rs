@@ -1,10 +1,11 @@
-use galaxy_util::file::FileSaveError;
-use galaxyui::elements::DropTargetData;
-use galaxyui::AppContext;
-use pathfinder_geometry::rect::RectF;
 use std::any::Any;
 use std::fmt::Debug;
 use std::ops::AddAssign;
+
+use pathfinder_geometry::rect::RectF;
+use galaxy_util::file::FileSaveError;
+use galaxyui::elements::DropTargetData;
+use galaxyui::AppContext;
 
 #[cfg(not(target_family = "wasm"))]
 pub mod code_actions;
@@ -23,6 +24,7 @@ pub mod rename;
 pub mod signature_help;
 #[cfg(not(target_family = "wasm"))]
 pub use local_code_editor::ShowFindReferencesCard;
+pub mod buffer_location;
 pub mod diff_viewer;
 pub mod editor;
 pub mod editor_management;
@@ -43,6 +45,8 @@ pub enum ImmediateSaveError {
     FailedToSave(#[from] FileSaveError),
     #[error("There is no file tab currently selected")]
     NoActiveFileTab,
+    #[error("Remote session disconnected")]
+    RemoteDisconnected,
 }
 
 /// Trait to determine whether we should show the comment editor based on state held

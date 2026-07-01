@@ -1,11 +1,11 @@
+use std::collections::VecDeque;
+use std::fmt::Write;
+use std::ops::Range;
+use std::{io, iter};
+
 use anyhow::{Context, Result};
-use galaxyui::text::point::Point;
-use galaxyui::{AppContext, ModelContext, ModelHandle};
-use html5ever::serialize;
-use html5ever::{
-    QualName,
-    serialize::{Serialize, Serializer, TraversalScope},
-};
+use html5ever::serialize::{Serialize, Serializer, TraversalScope};
+use html5ever::{QualName, serialize};
 use itertools::Itertools;
 use markdown_parser::{
     CodeBlockText, FormattedIndentTextInline, FormattedTableAlignment, FormattedTaskList,
@@ -13,30 +13,23 @@ use markdown_parser::{
     FormattedTextLine, OrderedFormattedIndentTextInline,
 };
 use markup5ever::ns;
-use std::collections::VecDeque;
-use std::fmt::Write;
-use std::iter;
-use std::{io, ops::Range};
-
-use galaxyui::elements::{ListIndentLevel, ListNumbering};
 use string_offset::CharOffset;
-
-use crate::content::anchor::AnchorSide;
-use crate::content::selection_model::BufferSelectionModel;
-use crate::content::version::BufferVersion;
+use galaxyui_core::elements::{ListIndentLevel, ListNumbering};
+use galaxyui_core::text::point::Point;
+use galaxyui_core::{AppContext, ModelContext, ModelHandle};
 
 use super::buffer::{
-    ActionWithSelectionDelta, EditOrigin, EditResult, StyledBufferBlocks, StyledBufferRun,
+    ActionWithSelectionDelta, Buffer, EditOrigin, EditResult, StyledBufferBlock,
+    StyledBufferBlocks, StyledBufferRun,
 };
 use super::core::{CoreEditorAction, CoreEditorActionType};
 use super::text::{
     BlockHeaderSize, BlockType, BufferBlockItem, BufferBlockStyle, FormattedTable,
-    TABLE_BLOCK_MARKDOWN_LANG,
+    TABLE_BLOCK_MARKDOWN_LANG, TextStylesWithMetadata,
 };
-use super::{
-    buffer::{Buffer, StyledBufferBlock},
-    text::TextStylesWithMetadata,
-};
+use crate::content::anchor::AnchorSide;
+use crate::content::selection_model::BufferSelectionModel;
+use crate::content::version::BufferVersion;
 
 /// A Markdown format to serialize a [`Buffer`] into.
 #[derive(Clone, Copy)]
@@ -559,8 +552,9 @@ impl TextStylesWithMetadata {
     }
 }
 
-use crate::content::buffer::{BufferEvent, ShouldAutoscroll, ToBufferCharOffset};
 use markdown_parser::FormattedTextDelta;
+
+use crate::content::buffer::{BufferEvent, ShouldAutoscroll, ToBufferCharOffset};
 
 impl Buffer {
     pub(super) fn replace_with_formatted_text(

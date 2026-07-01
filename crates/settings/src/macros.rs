@@ -39,7 +39,7 @@
 //! ```
 //!
 //! The macro also generates an `Event` type that is passed to subscribers of the
-//! setting group model. The name of the type is created by appended 'ChangedEvent'
+//! setting group model. The name of the type is created by appending 'ChangedEvent'
 //! to the name of the setting group:
 //!
 //! ```
@@ -109,10 +109,11 @@
 //! Once you've defined a setting, usage is straightforward:
 //!
 //! ```
-//! # use galaxyui::*;
 //! # use settings::macros::*;
 //! # use settings::manager::SettingsManager;
 //! # use settings::*;
+//! # use galaxyui_core::prelude::*;
+//! # use galaxyui_core::{elements, App};
 //! # use galaxyui_extras::user_preferences;
 //! define_settings_group!(ExampleGroup, settings: [
 //!     bool_setting: BoolSetting {
@@ -312,7 +313,7 @@ macro_rules! define_setting {
 
             fn clear_value(
                 &mut self,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
                 use $crate::ChangeEventReason;
                 Self::clear_from_preferences(Self::preferences_for_setting(ctx))?;
@@ -327,9 +328,8 @@ macro_rules! define_setting {
             fn set_value_from_cloud_sync(
                 &mut self,
                 new_value: Self::Value,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let changed_in_storage =
                     Self::write_to_preferences(&new_value, Self::preferences_for_setting(ctx))?;
                 if self.value() != &new_value || changed_in_storage {
@@ -345,9 +345,8 @@ macro_rules! define_setting {
             fn set_value(
                 &mut self,
                 new_value: Self::Value,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let changed_in_storage =
                     Self::write_to_preferences(&new_value, Self::preferences_for_setting(ctx))?;
                 if self.value() != &new_value || changed_in_storage {
@@ -364,9 +363,8 @@ macro_rules! define_setting {
                 &mut self,
                 new_value: Self::Value,
                 explicitly_set: bool,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let validated = self.validate(new_value);
                 if self.value() != &validated || self.is_explicitly_set != explicitly_set {
                     self.inner = validated;
@@ -582,9 +580,8 @@ macro_rules! implement_setting_for_enum {
 
             fn clear_value(
                 &mut self,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 Self::clear_from_preferences(Self::preferences_for_setting(ctx))?;
                 *self = self.validate(Self::default_value());
                 ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
@@ -596,9 +593,8 @@ macro_rules! implement_setting_for_enum {
             fn set_value_from_cloud_sync(
                 &mut self,
                 new_value: Self::Value,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let changed_in_storage =
                     Self::write_to_preferences(&new_value, Self::preferences_for_setting(ctx))?;
                 if self.value() != &new_value || changed_in_storage {
@@ -613,9 +609,8 @@ macro_rules! implement_setting_for_enum {
             fn set_value(
                 &mut self,
                 new_value: Self::Value,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let changed_in_storage =
                     Self::write_to_preferences(&new_value, Self::preferences_for_setting(ctx))?;
                 if self.value() != &new_value || changed_in_storage {
@@ -631,9 +626,8 @@ macro_rules! implement_setting_for_enum {
                 &mut self,
                 new_value: Self::Value,
                 _explicitly_set: bool,
-                ctx: &mut galaxyui::ModelContext<Self::Group>,
+                ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 let validated = self.validate(new_value);
                 if self.value() != &validated {
                     *self = validated;
@@ -714,8 +708,7 @@ macro_rules! define_settings_group {
 
         impl $group {
             #[allow(dead_code)]
-            fn new_from_storage(ctx: &mut galaxyui::ModelContext<Self>) -> Self {
-                use $crate::Setting;
+            fn new_from_storage(ctx: &mut $crate::galaxyui_core::ModelContext<Self>) -> Self {
                 Self {
                     $(
                         $var: <$setting>::new_from_storage(ctx),
@@ -725,8 +718,7 @@ macro_rules! define_settings_group {
 
             #[cfg(any(test, feature = "integration_tests"))]
             #[allow(dead_code)]
-            pub fn new_with_defaults(_ctx: &mut galaxyui::ModelContext<Self>) -> Self {
-                use $crate::Setting;
+            pub fn new_with_defaults(_ctx: &mut $crate::galaxyui_core::ModelContext<Self>) -> Self {
                 Self {
                     $(
                         $var: <$setting>::new(None),
@@ -735,7 +727,7 @@ macro_rules! define_settings_group {
             }
 
             #[allow(dead_code)]
-            pub fn register(ctx: &mut (impl galaxyui::GetSingletonModelHandle + galaxyui::AddSingletonModel + galaxyui::UpdateModel)) -> galaxyui::ModelHandle<Self> {
+            pub fn register(ctx: &mut (impl $crate::galaxyui_core::GetSingletonModelHandle + $crate::galaxyui_core::AddSingletonModel + $crate::galaxyui_core::UpdateModel)) -> $crate::galaxyui_core::ModelHandle<Self> {
                 let settings_group = ctx.add_singleton_model(|ctx| {
                     Self::new_from_storage(ctx)
                 });
@@ -758,7 +750,6 @@ macro_rules! define_settings_group {
             /// If any of the settings in the setting group are supported, then the group is supported.
             /// If none of the settings in the group are supported, then the group is not supported.
             fn is_supported_on_current_platform(&self) -> bool {
-                use $crate::Setting;
                 $(
                     if self.$var.is_supported_on_current_platform() {
                         return true;
@@ -769,24 +760,23 @@ macro_rules! define_settings_group {
         }
 
         $crate::macros::concat_idents!(EventName = $group, ChangedEvent {
-            use $crate::ChangeEventReason;
             #[derive(Debug)]
             #[allow(clippy::enum_variant_names)]
             pub enum EventName {
                 $(
                     $setting {
                         #[allow(dead_code)]
-                        change_event_reason: ChangeEventReason,
+                        change_event_reason: $crate::ChangeEventReason,
                     },
                 )*
             }
 
-            impl galaxyui::Entity for $group {
+            impl $crate::galaxyui_core::Entity for $group {
                 type Event = EventName;
             }
         });
 
-        impl galaxyui::SingletonEntity for $group {}
+        impl $crate::galaxyui_core::SingletonEntity for $group {}
     };
 }
 pub use define_settings_group;
@@ -816,21 +806,21 @@ macro_rules! generate_settings_event_fn {
             #[allow(dead_code)]
             #[allow(non_snake_case)]
             fn fn_name(
-                settings_group: galaxyui::ModelHandle<$group>,
+                settings_group: $crate::galaxyui_core::ModelHandle<$group>,
                 ctx: &mut (
-                         impl galaxyui::GetSingletonModelHandle
-                         + galaxyui::AddSingletonModel
-                         + galaxyui::UpdateModel
+                         impl $crate::galaxyui_core::GetSingletonModelHandle
+                         + $crate::galaxyui_core::AddSingletonModel
+                         + $crate::galaxyui_core::UpdateModel
                      ),
             ) {
                 use anyhow::anyhow;
-                use galaxyui::SingletonEntity;
                 use serde_json;
                 use $crate::Setting as _;
                 use $crate::manager::{SettingsEvent, SettingsManager};
+                use $crate::galaxyui_core::SingletonEntity;
                 SettingsManager::handle(ctx).update(ctx, |manager, ctx| {
                     // Propagate per settings change events through the SettingsManager
-                    ctx.subscribe_to_model(&settings_group, |_manager, _, ctx| {
+                    ctx.subscribe_to_model(&settings_group, |_manager, _, _, ctx| {
                         ctx.emit(SettingsEvent::LocalPreferencesUpdated {
                             storage_key: $setting::storage_key().to_string(),
                             sync_to_cloud: $setting::sync_to_cloud(),
@@ -861,7 +851,6 @@ macro_rules! generate_settings_event_fn {
                         $setting::max_table_depth(),
                         $setting::is_private(),
                         move |value, from_cloud_sync, ctx| {
-                            use $crate::_settings_value::SettingsValue as _;
                             // Try SettingsValue first (handles snake_case enums etc.),
                             // then fall back to serde for cloud sync values.
                             let value = serde_json::from_str::<serde_json::Value>(&value)
@@ -901,7 +890,6 @@ macro_rules! generate_settings_event_fn {
                             })
                         },
                         move |value, explicitly_set, ctx| {
-                            use $crate::_settings_value::SettingsValue as _;
                             let value = serde_json::from_str::<serde_json::Value>(&value)
                                 .ok()
                                 .and_then(|json_val| {
@@ -919,7 +907,6 @@ macro_rules! generate_settings_event_fn {
                             })
                         },
                         |left, right| {
-                            use $crate::_settings_value::SettingsValue as _;
                             let parse =
                                 |s: &str| -> anyhow::Result<<$setting as $crate::Setting>::Value> {
                                     let json_val = serde_json::from_str::<serde_json::Value>(s)?;
