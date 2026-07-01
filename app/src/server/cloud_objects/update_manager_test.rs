@@ -5,7 +5,7 @@ use futures_lite::future;
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::{object_permissions::AccessLevel, scalars::time::ServerTimestamp};
 use galaxyui::{App, ModelHandle, SingletonEntity};
-use settings::{SyncToCloud};
+use settings::SyncToCloud;
 
 #[cfg(test)]
 use crate::server::server_api::object::MockObjectClient;

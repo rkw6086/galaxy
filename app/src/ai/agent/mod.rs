@@ -845,6 +845,10 @@ pub struct AIAgentAction {
     ///
     /// If this is `true`, a corresponding result _must_ be included in the next query to the AI.
     pub requires_result: bool,
+
+    /// The original tool name as sent by the model (e.g. "create_plan", "create_notebook").
+    /// Used to distinguish between tools that share the same `AIAgentActionType` variant.
+    pub tool_name: Option<String>,
 }
 
 impl Display for AIAgentAction {

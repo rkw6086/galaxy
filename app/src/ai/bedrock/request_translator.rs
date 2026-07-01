@@ -74,29 +74,30 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                             });
                         }
                     }
-                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
-                        cli_query,
-                    )) => {
+                    Some(
+                        api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                            cli_query,
+                        ),
+                    ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text = if let Some(running_cmd) = &cli_query.running_command {
-                                    let mut context = format!(
-                                        "[Running command: {}]\n",
-                                        running_cmd.command
-                                    );
-                                    if let Some(snapshot) = &running_cmd.snapshot {
-                                        if !snapshot.output.is_empty() {
-                                            context.push_str(&format!(
-                                                "[Terminal output:\n{}\n]\n",
-                                                snapshot.output
-                                            ));
+                                let query_text =
+                                    if let Some(running_cmd) = &cli_query.running_command {
+                                        let mut context =
+                                            format!("[Running command: {}]\n", running_cmd.command);
+                                        if let Some(snapshot) = &running_cmd.snapshot {
+                                            if !snapshot.output.is_empty() {
+                                                context.push_str(&format!(
+                                                    "[Terminal output:\n{}\n]\n",
+                                                    snapshot.output
+                                                ));
+                                            }
                                         }
-                                    }
-                                    context.push_str(&user_query.query);
-                                    context
-                                } else {
-                                    user_query.query.clone()
-                                };
+                                        context.push_str(&user_query.query);
+                                        context
+                                    } else {
+                                        user_query.query.clone()
+                                    };
                                 user_queries.push(ConversationMessage {
                                     role: MessageRole::User,
                                     content: MessageContent::Text(query_text),
@@ -256,9 +257,11 @@ pub fn extract_user_query_text(request: &api::Request) -> Option<String> {
                             return Some(query.query.clone());
                         }
                     }
-                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
-                        cli_query,
-                    )) => {
+                    Some(
+                        api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                            cli_query,
+                        ),
+                    ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
                                 return Some(user_query.query.clone());
@@ -388,29 +391,30 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                             });
                         }
                     }
-                    Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
-                        cli_query,
-                    )) => {
+                    Some(
+                        api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                            cli_query,
+                        ),
+                    ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text = if let Some(running_cmd) = &cli_query.running_command {
-                                    let mut context = format!(
-                                        "[Running command: {}]\n",
-                                        running_cmd.command
-                                    );
-                                    if let Some(snapshot) = &running_cmd.snapshot {
-                                        if !snapshot.output.is_empty() {
-                                            context.push_str(&format!(
-                                                "[Terminal output:\n{}\n]\n",
-                                                snapshot.output
-                                            ));
+                                let query_text =
+                                    if let Some(running_cmd) = &cli_query.running_command {
+                                        let mut context =
+                                            format!("[Running command: {}]\n", running_cmd.command);
+                                        if let Some(snapshot) = &running_cmd.snapshot {
+                                            if !snapshot.output.is_empty() {
+                                                context.push_str(&format!(
+                                                    "[Terminal output:\n{}\n]\n",
+                                                    snapshot.output
+                                                ));
+                                            }
                                         }
-                                    }
-                                    context.push_str(&user_query.query);
-                                    context
-                                } else {
-                                    user_query.query.clone()
-                                };
+                                        context.push_str(&user_query.query);
+                                        context
+                                    } else {
+                                        user_query.query.clone()
+                                    };
                                 results.push(api::Message {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     task_id: task_id.clone(),
@@ -1189,34 +1193,67 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
             }),
         },
         ToolDefinition {
-            name: "read_documents".to_string(),
-            description: "Read the contents of one or more Galaxy notebook documents by their IDs.".to_string(),
+            name: "read_plan".to_string(),
+            description: "Read the contents of one or more Galaxy plan documents by their IDs. Plans are rich-text documents that appear in the Plans folder of Galaxy Drive.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Document IDs to read" }
+                    "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Plan document IDs to read" }
                 },
                 "required": ["document_ids"]
             }),
         },
         ToolDefinition {
-            name: "create_documents".to_string(),
-            description: "Create new Galaxy notebook documents with the specified title and content.".to_string(),
+            name: "create_plan".to_string(),
+            description: "Create a new plan document in Galaxy Drive's Plans folder. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Documents to create" }
+                    "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Plan documents to create" }
                 },
                 "required": ["documents"]
             }),
         },
         ToolDefinition {
-            name: "edit_documents".to_string(),
-            description: "Edit existing Galaxy notebook documents using search/replace diffs.".to_string(),
+            name: "edit_plan".to_string(),
+            description: "Edit an existing plan document in Galaxy Drive using search/replace diffs.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to documents" }
+                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to plan documents" }
+                },
+                "required": ["diffs"]
+            }),
+        },
+        ToolDefinition {
+            name: "read_notebook".to_string(),
+            description: "Read the contents of one or more Galaxy Drive notebooks by their IDs. Notebooks are user-created rich-text documents stored in Galaxy Drive.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Notebook IDs to read" }
+                },
+                "required": ["document_ids"]
+            }),
+        },
+        ToolDefinition {
+            name: "create_notebook".to_string(),
+            description: "Create a new notebook in Galaxy Drive. Notebooks are rich-text documents for general notes, documentation, and reference material.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Notebooks to create" }
+                },
+                "required": ["documents"]
+            }),
+        },
+        ToolDefinition {
+            name: "edit_notebook".to_string(),
+            description: "Edit an existing Galaxy Drive notebook using search/replace diffs.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to notebooks" }
                 },
                 "required": ["diffs"]
             }),

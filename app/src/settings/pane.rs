@@ -1,6 +1,4 @@
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 define_settings_group!(PaneSettings, settings: [
     should_dim_inactive_panes: ShouldDimInactivePanes {

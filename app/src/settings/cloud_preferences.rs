@@ -14,9 +14,7 @@ use crate::{
     server::sync_queue::QueueItem,
 };
 
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 define_settings_group!(CloudPreferencesSettings, settings: [
    settings_sync_enabled: IsSettingsSyncEnabled {
        type: bool,

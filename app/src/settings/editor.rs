@@ -3,10 +3,7 @@ use std::fmt::{Display, Formatter};
 use enum_iterator::{all, Sequence};
 use galaxyui::ModelContext;
 use serde::{Deserialize, Serialize};
-use settings::{
-    macros::define_settings_group, Setting as _, SupportedPlatforms,
-    SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting as _, SupportedPlatforms, SyncToCloud};
 
 #[derive(
     Clone,

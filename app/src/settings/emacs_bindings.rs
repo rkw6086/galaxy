@@ -1,7 +1,5 @@
 use crate::banner::BannerState;
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 // This isn't exactly a setting, but rather a record of a
 // user action that should be persisted the same way we would a setting.

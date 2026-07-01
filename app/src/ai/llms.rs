@@ -870,12 +870,11 @@ impl LLMPreferences {
                     Some(key)
                 }
             };
-            let name =
-                if base_url.contains("localhost") || base_url.contains("127.0.0.1") {
-                    "LiteLLM (local)".to_string()
-                } else {
-                    "LiteLLM".to_string()
-                };
+            let name = if base_url.contains("localhost") || base_url.contains("127.0.0.1") {
+                "LiteLLM (local)".to_string()
+            } else {
+                "LiteLLM".to_string()
+            };
             provider_entries.push((name, base_url, api_key, legacy_models));
         }
 
@@ -931,9 +930,7 @@ impl LLMPreferences {
             }
         }
 
-        log::info!(
-            "[openai/litellm] Injected {total_injected} model(s) into available choices"
-        );
+        log::info!("[openai/litellm] Injected {total_injected} model(s) into available choices");
     }
 
     /// Returns the OpenAI client config for a given model ID, if it was injected

@@ -1,9 +1,7 @@
 use galaxyui::{platform::SystemTheme, AppContext};
 
 use crate::themes::theme::{RespectSystemTheme, SelectedSystemThemes, ThemeKind};
-use settings::{
-    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 // Settings group for themes related settings.
 // Note that we store just the information needed to derive the current

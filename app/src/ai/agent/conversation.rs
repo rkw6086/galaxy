@@ -2109,7 +2109,12 @@ impl AIConversation {
         let streaming_exchange_ids: Vec<_> = self
             .task_store
             .all_exchanges()
-            .filter(|exchange| matches!(exchange.output_status, AIAgentOutputStatus::Streaming { .. }))
+            .filter(|exchange| {
+                matches!(
+                    exchange.output_status,
+                    AIAgentOutputStatus::Streaming { .. }
+                )
+            })
             .map(|exchange| exchange.id)
             .collect();
 

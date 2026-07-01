@@ -613,12 +613,21 @@ impl ConvertAPIToolCallToAIAgentAction for api::message::ToolCall {
             return Err(ToolToAIAgentActionError::MissingTool);
         };
 
+        // Detect notebook tool name encoded in tool_call_id prefix.
+        let (effective_tool_call_id, tool_name) =
+            if let Some(stripped) = self.tool_call_id.strip_prefix("notebook::") {
+                (stripped.to_string(), Some("notebook".to_string()))
+            } else {
+                (self.tool_call_id.clone(), None)
+            };
+
         let create_standard_action = |action: AIAgentActionType| {
             Ok(MaybeAIAgentAction::Action(AIAgentAction {
-                id: self.tool_call_id.clone().into(),
+                id: effective_tool_call_id.clone().into(),
                 task_id: params.task_id.clone(),
                 action,
                 requires_result: true,
+                tool_name: tool_name.clone(),
             }))
         };
 

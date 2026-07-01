@@ -32,6 +32,9 @@ fn code_tools() -> Vec<ToolDefinition> {
         read_documents(),
         create_documents(),
         edit_documents(),
+        read_notebook(),
+        create_notebook(),
+        edit_notebook(),
         start_agent(),
         send_message_to_agent(),
         ask_user_question(),
@@ -217,13 +220,13 @@ fn read_mcp_resource() -> ToolDefinition {
 
 fn read_documents() -> ToolDefinition {
     ToolDefinition {
-        name: "read_documents".to_string(),
-        description: "Read the contents of one or more Galaxy notebook documents by their IDs."
+        name: "read_plan".to_string(),
+        description: "Read the contents of one or more Galaxy plan documents by their IDs. Plans are rich-text documents that appear in the Plans folder of Galaxy Drive."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Document IDs to read" }
+                "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Plan document IDs to read" }
             },
             "required": ["document_ids"]
         }),
@@ -232,13 +235,13 @@ fn read_documents() -> ToolDefinition {
 
 fn create_documents() -> ToolDefinition {
     ToolDefinition {
-        name: "create_documents".to_string(),
-        description: "Create new Galaxy notebook documents with the specified title and content."
+        name: "create_plan".to_string(),
+        description: "Create a new plan document in Galaxy Drive's Plans folder. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Documents to create" }
+                "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Plan documents to create" }
             },
             "required": ["documents"]
         }),
@@ -247,13 +250,13 @@ fn create_documents() -> ToolDefinition {
 
 fn edit_documents() -> ToolDefinition {
     ToolDefinition {
-        name: "edit_documents".to_string(),
-        description: "Edit existing Galaxy notebook documents using search/replace diffs."
+        name: "edit_plan".to_string(),
+        description: "Edit an existing plan document in Galaxy Drive using search/replace diffs."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to documents" }
+                "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to plan documents" }
             },
             "required": ["diffs"]
         }),
@@ -331,6 +334,49 @@ fn fetch_conversation() -> ToolDefinition {
                 "conversation_id": { "type": "string", "description": "ID of the conversation to fetch" }
             },
             "required": ["conversation_id"]
+        }),
+    }
+}
+
+fn read_notebook() -> ToolDefinition {
+    ToolDefinition {
+        name: "read_notebook".to_string(),
+        description: "Read the contents of one or more Galaxy Drive notebooks by their IDs. Notebooks are user-created rich-text documents stored in Galaxy Drive.".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Notebook IDs to read" }
+            },
+            "required": ["document_ids"]
+        }),
+    }
+}
+
+fn create_notebook() -> ToolDefinition {
+    ToolDefinition {
+        name: "create_notebook".to_string(),
+        description: "Create a new notebook in Galaxy Drive. Notebooks are rich-text documents for general notes, documentation, and reference material.".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Notebooks to create" }
+            },
+            "required": ["documents"]
+        }),
+    }
+}
+
+fn edit_notebook() -> ToolDefinition {
+    ToolDefinition {
+        name: "edit_notebook".to_string(),
+        description: "Edit an existing Galaxy Drive notebook using search/replace diffs."
+            .to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to notebooks" }
+            },
+            "required": ["diffs"]
         }),
     }
 }

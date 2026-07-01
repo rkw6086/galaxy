@@ -242,23 +242,59 @@ impl AIDocumentModel {
             return false;
         };
 
-        let Some(plan_folder_id) = self.get_or_create_plan_folder(owner, ctx).into_server() else {
-            // Plan folder is still being created (has ClientId only).
-            // If we save using the ClientId as the parent folder, the document
-            // will end up in a broken state once the folder is saved.
-            // Queue the document for creation until the folder gets a ServerId.
-            self.pending_document_queue
-                .push(PendingDocument { id, title, content });
-
-            if let Some(document) = self.documents.get_mut(&id) {
-                let client_id = ClientId::new();
-                document.sync_id = Some(SyncId::ClientId(client_id));
+        let plan_folder_sync_id = self.get_or_create_plan_folder(owner, ctx);
+        match plan_folder_sync_id.into_server() {
+            Some(plan_folder_id) => {
+                // Plan folder already exists on server — create notebook directly.
+                self.create_notebook_in_plan_folder(
+                    id,
+                    &title,
+                    &content,
+                    owner,
+                    plan_folder_id,
+                    ctx,
+                );
+                ctx.emit(AIDocumentModelEvent::DocumentSaveStatusUpdated(id));
             }
-            return true;
-        };
+            None => {
+                // Plan folder is still being created (has ClientId only).
+                // Queue the document for creation until the folder gets a ServerId.
+                // Also create the notebook at the root level so it appears in Drive
+                // immediately in local/offline mode.
+                self.pending_document_queue.push(PendingDocument {
+                    id,
+                    title: title.clone(),
+                    content: content.clone(),
+                });
 
-        self.create_notebook_in_plan_folder(id, &title, &content, owner, plan_folder_id, ctx);
-        ctx.emit(AIDocumentModelEvent::DocumentSaveStatusUpdated(id));
+                // Create a notebook at the root level so it's visible in Drive immediately.
+                let client_id = ClientId::new();
+                if let Some(document) = self.documents.get_mut(&id) {
+                    document.sync_id = Some(SyncId::ClientId(client_id));
+                }
+
+                let notebook_model = CloudNotebookModel {
+                    title,
+                    data: content,
+                    ai_document_id: Some(id),
+                    conversation_id: self.get_server_conversation_id(&id, ctx),
+                };
+
+                UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                    update_manager.create_notebook(
+                        client_id,
+                        owner,
+                        Some(plan_folder_sync_id),
+                        notebook_model,
+                        CloudObjectEventEntrypoint::Unknown,
+                        true,
+                        ctx,
+                    );
+                });
+
+                ctx.emit(AIDocumentModelEvent::DocumentSaveStatusUpdated(id));
+            }
+        }
         true
     }
 

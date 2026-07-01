@@ -2,9 +2,7 @@ use std::ops::Not;
 
 use galaxyui::{clipboard::ClipboardContent, AppContext};
 
-use settings::{
-    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 define_settings_group!(SelectionSettings, settings: [
     copy_on_select: CopyOnSelect {

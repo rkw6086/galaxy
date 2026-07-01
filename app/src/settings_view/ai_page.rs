@@ -1429,10 +1429,7 @@ impl AISettingsPageView {
                 };
 
                 if !response.status().is_success() {
-                    log::error!(
-                        "[litellm] Model fetch returned HTTP {}",
-                        response.status()
-                    );
+                    log::error!("[litellm] Model fetch returned HTTP {}", response.status());
                     return Vec::new();
                 }
 
@@ -1473,9 +1470,7 @@ impl AISettingsPageView {
                                 let mut chars = word.chars();
                                 match chars.next() {
                                     None => String::new(),
-                                    Some(c) => {
-                                        c.to_uppercase().to_string() + chars.as_str()
-                                    }
+                                    Some(c) => c.to_uppercase().to_string() + chars.as_str(),
                                 }
                             })
                             .collect::<Vec<_>>()
@@ -1502,11 +1497,7 @@ impl AISettingsPageView {
                     })
                     .collect();
 
-                log::info!(
-                    "[litellm] Fetched {} model(s) from {}",
-                    models.len(),
-                    url
-                );
+                log::info!("[litellm] Fetched {} model(s) from {}", models.len(), url);
                 models
             },
             |_view, models, ctx| {

@@ -1,7 +1,5 @@
 use galaxyui::{keymap::Keystroke, AppContext, DisplayIdx, ModelContext};
-use settings::{
-    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 use crate::{
     report_if_error,

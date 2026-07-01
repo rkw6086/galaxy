@@ -138,7 +138,8 @@ mod optimistic {
     #[derive(Debug, Clone)]
     pub(super) enum Task {
         Root,
-        #[allow(dead_code)] // Used in the server-mode path; Bedrock direct creates Server tasks directly
+        #[allow(dead_code)]
+        // Used in the server-mode path; Bedrock direct creates Server tasks directly
         CLIAgent(CLIAgentSubtask),
     }
 
@@ -185,7 +186,10 @@ impl Task {
         }
     }
 
-    pub(super) fn new_optimistic_cli_agent_subtask(block_id: BlockId, parent_task_id: Option<String>) -> Self {
+    pub(super) fn new_optimistic_cli_agent_subtask(
+        block_id: BlockId,
+        parent_task_id: Option<String>,
+    ) -> Self {
         let task_id = Uuid::new_v4().to_string();
         Self {
             id: TaskId::new(task_id.clone()),

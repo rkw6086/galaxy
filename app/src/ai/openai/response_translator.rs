@@ -498,6 +498,13 @@ const KNOWN_TOOLS: &[&str] = &[
     "write_to_long_running_shell_command",
     "read_shell_command_output",
     "read_mcp_resource",
+    "read_plan",
+    "create_plan",
+    "edit_plan",
+    "read_notebook",
+    "create_notebook",
+    "edit_notebook",
+    // Legacy aliases — accept old names so in-flight conversations don't break.
     "read_documents",
     "create_documents",
     "edit_documents",

@@ -24,9 +24,7 @@ use regex::Regex;
 
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
-use settings::{
-    define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 use serde::{de::Deserializer, Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -466,7 +464,9 @@ impl settings_value::SettingsValue for BedrockModelConfig {}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[schemars(description = "Configuration for a single OpenAI-compatible model (e.g. via LiteLLM).")]
 pub struct OpenAIModelConfig {
-    #[schemars(description = "The model ID to send in the API request (e.g. claude-sonnet-4-20250514).")]
+    #[schemars(
+        description = "The model ID to send in the API request (e.g. claude-sonnet-4-20250514)."
+    )]
     pub model_id: String,
     #[schemars(description = "Display name shown in the model picker.")]
     pub display_name: String,
@@ -477,7 +477,9 @@ pub struct OpenAIModelConfig {
     #[schemars(description = "Maximum context window size in tokens.")]
     pub context_size: u32,
     #[serde(default)]
-    #[schemars(description = "Optional provider hint (e.g. anthropic, openai, google) for icon display.")]
+    #[schemars(
+        description = "Optional provider hint (e.g. anthropic, openai, google) for icon display."
+    )]
     pub provider: Option<String>,
 }
 
@@ -825,7 +827,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.is_any_ai_enabled",
         description: "Controls whether all AI features are enabled.",
@@ -836,7 +838,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.enabled",
         description: "Controls whether proactive AI features like suggestions are enabled.",
@@ -847,7 +849,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.ai_auto_detection_enabled",
         description: "Controls whether AI automatically detects natural language input.",
@@ -861,7 +863,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.nld_in_terminal_enabled",
         description: "Controls whether natural language detection is enabled in the terminal input.",
@@ -870,7 +872,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
@@ -882,7 +884,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.use_local_model",
         description: "Use a locally downloaded AI model for command recognition and suggestions instead of Bedrock.",
@@ -893,7 +895,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true, // TODO(roland): revisit this when launched to stable
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.intelligent_autosuggestions_enabled",
         description: "Controls whether AI-powered intelligent autosuggestions are enabled.",
@@ -907,7 +909,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true, // TODO(advait): revisit this when launched to stable
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.agent_mode_query_suggestions_enabled",
         description: "Controls whether prompt suggestions are shown in agent mode.",
@@ -919,7 +921,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.code_suggestions_enabled",
         description: "Controls whether AI code suggestions are enabled.",
@@ -931,7 +933,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.natural_language_autosuggestions_enabled",
         description: "Controls whether ghosted text autosuggestions are shown for AI input queries.",
@@ -944,7 +946,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.shared_block_title_generation_enabled",
         description: "Controls whether titles are auto-generated when sharing blocks.",
@@ -955,7 +957,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.git_operations_autogen_enabled",
         description: "Controls whether AI auto-generates commit messages and PR title/body in the code review dialogs.",
@@ -966,7 +968,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.active_ai.rule_suggestions_enabled",
         description: "Controls whether the agent suggests rules to save after responses.",
@@ -978,7 +980,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.voice.voice_input_enabled",
         description: "Controls whether voice input is enabled for AI interactions.",
@@ -990,7 +992,7 @@ define_settings_group!(AISettings, settings: [
         type: usize,
         default: 0,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     // Whether or not the user has manually dismissed the voice input new feature popup.
@@ -998,7 +1000,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
     // This field is used to store the key used for voice input toggling.
@@ -1012,7 +1014,7 @@ define_settings_group!(AISettings, settings: [
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Never,        // Never sync to cloud to keep state separate across devices, since microphone access is per-device.
-        
+
         private: true,
     },
     // Predicates that Agent Mode can use to decide if it can execute
@@ -1024,7 +1026,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<AgentModeCommandExecutionPredicate>,
         default: DEFAULT_COMMAND_EXECUTION_ALLOWLIST.clone(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.profiles.agent_mode_command_execution_allowlist",
         description: "Commands that the agent can execute without explicit permission.",
@@ -1038,7 +1040,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<AgentModeCommandExecutionPredicate>,
         default: DEFAULT_COMMAND_EXECUTION_DENYLIST.clone(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.profiles.agent_mode_command_execution_denylist",
         description: "Commands that the agent must always ask before executing.",
@@ -1051,7 +1053,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.profiles.agent_mode_execute_readonly_commands",
         description: "Whether the agent can auto-execute read-only commands without asking.",
@@ -1066,7 +1068,7 @@ define_settings_group!(AISettings, settings: [
         type: AgentModeCodingPermissionsType,
         default: AgentModeCodingPermissionsType::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.profiles.agent_mode_coding_permissions",
         description: "The file read permission level for the agent.",
@@ -1082,7 +1084,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<PathBuf>,
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.profiles.agent_mode_coding_file_read_allowlist",
         description: "File paths the agent can read without asking for permission.",
@@ -1095,7 +1097,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-executing readonly cmds.
@@ -1106,7 +1108,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-writing to the PTY.
@@ -1117,7 +1119,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether or not we should show the speedbump for auto-reading files.
@@ -1128,7 +1130,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether direct Bedrock integration is enabled (client calls Bedrock API directly).
@@ -1136,7 +1138,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.enabled",
         description: "Whether to use AWS Bedrock directly for AI requests.",
@@ -1148,7 +1150,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: "default".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.profile",
         description: "The AWS profile name to use for Bedrock credentials.",
@@ -1158,7 +1160,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.region",
         description: "AWS region for Bedrock API calls. Leave empty to auto-detect from profile.",
@@ -1168,7 +1170,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.cross_region_inference",
         description: "Whether to automatically add cross-region inference prefixes to model IDs.",
@@ -1178,7 +1180,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<BedrockModelConfig>,
         default: Vec::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.models",
         description: "Custom AWS Bedrock model configurations.",
@@ -1188,7 +1190,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.auto_login",
         description: "Whether to automatically run the login command when Bedrock credentials expire.",
@@ -1198,7 +1200,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: "aws sso login".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.auth_refresh_command",
         description: "The command to run to refresh AWS credentials for Bedrock.",
@@ -1208,7 +1210,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // AWS secret access key for static key authentication (stored in OS keychain).
@@ -1216,7 +1218,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether the Bedrock login banner has been permanently dismissed.
@@ -1224,7 +1226,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
     // Whether the OpenAI-compatible (LiteLLM) provider is enabled.
@@ -1232,7 +1234,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.openai.enabled",
         description: "Whether to use an OpenAI-compatible endpoint (e.g. LiteLLM) for AI requests.",
@@ -1243,7 +1245,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: "http://localhost:4000/v1".to_string(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.openai.base_url",
         description: "Base URL for the OpenAI-compatible API endpoint (e.g. LiteLLM proxy).",
@@ -1253,7 +1255,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.openai.api_key",
         description: "API key for the OpenAI-compatible endpoint (optional if proxy handles auth).",
@@ -1264,7 +1266,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.openai.model",
         description: "Model name to send to the OpenAI-compatible endpoint. Leave empty to use the selected model ID.",
@@ -1275,7 +1277,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<OpenAIModelConfig>,
         default: Vec::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.openai.models",
         description: "Custom OpenAI-compatible model configurations (e.g. from LiteLLM).",
@@ -1287,7 +1289,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<OpenAIProviderConfig>,
         default: Vec::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.providers",
         description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",
@@ -1297,7 +1299,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.knowledge.rules_enabled",
         description: "Whether the agent uses your saved rules during requests.",
@@ -1307,7 +1309,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.knowledge.warp_drive_context_enabled",
         description: "Whether Galaxy Drive context is included in AI requests.",
@@ -1320,7 +1322,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<PathBuf>,
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1332,7 +1334,7 @@ define_settings_group!(AISettings, settings: [
         type: Vec<PathBuf>,
         default: vec![],
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1343,7 +1345,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1352,7 +1354,7 @@ define_settings_group!(AISettings, settings: [
         type: AIRequestQuotaInfo,
         default: AIRequestQuotaInfo::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
 
@@ -1364,7 +1366,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1372,7 +1374,7 @@ define_settings_group!(AISettings, settings: [
         type: Option<String>,
         default: None,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     },
 
@@ -1385,7 +1387,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1398,7 +1400,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1410,7 +1412,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "cloud_platform.third_party_api_keys.can_use_warp_credits_with_byok",
         description: "Whether Galaxy credits can be used even when providing your own API key.",
@@ -1420,7 +1422,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.other.should_render_use_agent_toolbar_for_user_commands",
         description: "Whether to show the \"Use Agent\" footer for terminal commands.",
@@ -1432,7 +1434,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.third_party.should_render_cli_agent_toolbar",
         description: "Whether to show the CLI agent footer for coding agent commands.",
@@ -1444,7 +1446,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.third_party.auto_toggle_composer",
         description: "Whether CLI agent Rich Input automatically closes and reopens based on the agent's blocked state.",
@@ -1456,7 +1458,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.third_party.auto_open_composer_on_cli_agent_start",
         description: "Whether CLI agent Rich Input automatically opens when a CLI agent session starts.",
@@ -1470,7 +1472,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.third_party.auto_dismiss_composer_after_submit",
         description: "Whether CLI agent Rich Input automatically closes after the user submits a prompt.",
@@ -1484,7 +1486,7 @@ define_settings_group!(AISettings, settings: [
         type: ToolbarCommandMap,
         default: ToolbarCommandMap::default(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.third_party.cli_agent_toolbar_enabled_commands",
         max_table_depth: 1,
@@ -1501,7 +1503,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1516,7 +1518,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1526,7 +1528,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1537,7 +1539,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1552,7 +1554,7 @@ define_settings_group!(AISettings, settings: [
         type: String,
         default: String::new(),
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "general.default_tab_config_path",
     }
@@ -1565,7 +1567,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.mcp_servers.file_based_mcp_enabled",
         description: "Whether third-party file-based MCP servers are automatically detected.",
@@ -1581,7 +1583,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.include_agent_commands_in_history",
         description: "Whether agent-executed commands are included in command history.",
@@ -1592,7 +1594,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.other.show_conversation_history",
         description: "Whether conversation history appears in the tools panel.",
@@ -1604,7 +1606,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.other.show_agent_notifications",
         description: "Whether agent notifications are shown.",
@@ -1617,7 +1619,7 @@ define_settings_group!(AISettings, settings: [
         type: HashMap<String, bool>,
         default: HashMap::default(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1629,7 +1631,7 @@ define_settings_group!(AISettings, settings: [
         type: HashMap<String, String>,
         default: HashMap::default(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 
@@ -1641,7 +1643,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: true,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.other.agent_attribution_enabled",
         description: "Whether the Galaxy Agent adds an attribution co-author line to commit messages and pull requests it creates.",
@@ -1654,7 +1656,7 @@ define_settings_group!(AISettings, settings: [
         type: bool,
         default: false,
         supported_platforms: SupportedPlatforms::ALL,
-        sync_to_cloud: SyncToCloud::Never,        
+        sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
 ]);

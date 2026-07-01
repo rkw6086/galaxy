@@ -39,7 +39,7 @@ mod prompt_builder_tests {
 
         assert!(prompt.system_prompt.contains("code review mode"));
         assert!(!prompt.tools.iter().any(|t| t.name == "apply_file_diffs"));
-        assert!(!prompt.tools.iter().any(|t| t.name == "create_documents"));
+        assert!(!prompt.tools.iter().any(|t| t.name == "create_plan"));
         assert!(prompt.tools.iter().any(|t| t.name == "read_files"));
         assert!(prompt.tools.iter().any(|t| t.name == "grep"));
     }

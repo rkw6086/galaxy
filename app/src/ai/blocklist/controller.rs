@@ -2226,11 +2226,9 @@ impl BlocklistAIController {
         {
             let history_model = BlocklistAIHistoryModel::as_ref(ctx);
             if let Some(conversation) = history_model.conversation(&conversation_id) {
-                let has_optimistic_cli_subagent =
-                    conversation.has_active_subagent();
+                let has_optimistic_cli_subagent = conversation.has_active_subagent();
                 if !has_optimistic_cli_subagent {
-                    request_params.root_task_id =
-                        Some(conversation.get_root_task_id().to_string());
+                    request_params.root_task_id = Some(conversation.get_root_task_id().to_string());
                 }
             }
         }
@@ -2435,8 +2433,7 @@ impl BlocklistAIController {
                 {
                     let terminal_view_id = self.terminal_view_id;
                     history_model.update(ctx, |history_model, ctx| {
-                        if let Some(conversation) =
-                            history_model.conversation_mut(&conversation_id)
+                        if let Some(conversation) = history_model.conversation_mut(&conversation_id)
                         {
                             conversation.force_cancel_all_streaming_exchanges(
                                 terminal_view_id,

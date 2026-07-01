@@ -1,7 +1,7 @@
 use chrono::Utc;
 use galaxyui::{App, ModelHandle};
 use lazy_static::lazy_static;
-use settings::{SyncToCloud};
+use settings::SyncToCloud;
 
 use crate::auth::auth_manager::AuthManager;
 use crate::auth::user::TEST_USER_UID;

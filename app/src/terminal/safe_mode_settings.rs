@@ -1,7 +1,5 @@
 use galaxyui::{AppContext, SingletonEntity};
-use settings::{
-    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 use crate::{terminal::model::ObfuscateSecrets, workspaces::user_workspaces::UserWorkspaces};
 

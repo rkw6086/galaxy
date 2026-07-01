@@ -2,9 +2,7 @@ use galaxy_core::ui::builder::MIN_FONT_SIZE;
 use galaxyui::{fonts::Weight, rendering::ThinStrokes, AppContext, SingletonEntity};
 
 use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
-use settings::{
-    macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
 
 use super::EnforceMinimumContrast as EnforceMinimumContrastEnum;
 

@@ -1,6 +1,4 @@
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 // Settings for controlling the behavior of the block list.
 define_settings_group!(BlockListSettings, settings: [

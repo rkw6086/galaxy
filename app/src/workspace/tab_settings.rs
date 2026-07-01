@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use galaxy_core::ui::theme::AnsiColorIdentifier;
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 #[derive(
     Default,

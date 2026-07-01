@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::{AISettings, InputSettings, TerminalSpacing};
 use galaxyui::{units::Pixels, AppContext, SingletonEntity};
-use settings::{
-    macros::define_settings_group, SupportedPlatforms, SyncToCloud,
-};
+use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
 
 #[derive(
     Clone,

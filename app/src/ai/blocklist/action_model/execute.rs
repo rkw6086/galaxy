@@ -5,6 +5,7 @@ pub(super) mod edit_documents;
 pub(super) mod fetch_conversation;
 pub(super) mod file_glob;
 pub(super) mod grep;
+pub(super) mod notebooks;
 pub(super) mod read_documents;
 pub(super) mod read_files;
 pub(super) mod read_mcp_resource;
@@ -31,6 +32,7 @@ use file_glob::FileGlobExecutor;
 use futures::{future::BoxFuture, FutureExt};
 use galaxy_core::{execution_mode::AppExecutionMode, features::FeatureFlag};
 use grep::GrepExecutor;
+use notebooks::NotebookExecutor;
 use parking_lot::FairMutex;
 use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
@@ -253,6 +255,7 @@ pub struct BlocklistAIActionExecutor {
     read_documents_executor: ModelHandle<ReadDocumentsExecutor>,
     edit_documents_executor: ModelHandle<EditDocumentsExecutor>,
     create_documents_executor: ModelHandle<CreateDocumentsExecutor>,
+    notebook_executor: ModelHandle<NotebookExecutor>,
     use_computer_executor: ModelHandle<UseComputerExecutor>,
     request_computer_use_executor: ModelHandle<RequestComputerUseExecutor>,
     read_skill_executor: ModelHandle<ReadSkillExecutor>,
@@ -317,6 +320,7 @@ impl BlocklistAIActionExecutor {
         let edit_documents_executor = ctx.add_model(|_| EditDocumentsExecutor::new());
         let create_documents_executor = ctx
             .add_model(|_| CreateDocumentsExecutor::new(active_session.clone(), terminal_view_id));
+        let notebook_executor = ctx.add_model(|_| NotebookExecutor::new());
         let use_computer_executor = ctx.add_model(|_| UseComputerExecutor::new());
         let request_computer_use_executor =
             ctx.add_model(|_| RequestComputerUseExecutor::new(terminal_view_id));
@@ -341,6 +345,7 @@ impl BlocklistAIActionExecutor {
             read_documents_executor,
             edit_documents_executor,
             create_documents_executor,
+            notebook_executor,
             use_computer_executor,
             request_computer_use_executor,
             async_executing_actions: Default::default(),
@@ -487,15 +492,33 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::SuggestPrompt { .. } => self
                 .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
-                .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
+            AIAgentActionType::ReadDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                } else {
+                    self.read_documents_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                }
+            }
+            AIAgentActionType::EditDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                } else {
+                    self.edit_documents_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                }
+            }
+            AIAgentActionType::CreateDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                } else {
+                    self.create_documents_executor
+                        .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx))
+                }
+            }
             AIAgentActionType::UseComputer(_) => self
                 .use_computer_executor
                 .update(ctx, |executor, ctx| executor.preprocess_action(input, ctx)),
@@ -683,20 +706,41 @@ impl BlocklistAIActionExecutor {
                 .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.execute(input, ctx))
                 .into(),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.execute(input, ctx))
-                .into(),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
-                .update(ctx, |executor, ctx| {
-                    executor.execute(input, conversation_id, ctx)
-                })
-                .into(),
+            AIAgentActionType::ReadDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.execute_read(input, ctx))
+                        .into()
+                } else {
+                    self.read_documents_executor
+                        .update(ctx, |executor, ctx| executor.execute(input, ctx))
+                        .into()
+                }
+            }
+            AIAgentActionType::EditDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.execute_edit(input, ctx))
+                        .into()
+                } else {
+                    self.edit_documents_executor
+                        .update(ctx, |executor, ctx| executor.execute(input, ctx))
+                        .into()
+                }
+            }
+            AIAgentActionType::CreateDocuments(_) => {
+                if action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.execute_create(input, ctx))
+                        .into()
+                } else {
+                    self.create_documents_executor
+                        .update(ctx, |executor, ctx| {
+                            executor.execute(input, conversation_id, ctx)
+                        })
+                        .into()
+                }
+            }
             AIAgentActionType::UseComputer(_) => self
                 .use_computer_executor
                 .update(ctx, |executor, ctx| executor.execute(input, ctx))
@@ -924,15 +968,33 @@ impl BlocklistAIActionExecutor {
             AIAgentActionType::SuggestPrompt { .. } => self
                 .suggest_prompt_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::ReadDocuments(_) => self
-                .read_documents_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::EditDocuments(_) => self
-                .edit_documents_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
-            AIAgentActionType::CreateDocuments(_) => self
-                .create_documents_executor
-                .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),
+            AIAgentActionType::ReadDocuments(_) => {
+                if input.action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                } else {
+                    self.read_documents_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                }
+            }
+            AIAgentActionType::EditDocuments(_) => {
+                if input.action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                } else {
+                    self.edit_documents_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                }
+            }
+            AIAgentActionType::CreateDocuments(_) => {
+                if input.action.tool_name.as_deref() == Some("notebook") {
+                    self.notebook_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                } else {
+                    self.create_documents_executor
+                        .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx))
+                }
+            }
             AIAgentActionType::UseComputer(_) => self
                 .use_computer_executor
                 .update(ctx, |executor, ctx| executor.should_autoexecute(input, ctx)),

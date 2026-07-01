@@ -998,7 +998,7 @@ pub fn build_tool_call_message(
                 api::message::tool_call::ReadMcpResource { uri, server_id },
             ))
         }
-        "read_documents" => {
+        "read_plan" | "read_documents" | "read_notebook" => {
             let documents = input
                 .get("document_ids")
                 .and_then(|v| v.as_array())
@@ -1016,7 +1016,7 @@ pub fn build_tool_call_message(
                 api::message::tool_call::ReadDocuments { documents },
             ))
         }
-        "create_documents" => {
+        "create_plan" | "create_documents" | "create_notebook" => {
             let new_documents = input
                 .get("documents")
                 .and_then(|v| v.as_array())
@@ -1035,7 +1035,7 @@ pub fn build_tool_call_message(
                 api::message::tool_call::CreateDocuments { new_documents },
             ))
         }
-        "edit_documents" => {
+        "edit_plan" | "edit_documents" | "edit_notebook" => {
             let diffs = input
                 .get("diffs")
                 .and_then(|v| v.as_array())
@@ -1211,16 +1211,24 @@ pub fn build_tool_call_message(
         }
     };
 
+    // For notebook tools, encode the tool name into the tool_call_id so that
+    // the conversion layer can route them to the notebook executor.
+    let effective_tool_call_id = if is_notebook_tool(tool_name) {
+        format!("notebook::{tool_use_id}")
+    } else {
+        tool_use_id.to_string()
+    };
+
     let message = if let Some(tool_variant) = tool {
         api::Message {
-            id: tool_use_id.to_string(),
+            id: effective_tool_call_id.clone(),
             task_id: task_id.to_string(),
             request_id: String::new(),
             timestamp: None,
             server_message_data: String::new(),
             citations: vec![],
             message: Some(api::message::Message::ToolCall(api::message::ToolCall {
-                tool_call_id: tool_use_id.to_string(),
+                tool_call_id: effective_tool_call_id,
                 tool: Some(tool_variant),
             })),
         }
@@ -1275,6 +1283,13 @@ const KNOWN_TOOLS: &[&str] = &[
     "write_to_long_running_shell_command",
     "read_shell_command_output",
     "read_mcp_resource",
+    "read_plan",
+    "create_plan",
+    "edit_plan",
+    "read_notebook",
+    "create_notebook",
+    "edit_notebook",
+    // Legacy aliases — accept old names so in-flight conversations don't break.
     "read_documents",
     "create_documents",
     "edit_documents",
@@ -1289,6 +1304,10 @@ const KNOWN_TOOLS: &[&str] = &[
 
 fn is_known_tool(name: &str) -> bool {
     KNOWN_TOOLS.contains(&name) || name.starts_with("mcp__")
+}
+
+fn is_notebook_tool(name: &str) -> bool {
+    matches!(name, "create_notebook" | "read_notebook" | "edit_notebook")
 }
 
 /// Searches conversation message history for tool call results matching the given criteria.
