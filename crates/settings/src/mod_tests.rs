@@ -153,7 +153,7 @@ fn test_is_setting_syncable_on_current_platform() {
 }
 
 mod reload_all_public_settings_tests {
-
+    use super::*;
 
     define_settings_group!(ReloadTestSettings, settings: [
         public_flag: PublicFlag {
@@ -443,6 +443,8 @@ mod reload_all_public_settings_tests {
 }
 
 mod write_to_preferences_tests {
+    use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
+
     use crate::*;
 
     #[derive(
@@ -533,9 +535,9 @@ mod write_to_preferences_tests {
     /// Option fields — reproduces the exact QuakeModeSettings scenario.
     #[test]
     fn test_no_spurious_write_with_hashmap_and_missing_options() {
-        use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
         use std::collections::HashMap;
 
+        use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
 
         #[derive(
             Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
@@ -598,7 +600,6 @@ mod write_to_preferences_tests {
     /// null-stripping and key-reordering happens.
     #[test]
     fn test_no_spurious_write_with_toml_backend() {
-
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("settings.toml");
         let (prefs, _) = TomlBackedUserPreferences::new(file_path.clone());

@@ -1,5 +1,3 @@
-use itertools::Itertools;
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon, MainAxisAlignment,
     MainAxisSize, ParentElement, Text,
@@ -7,6 +5,8 @@ use galaxyui::elements::{
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use itertools::Itertools;
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::env_vars::CloudEnvVarCollection;

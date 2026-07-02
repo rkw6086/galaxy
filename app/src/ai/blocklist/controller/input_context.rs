@@ -4,10 +4,10 @@ use std::sync::Arc;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use chrono::Local;
 use galaxy_core::features::FeatureFlag;
+use galaxy_graphql::generic_string_object::GenericStringObjectFormat as GraphQLFormat;
 use galaxyui::{AppContext, SingletonEntity};
 use lazy_static::lazy_static;
 use regex::Regex;
-use galaxy_graphql::generic_string_object::GenericStringObjectFormat as GraphQLFormat;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{

@@ -4,10 +4,9 @@ use arborium::tree_sitter::Tree;
 use galaxy_editor::content::buffer::{Buffer, BufferSnapshot};
 use galaxy_editor::content::selection_model::BufferSelectionModel;
 use galaxy_editor::content::text::IndentBehavior;
+use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::App;
 use languages::{language_by_filename, Language};
-use galaxy_util::standardized_path::StandardizedPath;
-use galaxyui_core::App;
 
 use super::*;
 use crate::SyntaxTreeState;

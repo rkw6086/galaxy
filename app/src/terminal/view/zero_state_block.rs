@@ -1,4 +1,3 @@
-use settings::Setting;
 use galaxy_core::report_if_error;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{
@@ -14,6 +13,7 @@ use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use settings::Setting;
 
 use crate::ai::blocklist::agent_view::{
     AgentViewController, AgentViewControllerEvent, AgentViewEntryOrigin,

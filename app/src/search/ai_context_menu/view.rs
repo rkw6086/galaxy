@@ -3,11 +3,11 @@ use std::ops::Range;
 use std::time::Duration;
 
 use async_channel::Sender;
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
 #[cfg(not(target_family = "wasm"))]
 use repo_metadata::repositories::DetectedRepositories;
 use settings::Setting as _;
-use galaxy_core::features::FeatureFlag;
 use warpui::elements::{
     AnchorPair, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Dismiss, Empty, Fill, Flex, Hoverable, Icon, MouseStateHandle, OffsetPositioning, OffsetType,

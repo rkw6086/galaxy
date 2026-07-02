@@ -1,10 +1,11 @@
+use galaxyui::elements::{
+    Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text,
+};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+
 use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
-use galaxyui::{
-    elements::{Container, CornerRadius, CrossAxisAlignment, Flex, ParentElement, Radius, Text},
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
-};
 
 pub struct ContextWindowView {
     messages: Vec<ConversationMessage>,

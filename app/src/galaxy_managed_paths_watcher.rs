@@ -52,8 +52,8 @@ pub(crate) fn galaxy_home_config_dir() -> Option<PathBuf> {
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_home_skills_dir() -> Option<PathBuf> {
-    galaxy_core::paths::warp_home_skills_dir()
+pub(crate) fn galaxy_home_skills_dir() -> Option<PathBuf> {
+    galaxy_core::paths::galaxy_home_skills_dir()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
@@ -63,18 +63,18 @@ pub(crate) fn galaxy_home_mcp_config_file_path() -> Option<PathBuf> {
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GalaxyMcpConfigPath {
+pub struct GalaxyMcpConfigPath {
     pub(crate) root_path: PathBuf,
     pub(crate) config_path: PathBuf,
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn warp_managed_skill_dirs() -> Vec<PathBuf> {
-    warp_home_skills_dir().into_iter().collect()
+pub fn warp_managed_skill_dirs() -> Vec<PathBuf> {
+    galaxy_home_skills_dir().into_iter().collect()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn galaxy_managed_mcp_config_path() -> Option<GalaxyMcpConfigPath> {
+pub fn galaxy_managed_mcp_config_path() -> Option<GalaxyMcpConfigPath> {
     Some(GalaxyMcpConfigPath {
         root_path: home_dir()?,
         config_path: galaxy_home_mcp_config_file_path()?,
@@ -204,20 +204,20 @@ fn filesystem_event_to_repository_update(event: &BulkFilesystemWatcherEvent) -> 
 
 #[cfg(target_family = "wasm")]
 #[allow(dead_code)]
-pub(crate) enum GalaxyManagedPathsWatcherEvent {}
+pub enum GalaxyManagedPathsWatcherEvent {}
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) enum GalaxyManagedPathsWatcherEvent {
+pub enum GalaxyManagedPathsWatcherEvent {
     FilesChanged(RepositoryUpdate),
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) struct GalaxyManagedPathsWatcher {
+pub struct GalaxyManagedPathsWatcher {
     _watcher: ModelHandle<BulkFilesystemWatcher>,
 }
 
 #[cfg(target_family = "wasm")]
-pub(crate) struct GalaxyManagedPathsWatcher;
+pub struct GalaxyManagedPathsWatcher;
 
 #[cfg(not(target_family = "wasm"))]
 impl GalaxyManagedPathsWatcher {
@@ -300,7 +300,7 @@ impl GalaxyManagedPathsWatcher {
                     Self::register_path(
                         ctx,
                         &watcher,
-                        warp_home_config_dir,
+                        galaxy_home_config_dir,
                         WatchFilter::with_filter(Arc::new(|_: &Path| true), emit),
                         RecursiveMode::NonRecursive,
                         "Galaxy home MCP config directory",
@@ -365,6 +365,11 @@ impl Entity for GalaxyManagedPathsWatcher {
 }
 
 impl SingletonEntity for GalaxyManagedPathsWatcher {}
+
+pub type WarpManagedPathsWatcher = GalaxyManagedPathsWatcher;
+pub type WarpManagedPathsWatcherEvent = GalaxyManagedPathsWatcherEvent;
+pub use galaxy_managed_mcp_config_path as warp_managed_mcp_config_path;
+pub use warp_managed_skill_dirs as galaxy_managed_skill_dirs;
 
 #[cfg(test)]
 #[path = "warp_managed_paths_watcher_tests.rs"]

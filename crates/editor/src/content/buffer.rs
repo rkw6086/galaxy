@@ -5,6 +5,14 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use enum_iterator::all;
+use galaxy_core::platform::SessionPlatform;
+use galaxy_core::safe_error;
+use galaxy_util::content_version::ContentVersion;
+use galaxyui_core::elements::ListIndentLevel;
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::text::point::Point;
+use galaxyui_core::text::{TextBuffer, char_slice};
+use galaxyui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 use itertools::{Either, Itertools};
 use line_ending::LineEnding;
 use markdown_parser::{
@@ -20,14 +28,6 @@ use serde_yaml::Mapping;
 use string_offset::{ByteOffset, CharOffset};
 use sum_tree::{SeekBias, SumTree};
 use vec1::{Vec1, vec1};
-use galaxy_core::platform::SessionPlatform;
-use galaxy_core::safe_error;
-use galaxy_util::content_version::ContentVersion;
-use galaxyui_core::elements::ListIndentLevel;
-use galaxyui_core::fonts::Weight;
-use galaxyui_core::text::point::Point;
-use galaxyui_core::text::{TextBuffer, char_slice};
-use galaxyui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 
 use super::anchor::{Anchor, AnchorSide, Anchors};
 use super::cursor::BufferCursor;

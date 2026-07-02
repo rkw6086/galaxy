@@ -1,8 +1,8 @@
-use settings::Setting as _;
-use voice_input::{StartListeningError, VoiceInput, VoiceSessionResult};
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
+use settings::Setting as _;
+use voice_input::{StartListeningError, VoiceInput, VoiceSessionResult};
 use warpui::elements::{Container, CornerRadius, Icon, Radius};
 use warpui::platform::Cursor;
 use warpui::r#async::SpawnedFutureHandle;

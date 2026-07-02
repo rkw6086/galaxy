@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use uuid::Uuid;
 use galaxy_core::execution_mode::ExecutionMode;
 use galaxy_util::path::EscapeChar;
 use galaxyui::{App, EntityId, ModelHandle};
+use uuid::Uuid;
 
 use super::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;

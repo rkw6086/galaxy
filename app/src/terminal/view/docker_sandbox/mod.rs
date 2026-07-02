@@ -5,8 +5,6 @@ use std::path::PathBuf;
 #[cfg(feature = "local_tty")]
 use std::sync::mpsc::SyncSender;
 
-#[cfg(not(target_family = "wasm"))]
-use warp_cli::agent::Harness;
 #[cfg(feature = "local_tty")]
 use galaxyui::geometry::vector::Vector2F;
 #[cfg(not(target_family = "wasm"))]
@@ -16,6 +14,8 @@ use galaxyui::ModelHandle;
 use galaxyui::ViewContext;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui::{SingletonEntity, View, ViewHandle};
+#[cfg(not(target_family = "wasm"))]
+use warp_cli::agent::Harness;
 
 use super::TerminalView;
 #[cfg(not(target_family = "wasm"))]

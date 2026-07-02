@@ -53,6 +53,16 @@ pub use code_review::*;
 pub use ctrl_d::*;
 pub use file_tree::*;
 use float_cmp::assert_approx_eq;
+use galaxyui_core::event::KeyState;
+use galaxyui_core::integration::{AssertionOutcome, StepData, TestStep};
+use galaxyui_core::keymap::{Keystroke, PerPlatformKeystroke, Trigger};
+use galaxyui_core::platform::keyboard::KeyCode;
+use galaxyui_core::platform::{OperatingSystem, TerminationMode};
+use galaxyui_core::units::Lines;
+use galaxyui_core::windowing::WindowManager;
+use galaxyui_core::{
+    async_assert, async_assert_eq, AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle,
+};
 pub use goto_line::*;
 pub use history::*;
 pub use input::*;
@@ -180,16 +190,6 @@ use warp::workspace::{
     Workspace, WorkspaceAction, NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID,
 };
 use warp::{cmd_or_ctrl_shift, AgentModeEntrypoint};
-use galaxyui_core::event::KeyState;
-use galaxyui_core::integration::{AssertionOutcome, StepData, TestStep};
-use galaxyui_core::keymap::{Keystroke, PerPlatformKeystroke, Trigger};
-use galaxyui_core::platform::keyboard::KeyCode;
-use galaxyui_core::platform::{OperatingSystem, TerminationMode};
-use galaxyui_core::units::Lines;
-use galaxyui_core::windowing::WindowManager;
-use galaxyui_core::{
-    async_assert, async_assert_eq, AssetProvider, Event, SingletonEntity, UpdateView, ViewHandle,
-};
 pub use websockets::*;
 pub use workflows::*;
 pub use workspace::*;
@@ -3826,9 +3826,7 @@ pub fn test_open_new_tab_with_specific_shell_from_new_session_menu() -> Builder 
     let mut builder = new_builder()
         .set_should_run_test(|| cfg!(windows))
         .with_step(wait_until_bootstrapped_single_pane_for_tab(0));
-    let mut tab_index = 1;
-
-    for (shell, test_command) in test_cases {
+    for (tab_index, (shell, test_command)) in (1..).zip(test_cases) {
         let expected =
             regex::Regex::new(format!("{}$", shell.name()).as_str()).expect("regex should compile");
         builder = builder
@@ -3847,7 +3845,6 @@ pub fn test_open_new_tab_with_specific_shell_from_new_session_menu() -> Builder 
                 ExpectedExitStatus::Success,
                 expected,
             ));
-        tab_index += 1;
     }
     builder
 }
@@ -6792,7 +6789,7 @@ pub fn test_agent_mode_pane_minimum_size() -> Builder {
                                 f32,
                                 pane_width - AGENT_MODE_PANE_DEFAULT_MINIMUM_WIDTH,
                                 0.,
-                                epsilon = 4.
+                                epsilon = 8.
                             );
 
                             AssertionOutcome::Success

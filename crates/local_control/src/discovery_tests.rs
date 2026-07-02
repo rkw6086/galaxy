@@ -286,7 +286,6 @@ fn discovery_directory_is_owner_only_on_unix() {
 #[cfg(unix)]
 #[test]
 fn discovery_record_is_owner_only_on_unix() {
-
     let dir = tempfile::tempdir().expect("temp dir");
     let record = InstanceRecord::for_current_process(
         Some(ControlEndpoint::localhost(4000)),

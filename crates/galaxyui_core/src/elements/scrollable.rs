@@ -683,5 +683,5 @@ impl Element for Scrollable {
 }
 
 #[cfg(test)]
-#[path = "scrollable_tests.rs"]
+#[path = "scrollable_test.rs"]
 mod tests;

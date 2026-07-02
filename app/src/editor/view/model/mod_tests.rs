@@ -1,8 +1,7 @@
-use galaxyui::{text_layout::TextStyle, App};
-use string_offset::{ByteOffset, CharOffset};
-use vec1::vec1;
 use galaxyui::text_layout::TextStyle;
 use galaxyui::App;
+use string_offset::{ByteOffset, CharOffset};
+use vec1::vec1;
 
 use super::{EditOrigin, EditorModel, Edits, InteractionState, UpdateBufferOption};
 use crate::editor::{EditorSnapshot, PlainTextEditorViewAction, TextRun, ValidInputType};

@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::{async_assert_eq, ViewHandle};
 use warp::integration_testing::assertions::{go_offline, go_online, join_a_workspace};
 use warp::integration_testing::command_palette::{
     open_command_palette_and_run_action, TestStepsExt,
@@ -17,8 +19,6 @@ use warp::integration_testing::workflow::{
 };
 use warp::integration_testing::{self, view_of_type};
 use warp::workflows::CategoriesView;
-use galaxyui_core::integration::TestStep;
-use galaxyui_core::{async_assert_eq, ViewHandle};
 
 use super::{new_builder, TEST_ONLY_ASSETS};
 use crate::Builder;

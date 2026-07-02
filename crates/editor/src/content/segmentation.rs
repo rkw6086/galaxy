@@ -3,11 +3,10 @@
 //! [`TextBuffer`] API.
 
 use anyhow::anyhow;
-use galaxyui::text::{TextBuffer, point::Point, word_boundaries::WordBoundariesPolicy};
+use galaxyui::text::TextBuffer;
+use galaxyui::text::point::Point;
+use galaxyui::text::word_boundaries::WordBoundariesPolicy;
 use string_offset::CharOffset;
-use galaxyui_core::text::TextBuffer;
-use galaxyui_core::text::point::Point;
-use galaxyui_core::text::word_boundaries::WordBoundariesPolicy;
 
 use super::buffer::{Buffer, ToBufferCharOffset, ToBufferPoint};
 use super::cursor::BufferCursor;

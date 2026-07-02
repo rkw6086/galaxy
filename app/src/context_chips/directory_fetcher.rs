@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
-use typed_path::TypedPathBuf;
 use galaxy_completer::completer::{EngineDirEntry, EngineFileType};
 use galaxy_util::file_type::is_binary_file;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{AppContext, Entity, ModelContext};
+use typed_path::TypedPathBuf;
 
 use super::display_menu::GenericMenuItem;
 use crate::completer::SessionContext;

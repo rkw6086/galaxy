@@ -1,6 +1,6 @@
+#![allow(dead_code)]
+
 use chrono::Utc;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxy_server_client::auth::AgentIdentity;
 use galaxyui::elements::{
@@ -17,6 +17,8 @@ use galaxyui::ui_components::segmented_control::{
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::editor::{

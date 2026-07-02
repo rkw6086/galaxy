@@ -122,7 +122,7 @@ fn enabled_features() -> HashSet<FeatureFlag> {
         #[cfg(all(not(windows), feature = "kitty_images"))]
         FeatureFlag::KittyImages,
         #[cfg(feature = "warp_packs")]
-        FeatureFlag::WarpPacks,
+        FeatureFlag::GalaxyPacks,
         #[cfg(feature = "global_ai_analytics_banner")]
         FeatureFlag::GlobalAIAnalyticsBanner,
         #[cfg(feature = "global_ai_analytics_collection")]

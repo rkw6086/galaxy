@@ -605,5 +605,5 @@ impl RunBuilder {
 }
 
 #[cfg(test)]
-#[path = "wrap_tests.rs"]
+#[path = "wrap_test.rs"]
 mod tests;

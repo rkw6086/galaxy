@@ -1,5 +1,4 @@
 //! A reusable warning callout component with optional action button.
-use markdown_parser::{FormattedText, FormattedTextInline, FormattedTextLine};
 use galaxy_core::ui::color::blend::Blend;
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
@@ -9,6 +8,7 @@ use galaxyui::elements::{
 };
 use galaxyui::platform::Cursor;
 use galaxyui::EventContext;
+use markdown_parser::{FormattedText, FormattedTextInline, FormattedTextLine};
 
 use crate::appearance::Appearance;
 use crate::themes::theme::Fill as ThemeFill;

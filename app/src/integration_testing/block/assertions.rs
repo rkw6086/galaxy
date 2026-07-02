@@ -1,7 +1,7 @@
-use settings::Setting as _;
 use galaxyui::integration::{AssertionCallback, AssertionOutcome};
 use galaxyui::units::{IntoPixels, Lines};
 use galaxyui::{async_assert, async_assert_eq, AppContext, SingletonEntity, WindowId};
+use settings::Setting as _;
 
 use crate::integration_testing::terminal::util::ExpectedOutput;
 use crate::integration_testing::view_getters::{

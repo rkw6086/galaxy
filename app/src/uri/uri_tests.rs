@@ -1,5 +1,9 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use self::parse_url_paths::{get_item_data_from_warp_link, WarpWebLink};
 use super::*;
+use crate::drive::{OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings};
 use crate::launch_configs::launch_config::make_mock_single_window_launch_config;
 use crate::linear::{LinearAction, LinearIssueWork};
 use crate::ChannelState;
@@ -781,7 +785,6 @@ fn test_settings_section_for_simple_subpage() {
 #[test]
 #[cfg(unix)]
 fn test_open_file_executable_sh_routes_to_execute() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("run.sh");
     std::fs::write(&p, b"#!/bin/sh\n:\n").unwrap();

@@ -1,8 +1,8 @@
 //! Generic model for tracking the selected item in an inline menu.
-use galaxyui::elements::MouseStateHandle;
-use galaxyui::{Entity, ModelContext};
 use std::collections::HashSet;
 
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::{Entity, ModelContext};
 
 use crate::search::data_source::QueryFilter;
 use crate::terminal::input::inline_menu::view::InlineMenuAction;

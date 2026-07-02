@@ -3,13 +3,13 @@ use std::fmt::Debug;
 use std::mem;
 use std::ops::RangeInclusive;
 
-use sum_tree::SeekBias;
-use vec1::{vec1, Vec1};
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_terminal::model::grid::CellType;
 use galaxyui::text::{IsRect, SelectionType};
 use galaxyui::units::{IntoLines as _, Lines};
 use galaxyui::{AppContext, EntityId, ViewAsRef as _};
+use sum_tree::SeekBias;
+use vec1::{vec1, Vec1};
 
 use super::{
     BlockHeight, BlockHeightItem, BlockHeightSummary, BlockList, BlockListPoint, RichContentItem,

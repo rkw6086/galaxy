@@ -6,15 +6,18 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use galaxy_core::features::FeatureFlag;
 #[cfg(feature = "local_tty")]
 use galaxyui::{AppContext, ModelContext};
 use galaxyui::{Entity, SingletonEntity};
 #[cfg(feature = "local_tty")]
 use settings::Setting as _;
 
-use super::session_settings::{NewSessionShell, StartupShell};
+use super::session_settings::{NewSessionShell, SessionSettings, StartupShell};
 use super::shell::ShellType;
 use super::ShellLaunchData;
+#[cfg(feature = "local_tty")]
+use crate::terminal::local_tty::shell::supported_shell_path_and_type;
 #[cfg(feature = "local_tty")]
 use crate::util::path::file_exists_and_is_executable;
 
@@ -621,7 +624,6 @@ impl AvailableShells {
         paths_to_search: &[PathBuf],
         fallback_path: Option<&Path>,
     ) -> Vec<AvailableShell> {
-
         if !FeatureFlag::ShellSelector.is_enabled() {
             return vec![
                 StartupShell::Zsh,
@@ -717,7 +719,6 @@ impl AvailableShells {
     #[cfg(windows)]
     fn locate_msys2_executables() -> Vec<PathBuf> {
         use std::env;
-
 
         let mut paths = Vec::new();
 
@@ -856,7 +857,6 @@ impl AvailableShells {
     }
 
     fn get_user_preferred_shell_setting(&self, ctx: &AppContext) -> NewSessionShell {
-
         let new_session_shell_override = SessionSettings::as_ref(ctx)
             .new_session_shell_override
             .to_owned();
@@ -872,7 +872,6 @@ impl AvailableShells {
     }
 
     fn get_user_preferred_shell_setting_fallback(&self, ctx: &AppContext) -> NewSessionShell {
-
         let startup_shell = SessionSettings::as_ref(ctx)
             .startup_shell_override
             .to_owned();

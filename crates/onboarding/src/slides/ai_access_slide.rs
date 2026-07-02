@@ -1,4 +1,3 @@
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -18,6 +17,7 @@ use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
+use ui_components::{button, Component as _, Options as _};
 
 use super::OnboardingSlide;
 use crate::model::{AiAccessChoice, OnboardingAuthState, OnboardingStateModel};
@@ -410,7 +410,7 @@ impl AiAccessSlide {
         };
 
         let icon = ConstrainedBox::new(Box::new(
-            Icon::AlertCircle.to_warpui_icon(Fill::Solid(text_color)),
+            Icon::AlertCircle.to_galaxyui_icon(Fill::Solid(text_color)),
         ))
         .with_width(ICON_SIZE)
         .with_height(ICON_SIZE)

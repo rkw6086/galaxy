@@ -4,9 +4,8 @@ use std::time::Duration;
 
 use ai::agent::action::{AskUserQuestionItem, AskUserQuestionOption, AskUserQuestionType};
 use ai::agent::action_result::{AskUserQuestionAnswerItem, AskUserQuestionResult};
-use itertools::Itertools;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::{GalaxyTheme, WarpTheme};
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{
     Border, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
@@ -24,6 +23,7 @@ use galaxyui::{
     LayoutContext, ModelHandle, PaintContext, SingletonEntity, SizeConstraint, TypedActionView,
     View, ViewContext, ViewHandle,
 };
+use itertools::Itertools;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::icons::yellow_stop_icon;

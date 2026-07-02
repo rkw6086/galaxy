@@ -2,15 +2,13 @@ use std::collections::HashSet;
 use std::ops::Range;
 
 use galaxyui_core::elements::SmartSelectFn;
-use lazy_static::lazy_static;
-use regex::Regex;
-use settings::ChangeEventReason;
-use settings::macros::define_settings_group;
-use settings::{Setting, SupportedPlatforms, SyncToCloud};
-use settings_value::SettingsValue;
-use string_offset::ByteOffset;
 use galaxyui_core::text::word_boundaries::WordBoundariesPolicy;
 use galaxyui_core::text::words::{is_default_word_boundary, DEFAULT_WORD_BOUNDARY_CHARS};
+use lazy_static::lazy_static;
+use regex::Regex;
+use settings::macros::define_settings_group;
+use settings::{Setting, SupportedPlatforms, SyncToCloud};
+use string_offset::ByteOffset;
 
 /// Upper limit for how many characters in either direction we'll search for patterns. Need to
 /// limit this to avoid running regex on absurdly long words

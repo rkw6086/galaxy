@@ -1,7 +1,6 @@
 use anyhow::Result;
 use galaxy_util::path::ShellFamily;
-use galaxyui::{AppContext, ModelContext};
-use galaxyui::{Entity, SingletonEntity};
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use lazy_static::lazy_static;
 use regex::Regex;
 use settings::macros::{maybe_define_setting, register_settings_events};
@@ -9,7 +8,6 @@ use settings::{
     ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
 };
 use strum_macros::EnumIter;
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 use crate::terminal::ssh::util::{parse_interactive_ssh_command, SshWarpifyCommand};
 

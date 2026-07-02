@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use cynic::{MutationBuilder, QueryBuilder};
-#[cfg(test)]
-use mockall::{automock, predicate::*};
 use galaxy_graphql::error::UserFacingErrorInterface;
 use galaxy_graphql::mutations::purchase_addon_credits::{
     PurchaseAddonCredits, PurchaseAddonCreditsInput, PurchaseAddonCreditsResult,
@@ -20,6 +18,8 @@ use galaxy_graphql::mutations::update_workspace_settings::{
 use galaxy_graphql::queries::get_ai_overages_for_workspace::{
     GetAiOveragesForWorkspace, GetAiOveragesForWorkspaceVariables, UserResult,
 };
+#[cfg(test)]
+use mockall::{automock, predicate::*};
 
 use super::team::TeamClient;
 use super::ServerApi;

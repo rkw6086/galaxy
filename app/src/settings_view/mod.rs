@@ -10,6 +10,26 @@ use billing_and_usage_page::BillingAndUsagePageEvent;
 use code_page::{CodeSettingsPageAction, CodeSettingsPageEvent, CodeSubpage};
 use environments_page::EnvironmentsPageView;
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::settings::ToggleableSetting as _;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable,
+    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty,
+    EventHandler, Expanded, Fill, Flex, MainAxisSize, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollbarWidth, Shrinkable, Stack,
+    Text,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::{ContextPredicate, EnabledPredicate, FixedBinding};
+use galaxyui::{
+    id, Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
+    UpdateView as _, View, ViewContext, ViewHandle,
+};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
 use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
@@ -26,27 +46,7 @@ use settings_page::{
 };
 use show_blocks_view::{ShowBlocksEvent, ShowBlocksView};
 use teams_page::{TeamsPageView, TeamsPageViewEvent};
-use galaxy_core::channel::ChannelState;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::send_telemetry_from_ctx;
-use galaxy_core::settings::ToggleableSetting as _;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_editor::editor::NavigationKey;
 use warpify_page::{WarpifyPageAction, WarpifyPageView};
-use galaxyui::elements::{
-    Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable,
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty,
-    EventHandler, Expanded, Fill, Flex, MainAxisSize, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollbarWidth, Shrinkable, Stack,
-    Text,
-};
-use galaxyui::fonts::{Properties, Weight};
-use galaxyui::keymap::{ContextPredicate, EnabledPredicate, FixedBinding};
-use galaxyui::{
-    id, Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
-    UpdateView as _, View, ViewContext, ViewHandle,
-};
 
 use self::telemetry::SettingsTelemetryEvent;
 use crate::ai::custom_model_routers::CustomModelRouter;
@@ -285,12 +285,6 @@ pub enum SettingsSection {
     CloudEnvironments,
     #[allow(dead_code)]
     OzCloudAPIKeys,
-    #[allow(dead_code)]
-    Teams,
-    #[allow(dead_code)]
-    SharedBlocks,
-    #[allow(dead_code)]
-    Referrals,
 }
 
 use std::fmt::{self, Display};
@@ -410,9 +404,7 @@ impl FromStr for SettingsSection {
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
             "CloudEnvironments" | "Environments" => Ok(Self::CloudEnvironments),
             "OzCloudAPIKeys" => Ok(Self::OzCloudAPIKeys),
-            "Teams" => Ok(Self::Teams),
             "SharedBlocks" | "Shared Blocks" => Ok(Self::SharedBlocks),
-            "Referrals" => Ok(Self::Referrals),
             _ => Err(()),
         }
     }
@@ -1186,12 +1178,6 @@ impl SettingsView {
             me.handle_ai_page_event(event, ctx);
         });
 
-        // Environments page
-        let environments_page_handle = ctx.add_typed_action_view(EnvironmentsPageView::new);
-        ctx.subscribe_to_view(&environments_page_handle, |me, _, event, ctx| {
-            me.handle_environments_page_event(event, ctx);
-        });
-
         // Billing & Usage page (internally, this routes to the v1 or v2 version. Depending on FFs and current plan).
         let billing_and_usage_handle = ctx.add_view(BillingAndUsageDispatchView::new);
         ctx.subscribe_to_view(&billing_and_usage_handle, |me, _, event, ctx| {
@@ -1220,12 +1206,6 @@ impl SettingsView {
             me.handle_privacy_page_event(event, ctx);
         });
 
-        let referrals_client = ServerApiProvider::as_ref(ctx).get_referrals_client();
-        let referrals_page_handle =
-            ctx.add_typed_action_view(|ctx| ReferralsPageView::new(referrals_client, ctx));
-        ctx.subscribe_to_view(&referrals_page_handle, |me, _, event, ctx| {
-            me.handle_referrals_page_event(event, ctx);
-        });
         let scripting_page_handle = if FeatureFlag::WarpControlCli.is_enabled() {
             Some(ctx.add_typed_action_view(ScriptingSettingsPageView::new))
         } else {
@@ -2187,12 +2167,9 @@ impl SettingsView {
 
     fn input_tab(&mut self, ctx: &mut ViewContext<Self>) {
         if let Some(current_page) = self.current_settings_page() {
-            match &current_page.view_handle {
-                SettingsPageViewHandle::Keybindings(view_handle) => {
-                    view_handle.update(ctx, |view, ctx| view.on_tab_pressed(ctx));
-                }
-                _ => (),
-            };
+            if let SettingsPageViewHandle::Keybindings(view_handle) = &current_page.view_handle {
+                view_handle.update(ctx, |view, ctx| view.on_tab_pressed(ctx));
+            }
         }
     }
 

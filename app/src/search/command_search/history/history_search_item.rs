@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::builder;
+use ordered_float::OrderedFloat;
 use warpui::elements::{
     Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon, MainAxisAlignment,
     MainAxisSize, ParentElement, Shrinkable, Text,

@@ -1,5 +1,3 @@
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::external_product_icon::ExternalProductIcon;
 use galaxy_core::ui::icons::{Icon, ICON_DIMENSIONS};
@@ -18,6 +16,8 @@ use galaxyui::ui_components::chip::Chip;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use crate::ai::mcp::templatable::CloudTemplatableMCPServer;
 use crate::ai::mcp::{MCPServerState, TemplatableMCPServerManager};

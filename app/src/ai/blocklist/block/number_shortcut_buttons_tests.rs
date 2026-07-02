@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Fill};
@@ -10,7 +9,7 @@ use galaxyui::{
     App, Entity, Event, Presenter, TypedActionView, View, ViewContext, ViewHandle, WindowId,
     WindowInvalidation,
 };
-use std::{cell::RefCell, rc::Rc};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::*;
 

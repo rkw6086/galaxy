@@ -1,13 +1,12 @@
-use galaxyui::elements::PartialClickableElement;
 use std::collections::HashMap;
 use std::ops::Range;
 
-use string_offset::ByteOffset;
-use urlocator::{UrlLocation, UrlLocator};
 use galaxyui::elements::{MouseStateHandle, PartialClickableElement};
 use galaxyui::platform::Cursor;
 use galaxyui::text::char_slice;
 use galaxyui::Action;
+use string_offset::ByteOffset;
+use urlocator::{UrlLocation, UrlLocator};
 
 use crate::ai::agent::{AIAgentActionType, AIAgentOutput, AIAgentTextSection, ReadFilesRequest};
 use crate::ai::blocklist::block::view_impl::output::LinkActionConstructors;

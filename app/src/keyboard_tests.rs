@@ -1,7 +1,6 @@
 use anyhow::{Ok, Result};
-use vec1::vec1;
-
 use galaxyui::keymap::Keystroke;
+use vec1::vec1;
 
 use crate::keyboard::{PersistedTrigger, UserDefinedKeybinding, REMOVED_KEYBINDING_SERIALIZATION};
 

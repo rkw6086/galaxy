@@ -9,6 +9,18 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use cocoa::base::id;
+use galaxyui_core::accessibility::AccessibilityContent;
+use galaxyui_core::actions::StandardAction;
+use galaxyui_core::event::ModifiersState;
+use galaxyui_core::platform::{
+    self, file_picker, FilePickerCallback, FilePickerConfiguration, FullscreenState,
+    GraphicsBackend, TerminationMode, WindowBounds, WindowFocusBehavior, WindowOptions,
+    WindowStyle,
+};
+use galaxyui_core::r#async::{executor, Timer};
+use galaxyui_core::rendering::GPUPowerPreference;
+use galaxyui_core::windowing::WindowCallbacks;
+use galaxyui_core::{DisplayId, DisplayIdx, Event, OptionalPlatformWindow, Scene, WindowId};
 use instant::Instant;
 use num_traits::FromPrimitive;
 use objc::runtime::Object;
@@ -23,18 +35,6 @@ use objc2_metal::{MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice};
 use objc2_quartz_core::CAMetalLayer;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use galaxyui_core::accessibility::AccessibilityContent;
-use galaxyui_core::actions::StandardAction;
-use galaxyui_core::event::ModifiersState;
-use galaxyui_core::platform::{
-    self, file_picker, FilePickerCallback, FilePickerConfiguration, FullscreenState,
-    GraphicsBackend, TerminationMode, WindowBounds, WindowFocusBehavior, WindowOptions,
-    WindowStyle,
-};
-use galaxyui_core::r#async::{executor, Timer};
-use galaxyui_core::rendering::GPUPowerPreference;
-use galaxyui_core::windowing::WindowCallbacks;
-use galaxyui_core::{DisplayId, DisplayIdx, Event, OptionalPlatformWindow, Scene, WindowId};
 
 use super::delegate::DispatchDelegate;
 use super::rendering::{self, is_integrated_gpu, Device, RendererManager};

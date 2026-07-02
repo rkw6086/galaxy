@@ -9,13 +9,12 @@ use async_channel;
 use chrono::{DateTime, Utc};
 use futures::stream::AbortHandle;
 use galaxy_core::safe_error;
-use galaxyui::{Entity, ModelContext, ModelHandle};
+use galaxyui_core::{Entity, ModelContext, ModelHandle};
 use ignore::gitignore::Gitignore;
 use instant::Instant;
 #[cfg(feature = "local_fs")]
 use repo_metadata::entry::{BudgetExceededBehavior, IgnoredPathStrategy};
 use repo_metadata::Repository;
-use galaxyui_core::{Entity, ModelContext, ModelHandle};
 
 use super::fragment_metadata::{
     FragmentMetadata, LeafToFragmentMetadata, LeafToFragmentMetadataUpdates,

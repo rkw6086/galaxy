@@ -12,13 +12,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use galaxyui::r#async::{executor::Background, Timer};
+use galaxyui::r#async::executor::Background;
+use galaxyui::r#async::Timer;
 use log::LevelFilter;
 use lsp::supported_servers::LSPServerType;
 use lsp::{spawn_lsp_service, LspServerConfig, LspService, LspServiceInitializationResult};
 use lsp_types::Position;
-use galaxyui_core::r#async::executor::Background;
-use galaxyui_core::r#async::Timer;
 
 fn init_logging() {
     let mut base_logger = env_logger::builder();

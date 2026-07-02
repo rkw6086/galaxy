@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use session_sharing_protocol::common::SessionId;
 use galaxy_core::features::FeatureFlag;
+use session_sharing_protocol::common::SessionId;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{Entity, EntityId, ModelContext, SingletonEntity, WeakViewHandle};
 
@@ -388,14 +388,12 @@ impl OrchestrationViewerModel {
             if entry.session_id.is_none() {
                 entry.session_id = session_id;
             }
-            if was_missing_session_id
-                && entry.session_id.is_some()
-                && !entry.pane_materialization_requested
-            {
-                let conversation_id = entry.conversation_id;
-                let sid = entry.session_id.expect("session_id checked just above");
-                entry.pane_materialization_requested = true;
-                self.request_child_pane_materialization(conversation_id, sid, ctx);
+            if was_missing_session_id && !entry.pane_materialization_requested {
+                if let Some(sid) = entry.session_id {
+                    let conversation_id = entry.conversation_id;
+                    entry.pane_materialization_requested = true;
+                    self.request_child_pane_materialization(conversation_id, sid, ctx);
+                }
             }
             // Re-arm the session_id timer; no-op once all children are materialized.
             self.maybe_schedule_pending_session_id_poll(ctx);

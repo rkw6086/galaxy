@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, MainAxisAlignment,
@@ -10,6 +9,7 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::editor::{

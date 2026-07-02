@@ -2,11 +2,11 @@ mod helper;
 mod model_impl;
 
 use chrono::TimeDelta;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{AppContext, ViewContext};
 pub use helper::AIBlockModelHelper;
 pub use model_impl::*;
 use session_sharing_protocol::common::ParticipantId;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::{AppContext, ViewContext};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
@@ -219,7 +219,10 @@ pub trait AIBlockModel {
 #[cfg(any(test, feature = "integration_tests"))]
 pub mod testing {
 
-    use super::{AIBlockModel, AIBlockOutputStatus, OutputStatusUpdateCallback};
+    use super::{
+        AIBlockModel, AIBlockOutputStatus, AIConversationId, AppContext, LLMId,
+        OutputStatusUpdateCallback, ViewContext,
+    };
     use crate::ai::agent::{AIAgentInput, AIAgentOutput, ServerOutputId, Shared};
     use crate::ai::blocklist::model::{
         AIRequestType, PassiveRequestType, PassiveSuggestionTriggerType,

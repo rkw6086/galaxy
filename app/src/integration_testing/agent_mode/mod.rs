@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::Write;
 
 pub use assertions::*;
+use command::blocking::Command;
 use galaxyui::integration::PersistedDataMap;
 pub use galaxyui::integration::RUNTIME_TAG_FAILURE_REASON;
 use galaxyui::{App, SingletonEntity as _, WindowId};
@@ -95,7 +96,6 @@ pub fn output_code_diff_debug_info(app: &mut App, window_id: WindowId) {
 
         let mut output_file = open_debug_file_from_env(CODE_DIFF_OUTPUT_FILE_ENV_VAR);
         if let Some(output_file) = &mut output_file {
-
             if edited_files.is_empty() {
                 writeln!(output_file, "No files were edited for this test")
                     .expect("Failed to write to code diff file");

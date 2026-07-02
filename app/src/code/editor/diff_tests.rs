@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use galaxy_editor::multiline::{MultilineStr, MultilineString};
+use galaxyui::App;
 use rangemap::RangeMap;
 use unindent::Unindent as _;
 
@@ -9,7 +10,6 @@ use crate::code::editor::diff::ChangeType;
 
 #[test]
 fn test_diff_generation() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let (change_mapping, deletion_mapping) = DiffModel::compute_diff_internal(
             MultilineStr::try_new("Hello World\nThis is the second line.\nThis is the third.")

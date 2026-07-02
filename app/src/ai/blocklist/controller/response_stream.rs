@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -6,15 +8,19 @@ use anyhow::anyhow;
 use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use settings::Setting;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
 
 use crate::ai::agent::api::{self, generate_multi_agent_output, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
+use crate::ai::bedrock::client::BedrockClientConfig;
+use crate::ai::openai::client::OpenAIClientConfig;
+use crate::ai::provider::ProviderConfig;
 use crate::network::NetworkStatus;
 use crate::server::server_api::{AIApiError, ServerApiProvider};
-use crate::{report_error, send_telemetry_from_ctx};
+use crate::{report_error, send_telemetry_from_ctx, AISettings};
 
 /// Maximum number of times a single MAA request is re-sent before the failure is
 /// surfaced.
@@ -165,6 +171,66 @@ impl ResponseStream {
         }
     }
 
+    fn resolve_provider_config(model_id: &str, ctx: &ModelContext<Self>) -> ProviderConfig {
+        let settings = AISettings::as_ref(ctx);
+
+        // Check if OpenAI/LiteLLM provider is enabled
+        if *settings.openai_enabled.value() {
+            let base_url = settings.openai_base_url.value().clone();
+            let api_key = {
+                let key = settings.openai_api_key.value().clone();
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(key)
+                }
+            };
+            // Use the model override from settings if set, otherwise use the selected model ID.
+            // This allows LiteLLM models to pass through their actual model_id to the proxy.
+            let model = {
+                let m = settings.openai_model.value().clone();
+                if m.is_empty() {
+                    Some(model_id.to_string())
+                } else {
+                    Some(m)
+                }
+            };
+            return ProviderConfig::OpenAI(OpenAIClientConfig {
+                base_url,
+                api_key,
+                model,
+            });
+        }
+
+        // Fall back to Bedrock
+        if *settings.bedrock_enabled.value() {
+            let auth_method = *settings.bedrock_auth_method.value();
+            let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
+            let mut config = BedrockClientConfig {
+                auth_method,
+                profile: settings.bedrock_profile.value().clone(),
+                region: settings.bedrock_region.value().clone(),
+                access_key_id: settings.bedrock_access_key_id.value().clone(),
+                secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+                session_token: None,
+                cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            };
+
+            if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
+                api_key_manager.aws_credentials_state()
+            {
+                config.auth_method = crate::settings::BedrockAuthMethod::StaticKeys;
+                config.access_key_id = credentials.access_key().to_string();
+                config.secret_access_key = credentials.secret_key().to_string();
+                config.session_token = credentials.session_token().map(|s| s.to_string());
+            }
+
+            return ProviderConfig::Bedrock(config.with_external_fallbacks());
+        }
+
+        ProviderConfig::None
+    }
+
     pub fn new(
         params: api::RequestParams,
         ai_identifiers: AIIdentifiers,
@@ -176,10 +242,17 @@ impl ResponseStream {
 
         let request_id = Uuid::new_v4();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
+        let server_api = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
         let params_clone = params.clone();
         let _ = ctx.spawn(
             async move {
-                generate_multi_agent_output(provider_config, params_clone, cancellation_rx).await
+                generate_multi_agent_output(
+                    provider_config,
+                    server_api,
+                    params_clone,
+                    cancellation_rx,
+                )
+                .await
             },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
@@ -260,15 +333,16 @@ impl ResponseStream {
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let _ =
-            ctx.spawn(
-                async move {
-                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
-                },
-                move |me, stream, ctx| {
-                    me.handle_response_stream_result(request_id, stream, ctx);
-                },
-            );
+        let server_api = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
+        let _ = ctx.spawn(
+            async move {
+                generate_multi_agent_output(provider_config, server_api, params, cancellation_rx)
+                    .await
+            },
+            move |me, stream, ctx| {
+                me.handle_response_stream_result(request_id, stream, ctx);
+            },
+        );
     }
 
     /// Cancels the stream. The conversation_id is preserved in the emitted event for async handling.

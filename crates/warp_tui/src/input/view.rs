@@ -22,6 +22,7 @@ use std::ops::Range;
 
 use string_offset::CharOffset;
 use warp::editor::{CodeEditorModel, CodeEditorModelEvent};
+use warp_editor::content::buffer::{BufferEditAction, EditOrigin};
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
 use warp_editor::render::model::{
     char_cell_display_width, char_cell_line_gap_position, char_cell_line_row_starts, ColumnUnit,

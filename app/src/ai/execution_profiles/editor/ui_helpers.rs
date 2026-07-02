@@ -1,7 +1,7 @@
+use galaxy_core::features::FeatureFlag;
 use pathfinder_geometry::vector::vec2f;
 use thousands::Separable;
 use uuid::Uuid;
-use galaxy_core::features::FeatureFlag;
 use warpui::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Dismiss, Flex,
     Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
@@ -768,7 +768,6 @@ fn render_command_denylist_section(
     appearance: &Appearance,
     app: &galaxyui::AppContext,
 ) -> Box<dyn Element> {
-
     let ai_disabled = !AISettings::as_ref(app).is_any_ai_enabled(app);
     let org_denylist = BlocklistAIPermissions::get_org_execute_commands_denylist(app);
     let mut tooltip_idx = 0usize;

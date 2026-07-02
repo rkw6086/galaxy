@@ -40,4 +40,8 @@ impl ExternalProductIcon {
         let path = self.get_path();
         WarpUiIcon::new(path, color.into_solid())
     }
+
+    pub fn to_warpui_icon(&self, color: Fill) -> WarpUiIcon {
+        self.to_galaxyui_icon(color)
+    }
 }

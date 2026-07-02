@@ -51,22 +51,6 @@ use autoupdate::AutoupdateStage;
 #[cfg(target_os = "macos")]
 use command::blocking::Command;
 use futures::Future;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-pub(crate) use onboarding::OnboardingTutorial;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-#[cfg(feature = "local_fs")]
-use repo_metadata::repositories::DetectedRepositories;
-#[cfg(feature = "local_fs")]
-use repo_metadata::RemoteRepositoryIdentifier;
-#[cfg(all(target_os = "macos", feature = "crash_reporting"))]
-use sentry::protocol::{Attachment, AttachmentType};
-use serde_json;
-use session_sharing_protocol::common::SessionId as SharedSessionId;
-#[cfg(target_family = "wasm")]
-use url::Url;
 use galaxy_cli::agent::Harness;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::execution_mode::AppExecutionMode;
@@ -84,7 +68,8 @@ use galaxy_util::path::{user_friendly_path, LineAndColumnArg};
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::accessibility::{
-    AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, WarpA11yRole,
+    AccessibilityContent, AccessibilityVerbosity, ActionAccessibilityContent, GalaxyA11yRole,
+    WarpA11yRole,
 };
 use galaxyui::clipboard::ClipboardContent;
 #[cfg(target_family = "wasm")]
@@ -115,6 +100,22 @@ use galaxyui::{
     AppContext, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
     UpdateModel, UpdateView, View, ViewAsRef, ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+pub(crate) use onboarding::OnboardingTutorial;
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+#[cfg(feature = "local_fs")]
+use repo_metadata::repositories::DetectedRepositories;
+#[cfg(feature = "local_fs")]
+use repo_metadata::RemoteRepositoryIdentifier;
+#[cfg(all(target_os = "macos", feature = "crash_reporting"))]
+use sentry::protocol::{Attachment, AttachmentType};
+use serde_json;
+use session_sharing_protocol::common::SessionId as SharedSessionId;
+#[cfg(target_family = "wasm")]
+use url::Url;
 
 use self::vertical_tabs::telemetry::{VerticalTabsDisplayOption, VerticalTabsTelemetryEvent};
 use self::vertical_tabs::{
@@ -266,7 +267,8 @@ use crate::drive::settings::{WarpDriveSettings, WarpDriveSettingsChangedEvent};
 use crate::drive::workflows::arguments::ArgumentsState;
 use crate::drive::workflows::modal::{WorkflowModal, WorkflowModalEvent};
 use crate::drive::{
-    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent, OpenWarpDriveObjectSettings,
+    CloudObjectTypeAndId, DriveObjectType, DrivePanel, DrivePanelEvent,
+    OpenGalaxyDriveObjectSettings,
 };
 use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
@@ -372,9 +374,9 @@ use crate::tab_configs::{
     NewWorktreeModal, NewWorktreeModalEvent, TabConfigParamsModal, TabConfigParamsModalEvent,
 };
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
-use crate::terminal::available_shells::AvailableShell;
 #[cfg(target_os = "windows")]
 use crate::terminal::available_shells::AvailableShells;
+use crate::terminal::available_shells::{AvailableShell, AvailableShells};
 use crate::terminal::block_list_viewport::InputMode;
 #[cfg(not(target_family = "wasm"))]
 use crate::terminal::cli_agent_sessions::plugin_manager::{plugin_manager_for, PluginModalKind};
@@ -404,6 +406,7 @@ use crate::terminal::session_settings::{
     SessionSettingsChangedEvent, WorkingDirectoryMode,
 };
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
+use crate::terminal::shared_session::manager::Manager;
 use crate::terminal::shared_session::SharedSessionActionSource;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::ambient_agent::{AuthSecretFtuxView, AuthSecretFtuxViewEvent};
@@ -444,7 +447,7 @@ use crate::user_config::{
     find_unused_worktree_config_path, materialize_default_worktree_config, sanitize_toml_base_name,
     tab_configs_dir,
 };
-use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
+use crate::user_config::{GalaxyConfig, GalaxyConfigUpdateEvent};
 use crate::util::bindings::{
     keybinding_name_to_display_string, keybinding_name_to_keystroke, trigger_to_keystroke,
 };
@@ -2696,12 +2699,12 @@ impl Workspace {
                         });
                     }
                 }
-                WarpConfigUpdateEvent::ModelConfigs => {
+                GalaxyConfigUpdateEvent::ModelConfigs => {
                     toast_stack.update(ctx, |toast_stack, ctx| {
                         toast_stack.dismiss_toasts_by_prefix("model_config_error:", ctx);
                     });
                 }
-                WarpConfigUpdateEvent::ModelConfigErrors(errors) => {
+                GalaxyConfigUpdateEvent::ModelConfigErrors(errors) => {
                     let home_dir = dirs::home_dir();
                     for error in errors {
                         let object_id = format!("model_config_error:{}", error.file_path.display());
@@ -24202,7 +24205,7 @@ impl TypedActionView for Workspace {
                 send_telemetry_from_ctx!(TelemetryEvent::DragAndDropTabGroup, ctx);
                 ctx.notify();
             }
-            OpenWarpDrive => {
+            OpenGalaxyDrive => {
                 if WarpDriveSettings::is_warp_drive_enabled(ctx) {
                     self.open_left_panel_view(&LeftPanelAction::WarpDrive, ctx);
                 }
@@ -25601,7 +25604,7 @@ impl TypedActionView for Workspace {
                     self.open_left_panel_view(&LeftPanelAction::ProjectExplorer, ctx);
                 }
             }
-            ToggleWarpDrive => {
+            ToggleGalaxyDrive => {
                 if WarpDriveSettings::is_warp_drive_enabled(ctx) {
                     let is_showing =
                         self.left_panel_view.as_ref(ctx).active_view() == ToolPanelView::WarpDrive;

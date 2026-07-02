@@ -1,4 +1,4 @@
-use aws_sdk_bedrockruntime::types::{ContentBlock, ConversationRole};
+use aws_sdk_bedrockruntime::types::{ContentBlock, ConversationRole, SystemContentBlock, Tool};
 use serde_json::json;
 
 use super::convert::*;

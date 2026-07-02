@@ -2,7 +2,6 @@ use std::default::Default;
 use std::sync::Arc;
 
 use byte_unit::Byte;
-use parking_lot::FairMutex;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Container, Flex, MainAxisSize, MouseStateHandle, ParentElement, Shrinkable, Text,
@@ -13,6 +12,7 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::ui_components::radio_buttons::{
     RadioButtonItem, RadioButtonLayout, RadioButtonStateHandle,
 };
+use parking_lot::FairMutex;
 use warpui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use super::style::{self, BUTTON_GAP, MODAL_MARGIN};

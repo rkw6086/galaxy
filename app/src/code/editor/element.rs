@@ -3,11 +3,6 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub use gutter_button::{AddAsContextButton, CommentButton, RevertHunkButton};
-use parking_lot::Mutex;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -32,10 +27,11 @@ use galaxyui::{
     AfterLayoutContext, AppContext, ClipBounds, Element, Event, EventContext, LayoutContext,
     ModelHandle, PaintContext, SingletonEntity, SizeConstraint,
 };
-use pathfinder_geometry::{
-    rect::RectF,
-    vector::{vec2f, Vector2F},
-};
+pub use gutter_button::{AddAsContextButton, CommentButton, RevertHunkButton};
+use parking_lot::Mutex;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::diff::{DiffHunkDisplay, DiffStatus};
 use super::model::DiffNavigationState;
@@ -1632,26 +1628,22 @@ impl<V: EditorView> Element for EditorWrapper<V> {
                     ctx.notify();
                 }
             }
-            Some(Event::LeftMouseDown { position, .. }) => {
-                if !gutter_handled {
-                    let in_bound = self
-                        .gutter_element_range_containing_position(*position, false)
-                        .is_some();
-                    self.state_handle
-                        .in_click
-                        .store(in_bound, Ordering::Relaxed);
-                }
+            Some(Event::LeftMouseDown { position, .. }) if !gutter_handled => {
+                let in_bound = self
+                    .gutter_element_range_containing_position(*position, false)
+                    .is_some();
+                self.state_handle
+                    .in_click
+                    .store(in_bound, Ordering::Relaxed);
             }
-            Some(Event::LeftMouseUp { position, .. }) => {
-                if !gutter_handled {
-                    let was_clicking = self.state_handle.in_click.swap(false, Ordering::Relaxed);
+            Some(Event::LeftMouseUp { position, .. }) if !gutter_handled => {
+                let was_clicking = self.state_handle.in_click.swap(false, Ordering::Relaxed);
 
-                    if was_clicking {
-                        if let Some(gutter_range) =
-                            self.gutter_element_range_containing_position(*position, false)
-                        {
-                            (self.click_handler)(gutter_range, ctx);
-                        }
+                if was_clicking {
+                    if let Some(gutter_range) =
+                        self.gutter_element_range_containing_position(*position, false)
+                    {
+                        (self.click_handler)(gutter_range, ctx);
                     }
                 }
             }

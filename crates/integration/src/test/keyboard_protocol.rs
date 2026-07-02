@@ -1,5 +1,10 @@
 use std::time::Duration;
 
+use galaxyui_core::event::{KeyEventDetails, KeyState};
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::keyboard::KeyCode;
+use galaxyui_core::{async_assert, Event};
 use warp::features::FeatureFlag;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::{
@@ -7,11 +12,6 @@ use warp::integration_testing::terminal::{
     wait_until_bootstrapped_single_pane_for_tab,
 };
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
-use galaxyui_core::event::{KeyEventDetails, KeyState};
-use galaxyui_core::integration::TestStep;
-use galaxyui_core::keymap::Keystroke;
-use galaxyui_core::platform::keyboard::KeyCode;
-use galaxyui_core::{async_assert, Event};
 
 use super::new_builder;
 use crate::Builder;
@@ -48,8 +48,10 @@ fn wait_for_protocol_enabled() -> TestStep {
 fn assert_output_contains(
     expected: &'static str,
     description: &'static str,
-) -> impl FnMut(&mut galaxyui_core::App, galaxyui_core::WindowId) -> galaxyui_core::integration::AssertionOutcome
-{
+) -> impl FnMut(
+    &mut galaxyui_core::App,
+    galaxyui_core::WindowId,
+) -> galaxyui_core::integration::AssertionOutcome {
     move |app, window_id| {
         let terminal_view = single_terminal_view_for_tab(app, window_id, 0);
         terminal_view.read(app, |view, _ctx| {

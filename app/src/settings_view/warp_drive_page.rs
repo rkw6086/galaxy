@@ -1,9 +1,6 @@
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_if_error;
 use galaxy_core::settings::ToggleableSetting as _;
-use warpui::elements::{
-    Container, Element, Flex, MouseStateHandle, ParentElement, Shrinkable, Text,
-};
 use galaxyui::fonts::Weight;
 use galaxyui::keymap::ContextPredicate;
 use galaxyui::ui_components::button::ButtonVariant;
@@ -11,6 +8,9 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{
     id, Action, AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+use warpui::elements::{
+    Container, Element, Flex, MouseStateHandle, ParentElement, Shrinkable, Text,
 };
 
 use super::settings_page::{

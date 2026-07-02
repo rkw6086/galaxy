@@ -5,7 +5,6 @@ use galaxyui::elements::ListIndentLevel;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use galaxyui_core::elements::ListIndentLevel;
 
 use super::buffer::{Buffer, EditOrigin, EditResult};
 use super::cursor::BufferSumTree;

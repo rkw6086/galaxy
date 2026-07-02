@@ -5,9 +5,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Local};
-use instant::Instant;
-use parking_lot::RwLock;
-use pathfinder_color::ColorU;
 use galaxy_cli::agent::Harness;
 use galaxy_cli::skill::SkillSpec;
 use galaxy_core::channel::ChannelState;
@@ -27,6 +24,9 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use instant::Instant;
+use parking_lot::RwLock;
+use pathfinder_color::ColorU;
 
 use crate::ai::agent::api::ServerConversationToken;
 #[cfg(not(target_family = "wasm"))]

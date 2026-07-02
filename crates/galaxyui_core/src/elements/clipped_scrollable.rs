@@ -467,5 +467,5 @@ impl ScrollableElement for ClippedScrollable {
 }
 
 #[cfg(test)]
-#[path = "clipped_scrollable_tests.rs"]
+#[path = "clipped_scrollable_test.rs"]
 mod tests;

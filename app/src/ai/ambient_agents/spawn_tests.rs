@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use chrono::Utc;
+use futures::StreamExt;
 use session_sharing_protocol::common::SessionId;
 
 use super::{
@@ -10,7 +11,9 @@ use super::{
 };
 use crate::ai::agent::UserQueryMode;
 use crate::ai::ambient_agents::{AmbientAgentTask, AmbientAgentTaskState};
+use crate::server::retry_strategies::MAX_ATTEMPTS;
 use crate::server::server_api::ai::{MockAIClient, SpawnAgentResponse, TaskStatusMessage};
+use crate::server::server_api::presigned_upload::HttpStatusError;
 use crate::terminal::shared_session;
 
 fn task_with(
@@ -127,7 +130,6 @@ async fn followup_submits_before_polling_and_ignores_previous_session_id() {
 
 #[tokio::test]
 async fn followup_api_error_does_not_poll() {
-
     let mut mock = MockAIClient::new();
     mock.expect_submit_run_followup()
         .times(1)
@@ -154,7 +156,6 @@ async fn followup_api_error_does_not_poll() {
 
 #[tokio::test]
 async fn followup_terminal_failure_surfaces_status_message() {
-
     // Post-fix, a follow-up only surfaces a terminal-state failure after observing at least
     // one working state, so the new run's `Error` is interpreted as the follow-up's outcome
     // rather than residue of the prior run. The mock yields `InProgress` (no joinable
@@ -227,7 +228,6 @@ async fn followup_terminal_failure_surfaces_status_message() {
 
 #[tokio::test]
 async fn followup_without_previous_session_id_accepts_joinable_session() {
-
     let session_id = SessionId::new();
     let expected_session_id = session_id;
     let mut mock = MockAIClient::new();
@@ -285,7 +285,6 @@ async fn followup_without_previous_session_id_accepts_joinable_session() {
 
 #[tokio::test]
 async fn followup_without_previous_session_id_errors_if_run_finishes_before_session() {
-
     // Same shape as `followup_terminal_failure_surfaces_status_message`: the follow-up
     // must first observe a working state before a terminal `Succeeded` is interpreted as
     // the follow-up's outcome.
@@ -356,7 +355,6 @@ async fn followup_without_previous_session_id_errors_if_run_finishes_before_sess
 
 #[tokio::test]
 async fn followup_skips_prior_terminal_state_until_working_then_attaches() {
-
     // Reproduces the race fix's happy path: the server hasn't yet transitioned the task off
     // its prior `Blocked` state on the first poll, but does so before the next. The poll
     // loop must silently skip the prior-terminal observation, then surface the new run's
@@ -445,7 +443,6 @@ async fn followup_skips_prior_terminal_state_until_working_then_attaches() {
 
 #[tokio::test]
 async fn followup_skips_prior_terminal_then_surfaces_real_failure() {
-
     // Variant of the happy-path test where the new run legitimately fails after a working
     // state. The prior-terminal `Blocked` observation must still be suppressed, and the
     // new run's `Error` + `status_message` must surface as the follow-up's outcome.
@@ -533,7 +530,6 @@ async fn followup_skips_prior_terminal_then_surfaces_real_failure() {
 
 #[tokio::test]
 async fn followup_cancelled_state_breaks_skip_loop() {
-
     // `Cancelled` is a carve-out: even before a working state has been observed it falls
     // through to terminal handling so a user-initiated cancellation can never leak an
     // infinite poll loop.
@@ -581,7 +577,6 @@ async fn followup_cancelled_state_breaks_skip_loop() {
 
 #[tokio::test]
 async fn followup_bounded_skip_for_server_stall() {
-
     // If the server is wedged on the prior terminal state, the bounded-skip counter must
     // eventually give up so the stream doesn't poll forever.
     let call_count = Arc::new(AtomicUsize::new(0));
@@ -642,7 +637,6 @@ fn run_id() -> crate::ai::ambient_agents::AmbientAgentTaskId {
 }
 
 fn transient_http_error() -> anyhow::Error {
-    use crate::server::server_api::presigned_upload::HttpStatusError;
     anyhow::Error::new(HttpStatusError {
         status: 429,
         body: "Too Many Requests".to_string(),
@@ -660,9 +654,6 @@ fn permanent_http_error() -> anyhow::Error {
 
 #[tokio::test]
 async fn poll_retries_transient_429_errors() {
-
-    use crate::server::retry_strategies::MAX_ATTEMPTS;
-
     let mut mock = MockAIClient::new();
     let call_count = Arc::new(AtomicUsize::new(0));
 
@@ -739,7 +730,6 @@ async fn poll_retries_transient_429_errors() {
 
 #[tokio::test]
 async fn poll_fails_on_permanent_http_error() {
-
     let mut mock = MockAIClient::new();
 
     mock.expect_spawn_agent().returning(|_| {
@@ -801,8 +791,6 @@ async fn poll_fails_on_permanent_http_error() {
 
 #[tokio::test]
 async fn poll_gives_up_after_max_transient_retries() {
-
-
     let mut mock = MockAIClient::new();
     let call_count = Arc::new(AtomicUsize::new(0));
 
@@ -871,7 +859,6 @@ async fn poll_gives_up_after_max_transient_retries() {
 
 #[tokio::test]
 async fn poll_stops_on_terminal_failure_like_state() {
-
     let mut mock = MockAIClient::new();
 
     mock.expect_spawn_agent().returning(|_| {
@@ -1001,7 +988,6 @@ fn session_join_info_ignores_empty_link_and_invalid_session_id() {
 
 #[tokio::test]
 async fn poll_for_session_join_info_waits_until_link_is_available() {
-
     let mut mock = MockAIClient::new();
 
     let call_count = Arc::new(AtomicUsize::new(0));

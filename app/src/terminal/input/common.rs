@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
-use vim::vim::{VimMode, VimState};
 use galaxy_completer::completer::Description;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
@@ -14,6 +12,8 @@ use galaxyui::fonts::Weight;
 use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewHandle};
+use pathfinder_geometry::vector::vec2f;
+use vim::vim::{VimMode, VimState};
 
 use crate::ai::llms::{is_using_api_key_for_provider, LLMPreferences};
 use crate::ai::{AIRequestUsageModel, BuyCreditsBannerDisplayState};
@@ -517,7 +517,6 @@ fn add_buy_credits_banner_overlay(
     buy_credits_banner: &ViewHandle<BuyCreditsBanner>,
     is_input_at_top: bool,
 ) {
-
     let (parent_anchor, child_anchor, y_offset) = if is_input_at_top {
         (ParentAnchor::BottomLeft, ChildAnchor::TopLeft, 8.)
     } else {

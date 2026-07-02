@@ -9,11 +9,10 @@ use std::pin::{pin, Pin};
 use async_channel::Receiver;
 use enclose::enclose;
 use futures::StreamExt;
-use galaxyui::{color::ColorU, App, ModelHandle};
-use rand::prelude::StdRng;
-use test::Network;
 use galaxyui::color::ColorU;
 use galaxyui::{App, ModelHandle};
+use rand::prelude::StdRng;
+use test::Network;
 
 use super::*;
 use crate::editor::soft_wrap::ClampDirection;

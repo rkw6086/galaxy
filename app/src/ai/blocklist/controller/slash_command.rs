@@ -41,6 +41,9 @@ pub enum SlashCommandRequest {
         skill: ai::skills::ParsedSkill,
         user_query: Option<String>,
     },
+    Summarize {
+        prompt: Option<String>,
+    },
 }
 
 impl SlashCommandRequest {
@@ -106,7 +109,7 @@ impl SlashCommandRequest {
             ctx,
         );
         let entrypoint = self.entrypoint();
-        let is_summarize = matches!(self, Self::Summarize { .. });
+        let _is_summarize = matches!(self, Self::Summarize { .. });
         let inputs = self.input(
             context,
             prompt_files,
@@ -300,7 +303,8 @@ impl SlashCommandRequest {
             SlashCommandRequest::CreateNewProject { .. }
             | SlashCommandRequest::CreateEnvironment { .. }
             | SlashCommandRequest::FetchReviewComments { .. }
-            | SlashCommandRequest::InvokeSkill { .. } => EntrypointType::UserInitiated,
+            | SlashCommandRequest::InvokeSkill { .. }
+            | SlashCommandRequest::Summarize { .. } => EntrypointType::UserInitiated,
         }
     }
 }

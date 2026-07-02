@@ -1,4 +1,27 @@
 #![allow(clippy::doc_lazy_continuation)]
+#![allow(unused)]
+#![allow(unexpected_cfgs)]
+
+extern crate galaxy_cli as warp_cli;
+extern crate galaxy_completer as warp_completer;
+extern crate galaxy_editor as warp_editor;
+extern crate galaxy_graphql as warp_graphql;
+extern crate galaxy_isolation_platform as warp_isolation_platform;
+extern crate galaxy_logging as warp_logging;
+extern crate galaxy_managed_secrets as warp_managed_secrets;
+extern crate galaxy_ripgrep as warp_ripgrep;
+extern crate galaxy_server_client as warp_server_client;
+extern crate galaxy_terminal as warp_terminal;
+extern crate galaxy_util as warp_util;
+
+#[macro_use]
+extern crate galaxy_core;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate serde;
+#[macro_use]
+extern crate galaxyui as warpui;
 
 mod ai;
 mod alloc;
@@ -39,7 +62,8 @@ mod experiments;
 mod external_secrets;
 #[cfg(target_family = "wasm")]
 mod font_fallback;
-mod galaxy_managed_paths_watcher;
+pub mod galaxy_managed_paths_watcher;
+pub use galaxy_managed_paths_watcher as warp_managed_paths_watcher;
 mod global_resource_handles;
 mod gpu_state;
 mod input_classifier;
@@ -159,8 +183,8 @@ use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
 use code_review::git_repo_model::GitRepoModels;
 use code_review::GlobalCodeReviewModel;
-use galaxy_cli::GlobalOptions;
-use galaxy_cli::{agent::AgentCommand, CliCommand};
+use galaxy_cli::agent::AgentCommand;
+use galaxy_cli::{CliCommand, GlobalOptions};
 use quit_warning::UnsavedStateSummary;
 #[cfg(feature = "local_fs")]
 use repo_metadata::{
@@ -178,8 +202,6 @@ use terminal::keys_settings::KeysSettings;
 use terminal::local_shell::LocalShellState;
 pub use util::bindings::cmd_or_ctrl_shift;
 use voice::transcriber::VoiceTranscriber;
-use warp_cli::agent::AgentCommand;
-use warp_cli::{CliCommand, GlobalOptions};
 #[cfg(feature = "local_fs")]
 use watcher::HomeDirectoryWatcher;
 
@@ -189,7 +211,11 @@ use crate::ai::aws_credentials::AwsCredentialRefresher as _;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::geap_credentials::GeapCredentialRefresher as _;
 use crate::ai::mcp::{FileBasedMCPManager, FileMCPWatcher};
+use crate::galaxy_managed_paths_watcher::{
+    ensure_galaxy_watch_roots_exist, GalaxyManagedPathsWatcher,
+};
 use crate::uri::web_intent_parser::maybe_rewrite_web_url_to_intent;
+use crate::user_config::GalaxyConfig;
 use crate::view_components::DismissibleToast;
 pub mod workflows;
 pub mod workspace;
@@ -207,20 +233,6 @@ use anyhow::Context;
 use anyhow::{anyhow, Result};
 use appearance::{Appearance, AppearanceManager};
 use channel::ChannelState;
-use interval_timer::IntervalTimer;
-use itertools::Itertools;
-#[cfg(feature = "integration_tests")]
-pub use persistence::testing as sqlite_testing;
-#[cfg(feature = "plugin_host")]
-pub use plugin::{run_plugin_host, PLUGIN_HOST_FLAG};
-use referral_theme_status::ReferralThemeStatus;
-use server::server_api::ServerApiProvider;
-use settings::{ExtraMetaKeys, PrivacySettings};
-#[cfg(feature = "local_fs")]
-use shellexpand::tilde;
-use terminal::input;
-use terminal::session_settings::SessionSettings;
-use url::Url;
 pub use galaxy_core::errors::{report_error, report_if_error};
 use galaxy_core::execution_mode::{AppExecutionMode, ExecutionMode};
 // Re-export the debounce function to simplify imports.
@@ -242,6 +254,20 @@ use galaxyui::platform::app::{ApproveTerminateResult, TerminationRequestSource};
 use galaxyui::platform::TerminationMode;
 use galaxyui::windowing::state::ApplicationStage;
 use galaxyui::{App, AppContext, Event, SingletonEntity, WindowId};
+use interval_timer::IntervalTimer;
+use itertools::Itertools;
+#[cfg(feature = "integration_tests")]
+pub use persistence::testing as sqlite_testing;
+#[cfg(feature = "plugin_host")]
+pub use plugin::{run_plugin_host, PLUGIN_HOST_FLAG};
+use referral_theme_status::ReferralThemeStatus;
+use server::server_api::ServerApiProvider;
+use settings::{ExtraMetaKeys, PrivacySettings};
+#[cfg(feature = "local_fs")]
+use shellexpand::tilde;
+use terminal::input;
+use terminal::session_settings::SessionSettings;
+use url::Url;
 use window_settings::WindowSettings;
 use workflows::manager::WorkflowManager;
 use workspace::sync_inputs::SyncedInputState;
@@ -313,7 +339,6 @@ use crate::terminal::{AudibleBell, CustomSecretRegexUpdater, History};
 #[cfg(feature = "tui")]
 pub use crate::tui::{TuiLoginModel, TuiLoginPhase};
 use crate::undo_close::UndoCloseStack;
-use crate::user_config::WarpConfig;
 use crate::util::bindings::is_binding_cross_platform;
 use crate::vim_registers::VimRegisters;
 use crate::workflows::aliases::WorkflowAliases;

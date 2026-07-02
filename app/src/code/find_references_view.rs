@@ -6,9 +6,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use lsp::ReferenceLocation;
-use pathfinder_geometry::vector::Vector2F;
-use string_offset::CharOffset;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::icons::Icon as WarpIcon;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -28,6 +25,9 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use lsp::ReferenceLocation;
+use pathfinder_geometry::vector::Vector2F;
+use string_offset::CharOffset;
 
 use super::editor::view::{CodeEditorRenderOptions, CodeEditorView};
 use super::global_buffer_model::GlobalBufferModel;
@@ -517,7 +517,7 @@ fn render_header(
     let icon_color = theme.sub_text_color(theme.background());
     let close_button = Hoverable::new(back_mouse_state, move |state| {
         let close_icon = ConstrainedBox::new(
-            galaxyui::elements::Icon::new(GalaxyIcon::X.into(), icon_color).finish(),
+            galaxyui::elements::Icon::new(WarpIcon::X.into(), icon_color).finish(),
         )
         .with_width(16.)
         .with_height(16.)

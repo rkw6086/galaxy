@@ -5,7 +5,6 @@
 //!
 //! Separated into its own module so the two codepaths are easy to distinguish.
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex,
@@ -13,6 +12,7 @@ use galaxyui::elements::{
     ParentOffsetBounds, Shrinkable, Stack,
 };
 use galaxyui::{Element, ViewHandle};
+use pathfinder_geometry::vector::vec2f;
 
 use super::CodeReviewHeader;
 use crate::appearance::Appearance;

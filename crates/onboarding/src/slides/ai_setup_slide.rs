@@ -1,4 +1,3 @@
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
@@ -18,6 +17,7 @@ use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
+use ui_components::{button, Component as _, Options as _};
 
 use super::OnboardingSlide;
 use crate::model::{AiSetupChoice, OnboardingStateModel};
@@ -99,7 +99,7 @@ impl AiSetupSlide {
         let theme = appearance.theme();
 
         let logo_fill = internal_colors::fg_overlay_4(theme);
-        let logo = ConstrainedBox::new(Icon::WarpLogoLight.to_warpui_icon(logo_fill).finish())
+        let logo = ConstrainedBox::new(Icon::WarpLogoLight.to_galaxyui_icon(logo_fill).finish())
             .with_width(64.)
             .with_height(64.)
             .finish();
@@ -290,10 +290,11 @@ impl AiSetupSlide {
                 .with_main_axis_size(MainAxisSize::Min)
                 .with_cross_axis_alignment(CrossAxisAlignment::Start);
             for &item in WARP_AGENT_FEATURES {
-                let icon_el = ConstrainedBox::new(Icon::Check.to_warpui_icon(check_fill).finish())
-                    .with_width(16.)
-                    .with_height(16.)
-                    .finish();
+                let icon_el =
+                    ConstrainedBox::new(Icon::Check.to_galaxyui_icon(check_fill).finish())
+                        .with_width(16.)
+                        .with_height(16.)
+                        .finish();
                 let text_el = appearance
                     .ui_builder()
                     .paragraph(item.to_string())

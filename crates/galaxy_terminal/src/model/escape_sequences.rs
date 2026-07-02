@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
-use galaxyui::keymap::Keystroke;
-use galaxyui::platform::OperatingSystem;
-use lazy_static::lazy_static;
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::platform::OperatingSystem;
+use lazy_static::lazy_static;
 
 use super::mouse::{MouseAction, MouseButton, MouseState};
 use super::TermMode;

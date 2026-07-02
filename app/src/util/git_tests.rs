@@ -1,3 +1,7 @@
+#[cfg(unix)]
+use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use command::r#async::Command;
@@ -288,7 +292,6 @@ async fn committed_branch_files_excludes_uncommitted_and_untracked() {
 #[cfg(unix)]
 #[tokio::test]
 async fn get_pr_for_branch_does_not_require_origin_remote() {
-
     use super::PrInfo;
 
     let (_dir, repo) = init_repo().await;
@@ -325,7 +328,6 @@ async fn get_pr_for_branch_does_not_require_origin_remote() {
 #[cfg(unix)]
 #[tokio::test]
 async fn get_pr_for_branch_returns_none_when_gh_finds_no_pr() {
-
     let (_dir, repo) = init_repo().await;
 
     let fake_bin = tempfile::tempdir().expect("failed to create fake bin dir");
@@ -354,7 +356,6 @@ async fn get_pr_for_branch_returns_none_when_gh_finds_no_pr() {
 #[cfg(unix)]
 #[tokio::test]
 async fn get_pr_for_branch_returns_none_when_gh_cannot_resolve_github_repo() {
-
     let (_dir, repo) = init_repo().await;
 
     let fake_bin = tempfile::tempdir().expect("failed to create fake bin dir");

@@ -1,7 +1,7 @@
-use warp_util::host_id::HostId;
-use warp_util::local_or_remote_path::LocalOrRemotePath;
-use warp_util::remote_path::RemotePath;
-use warp_util::standardized_path::StandardizedPath;
+use galaxy_util::host_id::HostId;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+use galaxy_util::remote_path::RemotePath;
+use galaxy_util::standardized_path::StandardizedPath;
 
 use super::{
     get_provider_for_path, get_scope_for_path, home_skills_path,
@@ -12,13 +12,13 @@ use super::{
 fn warp_home_skills_path_uses_warp_home_path() {
     assert_eq!(
         home_skills_path(SkillProvider::Warp),
-        galaxy_core::paths::warp_home_skills_dir()
+        galaxy_core::paths::galaxy_home_skills_dir()
     );
 }
 
 #[test]
 fn warp_home_skill_path_is_home_warp_skill() {
-    let Some(warp_home_skills_dir) = galaxy_core::paths::warp_home_skills_dir() else {
+    let Some(warp_home_skills_dir) = galaxy_core::paths::galaxy_home_skills_dir() else {
         eprintln!("Skipping test: home directory not available");
         return;
     };

@@ -1,27 +1,29 @@
-use settings::Setting as _;
 use galaxyui::fonts::FamilyId;
-use galaxyui::{AddSingletonModel, AppContext, AssetProvider, Entity, ModelContext, SingletonEntity};
+use galaxyui::{
+    AddSingletonModel, AppContext, AssetProvider, Entity, ModelContext, SingletonEntity,
+};
+use settings::Setting as _;
 
 #[cfg(target_os = "macos")]
 mod macos_app_icon {
+    pub use galaxy_core::channel::{Channel, ChannelState};
     pub use objc2::rc::autoreleasepool;
     pub use objc2::{AnyThread, MainThreadMarker};
     pub use objc2_app_kit::{NSApplication, NSImage, NSWorkspace, NSWorkspaceIconCreationOptions};
     pub use objc2_foundation::{ns_string, NSBundle, NSString};
-    pub use galaxy_core::channel::{Channel, ChannelState};
 
     pub use crate::settings::app_icon::{AppIcon, AppIconSettings, AppIconSettingsChangedEvent};
 }
 use anyhow::anyhow;
+pub use galaxy_core::ui::appearance::{Appearance, AppearanceEvent};
 #[cfg(target_os = "macos")]
 use macos_app_icon::*;
-pub use galaxy_core::ui::appearance::{Appearance, AppearanceEvent};
 
 use crate::settings::{
     active_theme_kind, FontSettings, FontSettingsChangedEvent, MonospaceFontSize, Settings,
     ThemeSettings,
 };
-use crate::themes::theme::{ThemeKind, WarpTheme};
+use crate::themes::theme::{GalaxyTheme, ThemeKind};
 use crate::ASSETS;
 
 /// Manages the state of the app-wide Appearance settings, it is responsible

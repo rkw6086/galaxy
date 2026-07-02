@@ -1,18 +1,13 @@
+#![allow(dead_code)]
+
 use core::default::Default;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use email_address::EmailAddress;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::FocusContext;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use regex::Regex;
-use serde::{Deserialize, Serialize};
 use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Align, Border, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
@@ -31,6 +26,12 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 use super::admin_actions::AdminActions;
 use super::settings_page::{
@@ -240,6 +241,7 @@ impl TeamsPageAction {
 
 impl From<&TeamsPageAction> for LoginGatedFeature {
     fn from(val: &TeamsPageAction) -> LoginGatedFeature {
+        use TeamsPageAction::*;
         match val {
             LeaveTeam => "Leave Team",
             ShowDeleteTeamConfirmationDialog => "Delete Team",

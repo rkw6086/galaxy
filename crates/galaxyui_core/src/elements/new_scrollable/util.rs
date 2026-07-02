@@ -157,5 +157,5 @@ pub(crate) fn scroll_delta_for_axis(
 }
 
 #[cfg(test)]
-#[path = "util_tests.rs"]
+#[path = "util_test.rs"]
 mod tests;

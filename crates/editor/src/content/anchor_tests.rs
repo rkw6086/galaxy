@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
+use galaxyui_core::App;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use galaxyui_core::App;
 
 use super::{AnchorSide, Anchors};
 use crate::content::anchor::{Anchor, AnchorUpdate};

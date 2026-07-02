@@ -1,15 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Error;
-use galaxy_core::{
-    define_settings_group,
-    settings::{Setting, SupportedPlatforms, SyncToCloud},
+use galaxy_core::define_settings_group;
+use galaxy_core::settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
 };
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
 use settings_value::SettingsValue;
-use galaxy_core::define_settings_group;
-use galaxy_core::settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::CloudObject as _;

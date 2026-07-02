@@ -1,10 +1,9 @@
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::model::CoreEditorModel;
-use galaxyui::{platform::WindowStyle, App};
-use pathfinder_geometry::vector::vec2f;
-use string_offset::ByteOffset;
 use galaxyui::platform::WindowStyle;
 use galaxyui::App;
+use pathfinder_geometry::vector::vec2f;
+use string_offset::ByteOffset;
 
 use super::MenuSource;
 use crate::auth::AuthStateProvider;

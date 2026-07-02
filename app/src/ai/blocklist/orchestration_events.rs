@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 
+use uuid::Uuid;
 use warp_multi_agent_api as api;
 use warpui::{Entity, ModelContext, SingletonEntity};
 

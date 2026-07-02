@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use logging::initialize_logging;
 use galaxyui::r#async::executor::Background;
+use logging::initialize_logging;
 
 use self::plugin_caller::PluginCaller;
 use self::plugin_ref::PluginRef;

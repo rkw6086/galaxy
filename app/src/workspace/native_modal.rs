@@ -1,5 +1,5 @@
-use settings::Setting as _;
 use galaxy_core::ui::theme::Fill;
+use settings::Setting as _;
 use warpui::elements::{Align, Container, Empty, Flex, MouseStateHandle, ParentElement};
 use warpui::fonts::Weight;
 use warpui::keymap::FixedBinding;

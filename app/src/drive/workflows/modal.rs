@@ -2,9 +2,6 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
 use galaxy_core::ui::theme::Fill;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::clipboard::ClipboardContent;
@@ -23,6 +20,9 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, UpdateView, View,
     ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
 
 use super::arguments::ArgumentsState;
 use super::enum_creation_dialog::{EnumCreationDialog, EnumCreationDialogEvent, WorkflowEnumData};

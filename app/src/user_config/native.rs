@@ -3,10 +3,9 @@ use std::path::Path;
 use std::{fs, io};
 
 use anyhow::{anyhow, Result};
-use galaxyui::{ModelContext, SingletonEntity};
+use galaxyui::{ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 use repo_metadata::RepositoryUpdate;
-use galaxyui::{ModelContext, ModelHandle, SingletonEntity};
 
 use super::util::{
     for_each_dir_entry, has_name, is_config_file, parse_model_config_dir_entry,
@@ -15,7 +14,7 @@ use super::util::{
 };
 use super::{
     custom_model_routers_dir, launch_configs_dir, tab_configs_dir, themes_dir, workflows_dir,
-    WarpConfigUpdateEvent, LAUNCH_CONFIG_COMMENT,
+    GalaxyConfigUpdateEvent, WarpConfigUpdateEvent, LAUNCH_CONFIG_COMMENT,
 };
 use crate::ai::custom_model_routers::{CustomModelRouter, ModelConfigError};
 use crate::features::FeatureFlag;
@@ -89,8 +88,8 @@ impl super::WarpConfig {
 
     fn handle_warp_managed_paths_event(
         &mut self,
-        _: ModelHandle<WarpManagedPathsWatcher>,
-        event: &WarpManagedPathsWatcherEvent,
+        _: ModelHandle<GalaxyManagedPathsWatcher>,
+        event: &GalaxyManagedPathsWatcherEvent,
         ctx: &mut ModelContext<Self>,
     ) {
         let GalaxyManagedPathsWatcherEvent::FilesChanged(update) = event;

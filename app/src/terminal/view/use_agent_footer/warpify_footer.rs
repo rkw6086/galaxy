@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxyui::elements::{
     ChildView, Container, CrossAxisAlignment, Expanded, Flex, MainAxisSize, ParentElement,
 };
 use galaxyui::prelude::Empty;
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use parking_lot::FairMutex;
 
 use super::{AgentFooterButtonTheme, USE_AGENT_KEYSTROKE};
 use crate::terminal::view::{TerminalModel, PADDING_LEFT};

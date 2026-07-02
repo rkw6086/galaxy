@@ -6,8 +6,8 @@ use galaxy_core::ui::Icon;
 use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
 use galaxyui::elements::{
     Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Element, Expanded, Flex,
-    FormattedTextElement, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement,
-    SelectableArea, SelectionHandle, Text,
+    FormattedTextElement, HyperlinkLens, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, SelectableArea, SelectionHandle, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::prelude::{CornerRadius, Radius};
@@ -15,6 +15,7 @@ use galaxyui::text_layout::TextAlignment;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, ModelHandle, SingletonEntity};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::agent_tips::{AITip, AITipModel};
 use crate::ai::loading::shimmering_warp_loading_text;

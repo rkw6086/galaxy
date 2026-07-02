@@ -1,6 +1,10 @@
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{CornerRadius, MouseState, Radius};
+use galaxyui::Element;
 use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
+use crate::themes::theme::Fill;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 

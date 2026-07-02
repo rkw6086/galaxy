@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 use std::ops::Range;
 
-use itertools::Itertools;
 use galaxyui::elements::{
     ConstrainedBox, Container, Empty, Flex, ParentElement, SavePosition, ScrollStateHandle,
     Scrollable, ScrollableElement, ScrollbarWidth, Text, UniformList, UniformListState,
@@ -11,6 +10,7 @@ use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, View, ViewContext,
     ViewHandle, WeakViewHandle,
 };
+use itertools::Itertools;
 
 use super::styles::{ESTIMATED_RESULT_HEIGHT, MAX_DISPLAYED_RESULT_COUNT};
 use crate::appearance::Appearance;

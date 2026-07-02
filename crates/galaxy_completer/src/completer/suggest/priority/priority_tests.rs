@@ -1,3 +1,5 @@
+use warp_command_signatures::{Importance, Order, Priority as OldPriority};
+
 use super::{Priority, MAX_PRIORITY, MIN_PRIORITY};
 
 #[test]
@@ -41,7 +43,6 @@ fn test_priority_comparison() {
 /// `warp_command_signatures`.
 #[test]
 fn test_new_to_old_priority() {
-    use warp_command_signatures::{Importance, Order, Priority as OldPriority};
     assert_eq!(
         OldPriority::from(Priority::new(MIN_PRIORITY)),
         OldPriority::Global(Importance::Less(Order(1))),
@@ -82,7 +83,6 @@ fn test_new_to_old_priority() {
 /// `warp_command_signatures` to the new Priority.
 #[test]
 fn test_old_to_new_priority() {
-
     assert_eq!(
         Priority::from(OldPriority::Global(Importance::Less(Order(1)))),
         Priority::new(MIN_PRIORITY)

@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -11,6 +9,8 @@ use galaxyui::fonts::Weight::Bold;
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, EntityId, EventContext, SingletonEntity};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{AIConversation, AIConversationId};

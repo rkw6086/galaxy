@@ -2,10 +2,8 @@ use std::collections::HashSet;
 
 use ai::skills::SkillReference;
 use galaxyui::elements::ChildView;
-use galaxyui::{AppContext, Element, ViewContext};
-use galaxyui::{Entity, ModelHandle, View, ViewHandle};
-use lazy_static::lazy_static;
 use galaxyui::{AppContext, Element, Entity, ModelHandle, View, ViewContext, ViewHandle};
+use lazy_static::lazy_static;
 
 use crate::ai::blocklist::agent_view::AgentViewController;
 use crate::search::data_source::{Query, QueryFilter};

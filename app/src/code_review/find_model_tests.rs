@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use galaxy_core::ui::appearance::Appearance;
 use repo_metadata::repositories::DetectedRepositories;
 use string_offset::CharOffset;
-use galaxy_core::ui::appearance::Appearance;
 use warp_editor::content::buffer::InitialBufferState;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warpui::elements::Empty;

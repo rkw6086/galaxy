@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
 };
-use settings::Setting;
 use galaxy_util::path::user_friendly_path;
 use galaxyui::elements::{
     Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable,
@@ -14,6 +13,7 @@ use galaxyui::platform::Cursor;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use settings::Setting;
 
 use crate::ai::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::appearance::Appearance;
@@ -306,7 +306,7 @@ fn compute_candidate_paths(
     let mut seen_keys = HashSet::new();
     let mut candidates: Vec<(String, PathBuf)> = Vec::new();
 
-    for path in indexed_paths.into_iter().chain(persisted_paths.into_iter()) {
+    for path in indexed_paths.into_iter().chain(persisted_paths) {
         if !path_exists(&path) {
             continue;
         }

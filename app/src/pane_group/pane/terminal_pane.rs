@@ -5,15 +5,15 @@ use std::sync::mpsc::SyncSender;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
-#[cfg(not(target_family = "wasm"))]
-use session_sharing_protocol::sharer::SessionSourceType;
-use url::Url;
 use galaxy_cli::agent::Harness;
 use galaxy_core::execution_mode::AppExecutionMode;
-use warp_multi_agent_api as multi_agent_api;
 use galaxyui::{
     AppContext, EntityId, ModelHandle, SingletonEntity, ViewContext, ViewHandle, WindowId,
 };
+#[cfg(not(target_family = "wasm"))]
+use session_sharing_protocol::sharer::SessionSourceType;
+use url::Url;
+use warp_multi_agent_api as multi_agent_api;
 
 #[cfg(not(target_family = "wasm"))]
 use super::local_harness_launch::{prepare_local_harness_child_launch, PreparedLocalHarnessLaunch};
@@ -563,10 +563,11 @@ impl PaneContent for TerminalPane {
                 .sync_id();
 
             // Collect all conversation IDs for this terminal view
-            let conversation_ids_to_restore = BlocklistAIHistoryModel::as_ref(app)
-                .all_live_conversations_for_terminal_surface(self.terminal_view(app).id())
-                .map(|conversation| conversation.id())
-                .collect();
+            let conversation_ids_to_restore: Vec<AIConversationId> =
+                BlocklistAIHistoryModel::as_ref(app)
+                    .all_live_conversations_for_terminal_surface(self.terminal_view(app).id())
+                    .map(|conversation| conversation.id())
+                    .collect();
 
             // Capture agent view state: if fullscreen, store the active conversation ID
             let active_conversation_id = view

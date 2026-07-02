@@ -4,12 +4,12 @@
 //! persisted through Warp's secure storage provider. It is the authoritative
 //! enablement bit for local control.
 use anyhow::Result;
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxyui_extras::secure_storage;
 use serde::{Deserialize, Serialize};
 use settings::macros::define_settings_group;
 use settings::{SecureSetting, Setting, SupportedPlatforms, SyncToCloud};
-use galaxy_core::channel::{Channel, ChannelState};
 use warpui::{AppContext, ModelContext};
-use galaxyui_extras::secure_storage;
 
 const LOCAL_CONTROL_MODE_STORAGE_KEY: &str = "LocalControlMode";
 

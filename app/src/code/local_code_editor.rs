@@ -11,23 +11,6 @@ use std::{
 
 use ai::diff_validation::DiffType;
 use futures::stream::AbortHandle;
-use lsp::types::FileLocation;
-use lsp::{
-    LanguageId, LanguageServerId, LspEvent, LspManagerModel, LspManagerModelEvent, LspServerModel,
-    ReferenceLocation,
-};
-use lsp_types::FormattingOptions;
-use markdown_parser::FormattedText;
-use num_traits::SaturatingSub;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
-use remote_server::manager::RemoteServerManager;
-#[cfg(feature = "local_fs")]
-use repo_metadata::repositories::DetectedRepositories;
-use string_offset::CharOffset;
-use vec1::Vec1;
-use vim::vim::{MotionType, VimMode};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::r#async::debounce;
 use galaxy_core::ui::appearance::Appearance;
@@ -57,9 +40,28 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle, WindowId,
 };
+use lsp::types::FileLocation;
+use lsp::{
+    LanguageId, LanguageServerId, LspEvent, LspManagerModel, LspManagerModelEvent, LspServerModel,
+    ReferenceLocation,
+};
+use lsp_types::FormattingOptions;
+use markdown_parser::FormattedText;
+use num_traits::SaturatingSub;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
+use remote_server::manager::RemoteServerManager;
+#[cfg(feature = "local_fs")]
+use repo_metadata::repositories::DetectedRepositories;
+use string_offset::CharOffset;
+use vec1::Vec1;
+use vim::vim::{MotionType, VimMode};
 
-use crate::ai::persisted_workspace::{PersistedWorkspace, PersistedWorkspaceEvent};
+use crate::ai::persisted_workspace::{LspTask, PersistedWorkspace, PersistedWorkspaceEvent};
 use crate::code::buffer_location::LocalOrRemotePath as BufferFileLocation;
+use crate::code::code_actions::{CodeActionsState, CODE_ACTIONS_DEBOUNCE_PERIOD};
+use crate::code::completion::{CompletionState, COMPLETION_DEBOUNCE_PERIOD};
 use crate::code::editor::model::HoverableLink;
 use crate::code::editor::EditorReviewComment;
 use crate::code::footer::{CodeFooterView, CodeFooterViewEvent};
@@ -1165,7 +1167,7 @@ impl LocalCodeEditorView {
                         }
 
                         // Sort edits by start position in reverse order to avoid offset shifting issues
-                        edits.sort_by(|a, b| b.1.start.cmp(&a.1.start));
+                        edits.sort_by_key(|b| std::cmp::Reverse(b.1.start));
 
                         if let Ok(edits) = Vec1::try_from_vec(edits) {
                             editor.apply_edits(edits, ctx);
@@ -1472,7 +1474,6 @@ impl LocalCodeEditorView {
     /// 5. Starting the LSP server via PersistedWorkspace
     #[cfg(feature = "local_fs")]
     fn enable_lsp_for_path(path: &Path, ctx: &mut ViewContext<Self>) {
-
         // Get the language ID from the file path
         let Some(language_id) = LanguageId::from_path(path) else {
             log::warn!("Enable lsp for path should only work for supported file paths");
@@ -1516,7 +1517,6 @@ impl LocalCodeEditorView {
     /// and emits events that are handled by handle_persisted_workspace_event.
     #[cfg(feature = "local_fs")]
     fn install_and_enable_lsp_for_path(path: &Path, ctx: &mut ViewContext<Self>) {
-
         let Some(language_id) = LanguageId::from_path(path) else {
             log::warn!("Install and enable lsp for path should only work for supported file paths");
             return;

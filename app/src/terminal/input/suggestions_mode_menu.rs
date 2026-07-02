@@ -26,7 +26,7 @@ use crate::input_suggestions::{
     DETAILS_PANEL_MARGIN, DETAILS_PANEL_PADDING, HISTORY_DETAILS_PANEL_WIDTH,
     LABEL_PADDING as InputSuggestionsLabelPadding,
 };
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 
 enum SuggestionsResizeConfig {
     WidthAndHeight,

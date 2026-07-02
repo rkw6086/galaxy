@@ -4,8 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ::settings::{Setting, ToggleableSetting};
-use lazy_static::lazy_static;
-use strum::IntoEnumIterator;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::semantic_selection::{
@@ -26,6 +24,8 @@ use galaxyui::{
     Action, AppContext, DisplayIdx, Entity, EventContext, ModelHandle, SingletonEntity, Tracked,
     TypedActionView, View, ViewContext, ViewHandle, WindowId,
 };
+use lazy_static::lazy_static;
+use strum::IntoEnumIterator;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use {
     crate::settings::ForceX11, crate::settings::LinuxAppConfiguration,

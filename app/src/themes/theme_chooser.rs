@@ -1,7 +1,5 @@
-use pathfinder_color::ColorU;
-use settings::Setting as _;
 use galaxy_editor::editor::NavigationKey;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     Align, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, Element, Empty, EventHandler, Fill, Flex, Hoverable, Icon,
@@ -19,6 +17,8 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, Tracked, TypedActionView,
     UpdateModel, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+use settings::Setting as _;
 
 use super::theme;
 use crate::appearance::{Appearance, AppearanceManager};
@@ -33,12 +33,12 @@ use crate::resource_center::{
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{respect_system_theme, ThemeSettings};
 use crate::themes::theme::{
-    RespectSystemTheme, SelectedSystemThemes, ThemeKind, WarpTheme, WarpThemeConfig,
+    GalaxyTheme, GalaxyThemeConfig, RespectSystemTheme, SelectedSystemThemes, ThemeKind,
 };
 use crate::ui_components::buttons::{close_button, icon_button};
 use crate::ui_components::icons;
 use crate::ui_components::window_focus_dimming::WindowFocusDimming;
-use crate::user_config::{load_theme_configs, themes_dir, WarpConfig, WarpConfigUpdateEvent};
+use crate::user_config::{load_theme_configs, themes_dir, GalaxyConfig, GalaxyConfigUpdateEvent};
 use crate::util::traffic_lights::{traffic_light_data, TrafficLightData, TrafficLightSide};
 use crate::window_settings::WindowSettings;
 use crate::workspace::PANEL_HEADER_HEIGHT;

@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use ai::agent::action::InsertReviewComment;
 use chrono::Local;
-use lsp::LspManagerModel;
-use repo_metadata::repositories::DetectedRepositories;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
+use lsp::LspManagerModel;
+use repo_metadata::repositories::DetectedRepositories;
 use warp_editor::content::buffer::InitialBufferState;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warp_editor::render::model::LineCount;

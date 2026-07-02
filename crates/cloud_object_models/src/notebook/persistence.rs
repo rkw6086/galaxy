@@ -98,6 +98,7 @@ pub fn read_notebooks(
 }
 
 pub fn delete_notebook(conn: &mut SqliteConnection, notebook_id: i32) -> Result<(), Error> {
+    use schema::notebooks::dsl::*;
     diesel::delete(notebooks.filter(id.eq(notebook_id))).execute(conn)?;
     Ok(())
 }

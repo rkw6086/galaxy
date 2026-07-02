@@ -8,7 +8,6 @@ use itertools::Itertools;
 use rangemap::RangeSet;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
-use galaxyui_core::App;
 
 use super::{Engine, Match, SearchConfig};
 use crate::content::buffer::Buffer;

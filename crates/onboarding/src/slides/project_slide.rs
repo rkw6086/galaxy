@@ -1,4 +1,3 @@
-use ui_components::{button, keyboard_shortcut, Component as _, Options as _};
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::coloru_with_opacity;
@@ -18,6 +17,7 @@ use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
+use ui_components::{button, keyboard_shortcut, Component as _, Options as _};
 
 use super::OnboardingSlide;
 use crate::model::OnboardingStateModel;

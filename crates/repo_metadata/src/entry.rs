@@ -7,13 +7,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(feature = "local_fs")]
 use std::sync::Arc;
 
+use galaxy_util::standardized_path::StandardizedPath;
 use ignore::gitignore::Gitignore;
 #[cfg(feature = "local_fs")]
 use notify_debouncer_full::notify::WatchFilter;
 use thiserror::Error;
 
 use crate::standing_queries::{StandingQueryDefinitions, StandingQueryResults};
-use galaxy_util::standardized_path::StandardizedPath;
 
 /// Maximum file size allowed for treesitter parsing (3MB).
 const MAX_FILE_SIZE: usize = 3 * 1000 * 1000;

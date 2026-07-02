@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::iter;
 use std::sync::Arc;
 
-use ignore::gitignore::Gitignore;
 use galaxy_util::standardized_path::StandardizedPath;
+use ignore::gitignore::Gitignore;
 
 use crate::file_tree_store::{FileTreeDirectoryEntryState, FileTreeEntry, FileTreeEntryState};
 use crate::{BuildTreeError, DirectoryEntry, Entry};

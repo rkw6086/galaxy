@@ -828,7 +828,8 @@ impl CustomRouterEditorView {
 
         // Error
         if let Some(msg) = &self.save_error {
-            let err_color = galaxy_core::ui::theme::Fill::Solid(appearance.theme().ui_error_color());
+            let err_color =
+                galaxy_core::ui::theme::Fill::Solid(appearance.theme().ui_error_color());
             col.add_child(
                 Container::new(
                     Text::new(msg.clone(), appearance.ui_font_family(), 12.)

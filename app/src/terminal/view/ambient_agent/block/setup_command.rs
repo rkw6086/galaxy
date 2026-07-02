@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_terminal::model::BlockId;
 use galaxyui::prelude::{Container, Empty, MouseStateHandle};
@@ -8,6 +7,7 @@ use galaxyui::scene::{CornerRadius, Radius};
 use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use parking_lot::FairMutex;
 
 use crate::ai::agent::icons::{failed_icon, yellow_running_icon};
 use crate::ai::blocklist::inline_action::inline_action_header::{

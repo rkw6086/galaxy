@@ -1,4 +1,3 @@
-use vec1::{vec1, Vec1};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::builder::AnimatedButtonOptions;
 use galaxyui::elements::{
@@ -15,6 +14,7 @@ use galaxyui::{
     AppContext, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
     View, ViewContext, ViewHandle, WindowId,
 };
+use vec1::{vec1, Vec1};
 
 use super::keybindings_page::KeybindingsEvent;
 use super::section_views::{

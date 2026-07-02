@@ -1,7 +1,8 @@
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::object_permissions::OwnerType;
 use galaxy_graphql::queries::api_keys::ApiKeyProperties as GqlApiKeyProperties;
@@ -15,7 +16,10 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use super::platform::{
     CreateApiKeyModal, CreateApiKeyModalEvent, CreateApiKeyModalViewState, ExpireApiKeyButton,

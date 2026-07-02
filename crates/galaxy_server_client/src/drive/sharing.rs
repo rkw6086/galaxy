@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
+use cloud_objects::cloud_object::Owner;
 use galaxy_graphql::object_permissions::AccessLevel;
 use serde::{Deserialize, Serialize};
 use session_sharing_protocol::common::{ProfileData as SessionSharingProfileData, Role};
 
 use crate::auth::UserUid;
-use crate::cloud_object::Owner;
 use crate::ids::ServerId;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]

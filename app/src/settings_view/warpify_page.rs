@@ -2,10 +2,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use regex::Regex;
-use settings::{Setting, ToggleableSetting};
-use strum::IntoEnumIterator;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Container, Flex, FormattedTextElement, HighlightedHyperlink, MouseStateHandle, ParentElement,
@@ -18,6 +14,10 @@ use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use regex::Regex;
+use settings::{Setting, ToggleableSetting};
+use strum::IntoEnumIterator;
 
 use super::settings_page::{
     add_setting, render_alternating_color_list, render_body_item, render_dropdown_item,

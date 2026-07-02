@@ -5,12 +5,12 @@ use ai::skills::{
     ParsedSkill, SkillProvider, SKILL_PROVIDER_DEFINITIONS,
 };
 use anyhow::Error;
-use repo_metadata::{RepoMetadataModel, RepositoryIdentifier};
-use walkdir::{DirEntry, WalkDir};
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::remote_path::RemotePath;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::AppContext;
+use repo_metadata::{RepoMetadataModel, RepositoryIdentifier};
+use walkdir::{DirEntry, WalkDir};
 
 use crate::galaxy_managed_paths_watcher::galaxy_managed_skill_dirs;
 

@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
@@ -10,6 +9,7 @@ use galaxyui_core::elements::{
 use galaxyui_core::fonts::Weight;
 use galaxyui_core::text_layout::TextAlignment;
 use galaxyui_core::Element;
+use pathfinder_color::ColorU;
 
 /// Content for a "you'll lose these features" opt-out confirmation dialog.
 pub struct FeatureOptOutDialog {
@@ -62,7 +62,7 @@ pub fn render_feature_optout_dialog(
         let mut feature_list =
             Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
         for &item in dialog.features {
-            let icon_el = ConstrainedBox::new(Icon::X.to_warpui_icon(feature_x_fill).finish())
+            let icon_el = ConstrainedBox::new(Icon::X.to_galaxyui_icon(feature_x_fill).finish())
                 .with_width(16.)
                 .with_height(16.)
                 .finish();

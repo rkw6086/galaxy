@@ -1,3 +1,19 @@
+use galaxy_core::paths::home_relative_path;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, Empty, Flex,
+    FormattedTextElement, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, SavePosition, Shrinkable, Stack, Text,
+};
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::button::{Button, ButtonVariant};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
+    AppContext, Element, Entity, FocusContext, ModelContext, ModelHandle, SingletonEntity,
+    TypedActionView, View, ViewContext, ViewHandle,
+};
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
 };
@@ -14,7 +30,7 @@ use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
 use crate::user_config::launch_configs_dir;
 #[cfg(feature = "local_fs")]
-use crate::user_config::{util::file_name_to_human_readable_name, WarpConfig};
+use crate::user_config::{util::file_name_to_human_readable_name, GalaxyConfig};
 use crate::util::bindings::keybinding_name_to_display_string;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;

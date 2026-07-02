@@ -1,3 +1,5 @@
+use galaxyui_core::async_assert;
+use galaxyui_core::integration::TestStep;
 use warp::integration_testing::clipboard::assert_clipboard_contains_string;
 use warp::integration_testing::secret_redaction::{
     assert_secret_tooltip_open, assert_secrets_redacted_for_ai,
@@ -14,8 +16,6 @@ use warp::integration_testing::view_getters::single_terminal_view;
 use warp::settings_view::{PrivacyPageAction, SettingsAction};
 use warp::terminal::model::index::Point;
 use warp::terminal::model::terminal_model::WithinModel;
-use galaxyui_core::async_assert;
-use galaxyui_core::integration::TestStep;
 
 use super::{new_builder, Builder};
 use crate::util::skip_if_powershell_core_2303;

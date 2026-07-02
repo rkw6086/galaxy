@@ -7,11 +7,11 @@ mod tests;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use repo_metadata::file_tree_store::FileTreeEntryState;
-use repo_metadata::{FileMetadata, FileTreeEntry};
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::ViewContext;
+use repo_metadata::file_tree_store::FileTreeEntryState;
+use repo_metadata::{FileMetadata, FileTreeEntry};
 
 use super::{FileTreeIdentifier, FileTreeItem, FileTreeView};
 use crate::code::file_tree::view::{PendingEdit, PendingEditKind};
@@ -29,7 +29,6 @@ pub(super) fn sort_entries_for_file_tree(
     entry_2: &StandardizedPath,
     entry_map: &FileTreeEntry,
 ) -> Ordering {
-
     // Entries missing from the map sort before present entries, and compare
     // equal to each other. Using the same `Ordering` on both sides would
     // violate antisymmetry and cause `sorted_by` to panic with

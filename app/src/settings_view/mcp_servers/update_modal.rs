@@ -1,8 +1,8 @@
 use chrono::{Local, TimeZone};
-use uuid::Uuid;
 use galaxy_core::ui::external_product_icon::ExternalProductIcon;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
+use uuid::Uuid;
 use warpui::elements::{
     Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Flex, Hoverable, MainAxisAlignment, MouseStateHandle, Padding, ParentElement, Radius,

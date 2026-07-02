@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 #[cfg(feature = "local_fs")]
 use chrono::Utc;
+use galaxyui_core::App;
 #[cfg(feature = "local_fs")]
 use repo_metadata::DirectoryWatcher;
-use galaxyui_core::App;
 
 use super::{
     BuildSource, CodebaseIndexFinishedStatus, CodebaseIndexManager, CodebaseIndexManagerConfig,

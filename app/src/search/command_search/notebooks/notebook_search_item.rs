@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{
     ConstrainedBox, Container, Flex, Highlight, Icon, MainAxisAlignment, MainAxisSize,
     ParentElement, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::notebooks::CloudNotebookModel;

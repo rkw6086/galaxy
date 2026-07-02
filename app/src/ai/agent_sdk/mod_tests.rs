@@ -1,4 +1,3 @@
-use serde_json::json;
 use galaxy_cli::agent::Harness;
 use galaxy_cli::artifact::{
     ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs,
@@ -6,6 +5,7 @@ use galaxy_cli::artifact::{
 use galaxy_cli::task::{MessageCommand, MessageSendArgs, MessageWatchArgs, TaskCommand};
 use galaxy_cli::CliCommand;
 use galaxy_core::telemetry::TelemetryEvent;
+use serde_json::json;
 
 use super::{command_requires_auth, command_to_telemetry_event, reconcile_task_harness};
 

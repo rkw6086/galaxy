@@ -12,12 +12,12 @@ use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
     not(any(test, feature = "integration_tests"))
 ))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManagerEvent;
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use git2::Repository as GitRepository;
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::paths::home_relative_path;
 use galaxy_core::ui::theme::color::internal_colors;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use git2::Repository as GitRepository;
+use pathfinder_color::ColorU;
 use warpui::elements::{
     Align, Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
     Container, CornerRadius, CrossAxisAlignment, Dismiss, Element, Empty, Expanded, Flex,
@@ -751,7 +751,7 @@ fn available_indexed_repos(app: &AppContext) -> Vec<RepoEntry> {
             })
             .collect();
 
-        repos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        repos.sort_by_key(|a| a.name.to_lowercase());
         repos
     }
 

@@ -1,5 +1,6 @@
 //! Integration tests for CTRL-D / EOT behaviour.
 
+use galaxyui_core::integration::TestStep;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::util::current_shell_starter_and_version;
 use warp::integration_testing::terminal::{
@@ -13,7 +14,6 @@ use warp::terminal::model::bootstrap::BootstrapStage;
 use warp::terminal::shell::ShellType;
 use warp::terminal::TerminalView;
 use warp::workspace::Workspace;
-use galaxyui_core::integration::TestStep;
 
 use super::{new_builder, Builder};
 use crate::util::write_all_rc_files_for_test;

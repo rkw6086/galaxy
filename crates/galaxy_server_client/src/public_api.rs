@@ -1,7 +1,7 @@
 use anyhow::{Context as _, Result};
-use serde::de::DeserializeOwned;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::errors::{ErrorExt, register_error};
+use serde::de::DeserializeOwned;
 
 use crate::base_client::{AmbientHeaderPolicy, BaseClient};
 

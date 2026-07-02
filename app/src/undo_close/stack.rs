@@ -1,9 +1,9 @@
-use uuid::Uuid;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{
     AppContext, ClosedWindowData, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity,
     ViewHandle, WeakViewHandle, WindowId,
 };
+use uuid::Uuid;
 
 use super::settings::UndoCloseSettingsChangedEvent;
 use super::UndoCloseSettings;

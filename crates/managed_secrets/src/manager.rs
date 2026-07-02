@@ -3,11 +3,11 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use vec1::vec1;
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::managed_secrets::ManagedSecret;
 use galaxy_graphql::queries::task_secrets::ManagedSecretValue as GqlManagedSecretValue;
 use galaxyui_core::{Entity, SingletonEntity};
+use vec1::vec1;
 
 use crate::ManagedSecretValue;
 use crate::client::{

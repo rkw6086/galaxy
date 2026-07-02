@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use string_offset::CharOffset;
 use galaxy_core::features::FeatureFlag;
 use galaxyui_core::assets::asset_cache::{AssetCache, AssetSource, AssetState};
 use galaxyui_core::fonts::{Properties, Style, Weight};
 use galaxyui_core::image_cache::ImageType;
 use galaxyui_core::text_layout::{LayoutCache, StyleAndFont, TextStyle};
 use galaxyui_core::{App, SingletonEntity};
+use string_offset::CharOffset;
 
 use super::{
     BlockLocation, LayOutArgs, layout_mermaid_diagram_block, layout_table_block, layout_text_block,

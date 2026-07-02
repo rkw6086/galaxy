@@ -2,10 +2,9 @@ use std::marker::PhantomData;
 
 use anyhow::{anyhow, Result};
 use chrono::{Local, TimeDelta};
-use galaxyui::{AppContext, SingletonEntity, View, ViewContext};
+use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext};
 use history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use session_sharing_protocol::common::ParticipantId;
-use galaxyui::{AppContext, Entity, SingletonEntity, ViewContext};
 
 use super::{AIBlockModel, AIBlockOutputStatus, OutputStatusUpdateCallback};
 use crate::ai::agent::conversation::AIConversationId;

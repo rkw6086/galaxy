@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use warpui::keymap::BindingId;
 
 use super::*;
 

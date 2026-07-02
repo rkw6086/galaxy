@@ -13,17 +13,6 @@ use std::time::Duration;
 
 use ai::document::{AIDocumentId, AIDocumentVersion};
 use chrono::{DateTime, Local};
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-#[cfg(feature = "voice_input")]
-use settings::Setting;
-use settings::ToggleableSetting;
-#[cfg(not(target_family = "wasm"))]
-use tokio::fs;
-use toolbar_item::AgentToolbarItemKind;
-#[cfg(feature = "voice_input")]
-use voice_input::{StartListeningError, VoiceSessionResult};
 use galaxy_cli::agent::Harness;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::report_if_error;
@@ -43,6 +32,17 @@ use galaxyui::{
     AppContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+#[cfg(feature = "voice_input")]
+use settings::Setting;
+use settings::ToggleableSetting;
+#[cfg(not(target_family = "wasm"))]
+use tokio::fs;
+use toolbar_item::AgentToolbarItemKind;
+#[cfg(feature = "voice_input")]
+use voice_input::{StartListeningError, VoiceSessionResult};
 
 #[cfg(feature = "local_fs")]
 pub(crate) use self::environment_selector::sort_environments_by_recency;
@@ -232,6 +232,9 @@ pub struct AgentInputFooter {
     // availability. Per-conversation eligibility is enforced by
     // `Workspace::start_local_to_cloud_handoff`.
     handoff_to_cloud_button: ViewHandle<ActionButton>,
+
+    start_remote_control_button: ViewHandle<ActionButton>,
+    stop_remote_control_button: ViewHandle<ActionButton>,
 
     // CLI agent voice input state (self-contained, bypasses editor voice flow).
     #[cfg(feature = "voice_input")]
@@ -579,7 +582,7 @@ impl AgentInputFooter {
         let start_remote_control_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("/remote-control", RemoteControlButtonTheme)
                 .with_icon(Icon::Phone01)
-                .with_tooltip(START_REMOTE_CONTROL_TOOLTIP)
+                .with_tooltip("Start remote control")
                 .with_size(cli_button_size)
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
@@ -845,6 +848,8 @@ impl AgentInputFooter {
             display_chip_config,
             fast_forward_button,
             handoff_to_cloud_button,
+            start_remote_control_button,
+            stop_remote_control_button,
             #[cfg(feature = "voice_input")]
             cli_voice_input_state: CLIVoiceInputState::default(),
             #[cfg(feature = "voice_input")]
@@ -2299,6 +2304,8 @@ pub enum AgentInputFooterAction {
     ShowContextMenu {
         position: Vector2F,
     },
+    StartRemoteControl,
+    StopRemoteControl,
 }
 
 impl TypedActionView for AgentInputFooter {
@@ -2497,6 +2504,12 @@ impl TypedActionView for AgentInputFooter {
                     position: *position,
                 });
             }
+            AgentInputFooterAction::StartRemoteControl => {
+                ctx.emit(AgentInputFooterEvent::StartRemoteControl);
+            }
+            AgentInputFooterAction::StopRemoteControl => {
+                ctx.emit(AgentInputFooterEvent::StopRemoteControl);
+            }
         }
     }
 }
@@ -2541,6 +2554,8 @@ pub enum AgentInputFooterEvent {
     /// source conversation with content) or activates `&` compose mode
     /// (preserving any in-flight prompt).
     HandoffChipClicked,
+    StartRemoteControl,
+    StopRemoteControl,
 }
 
 impl Entity for AgentInputFooter {

@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 use std::ops::Range;
 
-use itertools::Itertools;
-use lazy_static::lazy_static;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement,
     Radius, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, Shrinkable,
@@ -14,6 +12,8 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
 
 use super::searcher::{EmbeddingSearchItemAction, EmbeddingSearchMixer};
 use crate::appearance::Appearance;
@@ -376,6 +376,7 @@ pub mod styles {
     use galaxyui::elements::{Border, DropShadow, ScrollbarWidth};
     use pathfinder_color::ColorU;
 
+    use crate::appearance::Appearance;
     use crate::themes::theme::Fill;
 
     pub const CORNER_RADIUS: f32 = 6.;

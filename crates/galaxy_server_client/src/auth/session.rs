@@ -4,16 +4,16 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
 use firebase::FetchAccessTokenResponse;
+use galaxy_core::channel::ChannelState;
+use galaxyui_core::r#async::{BoxFuture, Timer};
 use instant::Duration;
 use oauth2::TokenResponse as _;
 use url::Url;
-use galaxy_core::channel::ChannelState;
 use warp_server_auth::auth_state::AuthState;
 use warp_server_auth::credentials::{
     AuthToken, Credentials, FirebaseToken, LoginToken, RefreshToken,
 };
 use warp_server_auth::user::FirebaseAuthTokens;
-use galaxyui_core::r#async::{BoxFuture, Timer};
 
 use super::UserAuthenticationError;
 

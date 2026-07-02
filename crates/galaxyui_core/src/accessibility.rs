@@ -274,3 +274,5 @@ impl From<Option<AccessibilityContent>> for ActionAccessibilityContent {
         }
     }
 }
+
+pub type WarpA11yRole = GalaxyA11yRole;

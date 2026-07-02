@@ -5,6 +5,12 @@ use std::ffi::c_void;
 use std::rc::Rc;
 
 use cocoa::base::{id, nil};
+use galaxyui_core::actions::StandardAction;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::menu::{
+    ItemTriggeredCallback, Menu, MenuBar, MenuItem, MenuItemProperties, MenuItemPropertyChanges,
+    UpdateMenuItemCallback,
+};
 use lazy_static::lazy_static;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2::runtime::Sel;
@@ -20,12 +26,6 @@ use objc2_app_kit::{
     NSUpArrowFunctionKey,
 };
 use objc2_foundation::{ns_string, NSInteger, NSString};
-use galaxyui_core::actions::StandardAction;
-use galaxyui_core::keymap::Keystroke;
-use galaxyui_core::platform::menu::{
-    ItemTriggeredCallback, Menu, MenuBar, MenuItem, MenuItemProperties, MenuItemPropertyChanges,
-    UpdateMenuItemCallback,
-};
 
 use super::app::callback_dispatcher;
 

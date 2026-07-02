@@ -4,6 +4,7 @@
 //! formatting, long-string detection, state management, and value rendering.
 //! They do not exercise the element-construction layer (which requires a
 //! running UI framework).
+use crate::ai::agent::CallMCPToolResult;
 use crate::ui_components::json_tree::{
     format_array_annotation, format_number, format_object_annotation, is_long_string,
     JsonTreeState, PathSegment, LONG_STRING_THRESHOLD,
@@ -306,7 +307,6 @@ fn multi_key_object_all_entries_preserved() {
 
 #[test]
 fn mcp_result_success_with_structured_content_returns_tree() {
-    use crate::ai::agent::CallMCPToolResult;
     use crate::ai::blocklist::inline_action::requested_command::{
         mcp_result_to_renderable, McpRenderable,
     };

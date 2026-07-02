@@ -3,18 +3,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use settings::Setting as _;
-#[cfg(target_family = "wasm")]
-use url::Url;
-use uuid::Uuid;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::mutations::create_anonymous_user::{
     AnonymousUserType, CreateAnonymousUserResult,
 };
-use warp_server_auth::user::persistence::PersistedUser;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::{Entity, ModelContext, SingletonEntity, UpdateModel};
+use settings::Setting as _;
+#[cfg(target_family = "wasm")]
+use url::Url;
+use uuid::Uuid;
+use warp_server_auth::user::persistence::PersistedUser;
 
 use super::auth_state::{AuthState, PersistAction};
 use super::auth_view_modal::{AuthRedirectPayload, AuthViewVariant};

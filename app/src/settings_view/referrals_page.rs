@@ -1,6 +1,15 @@
+#![allow(dead_code)]
+
 use std::ops::Deref;
 use std::sync::Arc;
 
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
+    AppContext, Entity, EventContext, FocusContext, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
+};
 use lazy_static::lazy_static;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_color::ColorU;
@@ -12,13 +21,6 @@ use warpui::elements::{
     Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Fill,
     Flex, FormattedTextElement, HighlightedHyperlink, Icon, MainAxisSize, MouseStateHandle,
     ParentElement, Radius, Rect, Shrinkable,
-};
-use galaxyui::fonts::Weight;
-use galaxyui::ui_components::button::ButtonVariant;
-use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use galaxyui::{
-    AppContext, Entity, EventContext, FocusContext, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
 };
 
 use super::settings_page::{

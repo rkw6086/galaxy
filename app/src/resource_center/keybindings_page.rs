@@ -1,5 +1,4 @@
 use enum_iterator::{all, Sequence};
-use itertools::{Either, Itertools};
 use galaxyui::elements::{
     Align, Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Element, Fill, Flex, MainAxisSize, MouseStateHandle,
@@ -13,6 +12,7 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use itertools::{Either, Itertools};
 
 use super::section_views::{
     DESCRIPTION_FONT_SIZE, ITEM_PADDING_BOTTOM, SCROLLBAR_OFFSET, SCROLLBAR_WIDTH,

@@ -181,15 +181,20 @@ impl ActionSearcher for FuzzyActionSearcher {
 #[cfg(not(target_family = "wasm"))]
 mod full_text_searcher {
 
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use fuzzy_match::FuzzyMatchResult;
     use warp_search_core::define_search_schema;
     use warpui::keymap::{BindingId, DescriptionContext};
 
     use crate::search::action::data_source::{is_excluded_binding, ActionSearcher, SearcherAction};
+    use crate::search::action::search_item::MatchedBinding;
     use crate::search::data_source::QueryResult;
     use crate::search::searcher::{
         SimpleFullTextSearcher, DEFAULT_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR,
     };
+    use crate::util::bindings::CommandBinding;
 
     define_search_schema!(
         schema_name: ACTION_SEARCH_SCHEMA,

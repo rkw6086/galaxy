@@ -1,10 +1,5 @@
 use std::path::PathBuf;
 
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
-};
-use pathfinder_color::ColorU;
-use settings::Setting;
 use galaxy_core::ui::theme::phenomenon::PhenomenonStyle;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -25,6 +20,8 @@ use galaxyui::{
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
 };
+use pathfinder_color::ColorU;
+use settings::Setting;
 
 use super::{tab_config_step, welcome_banner};
 use crate::appearance::Appearance;

@@ -3,6 +3,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_compat::CompatExt as _;
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::safe_error;
+use galaxy_core::settings::Setting as _;
+use galaxyui::windowing::WindowManager;
+use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use mcp::oauth::{
     self, load_credentials_from_secure_storage, write_to_secure_storage, AuthContext,
     CallbackResult, FileBasedPersistedCredentialsMap, PersistedCredentials,
@@ -13,12 +19,6 @@ use parking_lot::Mutex;
 use simple_logger::manager::LogManager;
 use url::Url;
 use uuid::Uuid;
-use galaxy_core::execution_mode::AppExecutionMode;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::safe_error;
-use galaxy_core::settings::Setting as _;
-use galaxyui::windowing::WindowManager;
-use galaxyui::{AppContext, ModelContext, SingletonEntity};
 
 use super::{
     MCPServerState, SpawnedServerInfo, TemplatableMCPServerInfo, TemplatableMCPServerManager,

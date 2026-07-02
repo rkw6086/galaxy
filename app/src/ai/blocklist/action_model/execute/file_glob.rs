@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use galaxy_core::features::FeatureFlag;
 use galaxyui::r#async::FutureExt as AsyncFutureExt;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
-use galaxy_core::features::FeatureFlag;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{

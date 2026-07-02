@@ -77,6 +77,7 @@ pub fn read_workflows(
 }
 
 pub fn delete_workflow(conn: &mut SqliteConnection, workflow_id: i32) -> Result<(), Error> {
+    use schema::workflows::dsl::*;
     diesel::delete(workflows.filter(id.eq(workflow_id))).execute(conn)?;
     Ok(())
 }

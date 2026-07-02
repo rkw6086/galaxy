@@ -1,6 +1,6 @@
+use galaxyui_core::App;
 use itertools::Itertools;
 use string_offset::CharOffset;
-use galaxyui_core::App;
 
 use crate::content::buffer::Buffer;
 use crate::content::outline::BlockOutline;

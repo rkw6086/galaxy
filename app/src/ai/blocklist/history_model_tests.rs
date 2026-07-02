@@ -38,6 +38,7 @@ use crate::persistence::ModelEvent;
 use crate::server::ids::ServerId;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
 use crate::terminal::model::session::SessionId;
+use crate::test_util::ai_agent_tasks::{create_api_task, create_message};
 use crate::test_util::settings::{
     initialize_history_persistence_for_tests, initialize_settings_for_tests,
 };
@@ -626,6 +627,7 @@ fn test_initialize_historical_conversations_resolves_parent_agent_id_children_vi
                     autoexecute_override: None,
                     last_event_sequence: None,
                     pinned: false,
+                    ..Default::default()
                 },
                 now,
                 None,
@@ -648,6 +650,7 @@ fn test_initialize_historical_conversations_resolves_parent_agent_id_children_vi
                     autoexecute_override: None,
                     last_event_sequence: None,
                     pinned: false,
+                    ..Default::default()
                 },
                 now - chrono::Duration::seconds(1),
                 Some("Parent query"),
@@ -698,6 +701,7 @@ fn test_initialize_historical_conversations_uses_root_task_description_title() {
                     autoexecute_override: None,
                     last_event_sequence: None,
                     pinned: false,
+                    ..Default::default()
                 })
                 .expect("conversation data should serialize"),
                 last_modified_at: now,
@@ -762,6 +766,7 @@ fn test_initialize_historical_conversations_eagerly_hydrates_orchestration_child
                     autoexecute_override: None,
                     last_event_sequence: None,
                     pinned: false,
+                    ..Default::default()
                 },
                 now,
                 // Child needs at least one root task so `AIConversation::new_restored` succeeds.
@@ -785,6 +790,7 @@ fn test_initialize_historical_conversations_eagerly_hydrates_orchestration_child
                     autoexecute_override: None,
                     last_event_sequence: None,
                     pinned: false,
+                    ..Default::default()
                 },
                 now - chrono::Duration::seconds(1),
                 Some("Parent query"),
@@ -1081,6 +1087,7 @@ fn create_server_metadata(
         token_usage: vec![],
         tool_usage_metadata: Default::default(),
         context_window_segments: Vec::new(),
+        ..Default::default()
     };
 
     ServerAIConversationMetadata {
@@ -1229,7 +1236,6 @@ fn test_merge_cloud_metadata_updates_already_restored_conversations() {
 
 #[test]
 fn test_merge_cloud_metadata_refreshes_stale_restored_conversation_metadata() {
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
         let terminal_view_id = EntityId::new();
@@ -1277,7 +1283,6 @@ fn test_merge_cloud_metadata_refreshes_stale_restored_conversation_metadata() {
 
 #[test]
 fn test_merge_cloud_metadata_reuses_restored_conversation_id_for_token() {
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
         let terminal_view_id = EntityId::new();
@@ -1685,7 +1690,6 @@ fn test_child_conversation_ids_of_unknown_parent() {
 
 #[test]
 fn test_restore_conversations_maintains_children_by_parent() {
-
     App::test((), |mut app| async move {
         let terminal_view_id = EntityId::new();
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
@@ -1707,7 +1711,6 @@ fn test_restore_conversations_maintains_children_by_parent() {
 
 #[test]
 fn test_restore_conversations_indexes_child_by_parent_agent_id() {
-
     App::test((), |mut app| async move {
         let terminal_view_id = EntityId::new();
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
@@ -1738,7 +1741,6 @@ fn test_restore_conversations_indexes_child_by_parent_agent_id() {
 
 #[test]
 fn test_restore_conversations_dedup_children_by_parent() {
-
     App::test((), |mut app| async move {
         let terminal_view_id = EntityId::new();
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
@@ -2284,7 +2286,6 @@ fn test_optimistic_root_restore_round_trip_yields_in_progress_optimistic_root() 
 /// (the synthesized optimistic root no longer produces a stub).
 #[test]
 fn test_truncate_from_exchange_to_empty_persist_event_has_empty_updated_tasks() {
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
@@ -2390,7 +2391,6 @@ fn test_truncate_from_exchange_to_empty_persist_event_has_empty_updated_tasks() 
 /// with the server id and no orphan optimistic tasks.
 #[test]
 fn test_two_restart_cycles_keep_exactly_one_server_root_task_row() {
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
@@ -2698,7 +2698,6 @@ fn test_find_by_token_after_merge_cloud_metadata() {
 
 #[test]
 fn test_find_by_token_after_restore_conversations() {
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
         let terminal_view_id = EntityId::new();
@@ -2925,6 +2924,7 @@ fn test_find_by_token_after_insert_forked_conversation_from_tasks() {
             autoexecute_override: None,
             last_event_sequence: None,
             pinned: false,
+            ..Default::default()
         };
         let tasks = vec![warp_multi_agent_api::Task {
             id: "root-task".to_string(),
@@ -2957,7 +2957,6 @@ fn test_find_by_token_after_insert_forked_conversation_from_tasks() {
 
 #[test]
 fn test_find_by_token_after_mark_conversations_historical_for_terminal_surface() {
-
     App::test((), |mut app| async move {
         let now = Local::now();
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
@@ -3117,6 +3116,7 @@ fn test_fork_then_bind_handoff_token_resolves_to_forked_conversation() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("restored source conversation should build");
@@ -3165,7 +3165,6 @@ fn test_fork_then_bind_handoff_token_resolves_to_forked_conversation() {
 
 #[test]
 fn test_fork_then_bind_handoff_token_persists_to_restored_conversation() {
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
@@ -3201,6 +3200,7 @@ fn test_fork_then_bind_handoff_token_persists_to_restored_conversation() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("restored source conversation should build");
@@ -3266,7 +3266,6 @@ fn test_fork_then_bind_handoff_token_persists_to_restored_conversation() {
 
 #[test]
 fn test_fork_then_bind_handoff_token_updates_cached_metadata_and_emits_refresh_events() {
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
@@ -3310,6 +3309,7 @@ fn test_fork_then_bind_handoff_token_updates_cached_metadata_and_emits_refresh_e
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("restored source conversation should build");
@@ -3436,6 +3436,7 @@ fn test_fork_conversation_preserves_task_ids_when_requested() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("restored source conversation should build");
@@ -3498,7 +3499,6 @@ fn setup_app_for_history_model_tests(app: &mut App) {
 /// in-progress-ready state.
 #[test]
 fn test_new_conversation_does_not_inherit_waiting_for_events() {
-
     App::test((), |mut app| async move {
         setup_app_for_history_model_tests(&mut app);
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
@@ -3545,7 +3545,6 @@ fn test_new_conversation_does_not_inherit_waiting_for_events() {
 
 #[test]
 fn test_fork_conversation_title_override_replaces_prefix() {
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
@@ -3582,6 +3581,7 @@ fn test_fork_conversation_title_override_replaces_prefix() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("restored source conversation should build");
@@ -3671,6 +3671,7 @@ fn hydrate_remote_child_placeholder_with_cloud_transcript_preserves_placeholder_
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("placeholder conversation should build");
@@ -3717,6 +3718,7 @@ fn hydrate_remote_child_placeholder_with_cloud_transcript_preserves_placeholder_
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             }),
         )
         .expect("cloud conversation should build");

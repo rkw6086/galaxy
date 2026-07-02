@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
+use galaxy_core::features::FeatureFlag;
 use session_sharing_protocol::common::SessionId;
 use warp_cli::agent::Harness;
-use galaxy_core::features::FeatureFlag;
 use warpui::{AppContext, SingletonEntity};
 
 use super::{

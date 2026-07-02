@@ -5,28 +5,29 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Error, Result};
-use instant::Instant;
-use jsonrpc::ServerNotificationEvent;
-use lsp_types::notification::{self, Notification};
-use lsp_types::{
-    FormattingOptions, NumberOrString, ProgressParams, ProgressParamsValue,
-    PublishDiagnosticsParams, WorkDoneProgress,
-};
-#[cfg(not(target_arch = "wasm32"))]
-use simple_logger::manager::LogManager;
 #[cfg(not(target_arch = "wasm32"))]
 use galaxy_core::features::FeatureFlag;
 use galaxyui_core::r#async::executor::Background;
 #[cfg(not(target_arch = "wasm32"))]
 use galaxyui_core::SingletonEntity;
 use galaxyui_core::{Entity, ModelContext};
+use instant::Instant;
+use jsonrpc::ServerNotificationEvent;
+use lsp_types::notification::{self, Notification};
+use lsp_types::{
+    CompletionItem, CompletionTriggerKind, FormattingOptions, NumberOrString, ProgressParams,
+    ProgressParamsValue, PublishDiagnosticsParams, Range as LspRange, WorkDoneProgress,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use simple_logger::manager::LogManager;
 
 use crate::config::{lsp_uri_to_path, LanguageId};
 use crate::server_repo_watcher::LspRepoWatcher;
 use crate::supported_servers::LSPServerType;
 use crate::types::{
-    DefinitionLocation, DocumentVersion, HoverResult, Location, ReferenceLocation,
-    TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
+    CodeActionData, CompletionResult, CompletionTrigger, DefinitionLocation, DocumentVersion,
+    HoverResult, Location, PrepareRenameResult, ReferenceLocation, RenameResult,
+    SignatureHelpResult, TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{spawn_lsp_service, LspServiceInitializationResult};

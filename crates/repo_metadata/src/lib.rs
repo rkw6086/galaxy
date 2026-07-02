@@ -6,9 +6,9 @@ use std::borrow::Borrow;
 use std::path::{Path, PathBuf};
 
 use galaxy_util::standardized_path::StandardizedPath;
-use thiserror::Error;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui_core::SingletonEntity;
+use thiserror::Error;
 
 /// Errors that can occur when working with repository metadata.
 #[derive(Error, Debug)]

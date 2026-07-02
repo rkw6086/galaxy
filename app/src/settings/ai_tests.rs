@@ -1,6 +1,7 @@
 use chrono::Utc;
 use galaxy_graphql::scalars::time::ServerTimestamp;
 use galaxyui::{App, SingletonEntity};
+use settings_value::SettingsValue;
 
 use super::*;
 use crate::ai::request_usage_model::{RequestLimitInfo, RequestLimitRefreshDuration};
@@ -315,7 +316,6 @@ fn test_toolbar_command_map_from_file_value_map_format() {
 
 #[test]
 fn test_toolbar_command_map_from_file_value_legacy_array() {
-
     // Patterns are intentionally non-alphabetical to verify insertion order is preserved.
     let value = serde_json::json!(["^zebra", "^alpha", "^middle"]);
     let map = ToolbarCommandMap::from_file_value(&value).unwrap();
@@ -329,14 +329,12 @@ fn test_toolbar_command_map_from_file_value_legacy_array() {
 
 #[test]
 fn test_toolbar_command_map_from_file_value_invalid() {
-
     let value = serde_json::json!(42);
     assert!(ToolbarCommandMap::from_file_value(&value).is_none());
 }
 
 #[test]
 fn test_toolbar_command_map_roundtrip() {
-
     let mut inner = IndexMap::new();
     inner.insert("^claude".to_string(), "Claude".to_string());
     inner.insert("^custom".to_string(), String::new());

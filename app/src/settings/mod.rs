@@ -121,21 +121,21 @@ use std::collections::HashMap;
 use std::ops::Mul;
 use std::path::PathBuf;
 
+use galaxy_core::features::FeatureFlag;
+use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
+use galaxyui::keymap::Keystroke;
+use galaxyui::{AppContext, DisplayIdx, SingletonEntity};
 use lazy_static::lazy_static;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use settings::Setting as _;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
-use galaxyui::keymap::Keystroke;
-use galaxyui::{AppContext, DisplayIdx, SingletonEntity};
 
 use crate::root_view::QuakeModePinPosition;
 use crate::terminal::{BlockListSettings, BlockPadding};
-use crate::themes::theme::{ThemeKind, WarpTheme};
-use crate::user_config::WarpConfig;
+use crate::themes::theme::{GalaxyTheme, ThemeKind};
+use crate::user_config::GalaxyConfig;
 
 // The following are user preferences keys.
 pub const CHANGELOG_VERSIONS: &str = "ChangelogVersions";

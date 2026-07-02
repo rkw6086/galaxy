@@ -1,3 +1,4 @@
+use galaxyui_core::integration::TestStep;
 use warp::cmd_or_ctrl_shift;
 use warp::features::FeatureFlag;
 use warp::integration_testing::command_palette::open_command_palette_and_run_action;
@@ -15,7 +16,6 @@ use warp::integration_testing::terminal::{
 };
 use warp::integration_testing::view_getters::terminal_view;
 use warp::integration_testing::window::{add_and_save_window, close_window, save_active_window_id};
-use galaxyui_core::integration::TestStep;
 
 use super::{new_builder, Builder};
 

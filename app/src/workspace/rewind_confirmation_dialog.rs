@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -14,6 +13,7 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;

@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Empty, Fill, OffsetPositioning,
@@ -6,6 +5,7 @@ use galaxyui::elements::{
 };
 use galaxyui::ui_components::components::UiComponentStyles;
 use galaxyui::Element;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 

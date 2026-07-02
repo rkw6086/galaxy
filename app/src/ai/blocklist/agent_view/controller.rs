@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use instant::Instant;
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::keymap::Keystroke;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use instant::Instant;
+use parking_lot::FairMutex;
 
 use super::{DismissalStrategy, EphemeralMessage, EphemeralMessageModel};
 use crate::ai::agent::conversation::AIConversationId;
@@ -1020,7 +1020,6 @@ fn exit_confirmation_message(
     app: &AppContext,
 ) -> Message {
     use galaxyui::SingletonEntity;
-
 
     let appearance = Appearance::handle(app).as_ref(app);
 

@@ -1,5 +1,3 @@
-use galaxy::settings::INPUT_MODE;
-use galaxy::terminal::block_list_viewport::InputMode;
 use std::collections::HashMap;
 
 use warp::settings::INPUT_MODE;

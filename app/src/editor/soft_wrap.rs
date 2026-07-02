@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use parking_lot::Mutex;
 use galaxyui::text_layout;
+use parking_lot::Mutex;
 
 use crate::editor::view::DisplayPoint;
 use crate::editor::Point;

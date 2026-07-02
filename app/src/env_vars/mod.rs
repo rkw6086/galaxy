@@ -1,8 +1,8 @@
 pub use cloud_object_models::{
     CloudEnvVarCollection, CloudEnvVarCollectionModel, EnvVar, EnvVarCollection, EnvVarValue,
 };
-use itertools::Itertools;
 use galaxy_util::path::ShellFamily;
+use itertools::Itertools;
 
 pub mod active_env_var_collection_data;
 pub mod env_var_collection_block;

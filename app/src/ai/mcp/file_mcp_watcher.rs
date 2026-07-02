@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 
 use async_channel::Sender;
 use futures::Future;
+use galaxy_core::safe_warn;
+use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use regex::Regex;
 use repo_metadata::repositories::{
     DetectedRepositories, DetectedRepositoriesEvent, RepoDetectionSource,
@@ -13,14 +15,12 @@ use repo_metadata::repositories::{
 use repo_metadata::repository::{Repository, RepositorySubscriber, SubscriberId};
 use repo_metadata::watcher::{DirectoryWatcher, RepositoryUpdate};
 use strum::IntoEnumIterator;
-use galaxy_core::safe_warn;
-use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use watcher::HomeDirectoryWatcherEvent;
 
 use crate::ai::mcp::parsing::normalize_codex_toml_to_json;
 use crate::ai::mcp::{home_config_file_path, MCPProvider, ParsedTemplatableMCPServerResult};
 use crate::warp_managed_paths_watcher::{
-    warp_managed_mcp_config_path, WarpManagedPathsWatcher, WarpManagedPathsWatcherEvent,
+    galaxy_managed_mcp_config_path, GalaxyManagedPathsWatcherEvent, WarpManagedPathsWatcher,
 };
 use crate::HomeDirectoryWatcher;
 

@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -11,6 +10,7 @@ use galaxyui_core::elements::{
 use galaxyui_core::fonts::{Properties, Weight};
 use galaxyui_core::platform::Cursor;
 use galaxyui_core::Element;
+use pathfinder_geometry::vector::vec2f;
 
 use super::agent_slide::AgentSlideAction;
 

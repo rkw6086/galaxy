@@ -5,13 +5,9 @@ use anyhow::Context;
 use async_channel::Sender;
 use futures_util::stream::AbortHandle;
 use galaxy_core::context_flag::ContextFlag;
-use lazy_static::lazy_static;
-use regex::Regex;
-use settings::Setting as _;
-use url::Url;
 use galaxy_editor::editor::NavigationKey;
 use galaxy_editor::model::{CoreEditorModel, RichTextEditorModel};
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Align, Clipped, ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Empty,
@@ -27,6 +23,10 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, FocusContext, ModelAsRef, ModelHandle,
     SingletonEntity, TypedActionView, View, ViewContext, ViewHandle, WindowId,
 };
+use lazy_static::lazy_static;
+use regex::Regex;
+use settings::Setting as _;
+use url::Url;
 
 use self::details_bar::DetailsBar;
 use super::active_notebook_data::{
@@ -53,7 +53,7 @@ use crate::drive::drive_helpers::has_feature_gated_anonymous_user_reached_notebo
 use crate::drive::export::ExportManager;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::sharing::ShareableObject;
-use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectSettings};
+use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectSettings};
 use crate::editor::{
     EditOrigin, EditorView, Event as EditorEvent, InteractionState, PropagateAndNoOpNavigationKeys,
     SingleLineEditorOptions, TextColors, TextOptions,
@@ -767,11 +767,11 @@ impl NotebookView {
                     }
                 }
             }
-            CloudModelEvent::ObjectCreated { type_and_id, .. } => {
-                if self.as_active_notebook_id(type_and_id, ctx).is_some() {
-                    // Re-render to update the status bar.
-                    ctx.notify();
-                }
+            CloudModelEvent::ObjectCreated { type_and_id, .. }
+                if self.as_active_notebook_id(type_and_id, ctx).is_some() =>
+            {
+                // Re-render to update the status bar.
+                ctx.notify();
             }
             _ => (),
         }

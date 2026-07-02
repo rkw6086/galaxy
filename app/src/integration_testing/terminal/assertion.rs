@@ -1,11 +1,11 @@
-use pathfinder_geometry::rect::RectF;
-use regex::Regex;
-use settings::Setting as _;
 use galaxy_util::path::user_friendly_path;
 use galaxyui::integration::{AssertionCallback, AssertionOutcome};
 use galaxyui::units::Lines;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{async_assert, async_assert_eq, App, SingletonEntity, ViewHandle, WindowId};
+use pathfinder_geometry::rect::RectF;
+use regex::Regex;
+use settings::Setting as _;
 
 use super::util::ExpectedOutput;
 use crate::ai::blocklist::agent_view::AgentViewState;

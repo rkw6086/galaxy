@@ -5,8 +5,8 @@ use std::sync::Arc;
 use ai::agent::action::{AIAgentActionType, FileEdit};
 use ai::diff_validation::ParsedDiff;
 use chrono::{DateTime, Utc};
-use parking_lot::FairMutex;
 use galaxy_core::features::FeatureFlag;
+use parking_lot::FairMutex;
 use warpui::r#async::SpawnedFutureHandle;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
@@ -559,9 +559,10 @@ fn coalesce_messages_from_client_actions(
     use std::collections::HashMap;
 
     use field_mask::FieldMaskOperation;
+    use warp_multi_agent_api as api;
     use warp_multi_agent_api::client_action::Action;
 
-    let mut messages_by_id: HashMap<String, api::Message> = HashMap::new();
+    let mut messages_by_id: HashMap<String, warp_multi_agent_api::Message> = HashMap::new();
     let mut message_order: Vec<String> = Vec::new();
 
     for action in client_actions {

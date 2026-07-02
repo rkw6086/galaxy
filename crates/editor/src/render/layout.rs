@@ -3,8 +3,6 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-#[cfg(test)]
-use markdown_parser::FormattedTextInline;
 use galaxyui_core::color::ColorU;
 use galaxyui_core::fonts::TextLayoutSystem;
 #[cfg(test)]
@@ -14,6 +12,8 @@ use galaxyui_core::text_layout::{
 };
 use galaxyui_core::units::{IntoPixels, Pixels};
 use galaxyui_core::{AppContext, LayoutContext};
+#[cfg(test)]
+use markdown_parser::FormattedTextInline;
 
 use super::model::{BlockSpacing, ParagraphStyles, RenderState, RichTextStyles};
 use crate::content::text::{BufferBlockStyle, TextStylesWithMetadata};

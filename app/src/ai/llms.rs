@@ -1,25 +1,30 @@
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, CustomEndpoint, CustomEndpointModel};
 pub use ai::LLMId;
-use parking_lot::FairMutex;
-use serde::{de, Deserialize, Serialize};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::user_preferences::GetUserPreferences;
-use warp_multi_agent_api as api;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
+use parking_lot::FairMutex;
+use serde::{de, Deserialize, Serialize};
+use settings::Setting;
+use warp_multi_agent_api as api;
 
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
+use crate::ai::bedrock::models::get_effective_models;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
-use crate::report_error;
 use crate::server::server_api::ServerApiProvider;
+use crate::settings::{BedrockModelConfig, OpenAIModelConfig, OpenAIProviderConfig};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
+use crate::{report_error, AISettings};
 
 /// Checks if a user's' API key is being used for the given provider.
 /// Returns `true` if BYO API key is enabled and a key exists for the provider.
@@ -36,12 +41,13 @@ pub fn is_using_api_key_for_provider(provider: &LLMProvider, app: &AppContext) -
         LLMProvider::Anthropic => manager.keys().anthropic.is_some(),
         LLMProvider::Google => manager.keys().google.is_some(),
         LLMProvider::Xai => manager.grok_tokens().is_some(),
+        LLMProvider::Bedrock | LLMProvider::LiteLLM => false,
         LLMProvider::Unknown => false,
     }
 }
 
 pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, app: &AppContext) -> bool {
-    UserWorkspaces::as_ref(app).is_aws_bedrock_credentials_enabled(app)
+    UserWorkspaces::as_ref(app).is_bedrock_enabled(app)
         && llm
             .host_configs
             .get(&LLMModelHost::AwsBedrock)
@@ -142,6 +148,8 @@ impl LLMProvider {
             LLMProvider::Anthropic => "Anthropic",
             LLMProvider::Google => "Google",
             LLMProvider::Xai => "xAI",
+            LLMProvider::Bedrock => "AWS Bedrock",
+            LLMProvider::LiteLLM => "LiteLLM",
             LLMProvider::Unknown => "this provider",
         }
     }
@@ -591,6 +599,8 @@ pub struct LLMPreferences {
     custom_llms: Vec<LLMInfo>,
     /// All custom model routers, including both local and cloud-backed.
     custom_model_routers: Vec<CustomModelRouter>,
+    #[cfg(not(target_family = "wasm"))]
+    openai_provider_routing: HashMap<String, super::openai::client::OpenAIClientConfig>,
 }
 
 impl LLMPreferences {
@@ -656,6 +666,8 @@ impl LLMPreferences {
             base_llm_for_terminal_view,
             custom_llms,
             custom_model_routers: Vec::new(),
+            #[cfg(not(target_family = "wasm"))]
+            openai_provider_routing: HashMap::new(),
         };
 
         // Seed from any already-loaded local config (the async load emits
@@ -698,7 +710,6 @@ impl LLMPreferences {
                     model_id: default.model_id.to_string(),
                     display_name: default.display_name.to_string(),
                     vision_supported: default.vision_supported,
-                    context_size: default.context_size,
                 });
                 added = true;
             }
@@ -803,6 +814,7 @@ impl LLMPreferences {
                     },
                 )]),
                 discount_percentage: None,
+                context_window: LLMContextWindow::default(),
             };
             self.models_by_feature
                 .agent_mode
@@ -997,6 +1009,7 @@ impl LLMPreferences {
                         },
                     )]),
                     discount_percentage: None,
+                    context_window: LLMContextWindow::default(),
                 };
                 self.models_by_feature
                     .agent_mode

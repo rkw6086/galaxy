@@ -1,6 +1,5 @@
 //! A UI sample demonstrating how the SelectableArea element can be used.
 
-use markdown_parser::{parse_markdown, FormattedTextFragment, FormattedTextLine};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     Align, ChildView, ConstrainedBox, Flex, FormattedTextElement, HeadingFontSizeMultipliers,
@@ -12,6 +11,7 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use markdown_parser::{parse_markdown, FormattedTextFragment, FormattedTextLine};
 
 pub struct RootView {
     sub_view: ViewHandle<FormattedTextView>,

@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{
@@ -7,11 +5,15 @@ use galaxyui::elements::{
     MainAxisAlignment, ParentElement as _, Radius, Shrinkable,
 };
 use galaxyui::fonts::Weight;
-use galaxyui::ui_components::components::{BorderStyle, Coords, UiComponent as _, UiComponentStyles};
+use galaxyui::ui_components::components::{
+    BorderStyle, Coords, UiComponent as _, UiComponentStyles,
+};
 use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::editor::{EditorOptions, EditorView, Event as EditorEvent, TextOptions};
 
@@ -94,11 +96,9 @@ impl GlowingEditor {
             }
             EditorEvent::Escape => ctx.emit(GlowingEditorEvent::Cancel),
             // Clear error state when user types (since this is submit-only validation)
-            EditorEvent::Edited(_) => {
-                if self.has_error {
-                    self.has_error = false;
-                    ctx.notify();
-                }
+            EditorEvent::Edited(_) if self.has_error => {
+                self.has_error = false;
+                ctx.notify();
             }
             _ => (),
         }

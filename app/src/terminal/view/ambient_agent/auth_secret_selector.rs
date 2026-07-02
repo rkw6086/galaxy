@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
-use warp_cli::agent::Harness;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
+use warp_cli::agent::Harness;
 use warp_managed_secrets::client::SecretOwner;
 use warpui::elements::{
     Border, ChildAnchor, ChildView, OffsetPositioning, ParentAnchor, ParentElement as _,

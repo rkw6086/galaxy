@@ -5,10 +5,9 @@ use pathfinder_geometry::vector::vec2f;
 pub mod root_view;
 
 extern crate galaxyui;
-use galaxyui::{platform, platform::WindowBounds, AssetProvider};
-use rust_embed::RustEmbed;
 use galaxyui::platform::WindowBounds;
 use galaxyui::{platform, AssetProvider};
+use rust_embed::RustEmbed;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "examples/assets"]

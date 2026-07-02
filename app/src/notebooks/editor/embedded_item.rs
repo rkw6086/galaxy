@@ -2,18 +2,14 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use markdown_parser::html_parser::WARP_EMBED_ATTRIBUTE_NAME;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use serde_yaml::Mapping;
-use string_offset::ByteOffset;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::content::markdown::MarkdownStyle;
 use galaxy_editor::content::text::TextStylesWithMetadata;
 use galaxy_editor::editor::EmbeddedItemModel;
 use galaxy_editor::extract_block;
-use galaxy_editor::render::element::{CursorData, CursorDisplayType, RenderContext, RenderableBlock};
+use galaxy_editor::render::element::{
+    CursorData, CursorDisplayType, RenderContext, RenderableBlock,
+};
 use galaxy_editor::render::layout::TextLayout;
 use galaxy_editor::render::model::viewport::ViewportItem;
 use galaxy_editor::render::model::{
@@ -26,6 +22,12 @@ use galaxyui::elements::{Border, ConstrainedBox, CornerRadius, Empty, Margin, Pa
 use galaxyui::text_layout::TextFrame;
 use galaxyui::units::{IntoPixels, Pixels};
 use galaxyui::{AppContext, Element, LayoutContext, SingletonEntity, SizeConstraint};
+use itertools::Itertools;
+use markdown_parser::html_parser::WARP_EMBED_ATTRIBUTE_NAME;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use serde_yaml::Mapping;
+use string_offset::ByteOffset;
 
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::CloudObject;

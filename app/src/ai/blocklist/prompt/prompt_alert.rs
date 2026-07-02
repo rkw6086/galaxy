@@ -1,11 +1,11 @@
 use ai::api_keys::ApiKeyManager;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, FormattedTextElement,
     HighlightedHyperlink, HyperlinkLens, MainAxisAlignment, MainAxisSize, ParentElement,
 };
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::blocklist::error_color;
 use crate::ai::AIRequestUsageModel;

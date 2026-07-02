@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use itertools::Itertools;
 use galaxy_core::ui::Icon;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, ParentElement, SavePosition, Shrinkable,
@@ -8,6 +7,7 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::{Properties, Style};
 use galaxyui::{Action, AppContext, Element, SingletonEntity as _};
+use itertools::Itertools;
 
 use crate::ai::custom_model_routers::is_custom_router_id;
 use crate::ai::llms::{

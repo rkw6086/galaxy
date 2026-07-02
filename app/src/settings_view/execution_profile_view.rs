@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use uuid::Uuid;
 use galaxy_core::features::FeatureFlag;
+use uuid::Uuid;
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
     ParentElement, Shrinkable, Text, Wrap,

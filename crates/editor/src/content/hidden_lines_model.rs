@@ -4,7 +4,6 @@ use std::ops::Range;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 use rangemap::RangeSet;
 use string_offset::CharOffset;
-use galaxyui_core::{AppContext, Entity, ModelContext, ModelHandle};
 
 use super::anchor::{Anchor, AnchorSide};
 use crate::content::buffer::Buffer;

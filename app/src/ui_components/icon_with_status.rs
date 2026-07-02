@@ -11,6 +11,7 @@ use pathfinder_geometry::vector::vec2f;
 use crate::ai::agent::conversation::{ConversationStatus, StatusColorStyle};
 use crate::terminal::CLIAgent;
 use crate::themes::theme::Fill as ThemeFill;
+use crate::ui_components::icons::Icon as WarpIcon;
 
 /// Background color used for the Oz agent's circle when it is running in an ambient (cloud)
 /// run. Matches the Oz brand purple used in the cloud-mode design spec.
@@ -164,8 +165,8 @@ pub(crate) fn render_icon_with_status(
     variant: IconWithStatusVariant,
     total_size: f32,
     overlay_extra_overhang_ratio: f32,
-    theme: &WarpTheme,
-    status_container_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    status_container_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     render_icon_with_status_with_badge_style(
         variant,
@@ -184,8 +185,8 @@ pub(crate) fn render_icon_with_status_with_badge_style(
     total_size: f32,
     overlay_extra_overhang_ratio: f32,
     badge_style: StatusBadgeStyle,
-    theme: &WarpTheme,
-    status_container_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    status_container_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     let sub_text = theme.sub_text_color(theme.background());
 
@@ -217,7 +218,7 @@ pub(crate) fn render_icon_with_status_with_badge_style(
             // Cloud (ambient) runs use a black glyph on the light-purple background
             // for consistency with the web app; local runs keep the theme text color.
             let glyph_color = if is_ambient {
-                WarpThemeFill::Solid(ColorU::black())
+                ThemeFill::Solid(ColorU::black())
             } else {
                 theme.main_text_color(theme.background())
             };
@@ -289,7 +290,7 @@ pub(crate) fn render_icon_with_status_with_badge_style(
 /// `attach_status_overlay` to occupy the full `total_size` footprint.
 fn render_circle(
     icon_element: Box<dyn Element>,
-    background: WarpThemeFill,
+    background: ThemeFill,
     total_size: f32,
 ) -> Box<dyn Element> {
     let icon = icon_size(total_size);
@@ -313,7 +314,7 @@ fn render_circle(
 /// requested bounding box rather than shrinking to `circle_size(total)`.
 fn render_neutral_circle(
     icon_element: Box<dyn Element>,
-    background: WarpThemeFill,
+    background: ThemeFill,
     total_size: f32,
 ) -> Box<dyn Element> {
     let glyph = total_size * NEUTRAL_GLYPH_RATIO;
@@ -339,8 +340,8 @@ fn attach_status_overlay(
     total_size: f32,
     overlay_extra_overhang_ratio: f32,
     badge_style: StatusBadgeStyle,
-    theme: &WarpTheme,
-    status_container_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    status_container_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     if is_ambient {
         render_with_cloud_status_badge(
@@ -370,12 +371,12 @@ fn render_with_cloud_status_badge(
     status: Option<&ConversationStatus>,
     total_size: f32,
     overlay_extra_overhang_ratio: f32,
-    theme: &WarpTheme,
+    theme: &GalaxyTheme,
 ) -> Box<dyn Element> {
     let cloud_diameter = cloud_icon_size(total_size);
     let cloud = ConstrainedBox::new(
         WarpIcon::CloudFilled
-            .to_warpui_icon(theme.foreground())
+            .to_galaxyui_icon(theme.foreground())
             .finish(),
     )
     .with_width(cloud_diameter)
@@ -387,7 +388,7 @@ fn render_with_cloud_status_badge(
             let (icon, color) = status.status_icon_and_color(theme, StatusColorStyle::Cloud);
             let inner = status_in_cloud_size(total_size);
             let status_icon =
-                ConstrainedBox::new(icon.to_warpui_icon(WarpThemeFill::Solid(color)).finish())
+                ConstrainedBox::new(icon.to_galaxyui_icon(ThemeFill::Solid(color)).finish())
                     .with_width(inner)
                     .with_height(inner)
                     .finish();
@@ -439,8 +440,8 @@ fn render_with_optional_status_badge(
     total_size: f32,
     overlay_extra_overhang_ratio: f32,
     badge_style: StatusBadgeStyle,
-    theme: &WarpTheme,
-    status_container_background: WarpThemeFill,
+    theme: &GalaxyTheme,
+    status_container_background: GalaxyThemeFill,
 ) -> Box<dyn Element> {
     let Some(status) = status else {
         // No status badge: still occupy the full `total_size` footprint so the agent
@@ -454,7 +455,7 @@ fn render_with_optional_status_badge(
     let (icon, color) = status.status_icon_and_color(theme, StatusColorStyle::Standard);
     let badge_icon_diameter = badge_icon_size(total_size, badge_style);
     let pad = badge_padding(total_size, badge_style);
-    let badge_icon = ConstrainedBox::new(icon.to_galaxyui_icon(WarpThemeFill::Solid(color)).finish())
+    let badge_icon = ConstrainedBox::new(icon.to_galaxyui_icon(ThemeFill::Solid(color)).finish())
         .with_width(badge_icon_diameter)
         .with_height(badge_icon_diameter)
         .finish();

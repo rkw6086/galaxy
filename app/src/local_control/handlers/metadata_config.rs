@@ -6,9 +6,9 @@ use ::local_control::protocol::{
     TabTarget, TargetSelector, ThemeNameParams, WindowTarget,
 };
 use ::local_control::{ActionKind, ControlError, ErrorCode, InstanceId};
+use galaxy_core::ui::theme::AnsiColorIdentifier;
 use serde_json::json;
 use settings::Setting as _;
-use galaxy_core::ui::theme::AnsiColorIdentifier;
 use warpui::{ModelContext, SingletonEntity as _, WindowId};
 
 use super::metadata::{

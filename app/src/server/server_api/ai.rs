@@ -13,11 +13,6 @@ use base64::Engine;
 use chrono::{DateTime, Utc};
 use cynic::{MutationBuilder, QueryBuilder};
 use galaxy_core::channel::ChannelState;
-use galaxy_core::{features::FeatureFlag, report_error};
-use itertools::Itertools;
-#[cfg(test)]
-use mockall::automock;
-use prost::Message;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_error;
 use galaxy_graphql::ai::{AgentTaskState, PlatformErrorCode};
@@ -110,6 +105,10 @@ use galaxy_graphql::queries::task_git_credentials::{
     TaskGitCredentials, TaskGitCredentialsInput, TaskGitCredentialsResult,
     TaskGitCredentialsVariables,
 };
+use itertools::Itertools;
+#[cfg(test)]
+use mockall::automock;
+use prost::Message;
 use warp_multi_agent_api::ConversationData;
 
 #[cfg(not(target_family = "wasm"))]
@@ -1121,6 +1120,8 @@ pub struct UpdateMemoryResponse {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 pub trait AIClient: 'static + Send + Sync {
+    fn base_client(&self) -> std::sync::Arc<galaxy_server_client::base_client::BaseClient>;
+
     async fn generate_commands_from_natural_language(
         &self,
         prompt: String,
@@ -1602,6 +1603,10 @@ fn convert_upload_field(
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl AIClient for ServerApi {
+    fn base_client(&self) -> std::sync::Arc<galaxy_server_client::base_client::BaseClient> {
+        self.base_client.clone()
+    }
+
     async fn generate_commands_from_natural_language(
         &self,
         prompt: String,
@@ -3306,6 +3311,10 @@ fn convert_usage_metadata(
         credits_spent_for_last_block: None,
         token_usage: vec![],
         tool_usage_metadata: Default::default(),
+        total_cache_read_tokens: 0,
+        total_cache_write_tokens: 0,
+        total_cache_miss_tokens: 0,
+        total_cost_cents: 0.0,
         context_window_segments: context_window_segments.iter().map(Into::into).collect(),
     }
 }

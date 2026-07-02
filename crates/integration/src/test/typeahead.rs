@@ -1,3 +1,5 @@
+use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, TestStep};
+use galaxyui_core::{async_assert, async_assert_eq};
 use warp::integration_testing::agent_mode::AgentViewState;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::util::current_shell_starter_and_version;
@@ -9,8 +11,6 @@ use warp::integration_testing::terminal::{
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
 use warp::terminal::model::terminal_model::BlockIndex;
 use warp::terminal::shell::{Shell, ShellType};
-use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, TestStep};
-use galaxyui_core::{async_assert, async_assert_eq};
 
 use super::{new_builder, Builder};
 use crate::util::skip_if_powershell_core_2303;

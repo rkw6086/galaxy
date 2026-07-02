@@ -2,10 +2,6 @@ use core::fmt::{self, Display};
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use itertools::Itertools as _;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting;
 use galaxy_core::settings::SyncToCloud;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -25,6 +21,10 @@ use galaxyui::ui_components::button::{Button, ButtonVariant};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::units::Pixels;
 use galaxyui::{Action, AppContext, SingletonEntity, ViewContext, ViewHandle};
+use itertools::Itertools as _;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
 
 use super::about_page::AboutPageView;
 use super::ai_page::{AISettingsPageAction, AISettingsPageView};
@@ -115,7 +115,6 @@ pub enum SettingsPageViewHandle {
     BillingAndUsage(ViewHandle<BillingAndUsageDispatchView>),
     MCPServers(ViewHandle<MCPServersSettingsPageView>),
     WarpDrive(ViewHandle<WarpDriveSettingsPageView>),
-    CloudEnvironments(ViewHandle<EnvironmentsPageView>),
     OzCloudAPIKeys(ViewHandle<super::platform_page::PlatformPageView>),
     Teams(ViewHandle<super::teams_page::TeamsPageView>),
     SharedBlocks(ViewHandle<ShowBlocksView>),

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use ai::agent::action::{AIAgentActionType, ShellCommandDelay};
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{CornerRadius, Radius};
 use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, View, ViewContext,
 };
+use parking_lot::FairMutex;
 
 use crate::ai::agent::icons;
 use crate::ai::blocklist::block::cli_controller::LongRunningCommandControlState;

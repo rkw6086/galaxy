@@ -1,8 +1,3 @@
-use instant::Duration;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use session_sharing_protocol::common::{ParticipantId, ParticipantInfo, Role};
-use session_sharing_protocol::sharer::RoleUpdateReason;
 use galaxyui::accessibility::AccessibilityContent;
 use galaxyui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -16,6 +11,11 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use instant::Duration;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use session_sharing_protocol::common::{ParticipantId, ParticipantInfo, Role};
+use session_sharing_protocol::sharer::RoleUpdateReason;
 
 use super::render_util::non_hoverable_participant_avatar;
 use crate::appearance::Appearance;

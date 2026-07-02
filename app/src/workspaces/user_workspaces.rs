@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use regex::Regex;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::settings::{ChangeEventReason, Setting};
 use galaxy_graphql::workspace::FeatureModelChoice;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, Tracked};
+use regex::Regex;
 
 use super::team::{DiscoverableTeam, MembershipRole, Team};
 #[cfg(test)]
@@ -16,7 +16,7 @@ use super::workspace::{
 };
 use crate::ai::llms::LLMModelHost;
 use crate::auth::{AuthStateProvider, UserUid};
-use crate::channel::ChannelState;
+use crate::channel::{Channel, ChannelState};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObjectEventEntrypoint, ObjectType, Owner, Space};
 use crate::pricing::PricingInfoModel;
@@ -544,6 +544,14 @@ impl UserWorkspaces {
     }
 
     pub fn is_bedrock_enabled(&self, app: &AppContext) -> bool {
+        // In local/dev/oss builds, allow using local Bedrock credentials even if there's no active workspace.
+        if self.current_workspace().is_none() {
+            let channel = ChannelState::channel();
+            if channel == Channel::Oss || channel == Channel::Local || channel == Channel::Dev {
+                return *AISettings::as_ref(app).bedrock_enabled.value();
+            }
+        }
+
         // i.e. did the admin go and toggle on aws bedrock in the admin panel?
         if !self.is_aws_bedrock_available_from_workspace() {
             return false;

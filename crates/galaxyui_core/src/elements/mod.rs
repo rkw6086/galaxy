@@ -9,8 +9,6 @@ mod debug;
 mod dismiss;
 mod drag;
 
-#[cfg(feature = "tui")]
-pub mod tui;
 pub mod drag_resize;
 mod empty;
 mod event_handler;
@@ -20,6 +18,7 @@ mod hoverable;
 mod icon;
 mod image;
 mod list;
+mod live;
 mod min_size;
 pub mod new_scrollable;
 mod percentage;
@@ -33,6 +32,8 @@ mod size_constraint_switch;
 mod stack;
 pub mod table;
 mod text;
+#[cfg(feature = "tui")]
+pub mod tui;
 mod uniform_list;
 mod viewported_list;
 
@@ -61,6 +62,7 @@ pub use hoverable::*;
 pub use icon::*;
 pub use image::*;
 pub use list::*;
+pub use live::*;
 pub use min_size::*;
 pub use new_scrollable::NewScrollable;
 use pathfinder_color::ColorU;

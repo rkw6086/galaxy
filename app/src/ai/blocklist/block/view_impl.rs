@@ -32,16 +32,13 @@ mod todos;
 use std::collections::{HashMap, HashSet};
 
 use common::get_highlight_ranges_for_find_matches;
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::color::contrast::{
     foreground_color_with_minimum_contrast, MinimumAllowedContrast,
 };
 use galaxy_core::ui::color::Rgb;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme, WarpTheme};
 use galaxyui::elements::{
     Align, Border, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Expanded, Flex, FormattedTextElement, Highlight, HighlightedRange, Hoverable,
@@ -53,6 +50,9 @@ use galaxyui::platform::Cursor;
 use galaxyui::text_layout::TextStyle;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, Element, SingletonEntity, View, ViewContext};
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use settings::Setting as _;
 
 use super::secret_redaction::SecretRedactionState;
 use super::{
@@ -1127,6 +1127,7 @@ impl View for AIBlock {
                 disable_rule_suggestions_button: &self.disable_rule_suggestions_button,
                 has_accepted_edits,
                 current_todo_list: self.current_todo_list(app),
+                is_usage_footer_expanded: self.is_usage_footer_expanded,
                 finish_reason: self.finish_reason.as_ref(),
                 shared_session_status: &shared_session_status,
                 terminal_view_id: self.terminal_view_id,

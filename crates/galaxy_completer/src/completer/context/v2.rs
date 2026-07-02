@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use galaxy_js::{JsFunctionId, SerializedJsValue, TypedJsFunctionRef};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use galaxy_js::{JsFunctionId, SerializedJsValue, TypedJsFunctionRef};
 
 #[derive(thiserror::Error, Debug)]
 pub enum JsExecutionError {

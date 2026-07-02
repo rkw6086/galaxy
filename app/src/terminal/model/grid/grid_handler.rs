@@ -21,12 +21,6 @@ use std::ops::{Range, RangeInclusive};
 
 use bounded_vec_deque::BoundedVecDeque;
 use filtering::FilterState;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use string_offset::ByteOffset;
-use unicode_general_category::{get_general_category, GeneralCategory};
-use unicode_width::UnicodeWidthChar;
-use urlocator::{UrlLocation, UrlLocator};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::{SemanticSelection, SMART_SELECT_MATCH_WINDOW_LIMIT};
 use galaxy_core::{safe_assert, safe_assert_eq};
@@ -35,6 +29,12 @@ pub use galaxy_terminal::model::TermMode;
 use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use galaxy_util::path::CleanPathResult;
 use galaxyui::color::ColorU;
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use string_offset::ByteOffset;
+use unicode_general_category::{get_general_category, GeneralCategory};
+use unicode_width::UnicodeWidthChar;
+use urlocator::{UrlLocation, UrlLocator};
 
 use super::displayed_output::DisplayedOutput;
 use super::grapheme_cursor::{self, GraphemeCursor};

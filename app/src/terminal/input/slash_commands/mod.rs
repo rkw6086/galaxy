@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use ai::skills::SkillReference;
 pub use cloud_mode_v2_view::{CloudModeV2SlashCommandView, Section as CloudModeV2Section};
 pub use data_source::*;
-pub use view::{CloseReason, InlineSlashCommandView, SlashCommandsEvent};
 #[cfg(not(target_family = "wasm"))]
 use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
@@ -20,6 +19,7 @@ use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxy_util::path::{CleanPathResult, LineAndColumnArg};
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::{AppContext, SingletonEntity, ViewContext};
+pub use view::{CloseReason, InlineSlashCommandView, SlashCommandsEvent};
 
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
@@ -476,7 +476,7 @@ impl Input {
             _create_docker_sandbox if command.name == commands::CREATE_DOCKER_SANDBOX.name => {
                 ctx.emit(Event::CreateDockerSandbox);
             }
-            conversations if command.name == commands::CONVERSATIONS.name => {
+            _ if command.name == commands::CONVERSATIONS.name => {
                 if self.is_cloud_mode_input_v2_composing(ctx) {
                     self.suggestions_mode_model.update(ctx, |model, ctx| {
                         model.set_mode(InputSuggestionsMode::Closed, ctx);
@@ -523,7 +523,7 @@ impl Input {
                 };
                 rename_conversation(conversation_id, argument.cloned().unwrap_or_default(), ctx);
             }
-            set_tab_color if command.name == commands::SET_TAB_COLOR.name => {
+            _ if command.name == commands::SET_TAB_COLOR.name => {
                 let supported_options = || {
                     color_dot::TAB_COLOR_OPTIONS
                         .iter()
@@ -571,7 +571,7 @@ impl Input {
 
                 ctx.dispatch_typed_action(&WorkspaceAction::SetActiveTabColor(color));
             }
-            create_env if command.name == commands::CREATE_ENVIRONMENT.name => {
+            _ if command.name == commands::CREATE_ENVIRONMENT.name => {
                 // If the user included args after the slash command, treat them as repo paths/URLs.
                 let repos = argument
                     .map(|arg| {
@@ -776,7 +776,7 @@ impl Input {
                 // Open the skill selector menu for invocation - skill command will be inserted into buffer
                 self.open_invoke_skill_selector(ctx);
             }
-            host if command.name == commands::HOST.name => {
+            _ if command.name == commands::HOST.name => {
                 if !self.is_cloud_mode_input_v2_composing(ctx) {
                     return false;
                 }
@@ -794,7 +794,7 @@ impl Input {
                 self.open_v2_host_selector(ctx);
                 return true;
             }
-            harness if command.name == commands::HARNESS.name => {
+            _ if command.name == commands::HARNESS.name => {
                 if !self.is_cloud_mode_input_v2_composing(ctx) {
                     // Defensive: the command is registered only when the V2 flag is on and its
                     // availability requires CLOUD_MODE_V2_COMPOSER, so this branch should be unreachable.
@@ -807,7 +807,7 @@ impl Input {
                 self.open_v2_harness_selector(ctx);
                 return true;
             }
-            environment if command.name == commands::ENVIRONMENT.name => {
+            _ if command.name == commands::ENVIRONMENT.name => {
                 if !self.is_cloud_mode_input_v2_composing(ctx) {
                     return false;
                 }
@@ -818,7 +818,7 @@ impl Input {
                 self.open_v2_environment_selector(ctx);
                 return true;
             }
-            models if command.name == commands::MODEL.name => {
+            _ if command.name == commands::MODEL.name => {
                 if self.is_cloud_mode_input_v2_composing(ctx) {
                     self.suggestions_mode_model.update(ctx, |model, ctx| {
                         model.set_mode(InputSuggestionsMode::Closed, ctx);
@@ -853,7 +853,7 @@ impl Input {
 
                 self.open_profile_selector(ctx);
             }
-            prompts if command.name == commands::PROMPTS.name => {
+            _ if command.name == commands::PROMPTS.name => {
                 if self.is_cloud_mode_input_v2_composing(ctx) {
                     self.apply_v2_slash_section_filter(CloudModeV2Section::Prompts, ctx);
                     return true;
@@ -916,7 +916,7 @@ impl Input {
                 }
             }
             #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-            move_to_cloud if command.name == commands::MOVE_TO_CLOUD.name => {
+            _ if command.name == commands::MOVE_TO_CLOUD.name => {
                 if !AISettings::as_ref(ctx).is_cloud_handoff_enabled(ctx) {
                     return false;
                 }
@@ -961,7 +961,7 @@ impl Input {
                     );
                 }
             }
-            fork if command.name == commands::FORK.name => {
+            _ if command.name == commands::FORK.name => {
                 let Some(conversation_id) = self
                     .ai_context_model
                     .as_ref(ctx)
@@ -996,7 +996,7 @@ impl Input {
                 return true;
             }
             #[cfg(not(target_family = "wasm"))]
-            continue_locally if command.name == commands::CONTINUE_LOCALLY.name => {
+            _ if command.name == commands::CONTINUE_LOCALLY.name => {
                 let Some(conversation_id) = self
                     .ai_context_model
                     .as_ref(ctx)
@@ -1043,7 +1043,7 @@ impl Input {
                     destination,
                 });
             }
-            fork_and_compact if command.name == commands::FORK_AND_COMPACT.name => {
+            _ if command.name == commands::FORK_AND_COMPACT.name => {
                 let Some(conversation_id) = self
                     .ai_context_model
                     .as_ref(ctx)
@@ -1069,7 +1069,7 @@ impl Input {
                     destination,
                 });
             }
-            compact_and if command.name == commands::COMPACT_AND.name => {
+            _ if command.name == commands::COMPACT_AND.name => {
                 let conversation_id = if is_queued_prompt {
                     let Some(conversation_id) = queued_conversation_id else {
                         log::error!("Queued /compact-and missing conversation id");
@@ -1162,9 +1162,7 @@ impl Input {
                 }
                 self.open_repos_menu(ctx);
             }
-            command_that_just_sends_ai_request_with_prefix
-                if slash_command_is_submitted_as_prompt(command) =>
-            {
+            _ if slash_command_is_submitted_as_prompt(command) => {
                 // These slash commands just send AI requests with the slash command text as a
                 // prefix, and special handling is done downstream as an implementation detail
                 // of handling user queries with specific slash command prefixes.

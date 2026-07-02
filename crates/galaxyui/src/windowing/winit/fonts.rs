@@ -24,6 +24,7 @@ use cosmic_text::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use fontdb::Source;
+use galaxyui_core::fonts::{Style, Weight};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pathfinder_geometry::rect::{RectF, RectI};
@@ -31,7 +32,6 @@ use pathfinder_geometry::vector::{vec2f, vec2i, Vector2F, Vector2I};
 use resvg::usvg::fontdb;
 use resvg::usvg::fontdb::Query;
 use vec1::Vec1;
-use galaxyui_core::fonts::{Style, Weight};
 #[cfg(target_os = "windows")]
 use windows::loader;
 

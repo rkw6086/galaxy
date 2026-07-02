@@ -6,8 +6,8 @@ use std::pin::Pin;
 pub use assertion::*;
 use futures::future::join_all;
 use futures::FutureExt;
-use itertools::Itertools;
 use galaxyui::{App, SingletonEntity};
+use itertools::Itertools;
 
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::Space;

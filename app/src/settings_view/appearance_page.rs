@@ -56,12 +56,13 @@ use crate::gpu_state::{GPUState, GPUStateEvent};
 use crate::prompt::editor_modal::OpenSource as PromptEditorOpenSource;
 use crate::server::telemetry::{InputUXChangeOrigin, TelemetryEvent};
 use crate::settings::app_icon::{AppIcon, AppIconSettings, ShowDockIconState};
+use crate::settings::font::DEFAULT_UI_FONT_NAME;
 use crate::settings::{
     active_theme_kind, respect_system_theme, AIFontName, AppEditorSettings, CursorBlink,
     CursorBlinkEnabled, CursorDisplayType, EnforceMinimumContrast, FocusPaneOnHover, FontSettings,
     FontSettingsChangedEvent, GPUSettings, InputBoxType, InputModeSettings, InputModeState,
     InputSettings, InputSettingsChangedEvent, MonospaceFontName, PaneSettings,
-    ShouldDimInactivePanes, ThemeSettings, UseSystemTheme, UseThinStrokes,
+    ShouldDimInactivePanes, ThemeSettings, UIFontName, UseSystemTheme, UseThinStrokes,
     DEFAULT_MONOSPACE_FONT_NAME,
 };
 use crate::terminal::block_list_viewport::InputMode;
@@ -76,11 +77,13 @@ use crate::terminal::settings::{
 use crate::terminal::{
     BlockListSettings, ShowBlockDividers, ShowJumpToBottomOfBlockButton, SizeInfo,
 };
-use crate::themes::theme::{self, RespectSystemTheme, SelectedSystemThemes, ThemeKind, WarpTheme};
+use crate::themes::theme::{
+    self, GalaxyTheme, RespectSystemTheme, SelectedSystemThemes, ThemeKind, WarpTheme,
+};
 use crate::themes::theme_chooser::ThemeChooserMode;
 use crate::ui_components::color_dot::{render_color_dot, TAB_COLOR_OPTIONS};
 use crate::ui_components::icons::Icon;
-use crate::user_config::WarpConfig;
+use crate::user_config::{GalaxyConfig, WarpConfig};
 use crate::util::bindings;
 use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
 use crate::view_components::{Dropdown, DropdownItem, FilterableDropdown};
@@ -3101,7 +3104,7 @@ impl SettingsWidget for CustomAppIconWidget {
 
             let app_icon_at_startup = AppearanceManager::as_ref(app).app_icon_at_startup();
             let current_icon = *AppIconSettings::as_ref(app).app_icon;
-            if current_icon == AppIcon::Default
+            if current_icon == AppIcon::Galaxy
                 && ChannelState::channel() != Channel::Local
                 && app_icon_at_startup != AppIcon::Galaxy
             {

@@ -1,9 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use ::settings::{Setting, ToggleableSetting};
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
@@ -26,6 +23,9 @@ use galaxyui::{
     id, Action, AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use super::settings_page::{
     render_body_item, render_customer_type_badge, AdditionalInfo, LocalOnlyIconState, MatchData,
@@ -141,9 +141,11 @@ impl MainPageAction {
 impl From<&MainPageAction> for LoginGatedFeature {
     fn from(val: &MainPageAction) -> LoginGatedFeature {
         match val {
-            Upgrade { .. } => "Upgrade Plan",
-            GenerateStripeBillingPortalLink { .. } => "Generate Stripe Billing Portal Link",
-            ToggleSettingsSync => "Toggle Settings Sync",
+            MainPageAction::Upgrade { .. } => "Upgrade Plan",
+            MainPageAction::GenerateStripeBillingPortalLink { .. } => {
+                "Generate Stripe Billing Portal Link"
+            }
+            MainPageAction::ToggleSettingsSync => "Toggle Settings Sync",
             _ => "Unknown reason",
         }
     }

@@ -7,13 +7,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 use ai::diff_validation::DiffDelta;
-use lazy_static::lazy_static;
-use num_traits::SaturatingSub;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
-use string_offset::CharOffset;
-use vec1::{vec1, Vec1};
-use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 use galaxy_core::platform::SessionPlatform;
 use galaxy_editor::content::buffer::{
     Buffer, BufferEditAction, EditOrigin, InitialBufferState, ToBufferCharOffset as _,
@@ -52,6 +45,13 @@ use galaxyui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
+use lazy_static::lazy_static;
+use num_traits::SaturatingSub;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
+use string_offset::CharOffset;
+use vec1::{vec1, Vec1};
+use vim::vim::{Direction, InsertPosition, VimMode, VimModel, VimState, VimSubscriber};
 
 use crate::appearance::Appearance;
 use crate::code::editor::comment_editor::{CommentEditor, CommentEditorEvent};

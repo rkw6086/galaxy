@@ -45,6 +45,7 @@ fn build_start_agent_action_with_prompt(
         },
         task_id: TaskId::new("start-agent-task".to_string()),
         requires_result: false,
+        tool_name: None,
     }
 }
 

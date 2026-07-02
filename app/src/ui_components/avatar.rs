@@ -1,10 +1,10 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::external_product_icon::ExternalProductIcon;
 use galaxy_core::ui::icons::Icon;
 use galaxyui::elements::{
     self, Align, Border, CacheOption, ChildAnchor, ConstrainedBox, Container, Element, Image,
     OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Stack, Text,
 };
+use pathfinder_geometry::vector::vec2f;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 
 use super::red_notification_dot::RedNotificationDot;

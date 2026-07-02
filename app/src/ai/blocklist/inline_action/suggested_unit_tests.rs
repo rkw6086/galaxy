@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng as _};
 use galaxy_core::settings::ToggleableSetting;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
@@ -15,7 +12,9 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
 };
-use rand::{distributions::Alphanumeric, thread_rng, Rng as _};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng as _};
 
 use crate::ai::agent::{AIAgentActionId, AIIdentifiers};
 use crate::ai::predict::prompt_suggestions::{

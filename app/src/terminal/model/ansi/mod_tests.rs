@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 
+use galaxy_core::command::ExitCode;
 use hex;
 
 use super::*;

@@ -5,16 +5,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::channel::oneshot;
-use repo_metadata::RepoMetadataUpdate;
-use serde::Serialize;
 #[cfg(not(target_family = "wasm"))]
 use galaxy_core::channel::ChannelState;
 use galaxy_core::SessionId;
-use warp_util::remote_path::{RemoteNavigationResult, RemotePath};
-use warp_util::standardized_path::StandardizedPath;
+use galaxy_util::remote_path::{RemoteNavigationResult, RemotePath};
+use galaxy_util::standardized_path::StandardizedPath;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui_core::r#async::FutureExt as _;
 use galaxyui_core::{Entity, ModelContext, ModelSpawner, SingletonEntity};
+use repo_metadata::RepoMetadataUpdate;
+use serde::Serialize;
 
 use crate::auth::RemoteServerAuthContext;
 #[cfg(not(target_family = "wasm"))]
@@ -759,6 +759,7 @@ pub enum HostRequestError {
 
 impl From<crate::client::ClientError> for HostRequestError {
     fn from(err: crate::client::ClientError) -> Self {
+        use crate::client::ClientError;
         match err {
             ClientError::Disconnected | ClientError::ResponseChannelClosed => {
                 Self::AllSessionsDisconnected
@@ -3786,6 +3787,7 @@ impl RemoteServerManager {
                 let code = status.code();
                 #[cfg(unix)]
                 let signal_killed = {
+                    use std::os::unix::process::ExitStatusExt;
                     status.signal().is_some()
                 };
                 #[cfg(not(unix))]

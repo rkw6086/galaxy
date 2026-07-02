@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use comfy_table::Cell;
 use futures::future;
-use serde::Serialize;
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::schedule::{
     CreateScheduleArgs, DeleteScheduleArgs, GetScheduleArgs, PauseScheduleArgs, ScheduleCommand,
@@ -11,6 +10,7 @@ use galaxy_cli::GlobalOptions;
 use galaxy_graphql::queries::get_scheduled_agent_history::ScheduledAgentHistory;
 use galaxyui::platform::TerminationMode;
 use galaxyui::{AppContext, SingletonEntity};
+use serde::Serialize;
 
 use super::common::{EnvironmentChoice, ResolveConfigurationError};
 use super::output::{self, TableFormat};

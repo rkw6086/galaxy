@@ -9,12 +9,14 @@ use jsonrpc::{JsonRpcService, RequestId, ServerNotificationEvent};
 use lsp_types::notification::{self, Notification};
 use lsp_types::request::{self, Request};
 use lsp_types::{
-    CancelParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWatchedFilesRegistrationOptions, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentFormattingParams, FileChangeType, FileSystemWatcher,
-    FormattingOptions, GlobPattern, GotoDefinitionParams, GotoDefinitionResponse, HoverParams,
-    InitializeParams, InitializedParams, NumberOrString, OneOf, Position, ReferenceParams,
-    RegistrationParams, RelativePattern, TextDocumentIdentifier, TextDocumentItem,
+    CancelParams, CodeActionContext, CodeActionParams, CompletionContext, CompletionItem,
+    CompletionParams, CompletionTriggerKind, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentFormattingParams,
+    FileChangeType, FileSystemWatcher, FormattingOptions, GlobPattern, GotoDefinitionParams,
+    GotoDefinitionResponse, HoverParams, InitializeParams, InitializedParams, NumberOrString,
+    OneOf, Position, Range as LspRange, ReferenceParams, RegistrationParams, RelativePattern,
+    RenameParams, SignatureHelpParams, TextDocumentIdentifier, TextDocumentItem,
     TextDocumentPositionParams, UnregistrationParams, VersionedTextDocumentIdentifier, WatchKind,
 };
 use serde_json::Value;
@@ -23,8 +25,9 @@ use simple_logger::SimpleLogger;
 
 use crate::config::{lsp_uri_to_path, path_to_lsp_uri, LanguageId};
 use crate::types::{
-    HoverResult, LspDefinitionLocation, ReferenceLocation, TextDocumentContentChangeEvent,
-    TextEdit, WatchedFileChangeEvent,
+    CodeActionData, CompletionResult, FileEdits, HoverResult, Location, LspDefinitionLocation,
+    PrepareRenameResult, Range, ReferenceLocation, RenameResult, SignatureHelpResult,
+    TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
 };
 use crate::LspServerLogLevel;
 

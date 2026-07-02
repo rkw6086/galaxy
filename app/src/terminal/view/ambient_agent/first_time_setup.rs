@@ -3,7 +3,6 @@
 //! This view is displayed as an overlay when users first try to use cloud agent mode
 //! and need to create an environment.
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{
@@ -12,7 +11,10 @@ use galaxyui::elements::{
     NewScrollable, ParentElement, Radius, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
-use galaxyui::{AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use crate::ai::ambient_agents::github_auth_url::{AuthSource, GithubAuthRedirectTarget};
 use crate::ai::request_usage_model::AMBIENT_AGENT_TRIAL_CREDIT_THRESHOLD;

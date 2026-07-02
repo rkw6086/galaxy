@@ -1,6 +1,6 @@
-use galaxyui_core::{Entity, ModelContext, SingletonEntity};
 use std::sync::OnceLock;
 
+use galaxyui_core::{Entity, ModelContext, SingletonEntity};
 
 // Global execution mode, for logic that runs outside the UI framework.
 static GLOBAL_EXECUTION_MODE: OnceLock<ExecutionMode> = OnceLock::new();

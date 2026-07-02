@@ -6,11 +6,6 @@ use std::sync::Arc;
 #[cfg(feature = "local_fs")]
 #[cfg(not(target_family = "wasm"))]
 use diesel::SqliteConnection;
-#[cfg(feature = "local_fs")]
-use parking_lot::Mutex;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
-use uuid::Uuid;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -26,8 +21,13 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "local_fs")]
+use parking_lot::Mutex;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
+use uuid::Uuid;
 
+#[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::secret_redaction::find_secrets_in_text;
 use crate::ai::mcp::parsing::{prettify_json, resolve_json, ParsedTemplatableMCPServerResult};
 use crate::ai::mcp::templatable::CloudTemplatableMCPServer;

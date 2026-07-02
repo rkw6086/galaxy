@@ -1,3 +1,4 @@
+use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 use serde_json::{json, Value};
 use strum_macros::{EnumDiscriminants, EnumIter};
 

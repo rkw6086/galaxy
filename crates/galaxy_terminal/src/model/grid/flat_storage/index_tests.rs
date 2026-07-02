@@ -291,6 +291,10 @@ fn test_cell_type() {
 }
 
 mod offset_point_conversion {
+    use string_offset::ByteOffset;
+
+    use crate::model::grid::FlatStorage;
+    use crate::model::Point;
 
     #[test]
     fn test_normal_cell() {

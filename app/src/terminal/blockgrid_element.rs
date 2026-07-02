@@ -1,10 +1,10 @@
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxyui::elements::{
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext, Point,
     SizeConstraint,
 };
 use galaxyui::event::DispatchedEvent;
 use galaxyui::geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::blockgrid_renderer::GridRenderParams;
 use crate::appearance::Appearance;

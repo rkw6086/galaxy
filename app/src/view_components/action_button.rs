@@ -1,8 +1,6 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
 use galaxy_core::ui::color::{coloru_with_opacity, ContrastingColor};
@@ -23,7 +21,8 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, EventContext, FocusContext, Gradient,
     SingletonEntity as _, TypedActionView, View, ViewContext,
 };
-use std::{borrow::Cow, sync::Arc};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};

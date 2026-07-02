@@ -315,12 +315,11 @@ macro_rules! define_setting {
                 &mut self,
                 ctx: &mut $crate::galaxyui_core::ModelContext<Self::Group>,
             ) -> anyhow::Result<()> {
-                use $crate::ChangeEventReason;
                 Self::clear_from_preferences(Self::preferences_for_setting(ctx))?;
                 self.inner = self.validate(Self::default_value());
                 self.is_explicitly_set = false;
                 ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                    change_event_reason: ChangeEventReason::Clear,
+                    change_event_reason: $crate::ChangeEventReason::Clear,
                 }}));
                 Ok(())
             }
@@ -336,7 +335,7 @@ macro_rules! define_setting {
                     self.inner = self.validate(new_value);
                     self.is_explicitly_set = true;
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::CloudSync,
+                        change_event_reason: $crate::ChangeEventReason::CloudSync,
                     }}));
                 }
                 Ok(())
@@ -353,7 +352,7 @@ macro_rules! define_setting {
                     self.inner = self.validate(new_value);
                     self.is_explicitly_set = true;
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::LocalChange,
+                        change_event_reason: $crate::ChangeEventReason::LocalChange,
                     }}));
                 }
                 Ok(())
@@ -370,7 +369,7 @@ macro_rules! define_setting {
                     self.inner = validated;
                     self.is_explicitly_set = explicitly_set;
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::LocalChange,
+                        change_event_reason: $crate::ChangeEventReason::LocalChange,
                     }}));
                 }
                 Ok(())
@@ -585,7 +584,7 @@ macro_rules! implement_setting_for_enum {
                 Self::clear_from_preferences(Self::preferences_for_setting(ctx))?;
                 *self = self.validate(Self::default_value());
                 ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                    change_event_reason: ChangeEventReason::Clear,
+                    change_event_reason: $crate::ChangeEventReason::Clear,
                 }}));
                 Ok(())
             }
@@ -600,7 +599,7 @@ macro_rules! implement_setting_for_enum {
                 if self.value() != &new_value || changed_in_storage {
                     *self = self.validate(new_value);
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::CloudSync,
+                        change_event_reason: $crate::ChangeEventReason::CloudSync,
                     }}));
                 }
                 Ok(())
@@ -616,7 +615,7 @@ macro_rules! implement_setting_for_enum {
                 if self.value() != &new_value || changed_in_storage {
                     *self = self.validate(new_value);
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::LocalChange,
+                        change_event_reason: $crate::ChangeEventReason::LocalChange,
                     }}));
                 }
                 Ok(())
@@ -632,7 +631,7 @@ macro_rules! implement_setting_for_enum {
                 if self.value() != &validated {
                     *self = validated;
                     ctx.emit($crate::macros::concat_idents!(EventName = $group, ChangedEvent { EventName::$name {
-                        change_event_reason: ChangeEventReason::LocalChange,
+                        change_event_reason: $crate::ChangeEventReason::LocalChange,
                     }}));
                 }
                 Ok(())
@@ -856,7 +855,7 @@ macro_rules! generate_settings_event_fn {
                             let value = serde_json::from_str::<serde_json::Value>(&value)
                                 .ok()
                                 .and_then(|json_val| {
-                                    <$setting as $crate::Setting>::Value::from_file_value(&json_val)
+                                    <<$setting as $crate::Setting>::Value as $crate::_settings_value::SettingsValue>::from_file_value(&json_val)
                                 })
                                 .or_else(|| serde_json::from_str(&value).ok());
                             let Some(value) = value else {
@@ -893,7 +892,7 @@ macro_rules! generate_settings_event_fn {
                             let value = serde_json::from_str::<serde_json::Value>(&value)
                                 .ok()
                                 .and_then(|json_val| {
-                                    <$setting as $crate::Setting>::Value::from_file_value(&json_val)
+                                    <<$setting as $crate::Setting>::Value as $crate::_settings_value::SettingsValue>::from_file_value(&json_val)
                                 })
                                 .or_else(|| serde_json::from_str(&value).ok());
                             let Some(value) = value else {
@@ -910,7 +909,7 @@ macro_rules! generate_settings_event_fn {
                             let parse =
                                 |s: &str| -> anyhow::Result<<$setting as $crate::Setting>::Value> {
                                     let json_val = serde_json::from_str::<serde_json::Value>(s)?;
-                                    <$setting as $crate::Setting>::Value::from_file_value(&json_val)
+                                    <<$setting as $crate::Setting>::Value as $crate::_settings_value::SettingsValue>::from_file_value(&json_val)
                                         .or_else(|| serde_json::from_str(s).ok())
                                         .ok_or_else(|| {
                                             anyhow!(

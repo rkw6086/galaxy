@@ -1,8 +1,10 @@
+#![allow(dead_code)]
+
 use anyhow::anyhow;
-use lazy_static::lazy_static;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::DEFAULT_COMMAND_PALETTE_FONT_SIZE;
 use galaxy_core::ui::builder::UiBuilder;
+use lazy_static::lazy_static;
 use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
 use warpui::clipboard::ClipboardContent;
 use warpui::color::ColorU;

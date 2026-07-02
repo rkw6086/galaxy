@@ -11,9 +11,6 @@ use ::ai::index::full_source_code_embedding::{
     ContentHash, FragmentMetadata as LocalFragmentMetadata, NodeHash,
 };
 use ::ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
-use remote_server::proto::OpenBufferSuccess;
-use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
-use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::{safe_error, SessionId};
 use galaxy_files::{FileModel, FileModelEvent};
@@ -24,6 +21,9 @@ use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::platform::TerminationMode;
 use galaxyui::r#async::{Spawnable, SpawnableOutput, SpawnedFutureHandle};
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
+use remote_server::proto::OpenBufferSuccess;
+use repo_metadata::repositories::{DetectedRepositories, RepoDetectionSource};
+use repo_metadata::{RepoMetadataEvent, RepoMetadataModel, RepositoryIdentifier};
 
 use super::codebase_index_status::{
     codebase_index_status_to_proto, disabled_codebase_index_status,

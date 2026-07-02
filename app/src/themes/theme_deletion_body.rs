@@ -16,7 +16,7 @@ use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, Vi
 use crate::appearance::Appearance;
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{active_theme_kind, ThemeSettings};
-use crate::themes::theme::{ThemeKind, WarpTheme};
+use crate::themes::theme::{GalaxyTheme, ThemeKind};
 use crate::user_config::util::from_yaml;
 use crate::{send_telemetry_from_ctx, user_config};
 

@@ -7,11 +7,11 @@ use aws_credential_types::provider::error::CredentialsError;
 use aws_credential_types::provider::ProvideCredentials;
 use futures::channel::oneshot::channel;
 use futures::future::BoxFuture;
-use tokio::sync::Mutex;
-use vec1::vec1;
 use galaxy_managed_secrets::client::IdentityTokenOptions;
 use galaxy_managed_secrets::ManagedSecretManager;
 use galaxyui::{ModelContext, ModelHandle, SingletonEntity};
+use tokio::sync::Mutex;
+use vec1::vec1;
 
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::terminal::event::{AfterBlockCompletedEvent, BlockType, UserBlockCompleted};
@@ -137,7 +137,7 @@ pub async fn load_aws_credentials_from_sdk(
     let region_provider = aws_config::meta::region::RegionProviderChain::default_provider();
     let loader =
         aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
-    let loader = if profile.trim().is_empty() {
+    let loader = if profile.trim().is_empty() || profile.trim() == "default" {
         loader // Let AWS SDK use its default behavior
     } else {
         loader.profile_name(profile)

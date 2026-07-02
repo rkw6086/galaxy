@@ -378,7 +378,7 @@ fn is_valid_command_separator(token: &Token) -> bool {
 ///
 /// This includes all of the separator tokens as well as the grouping tokens
 fn is_command_terminator(token: &Token) -> bool {
-
+    use Token::*;
     is_valid_command_separator(token)
         || matches!(token, OpenParen | CloseParen | OpenCurly | CloseCurly)
 }

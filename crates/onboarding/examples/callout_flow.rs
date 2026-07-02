@@ -1,15 +1,8 @@
 use std::borrow::Cow;
 
 use anyhow::Result;
-use onboarding::callout::{
-    OnboardingCalloutView, OnboardingCalloutViewEvent, OnboardingKeybindings,
-};
-use onboarding::OnboardingIntention;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use rust_embed::RustEmbed;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
 use galaxyui_core::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, Flex, MainAxisAlignment, MainAxisSize,
     OffsetPositioning, ParentElement, PositionedElementAnchor, PositionedElementOffsetBounds, Rect,
@@ -25,6 +18,10 @@ use galaxyui_core::{
 use onboarding::callout::{
     OnboardingCalloutView, OnboardingCalloutViewEvent, OnboardingKeybindings,
 };
+use onboarding::OnboardingIntention;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use rust_embed::RustEmbed;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -182,7 +179,7 @@ fn main() -> Result<()> {
         ..Default::default()
     })?;
 
-    let app_builder = warpui::platform::AppBuilder::new(
+    let app_builder = galaxyui::platform::AppBuilder::new(
         platform::AppCallbacks::default(),
         Box::new(ASSETS),
         None,
@@ -258,7 +255,8 @@ fn build_appearance(theme: GalaxyTheme, ctx: &mut AppContext) -> Appearance {
 }
 
 fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
-    Cache::handle(ctx).update(ctx, |font_cache, _| {
+    let cache_handle = Cache::handle(ctx);
+    cache_handle.update(ctx, |font_cache, _| {
         // On Windows, default to use Segoe UI as the UI font.
         #[cfg(windows)]
         if let Ok(font_family_id) = font_cache.load_system_font("Segoe UI") {

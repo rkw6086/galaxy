@@ -8,13 +8,11 @@ use std::sync::{Arc, OnceLock};
 use arrayvec::ArrayString;
 use enum_iterator::Sequence;
 use galaxy_core::features::FeatureFlag;
+use galaxyui::AppContext;
 use galaxyui::elements::ListIndentLevel;
+use galaxyui::fonts::{Properties, Style, Weight};
 use galaxyui::text::BlockHeaderSize as HeaderSize;
 use galaxyui::text::point::Point;
-use galaxyui::{
-    AppContext,
-    fonts::{Properties, Style, Weight},
-};
 use lazy_static::lazy_static;
 pub use markdown_parser::markdown_parser::TABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::markdown_parser::{
@@ -33,11 +31,6 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use string_offset::{ByteOffset, CharOffset, impl_offset};
 use sum_tree::{Cursor, SeekBias, SumTree};
-use galaxyui_core::AppContext;
-use galaxyui_core::elements::ListIndentLevel;
-use galaxyui_core::fonts::{Properties, Style, Weight};
-use galaxyui_core::text::BlockHeaderSize as HeaderSize;
-use galaxyui_core::text::point::Point;
 
 use super::buffer::Buffer;
 use super::core::CursorType;

@@ -82,6 +82,53 @@ use command_corrections::rules::generic::history::History as CommandCorrectionsH
 use command_corrections::rules::{Rule, RuleId as CommandCorrectionsRuleId};
 use command_corrections::{correct_command, Command, Correction, HistoryItem, SessionMetadata};
 use enclose::enclose;
+use galaxy_core::channel::ChannelState;
+use galaxy_core::command::ExitCode;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::r#async::debounce;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+#[cfg(feature = "local_fs")]
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::path::ShellFamily;
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
+use galaxyui::assets::asset_cache::{AssetCache, AssetCacheEvent};
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::clipboard_utils::get_image_filepaths_from_paths;
+use galaxyui::elements::new_scrollable::{
+    AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
+    ScrollableAppearance, SingleAxisConfig,
+};
+use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
+use galaxyui::elements::{
+    get_rich_content_position_id, Align, Border, ChildAnchor, ChildView, Clipped,
+    ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    DispatchEventResult, DropTarget, DropTargetData, Empty, EventHandler, Expanded, Fill, Flex,
+    Hoverable, Icon, LiveElement, MouseStateHandle, NewScrollable, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds,
+    Radius, Rect, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth,
+    Shrinkable, Stack, Text,
+};
+use galaxyui::event::ModifiersState;
+use galaxyui::fonts::{Cache as FontCache, FamilyId, Properties};
+use galaxyui::geometry::vector::{vec2f, Vector2F};
+use galaxyui::image_cache::ImageType;
+use galaxyui::keymap::Keystroke;
+use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
+use galaxyui::platform::{Cursor, OperatingSystem};
+use galaxyui::r#async::executor::Background;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::text::SelectionType;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
+use galaxyui::windowing::WindowManager;
+use galaxyui::{
+    end_trace_after_next, record_trace_event, windowing, AccessibilityData, AppContext,
+    BlurContext, CursorInfo, Element, Entity, EntityId, EventContext, FocusContext, ModelAsRef,
+    ModelHandle, SingletonEntity, Tracked, TypedActionView, View, ViewAsRef, ViewContext,
+    ViewHandle, WeakModelHandle, WeakViewHandle, WindowId,
+};
 pub use init::{
     init, CANCEL_COMMAND_KEYBINDING, TOGGLE_AUTOEXECUTE_MODE_KEYBINDING,
     TOGGLE_HIDE_CLI_RESPONSES_KEYBINDING, TOGGLE_QUEUE_NEXT_PROMPT_KEYBINDING,
@@ -128,53 +175,6 @@ use sum_tree::SeekBias;
 use use_agent_footer::UseAgentToolbar;
 use uuid::Uuid;
 use vec1::vec1;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::command::ExitCode;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::r#async::debounce;
-use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_core::user_preferences::GetUserPreferences as _;
-use galaxy_util::local_or_remote_path::LocalOrRemotePath;
-#[cfg(feature = "local_fs")]
-use galaxy_util::path::LineAndColumnArg;
-use galaxy_util::path::ShellFamily;
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
-use galaxyui::assets::asset_cache::{AssetCache, AssetCacheEvent};
-use galaxyui::clipboard::ClipboardContent;
-use galaxyui::clipboard_utils::get_image_filepaths_from_paths;
-use galaxyui::elements::new_scrollable::{
-    AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
-    ScrollableAppearance, SingleAxisConfig,
-};
-use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
-use galaxyui::elements::{
-    get_rich_content_position_id, Align, Border, ChildAnchor, ChildView, Clipped,
-    ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-    DispatchEventResult, DropTarget, DropTargetData, Empty, EventHandler, Expanded, Fill, Flex,
-    Hoverable, Icon, LiveElement, MouseStateHandle, NewScrollable, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds,
-    Radius, Rect, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth,
-    Shrinkable, Stack, Text,
-};
-use galaxyui::event::ModifiersState;
-use galaxyui::fonts::{Cache as FontCache, FamilyId, Properties};
-use galaxyui::geometry::vector::{vec2f, Vector2F};
-use galaxyui::image_cache::ImageType;
-use galaxyui::keymap::Keystroke;
-use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome, UserNotification};
-use galaxyui::platform::{Cursor, OperatingSystem};
-use galaxyui::r#async::executor::Background;
-use galaxyui::r#async::{SpawnedFutureHandle, Timer};
-use galaxyui::text::SelectionType;
-use galaxyui::ui_components::components::UiComponent;
-use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use galaxyui::windowing::WindowManager;
-use galaxyui::{
-    end_trace_after_next, record_trace_event, windowing, AccessibilityData, AppContext,
-    BlurContext, CursorInfo, Element, Entity, EntityId, EventContext, FocusContext, ModelAsRef,
-    ModelHandle, SingletonEntity, Tracked, TypedActionView, View, ViewAsRef, ViewContext,
-    ViewHandle, WeakModelHandle, WeakViewHandle, WindowId,
-};
 
 use self::link_detection::HighlightedLinkOption;
 pub use self::link_detection::{GridHighlightedLink, RichContentLink, RichContentLinkTooltipInfo};
@@ -504,7 +504,7 @@ use crate::terminal::{
     CellSizeAndWindowPadding, History, HistoryEntry, ShellHost, ShellLaunchData, SizeInfo,
     SizeUpdate, SizeUpdateReason,
 };
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::throttle::throttle;
 use crate::ui_components::icons::{self};
 use crate::util::bindings::{
@@ -2690,6 +2690,7 @@ pub struct TerminalView {
     queued_prompt_callback: Option<ConversationFinishedCallback>,
     last_observed_conversation_status: HashMap<AIConversationId, ConversationStatus>,
     last_observed_active_subagent: HashMap<AIConversationId, bool>,
+    usage_footer_view_ids: HashMap<EntityId, EntityId>,
 
     /// View ID of the context window debug view, if visible.
     context_view_id: Option<EntityId>,
@@ -3569,10 +3570,10 @@ impl TerminalView {
                     );
                     ctx.notify();
                 }
-                TerminalSettingsChangedEvent::AltScreenPadding { .. } => {
-                    if me.model.lock().is_alt_screen_active() {
-                        me.refresh_size(ctx);
-                    }
+                TerminalSettingsChangedEvent::AltScreenPadding { .. }
+                    if me.model.lock().is_alt_screen_active() =>
+                {
+                    me.refresh_size(ctx);
                 }
                 _ => {}
             },
@@ -4271,6 +4272,8 @@ impl TerminalView {
             input,
             inline_menu_positioner,
             view_handle: ctx.handle(),
+            context_view_id: None,
+            settings_view_id: None,
             size_info: size_info.into(),
             snackbar_header_state: Default::default(),
             colors,
@@ -5286,9 +5289,7 @@ impl TerminalView {
         ) {
             ctx.emit(Event::FreeTierLimitCheckTriggered);
         }
-        if let BlocklistAIControllerEvent::SentRequest { model_id, .. } = event {
-            self.maybe_insert_aws_bedrock_login_banner(model_id, ctx);
-        }
+
         if let BlocklistAIControllerEvent::ExecuteLocalHarnessCommand { command } = event {
             self.execute_command_or_set_pending(command, ctx);
         }
@@ -6885,103 +6886,6 @@ impl TerminalView {
             return;
         }
 
-        // Get the conversation from the history model
-        let Some(conversation) =
-            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
-        else {
-            log::error!("Could not find conversation for usage footer");
-            return;
-        };
-
-        let tool_usage = conversation.tool_usage_metadata();
-        let time_to_first_token_ms = conversation.time_to_first_token_for_last_user_query_ms();
-        let total_agent_response_time_ms =
-            conversation.total_agent_response_time_since_last_user_query_ms();
-        let wall_to_wall_response_time_ms =
-            conversation.wall_to_wall_response_time_since_last_query();
-
-        let conversation_usage_info = ConversationUsageInfo {
-            credits_spent: conversation.inference_credits_spent(),
-            platform_credits_spent: conversation.platform_credits_spent(),
-            credits_spent_for_last_block: conversation.credits_spent_for_last_block(),
-            tool_calls: tool_usage.total_tool_calls(),
-            models: conversation.token_usage().to_vec(),
-            context_window_usage: conversation.context_window_usage(),
-            context_window_segments: conversation.context_window_segments().to_vec(),
-            files_changed: tool_usage.apply_file_diff_stats.files_changed,
-            lines_added: tool_usage.apply_file_diff_stats.lines_added,
-            lines_removed: tool_usage.apply_file_diff_stats.lines_removed,
-            commands_executed: tool_usage.run_command_stats.commands_executed,
-        };
-
-        let timing_info = TimingInfo {
-            time_to_first_token_ms,
-            total_agent_response_time_ms,
-            wall_to_wall_response_time_ms,
-        };
-
-        // View to hold the usage footer. Always route through the
-        // rollup-aware constructor so the view subscribes to history
-        // events and re-renders when any contributing agent's usage
-        // updates. The rollup itself is computed at render time and is
-        // self-gating: conversations without descendants short-circuit
-        // to today's UI inside `ConversationUsageView::render`, so no
-        // feature flag check is needed at the call site.
-        //
-        // Use `add_typed_action_view` (not `add_view`) so the framework
-        // registers `ConversationUsageView::handle_action`. Without this,
-        // typed actions like `ToggleDetailsExpanded` / `ShowAllAgentRows`
-        // dispatched from the view's own click handlers would be logged
-        // as `Dispatched action has no handlers` and silently ignored.
-        let usage_view = ctx.add_typed_action_view(|ctx| {
-            ConversationUsageView::new_footer_with_rollup(
-                conversation_usage_info,
-                Some(timing_info),
-                MouseStateHandle::default(),
-                conversation_id,
-                ctx,
-            )
-        });
-        self.usage_footer_view_ids
-            .insert(source_ai_block_view_id, usage_view.id());
-
-        let agent_view_conversation_id = self
-            .agent_view_controller
-            .as_ref(ctx)
-            .agent_view_state()
-            .active_conversation_id();
-
-        let item = RichContentItem::new(None, usage_view.id(), agent_view_conversation_id, false);
-
-        let mut model = self.model.lock();
-        let inserted = model.block_list_mut().insert_rich_content_after_item(
-            RemovableBlocklistItem::RichContent(source_ai_block_view_id),
-            item,
-        );
-        drop(model);
-
-        if inserted {
-            self.rich_content_views.push(
-                RichContent::new(usage_view, agent_view_conversation_id)
-                    .with_metadata(RichContentMetadata::UsageFooter),
-            );
-        } else {
-            // Fallback: append usage block to the end of the blocklist
-            self.insert_rich_content(
-                None,
-                usage_view,
-                Some(RichContentMetadata::UsageFooter),
-                RichContentInsertionPosition::Append {
-                    insert_below_long_running_block: true,
-                },
-                ctx,
-            );
-        }
-
-        ctx.notify();
-    }
-
-    fn toggle_usage_footer(&mut self, ctx: &mut ViewContext<Self>) {
         let conversation_id = self
             .agent_view_controller
             .as_ref(ctx)
@@ -10751,71 +10655,6 @@ impl TerminalView {
                 }
             },
         );
-    }
-
-    /// Checks if the current model request could be served via AWS Bedrock and the user
-    /// isn't already using it. If so, inserts a banner prompting the user to log in.
-    ///
-    /// The banner is shown when the user could be using AWS Bedrock to save on warp AI spend, but isn't.
-    fn maybe_insert_aws_bedrock_login_banner(
-        &mut self,
-        model_id: &LLMId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Don't show if already displayed
-        if self.inline_banners_state.aws_bedrock_login_banner.is_some() {
-            return;
-        }
-
-        // Check if dismissed (either permanently via "Don't show again" or for this session via "X")
-        if ByoLlmAuthBannerSessionState::as_ref(ctx).is_dismissed() {
-            return;
-        }
-
-        // Check if AWS Bedrock is available in the workspace
-        if !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx) {
-            return;
-        }
-
-        // Check if the model supports AWS Bedrock routing
-        let llm_prefs = LLMPreferences::as_ref(ctx);
-        let Some(llm_info) = llm_prefs.get_llm_info(model_id) else {
-            return;
-        };
-
-        let supports_aws_bedrock = llm_info
-            .host_configs
-            .get(&LLMModelHost::AwsBedrock)
-            .is_some_and(|config| config.enabled);
-        if !supports_aws_bedrock {
-            return;
-        }
-
-        if matches!(
-            ApiKeyManager::as_ref(ctx).aws_credentials_state(),
-            AwsCredentialsState::Loaded { .. }
-        ) {
-            return;
-        }
-
-        // User doesn't have AWS credentials - show the banner
-        let banner_id = self.inline_banners_state.next_banner_id();
-        self.inline_banners_state.aws_bedrock_login_banner = Some(AwsBedrockLoginBannerState {
-            id: banner_id,
-            login_button_mouse_state: Default::default(),
-            dismiss_button_mouse_state: Default::default(),
-            dont_show_again_button_mouse_state: Default::default(),
-        });
-
-        self.model
-            .lock()
-            .block_list_mut()
-            .append_inline_banner_with_custom_height(
-                InlineBannerItem::new(banner_id, InlineBannerType::AwsBedrockLogin),
-                3.5,
-            );
-
-        ctx.notify();
     }
 
     fn remove_aws_cli_not_installed_banner(&mut self, ctx: &mut ViewContext<Self>) {
@@ -15104,7 +14943,7 @@ impl TerminalView {
             correct_command(
                 command,
                 &session_metadata,
-                DEFAULT_IGNORED_RULES_FOR_COMMAND_CORRECTIONS.into_iter(),
+                *DEFAULT_IGNORED_RULES_FOR_COMMAND_CORRECTIONS,
             )
         }
     }
@@ -24628,6 +24467,7 @@ impl TerminalView {
     }
 
     fn context_menu_action(&mut self, action: &ContextMenuAction, ctx: &mut ViewContext<Self>) {
+        use ContextMenuAction::*;
 
         // TODO: handle sharing session with > 1 block selected
         let source = SharedSessionActionSource::BlocklistContextMenu {
@@ -25001,7 +24841,7 @@ impl TerminalView {
         action: &InputContextMenuAction,
         ctx: &mut ViewContext<Self>,
     ) {
-
+        use InputContextMenuAction::*;
         match action {
             CutSelectedText => self.cut_selected_text_from_input(ctx),
             CopySelectedText => self.copy_selected_text_from_input(ctx),
@@ -26418,6 +26258,7 @@ impl TypedActionView for TerminalView {
     }
 
     fn handle_action(&mut self, action: &TerminalAction, ctx: &mut ViewContext<Self>) {
+        use TerminalAction::*;
         let input_mode = *InputModeSettings::as_ref(ctx).input_mode.value();
 
         match action {
@@ -27305,7 +27146,7 @@ impl TypedActionView for TerminalView {
                     #[cfg(feature = "local_fs")]
                     ctx.emit(Event::OpenCodeInWarp {
                         source: CodeSource::ProjectRules {
-                            location: LocalOrRemotePath::Local(warp_md_path),
+                            location: LocalOrRemotePath::Local(galaxy_md_path),
                         },
                         layout: *crate::util::file::external_editor::EditorSettings::as_ref(ctx)
                             .open_file_layout

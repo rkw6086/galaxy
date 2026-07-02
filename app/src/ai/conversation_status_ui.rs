@@ -17,7 +17,7 @@ pub trait StatusElementStyle {
 }
 
 impl StatusElementStyle for ConversationStatus {
-    fn status_icon_and_color(&self, theme: &WarpTheme) -> (Icon, ColorU) {
+    fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
         ConversationStatus::status_icon_and_color(self, theme, StatusColorStyle::Standard)
     }
 }

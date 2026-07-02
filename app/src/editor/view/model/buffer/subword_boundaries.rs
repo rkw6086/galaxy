@@ -1,9 +1,9 @@
 use std::iter::Peekable;
 
-use itertools::Either;
 use galaxyui::text::word_boundaries::WordBoundariesApproach;
 use galaxyui::text::words::is_subword_boundary_char;
 use galaxyui::text::TextBuffer;
+use itertools::Either;
 
 use super::{CharOffset, Point};
 

@@ -300,6 +300,9 @@ impl NewSessionSearcher for FuzzyNewSessionSearcher {
 #[cfg(not(target_family = "wasm"))]
 mod full_text_searcher {
 
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use fuzzy_match::FuzzyMatchResult;
     use warp_search_core::define_search_schema;
     use warpui::r#async::executor::Background;

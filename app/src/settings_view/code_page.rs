@@ -9,11 +9,6 @@ use ai::index::full_source_code_embedding::manager::{
 use ai::index::full_source_code_embedding::SyncProgress;
 use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
 use ai::workspace::WorkspaceMetadata;
-use lsp::supported_servers::LSPServerType;
-use lsp::{LspManagerModel, LspManagerModelEvent, LspServerModel, LspState};
-use pathfinder_color::ColorU;
-#[cfg(not(target_family = "wasm"))]
-use remote_server::codebase_index_proto::{RemoteCodebaseIndexState, RemoteCodebaseIndexStatus};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_if_error;
 use galaxy_core::settings::ToggleableSetting as _;
@@ -36,6 +31,11 @@ use galaxyui::{
     id, Action, AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use lsp::supported_servers::LSPServerType;
+use lsp::{LspManagerModel, LspManagerModelEvent, LspServerModel, LspState};
+use pathfinder_color::ColorU;
+#[cfg(not(target_family = "wasm"))]
+use remote_server::codebase_index_proto::{RemoteCodebaseIndexState, RemoteCodebaseIndexStatus};
 
 #[cfg(feature = "local_fs")]
 use super::features::external_editor::ExternalEditorView;

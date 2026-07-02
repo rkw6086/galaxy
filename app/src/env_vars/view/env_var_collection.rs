@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
@@ -16,6 +15,7 @@ use galaxyui::{
     id, AppContext, BlurContext, Element, Entity, FocusContext, ModelAsRef, ModelHandle,
     SingletonEntity, TypedActionView, View, ViewContext, ViewHandle, WindowId,
 };
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::command_dialog::EnvVarCommandDialog;
 use super::menus::Menus;

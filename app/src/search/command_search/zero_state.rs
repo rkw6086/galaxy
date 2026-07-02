@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use lazy_static::lazy_static;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
@@ -8,6 +7,7 @@ use galaxyui::elements::{
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use lazy_static::lazy_static;
 
 use crate::appearance::Appearance;
 use crate::drive::settings::{WarpDriveSettings, WarpDriveSettingsChangedEvent};
@@ -305,6 +305,7 @@ fn valid_query_filters(app: &AppContext) -> Vec<QueryFilter> {
 }
 
 mod styles {
+    use crate::appearance::Appearance;
 
     pub const FILTER_CHIP_MARGIN: f32 = 8.;
     pub const FILTER_CHIPS_MARGIN_BOTTOM: f32 = 16.;

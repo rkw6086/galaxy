@@ -3,6 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 use galaxy_core::command::ExitCode;
 use galaxyui::{App, SingletonEntity};
 use galaxyui_extras::user_preferences;
@@ -11,7 +12,6 @@ use parking_lot::Mutex;
 #[cfg(feature = "local_fs")]
 use repo_metadata::DirectoryWatcher;
 use settings::Setting as _;
-use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 
 use super::{ChipUpdateStatus, CurrentPrompt, PromptContext};
 use crate::auth::auth_manager::AuthManager;

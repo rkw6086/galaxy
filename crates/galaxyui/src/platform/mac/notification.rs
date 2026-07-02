@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use chrono::DateTime;
 use cocoa::base::id;
-use objc2_foundation::NSUInteger;
 use galaxyui_core::notification::{
     NotificationResponse, NotificationSendError, RequestPermissionsOutcome,
 };
+use objc2_foundation::NSUInteger;
 
 use super::utils::nsstring_as_str;
 

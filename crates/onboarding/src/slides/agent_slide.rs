@@ -1,9 +1,7 @@
 use ai::LLMId;
-use galaxy_core::ui::icons::Icon;
-use pathfinder_color::ColorU;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 use galaxyui_core::elements::{
@@ -22,6 +20,8 @@ use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyl
 use galaxyui_core::{
     AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
 };
+use pathfinder_color::ColorU;
+use ui_components::{button, Component as _, Options as _};
 
 use super::two_line_button::{render_two_line_button, TwoLineButtonSpec};
 use super::OnboardingSlide;

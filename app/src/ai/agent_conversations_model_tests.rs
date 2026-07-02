@@ -3,13 +3,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
+use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{App, EntityId};
+use galaxyui::{App, EntityId, ModelHandle, SingletonEntity};
 use instant::Instant;
 use parking_lot::Mutex;
 use persistence::model::{AgentConversationData, ConversationUsageMetadata};
-use galaxy_cli::agent::Harness;
-use galaxyui::{App, EntityId, ModelHandle, SingletonEntity};
 
 use super::entry::{
     AgentConversationEntryId, AgentConversationNavigationSubject, AgentConversationProvenance,
@@ -238,6 +237,7 @@ fn test_title_update_refreshes_shadowing_task_title() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -344,6 +344,7 @@ fn test_display_status_uses_matching_conversation_for_in_progress_task() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -400,6 +401,7 @@ fn test_display_status_uses_active_execution_over_previous_conversation_status()
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -463,6 +465,7 @@ fn test_display_status_updates_when_blocked_conversation_resumes() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -542,6 +545,7 @@ fn test_display_status_terminal_task_state_overrides_matching_conversation() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -597,6 +601,7 @@ fn test_status_filter_uses_display_status_for_task_backed_conversations() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -792,6 +797,7 @@ fn create_server_conversation_metadata(
             token_usage: vec![],
             tool_usage_metadata: Default::default(),
             context_window_segments: Vec::new(),
+            ..Default::default()
         },
         metadata: mock_server_metadata(),
         creator: None,
@@ -928,6 +934,7 @@ fn test_get_entries_merges_task_and_local_conversation_by_run_id() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -983,6 +990,7 @@ fn test_get_entries_merges_task_and_local_conversation_by_server_token() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -1191,6 +1199,7 @@ fn test_resolve_open_action_returns_none_for_active_unattachable_session() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -1477,6 +1486,7 @@ fn test_server_token_assignment_updates_copy_link_resolution() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -1639,6 +1649,7 @@ fn test_resolve_copy_link_uses_attached_synced_conversation_for_task_without_tok
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -1966,6 +1977,7 @@ fn test_get_entries_prefers_task_when_task_id_matches_conversation_run_id() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -2027,6 +2039,7 @@ fn test_get_entries_prefers_task_when_server_token_matches() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 

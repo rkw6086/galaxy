@@ -249,6 +249,8 @@ impl ShellCommandExecutor {
                             block_id: model.block_list().active_block().id().clone(),
                             output: "Error: Cannot execute command because another command is still running in the terminal.".to_string(),
                             exit_code: ExitCode::from(1),
+                            start_ts: None,
+                            completed_ts: None,
                         },
                     ));
                 }

@@ -41,6 +41,7 @@ fn build_upload_artifact_action(file_path: &str) -> AIAgentAction {
         }),
         task_id: TaskId::new("upload-artifact-task".to_string()),
         requires_result: false,
+        tool_name: None,
     }
 }
 

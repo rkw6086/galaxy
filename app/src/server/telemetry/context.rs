@@ -1,15 +1,17 @@
+#![allow(dead_code)]
+
 //! Module that builds a static context to attach to each of our events that are sent to Rudderstack.
 //! This is needed so we know the backing operating system and version of each telemetry event.
 
 use std::sync::OnceLock;
 
-use serde::Serialize;
-use serde_json::{json, Value};
+use galaxy_core::operating_system_info::OperatingSystemInfo;
 #[cfg(target_family = "wasm")]
 use galaxyui::platform::wasm;
+use serde::Serialize;
+use serde_json::{json, Value};
 
 use super::rudder_message::Message as RudderMessage;
-use crate::server::OperatingSystemInfo;
 
 static TELEMETRY_CONTEXT: OnceLock<TelemetryContext> = OnceLock::new();
 

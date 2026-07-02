@@ -1,3 +1,5 @@
+use image::{ImageBuffer, Rgba};
+
 use super::*;
 
 #[test]
@@ -14,7 +16,6 @@ fn test_is_supported_image_mime_type() {
 
 /// Creates a small test PNG image and returns its bytes.
 fn create_small_test_png() -> Vec<u8> {
-    use image::{ImageBuffer, Rgba};
     // Create a small 10x10 red image
     let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
         ImageBuffer::from_fn(10, 10, |_x, _y| Rgba([255u8, 0u8, 0u8, 255u8]));

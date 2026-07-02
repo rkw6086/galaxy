@@ -205,7 +205,6 @@ fn test_to_relative_path() {
 
 #[test]
 fn test_normalize_relative_path_for_glob() {
-
     assert_eq!(
         normalize_relative_path_for_glob(Path::new("app/src/main.rs")),
         "app/src/main.rs"

@@ -1,12 +1,10 @@
 //! This module defines helper functions pertaining to the size/position of items in a Grid,
 //! such as the dimensions of a grid cell and the baseline position of text within a cell.
 use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
-use galaxyui::fonts::Cache as FontCache;
-use galaxyui::fonts::FamilyId;
+use galaxyui::fonts::{Cache as FontCache, FamilyId};
 use galaxyui::text_layout::ComputeBaselinePositionFn;
 use num_traits::Zero;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use galaxyui::fonts::{Cache as FontCache, FamilyId};
 
 /// Computes the grid cell size given the font and size at which the grid should
 /// be rendered. We use a similar algorithm to Alacritty to do this, where the

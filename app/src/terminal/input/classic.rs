@@ -1,11 +1,11 @@
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting;
 use galaxyui::elements::{
     Border, ChildAnchor, ChildView, Clipped, Container, DropTarget, Element, Empty, Flex,
     Hoverable, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, SavePosition,
     Stack,
 };
 use galaxyui::{AppContext, SingletonEntity};
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
 
 use super::{should_render_prompt_using_editor_decorator_elements, Input, SubshellRenderState};
 use crate::ai::blocklist::InputType;

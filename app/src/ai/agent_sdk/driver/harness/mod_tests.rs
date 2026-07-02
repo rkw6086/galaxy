@@ -1,6 +1,6 @@
 use warp_cli::agent::Harness;
 
-use super::{auth_check_command_for, validate_cli_installed};
+use super::{auth_check_command_for, validate_cli_installed, ThirdPartyHarness};
 use crate::ai::agent_sdk::driver::AgentDriverError;
 
 fn assert_harness_setup_failed(err: &AgentDriverError) -> (&str, &str) {

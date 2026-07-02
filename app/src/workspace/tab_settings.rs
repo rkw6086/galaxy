@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 use galaxy_core::ui::theme::AnsiColorIdentifier;
+use settings::macros::define_settings_group;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
+
+use super::header_toolbar_item::HeaderToolbarItemKind;
 
 #[derive(
     Default,
@@ -259,7 +263,6 @@ pub enum HeaderToolbarChipSelection {
 
 impl HeaderToolbarChipSelection {
     pub fn left_items(&self) -> Vec<super::header_toolbar_item::HeaderToolbarItemKind> {
-        use super::header_toolbar_item::HeaderToolbarItemKind;
         match self {
             Self::Default => HeaderToolbarItemKind::default_left(),
             Self::Custom { left, .. } => left.clone(),

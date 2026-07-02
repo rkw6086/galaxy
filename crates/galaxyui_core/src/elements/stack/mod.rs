@@ -441,5 +441,5 @@ impl Extend<Box<dyn Element>> for Stack {
 }
 
 #[cfg(test)]
-#[path = "mod_tests.rs"]
+#[path = "mod_test.rs"]
 mod tests;

@@ -1,12 +1,10 @@
+#![allow(dead_code)]
+
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::path::Path;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
-use markdown_parser::{parse_markdown, FormattedText, FormattedTextFragment, FormattedTextLine};
-use parking_lot::FairMutex;
-use settings::Setting;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_if_error;
 use galaxy_core::ui::Icon;
@@ -25,7 +23,9 @@ use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext,
 };
-use std::{borrow::Cow, cmp::Reverse, path::Path, sync::Arc};
+use itertools::Itertools as _;
+use markdown_parser::{parse_markdown, FormattedText, FormattedTextFragment, FormattedTextLine};
+use parking_lot::FairMutex;
 
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
 use crate::ai::agent::conversation::AIConversationId;

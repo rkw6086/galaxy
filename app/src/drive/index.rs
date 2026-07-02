@@ -3,10 +3,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::Future;
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use url::Url;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::settings::Setting;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -31,7 +27,10 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
     UpdateView, View, ViewContext, ViewHandle, WindowId,
 };
-use std::{any::Any, collections::HashMap, sync::Arc};
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use url::Url;
 
 use super::cloud_object_naming_dialog::CloudObjectNamingDialog;
 use super::drive_helpers::{
@@ -406,6 +405,7 @@ impl DriveIndexAction {
 
 impl From<&DriveIndexAction> for LoginGatedFeature {
     fn from(val: &DriveIndexAction) -> LoginGatedFeature {
+        use DriveIndexAction::*;
         match val {
             OpenTeamSettingsPage => "Open Team Settings",
             ViewPlans { .. } => "View Plans",
@@ -3306,16 +3306,16 @@ impl DriveIndex {
                         return;
                     }
                 }
-                CloudObjectTypeAndId::Workflow(_) => {
-                    if !UserWorkspaces::has_capacity_for_shared_workflows(team_uid, ctx, 1) {
-                        // If team has reached the limit for workflows, show the modal
-                        // and return early.
-                        ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
-                            DriveObjectType::Workflow,
-                            team_uid,
-                        ));
-                        return;
-                    }
+                CloudObjectTypeAndId::Workflow(_)
+                    if !UserWorkspaces::has_capacity_for_shared_workflows(team_uid, ctx, 1) =>
+                {
+                    // If team has reached the limit for workflows, show the modal
+                    // and return early.
+                    ctx.emit(DriveIndexEvent::OpenSharedObjectsCreationDeniedModal(
+                        DriveObjectType::Workflow,
+                        team_uid,
+                    ));
+                    return;
                 }
                 _ => (),
             }
@@ -3630,19 +3630,17 @@ impl DriveIndex {
                             return;
                         }
                     }
-                    CloudObjectTypeAndId::Workflow(_) => {
-                        if has_feature_gated_anonymous_user_reached_workflow_limit(ctx) {
-                            return;
-                        }
+                    CloudObjectTypeAndId::Workflow(_)
+                        if has_feature_gated_anonymous_user_reached_workflow_limit(ctx) =>
+                    {
+                        return;
                     }
                     CloudObjectTypeAndId::GenericStringObject {
                         object_type:
                             GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
                         id: _,
-                    } => {
-                        if has_feature_gated_anonymous_user_reached_env_var_limit(ctx) {
-                            return;
-                        }
+                    } if has_feature_gated_anonymous_user_reached_env_var_limit(ctx) => {
+                        return;
                     }
                     _ => {}
                 },

@@ -1,9 +1,9 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     CacheOption, ConstrainedBox, Flex, Icon, Image, MainAxisAlignment, MainAxisSize, ParentElement,
     Rect, Stack,
 };
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View};
+use pathfinder_color::ColorU;
 
 pub struct RootView {}
 

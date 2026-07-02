@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
+pub use galaxy_completer::completer::SuggestionTypeName;
+pub use galaxy_completer::util::parse_current_commands_and_tokens;
+pub use galaxy_completer::{ParsedTokenData, ParsedTokensSnapshot};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity, ViewContext};
 use settings::Setting as _;
 use string_offset::{ByteOffset, CharOffset};
-pub use galaxy_completer::completer::SuggestionTypeName;
-pub use galaxy_completer::util::parse_current_commands_and_tokens;
-pub use galaxy_completer::{ParsedTokenData, ParsedTokensSnapshot};
 
 use super::Input;
 use crate::appearance::Appearance;

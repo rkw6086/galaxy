@@ -1,9 +1,9 @@
 use ai::LLMId;
 use chrono::{DateTime, Utc};
+use galaxy_core::features::FeatureFlag;
 use galaxyui::{App, SingletonEntity};
 use onboarding::slides::{AgentAutonomy, AgentDevelopmentSettings, ProjectOnboardingSettings};
 use onboarding::SelectedSettings;
-use galaxy_core::features::FeatureFlag;
 
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::{

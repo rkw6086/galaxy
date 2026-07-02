@@ -27,8 +27,8 @@ use crate::ai::remote_context_files::{
     read_remote_text_file_contents, REMOTE_CONTEXT_MAX_BATCH_BYTES, REMOTE_CONTEXT_MAX_FILE_BYTES,
 };
 use crate::warp_managed_paths_watcher::{
-    filter_repository_update_by_prefix, warp_managed_skill_dirs, WarpManagedPathsWatcher,
-    WarpManagedPathsWatcherEvent,
+    filter_repository_update_by_prefix, galaxy_managed_skill_dirs, GalaxyManagedPathsWatcherEvent,
+    WarpManagedPathsWatcher,
 };
 
 #[derive(Debug, PartialEq)]

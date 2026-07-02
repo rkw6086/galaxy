@@ -6,15 +6,12 @@ use std::{cmp, vec};
 use async_channel::Sender;
 use chrono::{DateTime, Local};
 use fuzzy_match::match_indices;
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use warp_command_signatures::IconType;
 use galaxy_completer::completer::{
     MatchType, PathSeparators, Suggestion, SuggestionResults, SuggestionType,
 };
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     Align, AnchorPair, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DispatchEventResult, DropShadow, Element, Empty, EventHandler, Expanded,
@@ -29,7 +26,9 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
 };
-use std::{cmp, ops::Range, vec};
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use warp_command_signatures::IconType;
 
 use crate::ai::blocklist::{render_ai_agent_mode_icon, AIQueryHistory, AIQueryHistoryOutputStatus};
 use crate::appearance::Appearance;

@@ -16,11 +16,10 @@ mod section_views;
 pub use section_views::{ChangelogSectionView, ContentSectionView, FeatureSectionView};
 pub mod sections;
 mod view;
-use galaxyui::{keymap::Keystroke, AppContext, Entity, SingletonEntity};
-use serde::{Deserialize, Serialize};
-pub use view::{ResourceCenterAction, ResourceCenterEvent, ResourceCenterPage, ResourceCenterView};
 use galaxyui::keymap::Keystroke;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use serde::{Deserialize, Serialize};
+pub use view::{ResourceCenterAction, ResourceCenterEvent, ResourceCenterPage, ResourceCenterView};
 
 use self::section_views::feature_section::FeatureSection;
 

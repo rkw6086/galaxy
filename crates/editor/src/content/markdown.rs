@@ -4,6 +4,9 @@ use std::ops::Range;
 use std::{io, iter};
 
 use anyhow::{Context, Result};
+use galaxyui_core::elements::{ListIndentLevel, ListNumbering};
+use galaxyui_core::text::point::Point;
+use galaxyui_core::{AppContext, ModelContext, ModelHandle};
 use html5ever::serialize::{Serialize, Serializer, TraversalScope};
 use html5ever::{QualName, serialize};
 use itertools::Itertools;
@@ -14,9 +17,6 @@ use markdown_parser::{
 };
 use markup5ever::ns;
 use string_offset::CharOffset;
-use galaxyui_core::elements::{ListIndentLevel, ListNumbering};
-use galaxyui_core::text::point::Point;
-use galaxyui_core::{AppContext, ModelContext, ModelHandle};
 
 use super::buffer::{
     ActionWithSelectionDelta, Buffer, EditOrigin, EditResult, StyledBufferBlock,

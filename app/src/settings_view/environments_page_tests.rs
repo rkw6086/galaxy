@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
-use instant::Instant;
+use chrono::{Duration, Utc};
 use galaxy_core::ui::appearance::Appearance;
+use instant::Instant;
 use warpui::elements::Empty;
 use warpui::platform::WindowStyle;
 use warpui::{App, AppContext, Element, Entity, TypedActionView, View, WindowId};
@@ -1402,7 +1403,6 @@ fn test_render_environment_card_with_last_used_never() {
 
 #[test]
 fn test_render_environment_card_with_last_used_timestamp() {
-
     App::test((), |mut app| async move {
         app.add_singleton_model(|_| Appearance::mock());
 

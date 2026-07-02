@@ -4,7 +4,7 @@
 use pathfinder_color::ColorU;
 use warp_editor::editor::NavigationKey;
 use warp_editor::search::{SearchEvent, Searcher};
-pub use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
+pub use warpui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use warpui::elements::{
     Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DropShadow, Element, Flex, Hoverable, MainAxisAlignment, MouseStateHandle,
@@ -318,11 +318,8 @@ impl CodeEditorFind {
             EditorEvent::Escape => {
                 self.close_find_bar(ctx);
             }
-            EditorEvent::Navigate(NavigationKey::Tab) => {
-                // If replace editor is currently open and the user presses 'tab', focus on the find editor
-                if self.is_replace_open {
-                    ctx.focus(&self.replace_editor);
-                }
+            EditorEvent::Navigate(NavigationKey::Tab) if self.is_replace_open => {
+                ctx.focus(&self.replace_editor);
             }
             _ => {}
         }

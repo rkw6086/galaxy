@@ -12,7 +12,11 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use galaxy_core::channel::Channel;
-use galaxyui::{r#async::block_on, AppContext, SingletonEntity};
+use galaxyui::r#async::block_on;
+use galaxyui::rendering::GPUDeviceInfo;
+use galaxyui::windowing::state::ApplicationStage;
+use galaxyui::windowing::{self, StateEvent, WindowManager};
+use galaxyui::{AppContext, SingletonEntity};
 use lazy_static::lazy_static;
 use parking_lot::{Mutex, RwLock};
 use regex::Regex;
@@ -20,11 +24,6 @@ use sentry::{ClientInitGuard, IntoDsn, SessionMode};
 #[cfg(linux_or_windows)]
 pub use sentry_minidump::run_server as run_minidump_server;
 use warp_server_auth::anonymous_id::get_or_create_anonymous_id;
-use galaxyui::r#async::block_on;
-use galaxyui::rendering::GPUDeviceInfo;
-use galaxyui::windowing::state::ApplicationStage;
-use galaxyui::windowing::{self, StateEvent, WindowManager};
-use galaxyui::{AppContext, SingletonEntity};
 
 use crate::antivirus::{AntivirusInfo, AntivirusInfoEvent};
 use crate::auth::{AuthStateProvider, UserUid};

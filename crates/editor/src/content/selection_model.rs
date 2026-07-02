@@ -4,7 +4,6 @@ use galaxyui::{AppContext, Entity, ModelHandle};
 use itertools::Itertools;
 use string_offset::CharOffset;
 use vec1::{Vec1, vec1};
-use galaxyui_core::{AppContext, Entity, ModelHandle};
 
 use crate::content::anchor::{Anchor, AnchorSide, AnchorUpdate, Anchors};
 use crate::content::buffer::{Buffer, SelectionOffsets, ToBufferPoint};

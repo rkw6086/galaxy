@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use string_offset::CharOffset;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::settings::Setting;
 use galaxyui::color::ColorU;
@@ -22,6 +21,7 @@ use galaxyui::{
     AppContext, Element, Entity, EventContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use string_offset::CharOffset;
 
 use super::command_parser::{
     compute_workflow_display_data, WorkflowArgumentIndex, WorkflowDisplayData,

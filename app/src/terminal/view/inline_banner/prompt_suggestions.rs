@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use pathfinder_geometry::vector::vec2f;
-use serde::Serialize;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors::{neutral_2, neutral_3};
+use pathfinder_geometry::vector::vec2f;
+use serde::Serialize;
 use warpui::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Fill, Flex, HighlightedHyperlink, Hoverable, Icon, MainAxisAlignment, MainAxisSize,

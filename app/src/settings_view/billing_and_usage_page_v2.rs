@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Local;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::appearance::Appearance;
 use itertools::Itertools;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use settings::Setting;
 use thousands::Separable;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::appearance::Appearance;
 use warp_graphql::billing::AddonCreditsOption;
 use warpui::elements::{
     Align, Border, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,

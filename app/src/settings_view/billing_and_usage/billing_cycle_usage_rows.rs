@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use galaxy_core::channel::ChannelState;
+use galaxy_core::ui::appearance::Appearance;
 use itertools::Itertools as _;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::ui::appearance::Appearance;
 use warpui::elements::{
     Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow,
     Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,

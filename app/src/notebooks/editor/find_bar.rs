@@ -2,11 +2,10 @@ use std::fmt::Write;
 use std::time::Duration;
 
 use async_channel::Sender;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::r#async::debounce;
 use galaxy_editor::render::model::{AutoScrollMode, Decoration};
 use galaxy_editor::search::{SearchEvent, Searcher};
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Empty, Flex, MouseStateHandle, OffsetPositioning, ParentElement, PositionedElementAnchor,
@@ -21,6 +20,7 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity,
     TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use super::model::NotebooksEditorModel;
 use super::view::{EditorViewEvent, RichTextEditorView};

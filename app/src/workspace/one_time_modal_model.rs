@@ -1,9 +1,9 @@
 use std::future::Future;
 
 use ai::api_keys::ApiKeyManager;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
+use settings::Setting as _;
 use warp_util::sync::Condition;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, WindowId};
 
@@ -627,7 +627,6 @@ impl OneTimeModalModel {
         &mut self,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
-
         // Check if already dismissed
         let general_settings = GeneralSettings::as_ref(ctx);
         if *general_settings

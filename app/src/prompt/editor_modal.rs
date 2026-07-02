@@ -1,8 +1,4 @@
 use galaxy_core::ui::theme::Fill;
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use serde::Serialize;
-use settings::Setting as _;
 use galaxyui::elements::{
     Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Empty, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
@@ -15,6 +11,10 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use serde::Serialize;
+use settings::Setting as _;
 
 use crate::appearance::AppearanceEvent;
 use crate::chip_configurator::{ChipConfigurator, ChipConfiguratorAction, ChipConfiguratorLayout};

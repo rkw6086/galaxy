@@ -2,11 +2,11 @@ use std::path::Path;
 
 use ai::workspace::WorkspaceMetadata;
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{Align, ConstrainedBox, Flex, Highlight, ParentElement, Shrinkable, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::search::action::search_item::styles;

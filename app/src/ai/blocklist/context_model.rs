@@ -7,12 +7,11 @@ use std::sync::Arc;
 
 use ai::project_context::model::ProjectContextModel;
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
-use parking_lot::FairMutex;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::{
     AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle,
 };
+use parking_lot::FairMutex;
 
 use super::agent_view::{AgentViewEntryOrigin, EnterAgentViewError};
 use super::block::DirectoryContext;

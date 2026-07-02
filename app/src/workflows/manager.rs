@@ -7,7 +7,7 @@ use super::workflow::Workflow;
 use super::CloudWorkflowModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericCloudObject, Owner};
-use crate::drive::OpenWarpDriveObjectSettings;
+use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::pane_group::{PaneContent, WorkflowPane};
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,

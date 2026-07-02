@@ -2,10 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use serde::{Deserialize, Serialize};
-use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -23,6 +19,10 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, SingletonEntity, ViewHandle};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use serde::{Deserialize, Serialize};
+use settings::Setting as _;
 
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::conversation_status_ui::{render_status_element, STATUS_ELEMENT_PADDING};

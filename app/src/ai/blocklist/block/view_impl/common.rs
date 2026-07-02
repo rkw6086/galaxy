@@ -12,10 +12,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextInline, TableAlignment};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
@@ -45,6 +41,11 @@ use galaxyui::text_layout::{ClipConfig, TextAlignment, TextStyle};
 use galaxyui::ui_components::button::Button;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{Action, AppContext, Element, EventContext, SingletonEntity, View, ViewHandle};
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextInline, TableAlignment};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use rand::Rng;
 
 use super::output::LinkActionConstructors;
 use super::{add_highlights_to_rich_text, add_highlights_to_text};

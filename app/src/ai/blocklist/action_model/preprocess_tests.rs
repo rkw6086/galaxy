@@ -18,6 +18,7 @@ fn create_test_action(id: AIAgentActionId) -> AIAgentAction {
             citations: vec![],
         },
         requires_result: false,
+        tool_name: None,
     }
 }
 

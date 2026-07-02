@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::ops::{Neg, RangeInclusive};
 
-use pathfinder_color::ColorU;
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
 use galaxyui::geometry::vector::{vec2f, Vector2F};
 use galaxyui::{AppContext, Element, EntityId, PaintContext};
+use pathfinder_color::ColorU;
 
 use super::model::ansi::{CursorShape, CursorStyle};
 use super::model::grid::RespectDisplayedOutput;
@@ -18,7 +18,7 @@ use crate::terminal::model::grid::grid_handler::Link;
 use crate::terminal::model::index::Point;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::{color, SizeInfo};
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 
 pub struct GridRenderParams {
     pub warp_theme: GalaxyTheme,

@@ -3,11 +3,6 @@ use ::ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, ApiKeys};
 use ::ai::grok_subscription::oauth::{self, ManualCodeExchange};
 use chrono::{DateTime, Local};
 use enum_iterator::all;
-use itertools::Itertools;
-use pathfinder_geometry::vector::vec2f;
-use regex::Regex;
-use settings::{Setting, ToggleableSetting};
-use strum::IntoEnumIterator;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
@@ -24,7 +19,7 @@ use galaxyui::elements::{
     Text,
 };
 use galaxyui::fonts::{Properties, Weight};
-use galaxyui::keymap::{ContextPredicate, Keystroke};
+use galaxyui::keymap::{ContextPredicate, FixedBinding, Keystroke};
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -34,6 +29,11 @@ use galaxyui::{
     id, Action, AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_geometry::vector::vec2f;
+use regex::Regex;
+use settings::{Setting, ToggleableSetting};
+use strum::IntoEnumIterator;
 
 use super::custom_inference_modal::{
     CustomEndpointModal, CustomEndpointModalEvent, CustomEndpointModalViewState,
@@ -86,19 +86,19 @@ use crate::editor::{
     TextColors,
 };
 use crate::modal::{Modal, ModalEvent, ModalViewState};
+use crate::settings::ai::BedrockAuthMethod;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
-    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, AwsBedrockAutoLogin,
-    AwsBedrockCredentialsEnabled, CanUseWarpCreditsForFallback, CodeSettings,
-    CodebaseContextEnabled, FileBasedMcpEnabled, GitOperationsAutogenEnabled,
-    IncludeAgentCommandsInHistory, InputSettings, IntelligentAutosuggestionsEnabled,
-    LongRunningCommandSubmissionMode, MemoryEnabled, NLDInTerminalEnabled,
-    NaturalLanguageAutosuggestionsEnabled, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
-    ShouldRenderUseAgentToolbarForUserCommands, ShouldShowOzUpdatesInZeroState, ShowAgentTips,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VoiceInputEnabled,
-    WarpDriveContextEnabled,
+    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
+    BedrockEnabled, CanUseWarpCreditsForFallback, CodeSettings, CodebaseContextEnabled,
+    FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
+    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
+    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled,
+    OrchestrationMessageDisplayMode, PromptSubmissionMode, RuleSuggestionsEnabled,
+    SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
+    ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
+    ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
 };
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::CLIAgent;
@@ -109,6 +109,7 @@ use crate::view_components::{
     render_warning_box, FilterableDropdown, SubmittableTextInput, SubmittableTextInputEvent,
     WarningBoxConfig,
 };
+use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::UserWorkspacesEvent;
 
 /// Identifies which subpage of the AI settings the user is viewing.
@@ -362,7 +363,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         app.register_fixed_bindings(mode_bindings);
     }
     if FeatureFlag::QueueSlashCommand.is_enabled() {
-
         let ai_context = context.clone() & id!(flags::IS_ANY_AI_ENABLED);
         let mode_bindings: Vec<FixedBinding> = PromptSubmissionMode::iter()
             .map(|mode| {
@@ -547,9 +547,9 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 FeatureFlag::AIRules.is_enabled() && FeatureFlag::SuggestedRules.is_enabled()
             }),
             ToggleSettingActionPair::new(
-                "Warp Drive as agent context",
+                "Galaxy Drive as agent context",
                 builder(SettingsAction::AI(
-                    AISettingsPageAction::ToggleWarpDriveContext,
+                    AISettingsPageAction::ToggleGalaxyDriveContext,
                 )),
                 &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
                 flags::WARP_DRIVE_CONTEXT_FLAG,
@@ -1891,18 +1891,20 @@ impl AISettingsPageView {
                 }
             });
         }
-        // Subscribe to WarpConfig to refresh router views when files change.
+        // Subscribe to GalaxyConfig to refresh router views when files change.
         #[cfg(feature = "local_fs")]
         ctx.subscribe_to_model(
-            &crate::user_config::WarpConfig::handle(ctx),
+            &crate::user_config::GalaxyConfig::handle(ctx),
             |me, _, event, ctx| {
-                use crate::user_config::WarpConfigUpdateEvent;
-                if matches!(event, WarpConfigUpdateEvent::ModelConfigs) {
+                use crate::user_config::GalaxyConfigUpdateEvent;
+                if matches!(event, GalaxyConfigUpdateEvent::ModelConfigs) {
                     me.router_views = Self::create_router_views(ctx);
                     ctx.notify();
                 }
             },
         );
+
+        let (page, _) = Self::build_page(None, ctx);
 
         Self {
             page,
@@ -2660,7 +2662,6 @@ impl AISettingsPageView {
     /// attempt's PKCE verifier.
     #[cfg(not(target_family = "wasm"))]
     fn submit_grok_code(&mut self, code: String, ctx: &mut ViewContext<Self>) {
-
         use crate::view_components::DismissibleToast;
 
         // Shared with the browser connect-flow toasts.
@@ -2794,10 +2795,9 @@ impl AISettingsPageView {
                         // Derive display name from model ID
                         let display_name = id
                             .split('/')
-                            .last()
+                            .next_back()
                             .unwrap_or(id)
-                            .replace('-', " ")
-                            .replace('_', " ");
+                            .replace(['-', '_'], " ");
                         // Capitalize first letter of each word
                         let display_name = display_name
                             .split_whitespace()
@@ -2938,7 +2938,7 @@ impl AISettingsPageView {
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
                 widgets.push(Box::new(ApiKeysWidget::new(ctx)));
-                widgets.push(Box::new(AwsBedrockWidget::new(ctx)));
+                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
                 if FeatureFlag::CustomModelRouters.is_enabled() {
                     widgets.push(Box::new(CustomModelRoutersWidget));
                 }
@@ -3483,12 +3483,12 @@ impl AISettingsPageView {
         ctx: &mut ViewContext<Self>,
     ) -> Vec<ViewHandle<super::custom_router_view::CustomRouterView>> {
         use super::custom_router_view::{CustomRouterView, CustomRouterViewEvent};
-        use crate::user_config::WarpConfig;
+        use crate::user_config::GalaxyConfig;
         if !galaxy_core::features::FeatureFlag::CustomModelRouters.is_enabled() {
             return Vec::new();
         }
         let routers: Vec<crate::ai::custom_model_routers::CustomModelRouter> =
-            WarpConfig::as_ref(ctx).custom_model_routers().clone();
+            GalaxyConfig::as_ref(ctx).custom_model_routers().clone();
         routers
             .into_iter()
             .map(|router| {
@@ -3507,7 +3507,9 @@ impl AISettingsPageView {
                             #[cfg(feature = "local_fs")]
                             {
                                 if let Err(e) =
-                                    crate::user_config::WarpConfig::delete_custom_model_router(path)
+                                    crate::user_config::GalaxyConfig::delete_custom_model_router(
+                                        path,
+                                    )
                                 {
                                     log::warn!("Failed to delete custom router: {e:?}");
                                 }
@@ -3758,6 +3760,7 @@ pub enum AISettingsPageAction {
         pattern: String,
         agent: Option<CLIAgent>,
     },
+    ToggleCloudAgentComputerUse,
 }
 
 impl From<&AISettingsPageAction> for LoginGatedFeature {
@@ -4447,6 +4450,14 @@ impl TypedActionView for AISettingsPageView {
             AISettingsPageAction::ToggleBedrockAutoLogin => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.bedrock_auto_login.toggle_and_save_value(ctx));
+                });
+                ctx.notify();
+            }
+            AISettingsPageAction::ToggleCloudAgentComputerUse => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings
+                        .cloud_agent_computer_use_enabled
+                        .toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -7900,6 +7911,7 @@ impl SettingsWidget for AgentAttributionWidget {
 mod tests;
 
 #[derive(Default)]
+#[allow(dead_code)]
 struct CloudAgentComputerUseWidget {
     toggle: SwitchStateHandle,
 }
@@ -8241,7 +8253,7 @@ impl ApiKeysWidget {
                 ctx.subscribe_to_view(&$editor, |_, $editor, event, ctx| {
                     if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
                         let buffer_text = $editor.as_ref(ctx).buffer_text(ctx);
-                        let key = buffer_text.is_empty().not().then_some(buffer_text);
+                        let key = (!buffer_text.is_empty()).then_some(buffer_text);
                         ApiKeyManager::handle(ctx).update(ctx, |model, ctx| {
                             model.$set_func(key, ctx);
                         });
@@ -9054,10 +9066,8 @@ impl SettingsWidget for ApiKeysWidget {
     }
 }
 
-struct AwsBedrockWidget {
-    aws_auth_refresh_command_editor: ViewHandle<EditorView>,
-    aws_auth_refresh_profile_editor: ViewHandle<EditorView>,
-    credentials_enabled_toggle: SwitchStateHandle,
+struct BedrockSettingsWidget {
+    enabled_toggle: SwitchStateHandle,
     auto_login_toggle: SwitchStateHandle,
     auth_method_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
     profile_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
@@ -9366,6 +9376,15 @@ impl SettingsWidget for BedrockSettingsWidget {
 
         let mut column = Flex::column().with_spacing(16.);
 
+        let has_aws_env = std::env::vars_os().any(|(k, _)| k.to_string_lossy().starts_with("AWS_"));
+
+        if has_aws_env {
+            column.add_child(render_warning_box(
+                WarningBoxConfig::new("You have AWS environment variables defined, which may override these settings."),
+                appearance,
+            ));
+        }
+
         column.add_child(render_ai_setting_toggle::<BedrockEnabled>(
             "Enable AWS Bedrock",
             AISettingsPageAction::ToggleBedrockEnabled,
@@ -9641,6 +9660,135 @@ impl OpenAISettingsWidget {
     }
 }
 
+impl SettingsWidget for OpenAISettingsWidget {
+    type View = AISettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "openai litellm custom provider endpoint api key models"
+    }
+
+    fn should_render(&self, _app: &AppContext) -> bool {
+        true
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let ai_settings = AISettings::as_ref(app);
+        let is_enabled = *ai_settings.openai_enabled.value();
+
+        let mut column = Flex::column().with_spacing(16.);
+
+        column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
+            "Enable OpenAI-Compatible Provider",
+            AISettingsPageAction::ToggleOpenAIEnabled,
+            is_enabled,
+            true,
+            self.enabled_toggle.clone(),
+            &RefCell::new(HashMap::new()),
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Route AI requests through an OpenAI-compatible endpoint (e.g. LiteLLM proxy).",
+            true,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        column.add_child(Self::render_input(
+            appearance,
+            "Base URL",
+            self.base_url_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "The OpenAI-compatible API base URL (e.g. http://localhost:4000/v1).",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(Self::render_input(
+            appearance,
+            "API Key",
+            self.api_key_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Optional. Leave empty if the proxy handles authentication.",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        // Fetch models button
+        let fetch_button = appearance
+            .ui_builder()
+            .button(ButtonVariant::Secondary, self.fetch_button.clone())
+            .with_text_label("Fetch Models from Endpoint".to_owned())
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(AISettingsPageAction::FetchOpenAIModels);
+            })
+            .finish();
+        column.add_child(fetch_button);
+        column.add_child(render_ai_setting_description(
+            "Queries the /models endpoint and populates the model list with available models and their context window sizes.",
+            is_enabled,
+            app,
+        ));
+
+        column.add_child(render_separator(appearance));
+
+        // Show configured models count
+        let configured_models: Vec<_> = ai_settings.openai_models.value().clone();
+        if !configured_models.is_empty() {
+            let description = format!(
+                "{} model{} configured via settings.toml.",
+                configured_models.len(),
+                if configured_models.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            );
+            column.add_child(render_ai_setting_description(description, is_enabled, app));
+
+            // Show first few model names
+            let preview: String = configured_models
+                .iter()
+                .take(5)
+                .map(|m| m.display_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let suffix = if configured_models.len() > 5 {
+                format!(" (+{} more)", configured_models.len() - 5)
+            } else {
+                String::new()
+            };
+            column.add_child(render_ai_setting_description(
+                format!("Models: {preview}{suffix}"),
+                is_enabled,
+                app,
+            ));
+        } else {
+            column.add_child(render_ai_setting_description(
+                "No models configured. Use 'Fetch Models' or add them to ~/.galaxy/settings.toml under [ai.openai].",
+                is_enabled,
+                app,
+            ));
+        }
+
+        column.finish()
+    }
+}
+
 /// Stable `&'static str` id for the custom model routers settings widget,
 /// exposed for the `warp://settings?widget=custom_router` deeplink (see
 /// `settings_widget_deeplink_target`).
@@ -9681,10 +9829,12 @@ impl SettingsWidget for CustomModelRoutersWidget {
             .with_child({
                 #[cfg(feature = "local_fs")]
                 {
-                    galaxyui::elements::Container::new(view.add_router_button.as_ref(app).render(app))
-                        .with_margin_bottom(4.)
-                        .with_margin_top(-4.)
-                        .finish()
+                    galaxyui::elements::Container::new(
+                        view.add_router_button.as_ref(app).render(app),
+                    )
+                    .with_margin_bottom(4.)
+                    .with_margin_top(-4.)
+                    .finish()
                 }
                 #[cfg(not(feature = "local_fs"))]
                 {
@@ -9710,9 +9860,10 @@ impl SettingsWidget for CustomModelRoutersWidget {
         #[cfg(feature = "local_fs")]
         let column = {
             use super::custom_router_view::render_router_error_card;
+            use crate::user_config::GalaxyConfig;
             let mut c = column;
             // Error cards (files that failed to parse) — shown first
-            let errors = WarpConfig::as_ref(app).custom_model_router_errors();
+            let errors = GalaxyConfig::as_ref(app).custom_model_router_errors();
             for error in errors.iter() {
                 c.add_child(
                     Container::new(render_router_error_card(

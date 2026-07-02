@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use galaxy_editor::content::text::BufferBlockItem;
 use galaxyui::elements::{
     AnchorPair, Border, Container, CornerRadius, MouseStateHandle, OffsetPositioning, OffsetType,
@@ -11,6 +10,7 @@ use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::button::ButtonTooltipPosition;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, SingletonEntity, ViewContext, ViewHandle};
+use serde::{Deserialize, Serialize};
 
 use super::embedded_item::EmbeddedWorkflow;
 use super::view::{EditorViewAction, EditorViewEvent, RichTextEditorView};

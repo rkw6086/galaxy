@@ -1,6 +1,6 @@
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{App, EntityId, ModelHandle, SingletonEntity};
+use settings::Setting as _;
 
 use super::AgentNotificationsModel;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;

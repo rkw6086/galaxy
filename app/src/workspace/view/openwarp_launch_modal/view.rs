@@ -1,8 +1,3 @@
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
-};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::phenomenon::PhenomenonStyle;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
@@ -20,6 +15,8 @@ use galaxyui::{
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextLine, FormattedTextStyles, Hyperlink,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;

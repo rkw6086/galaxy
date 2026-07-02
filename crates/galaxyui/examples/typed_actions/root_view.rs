@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::{Align, ConstrainedBox, ParentElement, Rect, Stack, Text};
 use galaxyui::fonts::FamilyId;
 use galaxyui::keymap::FixedBinding;
@@ -7,6 +6,7 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 // We could initiate global action and bindings here.
 pub fn init(ctx: &mut AppContext) {

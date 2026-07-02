@@ -6,10 +6,10 @@ mod lexer;
 mod parser;
 mod token;
 
+use galaxy_util::path::EscapeChar;
 use lexer::Lexer;
 use parser::Parser;
 use string_offset::ByteOffset;
-use galaxy_util::path::EscapeChar;
 
 use crate::parsers::LiteCommand;
 

@@ -7,14 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use enum_iterator::Sequence;
-use itertools::Itertools;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
-use session_sharing_protocol::common::{ParticipantId, Selection};
-use vec1::Vec1;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::builder::UiBuilder;
-use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, GalaxyTheme};
 use galaxy_util::user_input::UserInput;
 use galaxyui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use galaxyui::elements::{
@@ -36,6 +31,11 @@ use galaxyui::{
     AfterLayoutContext, AppContext, ClipBounds, Element, EntityId, Event, EventContext,
     LayoutContext, ModelHandle, PaintContext, SingletonEntity as _, SizeConstraint,
 };
+use itertools::Itertools;
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use session_sharing_protocol::common::{ParticipantId, Selection};
+use vec1::Vec1;
 
 use super::block_list_viewport::{ClampingMode, InputMode, ScrollPosition, ViewportState};
 use super::blockgrid_renderer::GridRenderParams;
@@ -1936,9 +1936,7 @@ impl BlockListElement {
         ctx: &mut EventContext,
         app: &AppContext,
     ) -> bool {
-        if self.is_terminal_selecting && self.bounds.is_some() {
-            let bounds = self.bounds.unwrap();
-
+        if let (true, Some(bounds)) = (self.is_terminal_selecting, self.bounds) {
             let snackbar_height = self
                 .snackbar_header_state()
                 .header_rect()
@@ -3069,7 +3067,6 @@ impl BlockListElement {
         state: &KeyState,
         ctx: &mut EventContext,
     ) -> bool {
-
         if let Some(voice_input_toggle_key_code) = self.voice_input_toggle_key_code {
             if *key_code == voice_input_toggle_key_code {
                 ctx.dispatch_typed_action(TerminalAction::ToggleCLIAgentVoiceInput(
@@ -4611,21 +4608,17 @@ impl Element for BlockListElement {
                 selected_range,
             } => self.set_marked_text(marked_text, selected_range, ctx),
             Event::ClearMarkedText => self.clear_marked_text(ctx),
-            Event::ModifierKeyChanged { key_code, state } => {
-                if self.is_terminal_focused {
-                    let is_press = matches!(state, KeyState::Pressed);
-                    if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
-                        self.model.lock().deref(),
-                        key_code,
-                        is_press,
-                    ) {
-                        ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
-                        return true;
-                    }
-                    self.maybe_handle_voice_toggle(key_code, state, ctx)
-                } else {
-                    false
+            Event::ModifierKeyChanged { key_code, state } if self.is_terminal_focused => {
+                let is_press = matches!(state, KeyState::Pressed);
+                if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
+                    self.model.lock().deref(),
+                    key_code,
+                    is_press,
+                ) {
+                    ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
+                    return true;
                 }
+                self.maybe_handle_voice_toggle(key_code, state, ctx)
             }
             _ => false,
         };

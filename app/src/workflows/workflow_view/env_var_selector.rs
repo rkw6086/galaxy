@@ -1,9 +1,9 @@
-use itertools::Itertools as _;
 use galaxyui::elements::ChildView;
 use galaxyui::{
     Element as _, Entity, SingletonEntity as _, TypedActionView, View, ViewAsRef, ViewContext,
     ViewHandle,
 };
+use itertools::Itertools as _;
 
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::{CloudObject as _, GenericStringObjectFormat, JsonObjectType};

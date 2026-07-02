@@ -3,12 +3,11 @@ use std::time::Duration;
 use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
+use galaxy_terminal::model::BlockId;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
-use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity};
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use instant::Instant;
 use session_sharing_protocol::common::SessionId;
-use galaxy_terminal::model::BlockId;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 
 use super::AmbientAgentProgressUIState;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;

@@ -2,17 +2,17 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use settings::Setting as _;
 use galaxy_completer::completer::TopLevelCommandCaseSensitivity;
 use galaxy_completer::parsers::classify_command;
 use galaxy_completer::parsers::hir::{Command, Expression};
 use galaxy_completer::parsers::simple::all_parsed_commands;
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_util::path::EscapeChar;
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use galaxyui::{SingletonEntity, ViewContext};
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use settings::Setting as _;
 
 use super::{Event, InlineBannerItem, InlineBannerType, TerminalView};
 #[cfg(feature = "local_fs")]

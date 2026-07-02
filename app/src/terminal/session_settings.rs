@@ -2,13 +2,15 @@ pub mod new_session_shell;
 pub mod startup_shell;
 pub mod working_directory_config;
 
+use galaxy_core::settings::macros::define_settings_group;
+use galaxy_core::settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
 use instant::Duration;
 use lazy_static::lazy_static;
 pub use new_session_shell::*;
 use serde::{Deserialize, Serialize};
 pub use startup_shell::*;
-use galaxy_core::settings::macros::define_settings_group;
-use galaxy_core::settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 pub use working_directory_config::*;
 
 use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;

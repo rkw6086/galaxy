@@ -11,8 +11,8 @@ use axum::extract::State;
 use axum::http::header::{AUTHORIZATION, HOST, ORIGIN};
 use axum::http::{HeaderMap, HeaderValue};
 use chrono::Duration;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
+use settings::Setting as _;
 use warpui::SingletonEntity as _;
 
 #[cfg(unix)]

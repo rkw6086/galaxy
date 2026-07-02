@@ -22,6 +22,7 @@ use byte_unit::{Byte, Unit as ByteUnit};
 pub use dcs_hooks::*;
 pub use galaxy_terminal::model::ansi::control_sequence_parameters::*;
 use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
+use galaxyui::color::ColorU;
 pub use handler::*;
 use hex;
 use instant::Instant;
@@ -29,8 +30,6 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use log::debug;
 use vte::{Params, Parser as VteParser, Perform as VtePerform};
-pub use galaxy_terminal::model::ansi::control_sequence_parameters::*;
-use galaxyui::color::ColorU;
 
 use super::kitty::parse_kitty_chunk;
 use crate::features::FeatureFlag;

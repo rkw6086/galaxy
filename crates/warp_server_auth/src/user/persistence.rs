@@ -1,14 +1,10 @@
 use galaxy_graphql::scalars::time::ServerTimestamp;
-use galaxyui::AppContext;
+use galaxyui_core::AppContext;
 use galaxyui_extras::secure_storage;
 use serde::{Deserialize, Serialize};
-use galaxyui_core::AppContext;
-use galaxyui_extras::secure_storage::{self, AppContextExt};
 
 use super::{AnonymousUserType, FirebaseAuthTokens, PersonalObjectLimits, UserMetadata};
 use crate::UserUid;
-
-const USER_STORAGE_KEY: &str = "User";
 
 /// Helper function to set `true` as the default for a serde field on PersistedUser.
 fn default_as_true() -> bool {

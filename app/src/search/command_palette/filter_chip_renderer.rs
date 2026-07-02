@@ -1,10 +1,10 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable, Icon,
     MouseStateHandle, ParentElement, Radius, Text,
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{Element, EventContext};
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
@@ -149,7 +149,7 @@ impl FilterChipRenderer for QueryFilter {
 mod styles {
     use galaxyui::elements::{Border, MouseState};
 
-    use crate::themes::theme::{Blend, Fill, WarpTheme};
+    use crate::themes::theme::{Blend, Fill, GalaxyTheme};
 
     /// Size of the border when the query filter is hovered.
     const HOVERED_BORDER_SIZE: f32 = 2.;

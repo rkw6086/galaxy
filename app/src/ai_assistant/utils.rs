@@ -1,6 +1,3 @@
-/// Common functionality used across different AI Assistant components.
-use markdown_parser::{parse_markdown, CodeBlockText, FormattedText, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, HighlightedHyperlink, Icon,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Text,
@@ -9,6 +6,9 @@ use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, ModelHandle};
+/// Common functionality used across different AI Assistant components.
+use markdown_parser::{parse_markdown, CodeBlockText, FormattedText, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use super::panel::AIAssistantAction;
 use super::requests::Requests;

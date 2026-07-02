@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::SyncSender;
 
 use chrono::{DateTime, Duration, Utc};
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
 use rand::Rng;
-use galaxy_core::features::FeatureFlag;
 use warp_graphql::scalars::time::ServerTimestamp;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
 

@@ -4,8 +4,6 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::Utc;
 use cynic::{MutationBuilder, QueryBuilder};
-#[cfg(test)]
-use mockall::automock;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_graphql::mutations::share_block::{
     BlockInput, ShareBlock, ShareBlockResult, ShareBlockVariables,
@@ -16,6 +14,8 @@ use galaxy_graphql::mutations::unshare_block::{
 use galaxy_graphql::queries::get_blocks_for_user::{
     Block as GqlBlock, GetBlocksForUser, GetBlocksForUserVariables,
 };
+#[cfg(test)]
+use mockall::automock;
 
 use super::ServerApi;
 use crate::ai::generate_block_title::api::{GenerateBlockTitleRequest, GenerateBlockTitleResponse};

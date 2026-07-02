@@ -8,8 +8,6 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::channel::oneshot;
-use session_sharing_protocol::common::{Role, SessionId};
-use session_sharing_protocol::sharer::SessionRetentionReason;
 use galaxy_cli::share::{ShareAccessLevel, ShareRequest, ShareSubject};
 use galaxy_completer::completer::CommandOutput;
 use galaxy_core::command::ExitCode;
@@ -18,6 +16,8 @@ use galaxy_terminal::model::grid::Dimensions;
 use galaxy_util::path::ShellFamily;
 use galaxyui::r#async::FutureExt;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity as _, ViewHandle};
+use session_sharing_protocol::common::{Role, SessionId};
+use session_sharing_protocol::sharer::SessionRetentionReason;
 
 use super::AgentDriverError;
 use crate::ai::ambient_agents::AmbientAgentTaskId;

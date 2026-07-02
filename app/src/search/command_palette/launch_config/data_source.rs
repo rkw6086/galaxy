@@ -9,7 +9,7 @@ use crate::search::command_palette::launch_config::search_item::SearchItem;
 use crate::search::command_palette::mixer::CommandPaletteItemAction;
 use crate::search::data_source::{DataSourceSearchError, Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
-use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
+use crate::user_config::{GalaxyConfig, GalaxyConfigUpdateEvent};
 
 /// Datasource that searches against `LaunchConfig`s.
 pub struct DataSource {
@@ -50,11 +50,11 @@ impl DataSource {
 
     fn handle_config_event(
         &mut self,
-        _: ModelHandle<WarpConfig>,
-        event: &WarpConfigUpdateEvent,
+        _: ModelHandle<GalaxyConfig>,
+        event: &GalaxyConfigUpdateEvent,
         ctx: &mut ModelContext<Self>,
     ) {
-        if matches!(event, WarpConfigUpdateEvent::LaunchConfigs) {
+        if matches!(event, GalaxyConfigUpdateEvent::LaunchConfigs) {
             self.searcher.refresh_search_index(ctx);
         }
     }
@@ -123,14 +123,19 @@ impl LaunchConfigSearcher for FuzzyLaunchConfigSearcher {
 #[cfg(not(target_family = "wasm"))]
 mod full_text_searcher {
 
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use fuzzy_match::FuzzyMatchResult;
     use warp_search_core::define_search_schema;
     use warpui::r#async::executor::Background;
     use warpui::{AppContext, SingletonEntity};
 
+    use crate::launch_configs::launch_config::LaunchConfig;
     use crate::search::command_palette::launch_config::data_source::LaunchConfigSearcher;
+    use crate::search::command_palette::launch_config::search_item::SearchItem;
     use crate::search::searcher::{AsyncSearcher, DEFAULT_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR};
-    use crate::user_config::WarpConfig;
+    use crate::user_config::GalaxyConfig;
 
     // The name of the launch configs are duplicated to ensure that the searcher
     // hashes the name to uniquely identify the launch config.

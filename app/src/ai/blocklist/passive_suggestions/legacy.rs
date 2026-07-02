@@ -7,9 +7,9 @@ use std::time::Duration;
 use chrono::Utc;
 #[cfg(not(target_family = "wasm"))]
 use command::r#async::Command;
+use galaxy_core::features::FeatureFlag;
 use parking_lot::FairMutex;
 use serde_json::json;
-use galaxy_core::features::FeatureFlag;
 use warpui::r#async::{FutureExt as AsyncFutureExt, SpawnedFutureHandle, Timer};
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 

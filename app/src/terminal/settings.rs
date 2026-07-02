@@ -1,7 +1,9 @@
+use galaxy_core::features::FeatureFlag;
 use serde::{Deserialize, Serialize};
 use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
-use galaxy_core::features::FeatureFlag;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
 use warpui::units::Pixels;
 use warpui::{AppContext, SingletonEntity};
 

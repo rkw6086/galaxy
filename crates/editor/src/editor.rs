@@ -5,13 +5,13 @@ use std::any::Any;
 use std::cell::Ref;
 use std::ops::Range;
 
+use galaxyui_core::elements::Border;
+use galaxyui_core::text_layout::PaintStyleOverride;
+use galaxyui_core::{Action, AppContext, Element, TypedActionView, View};
 use num_traits::SaturatingSub;
 use pathfinder_color::ColorU;
 use rangemap::{RangeMap, RangeSet};
 use string_offset::CharOffset;
-use galaxyui_core::elements::Border;
-use galaxyui_core::text_layout::PaintStyleOverride;
-use galaxyui_core::{Action, AppContext, Element, TypedActionView, View};
 
 use crate::content::version::BufferVersion;
 use crate::render::element::RichTextAction;

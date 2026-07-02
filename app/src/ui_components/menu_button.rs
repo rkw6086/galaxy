@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxyui::elements::{
     ChildAnchor, ChildView, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Stack,
@@ -6,6 +5,7 @@ use galaxyui::elements::{
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, EventContext, View, ViewHandle};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::buttons::{highlight, icon_button};
 use super::icons::Icon;

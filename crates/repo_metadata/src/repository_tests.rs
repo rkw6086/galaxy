@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use futures::channel::mpsc;
 use futures::{FutureExt as _, StreamExt as _};
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui_core::r#async::Timer;
 use galaxyui_core::{App, ModelContext};
+use virtual_fs::{Stub, VirtualFS};
 
 use super::{merge_repository_updates, Repository, RepositorySubscriber, TrackedRemoteRef};
 use crate::repositories::stub_git_repository;

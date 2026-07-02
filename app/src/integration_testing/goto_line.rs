@@ -1,7 +1,7 @@
-use settings::Setting as _;
 use galaxy_editor::content::buffer::ToBufferPoint;
 use galaxyui::integration::AssertionCallback;
 use galaxyui::{async_assert, async_assert_eq, App, SingletonEntity, ViewHandle, WindowId};
+use settings::Setting as _;
 
 use crate::code::editor::goto_line::view::GoToLineView;
 use crate::code::editor::view::CodeEditorView;

@@ -437,6 +437,7 @@ fn test_binding_description_eq_ignores_dynamic_override() {
 mod settings_value_tests {
     use settings_value::SettingsValue;
 
+    use crate::keymap::Keystroke;
 
     #[test]
     fn test_keystroke_to_file_value_is_normalized_string() {

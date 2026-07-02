@@ -1,9 +1,9 @@
-use settings::Setting;
 use galaxyui::elements::{
     Border, ChildView, Container, CornerRadius, DropTarget, Element, Flex, Hoverable,
     ParentElement, Radius, SavePosition, Stack,
 };
 use galaxyui::{AppContext, SingletonEntity};
+use settings::Setting;
 
 use super::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_vim_status_to_stack,

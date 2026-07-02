@@ -3,9 +3,9 @@
 
 use std::collections::HashMap;
 
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 use instant::Instant;
-use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 
 /// Tracks opened files within a single repository.
 /// Keys are repo-relative file paths (e.g. `src/main.rs`).

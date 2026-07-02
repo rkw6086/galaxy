@@ -3,13 +3,12 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use markdown_parser::{parse_html, parse_markdown, FormattedText};
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
 use galaxy_editor::content::anchor::Anchor;
 use galaxy_editor::content::text::{BufferTextStyle, CodeBlockType, TextStyles};
 use galaxy_editor::content::version::BufferVersion;
-use galaxy_editor::editor::{EmbeddedItemModel, NavigationKey, RunnableCommandModel, TextDecoration};
+use galaxy_editor::editor::{
+    EmbeddedItemModel, NavigationKey, RunnableCommandModel, TextDecoration,
+};
 use galaxy_editor::model::{CoreEditorModel, RichTextEditorModel};
 use galaxy_editor::render::element::{
     DisplayOptions, DisplayStateHandle, RichTextAction, RichTextElement, VerticalExpansionBehavior,
@@ -18,7 +17,7 @@ use galaxy_editor::render::model::{BlockItem, HitTestBlockType, Location, Render
 use galaxy_editor::selection::{TextDirection, TextUnit};
 use galaxy_util::path::LineAndColumnArg;
 use galaxy_util::user_input::UserInput;
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use galaxyui::actions::StandardAction;
 use galaxyui::assets::asset_cache::{AssetCache, AssetHandle, AssetState};
 use galaxyui::clipboard::ClipboardContent;
@@ -46,6 +45,9 @@ use galaxyui::{
     windowing, AppContext, BlurContext, CursorInfo, Element, Entity, FocusContext, ModelHandle,
     SingletonEntity, TypedActionView, View, ViewContext, ViewHandle, WeakViewHandle,
 };
+use markdown_parser::{parse_html, parse_markdown, FormattedText};
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
 
 use super::block_insertion_menu::{BlockInsertionMenuState, BlockInsertionSource};
 use super::find_bar::{FindBar, FindBarEvent, FindBarState};

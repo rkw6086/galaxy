@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 
 use ignore::gitignore::Gitignore;
 
@@ -791,7 +792,6 @@ fn lazy_loaded_ignored_directory_marks_loaded_children_as_ignored() {
 
 #[test]
 fn should_watch_directory_in_git_path_prunes_non_allowlisted_subtrees() {
-
     use super::should_watch_directory_in_git_path;
     for path in [
         "/repo/.git",
@@ -845,7 +845,6 @@ fn should_watch_directory_in_git_path_prunes_non_allowlisted_subtrees() {
 /// emit predicate only suppresses non-allowlisted `.git/` internals).
 #[test]
 fn gitignore_affects_descend_predicate_but_not_emitted_events() {
-
     use super::{gitignores_for_directory, should_ignore_git_path, should_watch_repo_directory};
 
     let temp_dir = tempfile::tempdir().unwrap();
@@ -879,7 +878,6 @@ fn gitignore_affects_descend_predicate_but_not_emitted_events() {
 
 #[test]
 fn test_is_shared_git_ref() {
-
     use super::is_shared_git_ref;
 
     // Shared refs — broadcast to all repos

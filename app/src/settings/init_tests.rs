@@ -1,13 +1,12 @@
 use galaxy_core::features::FeatureFlag;
-use galaxy_core::settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
+use galaxy_core::settings::macros::define_settings_group;
+use galaxy_core::settings::{SupportedPlatforms, SyncToCloud};
 use galaxy_core::user_preferences::GetUserPreferences as _;
 use galaxyui::SingletonEntity;
 use galaxyui_extras::user_preferences;
 use instant::Duration;
 use settings::{PrivatePreferences, PublicPreferences, Setting, SettingsManager};
 use settings_value::SettingsValue;
-use galaxy_core::settings::macros::define_settings_group;
-use galaxy_core::settings::{SupportedPlatforms, SyncToCloud};
 
 use super::{
     migrate_native_settings_to_settings_file, needs_settings_file_migration_for_path,
@@ -373,7 +372,9 @@ fn test_migration_with_multiple_setting_types() {
 // serde fallback is never reached and values are lost.
 
 mod notifications_migration {
-    use settings::{PrivatePreferences, PublicPreferences, SettingsManager};
+    use galaxy_core::settings::{SupportedPlatforms, SyncToCloud};
+    use galaxyui_extras::user_preferences;
+    use settings::{PrivatePreferences, PublicPreferences, Setting, SettingsManager};
 
     use crate::terminal::session_settings::NotificationsSettings;
 

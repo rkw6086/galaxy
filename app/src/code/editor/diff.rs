@@ -7,23 +7,17 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use futures::stream::AbortHandle;
-use galaxy_core::ui::theme::Fill;
-use galaxy_editor::{
-    content::{edit::TemporaryBlock, version::BufferVersion},
-    multiline::{AnyMultilineString, MultilineStr, MultilineString, LF},
-    render::model::{Decoration, LineCount, LineDecoration},
-};
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
+use galaxy_editor::content::edit::TemporaryBlock;
+use galaxy_editor::content::version::BufferVersion;
+use galaxy_editor::multiline::{AnyMultilineString, MultilineStr, MultilineString, LF};
+use galaxy_editor::render::model::{Decoration, LineCount, LineDecoration};
 use galaxyui::{Entity, ModelContext};
 use itertools::Itertools;
 use pathfinder_color::ColorU;
 use rangemap::RangeMap;
 use similar::{ChangeTag, DiffOp, TextDiff};
 use string_offset::CharOffset;
-use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
-use galaxy_editor::content::edit::TemporaryBlock;
-use galaxy_editor::content::version::BufferVersion;
-use galaxy_editor::multiline::{AnyMultilineString, MultilineStr, MultilineString, LF};
-use galaxy_editor::render::model::{Decoration, LineCount, LineDecoration};
 
 use super::super::DiffResult;
 use crate::appearance::Appearance;

@@ -17,12 +17,14 @@ use std::cmp::Ordering;
 use std::fmt;
 
 pub use cloud_objects::drive::CloudObjectTypeAndId;
+use galaxyui::AppContext;
 pub use index::DriveIndexVariant;
 pub use panel::{DrivePanel, DrivePanelEvent};
 use serde::{Deserialize, Serialize};
 
 use crate::cloud_object::model::view::{CloudViewModel, UpdateTimestamp};
 use crate::cloud_object::{CloudObject, ObjectType};
+use crate::galaxy_core::user_preferences::GetUserPreferences;
 use crate::server::ids::ServerId;
 use crate::ui_components::icons::Icon;
 use crate::workflows::CloudWorkflow;
@@ -43,6 +45,9 @@ pub struct OpenWarpDriveObjectArgs {
     pub server_id: ServerId,
     pub settings: OpenWarpDriveObjectSettings,
 }
+
+pub type OpenGalaxyDriveObjectSettings = OpenWarpDriveObjectSettings;
+pub type OpenGalaxyDriveObjectArgs = OpenWarpDriveObjectArgs;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DriveObjectType {

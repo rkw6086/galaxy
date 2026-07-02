@@ -1,3 +1,4 @@
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 use settings::Setting;
 
 use crate::settings::{AISettings, AISettingsChangedEvent};
@@ -22,7 +23,7 @@ impl ByoLlmAuthBannerSessionState {
 
         // Subscribe to changes in the permanent dismissal setting
         ctx.subscribe_to_model(&AISettings::handle(ctx), |state, _, event, ctx| {
-            if let AISettingsChangedEvent::AwsBedrockLoginBannerDismissed { .. } = event {
+            if let AISettingsChangedEvent::BedrockLoginBannerDismissed { .. } = event {
                 let permanently_dismissed = *AISettings::as_ref(ctx)
                     .bedrock_login_banner_dismissed
                     .value();

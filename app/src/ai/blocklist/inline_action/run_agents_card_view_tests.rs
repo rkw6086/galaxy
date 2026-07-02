@@ -373,9 +373,11 @@ mod format_terminal_state_tests {
 }
 
 mod override_from_approved_config_tests {
+    use ai::agent::action::RunAgentsExecutionMode;
     use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationExecutionMode};
 
     use super::super::RunAgentsEditState;
+    use super::*;
 
     fn local_config(model: &str, harness: &str) -> OrchestrationConfig {
         OrchestrationConfig {

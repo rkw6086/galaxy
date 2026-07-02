@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use futures::channel::oneshot;
 use futures::executor::block_on;
-use ignore::gitignore::Gitignore;
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui_core::r#async::FutureExt as _;
 use galaxyui_core::App;
+use ignore::gitignore::Gitignore;
+use virtual_fs::{Stub, VirtualFS};
 #[cfg(feature = "local_fs")]
 use watcher::BulkFilesystemWatcherEvent;
 
@@ -2006,7 +2006,6 @@ fn test_canonicalized_path_functionality() {
 
 #[test]
 fn test_repository_operations_with_standardized_paths() {
-
     VirtualFS::test("repo_canonicalized_test", |dirs, mut vfs| {
         let test_root = dirs.tests();
 
@@ -2118,7 +2117,6 @@ fn test_repository_operations_with_standardized_paths() {
 
 #[test]
 fn test_standardized_path_edge_cases() {
-
     VirtualFS::test("canonicalized_edge_cases", |dirs, mut vfs| {
         let test_root = dirs.tests();
 

@@ -31,6 +31,7 @@ fn test_server_metadata(
             token_usage: vec![],
             tool_usage_metadata: Default::default(),
             context_window_segments: Vec::new(),
+            ..Default::default()
         },
         metadata: ServerMetadata {
             uid: ServerId::default(),

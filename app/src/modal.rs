@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
@@ -12,6 +11,7 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::themes::theme::Fill;

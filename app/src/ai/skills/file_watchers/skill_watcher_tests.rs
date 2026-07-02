@@ -3,6 +3,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use ai::skills::{ParsedSkill, SkillProvider, SkillScope};
+use galaxy_util::host_id::HostId;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+use galaxy_util::remote_path::RemotePath;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::App;
 use repo_metadata::entry::{DirectoryEntry, Entry, FileMetadata};
 use repo_metadata::file_tree_store::FileTreeState;
 use repo_metadata::repositories::DetectedRepositories;
@@ -11,11 +16,6 @@ use repo_metadata::{
     StandingQueryContent, StandingQueryResults, StandingQueryResultsDelta, TargetFile,
 };
 use tempfile::TempDir;
-use galaxy_util::host_id::HostId;
-use galaxy_util::local_or_remote_path::LocalOrRemotePath;
-use galaxy_util::remote_path::RemotePath;
-use galaxy_util::standardized_path::StandardizedPath;
-use galaxyui::App;
 
 use super::super::subscribers::SkillRepositoryMessage;
 use super::{parse_project_skill_contents, SkillWatcher};

@@ -4,12 +4,6 @@ use std::sync::Arc;
 use alias_bar::{AliasBar, AliasBarEvent};
 use argument_editor::{ArgumentEditorRow, DEFAULT_ARGUMENT_PREFIX};
 use env_var_selector::{EnvVarSelector, EnvVarSelectorEvent};
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
-use syntax_highlightable::SyntaxHighlightable;
-use url::Url;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::settings::Setting;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
@@ -31,6 +25,12 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WindowId,
 };
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
+use syntax_highlightable::SyntaxHighlightable;
+use url::Url;
 
 use super::aliases::WorkflowAliases;
 use super::command_parser::WorkflowCommandDisplayData;
@@ -59,7 +59,7 @@ use crate::drive::workflows::workflow_arg_selector::{
     WorkflowArgSelector, WorkflowArgSelectorEvent,
 };
 use crate::drive::workflows::workflow_arg_type_helpers::{self, ArgumentEditorRowIndex};
-use crate::drive::{CloudObjectTypeAndId, DriveObjectType, OpenWarpDriveObjectSettings};
+use crate::drive::{CloudObjectTypeAndId, DriveObjectType, OpenGalaxyDriveObjectSettings};
 use crate::editor::{
     EditorOptions, EditorView, EnterAction, EnterSettings, Event as EditorEvent, InteractionState,
     PlainTextEditorViewAction as EditorAction, PropagateAndNoOpNavigationKeys,

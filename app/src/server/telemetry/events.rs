@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use galaxy_completer::completer::MatchType;
 use galaxy_core::command::ExitCode;
-use galaxy_core::telemetry::EnablementState;
-use galaxy_core::telemetry::TelemetryEvent as TelemetryEventTrait;
-use galaxy_core::telemetry::TelemetryEventDesc;
+use galaxy_core::interval_timer::TimingDataPoint;
+use galaxy_core::telemetry::{
+    EnablementState, TelemetryEvent as TelemetryEventTrait, TelemetryEventDesc,
+};
 use galaxyui::keymap::Keystroke;
 use galaxyui::notification::{NotificationSendError, RequestPermissionsOutcome};
 use galaxyui::rendering::ThinStrokes;
@@ -13,10 +14,6 @@ use serde_json::{json, Value};
 use session_sharing_protocol::common::{ParticipantId, Role, SessionId as SharedSessionId};
 use session_sharing_protocol::sharer::{SessionEndedReason, SessionSourceType};
 use strum_macros::{EnumDiscriminants, EnumIter};
-use galaxy_core::interval_timer::TimingDataPoint;
-use galaxy_core::telemetry::{
-    EnablementState, TelemetryEvent as TelemetryEventTrait, TelemetryEventDesc,
-};
 
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;

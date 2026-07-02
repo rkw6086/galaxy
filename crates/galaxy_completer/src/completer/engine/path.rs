@@ -4,12 +4,12 @@ use std::fs::DirEntry;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use galaxy_util::path::{ShellFamily, HOME_DIR_ENV_VAR_PREFIX};
 use itertools::{iproduct, Itertools};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use typed_path::{TypedPath, TypedPathBuf};
 use warp_command_signatures::{IconType, PathSuggestionType};
-use galaxy_util::path::{ShellFamily, HOME_DIR_ENV_VAR_PREFIX};
 
 use crate::completer::context::{PathCompletionContext, PathSeparators};
 use crate::completer::matchers::MatchStrategy;

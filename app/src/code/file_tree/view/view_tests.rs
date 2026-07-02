@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{platform::WindowStyle, App, ModelHandle};
+use galaxyui::platform::WindowStyle;
+use galaxyui::{App, ModelHandle, SingletonEntity};
 use repo_metadata::entry::{DirectoryEntry, Entry, FileMetadata};
 use repo_metadata::file_tree_store::FileTreeState;
 use repo_metadata::local_model::IndexedRepoState;
@@ -10,8 +11,6 @@ use repo_metadata::watcher::DirectoryWatcher;
 use repo_metadata::RepoMetadataModel;
 use settings::Setting;
 use virtual_fs::{Stub, VirtualFS};
-use galaxyui::platform::WindowStyle;
-use galaxyui::{App, ModelHandle, SingletonEntity};
 
 use super::FileTreeView;
 use crate::auth::AuthStateProvider;

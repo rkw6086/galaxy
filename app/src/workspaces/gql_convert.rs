@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Result};
-use regex::Regex;
 use galaxy_graphql::billing::{
     AiAutonomyPolicy as GqlAiAutonomyPolicy, AmbientAgentsPolicy as GqlAmbientAgentsPolicy,
     BillingCycleUsageHistory as GqlBillingCycleUsageHistory, BillingMetadata as GqlBillingMetadata,
@@ -39,6 +38,7 @@ use galaxy_graphql::workspace::{
     WorkspaceSettings as GqlWorkspaceSettings,
     WriteToPtyAutonomyValue as GqlWriteToPtyAutonomyValue,
 };
+use regex::Regex;
 
 use super::team::{DiscoverableTeam, MembershipRole, Team, TeamMember};
 use super::user_workspaces::WorkspacesMetadataResponse;

@@ -1,8 +1,7 @@
 use std::time::Duration;
 
 use galaxyui::r#async::Timer;
-use galaxyui::ViewHandle;
-use galaxyui::WindowId;
+use galaxyui::{ViewHandle, WindowId};
 
 use crate::ai::agent::{AIAgentOutputStatus, AIAgentTextSection, FinishedAIAgentOutput};
 use crate::pane_group::PaneGroup;

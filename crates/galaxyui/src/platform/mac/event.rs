@@ -1,13 +1,13 @@
 use std::ffi::CStr;
 
 use cocoa::base::id;
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
-use objc2_foundation::NSUInteger;
-use pathfinder_geometry::vector::vec2f;
 use galaxyui_core::event::{KeyEventDetails, ModifiersState};
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::platform::keyboard::{KeyCode, PhysicalKey};
 use galaxyui_core::Event;
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
+use objc2_foundation::NSUInteger;
+use pathfinder_geometry::vector::vec2f;
 
 use super::keycode::{scancode_to_physicalkey, Keycode};
 use super::utils::unicode_char_to_key;

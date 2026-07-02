@@ -195,6 +195,10 @@ impl From<&ConversationUsageMetadata> for persistence::model::ConversationUsageM
             token_usage: convert_token_usage(&gql.warp_token_usage, &gql.byok_token_usage),
             tool_usage_metadata: (&gql.tool_usage_metadata).into(),
             context_window_segments: gql.context_window_segments.iter().map(Into::into).collect(),
+            total_cache_read_tokens: 0,
+            total_cache_write_tokens: 0,
+            total_cache_miss_tokens: 0,
+            total_cost_cents: 0.0,
         }
     }
 }

@@ -2,6 +2,8 @@
 use std::env::var_os;
 
 use anyhow::Context;
+use galaxyui::keymap::Keystroke;
+use galaxyui::AppContext;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use vec1::{vec1, Vec1};
@@ -37,10 +39,13 @@ pub fn load_custom_keybindings(app: &mut AppContext) {
 
             match keybinding_type {
                 Ok(UserDefinedKeybinding::Removed) => {
-                    app.set_custom_trigger(name, Trigger::Empty);
+                    app.set_custom_trigger(name, galaxyui::keymap::Trigger::Empty);
                 }
                 Ok(UserDefinedKeybinding::Keystrokes(keystrokes)) => {
-                    app.set_custom_trigger(name, Trigger::Keystrokes(keystrokes.to_vec()));
+                    app.set_custom_trigger(
+                        name,
+                        galaxyui::keymap::Trigger::Keystrokes(keystrokes.to_vec()),
+                    );
                 }
                 Err(e) => {
                     log::warn!(

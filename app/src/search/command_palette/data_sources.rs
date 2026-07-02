@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use fuzzy_match::FuzzyMatchResult;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
 use warpui::keymap::BindingId;
@@ -10,6 +11,7 @@ use super::{conversations, warp_drive};
 use crate::drive::settings::WarpDriveSettings;
 use crate::search::action::CommandBindingDataSource;
 use crate::search::binding_source::BindingSource;
+use crate::search::command_palette::files::search_item::FileSearchItem;
 use crate::search::command_palette::mixer::{CommandPaletteItemAction, ItemSummary};
 use crate::search::command_palette::new_session::NewSessionDataSource;
 use crate::search::command_palette::repos::RepoDataSource;
@@ -248,8 +250,6 @@ impl DataSourceStore {
                 // Create a file search item from the summary
                 use fuzzy_match::FuzzyMatchResult;
 
-                use crate::search::command_palette::files::search_item::FileSearchItem;
-
                 let search_item = FileSearchItem {
                     path: PathBuf::from(path),
                     project_directory: project_directory.clone(),
@@ -264,7 +264,6 @@ impl DataSourceStore {
                 project_directory,
             } => {
                 // Create a directory search item from the summary
-
 
                 let search_item = FileSearchItem {
                     path: PathBuf::from(path),

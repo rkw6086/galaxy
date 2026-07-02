@@ -7,36 +7,38 @@ use anyhow::{Context as _, Result, anyhow};
 use async_trait::async_trait;
 use cynic::{MutationBuilder, QueryBuilder};
 use firebase::FirebaseError;
+use galaxy_core::errors::{AnyhowErrorExt, ErrorExt, register_error};
+use galaxy_graphql::client::Operation;
+use galaxy_graphql::mutations::create_anonymous_user::{
+    AnonymousUserType, CreateAnonymousUser, CreateAnonymousUserResult, CreateAnonymousUserVariables,
+};
+use galaxy_graphql::mutations::expire_api_key::{
+    ExpireApiKey, ExpireApiKeyResult, ExpireApiKeyVariables,
+};
+use galaxy_graphql::mutations::generate_api_key::{
+    GenerateApiKey, GenerateApiKeyInput, GenerateApiKeyResult, GenerateApiKeyVariables,
+};
+use galaxy_graphql::mutations::mint_custom_token::{
+    MintCustomTokenResult, MintCustomTokenVariables,
+};
+use galaxy_graphql::mutations::set_user_is_onboarded::{
+    SetUserIsOnboarded, SetUserIsOnboardedResult, SetUserIsOnboardedVariables,
+};
+use galaxy_graphql::mutations::update_user_settings::{
+    UpdateUserSettings, UpdateUserSettingsInput, UpdateUserSettingsResult,
+    UpdateUserSettingsVariables,
+};
+use galaxy_graphql::queries::api_keys::{
+    ApiKeyProperties, ApiKeyPropertiesResult, ApiKeys, ApiKeysVariables,
+};
+use galaxy_graphql::queries::get_user::{GetUser, GetUserVariables, UserOutput as GqlUserOutput};
+use galaxy_graphql::queries::get_user_settings::{GetUserSettings, GetUserSettingsVariables};
 use instant::Duration;
 #[cfg(any(test, feature = "test-util"))]
 use mockall::automock;
 pub use session::*;
 use thiserror::Error;
 pub use user_uid::{TEST_USER_EMAIL, TEST_USER_UID, UserUid};
-use galaxy_core::errors::{AnyhowErrorExt, ErrorExt, register_error};
-use warp_graphql::client::Operation;
-use warp_graphql::mutations::create_anonymous_user::{
-    AnonymousUserType, CreateAnonymousUser, CreateAnonymousUserResult, CreateAnonymousUserVariables,
-};
-use warp_graphql::mutations::expire_api_key::{
-    ExpireApiKey, ExpireApiKeyResult, ExpireApiKeyVariables,
-};
-use warp_graphql::mutations::generate_api_key::{
-    GenerateApiKey, GenerateApiKeyInput, GenerateApiKeyResult, GenerateApiKeyVariables,
-};
-use warp_graphql::mutations::mint_custom_token::{MintCustomTokenResult, MintCustomTokenVariables};
-use warp_graphql::mutations::set_user_is_onboarded::{
-    SetUserIsOnboarded, SetUserIsOnboardedResult, SetUserIsOnboardedVariables,
-};
-use warp_graphql::mutations::update_user_settings::{
-    UpdateUserSettings, UpdateUserSettingsInput, UpdateUserSettingsResult,
-    UpdateUserSettingsVariables,
-};
-use warp_graphql::queries::api_keys::{
-    ApiKeyProperties, ApiKeyPropertiesResult, ApiKeys, ApiKeysVariables,
-};
-use warp_graphql::queries::get_user::{GetUser, GetUserVariables, UserOutput as GqlUserOutput};
-use warp_graphql::queries::get_user_settings::{GetUserSettings, GetUserSettingsVariables};
 use warp_server_auth::credentials::{AuthToken, Credentials, FirebaseToken, LoginToken};
 pub use warp_server_auth::user_uid;
 
@@ -158,7 +160,7 @@ pub trait AuthClient: Send + Sync {
         name: String,
         team_id: Option<cynic::Id>,
         agent_uid: Option<cynic::Id>,
-        expires_at: Option<warp_graphql::scalars::Time>,
+        expires_at: Option<galaxy_graphql::scalars::Time>,
     ) -> Result<GenerateApiKeyResult>;
 
     async fn expire_api_key(&self, key_uid: &ApiKeyUid) -> Result<ExpireApiKeyResult>;
@@ -189,7 +191,7 @@ impl AuthClientImpl {
     ) -> Result<()> {
         let operation = UpdateUserSettings::build(UpdateUserSettingsVariables {
             input,
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let result = send_graphql_request(&self.base_client, operation, None)
             .await?
@@ -204,7 +206,7 @@ impl AuthClientImpl {
         match result {
             UpdateUserSettingsResult::UpdateUserSettingsOutput(_) => Ok(()),
             UpdateUserSettingsResult::UserFacingError(error) => Err(anyhow!(
-                warp_graphql::client::get_user_facing_error_message(error)
+                galaxy_graphql::client::get_user_facing_error_message(error)
             )),
             UpdateUserSettingsResult::Unknown => Err(anyhow!(unknown_error_message)),
         }
@@ -220,12 +222,12 @@ impl AuthClient for AuthClientImpl {
         anonymous_user_type: AnonymousUserType,
     ) -> Result<CreateAnonymousUserResult> {
         let operation = CreateAnonymousUser::build(CreateAnonymousUserVariables {
-            input: warp_graphql::mutations::create_anonymous_user::CreateAnonymousUserInput {
+            input: galaxy_graphql::mutations::create_anonymous_user::CreateAnonymousUserInput {
                 anonymous_user_type,
-                expiration_type: warp_graphql::mutations::create_anonymous_user::AnonymousUserExpirationType::NoExpiration,
+                expiration_type: galaxy_graphql::mutations::create_anonymous_user::AnonymousUserExpirationType::NoExpiration,
                 referral_code,
             },
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let response = operation
             .send_request(
@@ -271,9 +273,9 @@ impl AuthClient for AuthClientImpl {
     }
 
     async fn fetch_new_custom_token(&self) -> Result<MintCustomTokenResult> {
-        let operation = warp_graphql::mutations::mint_custom_token::MintCustomToken::build(
+        let operation = galaxy_graphql::mutations::mint_custom_token::MintCustomToken::build(
             MintCustomTokenVariables {
-                request_context: warp_graphql::client::get_request_context(),
+                request_context: galaxy_graphql::client::get_request_context(),
             },
         );
         let response = send_graphql_request(&self.base_client, operation, None).await?;
@@ -288,7 +290,7 @@ impl AuthClient for AuthClientImpl {
             Ok(MintCustomTokenResult::MintCustomTokenOutput(output)) => Ok(output.custom_token),
             Ok(MintCustomTokenResult::UserFacingError(error)) => {
                 Err(MintCustomTokenError::UserFacingError(
-                    warp_graphql::client::get_user_facing_error_message(error),
+                    galaxy_graphql::client::get_user_facing_error_message(error),
                 ))
             }
             Ok(MintCustomTokenResult::Unknown) | Err(_) => Err(MintCustomTokenError::Unknown),
@@ -300,7 +302,7 @@ impl AuthClient for AuthClientImpl {
         auth_token: Option<&'a str>,
     ) -> Result<GqlUserOutput> {
         let operation = GetUser::build(GetUserVariables {
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let mut options = self
             .base_client
@@ -315,8 +317,10 @@ impl AuthClient for AuthClientImpl {
             .data
             .ok_or_else(|| anyhow!("Expected valid response.data"))?;
         match response.user {
-            warp_graphql::queries::get_user::UserResult::UserOutput(user_output) => Ok(user_output),
-            warp_graphql::queries::get_user::UserResult::Unknown => {
+            galaxy_graphql::queries::get_user::UserResult::UserOutput(user_output) => {
+                Ok(user_output)
+            }
+            galaxy_graphql::queries::get_user::UserResult::Unknown => {
                 Err(anyhow!("Unable to fetch user"))
             }
         }
@@ -324,11 +328,11 @@ impl AuthClient for AuthClientImpl {
 
     async fn get_user_settings(&self) -> Result<Option<SyncedUserSettings>> {
         let operation = GetUserSettings::build(GetUserSettingsVariables {
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let response = send_graphql_request(self.base_client.as_ref(), operation, None).await?;
         match response.user {
-            warp_graphql::queries::get_user_settings::UserResult::UserOutput(user_output) => {
+            galaxy_graphql::queries::get_user_settings::UserResult::UserOutput(user_output) => {
                 Ok(user_output
                     .user
                     .settings
@@ -339,7 +343,7 @@ impl AuthClient for AuthClientImpl {
                         is_telemetry_enabled: settings.is_telemetry_enabled,
                     }))
             }
-            warp_graphql::queries::get_user_settings::UserResult::Unknown => {
+            galaxy_graphql::queries::get_user_settings::UserResult::Unknown => {
                 Err(anyhow!("Unable to fetch user settings"))
             }
         }
@@ -385,7 +389,7 @@ impl AuthClient for AuthClientImpl {
 
     async fn set_user_is_onboarded(&self) -> Result<bool> {
         let operation = SetUserIsOnboarded::build(SetUserIsOnboardedVariables {
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let result = send_graphql_request(self.base_client.as_ref(), operation, None)
             .await?
@@ -393,7 +397,7 @@ impl AuthClient for AuthClientImpl {
         match result {
             SetUserIsOnboardedResult::SetUserIsOnboardedOutput(_) => Ok(true),
             SetUserIsOnboardedResult::UserFacingError(error) => Err(anyhow!(
-                warp_graphql::client::get_user_facing_error_message(error)
+                galaxy_graphql::client::get_user_facing_error_message(error)
             )),
             SetUserIsOnboardedResult::Unknown => Err(anyhow!("failed to set user is onboarded")),
         }
@@ -417,13 +421,13 @@ impl AuthClient for AuthClientImpl {
 
     async fn list_api_keys(&self) -> Result<Vec<ApiKeyProperties>> {
         let operation = ApiKeys::build(ApiKeysVariables {
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let response = send_graphql_request(self.base_client.as_ref(), operation, None).await?;
         match response.api_keys {
             ApiKeyPropertiesResult::ApiKeyPropertiesOutput(output) => Ok(output.api_keys),
             ApiKeyPropertiesResult::UserFacingError(error) => Err(anyhow!(
-                warp_graphql::client::get_user_facing_error_message(error)
+                galaxy_graphql::client::get_user_facing_error_message(error)
             )),
             ApiKeyPropertiesResult::Unknown => Err(anyhow!("failed to fetch API keys")),
         }
@@ -434,7 +438,7 @@ impl AuthClient for AuthClientImpl {
         name: String,
         team_id: Option<cynic::Id>,
         agent_uid: Option<cynic::Id>,
-        expires_at: Option<warp_graphql::scalars::Time>,
+        expires_at: Option<galaxy_graphql::scalars::Time>,
     ) -> Result<GenerateApiKeyResult> {
         let operation = GenerateApiKey::build(GenerateApiKeyVariables {
             input: GenerateApiKeyInput {
@@ -443,7 +447,7 @@ impl AuthClient for AuthClientImpl {
                 agent_uid,
                 expires_at,
             },
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let response = send_graphql_request(self.base_client.as_ref(), operation, None).await?;
         Ok(response.generate_api_key)
@@ -452,7 +456,7 @@ impl AuthClient for AuthClientImpl {
     async fn expire_api_key(&self, key_uid: &ApiKeyUid) -> Result<ExpireApiKeyResult> {
         let operation = ExpireApiKey::build(ExpireApiKeyVariables {
             key_uid: key_uid.into(),
-            request_context: warp_graphql::client::get_request_context(),
+            request_context: galaxy_graphql::client::get_request_context(),
         });
         let response = send_graphql_request(self.base_client.as_ref(), operation, None).await?;
         Ok(response.expire_api_key)

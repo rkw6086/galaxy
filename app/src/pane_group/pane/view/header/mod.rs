@@ -1,25 +1,21 @@
 use std::fmt::Debug;
 
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::settings::Setting;
+use galaxyui::presenter::ChildView;
+use galaxyui::{
+    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
+};
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use sharing::SharedPaneContent;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::settings::Setting;
 use warpui::elements::{
     AcceptedByDropTarget, Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Dismiss, Draggable, DraggableState, Empty, Flex, Hoverable,
     Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, PositionedElementAnchor, PositionedElementOffsetBounds,
     Radius, SavePosition, Shrinkable, Stack, Text,
-};
-use galaxyui::presenter::ChildView;
-use galaxyui::{
-    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
-};
-use pathfinder_geometry::{
-    rect::RectF,
-    vector::{vec2f, Vector2F},
 };
 
 use super::header_content::{HeaderContent, HeaderRenderContext, StandardHeaderOptions};

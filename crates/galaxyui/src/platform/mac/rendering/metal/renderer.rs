@@ -7,6 +7,11 @@ use std::ptr::NonNull;
 use std::sync::Once;
 
 use dispatch2::DispatchData;
+use galaxyui_core::fonts::{self, canvas, RasterizedGlyph, SubpixelAlignment};
+use galaxyui_core::platform::CapturedFrame;
+use galaxyui_core::rendering::texture_cache::TextureCache;
+use galaxyui_core::rendering::{self};
+use galaxyui_core::scene::{CornerRadius, GlyphFade, GlyphKey, Icon, Image, Layer, Scene};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -22,11 +27,6 @@ use objc2_quartz_core::CAMetalDrawable;
 use pathfinder_color::{ColorF, ColorU};
 use pathfinder_geometry::rect::{RectF, RectI};
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use galaxyui_core::fonts::{self, canvas, RasterizedGlyph, SubpixelAlignment};
-use galaxyui_core::platform::CapturedFrame;
-use galaxyui_core::rendering::texture_cache::TextureCache;
-use galaxyui_core::rendering::{self};
-use galaxyui_core::scene::{CornerRadius, GlyphFade, GlyphKey, Icon, Image, Layer, Scene};
 
 use super::frame_capture::capture_frame;
 use crate::platform::mac::rendering::renderer::Device;

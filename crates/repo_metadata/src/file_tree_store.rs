@@ -2,9 +2,9 @@ mod file_tree_state;
 
 use std::sync::Arc;
 
-use ignore::gitignore::Gitignore;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui_core::ModelHandle;
+use ignore::gitignore::Gitignore;
 
 use crate::file_tree_store::file_tree_state::FileTreeMapStore;
 use crate::{BuildTreeError, Entry, FileId, FileMetadata, Repository};

@@ -4,12 +4,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, Utc};
 use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::report_error;
 use galaxy_graphql::object_permissions::OwnerType;
-use galaxyui::{AppContext, Entity, SingletonEntity};
+use galaxyui_core::{AppContext, Entity, SingletonEntity};
 use parking_lot::RwLock;
 use uuid::Uuid;
-use galaxy_core::report_error;
-use galaxyui_core::{AppContext, Entity, SingletonEntity};
 
 use super::anonymous_id::get_or_create_anonymous_id;
 use super::credentials::Credentials;
@@ -118,7 +117,7 @@ impl AuthState {
     /// 3. WARP_USER_SECRET environment variable
     /// 4. Persisted user from secure storage
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    pub fn initialize(ctx: &AppContext, _api_key: Option<String>) -> Self {
+    pub fn initialize(ctx: &AppContext, api_key: Option<String>) -> Self {
         let state = Self::new(ctx);
 
         if Self::should_use_test_user() {
@@ -171,6 +170,16 @@ impl AuthState {
             }
             Err(err) => {
                 log::info!("Unable to read user from secure storage: {err:?}");
+            }
+        }
+
+        if state.user.read().is_none() {
+            let channel = ChannelState::channel();
+            if channel == Channel::Oss || channel == Channel::Local || channel == Channel::Dev {
+                log::info!(
+                    "No user found in secure storage on dev/oss/local channel; falling back to test user"
+                );
+                state.set_user(Some(User::test()));
             }
         }
 
@@ -348,7 +357,7 @@ impl AuthState {
     /// during the transient state where credentials exist but user data hasn't loaded
     /// yet, the user is conservatively treated as lacking a full account.
     pub fn is_anonymous_or_logged_out(&self) -> bool {
-        false
+        self.user.read().is_none() || self.is_user_anonymous().unwrap_or(true)
     }
 
     /// Returns the cached access token, if any exists. This method *will not* check if the JWT is

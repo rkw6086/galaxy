@@ -1,13 +1,12 @@
 use std::ops::Range;
 
 use galaxy_core::ui::theme::Fill;
-use galaxyui::{Entity, ModelContext, ModelHandle, r#async::SpawnedFutureHandle};
+use galaxyui::r#async::SpawnedFutureHandle;
+use galaxyui::{Entity, ModelContext, ModelHandle};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
 use string_offset::CharOffset;
-use galaxyui_core::r#async::SpawnedFutureHandle;
-use galaxyui_core::{Entity, ModelContext, ModelHandle};
 
 use crate::content::anchor::Anchor;
 use crate::content::buffer::{Buffer, BufferEvent};

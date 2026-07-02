@@ -2,12 +2,12 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use itertools::Itertools as _;
-use repo_metadata::repositories::DetectedRepositories;
-use uuid::Uuid;
 use galaxy_core::features::FeatureFlag;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
+use itertools::Itertools as _;
+use repo_metadata::repositories::DetectedRepositories;
+use uuid::Uuid;
 
 use super::{FileMCPWatcher, FileMCPWatcherEvent, MCPProvider};
 use crate::ai::mcp::templatable_installation::TemplatableMCPServerInstallation;

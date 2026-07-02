@@ -1,10 +1,10 @@
 use futures::future::BoxFuture;
 use futures::FutureExt;
 #[cfg(not(target_family = "wasm"))]
-use itertools::Itertools;
-#[cfg(not(target_family = "wasm"))]
 use galaxyui::SingletonEntity;
 use galaxyui::{Entity, EntityId, ModelContext, ModelHandle};
+#[cfg(not(target_family = "wasm"))]
+use itertools::Itertools;
 
 #[cfg(not(target_family = "wasm"))]
 use super::get_server_output_id;

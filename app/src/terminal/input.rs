@@ -44,6 +44,11 @@ use base64::Engine as _;
 use diesel::SqliteConnection;
 use futures::stream::AbortHandle;
 use futures::FutureExt as _;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::r#async::debounce;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use galaxy_core::user_preferences::GetUserPreferences as _;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use ordered_float::Float;
@@ -68,14 +73,9 @@ use warp_completer::parsers::simple::command_at_cursor_position;
 use warp_completer::parsers::LiteCommand;
 use warp_completer::signatures::CommandRegistry;
 use warp_completer::util::parse_current_commands_and_tokens;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::r#async::debounce;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::AnsiColorIdentifier;
-use galaxy_core::user_preferences::GetUserPreferences as _;
 use warp_editor::editor::NavigationKey;
 use warp_util::path::ShellFamily;
-use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use warpui::clipboard::{ClipboardContent, ImageData};
 use warpui::clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES;
 use warpui::color::ColorU;
@@ -312,7 +312,7 @@ use crate::terminal::view::CodeDiffAction;
 use crate::terminal::CLIAgent;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::user_config::WarpConfig;
+use crate::user_config::GalaxyConfig;
 use crate::util::bindings::{self, keybinding_name_to_normalized_string, CustomAction};
 #[cfg(feature = "local_fs")]
 use crate::util::file::external_editor;
@@ -4267,7 +4267,6 @@ impl Input {
 
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     fn maybe_launch_cloud_handoff_request(&mut self, ctx: &mut ViewContext<Self>) -> bool {
-
         if !FeatureFlag::OzHandoff.is_enabled()
             || !FeatureFlag::HandoffLocalCloud.is_enabled()
             || !cfg!(all(feature = "local_fs", not(target_family = "wasm")))
@@ -8060,7 +8059,7 @@ impl Input {
             .iter()
             .map(|style_run| style_run.byte_range().clone())
             .collect::<Vec<_>>();
-        ranges.sort_by(|a, b| a.start.cmp(&b.start));
+        ranges.sort_by_key(|a| a.start);
 
         let capacity = ranges.len();
 

@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use galaxy_core::features::FeatureFlag;
+use galaxyui::{App, Entity, ModelHandle, SingletonEntity};
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
 use repo_metadata::RepoMetadataModel;
@@ -21,7 +23,7 @@ fn setup_app(app: &mut App) -> galaxyui::ModelHandle<FileBasedMCPManager> {
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(FileMCPWatcher::new);
     app.add_singleton_model(AISettings::new_with_defaults);
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());

@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::blend::Blend as _;
 use galaxy_core::ui::{self};
@@ -14,6 +13,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use crate::coding_entrypoints::clone_repo_view::{CloneRepoEvent, CloneRepoView};
 use crate::coding_entrypoints::create_project_view::{CreateProjectEvent, CreateProjectView};

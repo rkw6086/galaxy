@@ -350,6 +350,7 @@ pub mod testing {
     use anyhow::anyhow;
     use command::r#async::Command;
     use galaxy_completer::completer::CommandOutput;
+    use galaxy_terminal::shell::ShellType;
 
     use super::*;
 

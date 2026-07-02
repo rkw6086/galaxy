@@ -6,9 +6,11 @@ use std::ops::Range;
 use anyhow::{Context, Result};
 pub use fold_map::BufferRows;
 use fold_map::FoldMap;
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle};
 use string_offset::CharOffset;
 
 use super::buffer::{self, Anchor, Buffer, Edit, StylizedChar, ToCharOffset, ToPoint};
+use super::Point;
 use crate::editor::soft_wrap::{self, DisplayPointAndClampDirection, SoftWrapPoint, SoftWrapState};
 
 #[derive(Copy, Clone)]

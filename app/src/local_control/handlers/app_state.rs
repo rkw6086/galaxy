@@ -86,7 +86,7 @@ pub(crate) fn handle(
             instance_id,
             action,
             SurfaceDestination::WarpDrive,
-            WorkspaceAction::OpenWarpDrive,
+            WorkspaceAction::OpenGalaxyDrive,
             target,
             ctx,
         ),
@@ -124,7 +124,7 @@ pub(crate) fn handle(
         ActionKind::SurfaceWarpDriveToggle => workspace_action(
             instance_id,
             action,
-            WorkspaceAction::ToggleWarpDrive,
+            WorkspaceAction::ToggleGalaxyDrive,
             target,
             ctx,
         ),

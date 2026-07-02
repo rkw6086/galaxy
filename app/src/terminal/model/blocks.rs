@@ -8,16 +8,16 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
-use instant::SystemTime;
-use selection::BlockListSelection;
-pub use selection::SelectionRange;
-use sum_tree::{Dimension, Item, SeekBias, SumTree};
 use galaxy_core::features::FeatureFlag;
 use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use galaxyui::color::ColorU;
 use galaxyui::r#async::executor::Background;
 use galaxyui::units::{IntoLines, IntoPixels, Lines};
 use galaxyui::{record_trace_event, AppContext, EntityId, ViewHandle};
+use instant::SystemTime;
+use selection::BlockListSelection;
+pub use selection::SelectionRange;
+use sum_tree::{Dimension, Item, SeekBias, SumTree};
 
 use super::ansi::{Handler, InputBufferValue};
 use super::block::{BlockId, BlockSize, BlockState, SerializedAIMetadata};
@@ -3382,6 +3382,42 @@ impl BlockList {
             .insert(RemovableBlocklistItem::RichContent(view_id), inserted_index);
         self.mark_rich_content_dirty(view_id);
         self.maintain_pinned_to_bottom();
+    }
+
+    pub(in crate::terminal) fn insert_rich_content_after_item(
+        &mut self,
+        after_item: RemovableBlocklistItem,
+        item: RichContentItem,
+    ) -> bool {
+        let after_index = match self.removable_blocklist_item_positions.get(&after_item) {
+            Some(&idx) => idx,
+            None => return false,
+        };
+
+        let view_id = item.view_id;
+
+        self.finish_background_block();
+
+        let (new_tree, inserted_index) = {
+            let mut cursor = self.block_heights.cursor::<TotalIndex, ()>();
+            let mut prefix = cursor.slice(&TotalIndex(after_index.0 + 1), SeekBias::Right);
+            let insertion_index = TotalIndex(prefix.summary().total_count);
+            prefix.push(BlockHeightItem::RichContent(item));
+            prefix.push_tree(cursor.suffix());
+            (prefix, insertion_index)
+        };
+
+        self.block_heights = new_tree;
+
+        self.update_block_height_indices(BlockHeightUpdate::Insertion(inserted_index), true);
+
+        self.removable_blocklist_item_positions
+            .insert(RemovableBlocklistItem::RichContent(view_id), inserted_index);
+
+        self.mark_rich_content_dirty(view_id);
+        self.maintain_pinned_to_bottom();
+        self.event_proxy.send_wakeup_event();
+        true
     }
 
     pub(in crate::terminal) fn set_marked_text(

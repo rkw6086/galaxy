@@ -1,8 +1,7 @@
-use galaxyui::{elements::MouseStateHandle, Element};
-use serde::Serialize;
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::notification::NotificationSendError;
 use galaxyui::Element;
+use serde::Serialize;
 
 use super::{
     render_inline_block_list_banner, InlineBannerButtonState, InlineBannerCloseButton,

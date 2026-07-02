@@ -11,6 +11,9 @@ use std::sync::Arc;
 use diesel::SqliteConnection;
 use futures_util::stream::AbortHandle;
 #[cfg(not(target_family = "wasm"))]
+use galaxyui::ModelSpawner;
+use galaxyui::{Entity, SingletonEntity};
+#[cfg(not(target_family = "wasm"))]
 use mcp::oauth;
 use mcp::TemplatableMCPServerInfo;
 #[cfg(not(target_family = "wasm"))]
@@ -18,9 +21,6 @@ pub use native::McpIntegration;
 #[cfg(not(target_family = "wasm"))]
 use parking_lot::Mutex;
 use uuid::Uuid;
-#[cfg(not(target_family = "wasm"))]
-use galaxyui::ModelSpawner;
-use galaxyui::{Entity, SingletonEntity};
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::mcp::templatable::CloudTemplatableMCPServer;

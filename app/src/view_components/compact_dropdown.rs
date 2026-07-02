@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::elements::{
     Border, ChildAnchor, ConstrainedBox, CornerRadius, CrossAxisAlignment, Flex,
     Icon as WarpUiIcon, MainAxisAlignment, MouseStateHandle, OffsetPositioning, ParentElement,
@@ -13,6 +12,7 @@ use galaxyui::{
     AppContext, BlurContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use super::dropdown::{DropdownAction, DropdownItemAction};
 use crate::appearance::Appearance;

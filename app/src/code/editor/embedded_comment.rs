@@ -7,9 +7,6 @@ use galaxy_editor::content::markdown::MarkdownStyle;
 use galaxy_editor::editor::EmbeddedItemModel;
 use galaxy_editor::render::element::{RenderContext, RenderableBlock};
 use galaxy_editor::render::layout::TextLayout;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use serde_yaml::Mapping;
-use uuid::Uuid;
 use galaxy_editor::render::model::viewport::ViewportItem;
 use galaxy_editor::render::model::{
     BlockSpacing, EmbeddedItem, EmbeddedItemHTMLRepresentation, EmbeddedItemRichFormat,
@@ -18,6 +15,9 @@ use galaxy_editor::render::model::{
 use galaxyui::event::DispatchedEvent;
 use galaxyui::units::Pixels;
 use galaxyui::{AppContext, EntityId, EventContext, LayoutContext, ViewHandle, WindowId};
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use serde_yaml::Mapping;
+use uuid::Uuid;
 
 use crate::code::editor::comment_editor::CommentEditor;
 use crate::code_review::comments::CommentId;

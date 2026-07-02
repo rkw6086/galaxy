@@ -34,6 +34,7 @@ fn read_action(document_id: AIDocumentId) -> AIAgentAction {
         action: AIAgentActionType::ReadDocuments(ReadDocumentsRequest {
             document_ids: vec![document_id],
         }),
+        tool_name: None,
     }
 }
 

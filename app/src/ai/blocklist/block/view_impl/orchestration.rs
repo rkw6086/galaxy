@@ -1,13 +1,13 @@
 //! Rendering functions for orchestration-related output items (messaging & agent management).
 
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, FormattedTextElement,
     Hoverable, MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use super::common::render_scrollable_collapsible_content;
 use super::output::{action_icon, Props};

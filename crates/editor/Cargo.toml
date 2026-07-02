@@ -49,6 +49,7 @@ pathfinder_color = "0.5.0"
 unicode-width.workspace = true
 vec1.workspace = true
 galaxyui_core.workspace = true
+galaxyui.workspace = true
 galaxy_core.workspace = true
 galaxy_util.workspace = true
 rayon.workspace = true

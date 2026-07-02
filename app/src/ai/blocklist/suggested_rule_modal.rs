@@ -1,5 +1,5 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
+use pathfinder_geometry::vector::vec2f;
 use warp_editor::editor::NavigationKey;
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, ClippedScrollStateHandle, ClippedScrollable,

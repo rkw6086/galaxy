@@ -8,15 +8,11 @@ use chrono::{DateTime, Utc};
 pub use cloud_objects::cloud_object::SerializedModel;
 use derivative::Derivative;
 use galaxy_graphql::scalars::time::ServerTimestamp;
-use galaxyui::{
-    r#async::FutureId, Entity, ModelContext, RequestState, RetryOption, SingletonEntity,
-};
+use galaxyui::r#async::FutureId;
+use galaxyui::{Entity, ModelContext, RequestState, RetryOption, SingletonEntity};
 use http::StatusCode;
 use lazy_static::lazy_static;
 use uuid::Uuid;
-use warp_graphql::scalars::time::ServerTimestamp;
-use warpui::r#async::FutureId;
-use warpui::{Entity, ModelContext, RequestState, RetryOption, SingletonEntity};
 
 use super::graphql::GraphQLError;
 use super::ids::{ClientId, HashableId, ObjectUid, ServerId, SyncId, ToServerId};
@@ -1812,19 +1808,17 @@ impl SyncQueue {
                             );
                         }
                     }
-                    QueueItem::UpdateWorkflow { model, .. } => {
-                        // Only update the workflow if it depends on this dependency.
+                    QueueItem::UpdateWorkflow { model, .. }
                         if self
                             .queue_dependencies
                             .get(item_id)
-                            .is_some_and(|deps| deps.contains(dependency))
-                        {
-                            let workflow_model = Arc::make_mut(model);
-                            workflow_model.data.replace_object_id(
-                                SyncId::ClientId(client_id),
-                                SyncId::from(server_id),
-                            );
-                        }
+                            .is_some_and(|deps| deps.contains(dependency)) =>
+                    {
+                        let workflow_model = Arc::make_mut(model);
+                        workflow_model.data.replace_object_id(
+                            SyncId::ClientId(client_id),
+                            SyncId::from(server_id),
+                        );
                     }
                     _ => {}
                 }

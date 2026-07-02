@@ -4,12 +4,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lazy_static::lazy_static;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use parking_lot::{FairMutex, RwLock};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_error;
 use galaxy_core::semantic_selection::SemanticSelection;
@@ -37,6 +31,12 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use lazy_static::lazy_static;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use parking_lot::{FairMutex, RwLock};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
 
 use super::cli_controller::{CLISubagentController, CLISubagentEvent, UserTakeOverReason};
 use super::model::{AIBlockModel, AIBlockModelHelper, AIBlockModelImpl, AIBlockOutputStatus};
@@ -628,25 +628,25 @@ impl CLISubagentView {
             AIAgentActionType::SearchCodebase(_)
             | AIAgentActionType::ReadFiles(_)
             | AIAgentActionType::Grep { .. }
-            | AIAgentActionType::FileGlobV2 { .. } => {
-                if should_show_read_files_speedbump(ctx) {
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let _ = settings
-                            .should_show_agent_mode_autoread_files_speedbump
-                            .set_value(false, ctx);
-                    });
+            | AIAgentActionType::FileGlobV2 { .. }
+                if should_show_read_files_speedbump(ctx) =>
+            {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let _ = settings
+                        .should_show_agent_mode_autoread_files_speedbump
+                        .set_value(false, ctx);
+                });
 
-                    BlocklistAIPermissions::handle(ctx).update(ctx, |permissions, ctx| {
-                        if let Err(e) = permissions.set_always_allow_read_files(
-                            self.always_allow_read_files_checked,
-                            self.terminal_view_id,
-                            ctx,
-                        ) {
-                            report_error!(e);
-                        }
-                    });
-                    ctx.notify();
-                }
+                BlocklistAIPermissions::handle(ctx).update(ctx, |permissions, ctx| {
+                    if let Err(e) = permissions.set_always_allow_read_files(
+                        self.always_allow_read_files_checked,
+                        self.terminal_view_id,
+                        ctx,
+                    ) {
+                        report_error!(e);
+                    }
+                });
+                ctx.notify();
             }
             _ => {}
         }
@@ -1153,32 +1153,28 @@ impl View for CLISubagentView {
                             }
                         }
                     }
-                    AIAgentOutputMessageType::WebSearch(WebSearchStatus::Searching { query }) => {
-                        if !should_hide_responses {
-                            result.add_child(
-                                render_scrollable_container(
-                                    ScrollableContainerProps {
-                                        scroll_state: self
-                                            .state_handles
-                                            .action_scroll_state
-                                            .clone(),
-                                        child: render_web_search(query.clone(), app),
-                                        background_color: internal_colors::neutral_2(
-                                            appearance.theme(),
-                                        ),
-                                        border: Some(
-                                            Border::all(1.).with_border_fill(
-                                                internal_colors::neutral_3(theme),
-                                            ),
-                                        ),
-                                        max_height: resizable_height,
-                                    },
-                                    app,
-                                )
-                                .with_margin_bottom(8.)
-                                .finish(),
-                            );
-                        }
+                    AIAgentOutputMessageType::WebSearch(WebSearchStatus::Searching { query })
+                        if !should_hide_responses =>
+                    {
+                        result.add_child(
+                            render_scrollable_container(
+                                ScrollableContainerProps {
+                                    scroll_state: self.state_handles.action_scroll_state.clone(),
+                                    child: render_web_search(query.clone(), app),
+                                    background_color: internal_colors::neutral_2(
+                                        appearance.theme(),
+                                    ),
+                                    border: Some(
+                                        Border::all(1.)
+                                            .with_border_fill(internal_colors::neutral_3(theme)),
+                                    ),
+                                    max_height: resizable_height,
+                                },
+                                app,
+                            )
+                            .with_margin_bottom(8.)
+                            .finish(),
+                        );
                     }
                     _ => (),
                 }

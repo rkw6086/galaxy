@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use settings::Setting as _;
-use vim::vim::MotionType;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
+use settings::Setting as _;
+use vim::vim::MotionType;
 
 use crate::settings::AppEditorSettings;
 

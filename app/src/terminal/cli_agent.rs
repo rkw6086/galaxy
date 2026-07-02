@@ -8,17 +8,16 @@ use std::collections::HashMap;
 
 use ai::skills::SkillProvider;
 use enum_iterator::Sequence;
-use galaxy_editor::content::{buffer::Buffer, markdown::MarkdownStyle};
-use markdown_parser::parse_markdown;
-use pathfinder_color::ColorU;
-use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
 use galaxy_cli::agent::Harness;
 use galaxy_completer::parsers::simple::top_level_command;
 use galaxy_editor::content::buffer::Buffer;
 use galaxy_editor::content::markdown::MarkdownStyle;
 use galaxy_util::path::EscapeChar;
 use galaxyui::{AppContext, SingletonEntity};
+use markdown_parser::parse_markdown;
+use pathfinder_color::ColorU;
+use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 use crate::ai::agent::{AgentReviewCommentBatch, DiffSetHunk};
 use crate::ai::blocklist::CLAUDE_ORANGE;

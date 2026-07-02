@@ -3,7 +3,6 @@ use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::Result;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::pick_foreground_color;
 pub use galaxy_core::ui::theme::*;
@@ -14,6 +13,7 @@ use galaxyui::elements::{
     Shrinkable, Stack, Text,
 };
 use galaxyui::fonts::FamilyId;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::default_themes::*;
 use super::theme_creator::{pick_accent_color_from_options, top_colors_for_image};
@@ -467,6 +467,8 @@ impl InMemoryThemeOptions {
 pub struct GalaxyThemeConfig {
     theme_map: HashMap<ThemeKind, GalaxyTheme>,
 }
+
+pub type WarpThemeConfig = GalaxyThemeConfig;
 
 impl GalaxyThemeConfig {
     pub fn new() -> Self {

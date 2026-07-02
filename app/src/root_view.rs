@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use cfg_if::cfg_if;
+use galaxy_core::context_flag::ContextFlag;
+use galaxy_core::safe_error;
+use galaxy_core::user_preferences::GetUserPreferences as _;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use onboarding::{
@@ -17,9 +20,6 @@ use serde::{Deserialize, Serialize};
 use session_sharing_protocol::common::SessionId;
 use settings::Setting as _;
 use url::Url;
-use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::safe_error;
-use galaxy_core::user_preferences::GetUserPreferences as _;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
     Border, ChildAnchor, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Stack,
@@ -87,7 +87,7 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::shell::ShellType;
 use crate::terminal::view::{cell_size_and_padding, TerminalAction};
 use crate::themes::onboarding_theme_picker_themes;
-use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, WarpThemeConfig};
+use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, GalaxyThemeConfig, ThemeKind};
 use crate::uri::{OpenMCPSettingsArgs, OpenSettingsArgs};
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::util::traffic_lights::{traffic_light_data, TrafficLightData, TrafficLightMouseStates};

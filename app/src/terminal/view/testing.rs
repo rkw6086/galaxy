@@ -42,6 +42,7 @@ impl TerminalView {
         is_cloud_mode: bool,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
+        use galaxyui::units::{IntoPixels, Pixels};
         use pathfinder_geometry::vector::vec2f;
 
         use crate::server::server_api::ServerApiProvider;

@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, Expanded, Flex, Hoverable,
@@ -10,6 +8,8 @@ use galaxyui::prelude::{Align, CrossAxisAlignment};
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, Element, SingletonEntity as _};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::llms::LLMSpec;
 use crate::appearance::Appearance;

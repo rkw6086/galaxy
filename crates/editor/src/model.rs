@@ -1,15 +1,12 @@
 use std::ops::Range;
 
-use galaxyui::{
-    AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, clipboard::ClipboardContent,
-};
+use galaxyui::clipboard::ClipboardContent;
+use galaxyui::elements::ListIndentLevel;
+use galaxyui::{AppContext, Entity, ModelAsRef, ModelContext, ModelHandle};
 use itertools::{Either, Itertools};
 use line_ending::LineEnding;
 use string_offset::{ByteOffset, CharOffset};
 use vec1::{Vec1, vec1};
-use galaxyui_core::clipboard::ClipboardContent;
-use galaxyui_core::elements::ListIndentLevel;
-use galaxyui_core::{AppContext, Entity, ModelAsRef, ModelContext, ModelHandle};
 
 use crate::content::anchor::Anchor;
 use crate::content::buffer::{

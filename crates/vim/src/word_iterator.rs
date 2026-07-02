@@ -1,7 +1,8 @@
 use std::iter::Peekable;
 
 use anyhow::Result;
-use galaxyui_core::text::{words::is_default_word_boundary, TextBuffer};
+use galaxyui_core::text::words::is_default_word_boundary;
+use galaxyui_core::text::TextBuffer;
 use itertools::{peek_nth, Either, PeekNth};
 use string_offset::CharOffset;
 

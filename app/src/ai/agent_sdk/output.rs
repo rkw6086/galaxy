@@ -4,12 +4,12 @@ use anyhow::Context;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, ContentArrangement, Table};
-use jaq_all::data::Runner;
-use jaq_all::fmts::write::Writer;
-use jaq_all::fmts::Format;
 // Use jaq_json directly to ensure serde support is included.
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::json_filter::{JqFilter, JsonOutput};
+use jaq_all::data::Runner;
+use jaq_all::fmts::write::Writer;
+use jaq_all::fmts::Format;
 use jaq_json::{write as jaq_write, Val};
 use serde::Serialize;
 use tabwriter::TabWriter;

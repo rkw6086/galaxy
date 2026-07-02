@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
 use galaxy_core::define_settings_group;
+use serde::{Deserialize, Serialize};
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 #[derive(
     Debug,

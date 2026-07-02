@@ -1,8 +1,7 @@
 use galaxy_core::context_flag::ContextFlag;
-use galaxyui::{keymap::Trigger, SingletonEntity, ViewContext, ViewHandle};
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::keymap::Trigger;
 use galaxyui::{SingletonEntity, ViewContext, ViewHandle};
+use pathfinder_geometry::vector::Vector2F;
 
 use super::env_var_collection::{EnvVarCollectionAction, EnvVarCollectionView, VariableRowIndex};
 use crate::cloud_object::{CloudObject, GenericStringObjectFormat, Space};

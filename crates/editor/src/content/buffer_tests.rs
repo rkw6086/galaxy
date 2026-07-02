@@ -2,7 +2,10 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use galaxy_util::content_version::ContentVersion;
 use galaxyui::{App, AppContext, ModelContext, ModelHandle, ReadModel};
+use galaxyui_core::elements::ListIndentLevel;
+use galaxyui_core::text::point::Point;
 use line_ending::LineEnding;
 use markdown_parser::{
     FormattedIndentTextInline, FormattedText, FormattedTextFragment, FormattedTextLine, parse_html,
@@ -14,10 +17,6 @@ use rand::rngs::StdRng;
 use serde_yaml::{Mapping, Value};
 use string_offset::{ByteOffset, CharOffset};
 use vec1::{Vec1, vec1};
-use galaxy_util::content_version::ContentVersion;
-use galaxyui_core::elements::ListIndentLevel;
-use galaxyui_core::text::point::Point;
-use galaxyui_core::{App, AppContext, ModelContext, ModelHandle, ReadModel};
 
 use super::{BufferEvent, EditResult, ToBufferCharOffset};
 use crate::content::buffer::{

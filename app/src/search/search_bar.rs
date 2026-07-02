@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
-use itertools::{Either, Itertools};
 use galaxy_editor::editor::NavigationKey;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex, ParentElement, Shrinkable, Text,
 };
@@ -12,6 +11,7 @@ use galaxyui::{
     Action, AppContext, Element, Entity, FocusContext, ModelContext, ModelHandle, SingletonEntity,
     TypedActionView, View, ViewContext, ViewHandle,
 };
+use itertools::{Either, Itertools};
 
 use super::mixer::SearchMixerEvent;
 use crate::appearance::Appearance;

@@ -246,12 +246,17 @@ pub use full_text_searcher::FullTextSessionSearcher;
 mod full_text_searcher {
     use std::collections::HashMap;
 
+    use galaxyui::{AppContext, ModelHandle};
+    use itertools::Itertools;
     use warp_search_core::define_search_schema;
 
+    use crate::pane_group::PaneId;
     use crate::search::command_palette::navigation::search::{
         searchable_session_string_and_ranges, MatchedSession, SearcherAction,
         SessionHighlightIndices, SessionMatchResult, SessionSearcher,
     };
+    use crate::search::command_palette::navigation::search_item::SearchItem;
+    use crate::search::data_source::QueryResult;
     use crate::search::searcher::{DEFAULT_MEMORY_BUDGET, SCORE_CONVERSION_FACTOR};
     use crate::session_management::{SessionNavigationData, SessionSource};
 

@@ -1,11 +1,6 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use markdown_parser::{FormattedTextStyles, Hyperlink};
-use rangemap::RangeSet;
-use string_offset::CharOffset;
-use sum_tree::SumTree;
-use vec1::{Vec1, vec1};
 use galaxyui_core::assets::asset_cache::AssetSource;
 use galaxyui_core::color::ColorU;
 use galaxyui_core::elements::ListIndentLevel;
@@ -14,6 +9,11 @@ use galaxyui_core::geometry::rect::RectF;
 use galaxyui_core::geometry::vector::vec2f;
 use galaxyui_core::text_layout::TextFrame;
 use galaxyui_core::units::{IntoPixels, Pixels};
+use markdown_parser::{FormattedTextStyles, Hyperlink};
+use rangemap::RangeSet;
+use string_offset::CharOffset;
+use sum_tree::SumTree;
+use vec1::{Vec1, vec1};
 
 use super::debug::Describe;
 use super::test_utils::{layout_paragraph, layout_paragraphs};
@@ -1432,6 +1432,8 @@ fn test_link_at_offset_uses_cached_cell_links() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod char_cell {
+
+    use string_offset::CharOffset;
 
     use crate::render::model::{
         ColumnUnit, LineCount, SoftWrapPoint, char_cell_display_width, char_cell_line_row_starts,

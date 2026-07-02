@@ -13,7 +13,7 @@ use super::WorkflowSource;
 use crate::terminal::model::session::Session;
 #[cfg(feature = "local_fs")]
 use crate::user_config::load_workflows;
-use crate::user_config::WarpConfig;
+use crate::user_config::GalaxyConfig;
 
 pub fn workflows_dir(base_dir: impl AsRef<Path>) -> PathBuf {
     base_dir.as_ref().join("workflows")

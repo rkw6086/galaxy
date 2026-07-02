@@ -25,6 +25,9 @@ use std::thread::JoinHandle;
 use ai::project_context::model::ProjectRulePath;
 use ai::workspace::WorkspaceMetadata as CodeWorkspaceMetadata;
 use chrono::{DateTime, Local, Utc};
+use galaxy_core::command::ExitCode;
+use galaxy_graphql::scalars::time::ServerTimestamp;
+use galaxyui::{AppContext, Entity, SingletonEntity};
 use instant::Instant;
 use lsp::supported_servers::LSPServerType;
 #[cfg(any(feature = "local_fs", feature = "integration_tests"))]

@@ -586,7 +586,7 @@ impl AsyncFindController {
 
         // Sort by TotalIndex descending so that matches closest to the end
         // of the blocklist (newest blocks, near the prompt) come first.
-        ordered_blocks.sort_by(|a, b| b.0.cmp(&a.0));
+        ordered_blocks.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         let reverse_within_block = matches!(
             self.block_sort_direction,

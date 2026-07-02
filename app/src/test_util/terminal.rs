@@ -1,14 +1,14 @@
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 #[cfg(feature = "local_fs")]
 use ai::skills::SKILL_PROVIDER_DEFINITIONS;
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::watcher::DirectoryWatcher;
-#[cfg(feature = "local_fs")]
-use repo_metadata::RepoMetadataModel;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_server_client::iap::IapManager;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, SingletonEntity, ViewHandle, WindowId};
+use repo_metadata::repositories::DetectedRepositories;
+use repo_metadata::watcher::DirectoryWatcher;
+#[cfg(feature = "local_fs")]
+use repo_metadata::RepoMetadataModel;
 use watcher::HomeDirectoryWatcher;
 
 use super::settings::initialize_history_persistence_for_tests;
@@ -156,7 +156,7 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
     app.add_singleton_model(|_| GitRepoModels::new());
     app.add_singleton_model(RepoOutlines::new_for_test);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(SkillManager::new);
     app.add_singleton_model(|ctx| {
         CodebaseIndexManager::new_for_test(ServerApiProvider::as_ref(ctx).get(), ctx)

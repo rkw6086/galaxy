@@ -1,6 +1,6 @@
-use settings::Setting as _;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use settings::Setting as _;
 
 use crate::chip_configurator::{
     render_chip_editor_modal, render_chip_editor_sections, ChipConfigurator,

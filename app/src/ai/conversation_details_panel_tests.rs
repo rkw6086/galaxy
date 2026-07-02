@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use chrono::{Local, Utc};
-use persistence::model::{AgentConversationData, ConversationUsageMetadata};
 use galaxy_cli::agent::Harness;
-use warp_multi_agent_api as api;
 use galaxyui::{App, EntityId, SingletonEntity};
+use persistence::model::{AgentConversationData, ConversationUsageMetadata};
+use warp_multi_agent_api as api;
 
 use super::{ConversationDetailsData, PanelMode};
 use crate::ai::agent::api::ServerConversationToken;
@@ -75,6 +75,7 @@ fn test_from_conversation_prefers_server_creator_profile() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
         conversation.set_server_metadata(create_test_server_metadata(
@@ -188,6 +189,7 @@ fn create_test_server_metadata(
             token_usage: vec![],
             tool_usage_metadata: Default::default(),
             context_window_segments: Vec::new(),
+            ..Default::default()
         },
         metadata: ServerMetadata {
             uid: ServerId::default(),
@@ -237,6 +239,7 @@ fn test_from_task_includes_linked_directory_when_run_id_matches() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -380,6 +383,7 @@ fn test_from_conversation_populates_local_conversation_fields() {
                 is_remote_child: false,
                 root_task_is_optimistic: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 
@@ -451,6 +455,7 @@ fn test_from_task_includes_linked_directory_when_server_token_matches() {
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                ..Default::default()
             },
         );
 

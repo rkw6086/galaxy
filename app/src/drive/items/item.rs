@@ -1,5 +1,3 @@
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::elements::{
     AcceptedByDropTarget, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Draggable, DraggableState, DropShadow, Empty, Flex, Hoverable,
@@ -13,6 +11,8 @@ use galaxyui::presenter::PositionCache;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text::Span;
 use galaxyui::{AppContext, Element, SingletonEntity, ViewHandle};
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::WarpDriveItemId;
 use crate::appearance::Appearance;

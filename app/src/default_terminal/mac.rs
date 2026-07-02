@@ -1,8 +1,8 @@
 use std::ptr::NonNull;
 
+use galaxy_core::channel::{Channel, ChannelState};
 use objc2_core_foundation::{CFRetained, CFString};
 use objc2_foundation::NSBundle;
-use galaxy_core::channel::{Channel, ChannelState};
 
 // Launch Services constants
 type LSRolesMask = u32;

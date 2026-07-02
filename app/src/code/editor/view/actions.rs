@@ -5,9 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::ops::Range;
 
-use lazy_static::lazy_static;
-use rangemap::RangeSet;
-use string_offset::CharOffset;
 use galaxy_editor::content::version::BufferVersion;
 use galaxy_editor::editor::{EmbeddedItemModel, RunnableCommandModel, TextDecoration};
 use galaxy_editor::model::{CoreEditorModel, PlainTextEditorModel};
@@ -21,6 +18,9 @@ use galaxyui::event::ModifiersState;
 use galaxyui::keymap::{EditableBinding, FixedBinding, Keystroke, PerPlatformKeystroke};
 use galaxyui::units::Pixels;
 use galaxyui::{AppContext, TypedActionView, ViewContext, WeakViewHandle};
+use lazy_static::lazy_static;
+use rangemap::RangeSet;
+use string_offset::CharOffset;
 
 use crate::cmd_or_ctrl_shift;
 use crate::code::editor::line::EditorLineLocation;

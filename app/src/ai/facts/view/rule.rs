@@ -2,10 +2,10 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 
 use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
-use markdown_parser::weight::CustomWeight;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::ui::appearance::{Appearance, AppearanceEvent};
 use galaxy_core::ui::theme::color::internal_colors;
+use markdown_parser::weight::CustomWeight;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::elements::{
     Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -20,7 +20,12 @@ use warpui::{
     ViewHandle,
 };
 
-use super::{is_edit_allowed, is_syncing, style, AIFact, CloudAIFact, CloudAIFactModel};
+use super::{
+    is_delete_allowed, is_edit_allowed, is_syncing, style, AIFact, CloudAIFact, CloudAIFactModel,
+};
+use crate::ai::facts::predefined_rules::{
+    is_predefined_rule, predefined_rule_index, PREDEFINED_RULES,
+};
 use crate::ai::facts::AIMemory;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
@@ -388,7 +393,7 @@ impl RuleView {
                 .cloned()
                 .collect()
         };
-        self.cloud_global_rules = ai_rules
+        let mut rows: Vec<CloudRuleRow> = ai_rules
             .into_iter()
             .map(|ai_fact| CloudRuleRow {
                 fact: ai_fact,
@@ -418,7 +423,7 @@ impl RuleView {
             }
         });
 
-        self.global_rules = rows;
+        self.cloud_global_rules = rows;
         ctx.notify();
     }
 
@@ -521,7 +526,7 @@ impl RuleView {
 
         // Build a map of existing system-defined rules by name for update detection
         let existing_system_rules: std::collections::HashMap<String, (SyncId, Option<Revision>)> =
-            self.global_rules
+            self.cloud_global_rules
                 .iter()
                 .filter_map(|row| {
                     let AIFact::Memory(AIMemory { ref name, .. }) = row.fact.model().string_model;

@@ -7,11 +7,11 @@ use std::time::Duration;
 use async_channel::Sender;
 use async_trait::async_trait;
 use futures_util::stream::AbortHandle;
-use warpui_core::r#async::Timer;
-use warpui_core::{Action, AppContext, Entity, ModelContext};
 use itertools::Itertools;
 use warp_core::r#async::debounce;
 use warp_core::send_telemetry_from_ctx;
+use warpui_core::r#async::Timer;
+use warpui_core::{Action, AppContext, Entity, ModelContext};
 
 use super::data_source::{Query, QueryFilter, QueryResult};
 use crate::telemetry::TelemetryEvent;

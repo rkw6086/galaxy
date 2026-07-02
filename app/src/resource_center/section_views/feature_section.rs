@@ -1,13 +1,13 @@
-use warpui::elements::{
-    Align, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Hoverable, Icon,
-    MouseState, MouseStateHandle, ParentElement, Shrinkable,
-};
 use galaxyui::fonts::Weight;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
     Action, AppContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, WindowId,
+};
+use warpui::elements::{
+    Align, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Hoverable, Icon,
+    MouseState, MouseStateHandle, ParentElement, Shrinkable,
 };
 
 use super::{

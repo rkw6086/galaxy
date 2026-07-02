@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 use async_channel::Sender;
 use base64::Engine;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::report_error;
+use galaxy_core::semantic_selection::SemanticSelection;
 use hex::FromHexError;
 use itertools::{Either, Itertools};
 use serde::Serialize;
@@ -14,9 +17,6 @@ use session_sharing_protocol::common::{
     AICommandMetadata, OrderedTerminalEventType, ParticipantId,
 };
 use session_sharing_protocol::sharer::SessionSourceType;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::report_error;
-use galaxy_core::semantic_selection::SemanticSelection;
 pub use warp_terminal::model::BlockIndex;
 use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use warpui::assets::asset_cache::Asset;

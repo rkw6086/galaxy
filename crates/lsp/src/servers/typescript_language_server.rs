@@ -4,8 +4,6 @@ use std::sync::Arc;
 #[cfg(feature = "local_fs")]
 use anyhow::Context;
 use async_trait::async_trait;
-#[cfg(feature = "local_fs")]
-use command::r#async::Command;
 
 use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMetadata};
 #[cfg(feature = "local_fs")]

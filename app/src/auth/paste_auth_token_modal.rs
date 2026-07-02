@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Modal shown when the user clicks "Click here to paste your token from
 //! the browser" on the onboarding agent-slide upgrade-prompt bar. Accepts a
 //! pasted auth redirect URL and routes it through
@@ -6,8 +8,6 @@
 //! This lives in the app crate (not the onboarding crate) because it reuses
 //! `EditorView` for the text input, which the onboarding crate doesn't
 //! depend on.
-use pathfinder_color::ColorU;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::safe_error;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::actions::StandardAction;
@@ -24,6 +24,8 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
+use ui_components::{button, Component as _};
 
 use crate::appearance::Appearance;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
@@ -88,7 +90,14 @@ pub enum PasteAuthTokenModalEvent {
     Cancelled,
 }
 
-pub struct PasteAuthTokenModalView;
+pub struct PasteAuthTokenModalView {
+    auth_token_input: ViewHandle<EditorView>,
+    cancel_button: button::Button,
+    continue_button: button::Button,
+    close_mouse_state: MouseStateHandle,
+    last_failure_reason: Option<LoginFailureReason>,
+    highlighted_hyperlink_state: HighlightedHyperlink,
+}
 
 impl PasteAuthTokenModalView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {

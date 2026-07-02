@@ -17,6 +17,8 @@ pub mod auth_secret_types;
 #[cfg(not(target_family = "wasm"))]
 pub mod aws_credentials;
 #[cfg(not(target_family = "wasm"))]
+pub mod bedrock;
+#[cfg(not(target_family = "wasm"))]
 pub(crate) mod bedrock_credentials;
 pub(crate) mod block_context;
 pub(crate) mod blocklist;
@@ -44,6 +46,7 @@ pub mod onboarding;
 pub mod openai;
 pub(crate) mod persisted_workspace;
 pub(crate) mod predict;
+pub mod provider;
 #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
 pub(crate) mod remote_agent_context;
 pub(crate) mod remote_context_files;

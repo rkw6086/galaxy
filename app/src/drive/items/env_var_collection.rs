@@ -1,9 +1,9 @@
-use itertools::Itertools;
 use galaxy_core::context_flag::ContextFlag;
 use galaxyui::elements::{Clipped, Container, Flex, MouseStateHandle, ParentElement};
 use galaxyui::fonts::Weight;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use itertools::Itertools;
 
 use super::{WarpDriveItem, WarpDriveItemId};
 use crate::appearance::Appearance;

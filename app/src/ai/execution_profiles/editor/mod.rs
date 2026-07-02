@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
+use galaxy_core::ui::theme::color::internal_colors;
 use itertools::Itertools;
 use regex::Regex;
 use thousands::Separable;
-use galaxy_core::ui::theme::color::internal_colors;
 use warpui::elements::{
     Align, Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox,
     Container, CrossAxisAlignment, Expanded, Flex, Highlight, MouseStateHandle, ParentElement,

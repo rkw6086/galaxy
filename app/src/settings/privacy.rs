@@ -5,12 +5,14 @@ use anyhow::Result;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_if_error;
 use galaxy_core::user_preferences::GetUserPreferences as _;
+use galaxy_graphql::mutations::update_user_settings::UpdateUserSettingsInput;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, UpdateModel};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use settings::macros::{define_settings_group, maybe_define_setting, register_settings_events};
-use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
-use galaxy_graphql::mutations::update_user_settings::UpdateUserSettingsInput;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
 
 use super::cloud_preferences_syncer::CloudPreferencesSyncer;
 use crate::ai::blocklist::telemetry_banner::should_collect_ai_ugc_telemetry;

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 define_settings_group!(UndoCloseSettings, settings: [
     enabled: UndoCloseEnabled {

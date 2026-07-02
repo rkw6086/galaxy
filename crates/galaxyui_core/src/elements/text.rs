@@ -1436,5 +1436,5 @@ impl PartialClickableElement for Text {
 }
 
 #[cfg(test)]
-#[path = "text_tests.rs"]
+#[path = "text_test.rs"]
 mod tests;

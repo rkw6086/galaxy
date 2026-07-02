@@ -571,7 +571,6 @@ pub fn to_relative_path(is_wsl: bool, absolute_path: &Path, cwd: &Path) -> Optio
     // On Windows, check if paths are on different drives
     #[cfg(windows)]
     {
-
         let abs_drive = absolute_path.components().next().and_then(|c| match c {
             Component::Prefix(prefix) => Some(prefix.kind()),
             _ => None,

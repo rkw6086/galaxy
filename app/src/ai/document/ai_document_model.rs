@@ -10,16 +10,15 @@ use ai::diff_validation::DiffDelta;
 // TODO(vorporeal): Remove this re-export at some point.
 pub use ai::document::{AIDocumentId, AIDocumentVersion};
 use chrono::{DateTime, Local, Utc};
+use galaxy_editor::model::RichTextEditorModel;
+use galaxy_editor::render::model::RichTextStyles;
+use galaxyui::color::ColorU;
 use galaxyui::{
     AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity, WindowId,
 };
 use itertools::Itertools;
 use uuid::Uuid;
-use galaxy_editor::model::RichTextEditorModel;
-use galaxy_editor::render::model::RichTextStyles;
 use warp_multi_agent_api as maa_api;
-use galaxyui::color::ColorU;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity, WindowId};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentActionId;

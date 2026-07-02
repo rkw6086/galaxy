@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use cynic::{GraphQlError, GraphQlResponse};
 use futures::executor::block_on;
+use galaxy_graphql::client::{GraphQLError, RequestOptions};
 use http::StatusCode;
-use warp_graphql::client::{GraphQLError, RequestOptions};
 use warp_server_auth::auth_state::AuthState;
 
 use super::send_graphql_request;
@@ -124,7 +124,7 @@ impl FakeGraphqlOperation {
     }
 }
 
-impl warp_graphql::client::Operation<()> for FakeGraphqlOperation {
+impl galaxy_graphql::client::Operation<()> for FakeGraphqlOperation {
     fn operation_name(&self) -> Option<Cow<'_, str>> {
         Some(Cow::Borrowed("FakeGraphqlOperation"))
     }

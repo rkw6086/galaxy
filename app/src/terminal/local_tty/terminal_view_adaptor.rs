@@ -4,6 +4,8 @@ use std::rc::Rc;
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::send_telemetry_from_ctx;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
     ActivePrompt, AgentPromptFailureReason, CLIAgentSessionState, CommandExecutionFailureReason,
@@ -19,8 +21,6 @@ use session_sharing_protocol::sharer::{
     QuotaType, RemoveGuestResponse, SessionEndedReason, SessionSourceType,
     TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
 };
-use galaxy_core::execution_mode::AppExecutionMode;
-use galaxy_core::send_telemetry_from_ctx;
 use warpui::{AppContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
 
 use super::terminal_manager::{TerminalManager, TerminalSurfaceInit, TerminalSurfaceResult};

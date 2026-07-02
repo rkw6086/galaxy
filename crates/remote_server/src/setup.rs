@@ -3,8 +3,8 @@ mod glibc;
 use std::time::Duration;
 
 use anyhow::anyhow;
-pub use glibc::{GlibcVersion, RemoteLibc};
 use galaxy_core::channel::{Channel, ChannelState};
+pub use glibc::{GlibcVersion, RemoteLibc};
 pub const REMOTE_SERVER_ARTIFACT_VERSION_UNPINNED: &str = "unversioned";
 
 /// State machine for the remote server install → launch → initialize flow.
@@ -424,7 +424,7 @@ pub fn remote_server_daemon_data_dir(identity_key: &str) -> String {
 /// Linux, 103 on macOS) for users with moderately long identity keys or
 /// home directory paths.
 pub fn version_hash() -> Option<String> {
-
+    use std::hash::{Hash, Hasher};
     let version = ChannelState::app_version()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     version.hash(&mut hasher);

@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use galaxyui::{Entity, ModelContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthStateProvider;
+use crate::galaxy_core::user_preferences::GetUserPreferences;
 use crate::safe_info;
 use crate::server::server_api::referral::{ReferralInfo, ReferralsClient};
 

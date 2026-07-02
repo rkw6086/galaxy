@@ -1,6 +1,6 @@
 use pathfinder_color::ColorU;
 use serde::Serialize;
-pub use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
+pub use warpui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use warpui::elements::{
     Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, DropShadow, Element, Flex, Hoverable, MouseStateHandle, OffsetPositioning,

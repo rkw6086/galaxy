@@ -6,9 +6,9 @@ use std::sync::OnceLock;
 
 use anyhow::Result;
 use chrono::Local;
+use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use log::LevelFilter;
-use galaxy_core::channel::ChannelState;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 

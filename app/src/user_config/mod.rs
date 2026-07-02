@@ -8,18 +8,18 @@ mod imp;
 use std::path::Path;
 use std::path::PathBuf;
 
+use galaxy_core::ui::theme::GalaxyTheme;
 pub(crate) use imp::load_tab_configs;
 #[cfg(feature = "local_fs")]
 pub use imp::load_workflows;
 pub use imp::{load_launch_configs, load_theme_configs};
 use lazy_static::lazy_static;
-use galaxy_core::ui::theme::WarpTheme;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
 use crate::ai::custom_model_routers::{CustomModelRouter, ModelConfigError};
 use crate::launch_configs::launch_config::LaunchConfig;
 use crate::tab_configs::{TabConfig, TabConfigError};
-use crate::themes::theme::{ThemeKind, WarpThemeConfig};
+use crate::themes::theme::{GalaxyThemeConfig, ThemeKind};
 use crate::workflows::workflow::Workflow;
 
 lazy_static! {
@@ -427,6 +427,9 @@ impl Entity for GalaxyConfig {
 }
 
 impl SingletonEntity for GalaxyConfig {}
+
+pub type WarpConfig = GalaxyConfig;
+pub type WarpConfigUpdateEvent = GalaxyConfigUpdateEvent;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

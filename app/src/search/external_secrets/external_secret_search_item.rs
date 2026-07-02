@@ -1,7 +1,7 @@
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{ConstrainedBox, Container, Highlight, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use super::external_secret_fuzzy_match::FuzzyMatchExternalSecretResult;
 use super::searcher::ExternalSecretSearchItemAction;

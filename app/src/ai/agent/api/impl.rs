@@ -8,11 +8,15 @@ use warp_multi_agent_api as api;
 use super::convert_to::convert_input;
 use super::{ConvertToAPITypeError, RequestParams, ResponseStream};
 use crate::ai::agent::redaction;
-use crate::server::server_api::{AIApiError, ServerApi};
+use crate::ai::openai::translator as openai_translator;
+use crate::ai::provider::ProviderConfig;
+use crate::server::server_api::ai::AIClient;
+use crate::server::server_api::AIApiError;
 use crate::terminal::model::session::SessionType;
 
 pub async fn generate_multi_agent_output(
     provider_config: ProviderConfig,
+    server_api: Arc<dyn AIClient>,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
@@ -65,9 +69,9 @@ pub async fn generate_multi_agent_output(
         input: Some(convert_input(params.input)?),
         settings: Some(api::request::Settings {
             model_config: Some(api::request::settings::ModelConfig {
-                base: params.model.into(),
-                cli_agent: params.cli_agent_model.into(),
-                computer_use_agent: params.computer_use_model.into(),
+                base: params.model.clone().into(),
+                cli_agent: params.cli_agent_model.clone().into(),
+                computer_use_agent: params.computer_use_model.clone().into(),
                 base_model_context_window_limit: params.context_window_limit.unwrap_or(0),
                 ..Default::default()
             }),
@@ -136,24 +140,11 @@ pub async fn generate_multi_agent_output(
         mcp_context: params.mcp_context.map(Into::into),
     };
 
-    let response_stream =
-        warp_multi_agent_client::generate_multi_agent_output(server_api.as_ref(), &request).await;
-    match response_stream {
-        Ok(stream) => {
-            let output_stream = stream
-                .then(|result| async {
-                    match result {
-                        Ok(event) => Ok(event),
-                        Err(error) => Err(convert_multi_agent_client_error(error).await),
-                    }
-                })
-                .take_until(cancellation_rx);
-            Ok(Box::pin(output_stream))
-        }
+    match provider_config {
         ProviderConfig::OpenAI(config) => {
             let translator_request = openai_translator::TranslatorRequest {
                 config,
-                model_id,
+                model_id: params.model.as_str().to_string(),
                 root_task_id: params.root_task_id.clone(),
                 message_history: params.bedrock_message_history.clone(),
                 tool_result_archive: params.bedrock_tool_result_archive.clone(),
@@ -178,19 +169,60 @@ pub async fn generate_multi_agent_output(
                 }
             }
         }
+        ProviderConfig::Bedrock(config) => {
+            let translator_request = crate::ai::bedrock::translator::TranslatorRequest {
+                config,
+                model_id: params.model.as_str().to_string(),
+                root_task_id: params.root_task_id.clone(),
+                bedrock_message_history: params.bedrock_message_history.clone(),
+                bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
+                bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
+                bedrock_messages_sent: params.bedrock_messages_sent.clone(),
+            };
+
+            match crate::ai::bedrock::translator::execute(translator_request, &mut request).await {
+                Ok(stream) => {
+                    let output_stream = stream.take_until(cancellation_rx);
+                    Ok(Box::pin(output_stream))
+                }
+                Err(e) => {
+                    log::error!("[bedrock] Translator error: {e}");
+                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                        stream_type: "bedrock",
+                        source: anyhow::anyhow!("{e}"),
+                    });
+                    let (tx, rx) = async_channel::unbounded();
+                    let _ = tx.send(Err(err)).await;
+                    Ok(Box::pin(rx))
+                }
+            }
+        }
         ProviderConfig::None => {
-            log::error!("No AI provider configured. Cannot process request.");
-            let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-                stream_type: "provider_dispatch",
-                source: anyhow::anyhow!(
-                    "No AI backend available. Please configure a provider in Settings > AI."
-                ),
-            });
-            let (tx, rx) = async_channel::unbounded();
-            let _ = tx
-                .send(Err(convert_multi_agent_client_error(e).await))
-                .await;
-            Ok(Box::pin(rx))
+            let response_stream = warp_multi_agent_client::generate_multi_agent_output(
+                server_api.base_client().as_ref(),
+                &request,
+            )
+            .await;
+            match response_stream {
+                Ok(stream) => {
+                    let output_stream = stream
+                        .then(|result| async {
+                            match result {
+                                Ok(event) => Ok(event),
+                                Err(error) => Err(convert_multi_agent_client_error(error).await),
+                            }
+                        })
+                        .take_until(cancellation_rx);
+                    Ok(Box::pin(output_stream))
+                }
+                Err(e) => {
+                    let (tx, rx) = async_channel::unbounded();
+                    let _ = tx
+                        .send(Err(convert_multi_agent_client_error(e).await))
+                        .await;
+                    Ok(Box::pin(rx))
+                }
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
 //! Implementations for user-facing `warpctrl` command groups.
+use galaxy_core::channel::ChannelState;
 use local_control::discovery::InstanceRecord;
 use local_control::protocol::{
     Action, ActionKind, ActionNameParams, BindingNameParams, BooleanValueParams, ColorValueParams,
@@ -9,7 +10,6 @@ use local_control::protocol::{
 };
 use local_control::selection::select_instance;
 use serde::Serialize;
-use galaxy_core::channel::ChannelState;
 
 use crate::agent::OutputFormat;
 use crate::local_control::output::{write_json, write_json_line};

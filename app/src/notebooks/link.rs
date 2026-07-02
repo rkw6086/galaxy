@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures_util::future::Either;
-use url::Url;
 use galaxy_util::path::{CleanPathResult, LineAndColumnArg};
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, WindowId};
+use url::Url;
 
 use super::file::is_markdown_file;
-use crate::drive::OpenWarpDriveObjectArgs;
+use crate::drive::OpenGalaxyDriveObjectArgs;
 use crate::terminal::model::session::Session;
 use crate::uri::parse_url_paths::{get_item_data_from_warp_link, WarpWebLink};
 #[cfg(feature = "local_fs")]

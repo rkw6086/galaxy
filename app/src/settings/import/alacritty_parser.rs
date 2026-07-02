@@ -4,11 +4,11 @@ use std::path::PathBuf;
 
 use async_recursion::async_recursion;
 use async_trait::async_trait;
+use galaxy_core::ui::color::hex_color::coloru_from_hex_string;
+use galaxy_core::ui::theme::{AnsiColor, AnsiColors, GalaxyTheme, TerminalColors};
+use galaxyui::fonts::FontInfo;
 use pathfinder_color::ColorU;
 use serde::Deserialize;
-use galaxy_core::ui::color::hex_color::coloru_from_hex_string;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, TerminalColors, WarpTheme};
-use galaxyui::fonts::FontInfo;
 
 use super::config::{
     calculate_accent_color, Config, ConfigError, ImportableSetting, ParseableConfig, SettingType,

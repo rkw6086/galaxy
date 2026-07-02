@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, TestStep};
+use galaxyui_core::{async_assert, async_assert_eq};
 use regex::Regex;
 use settings::Setting as _;
 use warp::integration_testing::step::new_step_with_default_assertions;
@@ -19,8 +21,6 @@ use warp::integration_testing::view_getters::{single_terminal_view, single_termi
 use warp::terminal::model::bootstrap::BootstrapStage;
 use warp::terminal::session_settings::{StartupShell, StartupShellOverride};
 use warp::terminal::shell::ShellType;
-use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, TestStep};
-use galaxyui_core::{async_assert, async_assert_eq};
 
 use super::new_builder;
 use crate::Builder;

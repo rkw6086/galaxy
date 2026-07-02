@@ -6,8 +6,20 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ops::{Range, RangeInclusive};
 
+use galaxy_core::features::FeatureFlag;
+use galaxyui::assets::asset_cache::{AssetCache, AssetSource, AssetState};
+use galaxyui::elements::{Border, CornerRadius, Fill, Radius, DEFAULT_UI_LINE_HEIGHT_RATIO};
+use galaxyui::fonts::{FamilyId, FontId, Properties, Style, Weight};
+use galaxyui::image_cache::{AnimatedImageBehavior, CacheOption, FitType, Image, ImageCache};
+use galaxyui::platform::LineStyle;
+use galaxyui::text_layout::{Line, StyleAndFont, TextStyle, DEFAULT_TOP_BOTTOM_RATIO};
+use galaxyui::units::{IntoLines, Lines, Pixels};
+use galaxyui::{AppContext, Element, EntityId, PaintContext, Scene, SingletonEntity};
 use lazy_static::lazy_static;
 use num_traits::Float as _;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 use unicode_width::UnicodeWidthChar;
 
 pub use self::cell_glyph_cache::CellGlyphCache;
@@ -28,7 +40,7 @@ use crate::terminal::model::index::Point;
 use crate::terminal::model::selection::SelectionPoint;
 use crate::terminal::model::{ObfuscateSecrets, SecretHandle};
 use crate::terminal::{color, SizeInfo};
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
 
 // The scale factor of the cursor relative to the cursor width.

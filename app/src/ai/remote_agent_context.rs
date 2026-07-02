@@ -2,12 +2,12 @@ use ::ai::project_context::model::{ProjectContextModel, ProjectRule};
 use ::ai::skills::{
     get_provider_for_path, parse_skill_content_at_location, ParsedSkill, SkillProvider, SkillScope,
 };
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::safe_warn;
 use remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
 use remote_server::proto::{
     remote_skill_proto, RemoteAgentContextSnapshot, RemoteContextFileProto, RemoteSkillProto,
 };
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::safe_warn;
 use warp_util::host_id::HostId;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warp_util::remote_path::RemotePath;

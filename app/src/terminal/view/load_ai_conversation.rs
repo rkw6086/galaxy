@@ -4,14 +4,14 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use chrono::{DateTime, Local};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
+use galaxyui::units::IntoPixels;
+use galaxyui::{EntityId, ModelHandle, SingletonEntity, ViewContext};
 use itertools::Itertools;
 use prost::Message;
 use vec1::Vec1;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
-use galaxyui::units::IntoPixels;
-use galaxyui::{EntityId, ModelHandle, SingletonEntity, ViewContext};
 
 use super::blocklist_filter::exchanges_for_blocklist;
 use super::DEFAULT_AI_BLOCK_HEIGHT;
@@ -951,6 +951,8 @@ impl TerminalView {
             autoexecute_override: None,
             last_event_sequence: None,
             pinned: false,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         };
 
         // We already early-return for empty `tasks` above, so the strict

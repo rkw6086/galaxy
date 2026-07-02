@@ -4,12 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_channel::Sender;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::features::FeatureFlag;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     resizable_state_handle, Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Dismiss, Fill, Flex, MouseStateHandle, OffsetPositioning, OffsetType,
@@ -23,7 +19,10 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
-use std::{collections::HashSet, ops::Range, sync::Arc, time::Duration};
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::ai_queries::AIQueriesDataSource;
 use super::env_var_collections::EnvVarCollectionDataSource;
@@ -1118,7 +1117,9 @@ impl CommandSearchView {
 
 pub mod styles {
     use galaxyui::elements::{Border, DropShadow, ScrollbarWidth};
+    use pathfinder_color::ColorU;
 
+    use crate::appearance::Appearance;
     use crate::themes::theme::Fill;
 
     pub const CORNER_RADIUS: f32 = 8.;

@@ -1,12 +1,10 @@
 use async_io::block_on;
 use galaxy_core::ui::theme::{Fill, GalaxyTheme};
-use galaxyui::{fonts::FontInfo, keymap::Keystroke};
+use galaxyui::fonts::FontInfo;
+use galaxyui::keymap::Keystroke;
 use pathfinder_color::ColorU;
 use plist::{Dictionary, Value};
 use virtual_fs::{Stub, VirtualFS};
-use galaxy_core::ui::theme::{Fill, WarpTheme};
-use galaxyui::fonts::FontInfo;
-use galaxyui::keymap::Keystroke;
 
 use super::{color_dictionary_to_coloru, ITermTheme, ITermThemeType};
 use crate::settings::import::config::{

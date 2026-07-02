@@ -119,7 +119,7 @@ impl From<EmbeddingConfig> for galaxy_graphql::full_source_code_embedding::Embed
                 galaxy_graphql::full_source_code_embedding::EmbeddingConfig::Voyage35Lite512
             }
             EmbeddingConfig::Voyage4_512 => {
-                warp_graphql::full_source_code_embedding::EmbeddingConfig::Voyage4512
+                galaxy_graphql::full_source_code_embedding::EmbeddingConfig::Voyage4512
             }
         }
     }
@@ -144,7 +144,7 @@ impl TryFrom<galaxy_graphql::full_source_code_embedding::EmbeddingConfig> for Em
             galaxy_graphql::full_source_code_embedding::EmbeddingConfig::Voyage35512 => {
                 Ok(Self::Voyage3_5_512)
             }
-            warp_graphql::full_source_code_embedding::EmbeddingConfig::Voyage4512 => {
+            galaxy_graphql::full_source_code_embedding::EmbeddingConfig::Voyage4512 => {
                 Ok(Self::Voyage4_512)
             }
         }
@@ -214,7 +214,7 @@ impl From<Fragment> for galaxy_graphql::queries::rerank_fragments::RerankFragmen
         Self {
             content: val.content,
             content_hash: val.content_hash.into(),
-            location: FragmentLocationInput {
+            location: galaxy_graphql::queries::rerank_fragments::FragmentLocationInput {
                 byte_start: val.location.byte_range.start.as_usize() as i32,
                 byte_end: val.location.byte_range.end.as_usize() as i32,
                 file_path: val.location.absolute_path.to_string_lossy().to_string(),

@@ -3,7 +3,6 @@ use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
 
-use string_offset::{ByteOffset, CharOffset};
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_editor::content::anchor::Anchor;
 use galaxy_editor::content::buffer::Buffer;
@@ -17,7 +16,10 @@ use galaxyui::elements::{
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::{AppContext, Element, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity};
+use galaxyui::{
+    AppContext, Element, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity,
+};
+use string_offset::{ByteOffset, CharOffset};
 
 use super::embedded_item::EmbeddedWorkflow;
 use super::keys::{custom_action_to_display, NotebookKeybindings};

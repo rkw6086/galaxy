@@ -5,18 +5,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use languages::language_by_local_filename;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::telemetry::TelemetryEvent as _;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as WarpThemeFill, WarpTheme};
-use galaxy_core::ui::Icon as WarpIcon;
+use galaxy_core::ui::theme::{
+    AnsiColorIdentifier, Fill as GalaxyThemeFill, Fill as WarpThemeFill, GalaxyTheme, WarpTheme,
+};
+use galaxy_core::ui::{Icon as GalaxyIcon, Icon as WarpIcon};
 use galaxyui::elements::{
     resizable_state_handle, Border, ChildAnchor, Clipped, ClippedScrollStateHandle,
     ClippedScrollable, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
@@ -34,6 +30,11 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewHandle, WindowId};
+use languages::language_by_local_filename;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use settings::Setting as _;
 
 use super::{render_group_member_icon_collage, select_unique_pane_kinds};
 use crate::ai::agent::conversation::{ConversationStatus, StatusColorStyle};

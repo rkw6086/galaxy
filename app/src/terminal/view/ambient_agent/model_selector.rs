@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
 use galaxy_cli::agent::Harness;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -15,6 +13,8 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
 
 use crate::ai::blocklist::agent_view::agent_input_footer::AgentInputButtonTheme;
 use crate::ai::cloud_agent_settings::CloudAgentSettings;

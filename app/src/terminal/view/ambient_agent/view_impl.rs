@@ -1,13 +1,13 @@
 //! [`TerminalView`]-specific implementation for ambient agent functionality.
 
-use galaxy_cli::agent::Harness;
-use galaxy_terminal::model::BlockId;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
+use galaxy_terminal::model::BlockId;
 use galaxyui::elements::Align;
 use galaxyui::prelude::{Empty, Vector2F};
 use galaxyui::{

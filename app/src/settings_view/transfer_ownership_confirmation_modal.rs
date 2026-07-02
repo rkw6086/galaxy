@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use galaxyui::elements::{
     Align, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Text,
 };

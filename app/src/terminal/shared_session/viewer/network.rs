@@ -10,6 +10,12 @@ use anyhow::bail;
 use async_channel::Receiver;
 use futures_util::stream::AbortHandle;
 use futures_util::{SinkExt, StreamExt};
+use galaxy_core::features::FeatureFlag;
+use galaxy_server_client::iap::IapManager;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::{
+    Entity, ModelContext, ModelHandle, RequestState, RetryOption, SingletonEntity, WeakViewHandle,
+};
 use instant::Instant;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
@@ -26,12 +32,6 @@ use session_sharing_protocol::common::{
 use session_sharing_protocol::viewer::{
     DownstreamMessage, InitPayload, RoleUpdatedReason, SessionEndedReason, UpstreamMessage,
     ViewerRemovedReason,
-};
-use galaxy_core::features::FeatureFlag;
-use galaxy_server_client::iap::IapManager;
-use galaxyui::r#async::{SpawnedFutureHandle, Timer};
-use galaxyui::{
-    Entity, ModelContext, ModelHandle, RequestState, RetryOption, SingletonEntity, WeakViewHandle,
 };
 use websocket::{Message, Sink, Stream, WebsocketMessage as _};
 

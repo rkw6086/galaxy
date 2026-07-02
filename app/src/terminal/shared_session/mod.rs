@@ -1,11 +1,10 @@
 use byte_unit::Byte;
-use galaxyui::{id, keymap::ContextPredicate, AppContext};
+use galaxyui::keymap::ContextPredicate;
+use galaxyui::{id, AppContext};
 use instant::Duration;
 use serde::{Deserialize, Serialize};
 use session_sharing_protocol::common::{Role, Scrollback, ScrollbackBlock, SessionId};
 use session_sharing_protocol::sharer::SessionSourceType;
-use galaxyui::keymap::ContextPredicate;
-use galaxyui::{id, AppContext};
 
 use super::model::block::SerializedBlock;
 use super::model::terminal_model::BlockIndex;

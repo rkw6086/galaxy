@@ -5,13 +5,11 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local};
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{elements::MouseStateHandle, ModelHandle, ViewContext, ViewHandle};
-use galaxyui::{AppContext, Element};
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::{AppContext, Element, ModelHandle, ViewContext, ViewHandle};
 use markdown_parser::FormattedTextFragment;
 use session_sharing_protocol::common::{ParticipantId, ParticipantList, Role, SessionId};
 use session_sharing_protocol::sharer::SessionSourceType;
-use galaxyui::elements::MouseStateHandle;
-use galaxyui::{AppContext, Element, ModelHandle, ViewContext, ViewHandle};
 
 use super::sharer::Sharer;
 use super::viewer::Viewer;

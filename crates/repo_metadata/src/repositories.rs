@@ -3,8 +3,6 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use futures::future::{ready, Either};
-#[cfg(test)]
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_util::host_id::HostId;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::remote_path::{RemoteNavigationResult, RemotePath};
@@ -12,6 +10,8 @@ use galaxy_util::standardized_path::StandardizedPath;
 #[cfg(test)]
 use galaxyui_core::r#async::FutureId;
 use galaxyui_core::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+#[cfg(test)]
+use virtual_fs::{Stub, VirtualFS};
 
 use crate::{DirectoryWatcher, Repository};
 

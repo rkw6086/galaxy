@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use session_sharing_protocol::common::{ParticipantId, Role, RoleRequestId};
 use galaxy_core::features::FeatureFlag;
+use session_sharing_protocol::common::{ParticipantId, Role, RoleRequestId};
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle,
     ParentElement, Text,

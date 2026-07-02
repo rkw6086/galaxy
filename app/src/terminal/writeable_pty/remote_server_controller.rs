@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use galaxy_core::SessionId;
+use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 use instant::Instant;
 use remote_server::auth::RemoteServerAuthContext;
 use remote_server::setup::{
@@ -8,8 +10,6 @@ use remote_server::setup::{
 };
 use remote_server::transport::Error;
 use settings::Setting;
-use galaxy_core::SessionId;
-use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 
 use super::pty_controller::{EventLoopSender, PtyController};
 use crate::auth::auth_state::AuthStateProvider;

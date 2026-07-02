@@ -131,6 +131,7 @@ fn execute_invokes_parent_registration_and_honors_child_short_circuit() {
             },
             task_id: TaskId::new("wait-task".to_string()),
             requires_result: false,
+            tool_name: None,
         };
 
         let execution = executor.update(&mut app, |executor, ctx| {

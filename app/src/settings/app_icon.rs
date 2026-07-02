@@ -1,9 +1,8 @@
 use enum_iterator::Sequence;
-use galaxy_core::settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
-use serde::{Deserialize, Serialize};
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_core::settings::macros::define_settings_group;
-use galaxy_core::settings::{SupportedPlatforms, SyncToCloud};
+use galaxy_core::settings::{Setting, SupportedPlatforms, SyncToCloud};
+use serde::{Deserialize, Serialize};
 
 /// The app icon to use (mac-only).
 ///

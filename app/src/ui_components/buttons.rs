@@ -5,7 +5,7 @@ use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use super::icons::{Icon, ICON_DIMENSIONS};
 use super::{blended_colors, BORDER_RADIUS};
 use crate::appearance::Appearance;
-use crate::themes::theme::{Fill, WarpTheme};
+use crate::themes::theme::{Fill, GalaxyTheme};
 
 const ICON_BUTTON_PADDING: f32 = 4.;
 

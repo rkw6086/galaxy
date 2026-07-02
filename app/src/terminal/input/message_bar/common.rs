@@ -1,5 +1,3 @@
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon;
@@ -11,6 +9,8 @@ use galaxyui::platform::Cursor;
 use galaxyui::prelude::{Align, ConstrainedBox, CrossAxisAlignment, Flex, MainAxisSize, Text};
 use galaxyui::ui_components::keyboard_shortcut::keystroke_to_keys;
 use galaxyui::{AppContext, SingletonEntity};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use crate::ai::blocklist::agent_view::agent_view_bg_color;
 use crate::ai::blocklist::agent_view::shortcuts::render_keystroke_with_color_overrides;
@@ -516,7 +516,11 @@ pub fn disableable_message_item_color_overrides(
 }
 
 pub mod styles {
+    use galaxy_core::ui::appearance::Appearance;
+    use galaxyui::{AppContext, SingletonEntity};
+    use pathfinder_color::ColorU;
 
+    use crate::ui_components::blended_colors;
 
     pub fn font_size(app: &AppContext) -> f32 {
         let appearance = Appearance::as_ref(app);

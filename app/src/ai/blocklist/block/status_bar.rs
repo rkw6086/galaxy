@@ -2,31 +2,32 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use instant::Instant;
-use markdown_parser::FormattedTextFragment;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::ui::Icon as CoreIcon;
-use warp_multi_agent_api as api;
 use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
 use galaxyui::elements::{Border, Container, Empty, Flex, MouseStateHandle, ParentElement, Text};
 use galaxyui::keymap::Keystroke;
 use galaxyui::presenter::ChildView;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::text_layout::ClipConfig;
 use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use instant::Instant;
+use markdown_parser::FormattedTextFragment;
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use warp_multi_agent_api as api;
 
 use super::cli_controller::{CLISubagentController, CLISubagentEvent, UserTakeOverReason};
 use super::model::{AIBlockModel, AIBlockModelImpl, AIBlockOutputStatus};
 use super::view_impl::common::{
     render_switch_control_to_user_button, render_warping_indicator, render_warping_indicator_base,
     AutoExecuteButtonProps, ButtonProps, ForceRefreshButtonProps, MaybeShimmeringText,
-    WarpingIndicatorProps, WarpingProps, LOAD_OUTPUT_MESSAGE, WAITING_FOR_USER_INPUT_MESSAGE,
+    WarpingIndicatorProps, WarpingProps, WAITING_FOR_USER_INPUT_MESSAGE,
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
@@ -39,6 +40,7 @@ use crate::ai::blocklist::agent_view::{
     agent_view_bg_fill, is_in_cloud_context, AgentMessageBar, AgentViewController,
     EphemeralMessageModel,
 };
+use crate::ai::blocklist::block::view_impl::common::random_load_output_message;
 use crate::ai::blocklist::model::AIBlockModelHelper;
 use crate::ai::blocklist::summarization_cancel_dialog::{
     self, SummarizationCancelDialog, SummarizationCancelDialogEvent,

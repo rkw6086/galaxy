@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use onboarding::{ProjectOnboardingSettings, SelectedSettings};
 use galaxy_core::execution_mode::AppExecutionMode;
+use onboarding::{ProjectOnboardingSettings, SelectedSettings};
 use warpui::{SingletonEntity as _, ViewContext};
 
 use crate::pane_group::{NewTerminalOptions, PanesLayout};

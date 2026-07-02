@@ -295,6 +295,7 @@ impl Pipeline {
 
 mod shaders {
     use pathfinder_color::ColorU;
+    use pathfinder_geometry::rect::RectF;
 
     use crate::rendering::wgpu::shader_types::{ColorF, Vector4F};
 

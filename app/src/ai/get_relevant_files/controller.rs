@@ -10,8 +10,8 @@ use ai::index::locations::CodeContextLocation;
 use anyhow::anyhow;
 use futures_util::stream::AbortHandle;
 use galaxy_core::features::FeatureFlag;
-use instant::Instant;
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+use instant::Instant;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::SearchCodebaseFailureReason;

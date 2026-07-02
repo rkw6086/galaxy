@@ -78,7 +78,6 @@ fn init_overlapping_keybindings(app: &mut AppContext) {
 
 /// Register keybindings for [`TerminalView`] actions.
 pub fn init(app: &mut AppContext) {
-
     app.register_binding_validator::<TerminalView>(is_binding_pty_compliant);
 
     init_overlapping_keybindings(app);
@@ -1105,7 +1104,6 @@ pub fn init(app: &mut AppContext) {
 
 /// Registers bindings related to input modes.
 fn register_input_mode_bindings(app: &mut AppContext) {
-
     // A context predicate that matches when the input mode bindings are
     // available for use. Disabled when a CLI agent session is active — the
     // Warp agent should not be tagged into a CLI agent's command, and the

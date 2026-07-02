@@ -27,17 +27,16 @@ use core_text::run::{CTRun, CTRunRef};
 use core_text::string_attributes::{
     kCTFontAttributeName, kCTKernAttributeName, kCTParagraphStyleAttributeName,
 };
-use itertools::Itertools;
-use ordered_float::OrderedFloat;
-use pathfinder_geometry::vector::vec2f;
-use vec1::Vec1;
-
 use galaxyui_core::fonts::GlyphId;
-use galaxyui_core::platform::{CapturedFrame, LineStyle};
+use galaxyui_core::platform::LineStyle;
 use galaxyui_core::text_layout::{
     CaretPosition, ClipConfig, Glyph, Line, Run, StyleAndFont, TextAlignment, TextBorder,
     TextFrame, TextStyle,
 };
+use itertools::Itertools;
+use ordered_float::OrderedFloat;
+use pathfinder_geometry::vector::vec2f;
+use vec1::Vec1;
 
 use super::fonts::FontDB;
 use super::utils::{cg_color_to_color_u, color_u_to_cg_color};

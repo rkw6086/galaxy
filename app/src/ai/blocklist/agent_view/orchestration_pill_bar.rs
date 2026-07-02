@@ -7,9 +7,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use warp_cli::agent::Harness;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
@@ -17,6 +14,9 @@ use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::{Fill, WarpTheme};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use warp_cli::agent::Harness;
 use warpui::elements::new_scrollable::{NewScrollable, ScrollableAppearance, SingleAxisConfig};
 use warpui::elements::{
     Align, AnchorPair, ChildAnchor, ChildView, ClippedScrollStateHandle, ConstrainedBox, Container,

@@ -14,9 +14,9 @@ use ai::agent::orchestration_config::OrchestrationConfig;
 use ai::skills::SkillReference;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use galaxy_core::execution_mode::AppExecutionMode;
 use settings::Setting;
 use warp_cli::agent::Harness;
-use galaxy_core::execution_mode::AppExecutionMode;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::start_agent::{StartAgentExecutor, StartAgentOutcome};

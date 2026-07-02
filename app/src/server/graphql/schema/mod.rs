@@ -1,10 +1,10 @@
 pub mod util;
 use anyhow::{bail, Result};
-pub use util::{action_type_to_gql_action_type, object_action_history_from_gql};
 use galaxy_graphql::generic_string_object::GenericStringObjectFormat;
 use galaxy_graphql::mutations::update_generic_string_object::{
     GenericStringObjectUpdate, UpdateGenericStringObjectResult,
 };
+pub use util::{action_type_to_gql_action_type, object_action_history_from_gql};
 use warp_graphql::object::ObjectUpdateSuccess;
 
 use crate::cloud_object::{

@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance as CoreAppearance;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme, WarpTheme};
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
@@ -14,6 +13,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::Weight;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{View, ViewContext, ViewHandle};
+use pathfinder_color::ColorU;
 
 use crate::ai::agent::conversation::ConversationStatus;
 use crate::ai::agent_management::notifications::item::NotificationSourceAgent;

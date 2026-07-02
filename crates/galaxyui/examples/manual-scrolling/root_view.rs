@@ -1,12 +1,3 @@
-use galaxyui::elements::new_scrollable::AxisConfiguration;
-use galaxyui::elements::new_scrollable::ClippedAxisConfiguration;
-use galaxyui::elements::new_scrollable::DualAxisConfig;
-use galaxyui::elements::new_scrollable::NewScrollableElement;
-use galaxyui::elements::new_scrollable::ScrollableAppearance;
-use galaxyui::elements::new_scrollable::ScrollableAxis;
-use galaxyui::elements::Axis;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxyui::color::ColorU;
 use galaxyui::elements::new_scrollable::{
     AxisConfiguration, ClippedAxisConfiguration, DualAxisConfig, NewScrollableElement,
@@ -19,6 +10,8 @@ use galaxyui::elements::{
 use galaxyui::keymap::FixedBinding;
 use galaxyui::units::Pixels;
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 pub fn init(ctx: &mut AppContext) {
     use galaxyui::keymap::macros::*;

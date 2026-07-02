@@ -1,7 +1,7 @@
-use galaxy_util::path::TargetDirError;
 use std::mem::transmute;
 use std::path::Path;
 
+use galaxy_util::path::TargetDirError;
 use thiserror::Error;
 use windows::core::{s, HRESULT, HSTRING, PCWSTR};
 use windows::Win32::Foundation::HANDLE;

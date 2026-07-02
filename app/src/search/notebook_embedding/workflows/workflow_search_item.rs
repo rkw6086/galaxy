@@ -1,4 +1,3 @@
-use ordered_float::OrderedFloat;
 use galaxyui::elements::{
     Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, MainAxisAlignment,
     MainAxisSize, ParentElement, Shrinkable, Text,
@@ -6,6 +5,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::cloud_object::CloudObject;

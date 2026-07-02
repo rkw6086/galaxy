@@ -287,7 +287,7 @@ pub fn initialize_app(app: &mut App) {
         crate::ai::document::ai_document_model::AIDocumentModel::new_for_test()
     });
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(SkillManager::new);
 
     // Add GlobalResourceHandlesProvider for persistence
@@ -8134,7 +8134,6 @@ fn test_terminal_only_ai_enter_enters_agent_view_and_clears_buffer() {
 
 #[test]
 fn test_terminal_only_escape_locks_shell_mode() {
-
     App::test((), |mut app| async move {
         let _am_flag = FeatureFlag::AgentMode.override_enabled(true);
         let _agent_view_flag = FeatureFlag::AgentView.override_enabled(true);
@@ -8463,7 +8462,6 @@ fn open_rich_input_for_terminal(terminal: &ViewHandle<TerminalView>, app: &mut A
 
 #[test]
 fn enter_submits_when_submit_on_ctrl_enter_is_false() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8520,7 +8518,6 @@ fn enter_submits_when_submit_on_ctrl_enter_is_false() {
 
 #[test]
 fn ctrl_enter_emits_ctrl_enter_event_when_submit_on_ctrl_enter_is_false() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8574,7 +8571,6 @@ fn ctrl_enter_emits_ctrl_enter_event_when_submit_on_ctrl_enter_is_false() {
 
 #[test]
 fn enter_inserts_newline_when_submit_on_ctrl_enter_is_true() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8627,7 +8623,6 @@ fn enter_inserts_newline_when_submit_on_ctrl_enter_is_true() {
 
 #[test]
 fn ctrl_enter_submits_when_submit_on_ctrl_enter_is_true() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8693,7 +8688,6 @@ fn ctrl_enter_submits_when_submit_on_ctrl_enter_is_true() {
 
 #[test]
 fn ctrl_enter_with_selection_preserves_selection_in_submit_when_setting_is_true() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8794,7 +8788,6 @@ fn editor_keymap_context_excludes_ctrl_enter_enters_agent_view_when_rich_input_i
 
 #[test]
 fn enter_accepts_inline_menu_item_when_submit_on_ctrl_enter_is_true() {
-
     App::test((), |mut app| async move {
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
@@ -8976,8 +8969,8 @@ fn unfreeze_agent_input_does_not_clear_buffer() {
 
 #[test]
 fn ctrl_enter_inserts_newline_in_normal_input_after_rich_input_closes() {
-
     App::test((), |mut app| async move {
+        use crate::editor::EnterAction;
         let _cli_agent_flag = FeatureFlag::CLIAgentRichInput.override_enabled(true);
 
         initialize_app(&mut app);

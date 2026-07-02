@@ -4,9 +4,9 @@ use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgen
 use ai::agent::orchestration_config::{
     OrchestrationConfig, OrchestrationConfigStatus, OrchestrationExecutionMode,
 };
-use settings::Setting;
 use galaxy_core::execution_mode::ExecutionMode;
 use galaxy_core::features::FeatureFlag;
+use settings::Setting;
 use warpui::{App, Entity, EntityId, ModelHandle};
 
 use super::*;
@@ -239,6 +239,7 @@ fn remote_run_agents_action(harness_type: &str) -> AIAgentAction {
             plan_id: String::new(),
             harness_auth_secret_name: None,
         }),
+        tool_name: None,
     }
 }
 

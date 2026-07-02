@@ -24,9 +24,9 @@ use font_kit::font::Font;
 use font_kit::loaders::core_text::NativeFont;
 use futures::future::BoxFuture;
 use futures::FutureExt as _;
+use galaxyui_core::fonts::canvas::RasterFormat;
 use galaxyui_core::fonts::{
-    canvas::RasterFormat, FamilyId, FontId, FontInfo, GlyphId, Metrics, Properties,
-    RasterizedGlyph, SubpixelAlignment,
+    FamilyId, FontId, FontInfo, GlyphId, Metrics, Properties, RasterizedGlyph, SubpixelAlignment,
 };
 use galaxyui_core::platform::{self, FontDB as _, LineStyle, TextLayoutSystem};
 use galaxyui_core::rendering;

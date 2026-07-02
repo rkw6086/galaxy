@@ -4,11 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use float_cmp::ApproxEq;
-use instant::Instant;
-use parking_lot::Mutex;
-use string_offset::CharOffset;
-use temporary_block::RenderableTemporaryBlock;
-use vim::vim::VimMode;
 use galaxy_core::ui::theme::Fill as ThemeFill;
 use galaxyui_core::color::ColorU;
 use galaxyui_core::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
@@ -24,14 +19,11 @@ use galaxyui_core::{
     AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, ModelHandle,
     PaintContext, SizeConstraint, WeakViewHandle,
 };
-use std::{
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use instant::Instant;
+use parking_lot::Mutex;
+use string_offset::CharOffset;
+use temporary_block::RenderableTemporaryBlock;
+use vim::vim::VimMode;
 
 use self::empty::Empty;
 use self::header::RenderableHeader;

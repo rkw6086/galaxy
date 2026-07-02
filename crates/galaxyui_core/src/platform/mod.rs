@@ -14,8 +14,6 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use galaxy_util::path::ShellFamily;
-
 use anyhow::Result;
 pub use app::AppCallbacks;
 use async_task::Runnable;
@@ -24,6 +22,7 @@ pub use file_picker::{
     FilePickerCallback, FilePickerConfiguration, FileType, SaveFilePickerCallback,
     SaveFilePickerConfiguration,
 };
+use galaxy_util::path::ShellFamily;
 use lazy_static::lazy_static;
 use pathfinder_geometry::rect::{RectF, RectI};
 use pathfinder_geometry::vector::{Vector2F, Vector2I};

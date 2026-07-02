@@ -6,6 +6,8 @@ use std::time::Duration;
 use anyhow::{anyhow, Context as _};
 use comfy_table::Cell;
 use futures::{future, StreamExt};
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
 use serde::Serialize;
 use warp_cli::agent::{Harness, OutputFormat, Prompt, RunCloudArgs};
 use warp_cli::json_filter::JsonOutput;
@@ -15,8 +17,6 @@ use warp_cli::task::{
     RunSourceArg, RunStateArg, TaskGetArgs,
 };
 use warp_cli::{GlobalOptions, SortOrderArg};
-use galaxy_core::channel::ChannelState;
-use galaxy_core::features::FeatureFlag;
 use warpui::platform::TerminationMode;
 use warpui::r#async::{Spawnable, Timer};
 use warpui::{AppContext, ModelContext, SingletonEntity};

@@ -11,9 +11,9 @@ use futures::channel::oneshot::{self, Receiver, Sender};
 use futures::future::{AbortHandle, Abortable};
 use futures::StreamExt;
 use galaxyui_core::r#async::executor::Background;
-use instant::Instant;
 use galaxyui_core::r#async::Timer;
 use galaxyui_core::{Entity, RetryOption, SingletonEntity};
+use instant::Instant;
 
 const DEFAULT_BUFFER_SIZE: usize = 1024;
 const DEFAULT_SYNC_RETRY_STRATEGY: RetryOption = RetryOption::exponential(

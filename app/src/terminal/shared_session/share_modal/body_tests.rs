@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
-
 use galaxyui::App;
+use parking_lot::FairMutex;
 
 use super::Body;
 use crate::terminal::shared_session::{

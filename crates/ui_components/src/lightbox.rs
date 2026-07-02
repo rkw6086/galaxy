@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::{Vector2F, vec2f};
 use galaxy_core::ui::Icon;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui_core::assets::asset_cache::AssetSource;
@@ -10,6 +9,7 @@ use galaxyui_core::elements::{
 use galaxyui_core::keymap::Keystroke;
 use galaxyui_core::prelude::stack::*;
 use galaxyui_core::prelude::*;
+use pathfinder_geometry::vector::{Vector2F, vec2f};
 
 use crate::{Component, Options as _, button};
 

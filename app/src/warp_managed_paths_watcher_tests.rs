@@ -5,14 +5,14 @@ use dirs::home_dir;
 use repo_metadata::{RepositoryUpdate, TargetFile};
 
 use super::{
-    filter_repository_update_by_prefix, warp_home_mcp_config_file_path, warp_home_skills_dir,
-    warp_managed_mcp_config_path, warp_managed_skill_dirs,
+    filter_repository_update_by_prefix, galaxy_home_mcp_config_file_path, galaxy_home_skills_dir,
+    galaxy_managed_mcp_config_path, warp_managed_skill_dirs,
 };
 
 #[test]
 fn warp_managed_skill_dirs_contains_only_warp_home_path() {
     let dirs = warp_managed_skill_dirs();
-    match warp_home_skills_dir() {
+    match galaxy_home_skills_dir() {
         Some(warp_home_skills_dir) => assert_eq!(dirs, vec![warp_home_skills_dir]),
         None => assert!(dirs.is_empty()),
     }
@@ -22,8 +22,8 @@ fn warp_managed_skill_dirs_contains_only_warp_home_path() {
 fn warp_managed_mcp_config_path_contains_only_warp_home_path() {
     match (
         home_dir(),
-        warp_home_mcp_config_file_path(),
-        warp_managed_mcp_config_path(),
+        galaxy_home_mcp_config_file_path(),
+        galaxy_managed_mcp_config_path(),
     ) {
         (Some(home_dir), Some(warp_home_mcp_config_path), Some(path)) => {
             assert_eq!(path.root_path, home_dir);

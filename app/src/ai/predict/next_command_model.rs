@@ -19,11 +19,6 @@ use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 #[cfg_attr(not(feature = "local_fs"), allow(unused_imports))]
 use parking_lot::{FairMutex, Mutex};
-use galaxy_completer::completer::{
-    self, expand_command_aliases, AliasExpansionResult, CompleterOptions,
-    CompletionsFallbackStrategy, MatchStrategy,
-};
-#[cfg(feature = "local_fs")]
 
 use super::generate_ai_input_suggestions::{
     create_generate_ai_input_suggestions_request, get_context_messages,
@@ -772,11 +767,10 @@ pub async fn is_command_valid(
     // We assume the command is valid on parse error because
     // 1. Our completion specs are not always comprehensive (unknown args/options cause parse error)
     // 2. Our parsing logic has some bugs that need to be investigated (INT-816)
-    if classified_command.error.is_some() {
+    if let Some(err) = &classified_command.error {
         log::debug!(
-            "Assuming command `{}` is valid because it failed to parse: {:?}",
+            "Assuming command `{}` is valid because it failed to parse: {err:?}",
             expanded_command_line,
-            classified_command.error.unwrap()
         );
         return true;
     }

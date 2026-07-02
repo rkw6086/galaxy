@@ -38,7 +38,9 @@ pub(super) struct ResolvedDocumentation {
     pub scroll_state: ClippedScrollStateHandle,
 }
 
+#[derive(Default)]
 pub(super) enum CompletionState {
+    #[default]
     Idle,
     Requesting {
         abort_handle: AbortHandle,
@@ -57,12 +59,6 @@ pub(super) enum CompletionState {
         /// Scroll state for the completion menu items list.
         menu_scroll_state: ClippedScrollStateHandle,
     },
-}
-
-impl Default for CompletionState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl CompletionState {

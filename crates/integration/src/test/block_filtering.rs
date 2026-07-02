@@ -1,3 +1,4 @@
+use galaxyui_core::{async_assert, async_assert_eq};
 use warp::cmd_or_ctrl_shift;
 use warp::integration_testing::terminal::util::current_shell_starter_and_version;
 use warp::integration_testing::terminal::{
@@ -10,7 +11,6 @@ use warp::terminal::model::index::Point;
 use warp::terminal::model::terminal_model::{BlockIndex, WithinBlock, WithinModel};
 use warp::terminal::shell::ShellType;
 use warp::terminal::GridType;
-use galaxyui_core::{async_assert, async_assert_eq};
 
 use super::new_builder;
 use crate::test::integration_testing::block_filtering::{

@@ -5,11 +5,11 @@ use anyhow::{anyhow, Context, Result};
 #[cfg(not(target_family = "wasm"))]
 use futures::future::Either;
 #[cfg(not(target_family = "wasm"))]
+use galaxyui::r#async::Timer;
+#[cfg(not(target_family = "wasm"))]
 use instant::Instant;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Error as ReqwestError;
-#[cfg(not(target_family = "wasm"))]
-use galaxyui::r#async::Timer;
 
 use crate::ai::agent::ReceivedMessageInput;
 use crate::ai::ambient_agents::AmbientAgentTaskId;

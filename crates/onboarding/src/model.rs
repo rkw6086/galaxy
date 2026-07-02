@@ -1,4 +1,5 @@
 use ai::LLMId;
+use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxyui_core::{Entity, ModelContext};
 
@@ -658,7 +659,6 @@ impl OnboardingStateModel {
         default_model_id: LLMId,
         ctx: &mut ModelContext<Self>,
     ) {
-
         // If the user is past the agent slide, don't change the agent model from underneath them.
         // When the new settings modes flag is on, ThemePicker comes after the agent slides
         // so it must also be guarded.
@@ -990,7 +990,6 @@ impl OnboardingStateModel {
     /// The `(step_index, step_count)` shown by the bottom-nav progress dots for the
     /// current step, intention, and flow variant.
     pub(crate) fn progress(&self) -> (usize, usize) {
-
         let is_terminal = matches!(self.intention, OnboardingIntention::Terminal);
         if !FeatureFlag::OpenWarpNewSettingsModes.is_enabled() {
             // Legacy flow: ThemePicker → Intention → Agent → Project.

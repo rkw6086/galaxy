@@ -286,6 +286,7 @@ fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::UserQuery(api::message::UserQuery {
             query: query_text.to_string(),
             ..Default::default()
@@ -322,6 +323,7 @@ fn build_add_agent_output_message(
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::AgentOutput(
             api::message::AgentOutput {
                 text: initial_text.to_string(),
@@ -355,6 +357,7 @@ fn build_append_text(task_id: &str, message_id: &str, text_delta: &str) -> Respo
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::AgentOutput(
             api::message::AgentOutput {
                 text: text_delta.to_string(),
@@ -443,10 +446,14 @@ fn build_stream_finished(
         context_window_usage: context_usage,
         summarized: false,
         credits_spent: 0.0,
+        platform_credits_spent: 0.0,
+        total_input_tokens: input_tokens as u32,
         token_usage: vec![],
         tool_usage_metadata: None,
         warp_token_usage: std::collections::HashMap::new(),
         byok_token_usage,
+        custom_endpoint_token_usage: std::collections::HashMap::new(),
+        context_window_segments: vec![],
     });
 
     ResponseEvent {

@@ -1,5 +1,3 @@
-use instant::Instant;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Border, CacheOption, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element,
@@ -12,6 +10,8 @@ use galaxyui::{
     AppContext, Entity, ModelAsRef, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext,
 };
+use instant::Instant;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 
 use super::feature_section::FeatureSection;
 use super::{SectionAction, SectionView};

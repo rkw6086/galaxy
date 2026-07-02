@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use image::ImageEncoder;
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container, Empty, Fill, Flex,
@@ -16,6 +15,7 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
     ViewHandle, WindowId,
 };
+use image::ImageEncoder;
 
 use crate::CaptureConfig;
 

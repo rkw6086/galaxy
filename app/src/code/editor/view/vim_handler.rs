@@ -1,8 +1,3 @@
-use vim::vim::{
-    BracketChar, CharacterMotion, Direction, FindCharMotion, FirstNonWhitespaceMotion,
-    InsertPosition, LineMotion, ModeTransition, MotionType, TextObjectType, VimHandler, VimMode,
-    VimMotion, VimOperand, VimOperator, VimTextObject, WordMotion,
-};
 use galaxy_editor::content::buffer::{
     AutoScrollBehavior, BufferEditAction, EditOrigin, SelectionOffsets, ToBufferCharOffset as _,
     VimInsertPoint,
@@ -13,6 +8,11 @@ use galaxy_editor::selection::{TextDirection, TextUnit};
 use galaxyui::text::point::Point;
 use galaxyui::units::IntoPixels;
 use galaxyui::{SingletonEntity, ViewContext};
+use vim::vim::{
+    BracketChar, CharacterMotion, Direction, FindCharMotion, FirstNonWhitespaceMotion,
+    InsertPosition, LineMotion, ModeTransition, MotionType, TextObjectType, VimHandler, VimMode,
+    VimMotion, VimOperand, VimOperator, VimTextObject, WordMotion,
+};
 
 use super::{CodeEditorEvent, CodeEditorView};
 use crate::code::editor::find::view::Event as FindViewEvent;

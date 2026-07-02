@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use galaxyui::elements::{Align, MouseStateHandle, Shrinkable};
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -24,7 +26,10 @@ struct MouseStateHandles {
 
 impl NeedsSsoLinkView {
     pub fn new() -> Self {
-        Self
+        Self {
+            email: None,
+            mouse_state_handles: MouseStateHandles::default(),
+        }
     }
 
     pub fn set_email(&mut self, _email: String) {}

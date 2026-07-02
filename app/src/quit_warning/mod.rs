@@ -1,9 +1,9 @@
 use std::fmt::Write;
 
-use itertools::Itertools;
-use settings::ToggleableSetting as _;
 use galaxyui::modals::{AlertDialogWithCallbacks, AppModalCallback, ModalButton};
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewContext, WeakViewHandle, WindowId};
+use itertools::Itertools;
+use settings::ToggleableSetting as _;
 
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
 use crate::pane_group::{CodePane, PaneGroup, PaneId, TerminalPane};

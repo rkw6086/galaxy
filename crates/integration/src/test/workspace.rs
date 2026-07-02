@@ -3,6 +3,10 @@
 use std::fs;
 use std::time::Duration;
 
+use galaxyui_core::event::{Event, ModifiersState};
+use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, StepDataMap, TestStep};
+use galaxyui_core::windowing::WindowManager;
+use galaxyui_core::{async_assert, async_assert_eq, SingletonEntity, TypedActionView, WindowId};
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use settings::Setting as _;
@@ -31,10 +35,6 @@ use warp::settings::PaneSettings;
 use warp::terminal::shell::ShellType;
 use warp::workspace::tab_settings::{TabSettings, VerticalTabsDisplayGranularity};
 use warp::workspace::{WorkspaceAction, NEW_TAB_BUTTON_POSITION_ID};
-use galaxyui_core::event::{Event, ModifiersState};
-use galaxyui_core::integration::{AssertionCallback, AssertionOutcome, StepDataMap, TestStep};
-use galaxyui_core::windowing::WindowManager;
-use galaxyui_core::{async_assert, async_assert_eq, SingletonEntity, TypedActionView, WindowId};
 
 use super::new_builder;
 use crate::util::skip_if_powershell_core_2303;

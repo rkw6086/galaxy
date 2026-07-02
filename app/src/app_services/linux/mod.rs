@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
 use futures_util::FutureExt as _;
-use galaxyui::{r#async::executor::BackgroundTask, AppContext, SingletonEntity};
-use itertools::Itertools as _;
 use galaxyui::r#async::executor::BackgroundTask;
 use galaxyui::{AppContext, SingletonEntity};
+use itertools::Itertools as _;
 use zbus::{interface, proxy, zvariant};
 
 use crate::channel::ChannelState;

@@ -1,8 +1,8 @@
-use itertools::Itertools;
 use galaxyui::elements::{Container, CrossAxisAlignment, Flex, ParentElement, Shrinkable};
 use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use itertools::Itertools;
 
 use crate::appearance::Appearance;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};

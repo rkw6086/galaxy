@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     Align, Container, CrossAxisAlignment, Flex, MouseStateHandle, ParentElement, Shrinkable,
 };
@@ -7,6 +6,7 @@ use galaxyui::keymap::Keystroke;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::Element;
+use pathfinder_color::ColorU;
 
 use super::render_block_banner;
 use crate::appearance::Appearance;

@@ -11,6 +11,7 @@ use crate::ai::agent::{
     SubagentCall,
 };
 use crate::ai::llms::LLMId;
+use crate::terminal::model::block::BlockId;
 
 fn create_test_exchange() -> AIAgentExchange {
     AIAgentExchange {
@@ -40,7 +41,6 @@ fn create_test_task_with_exchanges(exchange_count: usize) -> Task {
 }
 
 fn create_test_subtask_with_exchanges(exchange_count: usize) -> Task {
-    use crate::terminal::model::block::BlockId;
     let mut task = Task::new_optimistic_cli_agent_subtask(BlockId::new(), None);
     for _ in 0..exchange_count {
         task.append_exchange(create_test_exchange());

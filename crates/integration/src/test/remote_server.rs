@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use galaxyui_core::integration::TestStep;
 use settings::Setting as _;
 use warp::features::FeatureFlag;
 use warp::integration_testing::remote_server::{
@@ -24,7 +25,6 @@ use warp::integration_testing::terminal::{
 };
 use warp::terminal::shell::ShellType;
 use warp::terminal::warpify::settings::{SshExtensionInstallMode, SshExtensionInstallModeSetting};
-use galaxyui_core::integration::TestStep;
 
 use super::{new_builder, Builder};
 

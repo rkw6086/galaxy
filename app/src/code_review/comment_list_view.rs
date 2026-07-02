@@ -1,10 +1,5 @@
 use std::borrow::Cow;
 
-use indexmap::IndexMap;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use string_offset::CharOffset;
-use vec1::vec1;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors::{
@@ -35,6 +30,11 @@ use galaxyui::{
     AppContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle, WeakViewHandle,
 };
+use indexmap::IndexMap;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use string_offset::CharOffset;
+use vec1::vec1;
 
 use crate::ai::request_usage_model::{AIRequestUsageModel, AIRequestUsageModelEvent};
 use crate::appearance::Appearance;

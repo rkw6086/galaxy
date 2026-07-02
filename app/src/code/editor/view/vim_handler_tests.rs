@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::Vector2F;
-use unindent::Unindent;
-use vim::vim::{MotionType, VimMode};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::settings::Setting;
 use galaxy_core::ui::appearance::Appearance;
@@ -16,6 +13,9 @@ use galaxyui::platform::WindowStyle;
 use galaxyui::text::point::Point;
 use galaxyui::units::IntoPixels;
 use galaxyui::{App, SingletonEntity, TypedActionView, UpdateModel, ViewHandle};
+use pathfinder_geometry::vector::Vector2F;
+use unindent::Unindent;
+use vim::vim::{MotionType, VimMode};
 
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;

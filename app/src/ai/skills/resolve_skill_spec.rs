@@ -23,7 +23,7 @@ use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::{AppContext, SingletonEntity as _};
 
 use super::SkillManager;
-use crate::galaxy_managed_paths_watcher::galaxy_managed_skill_dirs;
+use crate::galaxy_managed_paths_watcher::warp_managed_skill_dirs as galaxy_managed_skill_dirs;
 
 const SKILL_FILE_NAME: &str = "SKILL.md";
 

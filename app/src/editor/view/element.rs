@@ -4,14 +4,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{cmp, mem};
 
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::appearance::DEFAULT_UI_FONT_SIZE;
 use instant::Instant;
 use itertools::Itertools;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use smallvec::SmallVec;
 use vim::vim::{MotionType, VimMode};
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::appearance::DEFAULT_UI_FONT_SIZE;
 use warp_util::user_input::UserInput;
 use warpui::elements::{
     AfterLayoutContext, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,

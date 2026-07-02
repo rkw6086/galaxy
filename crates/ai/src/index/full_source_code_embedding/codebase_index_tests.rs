@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use futures::executor::block_on;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui_core::{App, SingletonEntity};
 use repo_metadata::DirectoryWatcher;
 use string_offset::ByteOffset;
 use virtual_fs::{Stub, VirtualFS};
-use warp_util::standardized_path::StandardizedPath;
-use galaxyui_core::{App, SingletonEntity};
 
 use super::{
     CodebaseIndex, CodebaseIndexTimeStampMetadata, ServerSyncResult, TreeSourceSyncState,

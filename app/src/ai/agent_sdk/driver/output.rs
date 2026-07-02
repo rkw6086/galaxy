@@ -564,17 +564,19 @@ pub mod text {
 
 pub mod json {
     use std::borrow::Cow;
+    use std::io::{self, Write};
     use std::ops::Range;
 
     use serde::Serialize;
 
     use crate::ai::agent::comment::ReviewComment;
     use crate::ai::agent::{
-        AIAgentActionType, AIAgentInput, AIAgentOutput, AIAgentOutputMessage,
-        AIAgentOutputMessageType, AIAgentTodo, ArtifactCreatedData, CallMCPToolResult, FileContext,
-        FileGlobResult, FileGlobV2Result, GrepResult, ReadFilesResult, ReadMCPResourceResult,
-        RequestCommandOutputResult, RequestFileEditsResult, SearchCodebaseResult, SubagentCall,
-        TodoOperation, UploadArtifactResult, WriteToLongRunningShellCommandResult,
+        AIAgentActionResultType, AIAgentActionType, AIAgentInput, AIAgentOutput,
+        AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentTodo, ArtifactCreatedData,
+        CallMCPToolResult, FileContext, FileGlobResult, FileGlobV2Result, GrepResult,
+        ReadFilesResult, ReadMCPResourceResult, RequestCommandOutputResult, RequestFileEditsResult,
+        SearchCodebaseResult, SubagentCall, TodoOperation, UploadArtifactResult,
+        WriteToLongRunningShellCommandResult,
     };
     use crate::code::buffer_location::LocalOrRemotePath;
 

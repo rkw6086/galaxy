@@ -7,12 +7,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_channel::{self, Receiver, Sender};
 use async_trait::async_trait;
-use parking_lot::{Mutex, MutexGuard};
 use galaxy_completer::completer::{CommandExitStatus, CommandOutput};
 use galaxy_core::command::ExitCode;
 use galaxy_terminal::model::Point;
 use galaxy_util::on_cancel::OnCancelFutureExt;
 use galaxyui::r#async::block_on;
+use parking_lot::{Mutex, MutexGuard};
 
 use super::ExecuteCommandOptions;
 use crate::safe_info;

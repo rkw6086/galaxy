@@ -10,11 +10,6 @@ use ai::diff_validation::{
     SearchAndReplace, V4AHunk,
 };
 use anyhow::Result;
-use lazy_static::lazy_static;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_geometry::vector::vec2f;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::platform::SessionPlatform;
 use galaxy_core::settings::ToggleableSetting;
@@ -46,14 +41,11 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
-use rand::{distributions::Alphanumeric, thread_rng, Rng as _};
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::Arc,
-    time::Duration,
-};
+use lazy_static::lazy_static;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_geometry::vector::vec2f;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng as _};
 
 use super::malformed_line_heuristics::has_malformed_terminal_correction_signal;
 use crate::ai::agent::icons::{self, yellow_stop_icon};

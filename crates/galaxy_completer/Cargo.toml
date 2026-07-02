@@ -34,6 +34,7 @@ galaxy_cli.workspace = true
 galaxy_core.workspace = true
 galaxy_js = { workspace = true, optional = true }
 galaxyui_core.workspace = true
+galaxyui.workspace = true
 galaxy_util.workspace = true
 typed-path.workspace = true
 

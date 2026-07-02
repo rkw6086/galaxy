@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use std::iter;
 use std::ops::RangeInclusive;
 
-use galaxyui::{units::Lines, AppContext, EntityId};
-use itertools::Itertools;
 use galaxyui::units::Lines;
 use galaxyui::{AppContext, EntityId};
+use itertools::Itertools;
 
 use super::rich_content::{FindableRichContentHandle, RichContentMatchId};
 use super::FindOptions;

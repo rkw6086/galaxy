@@ -1,6 +1,7 @@
-use crate::settings::ai::BedrockModelConfig;
+#![allow(dead_code)]
 
 use super::external_config::ExternalBedrockConfig;
+use crate::settings::ai::BedrockModelConfig;
 
 pub struct DefaultModel {
     pub model_id: &'static str,
@@ -128,7 +129,6 @@ pub fn get_effective_models(user_models: &[BedrockModelConfig]) -> Vec<BedrockMo
                 model_id: m.model_id.to_string(),
                 display_name: m.display_name.to_string(),
                 vision_supported: m.vision_supported,
-                context_size: m.context_size,
             })
             .collect();
         for default in defaults {
@@ -145,7 +145,6 @@ pub fn get_effective_models(user_models: &[BedrockModelConfig]) -> Vec<BedrockMo
             model_id: m.model_id.to_string(),
             display_name: m.display_name.to_string(),
             vision_supported: m.vision_supported,
-            context_size: m.context_size,
         })
         .collect()
 }

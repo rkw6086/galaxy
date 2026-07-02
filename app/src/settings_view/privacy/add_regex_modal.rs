@@ -1,4 +1,3 @@
-use regex::Regex;
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::elements::{
     ChildView, Container, CrossAxisAlignment, Empty, Expanded, Flex, MainAxisSize,
@@ -9,6 +8,7 @@ use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use regex::Regex;
 
 use crate::appearance::Appearance;
 use crate::editor::{

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::shimmering_text::{
     ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle,
@@ -9,7 +11,6 @@ use galaxyui::elements::{
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext};
 use instant::Instant;
-use std::time::Duration;
 
 use super::inline_action_header::{
     INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,

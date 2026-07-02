@@ -6,10 +6,9 @@ mod search_item;
 mod view;
 
 pub use data_source::SelectUserQuery;
-pub use view::{UserQueryMenuEvent, UserQueryMenuView};
-
 use galaxyui::keymap::Keystroke;
 use galaxyui::platform::OperatingSystem;
+pub use view::{UserQueryMenuEvent, UserQueryMenuView};
 
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, InlineMenuAction, InlineMenuMessageArgs, InlineMenuRowAction,

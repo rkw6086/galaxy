@@ -1,7 +1,7 @@
-use itertools::Itertools;
-use unindent::Unindent;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, EntityIdSet, ViewHandle};
+use itertools::Itertools;
+use unindent::Unindent;
 
 use super::*;
 use crate::editor::EditorView;

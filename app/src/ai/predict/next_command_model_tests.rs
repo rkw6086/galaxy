@@ -1,8 +1,8 @@
-use typed_path::TypedPathBuf;
 use galaxy_completer::meta::SpannedItem;
 use galaxy_completer::parsers::ParsedToken;
 use galaxy_completer::signatures::CommandRegistry;
 use galaxyui::App;
+use typed_path::TypedPathBuf;
 
 use super::*;
 use crate::completer::SessionContext;

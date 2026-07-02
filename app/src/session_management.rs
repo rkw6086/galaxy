@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use chrono::NaiveDateTime;
-
 use galaxyui::{AppContext, Entity, EntityId, WindowId};
 
 use crate::context_chips::prompt_snapshot::PromptSnapshot;

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use settings::{PrivatePreferences, PublicPreferences, Setting as _, SettingsManager, SyncToCloud};
 use galaxy_core::channel::{Channel, ChannelState};
-use warpui::SingletonEntity as _;
 use galaxyui_extras::secure_storage::{self, AppContextExt as _};
 use galaxyui_extras::user_preferences;
+use settings::{PrivatePreferences, PublicPreferences, Setting as _, SettingsManager, SyncToCloud};
+use warpui::SingletonEntity as _;
 
 use super::{
     default_mode_for_channel, LocalControlMode, LocalControlModeSetting, LocalControlSettings,

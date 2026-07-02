@@ -1,5 +1,4 @@
 use chrono::{DateTime, Local};
-use ordered_float::OrderedFloat;
 use galaxy_core::ui::builder::MIN_FONT_SIZE;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon, MainAxisAlignment,
@@ -8,6 +7,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::ai::blocklist::AIQueryHistoryOutputStatus;
 use crate::appearance::Appearance;

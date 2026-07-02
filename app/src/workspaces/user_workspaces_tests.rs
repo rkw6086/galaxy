@@ -1,9 +1,9 @@
 use std::time::Duration;
 
+use galaxyui_extras::user_preferences;
 use mockall::Sequence;
 use settings::{PrivatePreferences, PublicPreferences};
 use warpui::{AddSingletonModel, App};
-use galaxyui_extras::user_preferences;
 
 use super::*;
 use crate::ai::llms::LLMModelHost;
@@ -247,7 +247,7 @@ fn team_for_test() -> Team {
 }
 
 #[test]
-fn test_aws_bedrock_credentials_default_off_when_admin_respects_user_setting() {
+fn test_aws_bedrock_credentials_default_on_when_admin_respects_user_setting() {
     let team = team_for_test();
     let mut workspace = workspace_for_test(&team);
     workspace.settings.llm_settings.enabled = true;
@@ -259,6 +259,19 @@ fn test_aws_bedrock_credentials_default_off_when_admin_respects_user_setting() {
             ..Default::default()
         },
     );
+    let mut team_client = MockTeamClient::new();
+    let workspace_for_poll = workspace.clone();
+    team_client.expect_workspaces_metadata().returning(move || {
+        Ok(WorkspacesMetadataWithPricing {
+            metadata: WorkspacesMetadataResponse {
+                workspaces: vec![workspace_for_poll.clone()],
+                joinable_teams: vec![],
+                experiments: None,
+                feature_model_choices: None,
+            },
+            pricing_info: None,
+        })
+    });
 
     App::test((), |mut app| async move {
         initialize_app(
@@ -266,14 +279,14 @@ fn test_aws_bedrock_credentials_default_off_when_admin_respects_user_setting() {
             CachedResources {
                 workspaces: vec![workspace],
             },
-            Arc::new(MockTeamClient::new()),
+            Arc::new(team_client),
             Arc::new(MockWorkspaceClient::new()),
         );
 
         app.read(|ctx| {
             assert!(
-                !UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx),
-                "respect-user-setting should default the local Bedrock credentials toggle to off"
+                UserWorkspaces::as_ref(ctx).is_bedrock_enabled(ctx),
+                "respect-user-setting should default the local Bedrock credentials toggle to on"
             );
             assert!(
                 UserWorkspaces::as_ref(ctx).is_aws_bedrock_credentials_toggleable(),

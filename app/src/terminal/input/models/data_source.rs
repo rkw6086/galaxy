@@ -4,8 +4,8 @@ use galaxy_core::ui::icons::Icon;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
-    ConstrainedBox, Container, CornerRadius, FormattedTextElement, Highlight, HighlightedHyperlink,
-    MouseStateHandle, Radius, Text,
+    ConstrainedBox, Container, CornerRadius, Flex, FormattedTextElement, Highlight,
+    HighlightedHyperlink, MouseStateHandle, ParentElement, Radius, Text,
 };
 use galaxyui::fonts::{Properties, Style, Weight};
 use galaxyui::keymap::Keystroke;
@@ -14,6 +14,9 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity as _};
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use ordered_float::OrderedFloat;
 
 use super::model_spec_scores::{
     render_model_spec_header, render_model_spec_scores, CostRow, CostRowTooltip,
@@ -504,7 +507,6 @@ impl SearchItem for ModelSearchItem {
     }
 
     fn render_details(&self, app: &AppContext) -> Option<Box<dyn Element>> {
-
         let appearance = crate::appearance::Appearance::as_ref(app);
         let theme = appearance.theme();
 

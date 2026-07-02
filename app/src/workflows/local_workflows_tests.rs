@@ -1,6 +1,6 @@
-use galaxyui::App;
 use std::sync::Arc;
 
+use galaxyui::App;
 
 use super::*;
 

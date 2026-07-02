@@ -2,9 +2,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::sync::Arc;
 
-use tempfile::TempDir;
 use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
+use tempfile::TempDir;
 
 use super::{
     build_local_claude_child_command, build_local_codex_child_command,

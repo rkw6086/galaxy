@@ -2,9 +2,9 @@
 //!
 //! Queries are not rendered in blocks corresponding to requested command or requested action responses.
 
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
+use pathfinder_color::ColorU;
 use warpui::elements::{
     Container, CornerRadius, DispatchEventResult, EventHandler, Flex, MainAxisAlignment,
     MainAxisSize, ParentElement, Radius, Shrinkable, Wrap,

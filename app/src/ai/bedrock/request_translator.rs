@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+
+use std::collections::HashSet;
+
 use warp_multi_agent_api as api;
 
 use super::convert::{
@@ -357,6 +361,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                 timestamp: None,
                                 server_message_data: String::new(),
                                 citations: vec![],
+                                fetched_memories: vec![],
                                 message: Some(api::message::Message::ToolCallResult(
                                     api::message::ToolCallResult {
                                         tool_call_id: result.tool_call_id.clone(),
@@ -382,6 +387,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                 timestamp: None,
                                 server_message_data: String::new(),
                                 citations: vec![],
+                                fetched_memories: vec![],
                                 message: Some(api::message::Message::UserQuery(
                                     api::message::UserQuery {
                                         query: query.query.clone(),
@@ -422,6 +428,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                     timestamp: None,
                                     server_message_data: String::new(),
                                     citations: vec![],
+                                    fetched_memories: vec![],
                                     message: Some(api::message::Message::UserQuery(
                                         api::message::UserQuery {
                                             query: query_text,
@@ -445,6 +452,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     timestamp: None,
                     server_message_data: String::new(),
                     citations: vec![],
+                    fetched_memories: vec![],
                     message: Some(api::message::Message::UserQuery(api::message::UserQuery {
                         query: query.query.clone(),
                         ..Default::default()
@@ -462,6 +470,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     timestamp: None,
                     server_message_data: String::new(),
                     citations: vec![],
+                    fetched_memories: vec![],
                     message: Some(api::message::Message::ToolCallResult(
                         api::message::ToolCallResult {
                             tool_call_id: result.tool_call_id.clone(),
@@ -492,6 +501,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                 timestamp: None,
                 server_message_data: String::new(),
                 citations: vec![],
+                fetched_memories: vec![],
                 message: Some(api::message::Message::UserQuery(api::message::UserQuery {
                     query: prompt,
                     ..Default::default()
@@ -728,7 +738,6 @@ fn ensure_starts_with_user_message(messages: &mut Vec<ConversationMessage>) {
 /// 4. Removes trailing assistant tool_use messages that have no following user message.
 /// 5. Ensures strict user/assistant role alternation.
 fn ensure_tool_results_paired(messages: &mut Vec<ConversationMessage>) {
-
     // Collect all tool_result IDs that exist anywhere in the conversation.
     let mut all_result_ids = HashSet::new();
     for msg in messages.iter() {
@@ -1035,7 +1044,7 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
                     let input_schema = tool
                         .input_schema
                         .as_ref()
-                        .map(|s| prost_struct_to_json(s))
+                        .map(prost_struct_to_json)
                         .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
                     tools.push(ToolDefinition {
                         name,
@@ -1057,7 +1066,7 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
                 let input_schema = tool
                     .input_schema
                     .as_ref()
-                    .map(|s| prost_struct_to_json(s))
+                    .map(prost_struct_to_json)
                     .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}}));
                 tools.push(ToolDefinition {
                     name,

@@ -15,12 +15,6 @@ use command_executor::remote_server_executor::RemoteServerCommandExecutor;
 pub use command_executor::*;
 use futures::future::{BoxFuture, Shared};
 use futures::FutureExt;
-use instant::Instant;
-use once_cell::sync::OnceCell;
-use parking_lot::{Mutex, RwLock};
-use smol_str::SmolStr;
-use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
-use version_compare::Version;
 use galaxy_completer::completer::{
     CommandExitStatus, CommandOutput, PathSeparators, TopLevelCommandCaseSensitivity,
 };
@@ -30,6 +24,12 @@ use galaxy_util::path::{
 };
 use galaxyui::platform::OperatingSystem;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use instant::Instant;
+use once_cell::sync::OnceCell;
+use parking_lot::{Mutex, RwLock};
+use smol_str::SmolStr;
+use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
+use version_compare::Version;
 
 use super::ansi::{BootstrappedValue, InitShellValue, SSHValue};
 use super::terminal_model::{HistoryEntry, SubshellInitializationInfo};
@@ -1279,22 +1279,17 @@ impl Session {
                         ExecuteCommandOptions::default(),
                     )
                     .await;
-                HashSet::from_iter(
-                    ShellType::PowerShell
-                        .executables_from_shell_command_output(
-                            windows_results,
-                            false, /* is_msys2 */
-                        )
-                        .into_iter(),
-                )
+                HashSet::from_iter(ShellType::PowerShell.executables_from_shell_command_output(
+                    windows_results,
+                    false, /* is_msys2 */
+                ))
             } else {
                 HashSet::new()
             };
             new_commands.extend(
                 shell
                     .shell_type()
-                    .executables_from_shell_command_output(result, is_msys2)
-                    .into_iter(),
+                    .executables_from_shell_command_output(result, is_msys2),
             );
             if self.external_commands.set(new_commands).is_err() {
                 log::warn!("External commands should only be loaded once per session.");

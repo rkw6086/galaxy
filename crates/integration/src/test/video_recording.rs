@@ -1,8 +1,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use galaxyui::event::{Event, ModifiersState};
-use galaxyui::integration::{TestStep, ARTIFACTS_DIR_ENV_VAR};
+use galaxyui_core::event::{Event, ModifiersState};
+use galaxyui_core::integration::{TestStep, ARTIFACTS_DIR_ENV_VAR};
 use pathfinder_geometry::vector::vec2f;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::util::ExpectedExitStatus;
@@ -11,8 +11,6 @@ use warp::integration_testing::terminal::{
     execute_command_for_single_terminal_in_tab, execute_echo_str,
     wait_until_bootstrapped_single_pane_for_tab,
 };
-use galaxyui_core::event::{Event, ModifiersState};
-use galaxyui_core::integration::{TestStep, ARTIFACTS_DIR_ENV_VAR};
 
 use crate::Builder;
 

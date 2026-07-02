@@ -1,7 +1,5 @@
 //! The renderer for a single context chip.
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, DraggableState, Flex, Hoverable,
@@ -11,6 +9,8 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{Action, Element};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use super::context_chip::ContextChip;
 use super::display_chip::{chip_container, udi_font_size};

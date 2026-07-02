@@ -2,11 +2,11 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_util::path::LineAndColumnArg;
 use galaxyui::elements::{Align, ConstrainedBox, Container, Flex, Icon, ParentElement, Text};
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::{AppContext, Element, SingletonEntity};
+use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
 use crate::search::command_palette::mixer::CommandPaletteItemAction;

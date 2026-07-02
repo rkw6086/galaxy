@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use smol_str::SmolStr;
 use galaxy_completer::parsers::simple::all_parsed_commands;
+use smol_str::SmolStr;
 
 use crate::terminal::model::session::Session;
 

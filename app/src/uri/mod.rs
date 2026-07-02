@@ -23,7 +23,8 @@ use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrT
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
 use crate::cloud_object::ObjectType;
-use crate::drive::{OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings};
+use crate::code::editor_management::CodeSource;
+use crate::drive::{OpenGalaxyDriveObjectArgs, OpenGalaxyDriveObjectSettings};
 use crate::features::FeatureFlag;
 use crate::launch_configs::launch_config::LaunchConfig;
 use crate::linear::{LinearAction, LinearIssueWork};
@@ -38,8 +39,10 @@ use crate::settings_view::{
 };
 use crate::tab_configs::TabConfig;
 use crate::user_config::{load_launch_configs, load_tab_configs, tab_configs_dir};
+use crate::util::file::external_editor::EditorSettings;
 use crate::util::openable_file_type::{
-    is_file_openable_in_warp, is_markdown_file, is_runnable_shell_script, starts_with_shebang,
+    is_file_openable_in_warp, is_markdown_file, is_runnable_shell_script,
+    resolve_file_target_to_open_in_warp, starts_with_shebang,
 };
 use crate::view_components::DismissibleToast;
 use crate::workspace::auto_handoff::trigger_auto_handoff_to_cloud;
@@ -1182,6 +1185,7 @@ impl Action {
     /// When handling this URI action, determine which window(s) should be focused.
     #[cfg_attr(not(any(target_os = "linux", target_os = "freebsd")), allow(dead_code))]
     fn window_behavior_hint(&self) -> WindowBehaviorHint {
+        use WindowBehaviorHint as W;
         match self {
             Self::Docker
             | Self::OpenFileEditor { .. }
@@ -1418,7 +1422,6 @@ fn open_file_editor(
 ) {
     #[cfg(feature = "local_fs")]
     {
-
         if !can_open_file_editor_path(&path) {
             log::warn!("open_file_editor action rejected non-openable path: {path:?}");
             return;

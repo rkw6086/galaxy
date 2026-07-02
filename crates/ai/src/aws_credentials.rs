@@ -43,6 +43,18 @@ impl AwsCredentials {
         }
     }
 
+    pub fn access_key(&self) -> &str {
+        &self.access_key
+    }
+
+    pub fn secret_key(&self) -> &str {
+        &self.secret_key
+    }
+
+    pub fn session_token(&self) -> Option<&str> {
+        self.session_token.as_deref()
+    }
+
     pub fn expires_at(&self) -> Option<SystemTime> {
         self.expires_at
     }

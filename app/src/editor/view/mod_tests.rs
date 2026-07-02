@@ -1,13 +1,13 @@
 use anyhow::Error;
+use galaxyui::color::ColorU;
+use galaxyui::platform::WindowStyle;
+use galaxyui::text_layout::{LayoutCache, TextFrame};
+use galaxyui::windowing::WindowManager;
+use galaxyui::{AddSingletonModel, App, UpdateModel, UpdateView};
 use itertools::Itertools;
 use pathfinder_geometry::vector::vec2f;
 use settings::ToggleableSetting;
 use unindent::Unindent;
-use warpui::color::ColorU;
-use warpui::platform::WindowStyle;
-use warpui::text_layout::TextFrame;
-use warpui::windowing::WindowManager;
-use warpui::{AddSingletonModel, App, UpdateModel, UpdateView};
 
 use super::*;
 use crate::auth::AuthStateProvider;
@@ -2317,7 +2317,6 @@ fn test_partial_autosuggestion() -> Result<()> {
 
 #[test]
 fn test_placeholder_text() {
-
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 

@@ -5,12 +5,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use itertools::Itertools;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_editor::editor::NavigationKey;
-use warp_workflows::workflows as global_workflows;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Element,
@@ -25,6 +23,8 @@ use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
     AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
 };
+use itertools::Itertools;
+use warp_workflows::workflows as global_workflows;
 
 use super::workflow::Workflow;
 use super::WorkflowSource;
@@ -33,8 +33,8 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::editor::Event as EditorEvent;
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
-use crate::themes::theme::{self, Blend, WarpTheme};
-use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
+use crate::themes::theme::{self, Blend, GalaxyTheme};
+use crate::user_config::{GalaxyConfig, GalaxyConfigUpdateEvent};
 use crate::util::bindings::CustomAction;
 use crate::voltron::{VoltronFeatureViewMeta, VoltronMetadata};
 use crate::workflows::WorkflowType;

@@ -24,12 +24,13 @@ pub(crate) mod diff_selector;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub(crate) mod file_invalidation_queue;
 
+use std::path::{Path, PathBuf};
+
 use code_review_view::CodeReviewAction;
 use galaxyui::keymap::{EditableBinding, FixedBinding};
 use galaxyui::{
     id, AppContext, Entity, EntityId, ModelContext, SingletonEntity, WeakViewHandle, WindowId,
 };
-use std::path::{Path, PathBuf};
 
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;

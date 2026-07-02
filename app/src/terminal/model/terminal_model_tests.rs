@@ -5,11 +5,9 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use chrono::{DateTime, Local};
 use galaxy_core::command::ExitCode;
 use galaxy_terminal::model::ansi::ClearMode;
-use galaxyui::text::str_to_byte_vec;
-use galaxyui::text::SelectionType;
-use vec1::vec1;
 use galaxyui::r#async::executor::Background;
 use galaxyui::text::{str_to_byte_vec, SelectionType};
+use vec1::vec1;
 
 use super::*;
 use crate::terminal::color;

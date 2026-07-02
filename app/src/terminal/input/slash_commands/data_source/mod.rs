@@ -6,15 +6,15 @@ use std::path::PathBuf;
 
 use ai::skills::SkillProvider;
 use fuzzy_match::FuzzyMatchResult;
+#[cfg(not(target_family = "wasm"))]
+use galaxy_cli::agent::Harness;
+use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::Icon as GalaxyIcon;
 use galaxyui::fonts::FamilyId;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use ordered_float::OrderedFloat;
 pub(crate) use saved_prompts::*;
-#[cfg(not(target_family = "wasm"))]
-use galaxy_cli::agent::Harness;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::Icon as WarpIcon;
 pub use zero_state::*;
 
 use super::AcceptSlashCommandOrSavedPrompt;

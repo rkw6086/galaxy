@@ -1,9 +1,6 @@
 #[cfg(not(target_family = "wasm"))]
 use std::collections::HashMap;
 
-use instant::{Duration, Instant};
-use log::debug;
-use url::Url;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_editor::editor::NavigationKey;
 use galaxy_graphql::queries::user_github_info::UserGithubInfoResult;
@@ -25,8 +22,11 @@ use galaxyui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
-#[cfg(not(target_family = "wasm"))]
+use instant::{Duration, Instant};
+use log::debug;
+use url::Url;
 
+#[cfg(not(target_family = "wasm"))]
 use super::editor_text_colors;
 use super::settings_page::{render_input_list, InputListItem};
 use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};

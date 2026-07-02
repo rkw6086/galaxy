@@ -436,6 +436,7 @@ pub fn delete_generic_string_object(
     conn: &mut SqliteConnection,
     generic_string_object_id: CloudObjectId,
 ) -> Result<(), Error> {
+    use schema::generic_string_objects::dsl::*;
     diesel::delete(generic_string_objects.filter(id.eq(generic_string_object_id))).execute(conn)?;
     Ok(())
 }
@@ -447,6 +448,7 @@ pub fn mark_object_as_synced(
     new_revision_and_editor: RevisionAndLastEditor,
     new_metadata_ts: Option<ServerTimestamp>,
 ) -> Result<(), Error> {
+    use schema::object_metadata::dsl::*;
     conn.transaction::<(), Error, _>(|conn| {
         diesel::update(object_metadata.filter(server_id.eq(Some(hashed_sqlite_id.as_str()))))
             .set(is_pending.eq(false))
@@ -471,6 +473,7 @@ pub fn increment_retry_count(
     conn: &mut SqliteConnection,
     server_id_string: String,
 ) -> Result<(), Error> {
+    use schema::object_metadata::dsl::*;
     conn.transaction::<(), Error, _>(|conn| {
         diesel::update(object_metadata.filter(server_id.eq(Some(server_id_string))))
             .set(retry_count.eq(retry_count + 1))
@@ -485,6 +488,7 @@ pub fn update_object_after_server_creation(
     server_creation_info: ServerCreationInfo,
 ) -> Result<(), Error> {
     use schema::commands::dsl::*;
+    use schema::object_metadata::dsl::*;
 
     conn.transaction::<(), Error, _>(|conn| {
         diesel::update(object_metadata.filter(client_id.eq(Some(client_id_string.clone()))))
@@ -519,6 +523,7 @@ pub fn update_object_metadata(
     hashed_id: String,
     metadata: CloudObjectMetadata,
 ) -> Result<(), Error> {
+    use schema::object_metadata::dsl::*;
     let metadata_last_updated_at = metadata
         .metadata_last_updated_ts
         .map(|ts| ts.timestamp_micros());

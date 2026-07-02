@@ -2,12 +2,12 @@
 //! the local inference engine across all task types (classification,
 //! prompt suggestion, tab naming).
 
+use instant::Instant;
 use local_inference::{
     Device, InferenceEngine, InferenceTask, InputCategory, InputClassificationInput,
     InputClassificationTask, PromptSuggestionInput, PromptSuggestionTask, TabNamingInput,
     TabNamingTask,
 };
-use std::time::Instant;
 
 async fn get_engine() -> InferenceEngine {
     InferenceEngine::new(Device::Cpu)

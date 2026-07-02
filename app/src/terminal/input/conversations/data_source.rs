@@ -1,9 +1,8 @@
 //! Data source for the inline conversation menu.
 
-use galaxyui::{AppContext, Entity, ModelHandle};
+use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
-use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity};
 
 use crate::ai::agent_conversations_model::{
     AgentConversationEntry, AgentConversationEntryId, AgentManagementFilters,

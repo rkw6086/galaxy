@@ -1,8 +1,5 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use regex_automata::hybrid::BuildError;
 use galaxy_editor::editor::NavigationKey;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Dash, Dismiss, DropShadow, Empty, Flex, Hoverable, MouseStateHandle,
@@ -15,6 +12,9 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use regex_automata::hybrid::BuildError;
 
 use super::model::find::{FindConfig, RegexDFAs};
 use crate::appearance::Appearance;

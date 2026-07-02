@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use ai::project_context::model::ProjectContextModel;
 use chrono::Utc;
+use galaxy_core::features::FeatureFlag;
 use pathfinder_geometry::rect::RectF;
 use persistence::model::{
     AgentConversation, AgentConversationData, AgentConversationRecord, ConversationUsageMetadata,
@@ -14,7 +15,6 @@ use repo_metadata::RepoMetadataModel;
 use session_sharing_protocol::common::SessionId;
 use shared_session::permissions_manager::SessionPermissionsManager;
 use uuid::Uuid;
-use galaxy_core::features::FeatureFlag;
 use warp_server_client::iap::IapManager;
 use warpui::platform::{WindowBounds, WindowStyle};
 use warpui::windowing::state::ApplicationStage;
@@ -141,7 +141,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
     app.add_singleton_model(DirectoryWatcher::new);
-    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(FileMCPWatcher::new);
     app.add_singleton_model(|_| FileBasedMCPManager::default());
 
@@ -353,6 +353,7 @@ fn test_server_conversation_metadata(
             token_usage: vec![],
             tool_usage_metadata: Default::default(),
             context_window_segments: Vec::new(),
+            ..Default::default()
         },
         metadata: mock_server_metadata(),
         creator: None,
@@ -396,6 +397,8 @@ fn persisted_remote_child_conversation(
                 autoexecute_override: None,
                 last_event_sequence: None,
                 pinned: false,
+                progressive_summary: None,
+                messages_summarized_up_to: 0,
             })
             .expect("conversation data should serialize"),
             last_modified_at: Utc::now().naive_utc(),

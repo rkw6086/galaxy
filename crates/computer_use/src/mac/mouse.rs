@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use galaxyui_core::r#async::Timer;
 use instant::Instant;
 use objc2::rc::Retained;
 use objc2_core_foundation::CGPoint;
@@ -8,7 +9,6 @@ use objc2_core_graphics::{
     CGScrollEventUnit,
 };
 use pathfinder_geometry::vector::Vector2I;
-use galaxyui_core::r#async::Timer;
 
 use super::post::PostTarget;
 use super::util::main_display_scale_factor;

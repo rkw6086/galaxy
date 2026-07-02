@@ -1,8 +1,8 @@
 //! This module contains the code for the editable accept autosuggestion keybinding
 //! shown inline in the input.
+use galaxy_core::ui::theme::Fill;
 use lazy_static::lazy_static;
 use pathfinder_geometry::vector::vec2f;
-use galaxy_core::ui::theme::Fill;
 use warpui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Element, Flex, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,

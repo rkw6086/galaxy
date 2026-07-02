@@ -2,9 +2,6 @@ use std::collections::HashSet;
 
 use comfy_table::Cell;
 use cynic::QueryBuilder;
-use inquire::error::InquireError;
-use inquire::{Confirm, Select};
-use serde::Serialize;
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::environment::{EnvironmentCommand, ImageCommand};
 use galaxy_cli::scope::ObjectScope;
@@ -16,6 +13,9 @@ use galaxy_graphql::queries::list_warp_dev_images::{
 use galaxy_graphql::queries::user_repo_auth_status::UserRepoAuthStatusEnum;
 use galaxyui::r#async::FutureExt;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
+use inquire::error::InquireError;
+use inquire::{Confirm, Select};
+use serde::Serialize;
 
 use crate::ai::agent_sdk::driver::WARP_DRIVE_SYNC_TIMEOUT;
 use crate::ai::agent_sdk::oauth_flow::poll_oauth_until_terminal;

@@ -9,24 +9,6 @@ use std::sync::Arc;
 use std::{cmp, mem};
 
 use ai::diff_validation::DiffDelta;
-use itertools::Itertools;
-use languages::{language_by_filename, language_by_local_filename, language_by_name, Language};
-use line_ending::LineEnding;
-use num_traits::SaturatingSub;
-use rangemap::{RangeMap, RangeSet};
-use string_offset::CharOffset;
-use syntax_tree::{ColorMap, DecorationStateEvent, SyntaxTreeState};
-use vec1::{vec1, Vec1};
-use vim::vim::{
-    BracketChar, CharacterMotion, Direction, FindCharMotion, FirstNonWhitespaceMotion,
-    InsertPosition, LineMotion, MotionType, TextObjectInclusion, TextObjectType, VimOperator,
-    VimTextObject, WordBound, WordMotion, WordType,
-};
-use vim::{
-    find_next_paragraph_end, find_previous_paragraph_start, vim_a_block, vim_a_paragraph,
-    vim_a_quote, vim_a_word, vim_find_char_on_line, vim_find_matching_bracket, vim_inner_block,
-    vim_inner_paragraph, vim_inner_quote, vim_inner_word, vim_word_iterator_from_offset,
-};
 use galaxy_core::platform::SessionPlatform;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::theme::Fill;
@@ -62,6 +44,24 @@ use galaxyui::text::point::Point;
 use galaxyui::text::TextBuffer;
 use galaxyui::units::{IntoPixels, Pixels};
 use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
+use itertools::Itertools;
+use languages::{language_by_filename, language_by_local_filename, language_by_name, Language};
+use line_ending::LineEnding;
+use num_traits::SaturatingSub;
+use rangemap::{RangeMap, RangeSet};
+use string_offset::CharOffset;
+use syntax_tree::{ColorMap, DecorationStateEvent, SyntaxTreeState};
+use vec1::{vec1, Vec1};
+use vim::vim::{
+    BracketChar, CharacterMotion, Direction, FindCharMotion, FirstNonWhitespaceMotion,
+    InsertPosition, LineMotion, MotionType, TextObjectInclusion, TextObjectType, VimOperator,
+    VimTextObject, WordBound, WordMotion, WordType,
+};
+use vim::{
+    find_next_paragraph_end, find_previous_paragraph_start, vim_a_block, vim_a_paragraph,
+    vim_a_quote, vim_a_word, vim_find_char_on_line, vim_find_matching_bracket, vim_inner_block,
+    vim_inner_paragraph, vim_inner_quote, vim_inner_word, vim_word_iterator_from_offset,
+};
 
 use super::super::DiffResult;
 use super::comments::{EditorCommentsModel, PendingComment, PendingCommentEvent};

@@ -1,12 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::watcher::DirectoryWatcher;
-#[cfg(feature = "local_fs")]
-use repo_metadata::RepoMetadataModel;
-use string_offset::CharOffset;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::render::model::BlockItem;
@@ -14,6 +8,12 @@ use galaxy_editor::render::model::BlockItem;
 use galaxy_files::FileModel;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, SingletonEntity, View};
+use pathfinder_geometry::vector::vec2f;
+use repo_metadata::repositories::DetectedRepositories;
+use repo_metadata::watcher::DirectoryWatcher;
+#[cfg(feature = "local_fs")]
+use repo_metadata::RepoMetadataModel;
+use string_offset::CharOffset;
 
 use super::{FileNotebookView, FileState, MarkdownDisplayMode, SourceFile};
 use crate::auth::auth_manager::AuthManager;

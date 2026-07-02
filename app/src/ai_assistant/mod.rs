@@ -2,16 +2,16 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use pathfinder_color::ColorU;
-use serde::{Deserialize, Serialize};
 use galaxy_core::command::ExitCode;
 use galaxy_graphql::ai::{
     RequestLimitInfo as RequestLimitInfoGraphql,
     RequestLimitRefreshDuration as RequestLimitRefreshDurationGraphql,
 };
 use galaxy_graphql::mutations::generate_commands::{GenerateCommandsFailureType, GeneratedCommand};
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use pathfinder_color::ColorU;
+use serde::{Deserialize, Serialize};
 
 use crate::ai::{RequestLimitInfo, RequestLimitRefreshDuration};
 use crate::server::telemetry::OpenedWarpAISource;

@@ -11,15 +11,15 @@ pub use entry::{
     AgentConversationProvenance,
 };
 use futures::stream::AbortHandle;
-use instant::Instant;
-use itertools::Itertools;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use warp_cli::agent::Harness;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::report_error;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
+use instant::Instant;
+use itertools::Itertools;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use warp_cli::agent::Harness;
 use warpui::color::ColorU;
 use warpui::r#async::Timer;
 use warpui::windowing::{StateEvent, WindowManager};
@@ -1921,8 +1921,8 @@ impl AgentConversationsModel {
             });
 
         // Sort each by updated_at (newest first), truncate
-        personal.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
-        team.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+        personal.sort_by_key(|b| std::cmp::Reverse(b.1.updated_at));
+        team.sort_by_key(|b| std::cmp::Reverse(b.1.updated_at));
         personal.truncate(MAX_PERSONAL_TASKS);
         team.truncate(MAX_TEAM_TASKS);
 

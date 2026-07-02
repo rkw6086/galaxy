@@ -1,8 +1,6 @@
 use std::collections::HashSet;
 use std::{fmt, iter, mem};
 
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, DispatchEventResult, Element, Empty, EventHandler,
@@ -12,11 +10,13 @@ use galaxyui::elements::{
 };
 use galaxyui::platform::Cursor;
 use galaxyui::{AppContext, EntityId, ViewContext};
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::{ActivationReason, PaneGroup, PaneId};
 use crate::app_state;
 use crate::pane_group::{get_minimum_pane_size, DraggedBorder, PaneGroupAction};
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 
 #[cfg(test)]
 #[path = "tree_tests.rs"]

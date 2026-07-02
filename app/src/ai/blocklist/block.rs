@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Implementation of "AI blocks" used to render AI queries and outputs in the blocklist.
 pub mod cli;
 pub mod cli_controller;
@@ -28,6 +30,9 @@ use base64::Engine as _;
 use chrono::Duration;
 use cli_controller::{CLISubagentController, CLISubagentEvent};
 use find::FindState;
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::Fill;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use model::AIBlockOutputStatus;
@@ -40,9 +45,6 @@ use repo_metadata::repositories::DetectedRepositories;
 use secret_redaction::*;
 use serde::Serialize;
 use settings::Setting as _;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::Fill;
 use warp_editor::content::buffer::InitialBufferState;
 #[cfg(feature = "local_fs")]
 use warp_editor::content::edit::resolve_asset_source_relative_to_directory;
@@ -129,6 +131,7 @@ use crate::ai::blocklist::inline_action::search_codebase::{
 use crate::ai::blocklist::inline_action::suggested_unit_tests::{
     SuggestedUnitTestsEvent, SuggestedUnitTestsView,
 };
+use crate::ai::blocklist::inline_action::summarization::SummarizationView;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::permissions::{
@@ -478,6 +481,9 @@ pub(super) struct AIBlockStateHandles {
     /// ReadSkill and ReadFiles action banners. Keyed by action id so that
     /// multiple skill banners in the same block don't share hover/click state.
     skill_button_handles: HashMap<AIAgentActionId, MouseStateHandle>,
+    usage_button_handle: MouseStateHandle,
+    subagent_panel_states:
+        HashMap<AIAgentActionId, super::agent_view::subagent_inline_panel::SubagentPanelState>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -1067,6 +1073,7 @@ pub struct AIBlock {
     terminal_view_handle: WeakViewHandle<TerminalView>,
 
     ask_user_question_view: Option<ViewHandle<AskUserQuestionView>>,
+    is_usage_footer_expanded: bool,
 }
 
 struct EmbeddedCodeEditorView {
@@ -1512,6 +1519,7 @@ impl AIBlock {
             resolved_blocklist_image_sources: Default::default(),
             terminal_view_handle,
             ask_user_question_view: None,
+            is_usage_footer_expanded: false,
         };
         me.run_secret_redaction_on_user_query(me.client_ids.conversation_id, ctx);
         me.spawn_link_detection(ctx);
@@ -2638,16 +2646,14 @@ impl AIBlock {
                             base_branch,
                         },
                     ..
-                } => {
-                    if self.model.is_restored() && FeatureFlag::PRCommentsV2.is_enabled() {
-                        self.handle_insert_code_review_comments(
-                            id.clone(),
-                            repo_path,
-                            comments,
-                            base_branch.as_deref(),
-                            ctx,
-                        );
-                    }
+                } if self.model.is_restored() && FeatureFlag::PRCommentsV2.is_enabled() => {
+                    self.handle_insert_code_review_comments(
+                        id.clone(),
+                        repo_path,
+                        comments,
+                        base_branch.as_deref(),
+                        ctx,
+                    );
                 }
                 _ => (),
             }
@@ -3995,7 +4001,7 @@ impl AIBlock {
             return;
         }
 
-        let view = ctx.add_view(|ctx| SummarizationView::new(ctx));
+        let view = ctx.add_view(SummarizationView::new);
         self.summarization_views.insert(key, view);
         ctx.notify();
     }
@@ -6328,6 +6334,7 @@ pub enum AIBlockAction {
     ToggleSubagentPanel {
         action_id: AIAgentActionId,
     },
+    ToggleIsUsageFooterExpanded,
 }
 
 impl TypedActionView for AIBlock {
@@ -6335,6 +6342,16 @@ impl TypedActionView for AIBlock {
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
+            AIBlockAction::ToggleIsUsageFooterExpanded => {
+                self.is_usage_footer_expanded = !self.is_usage_footer_expanded;
+                ctx.notify();
+            }
+            AIBlockAction::ToggleSubagentPanel { action_id } => {
+                if let Some(state) = self.state_handles.subagent_panel_states.get_mut(action_id) {
+                    state.is_expanded = !state.is_expanded;
+                    ctx.notify();
+                }
+            }
             AIBlockAction::SetCollapsibleBlockPinnedToBottom {
                 message_id,
                 pinned_to_bottom,

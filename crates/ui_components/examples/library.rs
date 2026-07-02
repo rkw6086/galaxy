@@ -3,10 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use pathfinder_geometry::vector::Vector2F;
-use rust_embed::RustEmbed;
-use ui_components::lightbox::{self, LightboxImage, LightboxImageSource, NavigationDirection};
-use ui_components::{Component as _, Options, button, dialog, switch, tooltip};
 use galaxy_core::ui::Icon;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -17,6 +13,10 @@ use galaxyui_core::image_cache::ImageType;
 use galaxyui_core::keymap::FixedBinding;
 use galaxyui_core::prelude::*;
 use galaxyui_core::{AssetProvider, SingletonEntity, Tracked, platform};
+use pathfinder_geometry::vector::Vector2F;
+use rust_embed::RustEmbed;
+use ui_components::lightbox::{self, LightboxImage, LightboxImageSource, NavigationDirection};
+use ui_components::{Component as _, Options, button, dialog, switch, tooltip};
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -41,7 +41,7 @@ fn main() -> galaxyui_core::platform::app::TerminationResult {
         .install_default()
         .expect("must be able to initialize crypto provider for TLS support");
 
-    let app_builder = warpui::platform::AppBuilder::new(
+    let app_builder = galaxyui::platform::AppBuilder::new(
         platform::AppCallbacks::default(),
         Box::new(ASSETS),
         None,
@@ -55,7 +55,8 @@ fn main() -> galaxyui_core::platform::app::TerminationResult {
             "Noto Sans".to_string()
         };
 
-        let font_family = galaxyui_core::fonts::Cache::handle(ctx).update(ctx, |cache, _ctx| {
+        let cache_handle = galaxyui_core::fonts::Cache::handle(ctx);
+        let font_family = cache_handle.update(ctx, |cache, _ctx| {
             cache.load_system_font(&font_name).unwrap()
         });
         ctx.add_singleton_model(|ctx| {

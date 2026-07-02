@@ -1,10 +1,12 @@
-use pathfinder_color::ColorU;
+#![allow(dead_code)]
+
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::color::{darken, lighten};
 use galaxy_core::ui::theme::ColorScheme;
+use pathfinder_color::ColorU;
 use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::{
     Border, CacheOption, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,

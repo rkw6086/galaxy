@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::text::SelectionType;
+use galaxyui_core::{async_assert, Event, SingletonEntity};
 use lazy_static::lazy_static;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
 use settings::ToggleableSetting;
@@ -19,9 +22,6 @@ use warp::integration_testing::terminal::{
 use warp::integration_testing::view_getters::single_terminal_view_for_tab;
 use warp::settings::SelectionSettings;
 use warp_multi_agent_api as api;
-use galaxyui_core::integration::TestStep;
-use galaxyui_core::text::SelectionType;
-use galaxyui_core::{async_assert, Event, SingletonEntity};
 
 use super::new_builder;
 use crate::util::skip_if_powershell_core_2303;

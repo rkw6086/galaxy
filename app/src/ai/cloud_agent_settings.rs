@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
+use galaxy_core::report_if_error;
 use settings::macros::define_settings_group;
 use settings::{Setting as _, SupportedPlatforms, SyncToCloud};
 use warp_cli::agent::Harness;
-use galaxy_core::report_if_error;
 
 use crate::server::ids::SyncId;
 

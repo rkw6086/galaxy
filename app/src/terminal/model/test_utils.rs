@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::io::sink;
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::command::ExitCode;
 use galaxyui::r#async::executor::Background;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::ansi::{
     CommandFinishedValue, CompletionMetadata, Handler, PrecmdValue, PreexecValue, Processor,

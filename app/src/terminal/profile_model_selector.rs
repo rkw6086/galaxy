@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
 use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent};
-use indexmap::IndexMap;
-use instant::{Duration, Instant};
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DropShadow, Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize,
@@ -20,6 +15,11 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity as _, TypedActionView,
     View, ViewContext, ViewHandle,
 };
+use indexmap::IndexMap;
+use instant::{Duration, Instant};
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 const SIDECAR_POSITION_ID: &str = "model_sidecar_panel";
 
@@ -540,7 +540,7 @@ impl ProfileModelSelector {
             },
         );
 
-        let manage_api_key_button = ctx.add_typed_action_view(|_ctx| {
+        let _manage_api_key_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Manage", SecondaryTheme)
                 .with_tooltip("Manage API keys")
                 .with_size(ButtonSize::XSmall)

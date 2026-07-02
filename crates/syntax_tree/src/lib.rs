@@ -5,13 +5,6 @@ use std::sync::Arc;
 
 use arborium::tree_sitter::{InputEdit, Parser, Tree};
 use futures::stream::AbortHandle;
-use languages::Language;
-use parking_lot::Mutex;
-use queries::highlight_query::HighlightQuery;
-pub use queries::highlight_query::{ColorMap, TextSlice};
-use queries::indent_query::{indentation_delta, IndentDelta};
-use rangemap::{RangeMap, RangeSet};
-use string_offset::{ByteOffset, CharOffset};
 use galaxy_editor::content::buffer::{Buffer, BufferSnapshot};
 use galaxy_editor::content::edit::PreciseDelta;
 use galaxy_editor::content::text::IndentUnit;
@@ -20,6 +13,13 @@ use galaxy_editor::decoration::DecorationLayer;
 use galaxyui_core::color::ColorU;
 use galaxyui_core::text::point::Point;
 use galaxyui_core::{AppContext, Entity, ModelContext, WeakModelHandle};
+use languages::Language;
+use parking_lot::Mutex;
+use queries::highlight_query::HighlightQuery;
+pub use queries::highlight_query::{ColorMap, TextSlice};
+use queries::indent_query::{indentation_delta, IndentDelta};
+use rangemap::{RangeMap, RangeSet};
+use string_offset::{ByteOffset, CharOffset};
 
 const MAX_SYNTAX_TREES: usize = 3;
 

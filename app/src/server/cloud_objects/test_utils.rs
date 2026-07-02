@@ -3,6 +3,8 @@ use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
 
 use cloud_object_client::{MockObjectClient, ObjectClient};
+use galaxy_core::execution_mode::{AppExecutionMode, ExecutionMode};
+use galaxyui::{App, ModelHandle, SingletonEntity};
 use settings::manager::SettingsManager;
 
 use super::update_manager::UpdateManager;

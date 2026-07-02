@@ -27,3 +27,4 @@ tokio = { workspace = true, features = ["fs", "sync", "rt", "macros", "rt-multi-
 
 [dev-dependencies]
 env_logger = "0.10"
+instant = { workspace = true }

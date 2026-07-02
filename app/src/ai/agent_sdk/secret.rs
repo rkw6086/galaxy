@@ -4,8 +4,6 @@ use std::io::{self, IsTerminal as _, Read};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use comfy_table::Cell;
-use inquire::{Confirm, InquireError, Password};
-use serde::Serialize;
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::scope::ObjectScope;
 use galaxy_cli::secret::{
@@ -20,6 +18,8 @@ use galaxy_managed_secrets::client::SecretOwner;
 use galaxy_managed_secrets::{ManagedSecretManager, ManagedSecretValue};
 use galaxyui::platform::TerminationMode;
 use galaxyui::{AppContext, SingletonEntity as _};
+use inquire::{Confirm, InquireError, Password};
+use serde::Serialize;
 
 use super::output::{self, TableFormat};
 use crate::auth::UserUid;

@@ -676,6 +676,8 @@ pub fn mock_terminal_colors() -> TerminalColors {
     )
 }
 
+pub type WarpTheme = GalaxyTheme;
+
 #[cfg(test)]
 #[path = "theme_tests.rs"]
 mod tests;

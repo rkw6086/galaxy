@@ -4,16 +4,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_channel::Sender;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
-use pathfinder_color::ColorU;
-use string_offset::{ByteOffset, CharOffset};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{self, Theme, ThemeSet};
-use syntect::parsing::SyntaxSet;
-use syntect::util::LinesWithEndings;
-use ui_components::lightbox::{LightboxImage, LightboxImageSource};
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_core::r#async::debounce;
 use galaxy_editor::content::anchor::Anchor;
@@ -39,6 +29,16 @@ use galaxyui::{
     AppContext, AssetProvider as _, Element, Entity, ModelAsRef, ModelContext, ModelHandle,
     SingletonEntity, ViewHandle, WeakModelHandle, WindowId,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
+use pathfinder_color::ColorU;
+use string_offset::{ByteOffset, CharOffset};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{self, Theme, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
+use ui_components::lightbox::{LightboxImage, LightboxImageSource};
 
 use super::interaction_state_model::InteractionStateModel;
 use super::keys::{custom_action_to_display, NotebookKeybindings};

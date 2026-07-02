@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use parking_lot::FairMutex;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{EntityId, SingletonEntity as _, ViewContext, ViewHandle};
+use parking_lot::FairMutex;
 
 use super::success_block::WarpifySuccessBlock;
 use crate::terminal::model::block::BlockId;

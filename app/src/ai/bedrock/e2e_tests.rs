@@ -1,13 +1,13 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures::StreamExt;
 use serde_json::json;
-use std::path::PathBuf;
+use warp_multi_agent_api as api;
 
 use super::client::{BedrockClient, BedrockClientConfig};
 use super::convert::{ConversationMessage, MessageContent, MessageRole, ToolDefinition};
 use crate::settings::ai::BedrockAuthMethod;
-use warp_multi_agent_api as api;
 
 fn make_user_query_message(id: &str, task_id: &str, query: &str) -> api::Message {
     api::Message {
@@ -24,6 +24,7 @@ fn make_user_query_message(id: &str, task_id: &str, query: &str) -> api::Message
             mode: None,
             intended_agent: 0,
         })),
+        ..Default::default()
     }
 }
 
@@ -54,6 +55,7 @@ fn make_tool_call_run_shell(
                 },
             )),
         })),
+        ..Default::default()
     }
 }
 
@@ -81,6 +83,7 @@ fn make_tool_call_read_files(
                 },
             )),
         })),
+        ..Default::default()
     }
 }
 
@@ -113,12 +116,14 @@ fn make_tool_result_shell(
                                 output: output.into(),
                                 exit_code,
                                 command_id: String::new(),
+                                ..Default::default()
                             },
                         )),
                     },
                 )),
             },
         )),
+        ..Default::default()
     }
 }
 
@@ -155,6 +160,7 @@ fn make_tool_result_read_files(
                 )),
             },
         )),
+        ..Default::default()
     }
 }
 
@@ -217,6 +223,7 @@ fn make_settings(model: &str) -> api::request::Settings {
         supports_bundled_skills: false,
         supports_research_agent: false,
         supports_orchestration_v2: false,
+        ..Default::default()
     }
 }
 
@@ -260,6 +267,7 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         region,
         access_key_id: String::new(),
         secret_access_key: String::new(),
+        session_token: None,
         cross_region_inference: false,
     })
 }
@@ -691,7 +699,7 @@ impl AgentSimulation {
         match name {
             "run_shell_command" => {
                 let command = input["command"].as_str().unwrap_or("echo 'no command'");
-                let output = std::process::Command::new("sh")
+                let output = command::blocking::Command::new("sh")
                     .arg("-c")
                     .arg(command)
                     .current_dir(&self.project_path)
@@ -759,7 +767,7 @@ impl AgentSimulation {
                     .unwrap_or(self.project_path.to_str().unwrap_or("."));
                 let mut result = String::new();
                 for query in queries {
-                    let output = std::process::Command::new("grep")
+                    let output = command::blocking::Command::new("grep")
                         .args(["-rn", query, path])
                         .output();
                     if let Ok(out) = output {
@@ -999,7 +1007,7 @@ async fn test_agent_multi_turn_tool_use_produces_output() {
         let tool_use_id = format!("tool_{}", total_turns);
         let (result, is_error) = match tool.name.as_str() {
             "run_shell_command" => {
-                let ls_output = std::process::Command::new("ls")
+                let ls_output = command::blocking::Command::new("ls")
                     .arg("-la")
                     .current_dir(&project_path)
                     .output()
@@ -1075,7 +1083,7 @@ async fn test_agent_multi_turn_tool_use_produces_output() {
     // 2. No partial reasoning fragments leak to the UI
     // 3. The stream protocol is correct (Init, CreateTask, content, Finished)
     assert!(
-        sim.all_text_output.len() > 0 || total_turns > 1,
+        !sim.all_text_output.is_empty() || total_turns > 1,
         "Agent should either produce text or make multiple tool calls to explore"
     );
 
@@ -1160,39 +1168,34 @@ async fn test_reasoning_model_produces_substantial_output() {
     while let Some(event_result) = stream.next().await {
         event_count += 1;
         let event = event_result.expect("event should be Ok");
-        if let Some(event_type) = &event.r#type {
-            match event_type {
-                api::response_event::Type::ClientActions(actions) => {
-                    for action in &actions.actions {
-                        if let Some(action_type) = &action.action {
-                            match action_type {
-                                api::client_action::Action::CreateTask(_) => {
-                                    had_create_task = true;
+        if let Some(api::response_event::Type::ClientActions(actions)) = &event.r#type {
+            for action in &actions.actions {
+                if let Some(action_type) = &action.action {
+                    match action_type {
+                        api::client_action::Action::CreateTask(_) => {
+                            had_create_task = true;
+                        }
+                        api::client_action::Action::AddMessagesToTask(add) => {
+                            for msg in &add.messages {
+                                if let Some(api::message::Message::AgentOutput(output)) =
+                                    &msg.message
+                                {
+                                    total_text.push_str(&output.text);
                                 }
-                                api::client_action::Action::AddMessagesToTask(add) => {
-                                    for msg in &add.messages {
-                                        if let Some(api::message::Message::AgentOutput(output)) =
-                                            &msg.message
-                                        {
-                                            total_text.push_str(&output.text);
-                                        }
-                                    }
-                                }
-                                api::client_action::Action::AppendToMessageContent(append) => {
-                                    if let Some(msg) = &append.message {
-                                        if let Some(api::message::Message::AgentOutput(output)) =
-                                            &msg.message
-                                        {
-                                            total_text.push_str(&output.text);
-                                        }
-                                    }
-                                }
-                                _ => {}
                             }
                         }
+                        api::client_action::Action::AppendToMessageContent(append) => {
+                            if let Some(msg) = &append.message {
+                                if let Some(api::message::Message::AgentOutput(output)) =
+                                    &msg.message
+                                {
+                                    total_text.push_str(&output.text);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
             }
         }
     }
@@ -1610,7 +1613,7 @@ async fn test_slash_create_new_project() {
 
     if !events.is_empty() {
         assert!(
-            text.len() > 0
+            !text.is_empty()
                 || events
                     .iter()
                     .any(|e| matches!(e.event_type, StreamEventType::ToolCallMessage { .. })),
@@ -1645,7 +1648,7 @@ async fn test_slash_auto_code_diff() {
     assert_valid_stream(&events, "slash_auto_code_diff");
 
     if !events.is_empty() {
-        let has_action = text.len() > 0
+        let has_action = !text.is_empty()
             || events
                 .iter()
                 .any(|e| matches!(e.event_type, StreamEventType::ToolCallMessage { .. }));
@@ -1775,7 +1778,7 @@ async fn test_slash_query_with_canned_response() {
     assert_valid_stream(&events, "slash_query_with_canned_response");
 
     if !events.is_empty() {
-        let has_output = text.len() > 0
+        let has_output = !text.is_empty()
             || events
                 .iter()
                 .any(|e| matches!(e.event_type, StreamEventType::ToolCallMessage { .. }));

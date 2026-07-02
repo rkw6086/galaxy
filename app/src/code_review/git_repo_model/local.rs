@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_channel::Sender;
-use repo_metadata::repository::{RepositorySubscriber, SubscriberId};
-use repo_metadata::{Repository, RepositoryUpdate};
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{Entity, ModelContext, ModelHandle};
+use repo_metadata::repository::{RepositorySubscriber, SubscriberId};
+use repo_metadata::{Repository, RepositoryUpdate};
 
 use super::{GitRepoStatusEvent, GitStatusMetadata};
 use crate::code_review::diff_state::diff_metadata_against_head;

@@ -1,4 +1,6 @@
-use pathfinder_color::ColorU;
+use std::env;
+use std::path::Path;
+
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
@@ -12,6 +14,7 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use crate::menu::{self, Event as MenuEvent, Menu, MenuItemFields};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
@@ -514,7 +517,6 @@ fn detect_nvm_installed() -> bool {
 
 // Enumerate installed Node versions managed by nvm (best-effort, cross-OS)
 fn list_nvm_versions() -> Vec<String> {
-
     let mut out: Vec<String> = Vec::new();
 
     #[cfg(windows)]

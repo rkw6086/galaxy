@@ -1,9 +1,12 @@
-use chrono::{Local, Utc};
-use serde_json::Value as JsonValue;
+#![allow(dead_code)]
+
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+use chrono::{Local, Utc};
+use serde_json::Value as JsonValue;
 
 use super::convert::{ConversationMessage, MessageContent, MessageRole, ToolDefinition};
 

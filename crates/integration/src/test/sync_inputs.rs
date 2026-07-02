@@ -1,3 +1,5 @@
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::{async_assert, async_assert_eq};
 use warp::cmd_or_ctrl_shift;
 use warp::integration_testing::step::new_step_with_default_assertions;
 use warp::integration_testing::terminal::util::ExpectedExitStatus;
@@ -8,8 +10,6 @@ use warp::integration_testing::terminal::{
 };
 use warp::integration_testing::view_getters::{terminal_view, workspace_view};
 use warp::workspace::WorkspaceAction;
-use galaxyui_core::integration::TestStep;
-use galaxyui_core::{async_assert, async_assert_eq};
 
 use super::{new_builder, Builder};
 use crate::util::{get_input_buffer, skip_if_powershell_core_2303};

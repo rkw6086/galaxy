@@ -4,9 +4,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
-#[cfg(not(target_family = "wasm"))]
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::contrast::{
@@ -15,6 +12,9 @@ use galaxy_core::ui::color::contrast::{
 use galaxy_core::ui::color::{coloru_with_opacity, Opacity, Rgb};
 use galaxy_core::ui::theme;
 use galaxy_core::ui::theme::color::internal_colors;
+use pathfinder_color::ColorU;
+#[cfg(not(target_family = "wasm"))]
+use settings::Setting as _;
 use warpui::elements::{
     ChildView, Clipped, Container, CornerRadius, CrossAxisAlignment, Fill, Flex, MainAxisAlignment,
     MainAxisSize, ParentElement, Radius, Rect, Shrinkable, SizeConstraintCondition,

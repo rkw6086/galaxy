@@ -4,10 +4,10 @@
 use std::cmp::max;
 use std::io;
 
-use instant::Instant;
-use pathfinder_color::ColorU;
 use galaxy_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use galaxyui::units::{IntoLines as _, Lines};
+use instant::Instant;
+use pathfinder_color::ColorU;
 
 use super::ansi::{self, Attr, Handler, PrecmdValue, PreexecValue, Processor, PromptMetadata};
 use super::block::{BlockGridPoint, BlockSize};

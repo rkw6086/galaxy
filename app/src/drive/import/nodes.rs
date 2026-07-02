@@ -6,11 +6,11 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use async_recursion::async_recursion;
 use futures_lite::StreamExt;
-use pathfinder_color::ColorU;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
     MouseStateHandle, ParentElement, Radius, Shrinkable,
 };
+use pathfinder_color::ColorU;
 use warpui::platform::Cursor;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::Element;

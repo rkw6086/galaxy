@@ -3,17 +3,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::stream::AbortHandle;
-use markdown_parser::markdown_parser::parse_markdown_to_raw_text;
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{
     Entity, EntityId, ModelContext, ModelHandle, SingletonEntity, WeakViewHandle, WindowId,
 };
+use markdown_parser::markdown_parser::parse_markdown_to_raw_text;
 
 use super::notebook::NotebookView;
 use super::CloudNotebook;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::Owner;
-use crate::drive::OpenWarpDriveObjectSettings;
+use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::pane_group::{NotebookPane, PaneContent};
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,

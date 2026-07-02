@@ -1,6 +1,6 @@
-use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity, WindowId};
 use std::collections::HashMap;
 
+use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity, WindowId};
 
 use crate::ai::execution_profiles::profiles::ClientProfileId;
 use crate::pane_group::{ExecutionProfileEditorPane, PaneContent};

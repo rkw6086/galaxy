@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use url::Url;
 use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle};
+use url::Url;
 
 use super::super::{DefaultSessionModeBehavior, Direction};
 use super::view::PaneView;
@@ -13,7 +13,7 @@ use super::{
 use crate::app_state::{LeafContents, NotebookPaneSnapshot};
 use crate::cloud_object::Space;
 use crate::drive::items::WarpDriveItemId;
-use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectSettings};
+use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectSettings};
 use crate::notebooks::link::{LinkEvent, NotebookLinks};
 use crate::notebooks::manager::{NotebookManager, NotebookSource};
 use crate::notebooks::notebook::{NotebookEvent, NotebookView};

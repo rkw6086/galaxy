@@ -16,7 +16,6 @@
 //!
 //! Dismissing the block (on click of either option, or when the session is
 //! deregistered) is the parent's responsibility.
-use settings::Setting;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Border, ChildView, Container, CornerRadius, CrossAxisAlignment, Flex, Hoverable,
@@ -28,6 +27,7 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use settings::Setting;
 
 use crate::ai::blocklist::block::keyboard_navigable_buttons::{
     rich_navigation_button, KeyboardNavigableButtons,

@@ -445,5 +445,5 @@ impl SelectableElement for Container {
 }
 
 #[cfg(test)]
-#[path = "container_tests.rs"]
+#[path = "container_test.rs"]
 mod tests;

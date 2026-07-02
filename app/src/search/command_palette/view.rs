@@ -2,8 +2,6 @@ use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use itertools::Itertools;
-use lazy_static::lazy_static;
 use galaxy_core::send_telemetry_from_app_ctx;
 use galaxy_util::path::LineAndColumnArg;
 use galaxyui::elements::{
@@ -19,6 +17,8 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity,
     TypedActionView, ViewContext, ViewHandle, WindowId,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
 
 use super::super::palette_styles as styles;
 use super::CommandPaletteMixer;
@@ -44,7 +44,7 @@ use crate::server::telemetry::{LaunchConfigUiLocation, TelemetryEvent};
 use crate::session_management::SessionSource;
 use crate::settings::CtrlTabBehavior;
 use crate::terminal::keys_settings::KeysSettings;
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::view_components::DismissibleToast;
 use crate::workspace::{active_terminal_in_window, ForkedConversationDestination, WorkspaceAction};
 use crate::{send_telemetry_from_ctx, ToastStack};

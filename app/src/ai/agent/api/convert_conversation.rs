@@ -14,8 +14,8 @@ use ai::agent::action_result::{
 };
 use ai::skills::{ParsedSkill, SkillPathOrigin};
 use chrono::{DateTime, Local, TimeZone};
-use persistence::model::AgentConversationData;
 use galaxy_core::command::ExitCode;
+use persistence::model::AgentConversationData;
 use warp_multi_agent_api as api;
 use warp_multi_agent_api::ask_user_question_result::answer_item::Answer as AskUserQuestionAnswer;
 
@@ -89,6 +89,8 @@ pub fn convert_conversation_data_to_ai_conversation(
             autoexecute_override: None,
             last_event_sequence: None,
             pinned: false,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         },
         RestorationMode::Continue => AgentConversationData {
             server_conversation_token: Some(
@@ -110,6 +112,8 @@ pub fn convert_conversation_data_to_ai_conversation(
             autoexecute_override: None,
             last_event_sequence: None,
             pinned: false,
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
         },
     };
 

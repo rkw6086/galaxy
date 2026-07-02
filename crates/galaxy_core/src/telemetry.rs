@@ -1,10 +1,9 @@
 use galaxyui_core::{AppContext, Entity, SingletonEntity};
-use serde_json::Value;
-use strum::IntoEnumIterator;
-
 #[doc(hidden)]
 #[cfg(not(target_family = "wasm"))]
 pub use inventory::submit;
+use serde_json::Value;
+use strum::IntoEnumIterator;
 
 use crate::features::FeatureFlag;
 
@@ -123,3 +122,34 @@ impl Entity for TelemetryContextModel {
 }
 
 impl SingletonEntity for TelemetryContextModel {}
+
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing {
+    use galaxyui_core::AppContext;
+
+    use crate::telemetry::{TelemetryContextModel, TelemetryContextProvider};
+
+    pub struct MockTelemetryContextProvider {
+        anonymous_id: String,
+    }
+
+    impl MockTelemetryContextProvider {
+        pub fn register(ctx: &mut AppContext) {
+            ctx.add_singleton_model(|_ctx| {
+                let anonymous_id = "mock-anonymous-id".to_string();
+                let provider: TelemetryContextModel = Box::new(Self { anonymous_id });
+                provider
+            });
+        }
+    }
+
+    impl TelemetryContextProvider for MockTelemetryContextProvider {
+        fn user_id(&self, _ctx: &AppContext) -> Option<String> {
+            None
+        }
+
+        fn anonymous_id(&self, _ctx: &AppContext) -> String {
+            self.anonymous_id.clone()
+        }
+    }
+}

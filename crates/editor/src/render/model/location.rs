@@ -4,7 +4,6 @@ use galaxyui::units::{IntoPixels, Pixels};
 use num_traits::SaturatingSub;
 use string_offset::CharOffset;
 use sum_tree::SeekBias;
-use galaxyui_core::units::{IntoPixels, Pixels};
 
 use super::positioned::{Positioned, PositionedCursor};
 use super::{

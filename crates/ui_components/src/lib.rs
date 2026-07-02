@@ -5,9 +5,9 @@ pub mod lightbox;
 pub mod switch;
 pub mod tooltip;
 
-pub use keyboard_shortcut::KeyboardShortcut;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui_core::Element;
+pub use keyboard_shortcut::KeyboardShortcut;
 
 /// A reusable UI component that can be rendered with configurable parameters.
 ///

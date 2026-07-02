@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use instant::Instant;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_editor::editor::NavigationKey;
@@ -22,6 +20,8 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use instant::Instant;
+use pathfinder_geometry::vector::vec2f;
 
 use super::agent_assisted_environment_modal::{
     AgentAssistedEnvironmentModal, AgentAssistedEnvironmentModalEvent,

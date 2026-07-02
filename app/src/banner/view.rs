@@ -1,10 +1,6 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
-};
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, FormattedTextElement,
     HighlightedHyperlink, HyperlinkLens, HyperlinkUrl, MainAxisAlignment, MainAxisSize,
@@ -20,6 +16,7 @@ use galaxyui::{
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
 };
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;

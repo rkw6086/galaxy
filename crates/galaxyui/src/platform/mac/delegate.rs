@@ -4,10 +4,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use cocoa::base::{id, nil, BOOL, NO, YES};
-use objc2::{msg_send, MainThreadMarker};
-use objc2_app_kit::{NSApplication, NSCursor, NSRequestUserAttentionType};
-use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
-use objc2_foundation::NSUInteger;
 use galaxyui_core::accessibility::AccessibilityContent;
 use galaxyui_core::clipboard::InMemoryClipboard;
 use galaxyui_core::keymap::Keystroke;
@@ -20,6 +16,10 @@ use galaxyui_core::platform::{
     SendNotificationErrorCallback, TerminationMode,
 };
 use galaxyui_core::{platform, ApplicationBundleInfo, WindowId};
+use objc2::{msg_send, MainThreadMarker};
+use objc2_app_kit::{NSApplication, NSCursor, NSRequestUserAttentionType};
+use objc2_av_foundation::{AVAuthorizationStatus, AVCaptureDevice, AVMediaTypeAudio};
+use objc2_foundation::NSUInteger;
 
 use super::app::create_native_platform_modal;
 use super::keycode::{modifier_code, Keycode};

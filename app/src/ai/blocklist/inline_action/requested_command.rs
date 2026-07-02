@@ -4,10 +4,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use lazy_static::lazy_static;
-use parking_lot::FairMutex;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting as _;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::Icon;
 use galaxy_editor::render::element::VerticalExpansionBehavior;
@@ -22,6 +18,10 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, EventContext, ModelHandle, SingletonEntity,
     TypedActionView, UpdateView, View, ViewContext, ViewHandle,
 };
+use lazy_static::lazy_static;
+use parking_lot::FairMutex;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting as _;
 
 use super::inline_action_icons::{self, icon_size};
 use crate::ai::agent::conversation::ConversationStatus;

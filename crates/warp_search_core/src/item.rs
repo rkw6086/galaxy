@@ -1,8 +1,8 @@
-use warp_core::ui::theme::Fill;
-use warpui_core::{Action, AppContext, Element};
 use ordered_float::OrderedFloat;
 use warp_core::ui::appearance::Appearance;
+use warp_core::ui::theme::Fill;
 use warpui_core::fonts::FamilyId;
+use warpui_core::{Action, AppContext, Element};
 
 use super::result_renderer::ItemHighlightState;
 

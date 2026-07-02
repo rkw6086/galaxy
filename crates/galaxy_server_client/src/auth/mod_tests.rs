@@ -1,4 +1,4 @@
-use warp_graphql::mutations::update_user_settings::UpdateUserSettingsResult;
+use galaxy_graphql::mutations::update_user_settings::UpdateUserSettingsResult;
 
 use super::AuthClientImpl;
 

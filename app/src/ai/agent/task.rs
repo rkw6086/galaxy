@@ -119,6 +119,7 @@ struct ServerTask {
 }
 
 mod optimistic {
+    use crate::terminal::model::block::BlockId;
 
     #[derive(Debug, Clone)]
     pub(super) struct CLIAgentSubtask {
@@ -211,7 +212,7 @@ impl Task {
                 subagent_params: Some(SubagentParams {
                     tool_call_id: String::new(),
                     call: api::message::tool_call::Subagent {
-                        task_id: task_id,
+                        task_id,
                         payload: String::new(),
                         metadata: Some(Metadata::Cli(
                             api::message::tool_call::subagent::CliSubagent {
@@ -815,13 +816,7 @@ impl Task {
                 "[bedrock] append_to_message_content: message_id={} not found, treating as implicit add",
                 message.id
             );
-            self.add_messages(
-                vec![message],
-                exchange_id,
-                current_todo_list,
-                current_comments,
-                false,
-            )?;
+            self.add_messages(vec![message], exchange_id, message_context, false)?;
             return self
                 .try_get_source()?
                 .messages

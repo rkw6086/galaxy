@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use chrono::Utc;
 use cloud_object_client::MockObjectClient;
+use galaxyui::{App, ModelHandle};
 use lazy_static::lazy_static;
 use mockall::Sequence;
 use rand::Rng;
-use settings::{RespectUserSyncSetting, SyncToCloud};
-use galaxyui::{App, ModelHandle};
+use settings::SyncToCloud;
 
 use super::*;
 use crate::auth::auth_manager::AuthManager;

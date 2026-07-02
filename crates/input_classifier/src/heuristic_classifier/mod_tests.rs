@@ -105,6 +105,12 @@ fn test_input_detection() {
             detected_input_type(&classifier, token, &context).await,
             InputType::AI
         );
+        // Test case for "Can you review this code base"
+        let token = mock_parsed_input_token("Can you review this code base".to_string()).await;
+        assert_eq!(
+            detected_input_type(&classifier, token, &context).await,
+            InputType::AI
+        );
         // Short queries with contractions should be parsed as AI input.
         let mut token = mock_parsed_input_token("What's the reason".to_string()).await;
         token.parsed_tokens[0].token_description = None;

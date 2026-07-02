@@ -3,10 +3,9 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
 
-use galaxyui::{async_assert, integration::TestStep, SingletonEntity};
-use prost::Message;
 use galaxyui::integration::TestStep;
 use galaxyui::{async_assert, SingletonEntity};
+use prost::Message;
 
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::ActionPermission;

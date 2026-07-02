@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::user_preferences::GetUserPreferences;
 use instant::Instant;
 use serde::{Deserialize, Serialize};
 use warp_cli::agent::Harness;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::user_preferences::GetUserPreferences;
 use warp_managed_secrets::client::SecretOwner;
 use warp_managed_secrets::{ManagedSecretManager, ManagedSecretValue};
 use warpui::{Entity, ModelContext, RequestState, SingletonEntity};

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use string_offset::CharOffset;
 #[cfg(not(target_family = "wasm"))]
 use galaxy_core::channel::ChannelState;
 use galaxy_core::send_telemetry_from_ctx;
@@ -12,6 +11,7 @@ use galaxy_editor::search::Searcher;
 use galaxy_editor::search::{RestorableSearchResults, SelectedResult};
 use galaxyui::r#async::SpawnedFutureHandle;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ViewHandle, WeakViewHandle};
+use string_offset::CharOffset;
 
 use crate::code::local_code_editor::LocalCodeEditorView;
 use crate::code_review::code_review_view::CodeReviewView;

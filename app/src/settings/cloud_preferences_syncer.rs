@@ -4,8 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cloud_object_models::JsonSerializer;
-use lazy_static::lazy_static;
-use settings::{Setting as _, SyncToCloud};
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::r#async::debounce;
 use galaxy_core::settings::ChangeEventReason;
@@ -13,6 +11,8 @@ use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::r#async::Timer;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use galaxyui_extras::user_preferences::toml_backed::TomlBackedUserPreferences;
+use lazy_static::lazy_static;
+use settings::{Setting as _, SyncToCloud};
 
 use super::cloud_preferences::{CloudPreferencesSettings, CloudPreferencesSettingsChangedEvent};
 use super::manager::SettingsEvent;

@@ -11,9 +11,6 @@
 
 use std::borrow::Cow;
 
-use lazy_static::lazy_static;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors::neutral_2;
 use galaxyui::elements::{
@@ -23,6 +20,9 @@ use galaxyui::elements::{
 use galaxyui::fonts::FamilyId;
 use galaxyui::keymap::Keystroke;
 use galaxyui::{AppContext, Element, SingletonEntity};
+use lazy_static::lazy_static;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
 
 use super::inline_action_header::HeaderConfig;
 use crate::ai::blocklist::block::view_impl::WithContentItemSpacing;

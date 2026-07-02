@@ -23,8 +23,6 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use anyhow::anyhow;
-use parking_lot::FairMutex;
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::settings::Setting;
 use galaxy_core::ui::appearance::Appearance;
@@ -35,7 +33,6 @@ use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill as ThemeFill;
 use galaxy_core::{report_error, send_telemetry_from_ctx};
 use galaxy_terminal::model::escape_sequences::{BRACKETED_PASTE_END, BRACKETED_PASTE_START};
-use warpify_footer::{WarpifyFooterView, WarpifyFooterViewEvent};
 use galaxyui::elements::{
     ChildView, Container, CrossAxisAlignment, Empty, Expanded, Flex, MainAxisSize, ParentElement,
 };
@@ -45,6 +42,9 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use parking_lot::FairMutex;
+use pathfinder_color::ColorU;
+use warpify_footer::{WarpifyFooterView, WarpifyFooterViewEvent};
 
 use super::{RichContentInsertionPosition, TerminalAction, TerminalView};
 use crate::ai::blocklist::agent_view::agent_view_bg_fill;
@@ -1276,6 +1276,10 @@ pub enum UseAgentToolbarEvent {
     Warpify,
     /// User chose to use the agent.
     UseAgent,
+    StartRemoteControl {
+        scrollback_type: SharedSessionScrollbackType,
+    },
+    StopRemoteControl,
 }
 
 impl Entity for UseAgentToolbar {

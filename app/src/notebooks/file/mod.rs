@@ -2,9 +2,6 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
-#[cfg(not(target_family = "wasm"))]
-use remote_server::manager::RemoteServerManager;
 use galaxy_core::ui::icons::ICON_DIMENSIONS;
 use galaxy_editor::model::CoreEditorModel;
 #[cfg(feature = "local_fs")]
@@ -14,7 +11,7 @@ use galaxy_util::file::FileId;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::path::user_friendly_path;
 use galaxy_util::remote_path::RemotePath;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 #[cfg(feature = "local_fs")]
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
@@ -30,6 +27,9 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+#[cfg(not(target_family = "wasm"))]
+use remote_server::manager::RemoteServerManager;
 
 use super::context_menu::{show_rich_editor_context_menu, ContextMenuAction, ContextMenuState};
 use super::editor::view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorView};

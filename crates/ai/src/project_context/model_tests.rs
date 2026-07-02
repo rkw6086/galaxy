@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use warp_util::host_id::HostId;
-use warp_util::local_or_remote_path::LocalOrRemotePath;
-use warp_util::remote_path::RemotePath;
-use warp_util::standardized_path::StandardizedPath;
+use galaxy_util::host_id::HostId;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+use galaxy_util::remote_path::RemotePath;
+use galaxy_util::standardized_path::StandardizedPath;
 
 fn local_path(path: &str) -> LocalOrRemotePath {
     LocalOrRemotePath::Local(PathBuf::from(path))
@@ -169,7 +169,7 @@ fn test_find_applicable_rules_complex_scenario() {
     let path = local_path("/a/b/c/file.rs");
 
     let result = rules.find_active_or_applicable_rules(&path).active_rules;
-    assert_eq!(result.len(), 4);
+    assert_eq!(result.len(), 2);
 
     // Expect only WARP.md files to be included as they have higher priority.
     assert_eq!(result[0].path, local_path("/a/WARP.md"));

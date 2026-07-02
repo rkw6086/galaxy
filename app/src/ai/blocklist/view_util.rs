@@ -1,8 +1,8 @@
+#![allow(dead_code)]
+
 //! This module contains common utilities for rendering Blocklist AI UI.
 use std::sync::LazyLock;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable, MainAxisAlignment,
@@ -14,8 +14,10 @@ use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text::Span;
 use galaxyui::{AppContext, Element, EntityId, EventContext, SingletonEntity};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
-use crate::themes::theme::{AnsiColorIdentifier, Fill, WarpTheme};
+use crate::themes::theme::{AnsiColorIdentifier, Fill, GalaxyTheme, WarpTheme};
 use crate::ui_components::icons::Icon;
 
 const PROVIDER_BUTTON_ICON_SIZE: f32 = 14.;

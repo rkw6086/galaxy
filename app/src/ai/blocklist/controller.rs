@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! This module contains core business logic for Agent Mode, primarily sending input to an AI
 //! model and receiving output.
 //!
@@ -8,7 +10,7 @@ mod pending_response_streams;
 pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,13 +19,13 @@ use std::time::Duration;
 use ai::skills::SkillPathOrigin;
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
+use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use pending_response_streams::PendingResponseStreams;
 use session_sharing_protocol::common::ParticipantId;
 pub use slash_command::*;
-use galaxy_core::assertions::safe_assert;
 use warp_multi_agent_api::{message, Task, ToolType};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
@@ -58,6 +60,7 @@ use crate::ai::document::ai_document_model::{
     AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
 };
 use crate::ai::llms::{LLMId, LLMPreferences};
+use crate::ai::provider::types::ContentPart;
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::features::FeatureFlag;
@@ -1688,6 +1691,65 @@ impl BlocklistAIController {
         self.pending_passive_follow_ups.remove(&conversation_id);
     }
 
+    fn check_and_record_loop_detection(
+        &mut self,
+        conversation_id: AIConversationId,
+        results: &[AIAgentActionResult],
+    ) -> Option<String> {
+        use std::hash::{Hash, Hasher};
+
+        let state = self.loop_detection.entry(conversation_id).or_default();
+        let mut has_success = false;
+
+        for result in results {
+            if result.result.is_failed() {
+                let discriminant = std::mem::discriminant(&result.result);
+                // Use a stable description that includes the tool type and the *input*
+                // (command, file paths, etc.) but NOT the variable output, so the same
+                // failing command with different output is still recognized as a loop.
+                let description = result.result.loop_description();
+
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                discriminant.hash(&mut hasher);
+                description.hash(&mut hasher);
+                let input_hash = hasher.finish();
+
+                state.record_failure(LoopDetectionEntry {
+                    tool_discriminant: discriminant,
+                    input_hash,
+                    description: description.clone(),
+                });
+            } else if result.result.is_successful() {
+                has_success = true;
+            }
+        }
+
+        // If we had at least one success in this batch, clear loop state —
+        // the agent is making progress.
+        if has_success {
+            state.clear();
+            return None;
+        }
+
+        // Check for loops
+        if let Some(looping_entry) = state.detect_loop() {
+            let warning = format!(
+                "[SYSTEM] Loop detected: the same action has failed {} or more times consecutively. \
+                 Do NOT repeat this action or any similar approach.\n\n\
+                 Failing action: {}\n\n\
+                 Take a completely different approach to accomplish the goal. \
+                 If you cannot find an alternative, explain to the user what is failing and why.",
+                LOOP_DETECTION_THRESHOLD,
+                looping_entry.description
+            );
+            // Clear the state so we don't keep injecting on every subsequent turn
+            state.clear();
+            Some(warning)
+        } else {
+            None
+        }
+    }
+
     fn conversation_ready_for_pending_events(
         &self,
         conversation_id: AIConversationId,
@@ -2766,7 +2828,7 @@ impl BlocklistAIController {
                     .conversation(&conversation_id)
                     .is_some_and(|c| c.status().is_in_progress())
                 {
-                    let terminal_view_id = self.terminal_view_id;
+                    let terminal_view_id = self.terminal_surface_id;
                     history_model.update(ctx, |history_model, ctx| {
                         if let Some(conversation) = history_model.conversation_mut(&conversation_id)
                         {
@@ -3288,7 +3350,7 @@ impl BlocklistAIController {
                         );
                         history_model.update(ctx, |history_model, ctx| {
                             history_model.update_conversation_status(
-                                self.terminal_view_id,
+                                self.terminal_surface_id,
                                 conversation_id,
                                 crate::ai::agent::conversation::ConversationStatus::Success,
                                 ctx,
@@ -3605,28 +3667,41 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        use settings::Setting;
+
         use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
         use crate::ai::bedrock::convert::{ConversationMessage, MessageContent, MessageRole};
         use crate::ai::bedrock::response_translator::{
             context_window_for_model, estimate_cost_cents,
         };
         use crate::settings::ai::AISettings;
-        use settings::Setting;
 
         let settings = AISettings::as_ref(ctx);
         if !*settings.bedrock_enabled.value() {
             return;
         }
 
-        let config = BedrockClientConfig {
+        let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
+        let mut config = BedrockClientConfig {
             auth_method: *settings.bedrock_auth_method.value(),
             profile: settings.bedrock_profile.value().clone(),
             region: settings.bedrock_region.value().clone(),
             access_key_id: settings.bedrock_access_key_id.value().clone(),
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            session_token: None,
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+        };
+
+        if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
+            api_key_manager.aws_credentials_state()
+        {
+            config.auth_method = crate::settings::BedrockAuthMethod::StaticKeys;
+            config.access_key_id = credentials.access_key().to_string();
+            config.secret_access_key = credentials.secret_key().to_string();
+            config.session_token = credentials.session_token().map(|s| s.to_string());
         }
-        .with_external_fallbacks();
+
+        let config = config.with_external_fallbacks();
 
         let cross_region = config.cross_region_inference;
         // Use Sonnet for summarization — cheaper and fast enough for this task
@@ -3764,7 +3839,7 @@ impl BlocklistAIController {
                         // Use the conversation's active model for context window sizing,
                         // not the summarizer model.
                         let active_model_id = crate::ai::llms::LLMPreferences::as_ref(ctx)
-                            .get_active_base_model(ctx, Some(me.terminal_view_id))
+                            .get_active_base_model(ctx, Some(me.terminal_surface_id))
                             .id
                             .to_string();
 
@@ -3838,7 +3913,7 @@ impl BlocklistAIController {
                         });
 
                         // Update cost tracking
-                        history_model.update(ctx, |history_model, _| {
+                        history_model.update(ctx, |history_model, ctx| {
                             use warp_multi_agent_api::response_event::stream_finished;
                             let token_usage = vec![stream_finished::TokenUsage {
                                 model_id: "bedrock".to_string(),
@@ -3854,6 +3929,7 @@ impl BlocklistAIController {
                                 token_usage,
                                 None,
                                 false,
+                                ctx,
                             );
                         });
                     }

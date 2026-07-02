@@ -1,3 +1,5 @@
+#![allow(deprecated, dead_code)]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -5,14 +7,14 @@ use std::time::Duration;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::channel::mpsc;
-use uuid::Uuid;
 use galaxy_cli::agent::Harness;
 use galaxy_core::features::FeatureFlag;
-use warp_multi_agent_api as api;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::{
     Entity, EntityId, GetSingletonModelHandle, ModelContext, SingletonEntity, UpdateModel,
 };
+use uuid::Uuid;
+use warp_multi_agent_api as api;
 
 use super::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use super::orchestration_events::{

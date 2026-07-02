@@ -3,15 +3,15 @@
 use std::mem;
 use std::sync::Arc;
 
-use ordered_float::OrderedFloat;
-use parking_lot::Once;
-use vec1::{Vec1, vec1};
 use galaxyui_core::color::ColorU;
 use galaxyui_core::elements::{Border, Fill, ListIndentLevel};
 use galaxyui_core::fonts::{FamilyId, Weight};
 use galaxyui_core::geometry::vector::vec2f;
 use galaxyui_core::text_layout::{CaretPosition, Glyph, Line, Run, TextFrame};
 use galaxyui_core::units::{IntoPixels, Pixels};
+use ordered_float::OrderedFloat;
+use parking_lot::Once;
+use vec1::{Vec1, vec1};
 
 use super::{
     BlockItem, BrokenLinkStyle, CheckBoxStyle, DEFAULT_BLOCK_SPACINGS, HorizontalRuleStyle,
@@ -310,12 +310,12 @@ pub fn layout(text: &str, styles: &RichTextStyles, max_width: impl IntoPixels) -
 
 /// Initialize logging for tests. This should be called at the start of any test that needs logging.
 pub fn init_logging() {
-    // If multiple tests run in the same process, we should still only set up logging once.
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        env_logger::builder()
+        let _ = env_logger::builder()
             .parse_filters("galaxy_editor=trace")
             .is_test(true)
-            .init();
+            .try_init();
     });
 }
+

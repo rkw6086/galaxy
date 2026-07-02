@@ -84,6 +84,7 @@ pub fn read_folders(
 }
 
 pub fn delete_folder(conn: &mut SqliteConnection, folder_id: i32) -> Result<(), Error> {
+    use schema::folders::dsl::*;
     diesel::delete(folders.filter(id.eq(folder_id))).execute(conn)?;
     Ok(())
 }

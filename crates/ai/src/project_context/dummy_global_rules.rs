@@ -1,4 +1,4 @@
-use warp_util::local_or_remote_path::LocalOrRemotePath;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui_core::ModelContext;
 
 use super::model::{ProjectContextModel, ProjectRule};

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use mockall::predicate::eq;
+use chrono::Utc;
 use galaxy_core::features::FeatureFlag;
+use mockall::predicate::eq;
 use warpui::App;
 
 use super::*;
@@ -162,6 +163,7 @@ fn ai_conversation_new_restored_preserves_last_event_sequence() {
         autoexecute_override: None,
         last_event_sequence: Some(42),
         pinned: false,
+        ..Default::default()
     };
     let conversation =
         AIConversation::new_restored(AIConversationId::new(), vec![task], Some(data))
@@ -221,7 +223,6 @@ fn make_ambient_task_with_task_id(
 fn make_server_metadata_with_harness(
     harness: AIAgentHarness,
 ) -> crate::ai::agent::conversation::ServerAIConversationMetadata {
-
     use crate::ai::agent::api::ServerConversationToken;
     use crate::cloud_object::{Revision, ServerMetadata, ServerPermissions};
     use crate::persistence::model::ConversationUsageMetadata;
@@ -240,6 +241,7 @@ fn make_server_metadata_with_harness(
             token_usage: vec![],
             tool_usage_metadata: Default::default(),
             context_window_segments: Vec::new(),
+            ..Default::default()
         },
         metadata: ServerMetadata {
             uid: ServerId::default(),
@@ -262,9 +264,6 @@ fn make_server_metadata_with_harness(
 
 #[test]
 fn dormant_local_claude_child_skips_generic_sse_but_allows_wake_listener() {
-
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -317,9 +316,6 @@ fn dormant_local_claude_child_skips_generic_sse_but_allows_wake_listener() {
 
 #[test]
 fn persist_event_cursor_keeps_the_max_sequence_and_updates_history_model() {
-
-
-
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
         let (sender, receiver) = std::sync::mpsc::sync_channel::<ModelEvent>(4);
@@ -378,8 +374,6 @@ fn persist_event_cursor_keeps_the_max_sequence_and_updates_history_model() {
 
 #[test]
 fn wake_ready_does_not_advance_cursor_before_wake_preparation() {
-
-
     use crate::ai::agent::conversation::AIConversation;
     use crate::ai::agent_events::AgentMessageEventMetadata;
     use crate::server::server_api::ai::{AIClient, MockAIClient};
@@ -438,9 +432,7 @@ fn wake_ready_does_not_advance_cursor_before_wake_preparation() {
 
 #[test]
 fn dormant_local_claude_child_uses_task_harness_when_server_metadata_missing() {
-
     use warp_cli::agent::Harness;
-
 
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
@@ -562,9 +554,6 @@ async fn dormant_claude_wake_consumer_stops_on_first_target_event() {
 
 #[test]
 fn restored_conversations_initialize_v2_streaming_state() {
-
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -643,9 +632,6 @@ async fn sse_forwarding_consumer_skips_message_hydration_when_disabled() {
 }
 #[test]
 fn finish_restore_fetch_uses_server_cursor_when_sqlite_is_absent() {
-
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -697,9 +683,6 @@ fn finish_restore_fetch_uses_server_cursor_when_sqlite_is_absent() {
 
 #[test]
 fn handle_event_batch_persists_max_seq_to_history_model() {
-
-
-
     App::test((), |mut app| async move {
         // `update_event_sequence` calls `write_updated_conversation_state`,
         // which reads `GeneralSettings`, `AppExecutionMode`, and the global
@@ -922,8 +905,6 @@ fn finish_restore_fetch_no_ops_when_conversation_deleted_mid_flight() {
     // uses the missing entry as a sentinel and must not re-populate
     // streamer state for the deleted conversation.
 
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -986,8 +967,6 @@ fn finish_restore_fetch_err_does_not_resurrect_deleted_conversation() {
     // defeat the deletion sentinel inside the retry timer and cause an
     // indefinite retry loop).
 
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -1046,8 +1025,6 @@ fn on_conversation_removed_prunes_stale_child_run_id_from_parent() {
     // model after the removal, which always returned `None` because the
     // history model emits `RemoveConversation` after dropping the record.
 
-
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -1099,9 +1076,6 @@ fn on_conversation_removed_prunes_stale_child_run_id_from_parent() {
 
 #[test]
 fn on_conversation_removed_prunes_killed_child_run_id_from_parent_but_keeps_tombstone() {
-
-
-
     App::test((), |mut app| async move {
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -1447,7 +1421,6 @@ fn viewer_mode_consumer_refcount_handles_multiple_panes_and_double_unregister() 
 
 #[test]
 fn is_remote_run_view_excludes_shared_session_viewer() {
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -1479,7 +1452,6 @@ fn is_remote_run_view_excludes_shared_session_viewer() {
 
 #[test]
 fn is_remote_run_view_excludes_remote_child() {
-
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
@@ -1589,8 +1561,6 @@ fn finish_restore_fetch_reconnects_sse_when_children_added_to_open_connection() 
     // When a status transition races with the restore fetch and opens SSE
     // before children are known, finish_restore_fetch must reconnect SSE
     // with the updated run_id set rather than leaving children unwatched.
-
-
 
     App::test((), |mut app| async move {
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));

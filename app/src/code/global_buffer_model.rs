@@ -7,24 +7,23 @@ use std::time::Duration;
 use bimap::BiMap;
 use futures_util::stream::AbortHandle;
 use galaxy_core::features::FeatureFlag;
-use galaxy_editor::content::buffer::Buffer;
+use galaxy_core::safe_error;
+use galaxy_editor::content::buffer::{Buffer, BufferEvent, ToBufferCharOffset};
 use galaxy_editor::content::diff::{text_diff, TextDiff};
 use galaxy_editor::content::edit::PreciseDelta;
 use galaxy_editor::content::version::BufferVersion;
 use galaxy_util::content_version::ContentVersion;
 use galaxy_util::file::{FileId, FileLoadError, FileSaveError};
+use galaxy_util::host_id::HostId;
+use galaxy_util::remote_path::RemotePath;
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::r#async::Timer;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity, WeakModelHandle};
 use lsp::types::TextDocumentContentChangeEvent;
 use lsp::{LspManagerModel, LspServerLogLevel, LspServerModel};
 use remote_server::manager::RemoteServerManager;
 use string_offset::{ByteOffset, CharOffset};
 use vec1::vec1;
-use galaxy_core::safe_error;
-use galaxy_editor::content::buffer::{Buffer, ToBufferCharOffset};
-use galaxy_util::host_id::HostId;
-use galaxy_util::remote_path::RemotePath;
-use galaxy_util::standardized_path::StandardizedPath;
-use galaxyui::r#async::Timer;
 
 use super::buffer_location::{LocalOrRemotePath, SyncClock};
 
@@ -1208,7 +1207,6 @@ impl GlobalBufferModel {
 
         let path_clone = path.to_path_buf();
         ctx.subscribe_to_model(&buffer, move |me, _, event, ctx| {
-
             let Some(state) = me.buffers.get(&file_id) else {
                 me.log_lsp_sync_debug(
                     &path_clone,

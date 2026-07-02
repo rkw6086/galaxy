@@ -7,11 +7,10 @@ use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{Container, Element, Empty, MouseStateHandle};
 use galaxyui::keymap::Keystroke;
 use galaxyui::platform::OperatingSystem;
-use galaxyui::{AppContext, Entity, ModelHandle, SingletonEntity, View, ViewContext};
-use parking_lot::FairMutex;
 use galaxyui::{
     AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use parking_lot::FairMutex;
 
 use super::{AgentViewState, EphemeralMessageModel, EphemeralMessageModelEvent};
 use crate::ai::agent::conversation::AIConversation;

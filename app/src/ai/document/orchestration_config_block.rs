@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use ai::agent::action::RunAgentsExecutionMode;
 use ai::agent::orchestration_config::OrchestrationConfigStatus;
+use galaxy_core::send_telemetry_from_ctx;
 use pathfinder_geometry::vector::vec2f;
 use warp_cli::agent::Harness;
-use galaxy_core::send_telemetry_from_ctx;
 use warpui::elements::{
     ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Flex, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
@@ -714,7 +714,9 @@ impl View for OrchestrationConfigBlockView {
         let card = Container::new(column.finish())
             .with_uniform_padding(12.)
             .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-            .with_background(galaxy_core::ui::theme::color::internal_colors::accent_overlay_1(theme))
+            .with_background(
+                galaxy_core::ui::theme::color::internal_colors::accent_overlay_1(theme),
+            )
             .with_border(warpui::elements::Border::all(1.).with_border_fill(theme.accent()))
             .finish();
 

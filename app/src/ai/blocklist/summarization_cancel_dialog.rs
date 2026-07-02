@@ -1,12 +1,14 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
-use galaxyui::elements::{Align, Container, CrossAxisAlignment, Dismiss, Flex, ParentElement, Stack};
+use galaxyui::elements::{
+    Align, Container, CrossAxisAlignment, Dismiss, Flex, ParentElement, Stack,
+};
 use galaxyui::fonts::Weight;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{BorderStyle, Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::ui_components::buttons;

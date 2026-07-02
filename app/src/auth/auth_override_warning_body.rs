@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::color::darken;

@@ -3,11 +3,11 @@ use std::fmt;
 use std::sync::Arc;
 
 use channel_versions::{Changelog, MarkdownSection};
-use itertools::Itertools;
-use markdown_parser::{parse_markdown, FormattedText};
 use galaxyui::assets::asset_cache::{AssetCache, AssetSource};
 use galaxyui::image_cache::ImageType;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
+use itertools::Itertools;
+use markdown_parser::{parse_markdown, FormattedText};
 
 use crate::autoupdate::{self};
 use crate::channel::{Channel, ChannelState};

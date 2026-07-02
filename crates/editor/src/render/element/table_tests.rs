@@ -1,14 +1,14 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use pathfinder_color::ColorU;
-use string_offset::CharOffset;
 use galaxyui_core::elements::{Axis, scroll_delta_for_pointer_movement};
 use galaxyui_core::fonts::FamilyId;
 use galaxyui_core::geometry::rect::RectF;
 use galaxyui_core::geometry::vector::vec2f;
 use galaxyui_core::text_layout::TextFrame;
 use galaxyui_core::units::{IntoPixels, Pixels};
+use pathfinder_color::ColorU;
+use string_offset::CharOffset;
 
 use crate::content::text::{FormattedTable, table_cell_offset_maps};
 use crate::render::element::table::{

@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use cynic::{MutationBuilder, QueryBuilder};
-#[cfg(test)]
-use mockall::{automock, predicate::*};
 use galaxy_graphql::mutations::add_invite_link_domain_restriction::{
     AddInviteLinkDomainRestriction, AddInviteLinkDomainRestrictionInput,
     AddInviteLinkDomainRestrictionResult, AddInviteLinkDomainRestrictionVariables,
@@ -56,6 +54,8 @@ use galaxy_graphql::queries::get_discoverable_teams::{
 use galaxy_graphql::queries::get_workspaces_metadata_for_user::{
     GetWorkspacesMetadataForUser, GetWorkspacesMetadataForUserVariables, PricingInfoResult,
 };
+#[cfg(test)]
+use mockall::{automock, predicate::*};
 
 use super::ServerApi;
 use crate::auth::UserUid;

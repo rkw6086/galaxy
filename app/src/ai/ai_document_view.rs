@@ -2,7 +2,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::icons;
 use galaxy_core::ui::icons::ICON_DIMENSIONS;
 use galaxy_core::ui::theme::Fill as ThemeFill;
@@ -20,6 +19,7 @@ use galaxyui::{
     id, AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;

@@ -3,15 +3,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use galaxy_core::ui::builder;
-use galaxyui::{
-    elements::{ConstrainedBox, Container, Text},
-    AppContext, Element, SingletonEntity,
-};
+use galaxyui::elements::{ConstrainedBox, Container, Text};
+use galaxyui::{AppContext, Element, SingletonEntity};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use serde_json::json;
-use galaxyui::elements::{ConstrainedBox, Container, Text};
-use galaxyui::{AppContext, Element, SingletonEntity};
 
 use super::workflows::{WorkflowIdentity, WorkflowSearchItem};
 use crate::ai::AIRequestUsageModel;
@@ -257,6 +253,7 @@ impl DataSourceRunError for GenerateCommandsFromNaturalLanguageError {
 }
 
 mod styles {
+    use crate::appearance::Appearance;
 
     /// Returns the icon size to be used for the 'sparkle' icon in the AI command search result.
     /// The icon appeaars smaller than its size would indicate, so make a bit larger than icons

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Renders the AI output portion of the AI block.
 //!
 //! This includes text, code snippets, suggested commands, and interactive inline action UX.
@@ -14,12 +16,6 @@ use ai::agent::action::{
 };
 use ai::agent::file_locations::group_file_contexts_for_display;
 use ai::skills::{ParsedSkill, SkillReference};
-use indexmap::IndexMap;
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
@@ -37,6 +33,12 @@ use galaxyui::ui_components::radio_buttons::{RadioButtonItem, RadioButtonLayout}
 use galaxyui::{
     Action, AppContext, Element, EntityId, ModelHandle, SingletonEntity, View, ViewHandle,
 };
+use indexmap::IndexMap;
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 use super::common::{
     format_elapsed_seconds, render_debug_footer, render_failed_output, render_informational_footer,
@@ -93,6 +95,7 @@ use crate::ai::blocklist::inline_action::requested_command::RequestedCommand;
 use crate::ai::blocklist::inline_action::run_agents_card_view::RunAgentsCardView;
 use crate::ai::blocklist::inline_action::search_codebase::SearchCodebaseView;
 use crate::ai::blocklist::inline_action::suggested_unit_tests::SuggestedUnitTestsView;
+use crate::ai::blocklist::inline_action::summarization::SummarizationView;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::keyboard_navigable_buttons::KeyboardNavigableButtons;
@@ -170,6 +173,7 @@ pub(crate) struct Props<'a> {
     pub(super) disable_rule_suggestions_button: &'a ViewHandle<ActionButton>,
     pub(super) current_todo_list: Option<&'a AIAgentTodoList>,
     pub(super) has_accepted_edits: bool,
+    pub(super) is_usage_footer_expanded: bool,
     pub(super) finish_reason: Option<&'a FinishReason>,
     pub(super) shared_session_status: &'a SharedSessionStatus,
     pub(super) terminal_view_id: EntityId,
@@ -886,13 +890,9 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                         AIAgentOutputMessageType::Summarization {
                             text,
                             finished_duration,
-                            summarization_type,
+                            summarization_type: SummarizationType::ConversationSummary,
                             ..
-                        } if matches!(
-                            summarization_type,
-                            SummarizationType::ConversationSummary
-                        ) =>
-                        {
+                        } => {
                             if let Some(summarization_view) =
                                 props.summarization_views.get(&output_message.id)
                             {

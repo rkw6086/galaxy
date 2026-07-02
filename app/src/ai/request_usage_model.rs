@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use ai::api_keys::ApiKeyManager;
 use chrono::{DateTime, Local, Utc};
-use instant::Instant;
-use serde::{Deserialize, Serialize};
 use galaxy_core::user_preferences::GetUserPreferences as _;
 pub use galaxy_graphql::billing::BonusGrantType;
 use galaxy_graphql::scalars::time::ServerTimestamp;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
+use instant::Instant;
+use serde::{Deserialize, Serialize};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;

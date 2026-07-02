@@ -19,11 +19,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use context_chip::PromptGenerator;
-use serde::{Deserialize, Serialize};
-use smol_str::SmolStr;
 use galaxyui::color::ColorU;
 use galaxyui::elements::Text;
 use galaxyui::fonts::{Properties, Weight};
+use serde::{Deserialize, Serialize};
+use smol_str::SmolStr;
 
 #[allow(unused_imports)]
 pub use self::context_chip::{
@@ -629,11 +629,8 @@ pub fn chips_to_string(chips: impl Iterator<Item = ChipResult>) -> String {
         match (chip_kind, next_chip_kind) {
             // Omit the space between adjacent Svn chips.
             (ContextChipKind::SvnBranch, Some(ContextChipKind::SvnDirtyItems)) => (),
-            (_, Some(_)) => {
-                // Add padding after non-empty chips.
-                if !chip_display_value.is_empty() {
-                    prompt.push(' ');
-                }
+            (_, Some(_)) if !chip_display_value.is_empty() => {
+                prompt.push(' ');
             }
             _ => (),
         }

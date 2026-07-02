@@ -8,11 +8,11 @@ use ai::skills::{
     provider_parent_directory_for_skills_root, provider_rank, ParsedSkill, SkillPathOrigin,
     SkillProvider,
 };
-use lazy_static::lazy_static;
-use siphasher::sip::SipHasher;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::Icon;
+use lazy_static::lazy_static;
+use siphasher::sip::SipHasher;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::prelude::MouseStateHandle;
 use warpui::{AppContext, Element, EventContext, SingletonEntity};

@@ -5,8 +5,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use instant::Instant;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::builder::MIN_FONT_SIZE;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -31,6 +29,8 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle, WindowId,
 };
+use instant::Instant;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::cloud_object::model::generic_string_model::StringModel;

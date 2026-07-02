@@ -1,8 +1,8 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
 use galaxy_core::ui::color::ContrastingColor;
 use galaxy_core::ui::theme::Fill;
+use pathfinder_color::ColorU;
 
 use super::DriveObjectType;
 use crate::ui_components::blended_colors;

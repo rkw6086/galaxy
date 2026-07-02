@@ -13,6 +13,8 @@ use std::{io, ptr};
 
 use anyhow::{Context as _, Error, Result};
 use command::blocking::Command;
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
 use libc::{self, c_int, winsize, TIOCSCTTY};
 use mio::unix::SourceFd;
@@ -21,8 +23,6 @@ use nix::pty::openpty;
 use nix::sys::termios::{self, InputFlags, SetArg};
 use serde::{Deserialize, Serialize};
 use signal_hook_mio::v1_0::Signals;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::features::FeatureFlag;
 use warpui::{AppContext, SingletonEntity};
 
 use super::event_loop::{PTY_TOKEN, SIGNALS_TOKEN};

@@ -6,11 +6,11 @@ use chrono::{DateTime, Utc};
 use cloud_object_client::MockObjectClient;
 use cloud_object_models::JsonSerializer;
 use futures_lite::future;
-use settings::{RespectUserSyncSetting, SyncToCloud};
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::object_permissions::AccessLevel;
 use galaxy_graphql::scalars::time::ServerTimestamp;
 use galaxyui::{App, ModelHandle, SingletonEntity};
+use settings::SyncToCloud;
 
 use super::{GetCloudObjectResponse, InitialLoadResponse, UpdateManager};
 use crate::ai::cloud_environments::{

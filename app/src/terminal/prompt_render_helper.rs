@@ -1,7 +1,6 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use settings::Setting as _;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxyui::elements::{
     Container, DispatchEventResult, Element, EventHandler, SavePosition, SelectableArea,
@@ -11,6 +10,7 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::presenter::ChildView;
 use galaxyui::units::Pixels;
 use galaxyui::{AppContext, EntityId, ModelAsRef, ModelHandle, SingletonEntity, ViewHandle};
+use settings::Setting as _;
 
 use super::input::InputRenderStateModel;
 use super::model::block::Block;

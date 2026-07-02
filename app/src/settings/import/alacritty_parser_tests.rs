@@ -1,8 +1,7 @@
 use async_io::block_on;
-use galaxy_core::ui::{color::hex_color::coloru_from_hex_string, theme::AnsiColor};
-use virtual_fs::{Stub, VirtualFS};
 use galaxy_core::ui::color::hex_color::coloru_from_hex_string;
 use galaxy_core::ui::theme::AnsiColor;
+use virtual_fs::{Stub, VirtualFS};
 
 use super::{
     AlacrittyColors, AlacrittyConfig, AlacrittyTheme, PrimaryAlacrittyColors, RecursivelyParseable,

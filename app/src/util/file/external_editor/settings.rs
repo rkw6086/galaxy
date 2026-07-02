@@ -1,6 +1,6 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, SupportedPlatforms, SyncToCloud};
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 pub use crate::util::openable_file_type::EditorLayout;
 

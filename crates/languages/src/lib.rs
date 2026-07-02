@@ -5,10 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use arborium::tree_sitter::{Language as ParserGrammar, Query};
 use galaxy_editor::content::text::IndentUnit;
+use galaxy_util::standardized_path::StandardizedPath;
 use lazy_static::lazy_static;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-use galaxy_util::standardized_path::StandardizedPath;
 
 #[derive(RustEmbed)]
 #[folder = "grammars"]
@@ -18,7 +18,7 @@ lazy_static! {
     static ref LANGUAGE_REGISTRY: LanguageRegistry = LanguageRegistry::new();
 }
 
-pub const SUPPORTED_LANGUAGES: [&str; 34] = [
+pub const SUPPORTED_LANGUAGES: [&str; 33] = [
     "rust",
     "golang",
     "yaml",
@@ -39,7 +39,6 @@ pub const SUPPORTED_LANGUAGES: [&str; 34] = [
     "hcl",
     "lua",
     "ruby",
-    "php",
     "toml",
     "swift",
     "kotlin",
@@ -180,7 +179,6 @@ fn language_by_filename_parts(
         "lua" => language_by_name("lua"),
         "nix" => language_by_name("nix"),
         "rb" => language_by_name("ruby"),
-        "php" | "phtml" => language_by_name("php"),
         "toml" => language_by_name("toml"),
         "swift" => language_by_name("swift"),
         "kt" | "kts" => language_by_name("kotlin"),
@@ -277,7 +275,6 @@ fn get_arborium_highlight_query(lang: &str) -> Option<&str> {
         "lua" => Some(arborium::lang_lua::HIGHLIGHTS_QUERY),
         "nix" => Some(arborium::lang_nix::HIGHLIGHTS_QUERY),
         "ruby" => Some(arborium::lang_ruby::HIGHLIGHTS_QUERY),
-        "php" => Some(arborium::lang_php::HIGHLIGHTS_QUERY),
         "toml" => Some(arborium::lang_toml::HIGHLIGHTS_QUERY),
         "swift" => Some(arborium::lang_swift::HIGHLIGHTS_QUERY),
         "kotlin" => Some(arborium::lang_kotlin::HIGHLIGHTS_QUERY),

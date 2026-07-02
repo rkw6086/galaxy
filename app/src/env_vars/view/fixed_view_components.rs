@@ -1,5 +1,3 @@
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CrossAxisAlignment, Empty, Flex, MainAxisAlignment,
@@ -9,6 +7,8 @@ use galaxyui::fonts::Weight;
 use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{Element, ViewContext};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::drive::sharing::{ContentEditability, SharingAccessLevel};
 use crate::env_vars::active_env_var_collection_data::TrashStatus;

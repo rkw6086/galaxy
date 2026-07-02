@@ -40,9 +40,20 @@ use futures::future::BoxFuture;
 #[cfg(feature = "local_fs")]
 use futures::AsyncReadExt;
 use futures::FutureExt;
+use galaxy_core::execution_mode::AppExecutionMode;
+use galaxy_core::features::FeatureFlag;
+#[cfg(feature = "local_fs")]
+use galaxy_files::{FileModel, TextFileReadResult};
+#[cfg(feature = "local_fs")]
+use galaxy_util::file::FileLoadError;
+#[cfg(feature = "local_fs")]
+use galaxy_util::file_type::is_buffer_binary;
+use galaxyui::r#async::{Spawnable, SpawnableOutput};
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use grep::GrepExecutor;
 #[cfg(feature = "local_fs")]
 use mime_guess::from_path;
+use notebooks::NotebookExecutor;
 use parking_lot::FairMutex;
 use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
@@ -69,16 +80,6 @@ pub use suggest_prompt::PromptSuggestionExecutor;
 use upload_artifact::UploadArtifactExecutor;
 use use_computer::UseComputerExecutor;
 use wait_for_events::WaitForEventsExecutor;
-use galaxy_core::execution_mode::AppExecutionMode;
-use galaxy_core::features::FeatureFlag;
-#[cfg(feature = "local_fs")]
-use galaxy_files::{FileModel, TextFileReadResult};
-#[cfg(feature = "local_fs")]
-use galaxy_util::file::FileLoadError;
-#[cfg(feature = "local_fs")]
-use galaxy_util::file_type::is_buffer_binary;
-use galaxyui::r#async::{Spawnable, SpawnableOutput};
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use self::search_codebase::SearchCodebaseExecutor;
 use crate::ai::agent::conversation::AIConversationId;

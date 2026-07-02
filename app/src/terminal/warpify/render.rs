@@ -1,9 +1,5 @@
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement,
     HighlightedHyperlink, Icon, MouseStateHandle, ParentElement, Radius, Rect, Shrinkable, Stack,
@@ -12,6 +8,10 @@ use galaxyui::elements::{
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::ui_components::components::{UiComponent as _, UiComponentStyles};
 use galaxyui::{AppContext, Element, EventContext, PaintContext, SingletonEntity as _};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::settings::WarpifySettings;
 use super::SubshellSource;

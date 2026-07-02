@@ -1,7 +1,7 @@
-use galaxyui::ui_components::button::ButtonVariant;
 use std::fmt::Display;
 
 use galaxyui::elements::MouseStateHandle;
+use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::Element;
 

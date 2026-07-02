@@ -8,10 +8,10 @@ mod util;
 mod window;
 
 use async_trait::async_trait;
+use galaxyui_core::r#async::Timer;
 use pathfinder_geometry::vector::Vector2I;
 use post::PostTarget;
 use util::{display_scale_factor_for_window, main_display_scale_factor};
-use galaxyui_core::r#async::Timer;
 
 use crate::{Action, ActionResult, Options, Target, TargetedAction};
 

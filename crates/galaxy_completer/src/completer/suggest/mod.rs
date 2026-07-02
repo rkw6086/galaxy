@@ -10,12 +10,12 @@ use std::hash::{Hash, Hasher};
 
 use alias::{expand_command_aliases, AliasExpansionResult};
 use async_recursion::async_recursion;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
 use imp::*;
 use itertools::Itertools;
 pub use priority::Priority;
 use smol_str::SmolStr;
 use warp_command_signatures::IconType;
-use galaxy_core::ui::theme::AnsiColorIdentifier;
 
 use super::coalesce::coalesce_completion_results;
 use super::context::CompletionContext;

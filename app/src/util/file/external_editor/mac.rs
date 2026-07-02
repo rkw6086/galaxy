@@ -2,13 +2,13 @@ use std::fmt::Write;
 use std::path::Path;
 
 use command::r#async::Command;
+use galaxy_core::channel::ChannelState;
+use galaxy_core::AppId;
+use galaxyui::ApplicationBundleInfo;
 use instant::Instant;
 use objc2::rc::{autoreleasepool, Retained};
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSBundle, NSString, NSURL};
-use galaxy_core::channel::ChannelState;
-use galaxy_core::AppId;
-use galaxyui::ApplicationBundleInfo;
 
 use super::*;
 

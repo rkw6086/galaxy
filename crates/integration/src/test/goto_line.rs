@@ -1,3 +1,4 @@
+use galaxyui_core::{async_assert_eq, App};
 use regex::Regex;
 use warp::integration_testing::goto_line::{
     assert_code_editor_line_numbers, assert_cursor_at_line, assert_cursor_at_line_and_column,
@@ -10,7 +11,6 @@ use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for
 use warp::integration_testing::view_getters::{pane_group_view, workspace_view};
 use warp::settings::CodeEditorLineNumberMode;
 use warp::workspace::WorkspaceAction;
-use galaxyui_core::{async_assert_eq, App};
 
 use super::{new_builder, Builder};
 use crate::util::write_all_rc_files_for_test;

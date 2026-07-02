@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 
 use futures::future::BoxFuture;
 use futures::FutureExt as _;
+use galaxy_core::SessionId;
 use galaxyui::{AppContext, SingletonEntity as _};
 use serde::{Deserialize, Serialize};
-use galaxy_core::SessionId;
 
 use super::shell::DirectShellStarter;
 #[cfg(feature = "local_tty")]

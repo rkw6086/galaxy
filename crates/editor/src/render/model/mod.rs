@@ -7,18 +7,6 @@ use std::sync::Arc;
 use std::{fmt, mem};
 
 use float_cmp::ApproxEq;
-use itertools::Itertools;
-use markdown_parser::TableAlignment;
-use num_traits::SaturatingSub;
-use ordered_float::OrderedFloat;
-use parking_lot::Mutex;
-use rangemap::RangeSet;
-use serde::{Deserialize, Serialize};
-use serde_yaml::Mapping;
-use string_offset::{CharOffset, impl_offset};
-use sum_tree::{SeekBias, SumTree};
-use vec1::Vec1;
-use vim::vim::{MotionType, VimMode};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::Icon;
 use galaxy_core::ui::theme::Fill as ThemeFill;
@@ -38,6 +26,18 @@ use galaxyui_core::text_selection_utils::{
 };
 use galaxyui_core::units::{IntoPixels, Pixels};
 use galaxyui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
+use itertools::Itertools;
+use markdown_parser::TableAlignment;
+use num_traits::SaturatingSub;
+use ordered_float::OrderedFloat;
+use parking_lot::Mutex;
+use rangemap::RangeSet;
+use serde::{Deserialize, Serialize};
+use serde_yaml::Mapping;
+use string_offset::{CharOffset, impl_offset};
+use sum_tree::{SeekBias, SumTree};
+use vec1::Vec1;
+use vim::vim::{MotionType, VimMode};
 
 use self::location::WrapDirection;
 pub use self::location::{HitTestOptions, Location};
@@ -2241,10 +2241,7 @@ impl RenderState {
         } else {
             0
         };
-        loop {
-            let Some(item) = cursor.positioned_item() else {
-                break;
-            };
+        while let Some(item) = cursor.positioned_item() {
             if item.start_line != previous_line {
                 index_within_line = 0;
             } else {
@@ -3190,9 +3187,11 @@ impl RenderState {
                 self.reveal_offset_in_table(*character_offset)
             }
             AutoScrollMode::ScrollToActiveSelections { .. } => {
-                self.selections().iter().fold(false, |changed, selection| {
-                    self.reveal_offset_in_table(selection.head) || changed
-                })
+                let mut changed = false;
+                for selection in self.selections().iter() {
+                    changed = self.reveal_offset_in_table(selection.head) || changed;
+                }
+                changed
             }
         }
     }

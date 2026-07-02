@@ -5,10 +5,6 @@ use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationConfigSt
 use ai::document::AIDocumentId;
 use ai::skills::SkillPathOrigin;
 use chrono::{DateTime, Local, TimeZone};
-use itertools::Itertools as _;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use vec1::{Size0Error, Vec1};
 use galaxy_cli::agent::Harness;
 use galaxy_core::command::ExitCode;
 use galaxy_core::execution_mode::AppExecutionMode;
@@ -16,12 +12,16 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
+use galaxyui::color::ColorU;
+use galaxyui::{AppContext, EntityId, ModelContext, SingletonEntity};
+use itertools::Itertools as _;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use vec1::{Size0Error, Vec1};
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::response_event::stream_finished::TokenUsage;
 use warp_multi_agent_api::{self as api};
-use galaxyui::color::ColorU;
-use galaxyui::{AppContext, EntityId, ModelContext, SingletonEntity};
 
 use super::api::ServerConversationToken;
 use super::task::helper::*;
@@ -327,6 +327,12 @@ pub struct AIConversation {
     /// Whether the user has pinned this child agent in the orchestration
     /// pill bar. Persisted via `AgentConversationData.pinned`.
     pinned: bool,
+    bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    progressive_summary: Option<String>,
+    messages_summarized_up_to: usize,
+    current_context_tokens: u32,
+    has_pending_progressive_summary: bool,
 }
 
 pub(crate) fn artifact_from_fork_proto(
@@ -382,6 +388,12 @@ impl AIConversation {
             last_event_sequence: None,
             orchestration_configs: HashMap::new(),
             pinned: false,
+            bedrock_message_history: Vec::new(),
+            tool_result_archive: Vec::new(),
+            progressive_summary: None,
+            messages_summarized_up_to: 0,
+            current_context_tokens: 0,
+            has_pending_progressive_summary: false,
         }
     }
 
@@ -413,6 +425,12 @@ impl AIConversation {
         tasks: Vec<api::Task>,
         conversation_data: Option<AgentConversationData>,
     ) -> Result<Self, RestoreConversationError> {
+        let bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage> = tasks
+            .iter()
+            .flat_map(|task| task.messages.iter())
+            .filter_map(crate::ai::bedrock::request_translator::convert_proto_message)
+            .collect();
+
         let (task_store, todo_lists, status) = if tasks.is_empty() {
             // Bypass `derive_status_from_root_task`: it would return `Success`
             // for a root with no exchanges, silently misclassifying a restored
@@ -518,6 +536,8 @@ impl AIConversation {
             autoexecute_override,
             last_event_sequence,
             pinned,
+            progressive_summary,
+            messages_summarized_up_to,
         ) = if let Some(data) = conversation_data {
             let server_conversation_token = data
                 .server_conversation_token
@@ -565,6 +585,8 @@ impl AIConversation {
                 autoexecute_override,
                 data.last_event_sequence,
                 data.pinned,
+                data.progressive_summary.clone(),
+                data.messages_summarized_up_to,
             )
         } else {
             (
@@ -582,7 +604,31 @@ impl AIConversation {
                 AIConversationAutoexecuteMode::default(),
                 None,
                 false,
+                None,
+                0,
             )
+        };
+
+        let restored_token_usage = {
+            let mut map = HashMap::new();
+            let cache_read = conversation_usage_metadata.total_cache_read_tokens;
+            let cache_write = conversation_usage_metadata.total_cache_write_tokens;
+            let cache_miss = conversation_usage_metadata.total_cache_miss_tokens;
+            let cost = conversation_usage_metadata.total_cost_cents;
+            if cache_read > 0 || cache_write > 0 || cache_miss > 0 || cost > 0.0 {
+                map.insert(
+                    "restored".to_string(),
+                    TokenUsage {
+                        model_id: "restored".to_string(),
+                        total_input: cache_miss,
+                        output: 0,
+                        input_cache_read: cache_read,
+                        input_cache_write: cache_write,
+                        cost_in_cents: cost,
+                    },
+                );
+            }
+            map
         };
 
         Ok(Self {
@@ -622,11 +668,33 @@ impl AIConversation {
             last_event_sequence,
             orchestration_configs: HashMap::new(),
             pinned,
+            bedrock_message_history,
+            tool_result_archive: Vec::new(),
+            progressive_summary,
+            messages_summarized_up_to,
+            current_context_tokens: 0,
+            has_pending_progressive_summary: false,
         })
     }
 
     pub fn id(&self) -> AIConversationId {
         self.id
+    }
+
+    pub fn current_context_tokens(&self) -> u32 {
+        self.current_context_tokens
+    }
+
+    pub fn set_current_context_tokens(&mut self, val: u32) {
+        self.current_context_tokens = val;
+    }
+
+    pub fn has_pending_progressive_summary(&self) -> bool {
+        self.has_pending_progressive_summary
+    }
+
+    pub fn set_has_pending_progressive_summary(&mut self, val: bool) {
+        self.has_pending_progressive_summary = val;
     }
 
     pub fn bedrock_message_history(&self) -> &[crate::ai::bedrock::convert::ConversationMessage] {
@@ -763,6 +831,10 @@ impl AIConversation {
 
     pub fn context_window_usage(&self) -> f32 {
         self.conversation_usage_metadata.context_window_usage
+    }
+
+    pub fn set_context_window_usage(&mut self, val: f32) {
+        self.conversation_usage_metadata.context_window_usage = val;
     }
 
     /// The per-segment breakdown of the context window (e.g. system prompt,
@@ -963,7 +1035,7 @@ impl AIConversation {
 
         // Sanity check: reject durations that are clearly wrong (> 24 hours
         // likely means start_time defaulted to epoch during session restore).
-        if ms < 0 || ms > 86_400_000 {
+        if !(0..=86_400_000).contains(&ms) {
             return None;
         }
         Some(ms)
@@ -2447,7 +2519,7 @@ impl AIConversation {
                 let is_hidden = self.is_exchange_hidden(exchange_id);
                 ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                     exchange_id,
-                    terminal_view_id,
+                    terminal_surface_id: terminal_view_id,
                     conversation_id: self.id,
                     is_hidden,
                 });
@@ -3278,7 +3350,7 @@ impl AIConversation {
                         response_stream_id: Some(response_stream_id.clone()),
                         exchange_id,
                         task_id: task_id.clone(),
-                        terminal_view_id,
+                        terminal_surface_id,
                         conversation_id: self.id,
                         is_hidden,
                     });
@@ -3465,7 +3537,7 @@ impl AIConversation {
         &mut self,
         block_id: &BlockId,
     ) -> TaskId {
-        let new_task = Task::new_optimistic_cli_agent_subtask(block_id.clone());
+        let new_task = Task::new_optimistic_cli_agent_subtask(block_id.clone(), None);
         let new_task_id = new_task.id().clone();
         self.optimistic_cli_subagent_subtask_id = Some(new_task_id.clone());
         self.task_store.insert(new_task);
@@ -3670,6 +3742,8 @@ impl AIConversation {
                 autoexecute_override: Some(self.autoexecute_override.into()),
                 last_event_sequence: self.last_event_sequence,
                 pinned: self.pinned,
+                progressive_summary: self.progressive_summary.clone(),
+                messages_summarized_up_to: self.messages_summarized_up_to,
             },
         };
         ctx.spawn(
@@ -4784,7 +4858,7 @@ impl ConversationStatus {
 
     pub fn status_icon_and_color(
         &self,
-        theme: &WarpTheme,
+        theme: &GalaxyTheme,
         color_style: StatusColorStyle,
     ) -> (Icon, ColorU) {
         match self {

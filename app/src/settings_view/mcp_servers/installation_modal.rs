@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use markdown_parser::parse_markdown;
 use galaxy_core::ui::external_product_icon::ExternalProductIcon;
 use galaxy_core::ui::icons::Icon;
+use markdown_parser::parse_markdown;
 use warpui::elements::{
     Align, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
     Flex, FormattedTextElement, HighlightedHyperlink, Hoverable, MainAxisAlignment,

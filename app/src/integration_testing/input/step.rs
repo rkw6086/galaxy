@@ -1,8 +1,7 @@
 use galaxyui::integration::TestStep;
-use galaxyui::{windowing::WindowManager, SingletonEntity};
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::windowing::WindowManager;
 use galaxyui::SingletonEntity;
+use pathfinder_geometry::vector::Vector2F;
 
 use crate::ai::blocklist::agent_view::AgentInputFooterEvent;
 use crate::ai::blocklist::{InputConfig, InputType};

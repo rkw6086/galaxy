@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use galaxy_core::report_error;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, AnsiColors};
 use serde::Serialize;
 use string_offset::CharCounter;
 use warp_completer::signatures::CommandRegistry;
 use warp_completer::util::parse_current_commands_and_tokens;
 use warp_completer::ParsedTokensSnapshot;
-use galaxy_core::report_error;
-use galaxy_core::ui::theme::{AnsiColorIdentifier, AnsiColors};
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::new_scrollable::{ClippedAxisConfiguration, DualAxisConfig, NewScrollable};
 use warpui::elements::{

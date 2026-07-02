@@ -61,8 +61,8 @@ cfg_if::cfg_if! {
     }
 }
 
-use ignore::gitignore::Gitignore;
 use galaxyui_core::ModelContext;
+use ignore::gitignore::Gitignore;
 
 use crate::file_tree_store::{
     FileTreeDirectoryEntryState, FileTreeEntry, FileTreeEntryState, FileTreeFileMetadata,

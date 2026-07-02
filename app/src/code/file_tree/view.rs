@@ -4,22 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use editing::sort_entries_for_file_tree;
-use galaxy_util::path::LineAndColumnArg;
-use galaxy_util::standardized_path::StandardizedPath;
-use itertools::Itertools;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
-use render::RenderState;
-use repo_metadata::file_tree_store::{
-    FileTreeDirectoryEntryState, FileTreeEntryState, FileTreeFileMetadata,
-};
-use repo_metadata::local_model::IndexedRepoState;
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::{FileTreeEntry, RepoMetadataModel};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 use galaxy_core::{send_telemetry_from_ctx, HostId};
+use galaxy_util::path::LineAndColumnArg;
+use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     AcceptedByDropTarget, Align, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,
@@ -37,6 +27,16 @@ use galaxyui::{
     id, AppContext, BlurContext, Element, Entity, EventContext, ModelHandle, SingletonEntity as _,
     TypedActionView, View, ViewContext, ViewHandle, WeakViewHandle,
 };
+use itertools::Itertools;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
+use render::RenderState;
+use repo_metadata::file_tree_store::{
+    FileTreeDirectoryEntryState, FileTreeEntryState, FileTreeFileMetadata,
+};
+use repo_metadata::local_model::IndexedRepoState;
+use repo_metadata::repositories::DetectedRepositories;
+use repo_metadata::{FileTreeEntry, RepoMetadataModel};
 
 use crate::appearance::Appearance;
 use crate::code::active_file::{ActiveFileEvent, ActiveFileModel};
@@ -371,8 +371,8 @@ impl FileTreeView {
             // workspace via `set_remote_root_directories`.
             let existing_remote_ids: Vec<_> = self
                 .root_directories
-                .iter()
-                .filter_map(|(_, root_dir)| {
+                .values()
+                .filter_map(|root_dir| {
                     let host_id = root_dir.remote_host_id.as_ref()?;
                     Some(repo_metadata::RemoteRepositoryIdentifier::new(
                         host_id.clone(),

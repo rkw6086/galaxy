@@ -14,12 +14,12 @@ use command::blocking;
 use command::r#async::Command;
 use futures::{StreamExt, TryStreamExt as _};
 use futures_lite::future;
-use instant::Instant;
-use nix::errno::Errno;
-use nix::unistd::{fchown, getgid, getuid};
 use galaxy_core::macos::get_bundle_path;
 use galaxy_core::safe_error;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
+use instant::Instant;
+use nix::errno::Errno;
+use nix::unistd::{fchown, getgid, getuid};
 
 use super::{release_assets_directory_url, DownloadReady};
 use crate::appearance::AppearanceManager;

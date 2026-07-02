@@ -23,6 +23,8 @@ use base64::engine::general_purpose;
 use base64::Engine as _;
 use element::CommandXRayMouseStateHandle;
 use figma_utils::is_figma_png;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::{safe_error, send_telemetry_from_ctx};
 use itertools::{Either, Itertools};
 use mime_guess::from_path;
 use model::{
@@ -49,12 +51,10 @@ use vim::{
     vim_inner_quote, vim_inner_word, vim_word_iterator_from_offset,
 };
 use warp_completer::completer::Description;
-use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_core::{safe_error, send_telemetry_from_ctx};
 use warp_editor::editor::NavigationKey;
 use warp_util::path::ShellFamily;
 use warp_util::user_input::UserInput;
-use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use warpui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use warpui::actions::StandardAction;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
@@ -7482,11 +7482,8 @@ impl EditorView {
     }
 
     fn focused_in_active_window(&self, ctx: &AppContext) -> bool {
-        let active = self
-            .windowing_state_handle
-            .as_ref(ctx)
-            .state()
-            .active_window;
+        let manager = self.windowing_state_handle.as_ref(ctx);
+        let active = manager.state().active_window.or_else(|| manager.active_window());
         Some(self.window_id) == active && self.focused
     }
 

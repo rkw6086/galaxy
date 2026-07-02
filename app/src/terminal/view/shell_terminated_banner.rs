@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::builder::UiBuilder;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::*;
 use galaxyui::text_layout::ClipConfig;

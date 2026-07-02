@@ -1,11 +1,11 @@
 use galaxy_core::features::FeatureFlag;
-use itertools::Itertools;
-use markdown_parser::parse_markdown;
-use string_offset::CharOffset;
 use galaxyui_core::App;
 use galaxyui_core::text::TextBuffer;
 use galaxyui_core::text::point::Point;
 use galaxyui_core::text::word_boundaries::WordBoundariesPolicy;
+use itertools::Itertools;
+use markdown_parser::parse_markdown;
+use string_offset::CharOffset;
 
 use crate::content::buffer::{Buffer, EditOrigin};
 use crate::content::selection_model::BufferSelectionModel;

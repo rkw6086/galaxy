@@ -1,8 +1,8 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use instant::Instant;
 use galaxy_core::channel::IapConfig;
+use instant::Instant;
 
 use super::*;
 

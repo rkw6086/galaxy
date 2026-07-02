@@ -2,13 +2,13 @@ mod model;
 
 use std::borrow::Cow;
 
-pub use model::*;
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     Border, Container, CrossAxisAlignment, Expanded, Flex, ParentElement, Text,
 };
+pub use model::*;
+use pathfinder_color::ColorU;
 use warpui::keymap::Keystroke;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{AppContext, Element, SingletonEntity};
@@ -259,6 +259,7 @@ pub fn render_agent_shortcuts_view(
 }
 
 pub mod styles {
+    use super::Appearance;
 
     pub fn keystroke_size(appearance: &Appearance) -> f32 {
         font_size(appearance) + 2.

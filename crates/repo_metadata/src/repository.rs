@@ -14,8 +14,8 @@ use galaxyui_core::SingletonEntity;
 use galaxyui_core::{Entity, ModelContext, ModelHandle};
 #[cfg(feature = "local_fs")]
 use ignore::gitignore::Gitignore;
-#[cfg(feature = "local_fs")]
 
+#[cfg(feature = "local_fs")]
 #[cfg(feature = "local_fs")]
 use crate::watcher::DirectoryWatcher;
 use crate::watcher::TaskQueue;

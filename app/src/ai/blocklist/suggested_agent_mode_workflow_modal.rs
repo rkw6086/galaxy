@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::sync::Arc;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
@@ -15,7 +14,7 @@ use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
-use std::{collections::HashMap, default::Default, sync::Arc};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent::SuggestedAgentModeWorkflow;
 use crate::modal::{Modal, ModalEvent};

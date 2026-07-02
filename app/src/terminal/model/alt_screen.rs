@@ -3,12 +3,12 @@ use std::io;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
+use galaxy_core::semantic_selection::SemanticSelection;
 use itertools::Itertools;
 use num_traits::Float as _;
 use parking_lot::Mutex;
 use pathfinder_color::ColorU;
 use vec1::Vec1;
-use galaxy_core::semantic_selection::SemanticSelection;
 use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use warpui::text::SelectionType;
 use warpui::units::Lines;

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::{AppContext, EntityId, SingletonEntity, ViewContext, ViewHandle, WindowId};
+use serde::{Deserialize, Serialize};
 
 use super::OneTimeModalModel;
 use crate::appearance::Appearance;

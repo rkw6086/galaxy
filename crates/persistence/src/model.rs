@@ -1021,7 +1021,7 @@ fn is_false(value: &bool) -> bool {
 }
 
 // Serializes to `conversation_data` column in `agent_conversations`.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentConversationData {
     pub server_conversation_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1080,6 +1080,12 @@ pub struct AgentConversationData {
     /// pill bar. Orchestrator conversations always serialize as `false`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pinned: bool,
+    /// Progressive summary of older conversation messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progressive_summary: Option<String>,
+    /// Number of messages that were summarized into progressive_summary.
+    #[serde(default)]
+    pub messages_summarized_up_to: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1479,6 +1485,14 @@ pub struct ConversationUsageMetadata {
     pub tool_usage_metadata: ToolUsageMetadata,
     #[serde(default)]
     pub context_window_segments: Vec<ContextWindowSegment>,
+    #[serde(default)]
+    pub total_cache_read_tokens: u32,
+    #[serde(default)]
+    pub total_cache_write_tokens: u32,
+    #[serde(default)]
+    pub total_cache_miss_tokens: u32,
+    #[serde(default)]
+    pub total_cost_cents: f32,
 }
 
 impl ConversationUsageMetadata {

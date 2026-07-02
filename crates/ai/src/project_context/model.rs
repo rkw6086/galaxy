@@ -56,12 +56,21 @@ pub struct ProjectRule {
 #[derive(Debug, Clone)]
 struct RuleAtPath {
     parent_path: LocalOrRemotePath,
+    galaxy_md: Option<ProjectRule>,
     warp_md: Option<ProjectRule>,
     claude_md: Option<ProjectRule>,
     agents_md: Option<ProjectRule>,
 }
 
 impl RuleAtPath {
+    fn respected_rule(&self) -> Option<&ProjectRule> {
+        self.galaxy_md
+            .as_ref()
+            .or(self.warp_md.as_ref())
+            .or(self.claude_md.as_ref())
+            .or(self.agents_md.as_ref())
+    }
+
     fn all_rules(&self) -> Vec<&ProjectRule> {
         [
             self.galaxy_md.as_ref(),
@@ -105,8 +114,10 @@ impl ProjectRules {
     #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
     fn rule_paths(&self) -> impl Iterator<Item = &LocalOrRemotePath> {
         self.rules.iter().flat_map(|rule| {
-            rule.warp_md
+            rule.galaxy_md
                 .iter()
+                .chain(rule.warp_md.iter())
+                .chain(rule.claude_md.iter())
                 .chain(rule.agents_md.iter())
                 .map(|rule| &rule.path)
         })
@@ -120,11 +131,25 @@ impl ProjectRules {
     fn retain_rule_paths(&mut self, retained_paths: &HashSet<LocalOrRemotePath>) {
         self.rules.retain_mut(|rule| {
             if rule
+                .galaxy_md
+                .as_ref()
+                .is_some_and(|rule| !retained_paths.contains(&rule.path))
+            {
+                rule.galaxy_md = None;
+            }
+            if rule
                 .warp_md
                 .as_ref()
                 .is_some_and(|rule| !retained_paths.contains(&rule.path))
             {
                 rule.warp_md = None;
+            }
+            if rule
+                .claude_md
+                .as_ref()
+                .is_some_and(|rule| !retained_paths.contains(&rule.path))
+            {
+                rule.claude_md = None;
             }
             if rule
                 .agents_md
@@ -133,7 +158,10 @@ impl ProjectRules {
             {
                 rule.agents_md = None;
             }
-            rule.warp_md.is_some() || rule.agents_md.is_some()
+            rule.galaxy_md.is_some()
+                || rule.warp_md.is_some()
+                || rule.claude_md.is_some()
+                || rule.agents_md.is_some()
         });
     }
     /// Finds the set of rules that are active in the given path and the set that are available to be applied.
@@ -185,15 +213,22 @@ impl ProjectRules {
             None => {
                 let mut rule = RuleAtPath {
                     parent_path: parent,
+                    galaxy_md: None,
                     warp_md: None,
+                    claude_md: None,
                     agents_md: None,
                 };
-                if file_name.to_lowercase() == "warp.md" {
-                    rule.warp_md = rule_file;
+                if file_name.to_lowercase() == "galaxy.md" {
+                    rule.galaxy_md = rule_file.clone();
+                } else if file_name.to_lowercase() == "warp.md" {
+                    rule.warp_md = rule_file.clone();
+                } else if file_name.to_lowercase() == "claude.md" {
+                    rule.claude_md = rule_file.clone();
                 } else if file_name.to_lowercase() == "agents.md" {
-                    rule.agents_md = rule_file;
+                    rule.agents_md = rule_file.clone();
                 }
                 self.rules.push(rule);
+                self.rules.last_mut().unwrap()
             }
         };
 

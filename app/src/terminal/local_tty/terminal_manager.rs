@@ -10,14 +10,14 @@ use std::thread::JoinHandle;
 
 use anyhow::Context as _;
 use async_broadcast::InactiveReceiver;
+use galaxy_core::SessionId;
+use galaxyui::r#async::executor::Background;
+use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, ViewHandle};
 #[cfg(unix)]
 use nix::sys::termios::LocalFlags;
 use parking_lot::{FairMutex, Mutex};
 use pathfinder_geometry::vector::Vector2F;
 use settings::Setting as _;
-use galaxy_core::SessionId;
-use galaxyui::r#async::executor::Background;
-use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, ViewHandle};
 
 use super::event_loop::EventLoop;
 use super::shell::{ShellStarter, ShellStarterSource};

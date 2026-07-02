@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pathfinder_geometry::rect::RectF;
-use serde::{Deserialize, Serialize};
 use galaxyui::platform::FullscreenState;
 use galaxyui::{AppContext, SingletonEntity as _};
+use pathfinder_geometry::rect::RectF;
+use serde::{Deserialize, Serialize};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent_conversations_model::AgentManagementFilters;

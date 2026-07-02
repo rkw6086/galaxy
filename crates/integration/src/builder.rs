@@ -180,7 +180,7 @@ impl Builder {
 
             // Set the DISABLE_SAVE_ENV_VAR to make sure we don't write any keybinding changes to the
             // filesystem
-            utils.set_env(galaxy::keyboard::DISABLE_SAVE_ENV_VAR, Some("true"));
+            utils.set_env(warp::keyboard::DISABLE_SAVE_ENV_VAR, Some("true"));
 
             // On Ubuntu (and possibly other Linux distros), a message is
             // printed out during shell initialization telling the user how to
@@ -200,7 +200,7 @@ impl Builder {
         // As part of initializing the test driver, $HOME gets set to a unique
         // temporary directory.  We can now construct a file containing any
         // initial user preferences that are needed for the test.
-        let file_path = galaxy::settings::user_preferences_file_path();
+        let file_path = warp::settings::user_preferences_file_path();
         // Use println because logging may not have been initialized yet.
         println!("Initializing preferences file at {file_path:?}");
         let prefs = match FileBackedUserPreferences::new(file_path.clone()) {

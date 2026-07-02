@@ -1,8 +1,10 @@
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_core::execution_mode;
 use galaxyui::telemetry::EventPayload;
+use serde_json::{json, Value};
 
 use super::telemetry::rudder_message::{
     BatchMessage as RudderBatchMessage, BatchMessageItem as RudderBatchMessageItem,

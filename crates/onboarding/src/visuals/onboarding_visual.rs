@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::Icon;
 use galaxyui_core::assets::asset_cache::{AssetCache, AssetSource, AssetState};
 use galaxyui_core::elements::{CornerRadius, Fill, Point, Radius};
@@ -10,6 +9,7 @@ use galaxyui_core::{
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, PaintContext,
     SingletonEntity as _, SizeConstraint,
 };
+use pathfinder_color::ColorU;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RectPct {

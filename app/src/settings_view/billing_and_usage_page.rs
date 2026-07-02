@@ -3,12 +3,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Local;
-use itertools::Itertools;
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use settings::Setting;
-use thousands::Separable;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
@@ -29,6 +23,12 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, UpdateView, View,
     ViewContext, ViewHandle,
 };
+use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
+use thousands::Separable;
 
 use super::admin_actions::AdminActions;
 use super::billing_and_usage::overage_limit_modal::{SpendingLimitModal, SpendingLimitModalEvent};
@@ -1072,8 +1072,10 @@ impl BillingAndUsagePageAction {
 impl From<&BillingAndUsagePageAction> for LoginGatedFeature {
     fn from(val: &BillingAndUsagePageAction) -> LoginGatedFeature {
         match val {
-            Upgrade { .. } => "Upgrade Plan",
-            GenerateStripeBillingPortalLink { .. } => "Generate Stripe Billing Portal Link",
+            BillingAndUsagePageAction::Upgrade { .. } => "Upgrade Plan",
+            BillingAndUsagePageAction::GenerateStripeBillingPortalLink { .. } => {
+                "Generate Stripe Billing Portal Link"
+            }
             _ => "Unknown reason",
         }
     }

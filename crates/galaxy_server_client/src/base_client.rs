@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use futures::StreamExt as _;
+use galaxy_graphql::client::RequestOptions;
 use instant::Duration;
 use parking_lot::{Mutex, RwLock};
-use warp_graphql::client::RequestOptions;
 use warp_server_auth::auth_state::AuthState;
 use warp_server_auth::credentials::AuthToken;
 
@@ -110,7 +110,7 @@ pub struct BaseClient {
     auth_state: Arc<AuthState>,
     event_sender: async_channel::Sender<AuthEvent>,
     auth_session: Arc<AuthSession>,
-    ambient_workload_token: Arc<Mutex<Option<warp_isolation_platform::WorkloadToken>>>,
+    ambient_workload_token: Arc<Mutex<Option<galaxy_isolation_platform::WorkloadToken>>>,
     ambient_agent_task_id: Arc<RwLock<Option<String>>>,
     agent_source: Option<String>,
     graphql_routing: GraphqlRoutingConfig,
@@ -274,13 +274,13 @@ impl BaseClient {
                 }
             }
         }
-        let workload_token = match warp_isolation_platform::issue_workload_token(Some(
+        let workload_token = match galaxy_isolation_platform::issue_workload_token(Some(
             AMBIENT_WORKLOAD_TOKEN_DURATION,
         ))
         .await
         {
             Ok(token) => token,
-            Err(warp_isolation_platform::IsolationPlatformError::NoIsolationPlatformDetected) => {
+            Err(galaxy_isolation_platform::IsolationPlatformError::NoIsolationPlatformDetected) => {
                 return Ok(None);
             }
             Err(error) => return Err(error.into()),
@@ -369,6 +369,7 @@ impl BaseClient {
 
     /// Wraps an eventsource stream so IAP challenges notify the application without changing the
     /// original stream result or reconnecting it.
+    #[allow(clippy::result_large_err)]
     pub fn wrap_eventsource_with_iap_detection(
         &self,
         stream: http_client::EventSourceStream,

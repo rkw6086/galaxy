@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
 use email_address::EmailAddress;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::Fill as ThemeFill;
 use inheritance::{InheritanceDetails, InheritanceState};
 use itertools::Itertools;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use session_sharing_protocol::common::{Guest, PendingGuest, SessionId, TeamAclData};
-use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::Fill as ThemeFill;
 use warp_editor::editor::NavigationKey;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{

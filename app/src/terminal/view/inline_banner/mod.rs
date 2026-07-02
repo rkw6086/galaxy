@@ -21,15 +21,6 @@ pub use alias_expansion::*;
 pub use anonymous_user_ai_sign_up::*;
 pub use aws_bedrock_login::*;
 pub use aws_cli_not_installed::*;
-pub use notifications_discovery::*;
-pub use notifications_error::*;
-pub use open_in_warp::*;
-pub use passive_code_diff::*;
-use pathfinder_color::ColorU;
-pub use session_state::*;
-pub use shared_sessions::*;
-pub use shell_process_terminated::*;
-pub use vim_mode::*;
 use galaxyui::elements::{
     Align, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, SavePosition,
@@ -39,6 +30,15 @@ use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::Element;
+pub use notifications_discovery::*;
+pub use notifications_error::*;
+pub use open_in_warp::*;
+pub use passive_code_diff::*;
+use pathfinder_color::ColorU;
+pub use session_state::*;
+pub use shared_sessions::*;
+pub use shell_process_terminated::*;
+pub use vim_mode::*;
 
 pub use self::prompt_suggestions::*;
 use crate::appearance::Appearance;

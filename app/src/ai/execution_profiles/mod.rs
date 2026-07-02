@@ -3,9 +3,9 @@ pub use cloud_object_models::{
     CloudAIExecutionProfileModel, ComputerUsePermission, RunAgentsPermission, WriteToPtyPermission,
     PROFILE_NAME_MAX_LENGTH,
 };
-use markdown_parser::{FormattedTextFragment, FormattedTextInline};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity};
+use markdown_parser::{FormattedTextFragment, FormattedTextInline};
 
 use super::llms::{LLMContextWindow, LLMInfo, LLMPreferences, LLMProvider};
 use crate::cloud_object::model::generic_string_model::StringModel;

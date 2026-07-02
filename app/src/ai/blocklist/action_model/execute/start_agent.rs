@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use shell_words::split as split_shell_words;
 use galaxy_cli::agent::Harness;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
+use shell_words::split as split_shell_words;
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
@@ -485,7 +485,7 @@ impl StartAgentExecutor {
 
         // In local mode (no parent_run_id), block until the child finishes
         // so the parent model receives the child's output as the tool result.
-        let wait_for_completion = parent_run_id.is_none();
+        let _wait_for_completion = parent_run_id.is_none();
 
         let (sender, receiver) = async_channel::bounded(1);
         let request_id = self.next_request_id();

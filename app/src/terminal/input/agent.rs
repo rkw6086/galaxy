@@ -5,10 +5,11 @@ use galaxyui::elements::{
     Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, DropTarget, Element, Empty, EventHandler, Expanded, Flex, Hoverable,
     MainAxisSize, OffsetPositioning, OffsetType, ParentElement, PositionedElementOffsetBounds,
-    PositioningAxis, Radius, SavePosition, Stack, XAxisAnchor, YAxisAnchor,
+    PositioningAxis, Radius, SavePosition, Stack, Text, XAxisAnchor, YAxisAnchor,
 };
 use galaxyui::presenter::ChildView;
 use galaxyui::{AppContext, SingletonEntity as _};
+use pathfinder_color::ColorU;
 
 use super::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_voltron_overlay,

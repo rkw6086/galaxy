@@ -2,9 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_channel::TryRecvError;
-use parking_lot::Mutex;
-use string_offset::CharOffset;
-use tempfile::tempdir;
 use galaxy_editor::content::mermaid_diagram::mermaid_asset_source;
 use galaxy_editor::render::element::RichTextAction;
 use galaxy_editor::render::model::{
@@ -19,7 +16,12 @@ use galaxyui::presenter::ChildView;
 use galaxyui::r#async::block_on;
 use galaxyui::units::Pixels;
 use galaxyui::windowing::WindowManager;
-use galaxyui::{App, Element, Entity, SingletonEntity, TypedActionView, View, ViewHandle, WindowId};
+use galaxyui::{
+    App, Element, Entity, SingletonEntity, TypedActionView, View, ViewHandle, WindowId,
+};
+use parking_lot::Mutex;
+use string_offset::CharOffset;
+use tempfile::tempdir;
 
 use super::{EditorViewAction, LayoutAffectingAssetLoad, RichTextEditorConfig, RichTextEditorView};
 use crate::appearance::Appearance;

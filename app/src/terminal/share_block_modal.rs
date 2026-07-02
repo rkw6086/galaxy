@@ -2,10 +2,6 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use anyhow::Result;
-use parking_lot::FairMutex;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use serde::Serialize;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::browser::escape_html_attribute;
@@ -31,6 +27,10 @@ use galaxyui::{
     LayoutContext, PaintContext, SingletonEntity, SizeConstraint, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use parking_lot::FairMutex;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use serde::Serialize;
 
 use super::grid_renderer::CellGlyphCache;
 use super::model::grid::RespectDisplayedOutput;
@@ -53,7 +53,7 @@ use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::model::ObfuscateSecrets;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::TerminalModel;
-use crate::themes::theme::WarpTheme;
+use crate::themes::theme::GalaxyTheme;
 use crate::ui_components::icons::Icon;
 use crate::util::bindings::CustomAction;
 use crate::view_components::ToastFlavor;

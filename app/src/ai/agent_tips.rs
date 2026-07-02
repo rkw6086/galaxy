@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use markdown_parser::FormattedTextFragment;
+use rand::seq::SliceRandom;
 use warpui::keymap::Keystroke;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
@@ -623,7 +624,6 @@ impl AITipModel<crate::terminal::view::ambient_agent::CloudModeTip> {
         if self.cooldown_handle.is_some() {
             return;
         }
-
 
         // Select a random tip
         let mut rng = rand::thread_rng();

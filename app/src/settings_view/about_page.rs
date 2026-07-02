@@ -1,10 +1,10 @@
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext, ViewHandle};
 use warpui::assets::asset_cache::AssetSource;
 use warpui::elements::{
     Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Image,
     MainAxisAlignment, MouseStateHandle, ParentElement, Wrap,
 };
-use galaxyui::ui_components::components::UiComponent;
-use galaxyui::{AppContext, Entity, View, ViewContext, ViewHandle};
 
 use super::settings_page::{
     MatchData, PageType, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
@@ -13,6 +13,7 @@ use super::settings_page::{
 use super::SettingsSection;
 use crate::appearance::Appearance;
 use crate::channel::ChannelState;
+use crate::settings::app_icon::AppIconSettings;
 use crate::themes::theme::ColorScheme;
 use crate::workspace::WorkspaceAction;
 

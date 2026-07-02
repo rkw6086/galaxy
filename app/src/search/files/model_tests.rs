@@ -1,9 +1,7 @@
-use fuzzy_match::FuzzyMatchResult;
 use galaxyui::{App, SingletonEntity};
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::RepoMetadataModel;
 
-use super::super::search_item::{FileSearchItem, FileSearchResult};
 use super::FileSearchModel;
 
 #[cfg(test)]
@@ -177,6 +175,9 @@ mod file_search_model_tests {
 
 #[cfg(test)]
 mod file_search_item_tests {
+    use fuzzy_match::FuzzyMatchResult;
+
+    use crate::search::files::search_item::{FileSearchItem, FileSearchResult};
 
     #[test]
     fn test_file_search_item_from_result() {
@@ -254,6 +255,7 @@ mod file_search_item_tests {
 mod strip_absolute_path_prefix_tests {
     use std::path::{Path, PathBuf};
 
+    use super::FileSearchModel;
 
     /// Builds an absolute path from the given components, using the platform's
     /// root (`/` on Unix, `C:\` on Windows).  This ensures the constructed
@@ -388,6 +390,8 @@ mod strip_absolute_path_prefix_tests {
 
 #[cfg(test)]
 mod integration_tests {
+    use super::FileSearchModel;
+    use crate::search::files::search_item::{FileSearchItem, FileSearchResult};
 
     #[test]
     fn test_typical_search_workflow() {
@@ -420,7 +424,7 @@ mod integration_tests {
         assert!(!results.is_empty());
 
         // Sort by score (highest first)
-        results.sort_by(|a, b| b.match_result.score.cmp(&a.match_result.score));
+        results.sort_by_key(|b| std::cmp::Reverse(b.match_result.score));
 
         // "src/main.rs" should be the top result (exact filename match)
         assert_eq!(results[0].path, "src/main.rs");

@@ -2,16 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::Result;
-use galaxy_completer::parsers::simple::decompose_command;
-use galaxy_core::user_preferences::GetUserPreferences;
-use galaxy_core::{features::FeatureFlag, settings::Setting};
-use galaxy_util::path::EscapeChar;
-use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
-use serde::{Deserialize, Serialize};
 use galaxy_completer::parsers::simple::{command_without_leading_env_vars, decompose_command};
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::settings::Setting;
+use galaxy_core::user_preferences::GetUserPreferences;
+use galaxy_util::path::EscapeChar;
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
+use serde::{Deserialize, Serialize};
 
 use super::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::AIConversationId;

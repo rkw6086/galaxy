@@ -2,8 +2,6 @@
 
 use std::sync::Arc;
 
-use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::builder::CHECK_SVG_PATH;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_editor::content::text::{
@@ -17,6 +15,8 @@ use galaxy_util::user_input::UserInput;
 use galaxyui::elements::{Border, ListIndentLevel};
 use galaxyui::fonts::FamilyId;
 use galaxyui::ui_components::checkbox::HOVER_BACKGROUND_COLOR;
+use markdown_parser::markdown_parser::CODE_BLOCK_DEFAULT_MARKDOWN_LANG;
+use pathfinder_color::ColorU;
 
 use crate::appearance::Appearance;
 use crate::notebooks::editor::embedded_item::EmbeddedWorkflow;

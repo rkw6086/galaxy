@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use anyhow::{anyhow, Result};
+use galaxy_util::path::{is_posix_portable_pathname, ShellFamily};
+use galaxyui::AppContext;
 use regex::Regex;
 use url::Url;
 

@@ -59,14 +59,14 @@ pub fn is_prefix_of_natural_language_word(input: &str) -> bool {
 /// nld_heuristic_v2: rm check_if_token_has_shell_syntax and pin threshold to be 1 for all input
 pub async fn is_likely_shell_command(
     input: &ParsedTokensSnapshot,
-    _word_tokens_count: usize,
+    word_tokens_count: usize,
 ) -> bool {
     const YIELD_BATCH_SIZE: usize = 5;
     let use_nld_heuristic_v2 = cfg!(feature = "nld_heuristic_v2");
 
     let mut likely_command_token_count = 0;
     let total_token_count = input.parsed_tokens.len();
-    let mut is_first_token_command = false;
+    let is_first_token_command = is_installed_binary(input);
     log::debug!(
         "is_likely_shell_command start: use_nld_heuristic_v2={use_nld_heuristic_v2}, total_token_count={total_token_count}, word_tokens_count={word_tokens_count}"
     );

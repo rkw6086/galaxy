@@ -1,6 +1,6 @@
 use futures::channel::oneshot;
 use galaxy_core::SessionId;
-use warp_util::standardized_path::StandardizedPath;
+use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui_core::App;
 
 use super::{

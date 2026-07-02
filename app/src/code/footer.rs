@@ -2,18 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use galaxy_core::send_telemetry_from_ctx;
-use lsp::supported_servers::LSPServerType;
-use lsp::{
-    LanguageId, LanguageServerId, LspManagerModel, LspManagerModelEvent, LspServerModel,
-    LspState as LspModelState,
-};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-#[cfg(feature = "local_fs")]
-use repo_metadata::repositories::DetectedRepositories;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as ThemeFill, WarpTheme};
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as ThemeFill, GalaxyTheme};
 use galaxy_core::ui::Icon;
 #[cfg(feature = "local_fs")]
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
@@ -29,6 +20,15 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle, WeakModelHandle,
 };
+use lsp::supported_servers::LSPServerType;
+use lsp::{
+    LanguageId, LanguageServerId, LspManagerModel, LspManagerModelEvent, LspServerModel,
+    LspState as LspModelState,
+};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+#[cfg(feature = "local_fs")]
+use repo_metadata::repositories::DetectedRepositories;
 
 #[cfg(feature = "local_fs")]
 use crate::ai::persisted_workspace::PersistedWorkspaceEvent;

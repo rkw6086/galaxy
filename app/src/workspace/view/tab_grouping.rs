@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use itertools::{Either, Itertools};
 use galaxy_core::features::FeatureFlag;
+use itertools::{Either, Itertools};
 use warpui::{EntityId, UpdateView, ViewContext};
 
 use super::{group_member_indices, Workspace};

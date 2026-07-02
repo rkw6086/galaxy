@@ -9,14 +9,14 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use galaxy_cli::agent::Harness;
-use galaxy_managed_secrets::ManagedSecretValue;
-use galaxyui::{ModelHandle, ModelSpawner, SingletonEntity};
-use tempfile::NamedTempFile;
 use galaxy_cli::{
     OZ_CLI_ENV, OZ_HARNESS_ENV, OZ_PARENT_RUN_ID_ENV, OZ_RUN_ID_ENV, SERVER_ROOT_URL_OVERRIDE_ENV,
     SESSION_SHARING_SERVER_URL_OVERRIDE_ENV, WS_SERVER_URL_OVERRIDE_ENV,
 };
 use galaxy_core::channel::ChannelState;
+use galaxy_managed_secrets::ManagedSecretValue;
+use galaxyui::{ModelHandle, ModelSpawner, SingletonEntity};
+use tempfile::NamedTempFile;
 
 use super::terminal::{CommandHandle, TerminalDriver};
 use super::{

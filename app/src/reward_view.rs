@@ -1,5 +1,5 @@
 use galaxy_core::ui::builder::UiBuilder;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{Align, Container, Element, Flex, MouseStateHandle, ParentElement};
 use galaxyui::keymap::FixedBinding;
 use galaxyui::ui_components::button::ButtonVariant;

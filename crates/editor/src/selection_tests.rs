@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{App, ModelAsRef, units::IntoPixels};
+use galaxyui::units::IntoPixels;
+use galaxyui::{App, ModelAsRef};
+use galaxyui_core::assets::asset_cache::AssetSource;
+use galaxyui_core::text::word_boundaries::WordBoundariesPolicy;
 use serde_yaml::Value;
 use string_offset::CharOffset;
 use sum_tree::SumTree;
 use vec1::vec1;
-use galaxyui_core::assets::asset_cache::AssetSource;
-use galaxyui_core::text::word_boundaries::WordBoundariesPolicy;
-use galaxyui_core::units::IntoPixels;
-use galaxyui_core::{App, ModelAsRef};
 
 use super::{SelectionModel, TextDirection, TextUnit};
 use crate::content::buffer::tests::TestEmbeddedItem;

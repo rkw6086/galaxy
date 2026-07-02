@@ -7,6 +7,8 @@ pub mod schema;
 use std::fmt::Debug;
 use std::ops::Deref;
 
+// Re-export galaxyui_core for use by macros.
+pub use galaxyui_core;
 // Re-export crates used by macro expansions in downstream crates.
 #[doc(hidden)]
 pub use inventory as _inventory;
@@ -17,8 +19,6 @@ pub use schemars as _schemars;
 #[doc(hidden)]
 pub use settings_value as _settings_value;
 pub use settings_value::SettingsValue;
-// Re-export galaxyui_core for use by macros.
-pub use galaxyui_core;
 
 /// Extracts the storage key (last segment after the final `.`) from a toml_path.
 ///
@@ -59,12 +59,12 @@ pub const fn toml_path_hierarchy(path: &str) -> Option<&str> {
 }
 
 use anyhow::{Context, Result};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use galaxy_features::FeatureFlag;
 use galaxyui_core::{AppContext, Entity, ModelContext};
 use galaxyui_extras::secure_storage::{self, AppContextExt as _};
 use galaxyui_extras::user_preferences::UserPreferences;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// A newtype wrapper for the public preferences backend.
 ///

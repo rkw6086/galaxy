@@ -1,9 +1,9 @@
+use galaxy_util::path::ShellFamily;
+
 use crate::terminal::package_installers::command_at_cursor_has_common_package_installer_prefix;
 
 #[test]
 fn test_command_at_cursor_has_common_package_installer_prefix_basic_prefixes() {
-    use galaxy_util::path::ShellFamily;
-
     // A representative subset of prefixes from is_common_package_installer_prefix
     let prefixes = vec![
         // Node ecosystem
@@ -93,7 +93,6 @@ fn test_command_at_cursor_has_common_package_installer_prefix_with_alias_expansi
 
 #[test]
 fn test_command_at_cursor_has_common_package_installer_prefix_negative_cases() {
-
     let cases = vec!["git add @", "echo @", "cargo run @"];
 
     for buffer in cases {
@@ -114,7 +113,6 @@ fn test_command_at_cursor_has_common_package_installer_prefix_negative_cases() {
 
 #[test]
 fn test_command_at_cursor_has_common_package_installer_prefix_multi_segment_commands() {
-
     // Test cases with multi-segment commands and different cursor positions
     let test_cases = vec![
         // npm install && git add @[cursor] -> should be false (cursor in git add segment)

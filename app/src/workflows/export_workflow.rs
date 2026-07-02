@@ -3,6 +3,7 @@ use std::fmt;
 use std::result::Result;
 use std::str::FromStr;
 
+use galaxyui::{AppContext, SingletonEntity};
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

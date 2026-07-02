@@ -6,10 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_channel::Sender;
-use instant::Instant;
-use pathfinder_geometry::vector::vec2f;
-use remote_server::HostId;
-use string_offset::{ByteOffset, CharCounter};
 use galaxy_core::r#async::debounce;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
@@ -39,6 +35,10 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle, WeakViewHandle,
 };
+use instant::Instant;
+use pathfinder_geometry::vector::vec2f;
+use remote_server::HostId;
+use string_offset::{ByteOffset, CharCounter};
 
 use crate::code::icon_from_file_path;
 use crate::coding_panel_enablement_state::CodingPanelEnablementState;

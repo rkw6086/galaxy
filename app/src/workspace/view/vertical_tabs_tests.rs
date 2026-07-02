@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxyui::elements::PositionedElementOffsetBounds;
 use galaxyui::EntityId;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::{
     branch_label_display, coalesce_summary_branch_entries, code_detail_kind_label,

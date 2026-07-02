@@ -1,6 +1,5 @@
 //! This module contains the code for the ignore button shown inline next to autosuggestions.
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, Hoverable, MouseStateHandle,
@@ -9,6 +8,7 @@ use galaxyui::elements::{
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use pathfinder_geometry::vector::vec2f;
 
 use super::EditorElement;
 use crate::appearance::Appearance;

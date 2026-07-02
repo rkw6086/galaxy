@@ -1,8 +1,8 @@
 //! A singleton model for storing conversations by ID to enable restoration across terminal views.
 
-use galaxyui::{Entity, SingletonEntity};
 use std::collections::HashMap;
 
+use galaxyui::{Entity, SingletonEntity};
 
 use crate::ai::agent::conversation::{AIConversation, AIConversationId};
 use crate::ai::blocklist::history_model::convert_persisted_conversation_to_ai_conversation_with_metadata;

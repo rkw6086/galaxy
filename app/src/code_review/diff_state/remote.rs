@@ -10,9 +10,9 @@
 
 use std::sync::Arc;
 
+use galaxy_core::{send_telemetry_from_ctx, HostId, SessionId};
 use instant::Instant;
 use remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
-use galaxy_core::{send_telemetry_from_ctx, HostId, SessionId};
 use warp_util::remote_path::RemotePath;
 use warp_util::standardized_path::StandardizedPath;
 use warpui::{ModelContext, SingletonEntity};

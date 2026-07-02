@@ -887,5 +887,5 @@ impl Default for PositioningAxis<YAxisAnchor> {
 }
 
 #[cfg(test)]
-#[path = "offset_positioning_tests.rs"]
+#[path = "offset_positioning_test.rs"]
 mod tests;

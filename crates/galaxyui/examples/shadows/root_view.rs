@@ -1,10 +1,10 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::color::ColorU;
 use galaxyui::elements::{
     Align, ConstrainedBox, Container, CornerRadius, DropShadow, Flex, ParentElement, Radius, Rect,
     Shrinkable,
 };
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View};
+use pathfinder_geometry::vector::vec2f;
 
 pub struct RootView;
 

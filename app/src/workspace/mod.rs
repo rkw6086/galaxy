@@ -29,6 +29,7 @@ pub use action::{
     TabContextMenuAnchor, VerticalTabsPaneContextMenuTarget, WorkspaceAction,
 };
 pub use active_session::ActiveSession;
+use galaxy_core::context_flag::ContextFlag;
 pub use global_actions::{
     ForkAIConversationParams, ForkFromExchange, ForkedConversationDestination,
 };
@@ -38,9 +39,9 @@ pub use view::{
     Workspace, NEW_SESSION_MENU_BUTTON_POSITION_ID, NEW_TAB_BUTTON_POSITION_ID,
     PANEL_HEADER_HEIGHT, TAB_BAR_HEIGHT, TOTAL_TAB_BAR_HEIGHT, WORKSPACE_PADDING,
 };
-use galaxy_core::context_flag::ContextFlag;
 use warpui::accessibility::AccessibilityVerbosity;
 use warpui::elements::DropTargetData;
+use warpui::keymap::macros::id;
 use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding};
 use warpui::AppContext;
 
@@ -1486,7 +1487,6 @@ pub fn init(app: &mut AppContext) {
 }
 
 fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
-
     // Add the ability to open setting modals to the command palette.
     app.register_editable_bindings([
         EditableBinding::new(
@@ -1630,7 +1630,6 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
 }
 
 fn add_overflow_menu_items_as_editable_binding(app: &mut AppContext) {
-
     // Add the ability to open all overflow menu items to the command palette.
     app.register_editable_bindings([
         EditableBinding::new(

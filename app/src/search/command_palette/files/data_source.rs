@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use futures_lite::FutureExt;
 use fuzzy_match::FuzzyMatchResult;
-use instant::Instant;
-use itertools::Itertools;
 use galaxy_util::path::CleanPathResult;
 use galaxyui::{AppContext, Entity, SingletonEntity};
+use instant::Instant;
+use itertools::Itertools;
 
 use super::search_item::{CreateFileSearchItem, FileSearchItem};
 use crate::code::opened_files::{OpenedFilesInRepo, OpenedFilesModel};

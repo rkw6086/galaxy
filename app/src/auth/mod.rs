@@ -1,4 +1,5 @@
 pub mod auth_manager;
+pub mod auth_override_warning_body;
 pub mod auth_override_warning_modal;
 mod auth_view_body;
 pub mod auth_view_modal;
@@ -18,11 +19,11 @@ use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
 pub use auth_view_modal::LoginFailureReason;
+use galaxy_core::user_preferences::GetUserPreferences as _;
 use galaxyui::modals::{AlertDialogWithCallbacks, ModalButton};
+use galaxyui::{AppContext, SingletonEntity};
 use itertools::Itertools;
 pub use user_uid::UserUid;
-use galaxy_core::user_preferences::GetUserPreferences as _;
-use galaxyui::{AppContext, SingletonEntity};
 
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;

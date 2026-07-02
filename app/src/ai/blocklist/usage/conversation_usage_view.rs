@@ -1,8 +1,8 @@
+#![allow(dead_code)]
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::Icon;
@@ -15,6 +15,8 @@ use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::agent_view::orchestration_pill_bar::{
@@ -25,7 +27,7 @@ use crate::ai::blocklist::usage::render_context_window_usage_icon;
 use crate::ai::blocklist::usage::rollup::{
     compute_orchestration_rollup, AgentAvatar, OrchestrationCreditRollup, PerAgentCreditEntry,
 };
-use crate::ai::blocklist::view_util::format_credits;
+use crate::ai::blocklist::view_util::{format_credits, format_token_count};
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::appearance::Appearance;
 use crate::persistence::model::{
@@ -40,6 +42,7 @@ pub enum DisplayMode {
     Footer,
 }
 
+#[derive(Default)]
 pub struct ConversationUsageInfo {
     pub credits_spent: f32,
     pub platform_credits_spent: f32,
@@ -341,10 +344,10 @@ impl ConversationUsageView {
             .map(|r| r.total_credits)
             .unwrap_or(self.usage_info.credits_spent + self.usage_info.platform_credits_spent);
 
-        if self.display_mode == DisplayMode::Footer
-            && self.usage_info.credits_spent_for_last_block.is_some()
-        {
-            let last_block_credits = self.usage_info.credits_spent_for_last_block.unwrap();
+        if let (DisplayMode::Footer, Some(last_block_credits)) = (
+            self.display_mode,
+            self.usage_info.credits_spent_for_last_block,
+        ) {
             labels.push(render_label_text(
                 "Credits spent (last response)",
                 appearance,

@@ -1,9 +1,9 @@
+use galaxy_files::FileModel;
 use lsp::LspManagerModel;
 use remote_server::proto::TextEdit;
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
 use repo_metadata::RepoMetadataModel;
-use warp_files::FileModel;
 use warp_util::content_version::ContentVersion;
 use warp_util::host_id::HostId;
 use warp_util::standardized_path::StandardizedPath;

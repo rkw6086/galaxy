@@ -4,16 +4,16 @@ use std::path::PathBuf;
 
 use ai::skills::{parse_skill, ParsedSkill, SkillProvider, SkillReference, SkillScope};
 use async_channel::unbounded;
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::watcher::DirectoryWatcher;
-use repo_metadata::RepoMetadataModel;
-use tempfile::TempDir;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::HostId;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::remote_path::RemotePath;
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::{App, ModelHandle};
+use repo_metadata::repositories::DetectedRepositories;
+use repo_metadata::watcher::DirectoryWatcher;
+use repo_metadata::RepoMetadataModel;
+use tempfile::TempDir;
 use watcher::HomeDirectoryWatcher;
 
 use super::*;
@@ -36,7 +36,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| DetectedRepositories::default());
     app.add_singleton_model(RepoMetadataModel::new);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
-    app.add_singleton_model(GalaxyManagedPathsWatcher::new_for_testing);
+    app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
     app.add_singleton_model(SkillManager::new);
 }
 fn add_test_read_skill_executor(app: &mut App) -> ModelHandle<ReadSkillExecutor> {
@@ -112,6 +112,7 @@ fn test_read_skill_executor_success() {
             }),
             task_id: TaskId::new("test-task-id".to_string()),
             requires_result: false,
+            tool_name: None,
         };
 
         let input = ExecuteActionInput {
@@ -174,6 +175,7 @@ fn disconnected_remote_session_does_not_fall_back_to_client_global_bundled_skill
             }),
             task_id: TaskId::new("test-task-id".to_string()),
             requires_result: false,
+            tool_name: None,
         };
         let input = ExecuteActionInput {
             action: &action,
@@ -259,6 +261,7 @@ fn remote_session_reads_remote_bundled_skill_catalog() {
             }),
             task_id: TaskId::new("test-task-id".to_string()),
             requires_result: false,
+            tool_name: None,
         };
         let input = ExecuteActionInput {
             action: &action,
@@ -307,6 +310,7 @@ fn test_read_skill_executor_reads_enabled_bundled_skill() {
             }),
             task_id: TaskId::new("test-task-id".to_string()),
             requires_result: false,
+            tool_name: None,
         };
 
         let input = ExecuteActionInput {
@@ -351,6 +355,7 @@ fn test_read_skill_executor_rejects_warp_control_bundled_skills_when_disabled() 
             }),
             task_id: TaskId::new(format!("test-task-id-{skill_id}")),
             requires_result: false,
+            tool_name: None,
         };
 
         let input = ExecuteActionInput {
@@ -386,6 +391,7 @@ fn test_read_skill_executor_file_not_found() {
             }),
             task_id: TaskId::new("test-task-id".to_string()),
             requires_result: false,
+            tool_name: None,
         };
 
         let input = ExecuteActionInput {

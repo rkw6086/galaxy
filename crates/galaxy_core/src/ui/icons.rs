@@ -678,6 +678,10 @@ impl Icon {
         WarpUiIcon::new(self.into(), color.into_solid())
     }
 
+    pub fn to_warpui_icon(self, color: Fill) -> WarpUiIcon {
+        self.to_galaxyui_icon(color)
+    }
+
     pub fn icon_for_key(key: &str) -> Option<WarpUiIcon> {
         match key {
             "⏎" => Some(Self::CornerDownLeft.to_galaxyui_icon(Fill::black())),

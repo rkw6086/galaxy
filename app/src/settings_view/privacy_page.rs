@@ -4,13 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use pathfinder_geometry::vector::vec2f;
-use regex::Regex;
-use settings::Setting as _;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
     Align, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
@@ -28,6 +25,9 @@ use galaxyui::{
     id, Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView,
     UpdateModel, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
+use regex::Regex;
+use settings::Setting as _;
 
 use super::privacy::{AddRegexModal, AddRegexModalEvent};
 use super::settings_page::{
@@ -461,6 +461,7 @@ pub enum PrivacyPageAction {
     ShowAddRegexModal,
     AddRecommendedRegex(usize),
     SwitchSecretRedactionTab(SecretRedactionTab),
+    ToggleCloudConversationStorage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -534,6 +535,16 @@ impl TypedActionView for PrivacyPageView {
             }
             PrivacyPageAction::ToggleTelemetry => self.toggle_telemetry(ctx),
             PrivacyPageAction::ToggleCrashReporting => self.toggle_crash_reporting(ctx),
+            PrivacyPageAction::ToggleCloudConversationStorage => {
+                let handle = PrivacySettings::handle(ctx);
+                ctx.update_model(&handle, |settings, ctx| {
+                    settings.set_is_cloud_conversation_storage_enabled(
+                        !settings.is_cloud_conversation_storage_enabled,
+                        ctx,
+                    );
+                });
+                ctx.notify();
+            }
             PrivacyPageAction::LaunchNetworkLogging => self.launch_network_logging(ctx),
             PrivacyPageAction::RemoveCustomRegex(idx) => {
                 self.queue_regex_removal(*idx, ctx);

@@ -87,6 +87,8 @@ impl TryFrom<RequestCommandOutputResult> for api::request::input::tool_call_resu
                                 output: "User cancelled the command before it executed."
                                     .to_string(),
                                 exit_code: 130,
+                                start_ts: None,
+                                finish_ts: None,
                             },
                         )),
                     },
@@ -162,6 +164,8 @@ impl TryFrom<WriteToLongRunningShellCommandResult>
                                     command_id: String::new(),
                                     output: "User cancelled the long-running shell command.".to_string(),
                                     exit_code: 130,
+                                    start_ts: None,
+                                    finish_ts: None,
                                 }
                             ))
                         },

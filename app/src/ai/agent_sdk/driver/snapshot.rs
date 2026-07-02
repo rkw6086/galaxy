@@ -34,12 +34,12 @@ use anyhow::{Context as _, Result};
 use command::r#async::Command;
 use command::Stdio;
 use futures::future::join_all;
-use tokio::fs::{self as tokio_fs, OpenOptions};
-use tokio::io::AsyncWriteExt as _;
-use tokio::sync::{mpsc, oneshot};
 use galaxy_core::report_error;
 use galaxyui::r#async::executor::Background;
 use galaxyui::r#async::FutureExt as _;
+use tokio::fs::{self as tokio_fs, OpenOptions};
+use tokio::io::AsyncWriteExt as _;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::ai::agent_sdk::retry::with_bounded_retry;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -825,7 +825,7 @@ pub(crate) async fn upload_snapshot_for_handoff(
         );
     }
     let mut target_map: HashMap<String, UploadTarget> = HashMap::new();
-    for (file, target) in file_infos.iter().zip(response.uploads.into_iter()) {
+    for (file, target) in file_infos.iter().zip(response.uploads) {
         target_map.insert(file.filename.clone(), target);
     }
 
@@ -1006,7 +1006,7 @@ async fn upload_gathered_snapshot(
                 chunk.len(),
             );
         }
-        for (file, target) in chunk.iter().zip(targets.into_iter()) {
+        for (file, target) in chunk.iter().zip(targets) {
             target_map.insert(file.filename.clone(), target);
         }
     }

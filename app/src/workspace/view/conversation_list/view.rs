@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::Icon;
@@ -23,6 +22,7 @@ use galaxyui::{
     AppContext, BlurContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WindowId,
 };
+use pathfinder_geometry::vector::Vector2F;
 
 use super::view_model::{ConversationEntry, ConversationListViewModel};
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};

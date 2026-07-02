@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dunce::canonicalize;
-use itertools::Itertools;
-use pathfinder_color::ColorU;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::Icon;
+use itertools::Itertools;
+use pathfinder_color::ColorU;
 use warp_util::path::LineAndColumnArg;
 use warpui::elements::{
     resizable_state_handle, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container,

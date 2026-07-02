@@ -1,10 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lsp::LspManagerModel;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::channel::{Channel, ChannelState};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::appearance::Appearance;
@@ -30,6 +26,10 @@ use galaxyui::{
     id, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WindowId,
 };
+use lsp::LspManagerModel;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::vec2f;
 
 use super::buffer_location::LocalOrRemotePath;
 use super::diff_viewer::DiffViewer;

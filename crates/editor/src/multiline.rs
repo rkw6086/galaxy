@@ -42,10 +42,9 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
+use galaxy_core::platform::SessionPlatform;
 use itertools::Itertools as _;
 use line_ending::LineEnding;
-
-use galaxy_core::platform::SessionPlatform;
 
 /// A line ending format. This is the compile-time equivalent to [`LineEnding`].
 pub trait LineFormat {

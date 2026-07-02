@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 #[cfg(feature = "local_fs")]
@@ -202,7 +204,6 @@ fn test_is_supported_code_file() {
 #[test]
 #[cfg(unix)]
 fn test_is_runnable_shell_script_executable_sh() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("hello.sh");
     std::fs::write(&p, b"#!/bin/bash\necho hi\n").unwrap();

@@ -2,9 +2,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use channel_versions::overrides::TargetOS;
-use parking_lot::RwLock;
 use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
+use parking_lot::RwLock;
 use warpui::elements::{
     Border, Container, CrossAxisAlignment, Flex, Icon, MainAxisAlignment, MainAxisSize,
     MouseStateHandle, ParentElement, SelectableArea, SelectionHandle, Text,

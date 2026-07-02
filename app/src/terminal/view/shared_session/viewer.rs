@@ -1,6 +1,6 @@
-use session_sharing_protocol::common::{Role, WindowSize};
 use galaxyui::elements::MouseStateHandle;
 use galaxyui::{ViewContext, ViewHandle};
+use session_sharing_protocol::common::{Role, WindowSize};
 
 use super::adapter::Participant;
 use crate::menu::{Menu, MenuItem, MenuItemFields};

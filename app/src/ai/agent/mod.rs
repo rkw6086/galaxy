@@ -27,6 +27,8 @@ use ai::skills::ParsedSkill;
 use chrono::{DateTime, Local, TimeDelta};
 use comment::ReviewComment;
 use derivative::Derivative;
+use galaxy_core::channel::ChannelState;
+use galaxy_core::features::FeatureFlag;
 use markdown_parser::{parse_markdown, FormattedTable, FormattedText, FormattedTextInline};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -34,8 +36,6 @@ use session_sharing_protocol::common::ParticipantId;
 use task::TaskId;
 pub use telemetry::AIIdentifiers;
 use uuid::Uuid;
-use galaxy_core::channel::ChannelState;
-use galaxy_core::features::FeatureFlag;
 use warp_editor::render::model::LineCount;
 use warp_multi_agent_api::{diff_hunk as diff_hunk_api, AgentEvent, AgentType};
 

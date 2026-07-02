@@ -6,10 +6,9 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::sync::Arc;
 
+use galaxyui::r#async::executor::Background;
 use serde::Deserialize;
 use serde_json as json;
-
-use galaxyui::r#async::executor::Background;
 
 use crate::terminal::color::Colors;
 use crate::terminal::event_listener::ChannelEventListener;

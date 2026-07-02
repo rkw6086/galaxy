@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use settings::{Setting as _, SettingsManager};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::rendering::GPUPowerPreference;
 use galaxyui::{AppContext, SingletonEntity};
 use galaxyui_extras::user_preferences;
+use settings::{Setting as _, SettingsManager};
 
 use super::app_icon::AppIconSettings;
 use super::app_installation_detection::UserAppInstallDetectionSettings;
@@ -363,7 +364,6 @@ fn needs_settings_file_migration_for_path(ctx: &AppContext, settings_file_path: 
 /// the in-memory setting, and writes to the TOML file with the correct
 /// hierarchy, `serialize_for_file` transforms, and `max_table_depth`.
 fn migrate_native_settings_to_settings_file(ctx: &mut AppContext) {
-
     log::info!("Migrating public settings from native store to settings.toml");
 
     // Collect the storage keys for all public settings.

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 
 use super::{

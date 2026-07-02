@@ -12,13 +12,10 @@ mod package_installers;
 pub use galaxy_terminal::shell::{self, ShellLaunchData};
 use galaxyui::geometry::vector::Vector2F;
 use galaxyui::units::{IntoPixels, Lines, Pixels};
-use galaxyui::AppContext;
-use galaxyui::WindowId;
+use galaxyui::{AppContext, WindowId};
 pub(crate) use history::UpArrowHistoryConfig;
 pub use history::{History, HistoryEntry, HistoryEvent, ShellHost};
 pub use view::{Event, TerminalView};
-pub use galaxy_terminal::shell::{self, ShellLaunchData};
-use galaxyui::{AppContext, WindowId};
 mod block_list_settings;
 
 mod alias;

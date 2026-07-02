@@ -6,15 +6,6 @@ use std::time::Duration;
 
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine as _;
-use itertools::Itertools;
-use lazy_static::lazy_static;
-use markdown_parser::FormattedText;
-use mermaid_to_svg::MermaidTheme;
-use num_traits::SaturatingSub;
-use regex::Regex;
-use string_offset::CharOffset;
-use url::Url;
-use vec1::{vec1, Vec1};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::r#async::debounce;
 use galaxy_core::semantic_selection::SemanticSelection;
@@ -33,12 +24,21 @@ use galaxy_editor::render::model::{
 };
 use galaxy_editor::search::Searcher;
 use galaxy_editor::selection::{SelectionMode, SelectionModel, TextDirection, TextUnit};
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::ListIndentLevel;
 use galaxyui::{
     AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, WindowId,
 };
+use itertools::Itertools;
+use lazy_static::lazy_static;
+use markdown_parser::FormattedText;
+use mermaid_to_svg::MermaidTheme;
+use num_traits::SaturatingSub;
+use regex::Regex;
+use string_offset::CharOffset;
+use url::Url;
+use vec1::{vec1, Vec1};
 
 use super::super::telemetry::SelectionMode as TelemetrySelectionMode;
 use super::embedding_model::NotebookEmbed;

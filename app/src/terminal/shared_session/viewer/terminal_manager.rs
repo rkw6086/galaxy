@@ -2,6 +2,10 @@ use std::any::Any;
 use std::sync::Arc;
 
 use async_broadcast::InactiveReceiver;
+use galaxyui::{
+    AppContext, ModelContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle,
+    WeakViewHandle, WindowId,
+};
 use parking_lot::FairMutex;
 use pathfinder_geometry::vector::Vector2F;
 use session_sharing_protocol::common::{
@@ -13,10 +17,6 @@ use session_sharing_protocol::common::{
 use session_sharing_protocol::sharer::SessionSourceType;
 use session_sharing_protocol::viewer::SessionEndedReason;
 use settings::Setting as _;
-use galaxyui::{
-    AppContext, ModelContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle,
-    WeakViewHandle, WindowId,
-};
 
 use super::event_loop::SharedSessionInitialLoadMode;
 use super::network::{

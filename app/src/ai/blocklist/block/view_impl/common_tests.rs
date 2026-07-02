@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use ai::skills::{ParsedSkill, SkillProvider, SkillScope};
-use itertools::Itertools;
-use ui_components::lightbox::{LightboxImage, LightboxImageSource};
-use warp_util::local_or_remote_path::LocalOrRemotePath;
 #[cfg(feature = "local_fs")]
 use galaxyui::assets::asset_cache::AssetSource;
 use galaxyui::elements::{Empty, MouseStateHandle};
 use galaxyui::{App, Element};
+use itertools::Itertools;
+use ui_components::lightbox::{LightboxImage, LightboxImageSource};
+use warp_util::local_or_remote_path::LocalOrRemotePath;
 
 #[cfg(feature = "local_fs")]
 use super::{blocklist_image_asset_source, ResolvedBlocklistImageSources};

@@ -7,7 +7,7 @@ use diesel::result::Error;
 
 pub use cloud_objects::{decode_guests, decode_link_sharing, encode_guests, encode_link_sharing};
 
-use crate::cloud_object::{
+use cloud_objects::cloud_object::{
     CloudObjectMetadata, CloudObjectPermissions, ObjectIdType, ObjectType, Owner,
 };
 use crate::ids::SyncId;

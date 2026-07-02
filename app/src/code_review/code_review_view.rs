@@ -6,6 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ai::project_context::model::ProjectContextModel;
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::GalaxyTheme;
+use galaxy_core::{safe_error, safe_info, SessionId};
 use indexmap::IndexMap;
 use itertools::Itertools;
 #[cfg(feature = "local_fs")]
@@ -16,10 +21,6 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use string_offset::CharOffset;
 use vec1::Vec1;
-use galaxy_core::channel::{Channel, ChannelState};
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::{safe_error, safe_info, SessionId};
 use warp_editor::content::buffer::{AutoScrollBehavior, InitialBufferState, SelectionOffsets};
 use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
@@ -65,6 +66,7 @@ use crate::ai::agent::{
     AIAgentAttachment, AgentReviewCommentBatch, CurrentHead, DiffBase, DiffSetHunk,
 };
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
+use crate::ai::persisted_workspace::{LspTask, PersistedWorkspace};
 use crate::appearance::Appearance;
 use crate::code::buffer_location::LocalOrRemotePath;
 use crate::code::editor::comment_editor::DEFAULT_COMMENT_MAX_WIDTH;
@@ -921,7 +923,6 @@ impl CodeReviewView {
         server_type: Option<lsp::supported_servers::LSPServerType>,
         ctx: &mut ViewContext<Self>,
     ) {
-
         let server_type =
             server_type.or_else(|| lsp::LanguageId::from_path(path).map(|id| id.server_type()));
         let Some(server_type) = server_type else {
@@ -5664,28 +5665,25 @@ impl CodeReviewView {
                     ctx
                 );
             }
-            CodeEditorEvent::ContentChanged { origin, .. } => {
-                if origin.from_user() {
-                    if let Some((view_handle, content_version)) = self.last_revert.take() {
-                        let same_content_version =
-                            content_version == editor.as_ref(ctx).version(ctx);
+            CodeEditorEvent::ContentChanged { origin, .. } if origin.from_user() => {
+                if let Some((view_handle, content_version)) = self.last_revert.take() {
+                    let same_content_version = content_version == editor.as_ref(ctx).version(ctx);
 
-                        // If the revert was for a different editor or the content version is the same, keep the revert.
-                        if view_handle.id() != editor.id() || same_content_version {
-                            self.last_revert = Some((view_handle, content_version));
-                        } else {
-                            self.last_revert = None;
-                            self.dismiss_revert_toast(ctx);
-                        }
+                    // If the revert was for a different editor or the content version is the same, keep the revert.
+                    if view_handle.id() != editor.id() || same_content_version {
+                        self.last_revert = Some((view_handle, content_version));
+                    } else {
+                        self.last_revert = None;
+                        self.dismiss_revert_toast(ctx);
                     }
+                }
 
-                    if self.find_model.as_ref(ctx).is_find_bar_open()
-                        && FeatureFlag::CodeReviewFind.is_enabled()
-                    {
-                        self.find_model.update(ctx, |model, model_ctx| {
-                            model.run_search(self.editor_handles(), model_ctx);
-                        });
-                    }
+                if self.find_model.as_ref(ctx).is_find_bar_open()
+                    && FeatureFlag::CodeReviewFind.is_enabled()
+                {
+                    self.find_model.update(ctx, |model, model_ctx| {
+                        model.run_search(self.editor_handles(), model_ctx);
+                    });
                 }
             }
             _ => {}

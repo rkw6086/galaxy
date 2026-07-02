@@ -1,16 +1,13 @@
 //! Implementation for the omnibar - a floating menu for editor interactions
 //! like formatting and changing block types.
 
-use itertools::Itertools;
-use pathfinder_geometry::rect::RectF;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_editor::content::text::{
     BlockType as ContentBlockType, BufferBlockStyle, BufferTextStyle, TextStyles,
     TextStylesWithMetadata,
 };
 use galaxy_editor::model::RichTextEditorModel;
 use galaxy_editor::render::model::RenderState;
-use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, WarpA11yRole};
+use galaxyui::accessibility::{AccessibilityContent, ActionAccessibilityContent, GalaxyA11yRole};
 use galaxyui::elements::{
     AnchorPair, Border, ConstrainedBox, Container, CornerRadius, DropShadow, Flex, MainAxisSize,
     MouseStateHandle, OffsetPositioning, OffsetType, ParentElement, Point,
@@ -22,7 +19,9 @@ use galaxyui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, SizeConstraint, TypedActionView,
     View, ViewContext, ViewHandle,
 };
-use pathfinder_geometry::{rect::RectF, vector::Vector2F};
+use itertools::Itertools;
+use pathfinder_geometry::rect::RectF;
+use pathfinder_geometry::vector::Vector2F;
 
 use super::model::{NotebooksEditorModel, RichTextEditorModelEvent};
 use super::view::EditorViewAction;

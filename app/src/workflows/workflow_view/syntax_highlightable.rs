@@ -7,10 +7,8 @@ use galaxy_completer::completer::SuggestionTypeName;
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::ViewHandle;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
-use string_offset::ByteOffset;
 use galaxyui::{Entity, ModelContext, SingletonEntity, ViewHandle};
+use string_offset::ByteOffset;
 
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;

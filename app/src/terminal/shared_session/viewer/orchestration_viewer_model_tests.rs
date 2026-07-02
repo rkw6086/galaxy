@@ -1769,7 +1769,6 @@ fn viewer_model_does_not_register_when_active_conversation_is_a_child_placeholde
     // activated — which would persist the orchestration cursor on the
     // wrong row.
 
-
     App::test((), |mut app| async move {
         let _streamer_guard = FeatureFlag::OrchestrationViewerStreamer.override_enabled(true);
 

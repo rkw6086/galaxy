@@ -16,18 +16,13 @@ use ::channel_versions::{ParsedVersion, VersionInfo};
 use anyhow::{anyhow, Context as _, Result};
 use chrono::{DateTime, FixedOffset, NaiveDate};
 use galaxy_core::execution_mode::AppExecutionMode;
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
 use galaxyui::platform::TerminationMode;
 use galaxyui::r#async::Timer;
 use galaxyui::windowing::state::ApplicationStage;
 use galaxyui::windowing::{self, WindowManager};
-use galaxyui::{
-    accessibility::{AccessibilityContent, GalaxyA11yRole},
-    AppContext,
-};
-use galaxyui::{Entity, ModelContext, SingletonEntity, ViewContext};
-use rand::Rng as _;
-use galaxyui::accessibility::{AccessibilityContent, WarpA11yRole};
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, ViewContext};
+use rand::Rng as _;
 
 pub use self::changelog::get_current_changelog;
 use self::channel_versions::fetch_channel_versions;

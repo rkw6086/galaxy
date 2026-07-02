@@ -1,5 +1,3 @@
-use galaxy_core::{settings::Setting, ui::appearance::Appearance};
-use itertools::Itertools;
 use galaxy_core::settings::Setting;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
@@ -14,6 +12,7 @@ use galaxyui::ui_components::radio_buttons::{self, RadioButtonItem, RadioButtonS
 use galaxyui::{
     Element, Entity, ModelContext, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
+use itertools::Itertools;
 
 use super::config::{QuakeModeWindow, ThemeType};
 use crate::settings::import::config::{Config, ParsedTerminalSetting, SettingType};
@@ -27,7 +26,7 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::session_settings::SessionSettings;
 use crate::themes::theme::{CustomTheme, SelectedSystemThemes, ThemeKind};
 use crate::ui_components::blended_colors;
-use crate::user_config::{self, WarpConfig};
+use crate::user_config::{self, GalaxyConfig};
 use crate::window_settings::WindowSettings;
 use crate::{
     report_if_error, send_telemetry_from_ctx, GlobalResourceHandlesProvider, TelemetryEvent,

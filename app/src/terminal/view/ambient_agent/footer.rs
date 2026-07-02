@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     Border, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment, MainAxisSize,
@@ -6,6 +5,7 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::Element;
+use pathfinder_color::ColorU;
 
 use crate::ui_components::blended_colors;
 

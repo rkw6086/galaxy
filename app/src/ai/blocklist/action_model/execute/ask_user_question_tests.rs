@@ -36,6 +36,7 @@ fn build_action(action_id: &str) -> AIAgentAction {
         },
         task_id: TaskId::new(format!("task-{action_id}")),
         requires_result: false,
+        tool_name: None,
     }
 }
 

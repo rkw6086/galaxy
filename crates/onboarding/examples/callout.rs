@@ -6,20 +6,14 @@ use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, 
 use galaxyui::color::ColorU;
 use galaxyui::elements::{Rect, Stack};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
-use galaxyui::platform;
-use galaxyui::{prelude::*, AddWindowOptions, AssetProvider, ModelContext};
+use galaxyui::prelude::*;
+use galaxyui::{platform, AddWindowOptions, AssetProvider, ModelContext};
 use onboarding::components::onboarding_callout::{
     Button as CalloutButton, OnboardingCallout, Options as CalloutOptions, Params as CalloutParams,
     StepStatus,
 };
 use rust_embed::RustEmbed;
 use ui_components::Component as _;
-use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, TerminalColors, WarpTheme};
-use galaxyui_core::color::ColorU;
-use galaxyui_core::elements::{Rect, Stack};
-use galaxyui_core::fonts::{Cache, FamilyId, Weight};
-use galaxyui_core::prelude::*;
-use galaxyui_core::{platform, AddWindowOptions, AssetProvider, ModelContext};
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -36,7 +30,7 @@ impl AssetProvider for Assets {
 }
 
 fn main() -> platform::app::TerminationResult {
-    let app_builder = warpui::platform::AppBuilder::new(
+    let app_builder = galaxyui::platform::AppBuilder::new(
         platform::AppCallbacks::default(),
         Box::new(ASSETS),
         None,
@@ -51,7 +45,8 @@ fn main() -> platform::app::TerminationResult {
             "Noto Sans".to_string()
         };
 
-        let font_family = Cache::handle(ctx).update(ctx, |cache, _ctx| {
+        let cache_handle = Cache::handle(ctx);
+        let font_family = cache_handle.update(ctx, |cache, _ctx| {
             cache.load_system_font(&font_name).unwrap()
         });
 

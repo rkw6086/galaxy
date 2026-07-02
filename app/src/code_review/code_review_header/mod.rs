@@ -1,6 +1,5 @@
 mod header_revamp;
 
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Align, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex,
@@ -13,6 +12,7 @@ use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, ModelHandle, ViewHandle};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::appearance::Appearance;
 use crate::code_review::code_review_view::{

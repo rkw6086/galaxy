@@ -6,9 +6,8 @@ mod search_item;
 mod view;
 
 pub use data_source::SelectRewindPoint;
-pub use view::{RewindMenuEvent, RewindMenuView};
-
 use galaxyui::keymap::Keystroke;
+pub use view::{RewindMenuEvent, RewindMenuView};
 
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, InlineMenuAction, InlineMenuMessageArgs, InlineMenuType,

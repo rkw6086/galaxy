@@ -5,11 +5,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 #[cfg(feature = "local_fs")]
-use galaxyui::ModelHandle;
+use galaxyui_core::ModelHandle;
 #[cfg(feature = "local_fs")]
 use repo_metadata::Repository;
-#[cfg(feature = "local_fs")]
-use galaxyui_core::ModelHandle;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {

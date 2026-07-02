@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Local;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
@@ -23,6 +22,7 @@ use galaxyui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::execution_context::WarpAiExecutionContext;
 use super::requests::{Event as RequestsEvent, RequestStatus, Requests};

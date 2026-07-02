@@ -1,8 +1,7 @@
-use galaxyui::{async_assert, integration::TestStep, windowing::WindowManager, SingletonEntity};
-use settings::Setting;
 use galaxyui::integration::TestStep;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{async_assert, SingletonEntity};
+use settings::Setting;
 
 use crate::integration_testing::step::new_step_with_default_assertions;
 use crate::integration_testing::view_getters::theme_chooser_view;

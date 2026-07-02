@@ -1,4 +1,3 @@
-use pathfinder_color::ColorU;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
@@ -6,6 +5,7 @@ use galaxyui::elements::{Align, ChildView, Container, ParentElement, SavePositio
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 use super::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use super::suggested_rule_modal::SuggestedRuleAndId;
@@ -312,12 +312,10 @@ impl SuggestionChipView {
             | CloudModelEvent::ObjectDeleted {
                 type_and_id: CloudObjectTypeAndId::GenericStringObject { id, .. },
                 ..
-            } => {
+            } if self.sync_id == *id => {
                 // If the rule or workflow has been deleted, then we should reset it such that
                 // the suggestion can be added again.
-                if self.sync_id == *id {
-                    self.reset_suggestion(ctx);
-                }
+                self.reset_suggestion(ctx);
             }
             _ => {}
         }

@@ -12,6 +12,7 @@ pub(crate) use diff_application::{apply_edits, FileReadResult};
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use galaxy_core::send_telemetry_from_ctx;
 use itertools::Itertools;
 pub(crate) use telemetry::MalformedFinalLineProxyEvent;
 #[allow(unused_imports)]
@@ -21,7 +22,6 @@ pub use telemetry::{
     RequestFileEditsTelemetryEvent,
 };
 use vec1::{vec1, Vec1};
-use galaxy_core::send_telemetry_from_ctx;
 use warp_util::file::FileSaveError;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity as _, ViewHandle};
 

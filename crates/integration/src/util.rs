@@ -2,6 +2,7 @@ use std::fs::{create_dir_all, write, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use galaxyui_core::{App, WindowId};
 use itertools::Itertools as _;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -12,7 +13,6 @@ use warp::integration_testing::terminal::util::{
 use warp::integration_testing::view_getters;
 use warp::terminal::shell;
 use warp::terminal::shell::ShellType;
-use galaxyui_core::{App, WindowId};
 
 use crate::builder::cargo_target_tmpdir;
 

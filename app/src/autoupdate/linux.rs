@@ -159,11 +159,11 @@ mod appimage {
 }
 
 mod package_manager {
+    use galaxyui::elements::{Container, FormattedTextElement, HighlightedHyperlink};
+    use galaxyui::{Element, SingletonEntity as _};
     use markdown_parser::{
         FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     };
-    use galaxyui::elements::{Container, FormattedTextElement, HighlightedHyperlink};
-    use galaxyui::{Element, SingletonEntity as _};
 
     use crate::appearance::Appearance;
 

@@ -1,6 +1,9 @@
 //! [`TerminalView`]-specific implementation for shared sessions.
 
 use chrono::{DateTime, Local};
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::semantic_selection::SemanticSelection;
+use galaxy_core::ui::appearance::Appearance;
 use itertools::Itertools;
 use session_sharing_protocol::common::{
     ParticipantId, ParticipantList, ParticipantPresenceUpdate, Role, RoleRequestId,
@@ -9,9 +12,6 @@ use session_sharing_protocol::common::{
 use session_sharing_protocol::sharer::{RoleUpdateReason, SessionEndedReason, SessionSourceType};
 use session_sharing_protocol::viewer::RoleUpdatedReason;
 use settings::Setting as _;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::semantic_selection::SemanticSelection;
-use galaxy_core::ui::appearance::Appearance;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::MouseStateHandle;
 use warpui::platform::Cursor;

@@ -7,13 +7,13 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::Local;
-use parking_lot::FairMutex;
-use session_sharing_protocol::common::CLIAgentSessionState;
 use galaxy_cli::agent::Harness;
 use galaxy_terminal::model::escape_sequences::{BRACKETED_PASTE_END, BRACKETED_PASTE_START, C0};
 use galaxyui::notification::UserNotification;
 use galaxyui::platform::WindowStyle;
 use galaxyui::{App, EntityIdSet, Presenter, ReadModel, WindowInvalidation};
+use parking_lot::FairMutex;
+use session_sharing_protocol::common::CLIAgentSessionState;
 
 use super::*;
 use crate::ai::agent::conversation::{AIConversation, ConversationStatus};
@@ -70,6 +70,7 @@ use crate::terminal::shared_session::shared_handlers::{
     apply_cli_agent_state_update, RemoteUpdateGuard,
 };
 use crate::terminal::shared_session::{SharedSessionSource, SharedSessionStatus};
+use crate::terminal::view::agent_view::ENTER_AGAIN_TO_SEND_MESSAGE_ID;
 use crate::terminal::view::ambient_agent::AmbientAgentViewModelEvent;
 use crate::terminal::view::load_ai_conversation::{
     RestoreConversationEntryBehavior, RestoredAIConversation,
@@ -7350,7 +7351,6 @@ fn linear_deeplink_populates_input_as_draft_when_not_in_agent_view() {
 /// `was_in_agent_view_already` shortcut cannot promote it to auto-submit.
 #[test]
 fn linear_deeplink_does_not_auto_submit_when_already_in_agent_view() {
-
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         FeatureFlag::AgentView.set_enabled(true);
@@ -7429,7 +7429,6 @@ fn linear_deeplink_does_not_auto_submit_when_already_in_agent_view() {
 /// auto-submit regardless of prior agent-view state.
 #[test]
 fn linear_deeplink_via_default_entrypoint_does_not_auto_submit_in_fullscreen() {
-
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         FeatureFlag::AgentView.set_enabled(true);

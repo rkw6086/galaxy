@@ -1,11 +1,7 @@
-use lsp::{HoverContents, LspServerLogLevel, MarkupKind};
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-use num_traits::SaturatingSub;
-use string_offset::CharOffset;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::WarpTheme;
+use galaxy_core::ui::theme::GalaxyTheme;
 use galaxy_editor::content::buffer::InitialBufferState;
 use galaxy_editor::render::element::VerticalExpansionBehavior;
 use galaxy_editor::render::model::Decoration;
@@ -15,6 +11,10 @@ use galaxyui::elements::{
     MouseStateHandle, ParentElement, Radius, Rect, ScrollbarWidth,
 };
 use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
+use lsp::{HoverContents, LspServerLogLevel, MarkupKind};
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
+use num_traits::SaturatingSub;
+use string_offset::CharOffset;
 
 use super::editor::view::{CodeEditorRenderOptions, CodeEditorView};
 use super::lsp_telemetry::LspTelemetryEvent;

@@ -1,9 +1,8 @@
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{platform::WindowStyle, App};
 use std::sync::Arc;
 
-use warpui::platform::WindowStyle;
-use warpui::App;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::platform::WindowStyle;
+use galaxyui::App;
 
 use super::{Find, FindDirection, FindEvent, FindModel};
 use crate::auth::AuthStateProvider;

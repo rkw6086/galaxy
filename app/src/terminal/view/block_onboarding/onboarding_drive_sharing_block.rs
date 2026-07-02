@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{
     Border, Container, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Text,
@@ -8,6 +7,7 @@ use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, View, ViewContext};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::drive::CloudObjectTypeAndId;

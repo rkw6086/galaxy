@@ -3,13 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use galaxy_util::path::LineAndColumnArg;
-use galaxyui::{App, ModelHandle, WindowId};
+use galaxyui::{App, ModelHandle, SingletonEntity, WindowId};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use settings::Setting as _;
 use tempfile::tempdir;
 use url::Url;
-use galaxyui::{App, ModelHandle, SingletonEntity, WindowId};
 
 use super::{LinkTarget, NotebookLinks, ResolveError, SessionSource};
 use crate::notebooks::file::is_markdown_file;

@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use ai::project_context::model::ProjectContextModel;
 use enum_iterator::Sequence;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::{Entity, ModelContext, SingletonEntity as _};
 use lsp::supported_servers::LSPServerType;
 #[cfg(not(target_family = "wasm"))]
 use repo_metadata::repositories::DetectedRepositories;
-use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::settings::CodeSettings;

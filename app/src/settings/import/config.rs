@@ -2,15 +2,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use galaxy_core::ui::color::hex_color::HexColorError as UiHexColorError;
+use galaxy_core::ui::theme::{AnsiColors, GalaxyTheme};
+use galaxyui::fonts::FontInfo;
+use galaxyui::keymap::Keystroke;
+use galaxyui::DisplayIdx;
 use pathfinder_color::ColorU;
 use serde::Serialize;
 use strum_macros::EnumIter;
 use thiserror::Error;
-use galaxy_core::ui::color::hex_color::HexColorError as UiHexColorError;
-use galaxy_core::ui::theme::{AnsiColors, WarpTheme};
-use galaxyui::fonts::FontInfo;
-use galaxyui::keymap::Keystroke;
-use galaxyui::DisplayIdx;
 
 use super::alacritty_parser::AlacrittyConfig;
 #[cfg(target_os = "macos")]

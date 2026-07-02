@@ -4,10 +4,6 @@ pub mod oz_launch;
 
 use std::collections::HashMap;
 
-use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
-// Re-export slide types for convenience
-pub use oz_launch::OzLaunchSlide;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
@@ -26,6 +22,10 @@ use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
+// Re-export slide types for convenience
+pub use oz_launch::OzLaunchSlide;
+use pathfinder_color::ColorU;
 
 use crate::settings::PrivacySettings;
 use crate::ui_components::blended_colors;

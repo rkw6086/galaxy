@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local};
 use fuzzy_match::FuzzyMatchResult;
-use ordered_float::OrderedFloat;
 use galaxy_core::command::ExitCode;
+use ordered_float::OrderedFloat;
 use warpui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, Icon, ParentElement, Text,
 };

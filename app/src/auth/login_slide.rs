@@ -1,13 +1,7 @@
+#![allow(dead_code)]
+
 use std::cell::Cell;
 
-use onboarding::components::feature_optout_dialog::{
-    render_feature_optout_dialog, FeatureOptOutDialog,
-};
-use onboarding::slides::{layout, slide_content};
-use onboarding::{OnboardingIntention, WARP_DRIVE_FEATURES};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::safe_error;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -28,6 +22,14 @@ use galaxyui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, UpdateModel, View,
     ViewContext, ViewHandle,
 };
+use onboarding::components::feature_optout_dialog::{
+    render_feature_optout_dialog, FeatureOptOutDialog,
+};
+use onboarding::slides::{layout, slide_content};
+use onboarding::{OnboardingIntention, WARP_DRIVE_FEATURES};
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 use crate::appearance::Appearance;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
@@ -274,6 +276,10 @@ fn resolve_visual_path(
 }
 
 impl LoginSlideView {
+    pub fn is_auth_token_input_visible(&self) -> bool {
+        self.show_auth_token_input
+    }
+
     pub fn new(
         ai_enabled: bool,
         uses_third_party_agents: bool,

@@ -4,10 +4,10 @@ use std::slice;
 
 use anyhow::Result;
 use cocoa::base::id;
+use galaxyui_core::clipboard::{ClipboardContent, ImageData};
 use objc2::rc::Retained;
 use objc2_app_kit::{NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString};
 use objc2_foundation::{ns_string, NSArray, NSData, NSString};
-use galaxyui_core::clipboard::{ClipboardContent, ImageData};
 
 extern "C" {
     fn getFilePathsFromPasteboard() -> id;

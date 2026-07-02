@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use ai::api_keys::ApiKeyManager;
+use galaxyui_extras::user_preferences;
 use settings::{PrivatePreferences, PublicPreferences};
 use warp_managed_secrets::ManagedSecretManager;
 use warpui::{AddSingletonModel, App};
-use galaxyui_extras::user_preferences;
 
 use super::*;
 use crate::server::server_api::team::MockTeamClient;

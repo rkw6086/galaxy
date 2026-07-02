@@ -64,8 +64,7 @@ impl InputClassifier for HeuristicClassifier {
             );
         }
 
-        let result = self
-            .classify_input(input, context)
+        self.classify_input(input, context)
             .await
             .map(|result| InputClassificationResult::new(result.to_input_type(), result.source))
             .unwrap_or(InputClassificationResult::new(
@@ -115,15 +114,7 @@ async fn natural_language_detection_heuristic(
     include_last_token: bool,
 ) -> ClassificationResult {
     let source = InputClassifierDecisionSource::InputClassifierFallbackHeuristic;
-    let word_tokens_count = word_tokens.len();
-
-    let min_token_length = if matches!(current_input_type, InputType::AI) {
-        MINIMUM_COMMAND_DETECTION_TOKEN_LENGTH
-    } else {
-        MINIMUM_NATURAL_LANGUAGE_DETECTION_TOKEN_LENGTH
-    };
-
-    if min_token_length > word_tokens_count as u8 {
+    if input.buffer_text.len() < MINIMUM_CLASSIFICATION_CHAR_LENGTH {
         return ClassificationResult::pure_shell(source);
     }
 

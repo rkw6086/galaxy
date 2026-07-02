@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use ai::LLMId;
-use instant::Instant;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use galaxyui_core::assets::asset_cache::AssetSource;
 use galaxyui_core::image_cache::ImageType;
 use galaxyui_core::windowing::state::{ApplicationStage, StateEvent};
 use galaxyui_core::windowing::WindowManager;
+use instant::Instant;
 
 use crate::components::feature_optout_dialog::{render_feature_optout_dialog, FeatureOptOutDialog};
 use crate::model::{
@@ -25,11 +25,8 @@ const APP_BECAME_ACTIVE_DEBOUNCE: Duration = Duration::from_secs(15);
 
 const PLAN_ACTIVATED_TOAST_DURATION: Duration = Duration::from_secs(5);
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::vec2f;
-use ui_components::{button, Component as _, Options as _};
 use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::{Fill, WarpTheme};
+use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxy_core::ui::Icon;
 use galaxyui_core::elements::{
     Align, CacheOption, ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Dismiss, Empty,
@@ -45,6 +42,9 @@ use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
+use ui_components::{button, Component as _, Options as _};
 
 #[derive(Clone, Debug)]
 pub enum AgentOnboardingEvent {
@@ -483,7 +483,7 @@ impl AgentOnboardingView {
         let ui_builder = appearance.ui_builder();
 
         let check_icon = ConstrainedBox::new(Box::new(
-            Icon::CheckSkinny.to_warpui_icon(Fill::Solid(text_color)),
+            Icon::CheckSkinny.to_galaxyui_icon(Fill::Solid(text_color)),
         ))
         .with_width(ICON_SIZE)
         .with_height(ICON_SIZE)

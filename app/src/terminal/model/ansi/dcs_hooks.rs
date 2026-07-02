@@ -3,9 +3,9 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use galaxy_core::command::ExitCode;
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Deserializer, Serialize};
-use galaxy_core::command::ExitCode;
 
 use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::SessionId;

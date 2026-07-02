@@ -1,11 +1,11 @@
 use std::ops::{Deref as _, Range};
 use std::sync::Arc;
 
+use galaxy_core::features::FeatureFlag;
 use num_traits::Float as _;
 use parking_lot::FairMutex;
 use pathfinder_geometry::vector::vec2f;
 use vec1::Vec1;
-use galaxy_core::features::FeatureFlag;
 use warp_util::user_input::UserInput;
 use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
 use warpui::elements::{Axis, Point as UiPoint, ScrollData, ScrollableElement};
@@ -960,21 +960,17 @@ impl Element for AltScreenElement {
                 selected_range,
             } => self.set_marked_text(marked_text, selected_range, ctx),
             Event::ClearMarkedText => self.clear_marked_text(ctx),
-            Event::ModifierKeyChanged { key_code, state } => {
-                if self.is_terminal_focused {
-                    let is_press = matches!(state, KeyState::Pressed);
-                    if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
-                        self.model.lock().deref(),
-                        key_code,
-                        is_press,
-                    ) {
-                        ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
-                        return true;
-                    }
-                    self.maybe_handle_voice_toggle(key_code, state, ctx)
-                } else {
-                    false
+            Event::ModifierKeyChanged { key_code, state } if self.is_terminal_focused => {
+                let is_press = matches!(state, KeyState::Pressed);
+                if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
+                    self.model.lock().deref(),
+                    key_code,
+                    is_press,
+                ) {
+                    ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
+                    return true;
                 }
+                self.maybe_handle_voice_toggle(key_code, state, ctx)
             }
             _ => false,
         }

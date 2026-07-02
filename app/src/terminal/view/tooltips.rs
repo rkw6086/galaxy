@@ -1,10 +1,11 @@
 //! Grid tooltips for the terminal view
 
-use pathfinder_geometry::vector::vec2f;
 use galaxyui::elements::{
     ChildAnchor, Dismiss, MouseStateHandle, OffsetPositioning, PositionedElementAnchor,
     PositionedElementOffsetBounds, Stack,
 };
+use galaxyui::SingletonEntity;
+use pathfinder_geometry::vector::vec2f;
 use warpui::{AppContext, Element, EventContext};
 
 use super::{TerminalAction, TerminalView};

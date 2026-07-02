@@ -1,6 +1,6 @@
 use asset_macro::bundled_or_fetched_asset;
-use markdown_parser::{FormattedTextFragment, FormattedTextLine};
 use galaxy_core::send_telemetry_from_ctx;
+use markdown_parser::{FormattedTextFragment, FormattedTextLine};
 use warpui::assets::asset_cache::AssetSource;
 use warpui::{AppContext, SingletonEntity};
 

@@ -5,9 +5,9 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::future::Either;
 use futures::StreamExt;
+use galaxy_core::errors::AnyhowErrorExt as _;
 use galaxyui::r#async::Timer;
 use instant::Instant;
-use galaxy_core::errors::AnyhowErrorExt as _;
 
 use crate::server::retry_strategies::is_transient_http_error;
 use crate::server::server_api::ai::AgentRunEvent;

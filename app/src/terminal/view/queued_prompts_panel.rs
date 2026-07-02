@@ -8,11 +8,11 @@
 //! completion, which the host uses to submit or update the input editor.
 use std::collections::HashMap;
 
+use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::theme::color::internal_colors;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::vec2f;
-use galaxy_core::features::FeatureFlag;
-use galaxy_core::ui::theme::color::internal_colors;
 use warpui::elements::new_scrollable::{NewScrollable, ScrollableAppearance, SingleAxisConfig};
 use warpui::elements::{
     Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Container,

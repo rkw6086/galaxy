@@ -10,7 +10,7 @@ use crate::search::command_search::settings::CommandSearchSettings;
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
 use crate::search::workflows::fuzzy_match::FuzzyMatchWorkflowResult;
-use crate::user_config::WarpConfig;
+use crate::user_config::GalaxyConfig;
 use crate::workflows::local_workflows::LocalWorkflows;
 #[cfg(feature = "local_fs")]
 use crate::workflows::local_workflows::UseCache;

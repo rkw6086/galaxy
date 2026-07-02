@@ -1,8 +1,9 @@
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{DateTime, FixedOffset, Local};
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::color::ColorU;
@@ -19,6 +20,7 @@ use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_geometry::vector::vec2f;
 
 use super::settings_page::{
     render_page_title, MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle,
@@ -475,7 +477,7 @@ impl ShowBlocksView {
     ) {
         match result {
             Ok(mut blocks) => {
-                blocks.sort_by(|b1, b2| b2.time_started.cmp(&b1.time_started));
+                blocks.sort_by_key(|b| std::cmp::Reverse(b.time_started));
 
                 self.get_blocks_for_user_status = GetBlocksForUserRequestState::Done(blocks)
             }

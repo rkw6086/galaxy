@@ -8,11 +8,11 @@ use anyhow::anyhow;
 use chrono::{DateTime, Local, NaiveDateTime};
 #[cfg(feature = "local_fs")]
 use diesel::SqliteConnection;
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp_cli::agent::Harness;
-use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api::client_action::{Action, StartNewConversation};
 use warp_multi_agent_api::response_event::stream_finished::{
     ConversationUsageMetadata, TokenUsage,
@@ -1525,6 +1525,10 @@ impl BlocklistAIHistoryModel {
             autoexecute_override: Some(source_conversation.autoexecute_override().into()),
             last_event_sequence: None,
             pinned: false,
+            progressive_summary: source_conversation
+                .progressive_summary()
+                .map(|s| s.to_string()),
+            messages_summarized_up_to: source_conversation.messages_summarized_up_to(),
         };
         let forked_conversation_id = AIConversationId::new();
         if let Err(e) = sqlite_sender.send(ModelEvent::UpdateMultiAgentConversation {
@@ -1684,6 +1688,8 @@ impl BlocklistAIHistoryModel {
             autoexecute_override: Some(conversation.autoexecute_override().into()),
             last_event_sequence: None,
             pinned: false,
+            progressive_summary: conversation.progressive_summary().map(|s| s.to_string()),
+            messages_summarized_up_to: conversation.messages_summarized_up_to(),
         };
 
         let forked_conversation_id = AIConversationId::new();
@@ -2698,6 +2704,10 @@ fn merged_remote_child_placeholder_conversation_data(
         reverted_action_ids: None,
         root_task_is_optimistic: None,
         autoexecute_override: None,
+        progressive_summary: cloud_conversation
+            .progressive_summary()
+            .map(|s| s.to_string()),
+        messages_summarized_up_to: cloud_conversation.messages_summarized_up_to(),
     }
 }
 

@@ -9,16 +9,17 @@ use galaxy_editor::content::buffer::{AutoScrollBehavior, BufferSelectAction, Sel
 use galaxy_editor::content::text::{BlockType, BufferBlockStyle, CodeBlockType, TextStyles};
 use galaxy_editor::model::{CoreEditorModel, RichTextEditorModel};
 use galaxy_editor::render::model::viewport::SizeInfo;
-use galaxy_editor::render::model::BlockItem;
-use galaxy_editor::render::model::RenderEvent;
+use galaxy_editor::render::model::{BlockItem, RenderEvent};
 use galaxy_editor::selection::{TextDirection, TextUnit};
 use galaxyui::elements::ListIndentLevel;
 use galaxyui::platform::WindowStyle;
 use galaxyui::presenter::ChildView;
-use galaxyui::r#async::{block_on, FutureId};
+use galaxyui::r#async::{block_on, FutureId, Timer};
 use galaxyui::text::word_boundaries::WordBoundariesPolicy;
-use galaxyui::{r#async::Timer, App, Entity, ModelHandle, SingletonEntity, TypedActionView};
-use galaxyui::{AddSingletonModel, AppContext, Element, View, ViewHandle};
+use galaxyui::{
+    AddSingletonModel, App, AppContext, Element, Entity, ModelHandle, SingletonEntity,
+    TypedActionView, View, ViewHandle,
+};
 use itertools::Itertools;
 use markdown_parser::markdown_parser::RUNNABLE_BLOCK_MARKDOWN_LANG;
 use markdown_parser::{
@@ -27,12 +28,6 @@ use markdown_parser::{
 use pathfinder_geometry::vector::Vector2F;
 use string_offset::CharOffset;
 use vec1::vec1;
-use galaxy_editor::render::model::{BlockItem, RenderEvent};
-use galaxyui::r#async::{block_on, FutureId, Timer};
-use galaxyui::{
-    AddSingletonModel, App, AppContext, Element, Entity, ModelHandle, SingletonEntity,
-    TypedActionView, View, ViewHandle,
-};
 
 use super::super::rich_text_styles;
 use super::NotebooksEditorModel;

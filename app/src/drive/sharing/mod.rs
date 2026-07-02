@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 
 use chrono::{DateTime, Local};
-use session_sharing_protocol::common::SessionId;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::color::ColorU;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{AppContext, SingletonEntity, WeakViewHandle};
+use session_sharing_protocol::common::SessionId;
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::BlocklistAIHistoryModel;

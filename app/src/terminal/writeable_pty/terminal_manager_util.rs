@@ -2,9 +2,8 @@ use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 
 use async_channel::Receiver;
-use galaxyui::{AppContext, ModelHandle, ViewHandle};
-use parking_lot::FairMutex;
 use galaxyui::{AppContext, Entity, ModelHandle, ViewHandle};
+use parking_lot::FairMutex;
 
 use crate::persistence::ModelEvent;
 use crate::terminal::line_editor_status::LineEditorStatus;

@@ -10,7 +10,11 @@ use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
 use ai::workspace::{WorkspaceMetadata, WorkspaceMetadataEvent};
 use anyhow::Context;
 use chrono::Utc;
+#[cfg(feature = "local_fs")]
+use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
+#[cfg(feature = "local_fs")]
+use galaxy_util::{local_or_remote_path::LocalOrRemotePath, standardized_path::StandardizedPath};
 #[cfg(feature = "local_fs")]
 use galaxyui::windowing::WindowManager;
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
@@ -26,12 +30,8 @@ use repo_metadata::repositories::{DetectedRepositories, DetectedRepositoriesEven
 #[cfg(feature = "local_fs")]
 use repo_metadata::RepoMetadataModel;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "local_fs")]
-use galaxy_core::channel::ChannelState;
-#[cfg(feature = "local_fs")]
-use galaxy_util::{local_or_remote_path::LocalOrRemotePath, standardized_path::StandardizedPath};
-#[cfg(feature = "local_fs")]
 
+#[cfg(feature = "local_fs")]
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 #[cfg(feature = "local_fs")]
 use crate::ai::codebase_auto_indexing::{

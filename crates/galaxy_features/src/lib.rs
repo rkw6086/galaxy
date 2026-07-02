@@ -905,6 +905,11 @@ pub enum FeatureFlag {
     /// Enables the `--runner` flag on `run-cloud`, which overrides an agent's
     /// compute (docker image, instance shape, setup commands) by runner ID.
     CloudRunners,
+
+    LspCodeActions,
+    LspCompletion,
+    LspRename,
+    LspSignatureHelp,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =

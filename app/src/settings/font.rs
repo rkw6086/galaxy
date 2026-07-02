@@ -1,10 +1,10 @@
-use settings::macros::define_settings_group;
-use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 use galaxy_core::ui::builder::MIN_FONT_SIZE;
 use galaxyui::elements::DEFAULT_UI_LINE_HEIGHT_RATIO;
 use galaxyui::fonts::Weight;
 use galaxyui::rendering::ThinStrokes;
 use galaxyui::{AppContext, SingletonEntity};
+use settings::macros::define_settings_group;
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 use super::EnforceMinimumContrast as EnforceMinimumContrastEnum;
 

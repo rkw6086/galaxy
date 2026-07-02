@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, FixedOffset, Local};
 use enum_iterator::all;
+use galaxy_core::command::ExitCode;
+use galaxy_core::features::FeatureFlag;
 use hex;
 use instant::Instant;
 pub use interaction_mode::*;
@@ -19,8 +21,6 @@ use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::Vector2F;
 pub use serialized_block::*;
-use galaxy_core::command::ExitCode;
-use galaxy_core::features::FeatureFlag;
 use warp_terminal::model::grid::Dimensions as _;
 use warp_terminal::model::{KeyboardModes, KeyboardModesApplyBehavior};
 use warp_util::path::user_friendly_path;

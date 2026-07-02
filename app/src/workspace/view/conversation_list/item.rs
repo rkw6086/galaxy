@@ -1,4 +1,3 @@
-use pathfinder_geometry::vector::vec2f;
 use galaxy_core::ui::color::coloru_with_opacity;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::path::user_friendly_path;
@@ -16,6 +15,7 @@ use galaxyui::text_layout::TextStyle;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, SingletonEntity, ViewHandle};
+use pathfinder_geometry::vector::vec2f;
 
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent_conversations_model::{

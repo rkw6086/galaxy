@@ -15,7 +15,6 @@ use galaxy_util::path::{EscapeChar, ShellFamily};
 use galaxyui::platform::OperatingSystem;
 use smol_str::SmolStr;
 use typed_path::{TypedPath, TypedPathBuf};
-use galaxyui_core::platform::OperatingSystem;
 
 use super::engine::EngineDirEntry;
 use crate::completer::TopLevelCommandCaseSensitivity;

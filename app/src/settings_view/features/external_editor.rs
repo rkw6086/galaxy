@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use settings::{Setting, ToggleableSetting};
 use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{Flex, MouseStateHandle, ParentElement};
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle};
+use settings::{Setting, ToggleableSetting};
 
 use crate::appearance::Appearance;
 use crate::server::telemetry::TelemetryEvent;

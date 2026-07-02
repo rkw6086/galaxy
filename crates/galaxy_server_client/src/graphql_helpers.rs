@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
 use anyhow::{Result, anyhow};
+use galaxy_graphql::client::{GraphQLError, Operation};
+use galaxyui_core::r#async::BoxFuture;
 use http::StatusCode;
 use instant::Duration;
-use warp_graphql::client::{GraphQLError, Operation};
-use galaxyui_core::r#async::BoxFuture;
 
 use crate::auth::AuthEvent;
 use crate::base_client::BaseClient;

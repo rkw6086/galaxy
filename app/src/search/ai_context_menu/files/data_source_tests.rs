@@ -3,18 +3,20 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use repo_metadata::repositories::DetectedRepositories;
-use repo_metadata::RepoMetadataModel;
-use tempfile::tempdir;
+use fuzzy_match::FuzzyMatchResult;
 use galaxyui::elements::Empty;
 use galaxyui::platform::WindowStyle;
 use galaxyui::r#async::block_on;
 use galaxyui::windowing::WindowManager;
 use galaxyui::{App, AppContext, Element, Entity, SingletonEntity, TypedActionView, View};
+use repo_metadata::repositories::DetectedRepositories;
+use repo_metadata::RepoMetadataModel;
+use tempfile::tempdir;
 
 use crate::search::ai_context_menu::files::data_source::{
     file_data_source_for_pwd, fuzzy_match_files, FileSnapshot,
 };
+use crate::search::ai_context_menu::files::search_item::FileSearchItem;
 use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::data_source::Query;
 use crate::search::files::model::FileSearchModel;
@@ -436,8 +438,6 @@ fn test_directory_search_support() {
 
 #[test]
 fn test_directory_action_type() {
-
-
     let directory_item = FileSearchItem {
         path: PathBuf::from("src/components/"),
         match_result: FuzzyMatchResult::no_match(),

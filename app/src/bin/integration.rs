@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use warp_cli::WorkerCommand;
+use galaxy_cli::WorkerCommand;
 use galaxy_core::channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig};
 use galaxy_core::AppId;
 
@@ -58,12 +58,12 @@ pub fn main() -> Result<()> {
                 // GUI application), do so.  This must occur before init_logging, as the
                 // terminal server sets up its own logger, and attempting to set a second
                 // logger leads to a panic.
-                warp::terminal::local_tty::server::run_terminal_server(args);
+                galaxy::terminal::local_tty::server::run_terminal_server(args);
                 return Ok(());
             }
             #[cfg(not(target_family = "wasm"))]
             WorkerCommand::RemoteServerProxy(_) | WorkerCommand::RemoteServerDaemon(_) => {
-                return warp::run();
+                return galaxy::run();
             }
             // This is a catch-all to handle the plugin host, which the integration test crate doesn't have a feature flag for.
             #[allow(unreachable_patterns)]
@@ -71,5 +71,5 @@ pub fn main() -> Result<()> {
         }
     }
 
-    warp::run()
+    galaxy::run()
 }

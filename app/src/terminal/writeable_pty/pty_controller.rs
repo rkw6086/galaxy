@@ -3,11 +3,11 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
+use galaxy_util::path::ShellFamily;
 use galaxyui::r#async::block_on;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use parking_lot::FairMutex;
 use thiserror::Error;
-use galaxy_util::path::ShellFamily;
 
 use super::Message;
 use crate::ai::agent::AIAgentPtyWriteMode;

@@ -170,15 +170,10 @@ async fn git_origin_url(git_root: &Path) -> Option<String> {
 /// matching the env-creation flow).
 fn parse_github_repo(remote_url: &str) -> Option<GithubRepo> {
     let trimmed = remote_url.trim();
-    let path_part = if let Some(rest) = trimmed.strip_prefix("git@github.com:") {
-        rest
-    } else if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
-        rest
-    } else if let Some(rest) = trimmed.strip_prefix("ssh://git@github.com/") {
-        rest
-    } else {
-        return None;
-    };
+    let path_part = None
+        .or_else(|| trimmed.strip_prefix("git@github.com:"))
+        .or_else(|| trimmed.strip_prefix("https://github.com/"))
+        .or_else(|| trimmed.strip_prefix("ssh://git@github.com/"))?;
 
     let path_part = path_part.strip_suffix(".git").unwrap_or(path_part);
     let mut segments = path_part.splitn(2, '/');

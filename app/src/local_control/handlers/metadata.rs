@@ -9,10 +9,10 @@ use ::local_control::protocol::{
 use ::local_control::{
     Action, ActionKind, ActionMetadata, ControlError, ErrorCode, InstanceId, PROTOCOL_VERSION,
 };
+use galaxy_core::channel::ChannelState;
 use serde::Serialize;
 use serde_json::{json, Value};
 use settings::Setting as _;
-use galaxy_core::channel::ChannelState;
 use warpui::{AppContext, ModelContext, SingletonEntity, ViewHandle, WindowId};
 
 use crate::drive::settings::WarpDriveSettings;

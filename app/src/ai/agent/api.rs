@@ -14,14 +14,14 @@ pub use convert_from::{
     MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError,
 };
 use futures_lite::Stream;
-use mcp::TemplatableMCPServerInfo;
-pub use r#impl::generate_multi_agent_output;
-use serde::Serialize;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::{AppContext, EntityId, SingletonEntity as _};
+use mcp::TemplatableMCPServerInfo;
+pub use r#impl::generate_multi_agent_output;
+use serde::Serialize;
 
 use super::{AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
 use crate::ai::agent::conversation::AIConversationId;
@@ -211,6 +211,11 @@ impl RequestParams {
             supported_tools_override: None,
             parent_agent_id: None,
             agent_name: None,
+            root_task_id: None,
+            bedrock_message_history: vec![],
+            bedrock_progressive_summary: None,
+            bedrock_tool_result_archive: vec![],
+            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
         }
     }
 
@@ -303,7 +308,7 @@ impl RequestParams {
         let geap_binding: Option<::ai::api_keys::GeapMintBinding> = None;
         let api_keys = api_key_manager.api_keys_for_request(
             is_byo_enabled,
-            user_workspaces.is_aws_bedrock_credentials_enabled(app),
+            user_workspaces.is_bedrock_enabled(app),
             geap_binding,
         );
         let is_custom_inference_enabled = user_workspaces.is_custom_inference_enabled(app);

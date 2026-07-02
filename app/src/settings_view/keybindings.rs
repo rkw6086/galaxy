@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use itertools::Itertools;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Align, Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
@@ -16,6 +15,7 @@ use galaxyui::units::Pixels;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use itertools::Itertools;
 
 use super::settings_page::{
     render_sub_header, LocalOnlyIconState, MatchData, PageType, SettingsPageMeta,

@@ -2,9 +2,6 @@ use std::borrow::Cow;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use lazy_static::lazy_static;
-use parking_lot::RwLock;
-use settings::Setting as _;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::ui::Icon;
@@ -18,6 +15,9 @@ use galaxyui::{
     AppContext, Element, Entity, EntityId, FocusContext, SingletonEntity, TypedActionView, View,
     ViewContext,
 };
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
+use settings::Setting as _;
 
 use crate::ai::agent::icons::{yellow_running_icon, yellow_stop_icon};
 use crate::ai::blocklist::block::view_impl::{

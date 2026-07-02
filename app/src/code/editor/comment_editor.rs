@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
 use warp_editor::render::element::VerticalExpansionBehavior;
 use warpui::elements::{
     Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
@@ -238,12 +238,11 @@ impl CommentEditor {
             EditorViewEvent::CmdEnter => {
                 self.save_comment(ctx);
             }
-            EditorViewEvent::EscapePressed => {
-                // Dismiss the comment composer when pressing Escape on an empty draft.
-                if self.editor.as_ref(ctx).model().as_ref(ctx).is_empty(ctx) {
-                    self.reset(ctx);
-                    ctx.emit(CommentEditorEvent::CloseEditor);
-                }
+            EditorViewEvent::EscapePressed
+                if self.editor.as_ref(ctx).model().as_ref(ctx).is_empty(ctx) =>
+            {
+                self.reset(ctx);
+                ctx.emit(CommentEditorEvent::CloseEditor);
             }
             _ => {}
         }

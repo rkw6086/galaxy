@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{pin_mut, FutureExt as _};
-use itertools::Itertools;
 use galaxy_completer::completer::CommandExitStatus;
 use galaxy_core::r#async::debounce;
 use galaxy_core::user_preferences::GetUserPreferences;
@@ -13,6 +12,7 @@ use galaxyui::{
     AppContext, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity, ViewHandle,
     WeakModelHandle,
 };
+use itertools::Itertools;
 
 use super::context_chip::{
     ChipAvailability, ChipFingerprintInput, ChipRuntimeCapabilities, ContextChip, Environment,

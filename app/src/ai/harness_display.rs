@@ -5,9 +5,9 @@
 //! icon, and brand color from here so the two surfaces cannot drift.
 
 use galaxy_cli::agent::Harness;
-use pathfinder_color::ColorU;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::{Fill as WarpThemeFill, WarpTheme};
+use pathfinder_color::ColorU;
 
 use crate::ai::agent::conversation::AIAgentHarness;
 use crate::ai::blocklist::CLAUDE_ORANGE;

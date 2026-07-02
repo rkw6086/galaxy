@@ -1,4 +1,3 @@
-use url::Url;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{Empty, MouseStateHandle};
 use galaxyui::platform::WindowStyle;
@@ -6,6 +5,7 @@ use galaxyui::{
     AddSingletonModel, App, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
     WindowId,
 };
+use url::Url;
 
 use super::{
     EnvironmentFormCopy, EnvironmentFormInitArgs, EnvironmentFormValues, SuggestImageState,

@@ -8,6 +8,7 @@ use std::time::Duration;
 pub mod home_watcher;
 use anyhow::Result;
 use futures::channel::oneshot;
+use galaxyui_core::{Entity, ModelContext};
 pub use home_watcher::{HomeDirectoryWatcher, HomeDirectoryWatcherEvent};
 use notify_debouncer_full::notify::event::{ModifyKind, RenameMode};
 use notify_debouncer_full::notify::{
@@ -17,7 +18,6 @@ use notify_debouncer_full::{
     new_debouncer_opt, DebounceEventHandler, DebounceEventResult, DebouncedEvent, Debouncer,
     NoCache,
 };
-use galaxyui_core::{Entity, ModelContext};
 
 #[derive(Debug)]
 enum BackgroundFileWatcherCommand {
