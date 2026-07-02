@@ -1,8 +1,7 @@
 use std::num::NonZeroU16;
 
-use crate::model::grid::FlatStorage;
-
 use super::*;
+use crate::model::grid::FlatStorage;
 
 const ASCII_GRAPHEME_INFO: GraphemeInfo = GraphemeInfo {
     cell_width: 1,
@@ -292,7 +291,10 @@ fn test_cell_type() {
 }
 
 mod offset_point_conversion {
-    use super::*;
+    use string_offset::ByteOffset;
+
+    use crate::model::grid::FlatStorage;
+    use crate::model::Point;
 
     #[test]
     fn test_normal_cell() {

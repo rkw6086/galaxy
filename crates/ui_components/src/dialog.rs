@@ -1,16 +1,17 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
+use std::sync::Arc;
 
-use galaxy_core::ui::{Icon, appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{
-    AppContext, EventContext,
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss, Element,
-        Flex, ParentElement, Radius, Shrinkable,
-    },
-    fonts::{Properties, Weight},
-    keymap::Keystroke,
-    prelude::{MainAxisAlignment, MainAxisSize, Text},
+use galaxy_core::ui::Icon;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss, Element, Flex,
+    ParentElement, Radius, Shrinkable,
 };
+use galaxyui_core::fonts::{Properties, Weight};
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::{MainAxisAlignment, MainAxisSize, Text};
+use galaxyui_core::{AppContext, EventContext};
 
 use crate::{Component, Options as _, Renderable, button};
 

@@ -1,11 +1,12 @@
-use super::{
-    run_jq_filter, write_filter_output, write_json, write_json_line, write_list, TableFormat,
-};
 use comfy_table::Cell;
 use galaxy_cli::agent::OutputFormat;
 use galaxy_cli::json_filter::parse_jq_filter;
 use serde::Serialize;
 use serde_json::json;
+
+use super::{
+    run_jq_filter, write_filter_output, write_json, write_json_line, write_list, TableFormat,
+};
 
 #[derive(Serialize)]
 struct TestItem {

@@ -1,5 +1,6 @@
 use galaxy_core::features::FeatureFlag;
-use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
+use settings::macros::define_settings_group;
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 use super::DriveSortOrder;
 

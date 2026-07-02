@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 rangemap.workspace = true
 arborium.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 galaxy_editor.workspace = true
 languages.workspace = true
 futures.workspace = true

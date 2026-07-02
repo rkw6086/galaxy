@@ -1,20 +1,15 @@
+use galaxyui::elements::{
+    Align, Border, ChildView, Clipped, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex,
+    MouseStateHandle, Padding, ParentElement, Radius, Text,
+};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{Align, Clipped},
-    ui_components::components::{Coords, UiComponentStyles},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 
-use crate::{
-    editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions},
-    Appearance,
-};
-use galaxyui::{
-    elements::{
-        Border, ChildView, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex,
-        MouseStateHandle, Padding, ParentElement, Radius, Text,
-    },
-    ui_components::{button::ButtonVariant, components::UiComponent},
-};
+use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
+use crate::Appearance;
 
 const MAXIMUM_SPENDING_LIMIT_CENTS: u32 = 999999999;
 

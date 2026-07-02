@@ -1,13 +1,11 @@
-use crate::appearance::Appearance;
 use galaxyui::elements::{Container, Flex, MainAxisSize, MouseStateHandle, ParentElement};
+use galaxyui::platform::Cursor;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::{
-    platform::Cursor, AppContext, Element, Entity, SingletonEntity, TypedActionView, View,
-    ViewContext,
-};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
 use super::style::{self, MODAL_PADDING};
+use crate::appearance::Appearance;
 
 const SESSION_BUILD_FREE_PLAN_SUBHEADER: &str = "Galaxy's free and pro plans come with a limited number of shared sessions.\n\nFor increased access to session sharing upgrade to the Build plan.";
 const VIEW_PLANS_TEXT: &str = "View plans";

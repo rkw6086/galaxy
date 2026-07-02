@@ -1,4 +1,5 @@
-use galaxyui::{keymap::Keystroke, AppContext};
+use galaxyui::keymap::Keystroke;
+use galaxyui::AppContext;
 use serde::{Deserialize, Serialize};
 
 pub mod tip_view;

@@ -2,7 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use galaxy_core::ui::theme::AnsiColorIdentifier;
-use settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
+use settings::macros::define_settings_group;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
+
+use super::header_toolbar_item::HeaderToolbarItemKind;
 
 #[derive(
     Default,
@@ -200,8 +205,7 @@ settings::macros::implement_setting_for_enum!(
 impl DirectoryTabColors {
     /// Returns the configured tab color for a directory using longest-prefix matching.
     /// Returns `None` if no configured directory is a prefix of `dir`.
-    pub fn color_for_directory(&self, dir: &Path) -> Option<DirectoryTabColor> {
-        let canonical_dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    pub fn color_for_directory(&self, canonical_dir: &Path) -> Option<DirectoryTabColor> {
         self.0
             .iter()
             .filter_map(|(configured_path, color)| {
@@ -220,11 +224,17 @@ impl DirectoryTabColors {
     /// Returns a new value with the given directory's color updated.
     pub fn with_color(&self, path: &Path, color: DirectoryTabColor) -> Self {
         let mut map = self.0.clone();
-
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        map.insert(canonical.to_string_lossy().to_string(), color);
+        map.insert(canonical_directory_key(path), color);
         Self(map)
     }
+}
+
+/// Canonicalizes `path` into the string key used in [`DirectoryTabColors`].
+pub fn canonical_directory_key(path: &Path) -> String {
+    dunce::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string()
 }
 
 #[derive(
@@ -253,7 +263,6 @@ pub enum HeaderToolbarChipSelection {
 
 impl HeaderToolbarChipSelection {
     pub fn left_items(&self) -> Vec<super::header_toolbar_item::HeaderToolbarItemKind> {
-        use super::header_toolbar_item::HeaderToolbarItemKind;
         match self {
             Self::Default => HeaderToolbarItemKind::default_left(),
             Self::Custom { left, .. } => left.clone(),
@@ -261,11 +270,14 @@ impl HeaderToolbarChipSelection {
     }
 
     pub fn right_items(&self) -> Vec<super::header_toolbar_item::HeaderToolbarItemKind> {
-        use super::header_toolbar_item::HeaderToolbarItemKind;
         match self {
             Self::Default => HeaderToolbarItemKind::default_right(),
             Self::Custom { right, .. } => right.clone(),
         }
+    }
+
+    pub fn contains_item(&self, item: &super::header_toolbar_item::HeaderToolbarItemKind) -> bool {
+        self.left_items().contains(item) || self.right_items().contains(item)
     }
 }
 
@@ -481,6 +493,24 @@ define_settings_group!(TabSettings, settings: [
         private: false,
         toml_path: "appearance.vertical_tabs.enabled",
         description: "Whether to display tabs vertically instead of horizontally.",
+    },
+    show_vertical_tab_panel_in_restored_windows: ShowVerticalTabPanelInRestoredWindows {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "appearance.vertical_tabs.show_panel_in_restored_windows",
+        description: "When restoring a window, open the vertical tabs panel even if it was closed when the session was saved.",
+    },
+    hide_title_bar_search_bar_in_vertical_tabs: HideTitleBarSearchBarInVerticalTabs {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "appearance.vertical_tabs.hide_title_bar_search_bar",
+        description: "When using the vertical tab layout, hide the search bar in the title bar. Search stays available via the command palette and keyboard shortcuts.",
     },
     use_latest_user_prompt_as_conversation_title_in_tab_names: UseLatestUserPromptAsConversationTitleInTabNames {
         type: bool,

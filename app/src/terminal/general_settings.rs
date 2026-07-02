@@ -1,7 +1,10 @@
 use std::collections::HashSet;
 
-use crate::{banner::BannerState, resource_center::Tip};
-use galaxy_core::settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
+use galaxy_core::settings::macros::define_settings_group;
+use galaxy_core::settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
+
+use crate::banner::BannerState;
+use crate::resource_center::Tip;
 
 define_settings_group!(GeneralSettings, settings: [
     show_warning_before_quitting: ShowWarningBeforeQuitting {

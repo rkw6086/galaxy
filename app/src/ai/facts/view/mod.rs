@@ -1,26 +1,30 @@
-use crate::cloud_object::{CloudObject, CloudObjectSyncStatus};
-use crate::network::NetworkStatus;
-use crate::pane_group::focus_state::PaneFocusHandle;
-use crate::pane_group::{pane::view, BackingView, PaneConfiguration, PaneEvent};
-use crate::server::ids::SyncId;
-use crate::server::sync_queue::SyncQueue;
-use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{
-        Align, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
-        CrossAxisAlignment, Expanded, Flex, MainAxisAlignment, MainAxisSize, ParentElement,
-        ScrollbarWidth,
-    },
-    ui_components::components::UiComponent,
-    AppContext, Element, Entity, FocusContext, ModelHandle, TypedActionView, View, ViewContext,
-};
 use std::path::PathBuf;
 
-use crate::ui_components::icons::Icon;
-use galaxyui::elements::ChildView;
-use galaxyui::{SingletonEntity, ViewHandle};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+use galaxyui::elements::{
+    Align, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
+    CrossAxisAlignment, Expanded, Flex, MainAxisAlignment, MainAxisSize, ParentElement,
+    ScrollbarWidth,
+};
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{
+    AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
+};
 
 use super::{AIFact, CloudAIFact, CloudAIFactModel};
+use crate::cloud_object::{
+    CloudObject, CloudObjectSyncStatus, GenericStringObjectFormat, JsonObjectType,
+};
+use crate::drive::CloudObjectTypeAndId;
+use crate::network::NetworkStatus;
+use crate::pane_group::focus_state::PaneFocusHandle;
+use crate::pane_group::pane::view;
+use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
+use crate::server::ids::SyncId;
+use crate::server::sync_queue::SyncQueue;
+use crate::ui_components::icons::Icon;
 
 pub mod rule;
 pub mod rule_editor;
@@ -52,7 +56,7 @@ impl std::fmt::Display for AIFactPage {
 pub enum AIFactViewEvent {
     Pane(PaneEvent),
     OpenSettings,
-    OpenFile(PathBuf),
+    OpenFile(LocalOrRemotePath),
     InitializeProject(PathBuf),
 }
 

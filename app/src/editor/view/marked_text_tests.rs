@@ -1,10 +1,11 @@
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{keymap::Keystroke, platform::WindowStyle, App};
+use galaxyui::keymap::Keystroke;
+use galaxyui::platform::WindowStyle;
+use galaxyui::App;
 use vim::vim::VimMode;
 
-use crate::editor::{DisplayPoint, EditorOptions, EditorView};
-
 use super::initialize_app;
+use crate::editor::{DisplayPoint, EditorOptions, EditorView};
 
 #[test]
 fn test_set_marked_text() {

@@ -1,15 +1,14 @@
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon,
-        MainAxisSize, ParentElement, Radius, Shrinkable,
-    },
-    ui_components::components::{UiComponent, UiComponentStyles},
-    Element,
+use galaxyui::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon, MainAxisSize,
+    ParentElement, Radius, Shrinkable,
 };
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::Element;
 use pathfinder_color::ColorU;
 
-use crate::{appearance::Appearance, themes::theme::Fill};
+use crate::appearance::Appearance;
+use crate::themes::theme::Fill;
 
 const ALERT_CORNER_RADIUS: f32 = 4.;
 const ALERT_VERTICAL_PADDING: f32 = 8.;

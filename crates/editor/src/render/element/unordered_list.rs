@@ -1,20 +1,14 @@
-use crate::{
-    content::text::BufferBlockStyle,
-    extract_block,
-    render::model::{BlockItem, RenderState, RichTextStyles, bounds, viewport::ViewportItem},
-};
-use galaxyui::elements::ListIndentLevel;
-use galaxyui::{
-    Element, SizeConstraint,
-    elements::{Border, CornerRadius, Radius, Rect},
-    geometry::vector::vec2f,
-};
+use galaxyui_core::elements::{Border, CornerRadius, ListIndentLevel, Radius, Rect};
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::{Element, SizeConstraint};
 
-use super::{
-    RenderableBlock,
-    paint::RenderContext,
-    placeholder::{self, BlockPlaceholder},
-};
+use super::RenderableBlock;
+use super::paint::RenderContext;
+use super::placeholder::{self, BlockPlaceholder};
+use crate::content::text::BufferBlockStyle;
+use crate::extract_block;
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RenderState, RichTextStyles, bounds};
 
 // Minimum size constraint for the bullet point. If the size is smaller than the constraint,
 // the svg won't render.
@@ -67,8 +61,8 @@ impl RenderableBlock for RenderableBulletList {
     fn layout(
         &mut self,
         model: &RenderState,
-        ctx: &mut galaxyui::LayoutContext,
-        app: &galaxyui::AppContext,
+        ctx: &mut galaxyui_core::LayoutContext,
+        app: &galaxyui_core::AppContext,
     ) {
         self.bullet_point.layout(
             SizeConstraint::strict(vec2f(self.bullet_size, self.bullet_size)),
@@ -88,7 +82,12 @@ impl RenderableBlock for RenderableBulletList {
             })
     }
 
-    fn paint(&mut self, model: &RenderState, ctx: &mut RenderContext, app: &galaxyui::AppContext) {
+    fn paint(
+        &mut self,
+        model: &RenderState,
+        ctx: &mut RenderContext,
+        app: &galaxyui_core::AppContext,
+    ) {
         let content = model.content();
         let unordered_list = extract_block!(self.viewport_item, content, (block, BlockItem::UnorderedList{ paragraph: inner, ..}) => block.unordered_list(inner));
 

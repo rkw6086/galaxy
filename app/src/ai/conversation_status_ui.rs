@@ -5,7 +5,7 @@ use galaxyui::color::ColorU;
 use galaxyui::elements::{ConstrainedBox, Container, CornerRadius, Radius};
 use galaxyui::Element;
 
-use crate::ai::agent::conversation::ConversationStatus;
+use crate::ai::agent::conversation::{ConversationStatus, StatusColorStyle};
 use crate::ai::agent_conversations_model::AgentRunDisplayStatus;
 use crate::ui_components::icons::Icon;
 
@@ -18,7 +18,7 @@ pub trait StatusElementStyle {
 
 impl StatusElementStyle for ConversationStatus {
     fn status_icon_and_color(&self, theme: &GalaxyTheme) -> (Icon, ColorU) {
-        ConversationStatus::status_icon_and_color(self, theme)
+        ConversationStatus::status_icon_and_color(self, theme, StatusColorStyle::Standard)
     }
 }
 

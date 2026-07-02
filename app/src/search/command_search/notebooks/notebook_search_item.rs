@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, Flex, Highlight, Icon, MainAxisAlignment, MainAxisSize,
-        ParentElement, Text,
-    },
-    fonts::{Properties, Weight},
-    AppContext, Element, SingletonEntity,
+use galaxyui::elements::{
+    ConstrainedBox, Container, Flex, Highlight, Icon, MainAxisAlignment, MainAxisSize,
+    ParentElement, Text,
 };
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::{AppContext, Element, SingletonEntity};
 use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;

@@ -1,8 +1,6 @@
-use galaxyui::fonts::Weight;
-use markdown_parser::CodeBlockText;
-
 use galaxy_core::features::FeatureFlag;
-use markdown_parser::FormattedTable;
+use galaxyui_core::fonts::Weight;
+use markdown_parser::{CodeBlockText, FormattedTable};
 
 use super::{
     BufferBlockItem, BufferTextStyle, CodeBlockType, MarkdownStyle, TextStyles,

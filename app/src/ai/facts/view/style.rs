@@ -1,9 +1,8 @@
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{
-    elements::{CornerRadius, Radius},
-    fonts::Weight,
-    ui_components::components::{Coords, UiComponentStyles},
-};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{CornerRadius, Radius};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 
 pub const HEADER_FONT_SIZE: f32 = 16.;
 pub const TEXT_FONT_SIZE: f32 = 14.;

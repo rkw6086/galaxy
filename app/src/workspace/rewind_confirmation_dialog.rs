@@ -1,27 +1,25 @@
-use galaxy_core::ui::{color::coloru_with_opacity, theme::Fill};
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{
+    Align, ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable,
+    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Stack,
+    Text,
+};
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::{FixedBinding, Keystroke};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Align, ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable,
-        MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds,
-        Stack, Text,
-    },
-    fonts::Weight,
-    keymap::{FixedBinding, Keystroke},
-    platform::Cursor,
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
 };
 use pathfinder_geometry::vector::vec2f;
 
-use crate::{
-    ai::agent::{conversation::AIConversationId, AIAgentExchangeId},
-    appearance::Appearance,
-    ui_components::dialog::{dialog_styles, Dialog},
-    ui_components::icons::Icon,
-};
+use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::AIAgentExchangeId;
+use crate::appearance::Appearance;
+use crate::ui_components::dialog::{dialog_styles, Dialog};
+use crate::ui_components::icons::Icon;
 
 pub fn init(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

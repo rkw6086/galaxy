@@ -6,11 +6,10 @@ use galaxy_core::ui::Icon;
 use galaxyui::elements::shimmering_text::ShimmeringTextStateHandle;
 use galaxyui::elements::{
     Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Element, Expanded, Flex,
-    FormattedTextElement, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement,
-    SelectableArea, SelectionHandle, Text,
+    FormattedTextElement, HyperlinkLens, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, SelectableArea, SelectionHandle, Text,
 };
-use galaxyui::fonts::Properties;
-use galaxyui::fonts::Weight;
+use galaxyui::fonts::{Properties, Weight};
 use galaxyui::prelude::{CornerRadius, Radius};
 use galaxyui::text_layout::TextAlignment;
 use galaxyui::ui_components::button::ButtonVariant;
@@ -182,7 +181,6 @@ fn render_tier_limits_footer(
     .with_alignment(TextAlignment::Center)
     .with_hyperlink_font_color(theme.accent().into())
     .register_default_click_handlers_with_action_support(|link, _evt, app| {
-        use galaxyui::elements::HyperlinkLens;
         if let HyperlinkLens::Url(url) = link {
             app.open_url(url);
         }

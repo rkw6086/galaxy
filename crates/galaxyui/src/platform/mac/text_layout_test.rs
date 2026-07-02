@@ -1,12 +1,12 @@
-use super::*;
-use crate::fonts::Properties;
-
-use crate::fonts::{collect_glyph_indices, collect_line_caret_position_starts, init_fonts};
-use crate::platform::FontDB as _;
-use crate::text_layout::DEFAULT_TOP_BOTTOM_RATIO;
-
 use anyhow::Result;
 use rand::random;
+
+use super::*;
+use crate::fonts::{
+    collect_glyph_indices, collect_line_caret_position_starts, init_fonts, Properties,
+};
+use crate::platform::FontDB as _;
+use crate::text_layout::DEFAULT_TOP_BOTTOM_RATIO;
 
 pub(crate) fn collect_line_caret_position_pairs(line: &Line) -> Vec<(usize, usize)> {
     line.caret_positions
@@ -52,7 +52,7 @@ fn test_char_indices_ligatures() -> Result<()> {
     // characters get combined to become a single glyph. At a high level, what this is testing
     // is that after laying out the string, we see some characters get combined into a single
     // glyph. For example, the text "Zapfino" gets combined into a single glyph, which is why
-    // there is a jump from 23 to 30 in in the list of glyph indices below.
+    // there is a jump from 23 to 30 in the list of glyph indices below.
     // See https://docs.google.com/drawings/d/18qOKhzA5rWaMuxKVeWFDXh7ebrDjxongarAckkm0qnE/edit
     // for a full diagram of what's happening here.
     assert_eq!(

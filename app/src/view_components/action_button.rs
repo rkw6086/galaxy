@@ -1,33 +1,33 @@
-use galaxy_core::ui::{
-    appearance::Appearance,
-    color::{coloru_with_opacity, contrast::MinimumAllowedContrast, ContrastingColor},
-    theme::{color::internal_colors, AnsiColorIdentifier, Fill},
+use std::borrow::Cow;
+use std::sync::Arc;
+
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
+use galaxy_core::ui::color::{coloru_with_opacity, ContrastingColor};
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill};
+use galaxyui::elements::{
+    Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
+    Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, Padding,
+    ParentAnchor, ParentElement as _, ParentOffsetBounds, Radius, Stack, Text,
+    DEFAULT_UI_LINE_HEIGHT_RATIO,
 };
-use galaxyui::{elements::MainAxisAlignment, Gradient};
-use galaxyui::{elements::MainAxisSize, text_layout::ClipConfig};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::Keystroke;
+use galaxyui::platform::Cursor;
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Border, ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
-        Hoverable, MouseStateHandle, OffsetPositioning, Padding, ParentAnchor, ParentElement as _,
-        ParentOffsetBounds, Radius, Stack, Text, DEFAULT_UI_LINE_HEIGHT_RATIO,
-    },
-    fonts::{Properties, Weight},
-    keymap::Keystroke,
-    platform::Cursor,
-    ui_components::components::{Coords, UiComponent, UiComponentStyles},
-    AppContext, BlurContext, Element, Entity, EventContext, FocusContext, SingletonEntity as _,
-    TypedActionView, View, ViewContext,
+    AppContext, BlurContext, Element, Entity, EventContext, FocusContext, Gradient,
+    SingletonEntity as _, TypedActionView, View, ViewContext,
 };
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::{borrow::Cow, sync::Arc};
 
-use crate::{
-    settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier},
-    terminal::input::{MenuPositioning, MenuPositioningProvider},
-    ui_components::icons::Icon,
-    util::bindings::keybinding_name_to_keystroke,
-};
+use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
+use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
+use crate::ui_components::icons::Icon;
+use crate::util::bindings::keybinding_name_to_keystroke;
 
 /// Maximum width of a tooltip before it soft-wraps.
 const TOOLTIP_MAX_WIDTH: f32 = 300.;
@@ -324,6 +324,10 @@ impl ActionButton {
         self.has_menu = has_menu;
         self
     }
+    pub fn set_has_menu(&mut self, has_menu: bool, ctx: &mut ViewContext<Self>) {
+        self.has_menu = has_menu;
+        ctx.notify();
+    }
 
     #[allow(dead_code)]
     pub fn with_callout(mut self, callout: Callout) -> Self {
@@ -429,6 +433,11 @@ impl ActionButton {
 
     pub fn set_tooltip(&mut self, tooltip: Option<impl Into<String>>, ctx: &mut ViewContext<Self>) {
         self.tooltip = tooltip.map(|t| t.into());
+        ctx.notify();
+    }
+
+    pub fn clear_tooltip(&mut self, ctx: &mut ViewContext<Self>) {
+        self.tooltip = None;
         ctx.notify();
     }
 

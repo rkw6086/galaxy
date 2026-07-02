@@ -1,9 +1,8 @@
-use super::super::search_item::{FileSearchItem, FileSearchResult};
-use super::FileSearchModel;
-use fuzzy_match::FuzzyMatchResult;
 use galaxyui::{App, SingletonEntity};
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::RepoMetadataModel;
+
+use super::FileSearchModel;
 
 #[cfg(test)]
 mod file_search_model_tests {
@@ -176,7 +175,9 @@ mod file_search_model_tests {
 
 #[cfg(test)]
 mod file_search_item_tests {
-    use super::*;
+    use fuzzy_match::FuzzyMatchResult;
+
+    use crate::search::files::search_item::{FileSearchItem, FileSearchResult};
 
     #[test]
     fn test_file_search_item_from_result() {
@@ -252,8 +253,9 @@ mod file_search_item_tests {
 
 #[cfg(test)]
 mod strip_absolute_path_prefix_tests {
-    use super::*;
     use std::path::{Path, PathBuf};
+
+    use super::FileSearchModel;
 
     /// Builds an absolute path from the given components, using the platform's
     /// root (`/` on Unix, `C:\` on Windows).  This ensures the constructed
@@ -388,7 +390,8 @@ mod strip_absolute_path_prefix_tests {
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
+    use super::FileSearchModel;
+    use crate::search::files::search_item::{FileSearchItem, FileSearchResult};
 
     #[test]
     fn test_typical_search_workflow() {
@@ -398,7 +401,7 @@ mod integration_tests {
             "src/lib.rs",
             "src/components/button.tsx",
             "src/components/input.tsx",
-            "tests/integration_test.rs",
+            "tests/integration_tests.rs",
             "README.md",
         ];
 
@@ -421,7 +424,7 @@ mod integration_tests {
         assert!(!results.is_empty());
 
         // Sort by score (highest first)
-        results.sort_by(|a, b| b.match_result.score.cmp(&a.match_result.score));
+        results.sort_by_key(|b| std::cmp::Reverse(b.match_result.score));
 
         // "src/main.rs" should be the top result (exact filename match)
         assert_eq!(results[0].path, "src/main.rs");
@@ -434,7 +437,7 @@ mod integration_tests {
             "src/components/button.tsx",
             "src/components/input.tsx",
             "src/utils/button_helper.rs",
-            "tests/button_test.rs",
+            "tests/button_tests.rs",
         ];
 
         let query = "comp button";

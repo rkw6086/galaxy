@@ -1,6 +1,9 @@
 //! A reusable component for displaying text with a copy button that shows
 //! checkmark feedback when clicked.
 
+use std::time::Duration;
+
+use galaxyui::color::ColorU;
 use galaxyui::elements::{
     ConstrainedBox, Container, CrossAxisAlignment, Element, Expanded, Flex, MouseStateHandle,
     ParentElement, Shrinkable, Text,
@@ -9,11 +12,9 @@ use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, SingletonEntity};
 use instant::Instant;
-use std::time::Duration;
 
 use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;
-use galaxyui::color::ColorU;
 
 /// Duration to show the checkmark after copying.
 pub const COPY_FEEDBACK_DURATION: Duration = Duration::from_secs(2);

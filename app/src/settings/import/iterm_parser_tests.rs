@@ -1,16 +1,18 @@
 use async_io::block_on;
 use galaxy_core::ui::theme::{Fill, GalaxyTheme};
-use galaxyui::{fonts::FontInfo, keymap::Keystroke};
+use galaxyui::fonts::FontInfo;
+use galaxyui::keymap::Keystroke;
 use pathfinder_color::ColorU;
 use plist::{Dictionary, Value};
 use virtual_fs::{Stub, VirtualFS};
 
-use crate::settings::import::{
-    config::{GlobalHotkey, HotkeyError, ImportedFont, ParseableConfig, ThemeType},
-    iterm_parser::{default_dark_theme, default_light_theme, Flags, ITermKeystroke, ITermProfile},
-};
-
 use super::{color_dictionary_to_coloru, ITermTheme, ITermThemeType};
+use crate::settings::import::config::{
+    GlobalHotkey, HotkeyError, ImportedFont, ParseableConfig, ThemeType,
+};
+use crate::settings::import::iterm_parser::{
+    default_dark_theme, default_light_theme, Flags, ITermKeystroke, ITermProfile,
+};
 
 fn courier_new() -> Vec<FontInfo> {
     vec![FontInfo {

@@ -1,10 +1,9 @@
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, CornerRadius, Empty, Flex, MainAxisSize, ParentElement, Radius,
-    },
-    Element,
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::elements::{
+    ConstrainedBox, Container, CornerRadius, Empty, Flex, MainAxisSize, ParentElement, Radius,
 };
+use galaxyui_core::Element;
 
 /// Render `n` dots with 4px radius and 8px spacing. `k` is the 0-based active dot index.
 pub(crate) fn progress_dots(n: usize, k: usize, appearance: &Appearance) -> Box<dyn Element> {

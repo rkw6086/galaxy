@@ -1,14 +1,12 @@
-use crate::menu::{Menu, MenuItem, MenuItemFields};
-use crate::pane_group::PaneHeaderAction;
-use crate::pane_group::PaneHeaderCustomAction;
-
-use crate::terminal::view::{TerminalAction, TerminalView};
-use crate::ui_components::icons::Icon;
-
-use galaxyui::{elements::MouseStateHandle, ViewContext, ViewHandle};
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::{ViewContext, ViewHandle};
 use session_sharing_protocol::common::{Role, WindowSize};
 
 use super::adapter::Participant;
+use crate::menu::{Menu, MenuItem, MenuItemFields};
+use crate::pane_group::{PaneHeaderAction, PaneHeaderCustomAction};
+use crate::terminal::view::{TerminalAction, TerminalView};
+use crate::ui_components::icons::Icon;
 
 pub struct Viewer {
     pub sharer: Option<Participant>,

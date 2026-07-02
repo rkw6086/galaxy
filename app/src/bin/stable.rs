@@ -3,24 +3,12 @@
 #![cfg_attr(feature = "release_bundle", windows_subsystem = "windows")]
 
 use anyhow::Result;
-use galaxy_core::{
-    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
-    AppId,
-};
+use galaxy_core::channel::{Channel, ChannelState};
 
 fn main() -> Result<()> {
     ChannelState::set(ChannelState::new(
         Channel::Stable,
-        ChannelConfig {
-            app_id: AppId::new("com", "samsung", "Galaxy"),
-            logfile_name: "galaxy.log".into(),
-            server_config: WarpServerConfig::production(),
-            oz_config: OzConfig::production(),
-            telemetry_config: None,
-            crash_reporting_config: None,
-            autoupdate_config: None,
-            mcp_static_config: None,
-        },
+        warp_channel_config::load_config!("stable"),
     ));
 
     galaxy::run()

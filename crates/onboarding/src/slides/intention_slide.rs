@@ -1,27 +1,30 @@
-use super::OnboardingSlide;
-use crate::model::OnboardingStateModel;
-use crate::slides::{bottom_nav, layout, slide_content};
-use crate::visuals::{intention_terminal_visual, intention_visual};
-use crate::{OnboardingIntention, AI_FEATURES};
 use galaxy_core::features::FeatureFlag;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, Icon};
-use galaxyui::prelude::Align;
-use galaxyui::{
-    elements::{
-        Border, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
-        CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize,
-        MouseStateHandle, ParentElement, Radius,
-    },
-    fonts::Weight,
-    keymap::Keystroke,
-    platform::Cursor,
-    text_layout::TextAlignment,
-    ui_components::components::{UiComponent as _, UiComponentStyles},
+use galaxy_core::ui::Icon;
+use galaxyui_core::elements::{
+    Border, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Flex, FormattedTextElement, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, Radius,
+};
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::prelude::Align;
+use galaxyui_core::text_layout::TextAlignment;
+use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
 use ui_components::{button, Component as _, Options as _};
+
+use super::OnboardingSlide;
+use crate::model::{NoAiConfirmationSource, OnboardingStateModel};
+use crate::slides::{bottom_nav, layout, slide_content};
+use crate::visuals::{intention_terminal_visual, intention_visual};
+use crate::{OnboardingIntention, AI_FEATURES};
 
 #[derive(Debug, Clone)]
 pub enum IntentionSlideAction {
@@ -199,7 +202,7 @@ impl IntentionSlide {
         let header_row = {
             let label = appearance
                 .ui_builder()
-                .paragraph("Build faster with AI agents")
+                .paragraph("Build faster with agents")
                 .with_style(UiComponentStyles {
                     font_size: Some(16.),
                     font_weight: Some(Weight::Semibold),
@@ -237,7 +240,7 @@ impl IntentionSlide {
         };
 
         let description = FormattedTextElement::from_str(
-            "An agent-first experience with best in class terminal support. Get terminal and agent driven development AI features like:",
+            "Get AI features to accelerate terminal and agent-driven workflows:",
             appearance.ui_font_family(),
             14.,
         )
@@ -521,8 +524,14 @@ impl IntentionSlide {
     fn next(&mut self, ctx: &mut ViewContext<Self>) {
         self.onboarding_state.update(ctx, |model, ctx| {
             if FeatureFlag::OpenWarpNewSettingsModes.is_enabled() {
-                // Always advance to Customize slide; both intentions continue the flow.
-                model.next(ctx);
+                match model.intention() {
+                    // "Just use the terminal" confirms leaving AI behind before advancing.
+                    OnboardingIntention::Terminal => {
+                        model.request_no_ai_confirmation(NoAiConfirmationSource::Intention, ctx);
+                    }
+                    // Agent intention routes to the next step (the AI-setup fork).
+                    OnboardingIntention::AgentDrivenDevelopment => model.next(ctx),
+                }
             } else {
                 match model.intention() {
                     OnboardingIntention::Terminal => {

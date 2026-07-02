@@ -2,15 +2,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Local;
-
 use galaxy_editor::editor::NavigationKey;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     resizable_state_handle, Align, Border, ChildAnchor, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, DispatchEventResult, DragBarSide, Empty, EventHandler, Fill, Flex,
-    HyperlinkUrl, Icon, MainAxisAlignment, MainAxisSize, OffsetPositioning, ParentAnchor,
-    PositionedElementAnchor, PositionedElementOffsetBounds, Radius, SavePosition, Shrinkable,
-    Stack, Text,
+    CrossAxisAlignment, DispatchEventResult, DragBarSide, Element, Empty, EventHandler, Fill, Flex,
+    HyperlinkUrl, Icon, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
+    ParentAnchor, ParentElement, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
+    Resizable, ResizableStateHandle, SavePosition, Shrinkable, Stack, Text,
 };
 use galaxyui::fonts::Properties;
 use galaxyui::keymap::{EditableBinding, FixedBinding};
@@ -19,32 +18,11 @@ use galaxyui::presenter::ChildView;
 use galaxyui::r#async::Timer;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use galaxyui::{elements::Element, AppContext, Entity, TypedActionView, View, ViewContext};
-use galaxyui::{FocusContext, ModelHandle, SingletonEntity, ViewHandle};
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-
-use crate::appearance::Appearance;
-use crate::editor::{
-    EditorOptions, EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, TextOptions,
+use galaxyui::{
+    AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
 };
-use crate::input_suggestions::{Event as InputSuggestionsEvent, InputSuggestions};
-
-use crate::send_telemetry_from_ctx;
-use crate::server::server_api::ai::AIClient;
-use crate::server::server_api::ServerApi;
-use crate::server::telemetry::{TelemetryEvent, WarpAIActionType};
-use crate::terminal::resizable_data::{ModalType, ResizableData, DEFAULT_WARP_AI_WIDTH};
-use crate::ui_components::blended_colors;
-use crate::workspaces::user_workspaces::UserWorkspaces;
-
-use crate::ui_components::buttons::icon_button;
-use crate::workspace::{ActiveSession, TAB_BAR_HEIGHT};
-
-use crate::util::bindings::{cmd_or_ctrl_shift, CustomAction};
-use galaxyui::elements::MouseStateHandle;
-use galaxyui::elements::ParentElement;
-use galaxyui::elements::Resizable;
-use galaxyui::elements::ResizableStateHandle;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::execution_context::WarpAiExecutionContext;
 use super::requests::{Event as RequestsEvent, RequestStatus, Requests};
@@ -54,6 +32,21 @@ use super::{
     AskAIType, AI_ASSISTANT_FEATURE_NAME, AI_ASSISTANT_LOGO_COLOR, AI_ASSISTANT_SVG_PATH,
     ASK_AI_ASSISTANT_TEXT, PROMPT_CHARACTER_LIMIT,
 };
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorOptions, EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, TextOptions,
+};
+use crate::input_suggestions::{Event as InputSuggestionsEvent, InputSuggestions};
+use crate::send_telemetry_from_ctx;
+use crate::server::server_api::ai::AIClient;
+use crate::server::server_api::ServerApi;
+use crate::server::telemetry::{TelemetryEvent, WarpAIActionType};
+use crate::terminal::resizable_data::{ModalType, ResizableData, DEFAULT_WARP_AI_WIDTH};
+use crate::ui_components::blended_colors;
+use crate::ui_components::buttons::icon_button;
+use crate::util::bindings::{cmd_or_ctrl_shift, CustomAction};
+use crate::workspace::{ActiveSession, TAB_BAR_HEIGHT};
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const INFO_ICON_SVG_PATH: &str = "bundled/svg/info.svg";
 pub const HEXAGON_ALERT_SVG_PATH: &str = "bundled/svg/alert-hexagon.svg";

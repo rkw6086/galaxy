@@ -21,10 +21,8 @@ pub mod types;
 
 pub use config::{default_init_params, LanguageId, LspServerConfig};
 pub use jsonrpc::{JsonRpcService, ServerNotificationEvent, Transport};
-pub use lsp_types::{
-    notification::{self},
-    CompletionItem, Position, Range,
-};
+pub use lsp_types::notification::{self};
+pub use lsp_types::{CompletionItem, Position, Range};
 pub use manager::{LspManagerModel, LspManagerModelEvent};
 pub use model::{
     BackgroundTaskInfo, DocumentDiagnostics, LanguageServerId, LspEvent, LspServerModel, LspState,
@@ -56,12 +54,13 @@ impl std::fmt::Display for LspServerLogLevel {
     }
 }
 
+use std::sync::Arc;
+
 use anyhow::Result;
-use galaxyui::r#async::executor::Background;
-use galaxyui::AppContext;
+use galaxyui_core::r#async::executor::Background;
+use galaxyui_core::AppContext;
 #[cfg(not(target_arch = "wasm32"))]
 use simple_logger::SimpleLogger;
-use std::sync::Arc;
 
 pub struct LspServiceInitializationResult {
     pub service: LspService,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use galaxyui::r#async::{block_on, executor::Background};
+use galaxyui::r#async::block_on;
+use galaxyui::r#async::executor::Background;
 
 use crate::plugin::service::{LogService, LogServiceRequest};
 

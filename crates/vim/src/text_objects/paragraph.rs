@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use galaxyui::text::TextBuffer;
+use galaxyui_core::text::TextBuffer;
 use string_offset::CharOffset;
 
 use crate::{find_next_paragraph_end, find_previous_paragraph_start};

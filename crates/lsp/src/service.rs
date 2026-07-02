@@ -1,25 +1,14 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use crate::{
-    config::{lsp_uri_to_path, path_to_lsp_uri, LanguageId},
-    types::{
-        CodeActionData, CompletionResult, FileEdits, HoverResult, Location, LspDefinitionLocation,
-        PrepareRenameResult, Range, ReferenceLocation, RenameResult, SignatureHelpResult,
-        TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
-    },
-    LspServerLogLevel,
-};
 use anyhow::Result;
 use galaxy_util::on_cancel::OnCancelFutureExt;
 use globset::{Glob, GlobMatcher};
 use jsonrpc::{JsonRpcService, RequestId, ServerNotificationEvent};
+use lsp_types::notification::{self, Notification};
+use lsp_types::request::{self, Request};
 use lsp_types::{
-    notification::{self, Notification},
-    request::{self, Request},
     CancelParams, CodeActionContext, CodeActionParams, CompletionContext, CompletionItem,
     CompletionParams, CompletionTriggerKind, DidChangeTextDocumentParams,
     DidChangeWatchedFilesParams, DidChangeWatchedFilesRegistrationOptions,
@@ -33,6 +22,14 @@ use lsp_types::{
 use serde_json::Value;
 #[cfg(not(target_arch = "wasm32"))]
 use simple_logger::SimpleLogger;
+
+use crate::config::{lsp_uri_to_path, path_to_lsp_uri, LanguageId};
+use crate::types::{
+    CodeActionData, CompletionResult, FileEdits, HoverResult, Location, LspDefinitionLocation,
+    PrepareRenameResult, Range, ReferenceLocation, RenameResult, SignatureHelpResult,
+    TextDocumentContentChangeEvent, TextEdit, WatchedFileChangeEvent,
+};
+use crate::LspServerLogLevel;
 
 /// Tracks the sync state for an open document.
 #[derive(Debug, Clone)]

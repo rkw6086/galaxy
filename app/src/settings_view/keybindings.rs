@@ -1,53 +1,40 @@
 use std::collections::HashMap;
 
-use super::{
-    settings_page::{
-        render_sub_header, LocalOnlyIconState, MatchData, PageType, SettingsPageMeta,
-        SettingsPageViewHandle, SettingsWidget,
-    },
-    SettingsSection,
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui::elements::{
+    Align, Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
+    CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty, EventHandler, Fill, Flex,
+    Hoverable, MouseState, MouseStateHandle, ParentElement, Radius, SavePosition, ScrollbarWidth,
+    Shrinkable, Text, Wrap,
 };
-use crate::send_telemetry_from_ctx;
-use crate::{appearance::Appearance, themes};
-use crate::{
-    editor::EditorView, keyboard::write_custom_keybinding, util::bindings::CommandBinding,
-};
-use crate::{
-    editor::{
-        Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions,
-    },
-    keyboard::UserDefinedKeybinding,
-};
-use crate::{search_bar::SearchBar, settings::CloudPreferencesSettings};
-use crate::{
-    util::bindings::{
-        filter_bindings_including_keystroke, reset_keybinding_to_default, set_custom_keybinding,
-    },
-    TelemetryEvent,
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::{DescriptionContext, Keystroke, Trigger};
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::units::Pixels;
+use galaxyui::{
+    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use itertools::Itertools;
 
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::{elements::Wrap, units::Pixels};
-use galaxyui::{
-    elements::{
-        Align, Border, ClippedScrollStateHandle, ClippedScrollable, Container, CornerRadius, Empty,
-        EventHandler, Fill, Flex, Hoverable, MouseState, MouseStateHandle, ParentElement, Radius,
-        SavePosition, ScrollbarWidth, Shrinkable,
-    },
-    fonts::Weight,
-    keymap::{Keystroke, Trigger},
-    ui_components::components::{Coords, UiComponent, UiComponentStyles},
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+use super::settings_page::{
+    render_sub_header, LocalOnlyIconState, MatchData, PageType, SettingsPageMeta,
+    SettingsPageViewHandle, SettingsWidget,
 };
-use galaxyui::{
-    elements::{ConstrainedBox, DispatchEventResult},
-    presenter::ChildView,
+use super::SettingsSection;
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
+    TextOptions,
 };
-use galaxyui::{
-    elements::{CrossAxisAlignment, Text},
-    keymap::DescriptionContext,
+use crate::keyboard::{write_custom_keybinding, UserDefinedKeybinding};
+use crate::search_bar::SearchBar;
+use crate::settings::CloudPreferencesSettings;
+use crate::util::bindings::{
+    filter_bindings_including_keystroke, reset_keybinding_to_default, set_custom_keybinding,
+    CommandBinding,
 };
+use crate::{send_telemetry_from_ctx, themes, TelemetryEvent};
 
 const FONT_DELTA: f32 = 2.;
 const CANCEL_SAVE_BUTTONS_SPACING: f32 = 4.0;
@@ -191,7 +178,7 @@ struct RowMouseStates {
 }
 
 /// Wrapper around the CommandBinding structure that includes the styling/render-specific
-/// attribtues (such as MouseStateHandles)
+/// attributes (such as MouseStateHandles)
 #[derive(Clone)]
 pub struct KeybindingRow {
     pub binding: CommandBinding,

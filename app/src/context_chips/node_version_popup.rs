@@ -1,16 +1,16 @@
+use std::env;
+use std::path::Path;
+
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
-    ChildView, ClippedScrollStateHandle, ClippedScrollable, Dismiss, ParentElement, ScrollbarWidth,
+    ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
+    CornerRadius, CrossAxisAlignment, Dismiss, DropShadow, Flex, MainAxisAlignment, MainAxisSize,
+    ParentElement, Radius, ScrollbarWidth, Text,
 };
-use galaxyui::fonts::FamilyId;
+use galaxyui::fonts::{FamilyId, Properties};
+use galaxyui::keymap::FixedBinding;
 use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
-        MainAxisAlignment, MainAxisSize, Radius, Text,
-    },
-    fonts::Properties,
-    keymap::FixedBinding,
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
@@ -18,8 +18,7 @@ use pathfinder_color::ColorU;
 
 use crate::menu::{self, Event as MenuEvent, Menu, MenuItemFields};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
-use crate::ui_components::blended_colors;
-use crate::ui_components::icons;
+use crate::ui_components::{blended_colors, icons};
 use crate::view_components::action_button::{ActionButton, SecondaryTheme};
 
 const MENU_WIDTH: f32 = 300.0;
@@ -518,9 +517,6 @@ fn detect_nvm_installed() -> bool {
 
 // Enumerate installed Node versions managed by nvm (best-effort, cross-OS)
 fn list_nvm_versions() -> Vec<String> {
-    use std::env;
-    use std::path::Path;
-
     let mut out: Vec<String> = Vec::new();
 
     #[cfg(windows)]

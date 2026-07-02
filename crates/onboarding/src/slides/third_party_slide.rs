@@ -1,25 +1,25 @@
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::elements::{
+    ClippedScrollStateHandle, Container, CrossAxisAlignment, Flex, FormattedTextElement,
+    MainAxisSize, MouseStateHandle, ParentElement,
+};
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::Align;
+use galaxyui_core::text_layout::TextAlignment;
+use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui_core::{
+    AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
+    ViewContext,
+};
+use ui_components::{button, Component as _, Options as _};
+
 use super::toggle_card::{render_toggle_card, ToggleCardSpec};
 use super::OnboardingSlide;
 use crate::model::{OnboardingStateEvent, OnboardingStateModel};
 use crate::slides::{bottom_nav, layout, slide_content};
 use crate::OnboardingIntention;
-
-use galaxy_core::ui::appearance::Appearance;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::prelude::Align;
-use galaxyui::{
-    elements::{
-        ClippedScrollStateHandle, Container, CrossAxisAlignment, Flex, FormattedTextElement,
-        MainAxisSize, MouseStateHandle, ParentElement,
-    },
-    fonts::Weight,
-    keymap::Keystroke,
-    text_layout::TextAlignment,
-    ui_components::components::{UiComponent as _, UiComponentStyles},
-    AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
-    ViewContext,
-};
-use ui_components::{button, Component as _, Options as _};
 
 /// Which setting card is currently expanded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,8 +111,9 @@ impl ThirdPartySlide {
         cli_toolbar_enabled: bool,
         show_agent_notifications: bool,
         intention: OnboardingIntention,
+        app: &AppContext,
     ) -> Box<dyn Element> {
-        let bottom_nav = Align::new(self.render_bottom_nav(appearance, intention)).finish();
+        let bottom_nav = Align::new(self.render_bottom_nav(appearance, app)).finish();
 
         let mut sections = vec![
             self.render_header(appearance),
@@ -263,11 +264,7 @@ impl ThirdPartySlide {
         .finish()
     }
 
-    fn render_bottom_nav(
-        &self,
-        appearance: &Appearance,
-        intention: OnboardingIntention,
-    ) -> Box<dyn Element> {
+    fn render_bottom_nav(&self, appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
         let back_button = self.back_button.render(
             appearance,
             button::Params {
@@ -298,8 +295,7 @@ impl ThirdPartySlide {
             },
         );
 
-        let is_terminal = matches!(intention, OnboardingIntention::Terminal);
-        let (step_index, step_count) = if is_terminal { (2, 4) } else { (3, 5) };
+        let (step_index, step_count) = self.onboarding_state.as_ref(app).progress();
         bottom_nav::onboarding_bottom_nav(
             appearance,
             step_index,
@@ -361,6 +357,7 @@ impl View for ThirdPartySlide {
                     cli_toolbar_enabled,
                     show_agent_notifications,
                     intention,
+                    app,
                 )
             },
             || self.render_visual(cli_toolbar_enabled, show_agent_notifications, vertical),

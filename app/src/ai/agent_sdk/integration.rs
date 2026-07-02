@@ -1,18 +1,17 @@
-use crate::server::server_api::ServerApiProvider;
 use futures::future;
-use galaxy_cli::{
-    integration::{CreateIntegrationArgs, IntegrationCommand, UpdateIntegrationArgs},
-    provider::ProviderType,
-    GlobalOptions,
-};
+use galaxy_cli::integration::{CreateIntegrationArgs, IntegrationCommand, UpdateIntegrationArgs};
+use galaxy_cli::provider::ProviderType;
+use galaxy_cli::GlobalOptions;
 use galaxy_graphql::mutations::create_simple_integration::CreateSimpleIntegrationOutput;
 use galaxy_graphql::queries::get_oauth_connect_tx_status::OauthConnectTxStatus;
 use galaxy_graphql::queries::get_simple_integrations::SimpleIntegrationsOutput;
-use galaxyui::{platform::TerminationMode, AppContext, ModelContext, SingletonEntity};
+use galaxyui::platform::TerminationMode;
+use galaxyui::{AppContext, ModelContext, SingletonEntity};
 
 use super::common::{EnvironmentChoice, ResolveConfigurationError};
 use super::integration_output;
 use super::oauth_flow::poll_oauth_until_terminal;
+use crate::server::server_api::ServerApiProvider;
 
 pub fn run(
     ctx: &mut AppContext,
@@ -104,6 +103,8 @@ impl IntegrationCommandRunner {
                 crate::ai::ambient_agents::AgentConfigSnapshot {
                     name: None,
                     environment_id: args.environment.environment.clone(),
+                    // TODO(REMOTE-1936): support a runner for integrations.
+                    runner_id: None,
                     model_id: args.model.model.clone(),
                     base_prompt: args.prompt.clone(),
                     mcp_servers: cli_mcp_servers,
@@ -416,6 +417,8 @@ impl IntegrationCommandRunner {
                 crate::ai::ambient_agents::AgentConfigSnapshot {
                     name: None,
                     environment_id: args.environment.environment.clone(),
+                    // TODO(REMOTE-1936): support a runner for integrations.
+                    runner_id: None,
                     model_id: args.model.model.clone(),
                     base_prompt: args.prompt.clone(),
                     mcp_servers: cli_mcp_servers,

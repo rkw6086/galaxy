@@ -2,7 +2,8 @@
 
 use anyhow::{Context, Result};
 use galaxy_cli::agent::OutputFormat;
-use galaxyui::{platform::TerminationMode, AppContext, SingletonEntity};
+use galaxyui::platform::TerminationMode;
+use galaxyui::{AppContext, SingletonEntity};
 use serde::Serialize;
 
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};

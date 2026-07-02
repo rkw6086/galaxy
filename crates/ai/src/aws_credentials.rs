@@ -6,12 +6,26 @@ use warp_multi_agent_api as api;
 
 /// Temporary AWS credentials loaded from the AWS SDK.
 /// These are not persisted and are only used at runtime.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AwsCredentials {
     access_key: String,
     secret_key: String,
     session_token: Option<String>,
     expires_at: Option<SystemTime>,
+}
+
+impl std::fmt::Debug for AwsCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AwsCredentials")
+            .field("access_key", &"<redacted>")
+            .field("secret_key", &"<redacted>")
+            .field(
+                "session_token",
+                &self.session_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 impl AwsCredentials {
@@ -27,6 +41,18 @@ impl AwsCredentials {
             session_token,
             expires_at,
         }
+    }
+
+    pub fn access_key(&self) -> &str {
+        &self.access_key
+    }
+
+    pub fn secret_key(&self) -> &str {
+        &self.secret_key
+    }
+
+    pub fn session_token(&self) -> Option<&str> {
+        self.session_token.as_deref()
     }
 
     pub fn expires_at(&self) -> Option<SystemTime> {

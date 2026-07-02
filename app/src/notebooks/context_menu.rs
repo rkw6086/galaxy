@@ -1,24 +1,21 @@
 //! Shared context menu implementation for notebooks.
 
 use galaxy_core::context_flag::ContextFlag;
-use galaxyui::{
-    elements::{ChildAnchor, OffsetPositioning, ParentAnchor, ParentOffsetBounds, Stack},
-    keymap::Trigger,
-    presenter::ChildView,
-    Action, Element, EventContext, TypedActionView, View, ViewContext, ViewHandle,
-};
+use galaxyui::elements::{ChildAnchor, OffsetPositioning, ParentAnchor, ParentOffsetBounds, Stack};
+use galaxyui::keymap::Trigger;
+use galaxyui::presenter::ChildView;
+use galaxyui::{Action, Element, EventContext, TypedActionView, View, ViewContext, ViewHandle};
 use pathfinder_geometry::vector::Vector2F;
 
-use crate::{
-    editor::EditorView,
-    menu::{self, Menu, MenuItem, MenuItemFields},
-    pane_group::{focus_state::PaneFocusHandle, PaneEvent, SplitPaneState},
-    util::bindings::{keybinding_name_to_display_string, trigger_to_keystroke, CustomAction},
-};
-
-use super::{
-    editor::{keys::custom_action_to_display, view::RichTextEditorView},
-    telemetry::ActionEntrypoint,
+use super::editor::keys::custom_action_to_display;
+use super::editor::view::RichTextEditorView;
+use super::telemetry::ActionEntrypoint;
+use crate::editor::EditorView;
+use crate::menu::{self, Menu, MenuItem, MenuItemFields};
+use crate::pane_group::focus_state::PaneFocusHandle;
+use crate::pane_group::{PaneEvent, SplitPaneState};
+use crate::util::bindings::{
+    keybinding_name_to_display_string, trigger_to_keystroke, CustomAction,
 };
 
 #[cfg(test)]

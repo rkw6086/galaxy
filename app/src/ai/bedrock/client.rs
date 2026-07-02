@@ -2,10 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use aws_config::BehaviorVersion;
+use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::config::Region;
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
-
-use crate::settings::ai::BedrockAuthMethod;
 
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
@@ -13,6 +12,7 @@ use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
 use crate::ai::agent::api::ResponseStream;
+use crate::settings::ai::BedrockAuthMethod;
 
 fn strip_context_marker(model_id: &str) -> String {
     if let Some(base) = model_id.strip_suffix("[1m]") {
@@ -36,6 +36,7 @@ pub struct BedrockClientConfig {
     pub region: String,
     pub access_key_id: String,
     pub secret_access_key: String,
+    pub session_token: Option<String>,
     pub cross_region_inference: bool,
 }
 
@@ -86,10 +87,23 @@ pub enum BedrockError {
 
 impl BedrockClient {
     pub async fn from_config(config: BedrockClientConfig) -> Result<Self, BedrockError> {
+        log::info!(
+            "[bedrock] from_config input: auth_method={:?}, profile={:?}, region={:?}, access_key_id_set={}, secret_access_key_set={}, session_token_set={}",
+            config.auth_method,
+            config.profile,
+            config.region,
+            !config.access_key_id.is_empty(),
+            !config.secret_access_key.is_empty(),
+            config.session_token.is_some(),
+        );
+
         let aws_config = match config.auth_method {
             BedrockAuthMethod::Profile | BedrockAuthMethod::Sso => {
-                let mut loader =
-                    aws_config::defaults(BehaviorVersion::latest()).profile_name(&config.profile);
+                let mut loader = aws_config::defaults(BehaviorVersion::latest());
+
+                if !config.profile.is_empty() && config.profile != "default" {
+                    loader = loader.profile_name(&config.profile);
+                }
 
                 if !config.region.is_empty() {
                     loader = loader.region(Region::new(config.region.clone()));
@@ -105,7 +119,7 @@ impl BedrockClient {
                 let creds = aws_credential_types::Credentials::new(
                     &config.access_key_id,
                     &config.secret_access_key,
-                    None,
+                    config.session_token,
                     None,
                     "warp-bedrock-static",
                 );
@@ -123,6 +137,24 @@ impl BedrockClient {
             }
         };
 
+        if let Some(provider) = aws_config.credentials_provider() {
+            match provider.provide_credentials().await {
+                Ok(creds) => {
+                    log::info!(
+                        "[bedrock] Resolved AWS credentials successfully: access_key_id={:?}, has_session_token={}, expiry={:?}",
+                        creds.access_key_id(),
+                        creds.session_token().is_some(),
+                        creds.expiry(),
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[bedrock] Failed to resolve AWS credentials from provider: {e:?}");
+                }
+            }
+        } else {
+            log::warn!("[bedrock] No credentials provider found in resolved AWS config");
+        }
+
         let region = aws_config
             .region()
             .map(|r| r.to_string())
@@ -136,6 +168,7 @@ impl BedrockClient {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn converse_stream(
         &self,
         model_id: &str,
@@ -172,6 +205,13 @@ impl BedrockClient {
             self.region,
             messages.len(),
             tools.len()
+        );
+
+        log::info!(
+            "[bedrock] Sending request payload to Bedrock:\nSystem Prompt: {:?}\nMessages: {:#?}\nTools: {:#?}",
+            system_prompt,
+            messages,
+            tools
         );
 
         let converted = build_converse_request(
@@ -302,12 +342,10 @@ impl BedrockClient {
         })?;
 
         let mut response_text = String::new();
-        if let Some(output_msg) = output.output() {
-            if let aws_sdk_bedrockruntime::types::ConverseOutput::Message(msg) = output_msg {
-                for block in msg.content() {
-                    if let aws_sdk_bedrockruntime::types::ContentBlock::Text(text) = block {
-                        response_text.push_str(text);
-                    }
+        if let Some(aws_sdk_bedrockruntime::types::ConverseOutput::Message(msg)) = output.output() {
+            for block in msg.content() {
+                if let aws_sdk_bedrockruntime::types::ContentBlock::Text(text) = block {
+                    response_text.push_str(text);
                 }
             }
         }

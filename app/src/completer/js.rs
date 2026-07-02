@@ -2,11 +2,12 @@
 //!
 //! This calls out to the `CallJsFunctionService` IPC service, which is served by the plugin host
 //! process where JS plugins are loaded and executed.
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use galaxy_completer::completer::{JsExecutionContext, JsExecutionError};
 use galaxy_js::{JsFunctionId, SerializedJsValue};
 use ipc::ServiceCaller;
-use std::sync::Arc;
 
 use crate::plugin::service::{
     CallJsFunctionRequest, CallJsFunctionResponse, CallJsFunctionService,

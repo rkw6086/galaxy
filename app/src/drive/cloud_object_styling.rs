@@ -1,8 +1,7 @@
-use galaxy_core::ui::{
-    appearance::Appearance,
-    color::{contrast::MinimumAllowedContrast, ContrastingColor},
-    theme::Fill,
-};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::contrast::MinimumAllowedContrast;
+use galaxy_core::ui::color::ContrastingColor;
+use galaxy_core::ui::theme::Fill;
 use pathfinder_color::ColorU;
 
 use super::DriveObjectType;

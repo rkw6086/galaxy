@@ -1,9 +1,9 @@
-use crate::{send_telemetry_from_ctx, server::telemetry::TelemetryEvent};
-use galaxyui::{Entity, ModelContext, SingletonEntity};
-use galaxyui_extras::user_preferences::registry_backed::KEY_NOT_FOUND_ERR;
 use itertools::Itertools as _;
 use windows_registry::CURRENT_USER;
 use windows_result::Error as WindowsError;
+
+use crate::send_telemetry_from_ctx;
+use crate::server::telemetry::TelemetryEvent;
 
 const DOCKER_DESKTOP_WSL_DISTRO_PREFIX: &str = "docker-desktop";
 const RANCHER_DESKTOP_WSL_DISTRO_PREFIX: &str = "rancher-desktop";

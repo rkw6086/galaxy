@@ -4,10 +4,19 @@
 //! finalized when the button is released. The selection should be cleared
 //! when text is added/removed/scrolled on the screen. The selection should
 //! also be cleared if the user clicks off of the selection.
-use galaxy_terminal::model::grid::cell;
+use std::cmp::{max, min};
 use std::fmt::Debug;
-use vec1::Vec1;
+use std::mem;
+use std::ops::RangeInclusive;
+pub use std::ops::{Range, RangeBounds};
 
+use galaxy_core::semantic_selection::SemanticSelection;
+use vec1::Vec1;
+use warp_terminal::model::grid::cell;
+use warpui::text::SelectionType;
+use warpui::units::Lines;
+
+use super::index::{Direction, VisibleRow};
 use crate::terminal::model::ansi::CursorShape;
 use crate::terminal::model::cell::Flags;
 use crate::terminal::model::grid::grid_handler::GridHandler;
@@ -15,15 +24,6 @@ use crate::terminal::model::grid::Dimensions;
 use crate::terminal::model::index::{Point, Side};
 use crate::terminal::model::GridStorage;
 use crate::terminal::Vector2F;
-use galaxy_core::semantic_selection::SemanticSelection;
-use galaxyui::text::SelectionType;
-use galaxyui::units::Lines;
-use std::cmp::{max, min};
-use std::mem;
-use std::ops::RangeInclusive;
-pub use std::ops::{Range, RangeBounds};
-
-use super::index::{Direction, VisibleRow};
 
 /// A Point and side within that point.
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -508,11 +508,10 @@ impl Selection {
         let mut range_end =
             grid_handler.semantic_search_right(end, |c| is_word_boundary_char(selection, c));
 
-        if selection.smart_select_enabled() && self.smart_select_override.is_some() {
-            let smart_select_override = self
-                .smart_select_override
-                .as_ref()
-                .expect("already checked this is Some");
+        if let (true, Some(smart_select_override)) = (
+            selection.smart_select_enabled(),
+            &self.smart_select_override,
+        ) {
             if smart_select_override.contains(&start) || smart_select_override.contains(&end) {
                 range_start = min(range_start, *smart_select_override.start());
                 range_end = max(range_end, *smart_select_override.end());
@@ -624,5 +623,5 @@ fn is_word_boundary_char(selection: &SemanticSelection, c: char) -> bool {
 /// and [EX] (at the start), or [BE] for a single cell. Partially selected cells
 /// look like [ B] and [E ].
 #[cfg(test)]
-#[path = "selection_test.rs"]
+#[path = "selection_tests.rs"]
 mod tests;

@@ -1,8 +1,10 @@
-use crate::experiments::{BucketRange, Experiment, Layer};
-use galaxyui::AppContext;
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::str::FromStr;
+
+use galaxyui::AppContext;
+use lazy_static::lazy_static;
+
+use crate::experiments::{BucketRange, Experiment, Layer};
 
 lazy_static! {
     pub static ref IMPROVED_PALETTE_SEARCH_LAYER: Layer = Layer {

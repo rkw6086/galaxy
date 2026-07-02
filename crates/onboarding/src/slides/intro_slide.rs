@@ -1,25 +1,29 @@
-use crate::model::OnboardingStateModel;
-use crate::OnboardingEvent;
-
-use super::OnboardingSlide;
 use galaxy_core::send_telemetry_from_ctx;
-use galaxy_core::ui::{appearance::Appearance, theme::color::internal_colors, Icon};
-use galaxyui::{
-    elements::{
-        shimmering_text::{ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle},
-        Align, ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex,
-        FormattedTextElement, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
-        ParentAnchor, ParentElement, ParentOffsetBounds, Stack,
-    },
-    keymap::Keystroke,
-    text_layout::TextAlignment,
-    ui_components::components::{UiComponent as _, UiComponentStyles},
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::Icon;
+use galaxyui_core::elements::shimmering_text::{
+    ShimmerConfig, ShimmeringTextElement, ShimmeringTextStateHandle,
+};
+use galaxyui_core::elements::{
+    Align, ChildAnchor, ConstrainedBox, Container, CrossAxisAlignment, Flex, FormattedTextElement,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Stack,
+};
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::text_layout::TextAlignment;
+use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use ui_components::{button, Component as _, Options as _};
+
+use super::OnboardingSlide;
+use crate::model::OnboardingStateModel;
+use crate::OnboardingEvent;
 
 #[derive(Clone, Debug)]
 pub enum IntroSlideEvent {

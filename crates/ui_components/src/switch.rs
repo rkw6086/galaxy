@@ -1,10 +1,9 @@
 use std::sync::LazyLock;
 
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{MouseStateHandle, Rect},
-    prelude::{stack::*, *},
-};
+use galaxyui_core::elements::{MouseStateHandle, Rect};
+use galaxyui_core::prelude::stack::*;
+use galaxyui_core::prelude::*;
 
 use crate::{Component, MouseEventHandler, Renderable};
 

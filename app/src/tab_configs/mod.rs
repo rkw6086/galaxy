@@ -11,7 +11,6 @@ pub mod tab_config;
 pub mod telemetry;
 
 use galaxy_core::ui::theme::Fill;
-
 pub use new_worktree_modal::{NewWorktreeModal, NewWorktreeModalEvent};
 pub use params_modal::{TabConfigParamsModal, TabConfigParamsModalEvent};
 #[cfg(feature = "local_fs")]

@@ -8,10 +8,8 @@ use galaxy_terminal::shell::ShellType;
 use galaxyui::ViewContext;
 use instant::Duration;
 
+use super::{release_assets_directory_url, DownloadReady, ReadyForRelaunch};
 use crate::workspace::Workspace;
-
-use super::release_assets_directory_url;
-use super::{DownloadReady, ReadyForRelaunch};
 
 lazy_static::lazy_static! {
     /// Stores the path to the current executable.
@@ -161,17 +159,13 @@ mod appimage {
 }
 
 mod package_manager {
-    use galaxyui::{
-        elements::{Container, FormattedTextElement, HighlightedHyperlink},
-        Element, SingletonEntity as _,
-    };
+    use galaxyui::elements::{Container, FormattedTextElement, HighlightedHyperlink};
+    use galaxyui::{Element, SingletonEntity as _};
     use markdown_parser::{
         FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     };
 
     use crate::appearance::Appearance;
-
-    use super::*;
 
     pub struct AutoupdateContextBlock {
         package_manager: PackageManager,
@@ -626,6 +620,23 @@ fn is_pacman_signing_key_installed() -> bool {
         return false;
     };
 
+    // After parsing the pub: line, also check validity field (index 1 = validity)
+    let fields: Vec<&str> = stdout
+        .lines()
+        .find(|line| line.starts_with("pub:"))
+        .map(|line| line.split(':').collect())
+        .unwrap_or_default();
+
+    // Field index 1 = validity: 'f' (full), 'u' (ultimate) are valid;
+    // 'e' (expired), 'r' (revoked), '-', 'q' = invalid
+    let validity = fields
+        .get(1)
+        .and_then(|field| field.chars().next())
+        .unwrap_or('\0');
+    if !matches!(validity, 'f' | 'u') {
+        return false; // Force key reconfiguration
+    }
+
     // Parse the expiry timestamp from the pub: line (field 7, 1-indexed).
     let Some(expiry_field) = stdout
         .lines()
@@ -671,5 +682,5 @@ fn repo_name(channel: Channel) -> String {
 }
 
 #[cfg(test)]
-#[path = "linux_test.rs"]
+#[path = "linux_tests.rs"]
 mod tests;

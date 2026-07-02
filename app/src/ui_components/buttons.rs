@@ -1,12 +1,11 @@
+use warpui::elements::{CornerRadius, MouseStateHandle, Radius};
+use warpui::ui_components::button::Button;
+use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+
 use super::icons::{Icon, ICON_DIMENSIONS};
 use super::{blended_colors, BORDER_RADIUS};
 use crate::appearance::Appearance;
-use crate::themes::theme::Fill;
-use crate::themes::theme::GalaxyTheme;
-use galaxyui::elements::Radius;
-use galaxyui::elements::{CornerRadius, MouseStateHandle};
-use galaxyui::ui_components::button::Button;
-use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use crate::themes::theme::{Fill, GalaxyTheme};
 
 const ICON_BUTTON_PADDING: f32 = 4.;
 

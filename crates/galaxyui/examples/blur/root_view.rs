@@ -1,4 +1,5 @@
-use galaxyui::{elements::Rect, AppContext, Element, Entity, TypedActionView, View};
+use galaxyui::elements::Rect;
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View};
 use pathfinder_color::ColorU;
 
 pub struct BlurredView {}

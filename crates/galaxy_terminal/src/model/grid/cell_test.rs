@@ -1,12 +1,10 @@
-use super::{Cell, LineLength};
+// The code in this file is adapted from the alacritty_terminal crate under the
+// Apache license; see: crates/warp_terminal/src/model/LICENSE-ALACRITTY.
 
-use crate::model::{
-    char_or_str::CharOrStr,
-    grid::{
-        cell::{Flags, MAX_GRAPHEME_BYTES},
-        row::Row,
-    },
-};
+use super::{Cell, LineLength};
+use crate::model::char_or_str::CharOrStr;
+use crate::model::grid::cell::{Flags, MAX_GRAPHEME_BYTES};
+use crate::model::grid::row::Row;
 
 #[test]
 fn verify_cell_size() {

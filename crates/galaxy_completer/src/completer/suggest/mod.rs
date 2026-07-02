@@ -3,33 +3,30 @@ pub mod alias;
 #[cfg_attr(not(feature = "v2"), path = "legacy.rs")]
 mod imp;
 mod priority;
-use alias::{expand_command_aliases, AliasExpansionResult};
-pub use priority::Priority;
-
-use galaxy_core::ui::theme::AnsiColorIdentifier;
-use imp::*;
-
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+use alias::{expand_command_aliases, AliasExpansionResult};
 use async_recursion::async_recursion;
+use galaxy_core::ui::theme::AnsiColorIdentifier;
+use imp::*;
 use itertools::Itertools;
+pub use priority::Priority;
 use smol_str::SmolStr;
 use warp_command_signatures::IconType;
 
-use crate::parsers::simple::parse_for_completions;
-use crate::{completer::describe::OptionCaseSensitivity, parsers::classify_command};
-use crate::{completer::TopLevelCommandCaseSensitivity, meta::Span};
-
+use super::coalesce::coalesce_completion_results;
+use super::context::CompletionContext;
 use super::engine::{self, completion_location};
-use super::{
-    coalesce::coalesce_completion_results,
-    context::CompletionContext,
-    matchers::{Match, MatchStrategy, MatchType},
-    EngineFileType,
-};
+use super::matchers::{Match, MatchStrategy, MatchType};
+use super::EngineFileType;
+use crate::completer::describe::OptionCaseSensitivity;
+use crate::completer::TopLevelCommandCaseSensitivity;
+use crate::meta::Span;
+use crate::parsers::classify_command;
+use crate::parsers::simple::parse_for_completions;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Suggestion {

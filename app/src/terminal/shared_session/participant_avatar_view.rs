@@ -1,23 +1,16 @@
-use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
-use crate::pane_group::{PaneHeaderAction, PaneHeaderCustomAction};
-use crate::terminal::view::TerminalAction;
-use crate::{
-    appearance::Appearance,
-    ui_components::{buttons::icon_button, icons::Icon},
+use galaxyui::accessibility::AccessibilityContent;
+use galaxyui::elements::{
+    Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Fill, Flex, Hoverable, MainAxisAlignment, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Radius, Stack,
 };
+use galaxyui::platform::Cursor;
 use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    accessibility::AccessibilityContent,
-    elements::{
-        Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
-        CrossAxisAlignment, Fill, Flex, Hoverable, MainAxisAlignment, MouseStateHandle,
-        OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Stack,
-    },
-    platform::Cursor,
-    ui_components::components::{UiComponent, UiComponentStyles},
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
-use galaxyui::{FocusContext, ViewHandle};
 use instant::Duration;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
@@ -25,6 +18,12 @@ use session_sharing_protocol::common::{ParticipantId, ParticipantInfo, Role};
 use session_sharing_protocol::sharer::RoleUpdateReason;
 
 use super::render_util::non_hoverable_participant_avatar;
+use crate::appearance::Appearance;
+use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
+use crate::pane_group::{PaneHeaderAction, PaneHeaderCustomAction};
+use crate::terminal::view::TerminalAction;
+use crate::ui_components::buttons::icon_button;
+use crate::ui_components::icons::Icon;
 
 #[derive(Debug, Clone)]
 pub enum HoveredElement {

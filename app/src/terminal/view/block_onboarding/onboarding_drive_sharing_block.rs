@@ -1,26 +1,19 @@
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{
-        Border, Container, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement,
-        Text,
-    },
-    fonts::{Properties, Weight},
-    platform::Cursor,
-    ui_components::{
-        button::{ButtonVariant, TextAndIcon, TextAndIconAlignment},
-        components::{UiComponent, UiComponentStyles},
-    },
-    AppContext, Element, Entity, SingletonEntity, View, ViewContext,
+use galaxyui::elements::{
+    Border, Container, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Text,
 };
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, View, ViewContext};
 use pathfinder_geometry::vector::vec2f;
 
-use crate::{
-    cloud_object::model::persistence::{CloudModel, CloudModelEvent},
-    drive::CloudObjectTypeAndId,
-    terminal::view::telemetry::SharingDialogSource,
-    ui_components::icons::Icon,
-    workspace::WorkspaceAction,
-};
+use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
+use crate::drive::CloudObjectTypeAndId;
+use crate::terminal::view::telemetry::SharingDialogSource;
+use crate::ui_components::icons::Icon;
+use crate::workspace::WorkspaceAction;
 
 /// A rich onboarding block that prompts the user to share a newly-created personal Warp Drive
 /// object.

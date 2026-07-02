@@ -1,48 +1,49 @@
-use std::{borrow::Cow, mem, ops::Range, sync::Arc};
+use std::borrow::Cow;
+use std::mem;
+use std::ops::Range;
+use std::sync::Arc;
 
 use galaxy_completer::signatures::CommandRegistry;
-use galaxy_editor::{
-    content::{anchor::Anchor, buffer::Buffer, selection_model::BufferSelectionModel},
-    editor::EmbeddedItemModel,
-};
+use galaxy_editor::content::anchor::Anchor;
+use galaxy_editor::content::buffer::Buffer;
+use galaxy_editor::content::selection_model::BufferSelectionModel;
+use galaxy_editor::editor::EmbeddedItemModel;
 use galaxy_util::user_input::UserInput;
+use galaxyui::elements::{
+    Align, Border, Container, CrossAxisAlignment, Empty, Flex, MainAxisAlignment, MouseStateHandle,
+    ParentElement, Shrinkable,
+};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{
-    elements::{
-        Align, Border, Container, CrossAxisAlignment, Empty, Flex, MainAxisAlignment,
-        MouseStateHandle, ParentElement, Shrinkable,
-    },
-    platform::Cursor,
-    ui_components::{button::ButtonVariant, components::UiComponent},
     AppContext, Element, Entity, ModelAsRef, ModelContext, ModelHandle, SingletonEntity,
 };
 use string_offset::{ByteOffset, CharOffset};
 
-use crate::{
-    appearance::Appearance,
-    cloud_object::{model::persistence::CloudModel, CloudObject},
-    completer::SessionAgnosticContext,
-    notebooks::{
-        styles::block_footer_action_button,
-        telemetry::{ActionEntrypoint, BlockInfo},
-    },
-    server::ids::{HashableId, ToServerId},
-    settings::FontSettings,
-    terminal::input::decorations::{parse_current_commands_and_tokens, ParsedTokensSnapshot},
-    themes::theme::AnsiColorIdentifier,
-    ui_components::icons::Icon,
-    util::bindings::CustomAction,
-    workflows::{CloudWorkflow, WorkflowId},
+use super::embedded_item::EmbeddedWorkflow;
+use super::keys::{custom_action_to_display, NotebookKeybindings};
+use super::model::ChildModelHandle;
+use super::notebook_command::{
+    parsed_token_to_color_style_ranges, transform_ansi_color_to_solid_color,
 };
-
-use super::{
-    embedded_item::EmbeddedWorkflow,
-    keys::{custom_action_to_display, NotebookKeybindings},
-    model::ChildModelHandle,
-    notebook_command::{parsed_token_to_color_style_ranges, transform_ansi_color_to_solid_color},
-    rich_text_styles,
-    view::EditorViewAction,
-    NotebookWorkflow,
+use super::view::EditorViewAction;
+use super::{rich_text_styles, NotebookWorkflow};
+use crate::appearance::Appearance;
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::cloud_object::CloudObject;
+use crate::completer::SessionAgnosticContext;
+use crate::notebooks::styles::block_footer_action_button;
+use crate::notebooks::telemetry::{ActionEntrypoint, BlockInfo};
+use crate::server::ids::{HashableId, ToServerId};
+use crate::settings::FontSettings;
+use crate::terminal::input::decorations::{
+    parse_current_commands_and_tokens, ParsedTokensSnapshot,
 };
+use crate::themes::theme::AnsiColorIdentifier;
+use crate::ui_components::icons::Icon;
+use crate::util::bindings::CustomAction;
+use crate::workflows::{CloudWorkflow, WorkflowId};
 
 #[derive(Default)]
 struct MouseStateHandles {

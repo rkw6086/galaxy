@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
-use galaxyui::elements::resizable_state_handle;
-use galaxyui::elements::ResizableStateHandle;
-use galaxyui::Entity;
-use galaxyui::SingletonEntity;
-use galaxyui::WindowId;
+use galaxyui::elements::{resizable_state_handle, ResizableStateHandle};
+use galaxyui::{Entity, SingletonEntity, WindowId};
 
 use crate::app_state::WindowSnapshot;
 

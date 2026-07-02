@@ -1,8 +1,6 @@
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    fonts::Weight,
-    ui_components::components::{Coords, UiComponentStyles},
-};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 
 pub const MODAL_WIDTH: f32 = 460.;
 pub const MODAL_HEIGHT: f32 = 300.;

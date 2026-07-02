@@ -1,8 +1,3 @@
-use super::ServerApi;
-use crate::auth::UserUid;
-use crate::cloud_object::CloudObjectEventEntrypoint;
-use crate::workspaces::team::{DiscoverableTeam, MembershipRole};
-use crate::workspaces::workspace::Workspace;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use cynic::{MutationBuilder, QueryBuilder};
@@ -59,13 +54,17 @@ use galaxy_graphql::queries::get_discoverable_teams::{
 use galaxy_graphql::queries::get_workspaces_metadata_for_user::{
     GetWorkspacesMetadataForUser, GetWorkspacesMetadataForUserVariables, PricingInfoResult,
 };
-
-use crate::server::graphql::{get_request_context, get_user_facing_error_message};
-use crate::server::ids::ServerId;
-use crate::workspaces::user_workspaces::{CreateTeamResponse, WorkspacesMetadataWithPricing};
-
 #[cfg(test)]
 use mockall::{automock, predicate::*};
+
+use super::ServerApi;
+use crate::auth::UserUid;
+use crate::cloud_object::CloudObjectEventEntrypoint;
+use crate::server::graphql::{get_request_context, get_user_facing_error_message};
+use crate::server::ids::ServerId;
+use crate::workspaces::team::{DiscoverableTeam, MembershipRole};
+use crate::workspaces::user_workspaces::{CreateTeamResponse, WorkspacesMetadataWithPricing};
+use crate::workspaces::workspace::Workspace;
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -167,6 +166,7 @@ pub trait TeamClient: 'static + Send + Sync {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl TeamClient for ServerApi {
+    #[tracing::instrument(skip_all, err, fields(tags.cloud_agent = true))]
     async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataWithPricing> {
         let variables = GetWorkspacesMetadataForUserVariables {
             request_context: get_request_context(),

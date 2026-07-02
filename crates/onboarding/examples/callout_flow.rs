@@ -1,17 +1,18 @@
+use std::borrow::Cow;
+
 use anyhow::Result;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
-use galaxyui::fonts::{Cache, FamilyId, Weight};
-use galaxyui::platform;
-use galaxyui::prelude::CrossAxisAlignment;
-use galaxyui::{
-    elements::{
-        ChildAnchor, ChildView, ConstrainedBox, Container, Flex, MainAxisAlignment, MainAxisSize,
-        OffsetPositioning, ParentElement, PositionedElementAnchor, PositionedElementOffsetBounds,
-        Rect, SavePosition, Stack,
-    },
-    ui_components::components::UiComponent,
-    AddWindowOptions, AppContext, AssetProvider, Element, Entity, SingletonEntity as _,
+use galaxyui_core::elements::{
+    ChildAnchor, ChildView, ConstrainedBox, Container, Flex, MainAxisAlignment, MainAxisSize,
+    OffsetPositioning, ParentElement, PositionedElementAnchor, PositionedElementOffsetBounds, Rect,
+    SavePosition, Stack,
+};
+use galaxyui_core::fonts::{Cache, FamilyId, Weight};
+use galaxyui_core::prelude::CrossAxisAlignment;
+use galaxyui_core::ui_components::components::UiComponent;
+use galaxyui_core::{
+    platform, AddWindowOptions, AppContext, AssetProvider, Element, Entity, SingletonEntity as _,
     TypedActionView, View, ViewContext, ViewHandle,
 };
 use onboarding::callout::{
@@ -21,7 +22,6 @@ use onboarding::OnboardingIntention;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use rust_embed::RustEmbed;
-use std::borrow::Cow;
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -50,6 +50,7 @@ impl OnboardingExampleView {
                 toggle_input_mode: "⌘-I".to_string(),
                 submit_to_local_agent: "⌘-⏎".to_string(),
                 submit_to_cloud_agent: "⌘-⌥-⏎".to_string(),
+                return_to_terminal_mode: "ESC".to_string(),
             };
             OnboardingCalloutView::new_agent_modality(
                 true, // has_project
@@ -175,10 +176,14 @@ fn main() -> Result<()> {
     galaxy_logging::init(galaxy_logging::LogConfig {
         is_cli: false,
         log_destination: None,
+        ..Default::default()
     })?;
 
-    let app_builder =
-        platform::AppBuilder::new(platform::AppCallbacks::default(), Box::new(ASSETS), None);
+    let app_builder = galaxyui::platform::AppBuilder::new(
+        platform::AppCallbacks::default(),
+        Box::new(ASSETS),
+        None,
+    );
     let _ = app_builder.run(move |ctx| {
         // Register Appearance singleton so views can access Appearance::handle(ctx).
         ctx.add_singleton_model(|ctx| build_appearance(adeberry(), ctx));
@@ -250,7 +255,8 @@ fn build_appearance(theme: GalaxyTheme, ctx: &mut AppContext) -> Appearance {
 }
 
 fn load_default_ui_font_family(ctx: &mut AppContext) -> anyhow::Result<FamilyId> {
-    Cache::handle(ctx).update(ctx, |font_cache, _| {
+    let cache_handle = Cache::handle(ctx);
+    cache_handle.update(ctx, |font_cache, _| {
         // On Windows, default to use Segoe UI as the UI font.
         #[cfg(windows)]
         if let Ok(font_family_id) = font_cache.load_system_font("Segoe UI") {

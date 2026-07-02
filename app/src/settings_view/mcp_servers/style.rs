@@ -1,8 +1,6 @@
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    fonts::Weight,
-    ui_components::components::{Coords, UiComponentStyles},
-};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 
 pub const ICON_MARGIN: f32 = 8.;
 pub const HEADER_FONT_SIZE: f32 = 18.;

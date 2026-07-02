@@ -6,10 +6,9 @@ mod search_item;
 mod view;
 
 pub use data_source::SelectUserQuery;
-pub use view::{UserQueryMenuEvent, UserQueryMenuView};
-
 use galaxyui::keymap::Keystroke;
 use galaxyui::platform::OperatingSystem;
+pub use view::{UserQueryMenuEvent, UserQueryMenuView};
 
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, InlineMenuAction, InlineMenuMessageArgs, InlineMenuRowAction,
@@ -35,7 +34,7 @@ impl InlineMenuAction for SelectUserQuery {
                         key: "enter".to_owned(),
                         ..Default::default()
                     }),
-                    MessageItem::text(" current pane"),
+                    MessageItem::text(" new pane"),
                 ],
                 move |ctx| {
                     ctx.dispatch_typed_action(InlineMenuRowAction::Accept {
@@ -64,7 +63,7 @@ impl InlineMenuAction for SelectUserQuery {
             items.push(MessageItem::clickable(
                 vec![
                     MessageItem::keystroke(modifier_keystroke),
-                    MessageItem::text(" new pane"),
+                    MessageItem::text(" new tab"),
                 ],
                 move |ctx| {
                     ctx.dispatch_typed_action(InlineMenuRowAction::Accept {

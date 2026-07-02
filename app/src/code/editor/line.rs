@@ -1,5 +1,6 @@
-use galaxy_editor::render::model::{LineCount, RenderLineLocation};
 use std::ops::Range;
+
+use galaxy_editor::render::model::{LineCount, RenderLineLocation};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorLineLocation {

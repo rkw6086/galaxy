@@ -1,14 +1,14 @@
-use galaxyui::ui_components::button::ButtonVariant;
 use std::fmt::Display;
+
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::Element;
 
 use super::teams_page::TeamsPageAction;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::workspaces::team::Team;
 use crate::Appearance;
-use galaxyui::elements::MouseStateHandle;
-use galaxyui::ui_components::components::UiComponent;
-use galaxyui::ui_components::components::UiComponentStyles;
-use galaxyui::Element;
 
 /// The Tabs trait provides common functionality for an enum to be used as a tabs menu UI component.
 /// It requires the trait-user to implement action_on_click() and label().

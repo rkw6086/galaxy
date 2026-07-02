@@ -1,3 +1,25 @@
+use galaxy_core::paths::home_relative_path;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, Empty, Flex,
+    FormattedTextElement, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, SavePosition, Shrinkable, Stack, Text,
+};
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::button::{Button, ButtonVariant};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{
+    AppContext, Element, Entity, FocusContext, ModelContext, ModelHandle, SingletonEntity,
+    TypedActionView, View, ViewContext, ViewHandle,
+};
+use markdown_parser::{
+    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
+};
+use pathfinder_geometry::vector::vec2f;
+use serde::{Deserialize, Serialize};
+
 use crate::app_state::{get_app_state, AppState};
 use crate::appearance::Appearance;
 use crate::editor::{
@@ -12,26 +34,6 @@ use crate::user_config::{util::file_name_to_human_readable_name, GalaxyConfig};
 use crate::util::bindings::keybinding_name_to_display_string;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::FileTarget;
-use galaxy_core::paths::home_relative_path;
-use galaxy_core::ui::theme::Fill;
-use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
-use galaxyui::elements::{
-    Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
-    Element, Empty, Flex, FormattedTextElement, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Radius, SavePosition, Shrinkable, Stack, Text,
-};
-use galaxyui::keymap::FixedBinding;
-use galaxyui::ui_components::button::{Button, ButtonVariant};
-use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use galaxyui::{
-    AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
-};
-use markdown_parser::{
-    FormattedText, FormattedTextFragment, FormattedTextInline, FormattedTextLine,
-};
-use pathfinder_geometry::vector::vec2f;
-use serde::{Deserialize, Serialize};
 
 const MODAL_WIDTH: f32 = 660.;
 const SIDE_PADDING: f32 = 16.;

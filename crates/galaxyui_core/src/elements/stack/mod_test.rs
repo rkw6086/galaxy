@@ -1,23 +1,18 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use itertools::Itertools;
 use pathfinder_geometry::rect::RectF;
 
 use super::*;
-
-use crate::{
-    elements::{Clipped, DispatchEventResult},
-    platform::WindowStyle,
-    TypedActionView,
+use crate::elements::{
+    Clipped, ConstrainedBox, DispatchEventResult, EventHandler, ParentElement, Rect, ZIndex,
 };
+use crate::platform::WindowStyle;
 use crate::{
-    elements::{ConstrainedBox, EventHandler, ParentElement, Rect, ZIndex},
-    App, AppContext, Entity, Event, Presenter, ViewContext, ViewHandle, WindowId,
-    WindowInvalidation,
+    App, AppContext, Entity, EntityIdSet, Event, Presenter, TypedActionView, ViewContext,
+    ViewHandle, WindowId, WindowInvalidation,
 };
 
 #[derive(Default)]
@@ -246,7 +241,7 @@ fn test_paint_sets_z_index() {
 
         let mut presenter = Presenter::new(window_id);
 
-        let mut updated = HashSet::new();
+        let mut updated = EntityIdSet::default();
         updated.insert(app.root_view_id(window_id).unwrap());
         let invalidation = WindowInvalidation {
             updated,
@@ -450,7 +445,7 @@ fn test_relative_positioning() {
         );
 
         // Now just bound vertically to the parent. This should not change the positioning since
-        // the element is already bound vertically within teh parent.
+        // the element is already bound vertically within the parent.
         position_child_and_assert_location(
             OffsetPositioning::from_axes(
                 PositioningAxis::relative_to_stack_child(
@@ -668,7 +663,7 @@ fn test_relative_positioning_bound_to_window_by_position() {
             .scene()
             .expect("Presenter should have rendered a scene after the view was updated.");
 
-        // The expected bounds should have a modified position to accomodate the size of the
+        // The expected bounds should have a modified position to accommodate the size of the
         // positioned child (it should be moved back to (0,0) from it's 'default' (75, 75).
         //
         // Note the usage of `RectF::from_points`, which specifies top-left
@@ -718,7 +713,9 @@ fn test_relative_positioning_bound_to_missing_anchor() {
         let mut presenter = Presenter::new(window_id);
 
         let invalidation = WindowInvalidation {
-            updated: HashSet::from([app.root_view_id(window_id).expect("Root view must exist")]),
+            updated: EntityIdSet::from_iter([app
+                .root_view_id(window_id)
+                .expect("Root view must exist")]),
             ..Default::default()
         };
 
@@ -757,7 +754,7 @@ fn position_child_and_assert_location(
 
     let mut presenter = Presenter::new(window_id);
 
-    let mut updated = HashSet::new();
+    let mut updated = EntityIdSet::default();
     updated.insert(app.root_view_id(window_id).unwrap());
     let invalidation = WindowInvalidation {
         updated,

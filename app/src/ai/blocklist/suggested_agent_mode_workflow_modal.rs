@@ -1,30 +1,30 @@
-use crate::{
-    ai::agent::SuggestedAgentModeWorkflow,
-    modal::{Modal, ModalEvent},
-    pane_group::PaneEvent,
-    server::ids::SyncId,
-    ui_components::blended_colors,
-    workflows::{
-        workflow_view::{WorkflowView, WorkflowViewEvent},
-        WorkflowSelectionSource, WorkflowSource, WorkflowType,
-    },
-    workspaces::user_workspaces::UserWorkspaces,
-    TelemetryEvent,
+use std::collections::HashMap;
+use std::default::Default;
+use std::sync::Arc;
+
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::{
+    ChildAnchor, Empty, OffsetPositioning, PositionedElementAnchor, PositionedElementOffsetBounds,
 };
-use galaxy_core::{send_telemetry_from_ctx, ui::appearance::Appearance};
+use galaxyui::fonts::Weight;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{Coords, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        ChildAnchor, Empty, OffsetPositioning, PositionedElementAnchor,
-        PositionedElementOffsetBounds,
-    },
-    fonts::Weight,
-    keymap::FixedBinding,
-    presenter::ChildView,
-    ui_components::components::{Coords, UiComponentStyles},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use pathfinder_geometry::vector::vec2f;
-use std::{collections::HashMap, default::Default, sync::Arc};
+
+use crate::ai::agent::SuggestedAgentModeWorkflow;
+use crate::modal::{Modal, ModalEvent};
+use crate::pane_group::PaneEvent;
+use crate::server::ids::SyncId;
+use crate::ui_components::blended_colors;
+use crate::workflows::workflow_view::{WorkflowView, WorkflowViewEvent};
+use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workspaces::user_workspaces::UserWorkspaces;
+use crate::TelemetryEvent;
 
 const SUGGESTED_PROMPT_MODAL_HEADER: &str = "Prompt";
 

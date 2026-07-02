@@ -1,23 +1,14 @@
-use std::{collections::HashSet, ops::Range};
+use std::collections::HashSet;
+use std::ops::Range;
 
-use crate::{
-    appearance::Appearance,
-    cloud_object::Space,
-    search::{
-        notebook_embedding::notebooks::CloudNotebooksDataSource,
-        notebook_embedding::workflows::CloudWorkflowsDataSource,
-        result_renderer::{QueryResultRenderer, QueryResultRendererStyles},
-        search_bar::{SearchBar, SearchBarEvent, SearchBarState, SearchResultOrdering},
-    },
+use galaxyui::elements::{
+    Align, ConstrainedBox, Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement,
+    Radius, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, Shrinkable,
+    UniformList, UniformListState,
 };
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Align, ConstrainedBox, Container, CornerRadius, Dismiss, Empty, Fill, Flex, ParentElement,
-        Radius, SavePosition, ScrollStateHandle, Scrollable, ScrollableElement, Shrinkable,
-        UniformList, UniformListState,
-    },
-    presenter::ChildView,
-    ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
@@ -25,6 +16,12 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 
 use super::searcher::{EmbeddingSearchItemAction, EmbeddingSearchMixer};
+use crate::appearance::Appearance;
+use crate::cloud_object::Space;
+use crate::search::notebook_embedding::notebooks::CloudNotebooksDataSource;
+use crate::search::notebook_embedding::workflows::CloudWorkflowsDataSource;
+use crate::search::result_renderer::{QueryResultRenderer, QueryResultRendererStyles};
+use crate::search::search_bar::{SearchBar, SearchBarEvent, SearchBarState, SearchResultOrdering};
 
 const DEFAULT_PLACEHOLDER_TEXT: &str = "Search for a reference";
 
@@ -379,7 +376,8 @@ pub mod styles {
     use galaxyui::elements::{Border, DropShadow, ScrollbarWidth};
     use pathfinder_color::ColorU;
 
-    use crate::{appearance::Appearance, themes::theme::Fill};
+    use crate::appearance::Appearance;
+    use crate::themes::theme::Fill;
 
     pub const CORNER_RADIUS: f32 = 6.;
     pub const VIEW_WIDTH: f32 = 450.;

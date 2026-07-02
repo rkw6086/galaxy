@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures::channel::oneshot;
 use futures::StreamExt;
-use galaxyui::r#async::executor::Background;
+use galaxyui_core::r#async::executor::Background;
 
 use super::*;
 

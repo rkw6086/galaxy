@@ -1,14 +1,10 @@
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{
-    elements::{
-        Border, Container, CrossAxisAlignment, Element, Empty, Fill, Flex, MouseStateHandle,
-        ParentElement,
-    },
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
+use galaxyui::elements::{
+    Border, Container, CrossAxisAlignment, Element, Empty, Fill, Flex, MouseStateHandle,
+    ParentElement,
 };
+use warpui::ui_components::button::ButtonVariant;
+use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 
 use crate::ui_components::blended_colors;
 

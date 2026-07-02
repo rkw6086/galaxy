@@ -1,7 +1,13 @@
+// Session sharing now relies on the server sending protocol-level ping frames that the client responds to,
+// and the server initiates disconnect if the client is unresponsive.
+// This module is no longer used, but we keep the code around for now.
+#![allow(dead_code)]
+
+use std::time::Duration;
+
 use futures::stream::AbortHandle;
 use galaxyui::r#async::Timer;
 use galaxyui::{Entity, ModelContext};
-use std::time::Duration;
 
 const DEFAULT_PING_FREQUENCY: Duration = Duration::from_secs(5);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -45,7 +51,20 @@ impl Heartbeat {
     /// Starts the periodic ping and the idle timeout tracker.
     pub fn start(&mut self, ctx: &mut ModelContext<Self>) {
         self.reset_idle_timeout(ctx);
+        // Abort any existing ping timer so we don't accumulate chains across reconnects.
+        if let Some(handle) = self.periodic_ping_abort_handle.take() {
+            handle.abort();
+        }
         self.periodic_ping(ctx);
+    }
+
+    pub fn stop(&mut self) {
+        if let Some(handle) = self.idle_timeout_abort_handle.take() {
+            handle.abort();
+        }
+        if let Some(handle) = self.periodic_ping_abort_handle.take() {
+            handle.abort();
+        }
     }
 
     /// Resets the idle timeout to expire after [`Self::idle_timeout`] from now.

@@ -3,11 +3,12 @@ pub mod settings;
 pub mod success_block;
 pub mod trigger_state;
 
+use channel_versions::overrides::TargetOS;
+use warpui::AssetProvider;
+
 use crate::terminal::model::terminal_model::SubshellInitializationInfo;
 use crate::terminal::shell::ShellType;
 use crate::ASSETS;
-use channel_versions::overrides::TargetOS;
-use galaxyui::AssetProvider;
 
 #[derive(Debug)]
 pub enum WarpificationSource {
@@ -42,7 +43,6 @@ pub fn subshell_bootstrap_success_block_bytes(
     subshell_initialization_info: &SubshellInitializationInfo,
     shell_type: ShellType,
     os: TargetOS,
-    disable_tmux: bool,
 ) -> (Vec<u8>, bool) {
     let from_env_var_collection = subshell_initialization_info
         .env_var_collection_name
@@ -79,12 +79,6 @@ pub fn subshell_bootstrap_success_block_bytes(
                     .to_vec(),
                 vec![
                     shell_type.name().to_owned(),
-                    if disable_tmux {
-                        ", \"tmux\": false"
-                    } else {
-                        ""
-                    }
-                    .to_owned(),
                     rc_file_path.unwrap_or("<Your RC file>").to_owned(),
                 ],
             )
@@ -109,10 +103,7 @@ fn replace_template_chars_with_arguments(
     for argument in arguments {
         let template_i = templated_bytes.iter().position(|b| b == &TEMPLATE_CHAR);
         if let Some(template_i) = template_i {
-            templated_bytes.splice(
-                template_i..template_i + 1,
-                argument.into_bytes().into_iter(),
-            );
+            templated_bytes.splice(template_i..template_i + 1, argument.into_bytes());
         } else {
             debug_assert!(false, "Number of arguments does not match number of template chars (%) in hardcoded subshell block bytes.");
         }

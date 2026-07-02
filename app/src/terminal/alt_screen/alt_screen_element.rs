@@ -1,3 +1,28 @@
+use std::ops::{Deref as _, Range};
+use std::sync::Arc;
+
+use galaxy_core::features::FeatureFlag;
+use num_traits::Float as _;
+use parking_lot::FairMutex;
+use pathfinder_geometry::vector::vec2f;
+use vec1::Vec1;
+use warp_util::user_input::UserInput;
+use warpui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
+use warpui::elements::{Axis, Point as UiPoint, ScrollData, ScrollableElement};
+use warpui::event::{DispatchedEvent, InBoundsExt, KeyState, ModifiersState};
+use warpui::fonts::Properties;
+use warpui::geometry::rect::RectF;
+use warpui::geometry::vector::Vector2F;
+use warpui::platform::keyboard::KeyCode;
+use warpui::text::SelectionType;
+use warpui::units::{IntoLines, IntoPixels, Lines, Pixels};
+use warpui::{
+    end_trace, record_trace_event, start_trace, AfterLayoutContext, AppContext, ClipBounds,
+    Element, EntityId, Event, EventContext, LayoutContext, ModelHandle, PaintContext,
+    SizeConstraint,
+};
+
+use super::{should_intercept_mouse, should_intercept_scroll};
 use crate::appearance::Appearance;
 use crate::pane_group::SplitPaneState;
 use crate::settings::EnforceMinimumContrast;
@@ -22,34 +47,7 @@ use crate::terminal::shared_session::presence_manager::{
 use crate::terminal::view::{
     ActiveSessionState, TerminalAction, TerminalEditor, TerminalViewRenderContext,
 };
-use crate::terminal::{grid_renderer, SizeInfo};
-use crate::terminal::{heights_approx_eq, TerminalModel};
-use galaxy_core::features::FeatureFlag;
-use galaxy_util::user_input::UserInput;
-use galaxyui::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
-use galaxyui::event::{KeyState, ModifiersState};
-use galaxyui::platform::keyboard::KeyCode;
-use galaxyui::text::SelectionType;
-use num_traits::Float as _;
-use parking_lot::FairMutex;
-use pathfinder_geometry::vector::vec2f;
-use vec1::Vec1;
-
-use super::{should_intercept_mouse, should_intercept_scroll};
-use galaxyui::elements::{Axis, Fill, Point as UiPoint, ScrollData, ScrollableElement};
-use galaxyui::fonts::Properties;
-use galaxyui::geometry::rect::RectF;
-use galaxyui::geometry::vector::Vector2F;
-use galaxyui::units::{IntoLines, IntoPixels, Lines, Pixels};
-use galaxyui::{
-    end_trace,
-    event::{DispatchedEvent, InBoundsExt},
-    record_trace_event, start_trace, AfterLayoutContext, AppContext, Element, Event, EventContext,
-    LayoutContext, PaintContext, SizeConstraint,
-};
-use galaxyui::{ClipBounds, EntityId, ModelHandle};
-use std::ops::{Deref as _, Range};
-use std::sync::Arc;
+use crate::terminal::{grid_renderer, heights_approx_eq, SizeInfo, TerminalModel};
 
 const CLI_SUBAGENT_HORIZONTAL_MARGIN: f32 = 8.;
 const CLI_SUBAGENT_VERTICAL_MARGIN: f32 = 8.;
@@ -722,15 +720,6 @@ impl Element for AltScreenElement {
             get_secret_obfuscation_mode(app).and(&grid.get_secret_obfuscation());
 
         let mut sampler = model.alt_screen().bg_color_sampler.lock();
-        if let Some(bg_color) = sampler.most_common() {
-            if !bg_color.is_fully_transparent() {
-                if let Some(bounds) = self.bounds {
-                    ctx.scene
-                        .draw_rect_without_hit_recording(bounds)
-                        .with_background(Fill::Solid(bg_color));
-                }
-            }
-        }
         sampler.reset();
 
         // Render grid cells. Since the alt screen has no scrollback we can always start at index 0.
@@ -971,21 +960,17 @@ impl Element for AltScreenElement {
                 selected_range,
             } => self.set_marked_text(marked_text, selected_range, ctx),
             Event::ClearMarkedText => self.clear_marked_text(ctx),
-            Event::ModifierKeyChanged { key_code, state } => {
-                if self.is_terminal_focused {
-                    let is_press = matches!(state, KeyState::Pressed);
-                    if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
-                        self.model.lock().deref(),
-                        key_code,
-                        is_press,
-                    ) {
-                        ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
-                        return true;
-                    }
-                    self.maybe_handle_voice_toggle(key_code, state, ctx)
-                } else {
-                    false
+            Event::ModifierKeyChanged { key_code, state } if self.is_terminal_focused => {
+                let is_press = matches!(state, KeyState::Pressed);
+                if let Some(escape_sequence) = maybe_kitty_keyboard_escape_sequence(
+                    self.model.lock().deref(),
+                    key_code,
+                    is_press,
+                ) {
+                    ctx.dispatch_typed_action(TerminalAction::ControlSequence(escape_sequence));
+                    return true;
                 }
+                self.maybe_handle_voice_toggle(key_code, state, ctx)
             }
             _ => false,
         }

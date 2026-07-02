@@ -1,7 +1,3 @@
-use crate::ai::agent::comment::ReviewComment;
-use crate::ai::agent::icons::addressed_comment_icon;
-use crate::ai::blocklist::block::CommentElementState;
-use crate::code_review::comments::ReviewCommentBatch;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::Icon;
@@ -10,6 +6,11 @@ use galaxyui::elements::{
     Expanded, Flex, Hoverable, MouseState, ParentElement, Radius, Text, Wrap, WrapFillEntireRun,
 };
 use galaxyui::{AppContext, Element, SingletonEntity};
+
+use crate::ai::agent::comment::ReviewComment;
+use crate::ai::agent::icons::addressed_comment_icon;
+use crate::ai::blocklist::block::CommentElementState;
+use crate::code_review::comments::ReviewCommentBatch;
 
 const COMMENT_CHIP_MAX_HEIGHT: f32 = 200.;
 

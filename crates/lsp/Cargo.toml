@@ -32,7 +32,7 @@ strum = { workspace = true }
 strum_macros = { workspace = true }
 galaxy_core = { workspace = true }
 galaxy_util.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 instant.workspace = true
 http_client = { workspace = true }
 cfg-if.workspace = true
@@ -47,3 +47,6 @@ nix = { workspace = true }
 repo_metadata.workspace = true
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+galaxyui.workspace = true

@@ -8,12 +8,11 @@
 use std::collections::HashSet;
 use std::io::Write;
 
-use schemars::SchemaGenerator;
-use serde_json::{Map, Value};
-
 use galaxy_core::features::{
     FeatureFlag, DEBUG_FLAGS, DOGFOOD_FLAGS, PREVIEW_FLAGS, RELEASE_FLAGS,
 };
+use schemars::SchemaGenerator;
+use serde_json::{Map, Value};
 use settings::schema::SettingSchemaEntry;
 
 /// Ensures all `inventory::submit!` registrations from the app crate's

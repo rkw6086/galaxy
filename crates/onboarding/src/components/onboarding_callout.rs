@@ -1,26 +1,23 @@
 use std::borrow::Cow;
 
-use galaxy_core::ui::{
-    appearance::Appearance,
-    color::{coloru_with_opacity, contrast::relative_luminance},
-    theme::{phenomenon::PhenomenonStyle, Fill},
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::color::contrast::relative_luminance;
+use galaxy_core::ui::theme::phenomenon::PhenomenonStyle;
+use galaxy_core::ui::theme::Fill;
+use galaxyui_core::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Rect,
 };
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
-        MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Rect,
-    },
-    fonts::Weight,
-    keymap::Keystroke,
-    prelude::*,
-    ui_components::checkbox::Checkbox as WarpCheckbox,
-    ui_components::components::{UiComponent as _, UiComponentStyles},
-};
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::*;
+use galaxyui_core::ui_components::checkbox::Checkbox as WarpCheckbox;
+use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyles};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use ui_components::{
-    button, button::Button as ButtonComponent, Component, MouseEventHandler, Options as _,
-};
+use ui_components::button::Button as ButtonComponent;
+use ui_components::{button, Component, MouseEventHandler, Options as _};
 
 const CALLOUT_WIDTH: f32 = 480.;
 const CALLOUT_BORDER_WIDTH: f32 = 1.;

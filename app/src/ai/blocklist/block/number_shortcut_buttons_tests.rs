@@ -1,15 +1,15 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use galaxy_core::ui::appearance::Appearance;
+use galaxyui::elements::new_scrollable::SingleAxisConfig;
+use galaxyui::elements::{ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Fill};
+use galaxyui::platform::WindowStyle;
 use galaxyui::{
-    elements::{
-        new_scrollable::SingleAxisConfig, ChildView, Clipped, ClippedScrollStateHandle,
-        ConstrainedBox, Fill,
-    },
-    platform::WindowStyle,
     App, Entity, Event, Presenter, TypedActionView, View, ViewContext, ViewHandle, WindowId,
     WindowInvalidation,
 };
 use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::{cell::RefCell, rc::Rc};
 
 use super::*;
 

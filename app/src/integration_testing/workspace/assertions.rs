@@ -1,4 +1,5 @@
-use galaxyui::{async_assert_eq, integration::AssertionCallback};
+use galaxyui::async_assert_eq;
+use galaxyui::integration::AssertionCallback;
 
 use crate::integration_testing::view_getters::workspace_view;
 

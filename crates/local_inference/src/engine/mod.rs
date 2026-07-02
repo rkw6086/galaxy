@@ -8,10 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context as _, Result};
 use candle_core::{DType, Tensor};
 use candle_transformers::models::llama::{Cache, Config, Llama, LlamaConfig};
+pub use generation::GenerationConfig;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex;
-
-pub use generation::GenerationConfig;
 
 /// A token that can be used to cancel an in-progress generation.
 /// Clone it and pass to `generate_cancellable`, then call `cancel()` to
@@ -34,6 +33,12 @@ impl CancellationToken {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for CancellationToken {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -67,7 +72,7 @@ impl Device {
         }
     }
 
-    fn to_candle_device(&self) -> Result<candle_core::Device> {
+    fn to_candle_device(self) -> Result<candle_core::Device> {
         match self {
             Device::Cpu => Ok(candle_core::Device::Cpu),
             #[cfg(feature = "metal")]
@@ -183,15 +188,13 @@ impl InferenceEngine {
         let first_logits = logits.squeeze(0)?;
         let next_token = generation::sample(&first_logits, config)?;
 
-        if let Some(eos) = eos_token_id {
-            if next_token == eos {
-                let generated_tokens = &tokens[input_ids.len()..];
-                let output = self
-                    .tokenizer
-                    .decode(generated_tokens, true)
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                return Ok(output.trim().to_string());
-            }
+        if Some(next_token) == eos_token_id {
+            let generated_tokens = &tokens[input_ids.len()..];
+            let output = self
+                .tokenizer
+                .decode(generated_tokens, true)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            return Ok(output.trim().to_string());
         }
         tokens.push(next_token);
 
@@ -208,10 +211,8 @@ impl InferenceEngine {
             let next_logits = logits.squeeze(0)?;
             let next_token = generation::sample(&next_logits, config)?;
 
-            if let Some(eos) = eos_token_id {
-                if next_token == eos {
-                    break;
-                }
+            if Some(next_token) == eos_token_id {
+                break;
             }
 
             tokens.push(next_token);
@@ -255,15 +256,13 @@ impl InferenceEngine {
         let first_logits = logits.squeeze(0)?;
         let next_token = generation::sample(&first_logits, config)?;
 
-        if let Some(eos) = eos_token_id {
-            if next_token == eos {
-                let generated_tokens = &tokens[input_ids.len()..];
-                let output = self
-                    .tokenizer
-                    .decode(generated_tokens, true)
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-                return Ok(output.trim().to_string());
-            }
+        if Some(next_token) == eos_token_id {
+            let generated_tokens = &tokens[input_ids.len()..];
+            let output = self
+                .tokenizer
+                .decode(generated_tokens, true)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            return Ok(output.trim().to_string());
         }
         tokens.push(next_token);
 
@@ -276,10 +275,8 @@ impl InferenceEngine {
             let next_logits = logits.squeeze(0)?;
             let next_token = generation::sample(&next_logits, config)?;
 
-            if let Some(eos) = eos_token_id {
-                if next_token == eos {
-                    break;
-                }
+            if Some(next_token) == eos_token_id {
+                break;
             }
 
             tokens.push(next_token);

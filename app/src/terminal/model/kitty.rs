@@ -1,18 +1,19 @@
-use anyhow::Result;
-use base64::Engine;
-use flate2::read::ZlibDecoder;
-use galaxyui::image_cache::{resize_dimensions, FitType};
-use galaxyui::{
-    assets::asset_cache::Asset,
-    image_cache::{CustomHeaderCreationError, CustomImageFormat, CustomImageHeader, ImageType},
-    util::{parse_i32, parse_u32},
-};
-use pathfinder_geometry::vector::Vector2F;
-use rand::Rng;
 use std::cmp::min;
 use std::io::Read;
 #[cfg(feature = "local_fs")]
 use std::{env, fs, str};
+
+use anyhow::Result;
+use base64::Engine;
+use flate2::read::ZlibDecoder;
+use galaxyui::assets::asset_cache::Asset;
+use galaxyui::image_cache::{
+    resize_dimensions, CustomHeaderCreationError, CustomImageFormat, CustomImageHeader, FitType,
+    ImageType,
+};
+use galaxyui::util::{parse_i32, parse_u32};
+use pathfinder_geometry::vector::Vector2F;
+use rand::Rng;
 
 use super::escape_sequences::C1;
 
@@ -834,11 +835,10 @@ fn read_from_shared_memory_fd(
     fd: i32,
     size: Option<usize>,
 ) -> Result<Vec<u8>, InvalidKittyPayload> {
-    use nix::sys::{
-        mman::{mmap, MapFlags, ProtFlags},
-        stat::fstat,
-    };
     use std::num::NonZero;
+
+    use nix::sys::mman::{mmap, MapFlags, ProtFlags};
+    use nix::sys::stat::fstat;
 
     let file_size = match fstat(fd) {
         Ok(stat) => stat.st_size,

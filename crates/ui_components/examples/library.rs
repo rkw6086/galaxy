@@ -1,24 +1,22 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::borrow::Cow;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use galaxy_core::ui::{Icon, appearance::Appearance, theme::color::internal_colors};
-use galaxyui::{
-    AssetProvider, SingletonEntity, Tracked,
-    assets::asset_cache::{AssetCache, AssetSource, AssetState},
-    r#async::Timer,
-    elements::Stack,
-    image_cache::ImageType,
-    keymap::FixedBinding,
-    platform,
-    prelude::*,
-};
+use galaxy_core::ui::Icon;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxyui_core::assets::asset_cache::{AssetCache, AssetSource, AssetState};
+use galaxyui_core::r#async::Timer;
+use galaxyui_core::elements::Stack;
+use galaxyui_core::image_cache::ImageType;
+use galaxyui_core::keymap::FixedBinding;
+use galaxyui_core::prelude::*;
+use galaxyui_core::{AssetProvider, SingletonEntity, Tracked, platform};
 use pathfinder_geometry::vector::Vector2F;
 use rust_embed::RustEmbed;
-use ui_components::{
-    Component as _, Options, button, dialog,
-    lightbox::{self, LightboxImage, LightboxImageSource, NavigationDirection},
-    switch, tooltip,
-};
+use ui_components::lightbox::{self, LightboxImage, LightboxImageSource, NavigationDirection};
+use ui_components::{Component as _, Options, button, dialog, switch, tooltip};
 
 #[derive(Clone, Copy, RustEmbed)]
 #[folder = "../../app/assets"]
@@ -37,14 +35,17 @@ impl AssetProvider for Assets {
     }
 }
 
-fn main() -> galaxyui::platform::app::TerminationResult {
+fn main() -> galaxyui_core::platform::app::TerminationResult {
     // Initialize the TLS provider so reqwest can make HTTPS requests.
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("must be able to initialize crypto provider for TLS support");
 
-    let app_builder =
-        platform::AppBuilder::new(platform::AppCallbacks::default(), Box::new(ASSETS), None);
+    let app_builder = galaxyui::platform::AppBuilder::new(
+        platform::AppCallbacks::default(),
+        Box::new(ASSETS),
+        None,
+    );
     app_builder.run(move |ctx| {
         let font_name = if cfg!(target_os = "macos") {
             ".AppleSystemUIFont".to_string()
@@ -54,7 +55,8 @@ fn main() -> galaxyui::platform::app::TerminationResult {
             "Noto Sans".to_string()
         };
 
-        let font_family = galaxyui::fonts::Cache::handle(ctx).update(ctx, |cache, _ctx| {
+        let cache_handle = galaxyui_core::fonts::Cache::handle(ctx);
+        let font_family = cache_handle.update(ctx, |cache, _ctx| {
             cache.load_system_font(&font_name).unwrap()
         });
         ctx.add_singleton_model(|ctx| {
@@ -64,7 +66,7 @@ fn main() -> galaxyui::platform::app::TerminationResult {
         });
 
         {
-            use galaxyui::keymap::macros::*;
+            use galaxyui_core::keymap::macros::*;
             let lightbox_open = id!("RootView") & id!("RootView_LightboxOpen");
             ctx.register_fixed_bindings([
                 FixedBinding::new(
@@ -82,7 +84,7 @@ fn main() -> galaxyui::platform::app::TerminationResult {
             ]);
         }
 
-        ctx.add_window(galaxyui::AddWindowOptions::default(), RootView::new);
+        ctx.add_window(galaxyui_core::AddWindowOptions::default(), RootView::new);
     })
 }
 
@@ -174,7 +176,7 @@ impl View for RootView {
         "RootView"
     }
 
-    fn keymap_context(&self, _: &AppContext) -> galaxyui::keymap::Context {
+    fn keymap_context(&self, _: &AppContext) -> galaxyui_core::keymap::Context {
         let mut context = Self::default_keymap_context();
         if *self.dialog_open {
             context.set.insert("RootView_DialogOpen");
@@ -240,7 +242,7 @@ impl RootView {
                 options: switch::Options {
                     hover_border_size: Some(10.),
                     label: Some(Box::new(move |appearance: &Appearance| {
-                        galaxyui::elements::Text::new(
+                        galaxyui_core::elements::Text::new(
                             "Switch",
                             appearance.ui_font_family(),
                             appearance.ui_font_size(),
@@ -260,7 +262,7 @@ impl RootView {
             tooltip::Params {
                 label: "Tooltip label".into(),
                 options: tooltip::Options {
-                    keyboard_shortcut: Some(galaxyui::keymap::Keystroke {
+                    keyboard_shortcut: Some(galaxyui_core::keymap::Keystroke {
                         ctrl: true,
                         key: "k".to_string(),
                         ..Default::default()
@@ -282,7 +284,7 @@ impl RootView {
                         content: button::Content::Label("Primary".into()),
                         theme: &button::themes::Primary,
                         options: button::Options {
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 ctrl: true,
                                 key: "k".to_string(),
                                 ..Default::default()
@@ -304,7 +306,7 @@ impl RootView {
                         content: button::Content::Label("Secondary".into()),
                         theme: &button::themes::Secondary,
                         options: button::Options {
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 cmd: true,
                                 key: "enter".to_string(),
                                 ..Default::default()
@@ -327,7 +329,7 @@ impl RootView {
                         theme: &button::themes::Primary,
                         options: button::Options {
                             disabled: true,
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 shift: true,
                                 key: "d".to_string(),
                                 ..Default::default()
@@ -368,7 +370,7 @@ impl RootView {
                         theme: &button::themes::Primary,
                         options: button::Options {
                             size: button::Size::Small,
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 ctrl: true,
                                 key: "k".to_string(),
                                 ..Default::default()
@@ -391,7 +393,7 @@ impl RootView {
                         theme: &button::themes::Secondary,
                         options: button::Options {
                             size: button::Size::Small,
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 cmd: true,
                                 key: "enter".to_string(),
                                 ..Default::default()
@@ -415,7 +417,7 @@ impl RootView {
                         options: button::Options {
                             disabled: true,
                             size: button::Size::Small,
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 shift: true,
                                 key: "d".to_string(),
                                 ..Default::default()
@@ -438,7 +440,7 @@ impl RootView {
                         theme: &button::themes::Secondary,
                         options: button::Options {
                             size: button::Size::Small,
-                            keystroke: Some(galaxyui::keymap::Keystroke {
+                            keystroke: Some(galaxyui_core::keymap::Keystroke {
                                 key: "escape".to_string(),
                                 ..Default::default()
                             }),
@@ -498,7 +500,7 @@ impl RootView {
                     on_dismiss: Some(Arc::new(|ctx, _app| {
                         ctx.dispatch_typed_action(Action::CloseDialog);
                     })),
-                    dismiss_keystroke: Some(galaxyui::keymap::Keystroke {
+                    dismiss_keystroke: Some(galaxyui_core::keymap::Keystroke {
                         key: "escape".to_string(),
                         ..Default::default()
                     }),
@@ -564,7 +566,7 @@ impl RootView {
                 }),
                 current_image_native_size,
                 options: lightbox::Options {
-                    dismiss_keystroke: Some(galaxyui::keymap::Keystroke {
+                    dismiss_keystroke: Some(galaxyui_core::keymap::Keystroke {
                         key: "escape".to_string(),
                         ..Default::default()
                     }),
@@ -597,7 +599,7 @@ impl RootView {
                 }),
                 current_image_native_size,
                 options: lightbox::Options {
-                    dismiss_keystroke: Some(galaxyui::keymap::Keystroke {
+                    dismiss_keystroke: Some(galaxyui_core::keymap::Keystroke {
                         key: "escape".to_string(),
                         ..Default::default()
                     }),

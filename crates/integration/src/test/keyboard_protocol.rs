@@ -1,22 +1,20 @@
 use std::time::Duration;
 
-use galaxy::features::FeatureFlag;
-use galaxy::integration_testing::{
-    step::new_step_with_default_assertions,
-    terminal::{
-        assert_long_running_block_executing_for_single_terminal_in_tab,
-        wait_until_bootstrapped_single_pane_for_tab,
-    },
-    view_getters::single_terminal_view_for_tab,
+use galaxyui_core::event::{KeyEventDetails, KeyState};
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::keyboard::KeyCode;
+use galaxyui_core::{async_assert, Event};
+use warp::features::FeatureFlag;
+use warp::integration_testing::step::new_step_with_default_assertions;
+use warp::integration_testing::terminal::{
+    assert_long_running_block_executing_for_single_terminal_in_tab,
+    wait_until_bootstrapped_single_pane_for_tab,
 };
-use galaxyui::event::{KeyEventDetails, KeyState};
-use galaxyui::keymap::Keystroke;
-use galaxyui::platform::keyboard::KeyCode;
-use galaxyui::{async_assert, integration::TestStep, Event};
-
-use crate::Builder;
+use warp::integration_testing::view_getters::single_terminal_view_for_tab;
 
 use super::new_builder;
+use crate::Builder;
 
 /// Helper: creates a setup closure that writes a Python script asset to the test directory.
 macro_rules! setup_python_script {
@@ -50,7 +48,10 @@ fn wait_for_protocol_enabled() -> TestStep {
 fn assert_output_contains(
     expected: &'static str,
     description: &'static str,
-) -> impl FnMut(&mut galaxyui::App, galaxyui::WindowId) -> galaxyui::integration::AssertionOutcome {
+) -> impl FnMut(
+    &mut galaxyui_core::App,
+    galaxyui_core::WindowId,
+) -> galaxyui_core::integration::AssertionOutcome {
     move |app, window_id| {
         let terminal_view = single_terminal_view_for_tab(app, window_id, 0);
         terminal_view.read(app, |view, _ctx| {

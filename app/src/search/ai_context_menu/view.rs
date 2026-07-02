@@ -1,5 +1,30 @@
+use std::collections::HashSet;
+use std::ops::Range;
+use std::time::Duration;
+
+use async_channel::Sender;
+use galaxy_core::features::FeatureFlag;
+use itertools::Itertools;
+#[cfg(not(target_family = "wasm"))]
+use repo_metadata::repositories::DetectedRepositories;
+use settings::Setting as _;
+use warpui::elements::{
+    AnchorPair, Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Dismiss, Empty, Fill, Flex, Hoverable, Icon, MouseStateHandle, OffsetPositioning, OffsetType,
+    ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius, SavePosition,
+    ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Shrinkable, Stack, Text,
+    UniformList, UniformListState, XAxisAnchor, YAxisAnchor,
+};
+use warpui::platform::Cursor;
+use warpui::windowing::WindowManager;
+use warpui::{
+    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle, WeakViewHandle,
+};
+
+use super::styles;
 use crate::appearance::Appearance;
-use crate::debounce::debounce;
+use crate::debounce;
 use crate::drive::settings::WarpDriveSettings;
 #[cfg(not(target_family = "wasm"))]
 use crate::search::ai_context_menu::blocks::data_source::BlockDataSource;
@@ -16,8 +41,7 @@ use crate::search::ai_context_menu::diffset::data_source::DiffSetDataSource;
 use crate::search::ai_context_menu::files::data_source::{
     file_data_source_for_current_repo, file_data_source_for_pwd,
 };
-use crate::search::ai_context_menu::mixer::AIContextMenuMixer;
-use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
+use crate::search::ai_context_menu::mixer::{AIContextMenuMixer, AIContextMenuSearchableAction};
 #[cfg(not(target_family = "wasm"))]
 use crate::search::ai_context_menu::notebooks::data_source::NotebookDataSource;
 #[cfg(not(target_family = "wasm"))]
@@ -26,55 +50,14 @@ use crate::search::ai_context_menu::rules::data_source::RulesDataSource;
 use crate::search::ai_context_menu::skills::data_source::SkillsDataSource;
 #[cfg(not(target_family = "wasm"))]
 use crate::search::ai_context_menu::workflows::data_source::WorkflowDataSource;
-use crate::search::data_source::QueryResult;
-use crate::search::data_source::{Query, QueryFilter};
+use crate::search::data_source::{Query, QueryFilter, QueryResult};
 #[cfg(not(target_family = "wasm"))]
 use crate::search::mixer::AddAsyncSourceOptions;
 use crate::search::result_renderer::{QueryResultRenderer, QueryResultRendererStyles};
 use crate::search::search_bar::{SearchBar, SearchBarEvent, SearchBarState, SearchResultOrdering};
 use crate::settings::InputSettings;
-use async_channel::Sender;
-use galaxy_core::features::FeatureFlag;
-use galaxyui::elements::ConstrainedBox;
-use galaxyui::elements::CrossAxisAlignment;
-use galaxyui::elements::Empty;
-use galaxyui::elements::Fill;
-use galaxyui::elements::Hoverable;
-use galaxyui::elements::MouseStateHandle;
-use galaxyui::elements::ScrollStateHandle;
-use galaxyui::elements::Scrollable;
-use galaxyui::elements::ScrollableElement;
-use galaxyui::elements::ScrollbarWidth;
-use galaxyui::elements::UniformList;
-use galaxyui::elements::UniformListState;
-use galaxyui::elements::{
-    AnchorPair, Border, ChildView, Container, CornerRadius, Dismiss, Flex, Icon, OffsetPositioning,
-    OffsetType, ParentElement, PositionedElementOffsetBounds, PositioningAxis, Radius,
-    SavePosition, Shrinkable, Stack, Text, XAxisAnchor, YAxisAnchor,
-};
-use itertools::Itertools;
-use settings::Setting as _;
-use std::collections::HashSet;
-use std::ops::Range;
-use std::time::Duration;
-
-use galaxyui::platform::Cursor;
-use galaxyui::windowing::WindowManager;
-use galaxyui::SingletonEntity;
-use galaxyui::View;
-use galaxyui::{
-    AppContext, Element, Entity, ModelHandle, TypedActionView, ViewContext, ViewHandle,
-    WeakViewHandle,
-};
-
 #[cfg(not(target_family = "wasm"))]
 use crate::workspace::ActiveSession;
-#[cfg(not(target_family = "wasm"))]
-use repo_metadata::repositories::DetectedRepositories;
-#[cfg(not(target_family = "wasm"))]
-use std::path::Path;
-
-use super::styles;
 
 const CORNER_RADIUS: f32 = 8.0;
 const DEFAULT_PALETTE_WIDTH: f32 = 320.0;
@@ -402,13 +385,13 @@ impl AIContextMenu {
             #[cfg(not(target_family = "wasm"))]
             {
                 let active_window_id = app.windows().state().active_window;
-                let active_dir = active_window_id
-                    .and_then(|window_id| ActiveSession::as_ref(app).path_if_local(window_id));
-                active_dir.is_some_and(|dir| {
-                    DetectedRepositories::as_ref(app)
-                        .get_root_for_path(Path::new(dir))
-                        .is_some()
-                })
+                active_window_id
+                    .and_then(|window_id| ActiveSession::as_ref(app).working_directory(window_id))
+                    .is_some_and(|dir| {
+                        DetectedRepositories::as_ref(app)
+                            .get_root_for_canonical_path(dir)
+                            .is_some()
+                    })
             }
         };
 

@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Range, Sub, SubAssign};
 
-use galaxyui::units::Lines;
+use galaxyui_core::units::Lines;
 use serde::{Deserialize, Serialize};
 
 use super::grid::Dimensions;

@@ -2,13 +2,12 @@
 
 use galaxyui::units::{IntoPixels, Pixels};
 use num_traits::SaturatingSub;
+use string_offset::CharOffset;
 use sum_tree::SeekBias;
 
-use string_offset::CharOffset;
-
+use super::positioned::{Positioned, PositionedCursor};
 use super::{
     BlockItem, Height, HitTestBlockType, LayoutSummary, ParagraphBlock, RenderState, bounds,
-    positioned::{Positioned, PositionedCursor},
 };
 
 #[cfg(test)]

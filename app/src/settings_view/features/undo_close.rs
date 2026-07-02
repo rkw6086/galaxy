@@ -1,28 +1,24 @@
-use std::{cell::RefCell, collections::HashMap, time::Duration};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::time::Duration;
 
+use galaxyui::elements::{
+    Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle, ParentElement, Text,
+};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{
-    elements::{
-        Container, CrossAxisAlignment, Flex, MainAxisAlignment, MouseStateHandle, ParentElement,
-        Text,
-    },
-    ui_components::{
-        components::{Coords, UiComponent, UiComponentStyles},
-        switch::SwitchStateHandle,
-    },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use settings::{Setting, ToggleableSetting};
 
-use crate::{
-    appearance::Appearance,
-    editor::{self, EditorView, SingleLineEditorOptions, TextOptions},
-    report_if_error,
-    settings_view::{
-        features_page::render_group,
-        settings_page::{render_body_item, LocalOnlyIconState, ToggleState},
-    },
-    undo_close::{settings::UndoCloseEnabled, UndoCloseSettings},
-};
+use crate::appearance::Appearance;
+use crate::editor::{self, EditorView, SingleLineEditorOptions, TextOptions};
+use crate::report_if_error;
+use crate::settings_view::features_page::render_group;
+use crate::settings_view::settings_page::{render_body_item, LocalOnlyIconState, ToggleState};
+use crate::undo_close::settings::UndoCloseEnabled;
+use crate::undo_close::UndoCloseSettings;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Action {

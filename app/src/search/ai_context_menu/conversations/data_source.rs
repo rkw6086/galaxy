@@ -1,3 +1,8 @@
+use std::collections::HashSet;
+
+use fuzzy_match::FuzzyMatchResult;
+use warpui::{AppContext, Entity, SingletonEntity};
+
 use super::search_item::ConversationSearchItem;
 use super::ConversationContextItem;
 use crate::ai::agent_conversations_model::AgentConversationsModel;
@@ -5,9 +10,6 @@ use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::data_source::{Query, QueryResult};
 use crate::search::mixer::{DataSourceRunErrorWrapper, SyncDataSource};
-use fuzzy_match::FuzzyMatchResult;
-use galaxyui::{AppContext, Entity, SingletonEntity};
-use std::collections::HashSet;
 
 const MAX_RESULTS: usize = 50;
 /// Minimum fuzzy match score to include a conversation in filtered results.
@@ -73,7 +75,7 @@ impl SyncDataSource for ConversationDataSource {
         // assign higher values to more recently updated conversations. This ensures
         // recency acts as a tiebreaker when fuzzy scores are similar.
         let mut all_conversations = all_conversations;
-        all_conversations.sort_by(|a, b| a.last_updated.cmp(&b.last_updated));
+        all_conversations.sort_by_key(|a| a.last_updated);
         let total_conversations = all_conversations.len();
 
         let mut results: Vec<QueryResult<Self::Action>> = if query_text.is_empty() {

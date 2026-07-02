@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use galaxyui::{keymap::EditableBinding, AppContext, Entity, EntityId, SingletonEntity, WindowId};
-
-use crate::util::bindings::{BindingGroup, CustomAction};
+use galaxyui::keymap::EditableBinding;
+use galaxyui::{AppContext, Entity, EntityId, SingletonEntity, WindowId};
 
 use super::WorkspaceAction;
+use crate::util::bindings::{BindingGroup, CustomAction};
 
 pub fn init(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

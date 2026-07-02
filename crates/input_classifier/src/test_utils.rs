@@ -1,9 +1,8 @@
-use std::{collections::HashSet, sync::Arc};
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use galaxy_completer::{
-    completer::{GeneratorContext, PathCompletionContext},
-    signatures::CommandRegistry,
-};
+use galaxy_completer::completer::{GeneratorContext, PathCompletionContext};
+use galaxy_completer::signatures::CommandRegistry;
 use smol_str::SmolStr;
 
 /// An implementation of `CompletionContext` for testing purposes.

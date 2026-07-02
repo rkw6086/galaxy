@@ -6,20 +6,17 @@
 //! - Core LSP features: go-to-definition, hover, completion, symbols
 //! - Proper shutdown and error handling
 
-use std::{
-    env,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::env;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
-use galaxyui::r#async::{executor::Background, Timer};
+use galaxyui::r#async::executor::Background;
+use galaxyui::r#async::Timer;
 use log::LevelFilter;
-use lsp::{
-    spawn_lsp_service, supported_servers::LSPServerType, LspServerConfig, LspService,
-    LspServiceInitializationResult,
-};
+use lsp::supported_servers::LSPServerType;
+use lsp::{spawn_lsp_service, LspServerConfig, LspService, LspServiceInitializationResult};
 use lsp_types::Position;
 
 fn init_logging() {
@@ -114,7 +111,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    galaxyui::r#async::block_on(task)?;
+    galaxyui_core::r#async::block_on(task)?;
     Ok(())
 }
 

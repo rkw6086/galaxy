@@ -1,24 +1,21 @@
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_editor::editor::NavigationKey;
+use galaxyui::elements::{
+    Border, ConstrainedBox, Container, CornerRadius, Flex, MouseStateHandle, ParentElement, Radius,
+    Shrinkable,
+};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, Flex, MouseStateHandle, ParentElement,
-        Radius, Shrinkable,
-    },
-    ui_components::{
-        button::ButtonVariant,
-        components::{UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
     ViewHandle,
 };
 
+use super::EnvVarSecretCommand;
 use crate::editor::{
     EditorOptions, EditorView, Event, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
     TextOptions,
 };
-
-use super::EnvVarSecretCommand;
 
 const COMMAND_EDITOR_MIN_LINES: f32 = 6.;
 const SPAN_FONT_SIZE: f32 = 16.;

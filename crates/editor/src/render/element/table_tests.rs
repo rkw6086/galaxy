@@ -1,27 +1,24 @@
-use galaxyui::{
-    elements::{Axis, scroll_delta_for_pointer_movement},
-    fonts::FamilyId,
-    geometry::{rect::RectF, vector::vec2f},
-    text_layout::TextFrame,
-    units::{IntoPixels, Pixels},
-};
+use std::cell::Cell;
+use std::sync::Arc;
+
+use galaxyui_core::elements::{Axis, scroll_delta_for_pointer_movement};
+use galaxyui_core::fonts::FamilyId;
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::text_layout::TextFrame;
+use galaxyui_core::units::{IntoPixels, Pixels};
 use pathfinder_color::ColorU;
-use std::{cell::Cell, sync::Arc};
 use string_offset::CharOffset;
 
-use crate::{
-    content::text::{FormattedTable, table_cell_offset_maps},
-    render::{
-        element::table::{
-            model_table_layout_report, row_geometry_from_layout_report,
-            table_cursor_relative_offset, table_horizontal_scroll_delta, table_scroll_data,
-            table_scrollbar, table_selection_relative_range,
-        },
-        model::{
-            BlockSpacing, CellLayout, LaidOutTable, RenderedSelection, TableBlockConfig,
-            TableStyle, table_offset_map::TableOffsetMap,
-        },
-    },
+use crate::content::text::{FormattedTable, table_cell_offset_maps};
+use crate::render::element::table::{
+    model_table_layout_report, row_geometry_from_layout_report, table_cursor_relative_offset,
+    table_horizontal_scroll_delta, table_scroll_data, table_scrollbar,
+    table_selection_relative_range,
+};
+use crate::render::model::table_offset_map::TableOffsetMap;
+use crate::render::model::{
+    BlockSpacing, CellLayout, LaidOutTable, RenderedSelection, TableBlockConfig, TableStyle,
 };
 
 fn test_laid_out_table() -> LaidOutTable {
@@ -214,7 +211,7 @@ fn cells_in_range_entire_table() {
 }
 
 fn single_line_cell_layout(char_count: usize, line_height: f32, line_width: f32) -> CellLayout {
-    use galaxyui::text_layout::CaretPosition;
+    use galaxyui_core::text_layout::CaretPosition;
     let mut carets = Vec::with_capacity(char_count);
     let char_width = if char_count > 0 {
         line_width / char_count as f32

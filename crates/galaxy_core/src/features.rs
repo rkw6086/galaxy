@@ -1,6 +1,5 @@
 pub use galaxy_features::*;
-
-use galaxyui::platform::menu::{CustomMenuItem, MenuItem, MenuItemPropertyChanges};
+use galaxyui_core::platform::menu::{CustomMenuItem, MenuItem, MenuItemPropertyChanges};
 fn feature_flag_menu_item(flag: FeatureFlag) -> MenuItem {
     MenuItem::Custom(CustomMenuItem::new(
         &format!("{flag:?}"),

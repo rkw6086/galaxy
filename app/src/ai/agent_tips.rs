@@ -1,3 +1,14 @@
+use std::path::Path;
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+use markdown_parser::FormattedTextFragment;
+use rand::seq::SliceRandom;
+use warpui::keymap::Keystroke;
+use warpui::r#async::{SpawnedFutureHandle, Timer};
+use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
+
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::palette::PaletteMode;
 use crate::server::telemetry::PaletteSource;
@@ -13,14 +24,6 @@ use crate::workspace::view::{
 };
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
-use galaxyui::keymap::Keystroke;
-use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
-use markdown_parser::FormattedTextFragment;
-use std::path::Path;
-use std::sync::LazyLock;
-use std::time::Duration;
 
 /// Trait for tip implementations that can be displayed to users.
 /// Tips provide helpful information with optional links and keybindings.
@@ -78,6 +81,8 @@ pub enum AgentTipKind {
     Context,
     /// Tips about code editors, file trees, and code review panes
     Code,
+    /// Tips about local-to-cloud handoff
+    Handoff,
 }
 
 static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
@@ -311,6 +316,13 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
             kind: AgentTipKind::General,
         },
         AgentTip {
+            description: "Type `&` or use the handoff chip to move a local conversation to the cloud.".to_string(),
+            link: None,
+            binding_name: None,
+            action: None,
+            kind: AgentTipKind::Handoff,
+        },
+        AgentTip {
             description: "Enable desktop notifications to get an alert when an agent needs your attention.".to_string(),
             link: Some("https://docs.warp.dev/agent-platform/cloud-agents/managing-cloud-agents#in-app-agent-notifications".to_string()),
             binding_name: None,
@@ -403,6 +415,16 @@ impl AITip for AgentTip {
                 .get_codebase_index_status_for_path(root, app)
                 .is_none();
         }
+        // Handoff tips only apply when the feature is available and enabled.
+        if matches!(self.kind, AgentTipKind::Handoff) {
+            return AISettings::as_ref(app).is_cloud_handoff_enabled(app);
+        }
+        // Tips whose description references a keybinding placeholder should only be shown
+        // when the keybinding is actually configured, so we never display the raw
+        // "<keybinding>" string to users.
+        if self.description.contains("<keybinding>") && self.keystroke(app).is_none() {
+            return false;
+        }
         true
     }
 }
@@ -486,7 +508,44 @@ impl AITipModel<AgentTip> {
     /// This is the constructor used for the singleton model.
     pub fn new_for_agent_tips(ctx: &AppContext) -> Self {
         let tips = get_agent_tips(ctx);
-        Self::new(tips)
+        // Pick an applicable tip so we never show a raw "<keybinding>" placeholder on first render.
+        let current_tip = Self::pick_random_applicable_tip(&tips, None, ctx);
+
+        Self {
+            tips,
+            current_tip,
+            cooldown_handle: None,
+        }
+    }
+
+    /// Rebuilds the tip pool from current settings and invalidates the current tip
+    /// if it is no longer applicable. Resets the cooldown timer so the revalidated
+    /// tip is shown for the full cooldown period before the next rotation.
+    pub fn revalidate_tips(&mut self, ctx: &mut ModelContext<Self>) {
+        self.tips = get_agent_tips(ctx);
+
+        // If the current tip is no longer in the pool or no longer applicable, pick a new one.
+        let should_replace = self
+            .current_tip
+            .as_ref()
+            .map(|current_tip| {
+                let still_in_pool = self
+                    .tips
+                    .iter()
+                    .any(|tip| tip.description == current_tip.description);
+
+                !still_in_pool || !current_tip.is_tip_applicable(None, ctx)
+            })
+            .unwrap_or(true);
+
+        if should_replace {
+            let new_tip = Self::pick_random_applicable_tip(&self.tips, None, ctx);
+            if new_tip.is_some() || self.current_tip.is_some() {
+                self.current_tip = new_tip;
+                self.reset_cooldown(ctx);
+                ctx.notify();
+            }
+        }
     }
 
     /// Refreshes the current tip with a new random selection that is applicable
@@ -502,24 +561,16 @@ impl AITipModel<AgentTip> {
             return;
         }
 
-        use rand::seq::SliceRandom;
+        // Rebuild tips from current settings so changes are picked up.
+        self.tips = get_agent_tips(ctx);
 
-        // Filter applicable tips based on working directory
-        let available_tips: Vec<AgentTip> = self
-            .tips
-            .iter()
-            .filter(|tip| tip.is_tip_applicable(current_working_directory, ctx))
-            .cloned()
-            .collect();
-
-        // Select a random tip
-        let mut rng = rand::thread_rng();
-        self.current_tip = available_tips.choose(&mut rng).cloned();
+        self.current_tip =
+            Self::pick_random_applicable_tip(&self.tips, current_working_directory, ctx);
 
         // Start 60-second cooldown
         let handle = ctx.spawn(
             async {
-                galaxyui::r#async::Timer::after(Duration::from_secs(60)).await;
+                Timer::after(Duration::from_secs(60)).await;
             },
             |me, _, _| {
                 me.cooldown_handle = None;
@@ -527,6 +578,38 @@ impl AITipModel<AgentTip> {
         );
         self.cooldown_handle = Some(handle);
         ctx.notify();
+    }
+
+    /// Picks a random applicable tip from the given pool, filtered by working directory.
+    /// Returns `None` if no tips are applicable.
+    fn pick_random_applicable_tip(
+        tips: &[AgentTip],
+        current_working_directory: Option<&str>,
+        ctx: &AppContext,
+    ) -> Option<AgentTip> {
+        let available: Vec<&AgentTip> = tips
+            .iter()
+            .filter(|tip| tip.is_tip_applicable(current_working_directory, ctx))
+            .collect();
+        let mut rng = rand::thread_rng();
+        available.choose(&mut rng).copied().cloned()
+    }
+
+    /// Resets the cooldown timer so the current tip is shown for the full
+    /// cooldown period before the next rotation.
+    fn reset_cooldown(&mut self, ctx: &mut ModelContext<Self>) {
+        if let Some(handle) = self.cooldown_handle.take() {
+            handle.abort();
+        }
+        let handle = ctx.spawn(
+            async {
+                Timer::after(Duration::from_secs(60)).await;
+            },
+            |me, _, _| {
+                me.cooldown_handle = None;
+            },
+        );
+        self.cooldown_handle = Some(handle);
     }
 }
 
@@ -542,8 +625,6 @@ impl AITipModel<crate::terminal::view::ambient_agent::CloudModeTip> {
             return;
         }
 
-        use rand::seq::SliceRandom;
-
         // Select a random tip
         let mut rng = rand::thread_rng();
         self.current_tip = self.tips.choose(&mut rng).cloned();
@@ -551,7 +632,7 @@ impl AITipModel<crate::terminal::view::ambient_agent::CloudModeTip> {
         // Start 60-second cooldown
         let handle = ctx.spawn(
             async {
-                galaxyui::r#async::Timer::after(Duration::from_secs(60)).await;
+                Timer::after(Duration::from_secs(60)).await;
             },
             |me, _, _| {
                 me.cooldown_handle = None;
@@ -572,7 +653,7 @@ impl AITipModel<crate::terminal::view::ambient_agent::CloudModeTip> {
         // Start a new 60-second cooldown
         let handle = ctx.spawn(
             async {
-                galaxyui::r#async::Timer::after(Duration::from_secs(60)).await;
+                Timer::after(Duration::from_secs(60)).await;
             },
             |me, _, _| {
                 me.cooldown_handle = None;

@@ -1,35 +1,33 @@
 use galaxy_editor::editor::NavigationKey;
-use galaxyui::elements::{Align, Dash};
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
+use galaxyui::elements::{
+    Align, Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius,
+    CrossAxisAlignment, Dash, Dismiss, DropShadow, Empty, Flex, Hoverable, MouseStateHandle,
+    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect, Shrinkable,
+    Stack, Text,
+};
+use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::FocusContext;
 use galaxyui::{
-    accessibility::{AccessibilityContent, GalaxyA11yRole},
-    elements::{
-        Border, ChildAnchor, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        Dismiss, DropShadow, Empty, Flex, Hoverable, MouseStateHandle, OffsetPositioning,
-        ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect, Shrinkable, Stack, Text,
-    },
-    presenter::ChildView,
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+    AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use regex_automata::hybrid::BuildError;
 
-use crate::terminal::model::terminal_model::BlockIndex;
-use crate::{
-    appearance::Appearance,
-    editor::{
-        EditOrigin, EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys,
-        SingleLineEditorOptions, TextOptions, ValidInputType,
-    },
-    send_telemetry_from_ctx,
-    server::telemetry::TelemetryEvent,
-    themes::theme::Fill,
-    ui_components::{blended_colors, icons::Icon},
-};
-
 use super::model::find::{FindConfig, RegexDFAs};
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditOrigin, EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys,
+    SingleLineEditorOptions, TextOptions, ValidInputType,
+};
+use crate::send_telemetry_from_ctx;
+use crate::server::telemetry::TelemetryEvent;
+use crate::terminal::model::terminal_model::BlockIndex;
+use crate::themes::theme::Fill;
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
 
 const FILTER_BLOCK_PLACEHOLDER_TEXT: &str = "Filter block output";
 

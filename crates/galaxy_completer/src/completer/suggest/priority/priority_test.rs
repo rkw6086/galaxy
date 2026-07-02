@@ -82,7 +82,6 @@ fn test_new_to_old_priority() {
 /// `warp_command_signatures` to the new Priority.
 #[test]
 fn test_old_to_new_priority() {
-    use warp_command_signatures::{Importance, Order, Priority as OldPriority};
 
     assert_eq!(
         Priority::from(OldPriority::Global(Importance::Less(Order(1)))),

@@ -2,10 +2,10 @@
 //! `galaxy_completer::signatures::CommandSignature`s, as well as `IntoWarpJs` implementations for
 //! Rust structs that may be passed to JS functions defined on the Command Signature (e.g.
 //! `GeneratorCompletionContext`).
-use galaxy_js::{
-    util::{get_one_or_more_optional, get_one_or_more_required, get_optional, get_required},
-    FromWarpJs, IntoWarpJs, JsFunctionRegistry,
+use galaxy_js::util::{
+    get_one_or_more_optional, get_one_or_more_required, get_optional, get_required,
 };
+use galaxy_js::{FromWarpJs, IntoWarpJs, JsFunctionRegistry};
 use rquickjs::{FromJs, Function, Object, Value};
 
 use super::{

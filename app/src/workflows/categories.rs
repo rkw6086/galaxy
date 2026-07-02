@@ -1,47 +1,44 @@
-use galaxy_editor::editor::NavigationKey;
-use galaxyui::{
-    elements::{
-        ConstrainedBox, Container, DispatchEventResult, Element, Fill, Flex, ParentElement,
-        ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Shrinkable, Text,
-        UniformList, UniformListState, LEFT_PADDING as SCROLLABLE_LEFT_PADDING,
-    },
-    fonts::{Properties, Weight},
-    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
-};
-use itertools::Itertools;
-
-use crate::appearance::Appearance;
-use crate::util::bindings::CustomAction;
-use crate::voltron::{VoltronFeatureViewMeta, VoltronMetadata};
-use crate::workflows::WorkflowType;
-use crate::{
-    cloud_object::model::persistence::CloudModel, workspaces::user_workspaces::UserWorkspaces,
-};
-use crate::{editor::Event as EditorEvent, send_telemetry_from_ctx};
-use crate::{server::telemetry::TelemetryEvent, user_config::GalaxyConfig};
-use crate::{
-    themes::theme::{self, Blend, GalaxyTheme},
-    user_config::GalaxyConfigUpdateEvent,
-};
-use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
-use galaxy_core::ui::builder::UiBuilder;
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
-use galaxyui::color::ColorU;
-use galaxyui::elements::{
-    Align, CrossAxisAlignment, EventHandler, Highlight, Hoverable, MainAxisSize, MouseStateHandle,
-};
-use galaxyui::keymap::FixedBinding;
-use galaxyui::text_layout::TextStyle;
-use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use std::collections::HashMap;
 use std::ops::Deref;
 #[cfg(feature = "local_fs")]
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
+use galaxy_core::ui::builder::UiBuilder;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_editor::editor::NavigationKey;
+use galaxyui::accessibility::{AccessibilityContent, GalaxyA11yRole};
+use galaxyui::color::ColorU;
+use galaxyui::elements::{
+    Align, ConstrainedBox, Container, CrossAxisAlignment, DispatchEventResult, Element,
+    EventHandler, Fill, Flex, Highlight, Hoverable, MainAxisSize, MouseStateHandle, ParentElement,
+    ScrollStateHandle, Scrollable, ScrollableElement, ScrollbarWidth, Shrinkable, Text,
+    UniformList, UniformListState, LEFT_PADDING as SCROLLABLE_LEFT_PADDING,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::keymap::FixedBinding;
+use galaxyui::text_layout::TextStyle;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, WeakViewHandle,
+};
+use itertools::Itertools;
 use warp_workflows::workflows as global_workflows;
 
-use super::{workflow::Workflow, WorkflowSource};
+use super::workflow::Workflow;
+use super::WorkflowSource;
+use crate::appearance::Appearance;
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::editor::Event as EditorEvent;
+use crate::send_telemetry_from_ctx;
+use crate::server::telemetry::TelemetryEvent;
+use crate::themes::theme::{self, Blend, GalaxyTheme};
+use crate::user_config::{GalaxyConfig, GalaxyConfigUpdateEvent};
+use crate::util::bindings::CustomAction;
+use crate::voltron::{VoltronFeatureViewMeta, VoltronMetadata};
+use crate::workflows::WorkflowType;
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const SCROLLBAR_WIDTH: ScrollbarWidth = ScrollbarWidth::Auto;
 const DESCRIPTION_MARGIN: f32 = 24.;
@@ -516,7 +513,7 @@ impl CategoriesView {
         ctx.notify();
     }
 
-    /// Given an iterator of a Vector workflows, constructs a `Vector` of `Worklow` and
+    /// Given an iterator of a Vector workflows, constructs a `Vector` of `Workflow` and
     /// `WorkflowSource` pairs.
     fn create_workflow_source_pair<'a>(
         workflows: impl IntoIterator<Item = &'a Vec<Arc<WorkflowType>>>,
@@ -1298,5 +1295,5 @@ impl VoltronFeatureViewMeta for CategoriesView {
 }
 
 #[cfg(test)]
-#[path = "categories_test.rs"]
+#[path = "categories_tests.rs"]
 mod tests;

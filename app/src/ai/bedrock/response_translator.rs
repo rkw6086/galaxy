@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::{Arc, Mutex};
 
 use aws_sdk_bedrockruntime::operation::converse_stream::ConverseStreamOutput;
@@ -10,11 +12,10 @@ use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
-use crate::ai::agent::api::Event;
-use crate::server::server_api::AIApiError;
-
 use super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::diagnostic::BedrockDiagnosticLogger;
+use crate::ai::agent::api::Event;
+use crate::server::server_api::AIApiError;
 
 fn json_to_prost_struct(value: &serde_json::Value) -> prost_types::Struct {
     let fields = match value.as_object() {
@@ -57,6 +58,7 @@ pub fn context_window_for_model(model_id: &str) -> u32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn bedrock_stream_to_response_events(
     mut output: ConverseStreamOutput,
     task_id: String,
@@ -129,41 +131,36 @@ pub fn bedrock_stream_to_response_events(
                     }
                     StreamEvent::ContentBlockStart(block_start) => {
                         log::debug!("[bedrock] Event #{event_count}: ContentBlockStart");
-                        if let Some(start) = block_start.start() {
-                            match start {
-                                ContentBlockStart::ToolUse(tool_start) => {
-                                    _has_tool_calls = true;
-                                    if !buffered_text.is_empty() {
-                                        let msg_id = current_text_message_id
-                                            .clone()
-                                            .unwrap_or_else(|| Uuid::new_v4().to_string());
-                                        if !text_flushed {
-                                            current_text_message_id = Some(msg_id.clone());
-                                            text_flushed = true;
-                                            log::debug!("[bedrock] Flushing buffered text ({} chars) before tool call", buffered_text.len());
-                                            let add_msg = build_add_agent_output_message(
-                                                &task_id,
-                                                &msg_id,
-                                                &buffered_text,
-                                            );
-                                            yield Ok(add_msg);
-                                        } else {
-                                            log::debug!("[bedrock] Flushing remaining buffered text ({} chars) as append before tool call", buffered_text.len());
-                                            let append = build_append_text(
-                                                &task_id,
-                                                &msg_id,
-                                                &buffered_text,
-                                            );
-                                            yield Ok(append);
-                                        }
-                                        buffered_text.clear();
-                                    }
-                                    current_tool_use_id = tool_start.tool_use_id().to_string();
-                                    current_tool_name = tool_start.name().to_string();
-                                    current_tool_input_json.clear();
+                        if let Some(ContentBlockStart::ToolUse(tool_start)) = block_start.start() {
+                            _has_tool_calls = true;
+                            if !buffered_text.is_empty() {
+                                let msg_id = current_text_message_id
+                                    .clone()
+                                    .unwrap_or_else(|| Uuid::new_v4().to_string());
+                                if !text_flushed {
+                                    current_text_message_id = Some(msg_id.clone());
+                                    text_flushed = true;
+                                    log::debug!("[bedrock] Flushing buffered text ({} chars) before tool call", buffered_text.len());
+                                    let add_msg = build_add_agent_output_message(
+                                        &task_id,
+                                        &msg_id,
+                                        &buffered_text,
+                                    );
+                                    yield Ok(add_msg);
+                                } else {
+                                    log::debug!("[bedrock] Flushing remaining buffered text ({} chars) as append before tool call", buffered_text.len());
+                                    let append = build_append_text(
+                                        &task_id,
+                                        &msg_id,
+                                        &buffered_text,
+                                    );
+                                    yield Ok(append);
                                 }
-                                _ => {}
+                                buffered_text.clear();
                             }
+                            current_tool_use_id = tool_start.tool_use_id().to_string();
+                            current_tool_name = tool_start.name().to_string();
+                            current_tool_input_json.clear();
                         }
                     }
                     StreamEvent::ContentBlockDelta(delta) => {
@@ -187,7 +184,7 @@ pub fn bedrock_stream_to_response_events(
                                         // AddMessagesToTask carries enough content for
                                         // the exchange to be fully registered before
                                         // subsequent AppendToMessageContent events arrive.
-                                        if buffered_text.len() >= 1 {
+                                        if !buffered_text.is_empty() {
                                             let msg_id = Uuid::new_v4().to_string();
                                             current_text_message_id = Some(msg_id.clone());
                                             text_flushed = true;
@@ -201,10 +198,8 @@ pub fn bedrock_stream_to_response_events(
                                         }
                                     }
                                 }
-                                ContentBlockDelta::ReasoningContent(reasoning) => {
-                                    if let ReasoningContentBlockDelta::Text(text) = reasoning {
-                                        log::trace!("[bedrock] Reasoning delta ({} chars) - not displayed to user", text.len());
-                                    }
+                                ContentBlockDelta::ReasoningContent(ReasoningContentBlockDelta::Text(text)) => {
+                                    log::trace!("[bedrock] Reasoning delta ({} chars) - not displayed to user", text.len());
                                 }
                                 ContentBlockDelta::ToolUse(tool_delta) => {
                                     current_tool_input_json.push_str(tool_delta.input());
@@ -593,6 +588,7 @@ fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::UserQuery(api::message::UserQuery {
             query: query_text.to_string(),
             ..Default::default()
@@ -682,10 +678,14 @@ pub fn build_stream_finished(
         context_window_usage: context_usage,
         summarized: is_summarization,
         credits_spent: 0.0,
+        platform_credits_spent: 0.0,
+        total_input_tokens: input_tokens as u32,
         token_usage: vec![],
         tool_usage_metadata: None,
         warp_token_usage: std::collections::HashMap::new(),
         byok_token_usage,
+        custom_endpoint_token_usage: std::collections::HashMap::new(),
+        context_window_segments: vec![],
     });
 
     ResponseEvent {
@@ -757,6 +757,7 @@ fn build_add_agent_output_message(
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::AgentOutput(
             api::message::AgentOutput {
                 text: initial_text.to_string(),
@@ -790,6 +791,7 @@ fn build_append_text(task_id: &str, message_id: &str, text_delta: &str) -> Respo
         timestamp: None,
         server_message_data: String::new(),
         citations: vec![],
+        fetched_memories: vec![],
         message: Some(api::message::Message::AgentOutput(
             api::message::AgentOutput {
                 text: text_delta.to_string(),
@@ -1227,6 +1229,7 @@ pub fn build_tool_call_message(
             timestamp: None,
             server_message_data: String::new(),
             citations: vec![],
+            fetched_memories: vec![],
             message: Some(api::message::Message::ToolCall(api::message::ToolCall {
                 tool_call_id: effective_tool_call_id,
                 tool: Some(tool_variant),
@@ -1243,6 +1246,7 @@ pub fn build_tool_call_message(
             timestamp: None,
             server_message_data: String::new(),
             citations: vec![],
+            fetched_memories: vec![],
             message: Some(api::message::Message::AgentOutput(
                 api::message::AgentOutput {
                     text: format!(

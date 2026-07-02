@@ -3,10 +3,9 @@ mod data_source;
 mod search_item;
 mod view;
 
-pub use view::{InlinePlanMenuEvent, InlinePlanMenuView};
-
 use ai::document::AIDocumentId;
 use galaxyui::keymap::Keystroke;
+pub use view::{InlinePlanMenuEvent, InlinePlanMenuView};
 
 use crate::ai::document::ai_document_model::AIDocumentVersion;
 use crate::terminal::input::inline_menu::{

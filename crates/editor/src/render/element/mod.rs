@@ -1,51 +1,50 @@
+use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
 use float_cmp::ApproxEq;
 use galaxy_core::ui::theme::Fill as ThemeFill;
-use galaxyui::{
+use galaxyui_core::color::ColorU;
+use galaxyui_core::elements::new_scrollable::{NewScrollableElement, ScrollableAxis};
+use galaxyui_core::elements::{
+    Axis, Border, Dash, Point, ScrollData, ScrollableElement, Vector2FExt, ZIndex,
+};
+use galaxyui_core::event::{DispatchedEvent, ModifiersState};
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::{Vector2F, vec2f};
+use galaxyui_core::platform::Cursor;
+use galaxyui_core::units::{IntoPixels, Pixels};
+use galaxyui_core::{
     AfterLayoutContext, AppContext, Element, Event, EventContext, LayoutContext, ModelHandle,
     PaintContext, SizeConstraint, WeakViewHandle,
-    color::ColorU,
-    elements::{
-        Axis, Border, Dash, Point, ScrollData, ScrollableElement, Vector2FExt, ZIndex,
-        new_scrollable::{NewScrollableElement, ScrollableAxis},
-    },
-    event::{DispatchedEvent, ModifiersState},
-    geometry::{
-        rect::RectF,
-        vector::{Vector2F, vec2f},
-    },
-    platform::Cursor,
-    units::{IntoPixels, Pixels},
 };
 use instant::Instant;
 use parking_lot::Mutex;
-use std::{
-    fmt,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use string_offset::CharOffset;
 use temporary_block::RenderableTemporaryBlock;
 use vim::vim::VimMode;
 
+use self::empty::Empty;
+use self::header::RenderableHeader;
+use self::hidden_section::RenderableHiddenSection;
+use self::horizontal_rule::HorizontalRule;
+use self::image::RenderableImage;
+use self::mermaid::RenderableMermaidDiagram;
+use self::ordered_list::RenderableOrderedListItem;
+pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
+use self::paragraph::RenderableParagraph;
+use self::runnable_command::RenderableRunnableCommand;
+use self::table::RenderableTable;
+use self::task_list::RenderableTaskList;
+use self::text_block::RenderableTextBlock;
+use self::unordered_list::RenderableBulletList;
+use super::model::viewport::{SizeInfo, ViewportItem};
 use super::model::{
     BlockItem, ElementUpdate, HitTestOptions, Location, RenderState, RichTextStyles, UNIT_MARGIN,
-    viewport::{SizeInfo, ViewportItem},
 };
-use crate::{content::version::BufferVersion, editor::EditorView};
-use string_offset::CharOffset;
-
-use self::{
-    empty::Empty, header::RenderableHeader, hidden_section::RenderableHiddenSection,
-    horizontal_rule::HorizontalRule, image::RenderableImage, mermaid::RenderableMermaidDiagram,
-    ordered_list::RenderableOrderedListItem, paragraph::RenderableParagraph,
-    runnable_command::RenderableRunnableCommand, table::RenderableTable,
-    task_list::RenderableTaskList, text_block::RenderableTextBlock,
-    unordered_list::RenderableBulletList,
-};
-
-pub use self::paint::{CursorData, CursorDisplayType, RenderContext};
+use crate::content::version::BufferVersion;
+use crate::editor::EditorView;
 
 pub mod broken_embedding;
 mod empty;
@@ -85,7 +84,7 @@ pub enum VerticalExpansionBehavior {
 /// An element that renders rich text, with no additional UI or decorations.
 ///
 /// This element caches the positions listed in [`super::model::saved_positions::SavedPositions`],
-/// and the parent view can overlay UI controls on top of them using a [`galaxyui::elements::Stack`].
+/// and the parent view can overlay UI controls on top of them using a [`galaxyui_core::elements::Stack`].
 ///
 /// It additionally reserves horizontal gutters, which are considered in-bounds for content hit
 /// testing.
@@ -886,7 +885,15 @@ impl<V: EditorView> RichTextElement<V> {
                         .finish()
                     }
                     BlockItem::MermaidDiagram { .. } => {
-                        RenderableMermaidDiagram::new(item).finish()
+                        let start_offset = item.block_offset;
+                        let runnable_command = parent.runnable_command_at(start_offset, ctx);
+                        RenderableMermaidDiagram::new(
+                            item,
+                            runnable_command,
+                            self.display_options.focused,
+                            ctx,
+                        )
+                        .finish()
                     }
                     BlockItem::TemporaryBlock {
                         decoration,
@@ -1077,7 +1084,7 @@ impl<V: EditorView> Element for RichTextElement<V> {
             return;
         };
         ctx.scene
-            .start_layer(galaxyui::ClipBounds::BoundedBy(clip_bounds));
+            .start_layer(galaxyui_core::ClipBounds::BoundedBy(clip_bounds));
         // Save the clipped content layer z-index for hover detection.
         self.content_z_index = Some(ctx.scene.z_index());
 
@@ -1236,7 +1243,7 @@ impl<V: EditorView> NewScrollableElement for RichTextElement<V> {
         })
     }
 
-    fn scroll(&mut self, delta: galaxyui::units::Pixels, axis: Axis, ctx: &mut EventContext) {
+    fn scroll(&mut self, delta: galaxyui_core::units::Pixels, axis: Axis, ctx: &mut EventContext) {
         if let Some(action) = V::Action::scroll(delta, axis) {
             ctx.dispatch_typed_action(action);
         }
@@ -1257,7 +1264,7 @@ impl<V: EditorView> ScrollableElement for RichTextElement<V> {
         Some(self.vertical_scroll_data(app))
     }
 
-    fn scroll(&mut self, delta: galaxyui::units::Pixels, ctx: &mut EventContext) {
+    fn scroll(&mut self, delta: galaxyui_core::units::Pixels, ctx: &mut EventContext) {
         if let Some(action) = V::Action::scroll(delta, Axis::Vertical) {
             ctx.dispatch_typed_action(action);
         }

@@ -38,13 +38,13 @@ strum.workspace = true
 strum_macros.workspace = true
 sum_tree.workspace = true
 version-compare.workspace = true
-galaxy = { workspace = true, features = ["integration_tests"] }
+warp = { workspace = true, features = ["integration_tests"] }
 galaxy_cli = { workspace = true, features = ["integration_tests"] }
 galaxy_core.workspace = true
 warp-command-signatures.workspace = true
 warp_multi_agent_api.workspace = true
 warp-workflows.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 galaxyui_extras = { workspace = true, features = [
     "user_preferences-file",
 ] }
@@ -65,4 +65,5 @@ nix = { workspace = true, features = ["user", "signal"] }
 
 [features]
 run_on_linux = []
+drag_tabs_to_windows = ["warp/drag_tabs_to_windows"]
 default = ["run_on_linux"]

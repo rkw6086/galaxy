@@ -1,28 +1,29 @@
-use crate::model::OnboardingStateModel;
-use crate::slides::{bottom_nav, layout, slide_content};
-use crate::telemetry::OnboardingEvent;
-use crate::visuals::project_visual;
 use galaxy_core::send_telemetry_from_ctx;
-use galaxy_core::ui::{
-    appearance::Appearance, color::coloru_with_opacity, theme::color::internal_colors, Icon,
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::coloru_with_opacity;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::Icon;
+use galaxyui_core::elements::{
+    Align, ClippedScrollStateHandle, ConstrainedBox, Container, CrossAxisAlignment, Flex,
+    MouseStateHandle, ParentElement, Shrinkable,
 };
-use galaxyui::prelude::{MainAxisAlignment, MainAxisSize, Vector2F};
-use galaxyui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
-use galaxyui::{
-    elements::{
-        Align, ClippedScrollStateHandle, ConstrainedBox, Container, CrossAxisAlignment, Flex,
-        MouseStateHandle, ParentElement, Shrinkable,
-    },
-    fonts::Weight,
-    keymap::Keystroke,
-    platform::file_picker::{FilePickerConfiguration, FilePickerError},
-    ui_components::components::{UiComponent as _, UiComponentStyles},
+use galaxyui_core::fonts::Weight;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::platform::file_picker::{FilePickerConfiguration, FilePickerError};
+use galaxyui_core::prelude::{MainAxisAlignment, MainAxisSize, Vector2F};
+use galaxyui_core::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+use galaxyui_core::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui_core::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity as _, TypedActionView, View,
     ViewContext,
 };
 use ui_components::{button, keyboard_shortcut, Component as _, Options as _};
 
 use super::OnboardingSlide;
+use crate::model::OnboardingStateModel;
+use crate::slides::{bottom_nav, layout, slide_content};
+use crate::telemetry::OnboardingEvent;
+use crate::visuals::project_visual;
 
 const LEFT_COLUMN_W: f32 = 428.;
 

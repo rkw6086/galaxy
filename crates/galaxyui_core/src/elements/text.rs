@@ -1,11 +1,22 @@
+use std::borrow::{Borrow, Cow};
+use std::mem::swap;
+use std::ops::Range;
+use std::sync::Arc;
+
+use itertools::Itertools;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::util::EPSILON;
+use pathfinder_geometry::vector::{vec2f, Vector2F};
+use string_offset::CharOffset;
+
 use super::{
     AfterLayoutContext, AppContext, Axis, ClickableCharRange, Element, EventContext, Fill,
     HoverableCharRange, LayoutContext, MouseStateHandle, PaintContext, PartialClickableElement,
     Point, RectF, SecretRange, SelectableElement, Selection, SelectionFragment, SizeConstraint,
     SELECTED_HIGHLIGHT_COLOR,
 };
-
-use crate::event::ModifiersState;
+use crate::event::{DispatchedEvent, ModifiersState};
+use crate::fonts::{Cache as FontCache, FamilyId, Properties};
 use crate::platform::{Cursor, LineStyle};
 use crate::text::word_boundaries::WordBoundariesPolicy;
 use crate::text::{IsRect, SelectionDirection, SelectionType, TextBuffer};
@@ -17,20 +28,7 @@ use crate::text_selection_utils::{
     calculate_tick_width, create_newline_tick_rect, selection_crosses_newline_row_based,
     NewlineTickParams,
 };
-use crate::Event;
-use crate::{
-    event::DispatchedEvent,
-    fonts::{Cache as FontCache, FamilyId, Properties},
-    Scene,
-};
-use itertools::Itertools;
-use pathfinder_color::ColorU;
-use pathfinder_geometry::util::EPSILON;
-use pathfinder_geometry::vector::{vec2f, Vector2F};
-use std::borrow::Cow;
-use std::mem::swap;
-use std::{borrow::Borrow, ops::Range, sync::Arc};
-use string_offset::CharOffset;
+use crate::{Event, Scene};
 
 pub const DEFAULT_UI_LINE_HEIGHT_RATIO: f32 = 1.2;
 
@@ -1213,21 +1211,13 @@ impl SelectableElement for Text {
                 // Currently if we double click on the left side of "m", all of "first middle" would be selected,
                 // and if we double click on the right side of "e" all of "middle second" would be selected.
                 let text_selection_bound = self.position_for_point(absolute_point)?;
-                let inner_point = if matches!(direction, SelectionDirection::Backward) {
-                    text.word_starts_backward_from_offset_exclusive(CharOffset::from(
-                        text_selection_bound.glyph_index,
-                    ))
-                    .ok()?
-                    .with_policy(word_boundaries_policy)
-                    .next()?
-                } else {
-                    text.word_ends_from_offset_exclusive(CharOffset::from(
-                        text_selection_bound.glyph_index,
-                    ))
-                    .ok()?
-                    .with_policy(word_boundaries_policy)
-                    .next()?
-                };
+                let inner_point = text
+                    .semantic_expansion_target(
+                        CharOffset::from(text_selection_bound.glyph_index),
+                        direction,
+                        word_boundaries_policy,
+                    )
+                    .ok()?;
 
                 let offset = text.to_offset(inner_point).ok()?.as_usize();
                 let origin = self.origin()?.xy;

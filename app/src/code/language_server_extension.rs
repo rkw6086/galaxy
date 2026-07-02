@@ -1,33 +1,28 @@
-use galaxy_core::ui::{
-    appearance::Appearance,
-    theme::{color::internal_colors, GalaxyTheme},
+use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::GalaxyTheme;
+use galaxy_editor::content::buffer::InitialBufferState;
+use galaxy_editor::render::element::VerticalExpansionBehavior;
+use galaxy_editor::render::model::Decoration;
+use galaxyui::elements::{
+    Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
+    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
+    MouseStateHandle, ParentElement, Radius, Rect, ScrollbarWidth,
 };
-use galaxy_editor::{
-    content::buffer::InitialBufferState,
-    render::{element::VerticalExpansionBehavior, model::Decoration},
-};
-use galaxyui::{
-    elements::{
-        Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
-        CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, HighlightedHyperlink,
-        Hoverable, MouseStateHandle, ParentElement, Radius, Rect, ScrollbarWidth,
-    },
-    AppContext, Element, SingletonEntity, ViewContext,
-};
+use galaxyui::{AppContext, Element, SingletonEntity, ViewContext};
 use lsp::{HoverContents, LspServerLogLevel, MarkupKind};
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use num_traits::SaturatingSub;
 use string_offset::CharOffset;
 
+use super::editor::view::{CodeEditorRenderOptions, CodeEditorView};
+use super::lsp_telemetry::LspTelemetryEvent;
 use crate::code::local_code_editor::{
     HoverContentSegment, LocalCodeEditorView, LspHoverState, HOVER_TOOLTIP_MAX_HEIGHT,
     HOVER_TOOLTIP_MAX_WIDTH,
 };
 use crate::editor::InteractionState;
-
-use super::editor::view::{CodeEditorRenderOptions, CodeEditorView};
-use super::lsp_telemetry::LspTelemetryEvent;
-use galaxy_core::send_telemetry_from_ctx;
 
 /// A processed diagnostic with its converted offset range.
 /// Stored on LocalCodeEditorView and used for both decoration and hover display.

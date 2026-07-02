@@ -1,5 +1,6 @@
 use comfy_table::Cell;
-use galaxy_cli::{mcp::MCPCommand, GlobalOptions};
+use galaxy_cli::mcp::MCPCommand;
+use galaxy_cli::GlobalOptions;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use serde::Serialize;
 

@@ -5,21 +5,20 @@
 //! or individual setting values are invalid — and that the banner clears
 //! when the file is fixed.
 
-use galaxy::{
-    features::FeatureFlag,
-    integration_testing::{
-        step::new_step_with_default_assertions,
-        terminal::wait_until_bootstrapped_single_pane_for_tab, view_getters::workspace_view,
-    },
-};
-use galaxyui::{async_assert, integration::TestStep};
 use std::time::Duration;
+
+use galaxyui_core::async_assert;
+use galaxyui_core::integration::TestStep;
+use warp::features::FeatureFlag;
+use warp::integration_testing::step::new_step_with_default_assertions;
+use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
+use warp::integration_testing::view_getters::workspace_view;
 
 use super::{new_builder, Builder};
 
 /// Helper: returns the path to the TOML settings file.
 fn toml_file_path() -> std::path::PathBuf {
-    galaxy::settings::user_preferences_toml_file_path()
+    warp::settings::user_preferences_toml_file_path()
 }
 
 // ---------------------------------------------------------------------------

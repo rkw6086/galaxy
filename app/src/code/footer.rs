@@ -2,40 +2,40 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use galaxy_core::send_telemetry_from_ctx;
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::{AnsiColorIdentifier, Fill as ThemeFill, GalaxyTheme};
+use galaxy_core::ui::Icon;
+#[cfg(feature = "local_fs")]
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
+use galaxyui::elements::{
+    Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Dismiss, Empty, Fill, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect,
+    Shrinkable, Stack,
+};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{
+    AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
+    ViewHandle, WeakModelHandle,
+};
 use lsp::supported_servers::LSPServerType;
 use lsp::{
     LanguageId, LanguageServerId, LspManagerModel, LspManagerModelEvent, LspServerModel,
     LspState as LspModelState,
 };
-
-use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
-use galaxy_core::ui::theme::color::internal_colors;
-use galaxy_core::ui::theme::{Fill as ThemeFill, GalaxyTheme};
-use galaxy_core::ui::{appearance::Appearance, Icon};
-use galaxyui::elements::{
-    ChildAnchor, ChildView, Dismiss, Empty, Hoverable, MainAxisSize, MouseStateHandle,
-    ParentAnchor, ParentOffsetBounds, Rect, Shrinkable,
-};
-use galaxyui::platform::Cursor;
-use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
-use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Fill, Flex,
-        MainAxisAlignment, OffsetPositioning, Padding, ParentElement, Radius, Stack,
-    },
-    AppContext, Element, Entity, ModelHandle, SingletonEntity, View, WeakModelHandle,
-};
-use galaxyui::{TypedActionView, ViewContext, ViewHandle};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-
-use galaxy_core::ui::theme::AnsiColorIdentifier;
+#[cfg(feature = "local_fs")]
+use repo_metadata::repositories::DetectedRepositories;
 
 #[cfg(feature = "local_fs")]
 use crate::ai::persisted_workspace::PersistedWorkspaceEvent;
 use crate::ai::persisted_workspace::{
     LSPEnablementResultForFile, LspRepoStatus, PersistedWorkspace,
 };
+use crate::code::lsp_telemetry::{LspControlActionType, LspEnablementSource, LspTelemetryEvent};
 use crate::settings::AISettings;
 use crate::ui_components::blended_colors;
 #[cfg(feature = "local_fs")]
@@ -43,8 +43,6 @@ use crate::user_config::is_tab_config_toml;
 use crate::view_components::action_button::{
     ActionButton, ButtonSize, NakedTheme, PaneHeaderTheme,
 };
-#[cfg(feature = "local_fs")]
-use repo_metadata::repositories::DetectedRepositories;
 
 const FOOTER_HEIGHT: f32 = 24.;
 /// Margin around the LSP icon container
@@ -699,7 +697,8 @@ impl CodeFooterView {
 
         let repo_root = DetectedRepositories::handle(ctx)
             .as_ref(ctx)
-            .get_root_for_path(file_path)
+            .get_root_for_path(&LocalOrRemotePath::Local(file_path.to_path_buf()))
+            .and_then(|r| r.to_local_path().map(std::path::Path::to_path_buf))
             .or_else(|| file_path.parent().map(|p| p.to_path_buf()));
 
         let Some(repo_root) = repo_root else {

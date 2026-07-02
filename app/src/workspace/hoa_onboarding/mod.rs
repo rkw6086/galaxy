@@ -2,11 +2,9 @@ mod hoa_onboarding_flow;
 mod tab_config_step;
 mod welcome_banner;
 
-pub use hoa_onboarding_flow::{init, HoaOnboardingFlow, HoaOnboardingFlowEvent, HoaOnboardingStep};
-
-use galaxyui::AppContext;
-
 use galaxy_core::user_preferences::GetUserPreferences;
+use galaxyui::AppContext;
+pub use hoa_onboarding_flow::{init, HoaOnboardingFlow, HoaOnboardingFlowEvent, HoaOnboardingStep};
 
 const HAS_COMPLETED_HOA_ONBOARDING_KEY: &str = "HasCompletedHOAOnboarding";
 

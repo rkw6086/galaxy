@@ -22,7 +22,7 @@ use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::{AutoReloadModalAction, TelemetryEvent};
 use crate::settings_view::create_discount_badge;
 use crate::ui_components::blended_colors;
-use crate::view_components::{Dropdown, ToastFlavor};
+use crate::view_components::{Dropdown, DropdownAction, ToastFlavor};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 
 const DENOMINATION_DROPDOWN_WIDTH: f32 = MODAL_WIDTH - 2. * MODAL_PADDING;
@@ -105,15 +105,15 @@ impl EnableAutoReloadModalBody {
                             ctx.emit(EnableAutoReloadModalBodyEvent::Close);
                         }
                     }
-                    UserWorkspacesEvent::UpdateWorkspaceSettingsRejected(_err) => {
-                        if me.update_workspace_settings_loading {
-                            me.update_workspace_settings_loading = false;
-                            ctx.emit(EnableAutoReloadModalBodyEvent::ShowToast {
-                                message: "Failed to enable auto-reload. Please try updating your settings in Billing & usage.".to_string(),
-                                flavor: ToastFlavor::Error,
-                            });
-                            ctx.notify();
-                        }
+                    UserWorkspacesEvent::UpdateWorkspaceSettingsRejected(_err)
+                        if me.update_workspace_settings_loading =>
+                    {
+                        me.update_workspace_settings_loading = false;
+                        ctx.emit(EnableAutoReloadModalBodyEvent::ShowToast {
+                            message: "Failed to enable auto-reload. Please try updating your settings in Billing & usage.".to_string(),
+                            flavor: ToastFlavor::Error,
+                        });
+                        ctx.notify();
                     }
                     _ => {}
                 }
@@ -194,11 +194,15 @@ impl EnableAutoReloadModalBody {
                         })),
                         Some(primary_text),
                     )
-                    .with_on_select_action(Action::SelectDenomination(index).into())
+                    .with_on_select_action(DropdownAction::select_action_and_close(
+                        Action::SelectDenomination(index),
+                    ))
                     .into_item()
                 } else {
                     MenuItemFields::new(primary_text.clone())
-                        .with_on_select_action(Action::SelectDenomination(index).into())
+                        .with_on_select_action(DropdownAction::select_action_and_close(
+                            Action::SelectDenomination(index),
+                        ))
                         .into_item()
                 }
             })
@@ -363,7 +367,7 @@ impl View for EnableAutoReloadModalBody {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     SelectDenomination(usize),
     Cancel,

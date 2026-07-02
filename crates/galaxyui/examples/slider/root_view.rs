@@ -1,12 +1,8 @@
-use galaxyui::{
-    elements::{Align, Container},
-    presenter::ChildView,
-    ui_components::{
-        components::{UiComponent, UiComponentStyles},
-        slider::{Slider, SliderStateHandle},
-    },
-    AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
-};
+use galaxyui::elements::{Align, Container};
+use galaxyui::presenter::ChildView;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::ui_components::slider::{Slider, SliderStateHandle};
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
 use pathfinder_color::ColorU;
 
 /// Renders a center-aligned slider component against a black background. When the slider is

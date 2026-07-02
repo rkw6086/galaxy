@@ -3,28 +3,20 @@
 use std::ops::Range;
 
 use galaxy_core::ui::appearance::DEFAULT_UI_FONT_SIZE;
-use galaxyui::{
-    PaintContext,
-    elements::{CornerRadius, Point, Radius},
-    geometry::{
-        rect::RectF,
-        vector::{Vector2F, vec2f},
-    },
-    text_layout::{Line, PaintStyleOverride, TextFrame},
-};
-
-use crate::{
-    editor::TextDecoration,
-    render::{
-        layout::line_height,
-        model::{
-            Decoration, Paragraph, ParagraphStyles, Positioned, RenderState, RichTextStyles,
-            saved_positions::SavedPositions,
-        },
-    },
-};
+use galaxyui_core::PaintContext;
+use galaxyui_core::elements::{CornerRadius, Point, Radius};
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::{Vector2F, vec2f};
+use galaxyui_core::text_layout::{Line, PaintStyleOverride, TextFrame};
 use string_offset::CharOffset;
 use vim::vim::VimMode;
+
+use crate::editor::TextDecoration;
+use crate::render::layout::line_height;
+use crate::render::model::saved_positions::SavedPositions;
+use crate::render::model::{
+    Decoration, Paragraph, ParagraphStyles, Positioned, RenderState, RichTextStyles,
+};
 
 const DEFAULT_BLOCK_CURSOR_WIDTH: f32 = 8.;
 

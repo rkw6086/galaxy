@@ -1,7 +1,7 @@
-use galaxyui::{
-    async_assert_eq, integration::TestStep, platform::TerminationMode, windowing::WindowManager,
-    SingletonEntity,
-};
+use galaxyui::integration::TestStep;
+use galaxyui::platform::TerminationMode;
+use galaxyui::windowing::WindowManager;
+use galaxyui::{async_assert_eq, SingletonEntity};
 use pathfinder_geometry::rect::RectF;
 
 use crate::integration_testing::step::new_step_with_default_assertions;

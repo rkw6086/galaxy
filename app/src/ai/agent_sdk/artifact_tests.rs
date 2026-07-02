@@ -1,5 +1,6 @@
-use galaxy_cli::agent::OutputFormat;
 use std::path::PathBuf;
+
+use galaxy_cli::agent::OutputFormat;
 
 use super::*;
 

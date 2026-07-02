@@ -5,7 +5,6 @@ pub mod wgpu;
 
 pub use galaxyui_core::rendering::*;
 use galaxyui_core::scene::Dash;
-
 pub(crate) use glyph_cache::{GlyphCache, GlyphRasterBoundsFn, RasterizeGlyphFn};
 
 /// Cache for the result of calling [`is_low_power_gpu_available`], as the

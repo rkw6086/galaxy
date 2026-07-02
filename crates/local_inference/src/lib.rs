@@ -2,7 +2,6 @@ pub mod engine;
 pub mod tasks;
 
 use async_trait::async_trait;
-
 pub use engine::{CancellationToken, Device, GenerationConfig, InferenceEngine};
 pub use tasks::{
     InputCategory, InputClassificationInput, InputClassificationResult, InputClassificationTask,

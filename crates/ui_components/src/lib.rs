@@ -5,10 +5,9 @@ pub mod lightbox;
 pub mod switch;
 pub mod tooltip;
 
-pub use keyboard_shortcut::KeyboardShortcut;
-
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::Element;
+use galaxyui_core::Element;
+pub use keyboard_shortcut::KeyboardShortcut;
 
 /// A reusable UI component that can be rendered with configurable parameters.
 ///
@@ -32,7 +31,7 @@ use galaxyui::Element;
 /// ```rust
 /// use ui_components::{Component, Options, button};
 /// use galaxy_core::ui::appearance::Appearance;
-/// use galaxyui::prelude::*;
+/// use galaxyui_core::prelude::*;
 ///
 /// // Store component as a field in your view.
 /// struct MyView {
@@ -40,7 +39,7 @@ use galaxyui::Element;
 /// }
 ///
 /// impl MyView {
-///     fn render_button(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
+///     fn render_button(&self, appearance: &Appearance) -> Box<dyn galaxyui_core::Element> {
 ///         self.my_button.render(
 ///             appearance,
 ///             button::Params {
@@ -63,7 +62,7 @@ use galaxyui::Element;
 /// ```rust
 /// use ui_components::Component;
 /// use galaxy_core::ui::appearance::Appearance;
-/// use galaxyui::prelude::*;
+/// use galaxyui_core::prelude::*;
 ///
 /// // 1. Define the component struct with any persistent state.
 /// #[derive(Default)]
@@ -233,7 +232,7 @@ pub trait Options {
 /// ```rust
 /// use ui_components::{Renderable, Options};
 /// use galaxy_core::ui::appearance::Appearance;
-/// use galaxyui::prelude::*;
+/// use galaxyui_core::prelude::*;
 ///
 /// pub struct SwitchOptions<'a> {
 ///     pub disabled: bool,
@@ -283,8 +282,8 @@ where
 /// A function that handles mouse events.
 pub type MouseEventHandler = Box<
     dyn FnMut(
-        &mut galaxyui::EventContext,
-        &galaxyui::AppContext,
+        &mut galaxyui_core::EventContext,
+        &galaxyui_core::AppContext,
         pathfinder_geometry::vector::Vector2F,
     ),
 >;

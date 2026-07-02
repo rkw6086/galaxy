@@ -1,4 +1,4 @@
-use galaxyui::{View, ViewContext};
+use galaxyui_core::{View, ViewContext};
 
 pub trait OnboardingSlide: View {
     fn on_up(&mut self, _ctx: &mut ViewContext<Self>) {}

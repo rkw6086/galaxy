@@ -1,7 +1,10 @@
-use crate::features::FeatureFlag;
-
 use galaxyui::{AppContext, SingletonEntity};
-use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
+use settings::macros::define_settings_group;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
+
+use crate::features::FeatureFlag;
 
 define_settings_group!(LigatureSettings, settings: [
     ligature_rendering_enabled: LigatureRenderingEnabled {

@@ -6,20 +6,20 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use galaxy_core::features::FeatureFlag;
 #[cfg(feature = "local_tty")]
 use galaxyui::{AppContext, ModelContext};
 use galaxyui::{Entity, SingletonEntity};
 #[cfg(feature = "local_tty")]
 use settings::Setting as _;
 
+use super::session_settings::{NewSessionShell, SessionSettings, StartupShell};
+use super::shell::ShellType;
+use super::ShellLaunchData;
+#[cfg(feature = "local_tty")]
+use crate::terminal::local_tty::shell::supported_shell_path_and_type;
 #[cfg(feature = "local_tty")]
 use crate::util::path::file_exists_and_is_executable;
-
-use super::{
-    session_settings::{NewSessionShell, StartupShell},
-    shell::ShellType,
-    ShellLaunchData,
-};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct LocalConfig {
@@ -92,7 +92,7 @@ enum Config {
 /// - Known Local: A shell that is known to be installed on the local filesystem, and can be run
 ///   by invoking an executable.
 /// - Known WSL: A WSL distro that can be launched by invoking WSL with a specific distro flag
-/// - Custom: A user-specified custom executable that cna be run locally.
+/// - Custom: A user-specified custom executable that can be run locally.
 /// - System Default: Uses the default shell for a given system.
 ///
 /// All state is stored in an Arc so that it can be safely and easily copied. In general, unless you
@@ -399,7 +399,6 @@ impl TryFrom<&str> for AvailableShell {
     type Error = ();
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        use crate::terminal::local_tty::shell::supported_shell_path_and_type;
         let (path, shell_type) = supported_shell_path_and_type(value).ok_or(())?;
         let command = path
             .file_name()
@@ -605,8 +604,9 @@ impl AvailableShells {
         value: AvailableShell,
         ctx: &mut ModelContext<Self>,
     ) -> anyhow::Result<()> {
-        use super::session_settings::SessionSettings;
         use galaxy_core::features::FeatureFlag;
+
+        use super::session_settings::SessionSettings;
         SessionSettings::handle(ctx).update(ctx, |settings, ctx| {
             if FeatureFlag::ShellSelector.is_enabled() {
                 settings
@@ -624,8 +624,6 @@ impl AvailableShells {
         paths_to_search: &[PathBuf],
         fallback_path: Option<&Path>,
     ) -> Vec<AvailableShell> {
-        use galaxy_core::features::FeatureFlag;
-
         if !FeatureFlag::ShellSelector.is_enabled() {
             return vec![
                 StartupShell::Zsh,
@@ -721,8 +719,6 @@ impl AvailableShells {
     #[cfg(windows)]
     fn locate_msys2_executables() -> Vec<PathBuf> {
         use std::env;
-
-        use galaxy_core::features::FeatureFlag;
 
         let mut paths = Vec::new();
 
@@ -861,8 +857,6 @@ impl AvailableShells {
     }
 
     fn get_user_preferred_shell_setting(&self, ctx: &AppContext) -> NewSessionShell {
-        use super::session_settings::SessionSettings;
-
         let new_session_shell_override = SessionSettings::as_ref(ctx)
             .new_session_shell_override
             .to_owned();
@@ -878,8 +872,6 @@ impl AvailableShells {
     }
 
     fn get_user_preferred_shell_setting_fallback(&self, ctx: &AppContext) -> NewSessionShell {
-        use super::session_settings::SessionSettings;
-
         let startup_shell = SessionSettings::as_ref(ctx)
             .startup_shell_override
             .to_owned();
@@ -990,5 +982,5 @@ pub fn register(app: &mut impl galaxyui::AddSingletonModel) {
 
 #[cfg(test)]
 #[cfg(not(windows))]
-#[path = "available_shells_test.rs"]
+#[path = "available_shells_tests.rs"]
 mod tests;

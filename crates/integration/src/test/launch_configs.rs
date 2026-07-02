@@ -1,32 +1,26 @@
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
+use std::time::Duration;
 
-use galaxyui::{
-    async_assert,
-    integration::{AssertionOutcome, TestStep},
-    ModelHandle,
+use galaxyui_core::integration::{AssertionOutcome, TestStep};
+use galaxyui_core::{async_assert, ModelHandle};
+use warp::features::FeatureFlag;
+use warp::integration_testing::pane_group::assert_focused_pane_index;
+use warp::integration_testing::settings::set_window_custom_size;
+use warp::integration_testing::step::new_step_with_default_assertions;
+use warp::integration_testing::terminal::{
+    validate_block_output, wait_until_bootstrapped_single_pane_for_tab,
 };
+use warp::integration_testing::type_getters::get_launch_config_ui_location;
+use warp::integration_testing::window::assert_num_windows_open;
+use warp::integration_testing::workspace::{assert_focused_tab_index, assert_tab_count};
+use warp::integration_testing::{self};
+use warp::search::command_palette::launch_config;
+use warp::search::data_source::Query;
+use warp::search::SyncDataSource;
+use warp::workspace::NEW_TAB_BUTTON_POSITION_ID;
 
 use super::{assert_approx_eq, new_builder, TEST_ONLY_ASSETS};
 use crate::Builder;
-use galaxy::integration_testing::{
-    pane_group::assert_focused_pane_index,
-    window::assert_num_windows_open,
-    workspace::{assert_focused_tab_index, assert_tab_count},
-};
-use galaxy::integration_testing::{
-    step::new_step_with_default_assertions,
-    terminal::{validate_block_output, wait_until_bootstrapped_single_pane_for_tab},
-};
-use galaxy::search::command_palette::launch_config;
-use galaxy::workspace::NEW_TAB_BUTTON_POSITION_ID;
-use galaxy::{features::FeatureFlag, integration_testing::settings::set_window_custom_size};
-use galaxy::{
-    integration_testing::type_getters::get_launch_config_ui_location, search::SyncDataSource,
-};
-use galaxy::{
-    integration_testing::{self},
-    search::data_source::Query,
-};
 
 /// Adds a launch config to the mocked out warp config directory and verifies that
 /// the launch config appears in the launch config palette.
@@ -104,9 +98,9 @@ pub fn test_with_launch_config() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config:
-                                galaxy::launch_configs::launch_config::make_mock_single_window_launch_config(),
+                                warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
@@ -164,10 +158,10 @@ pub fn test_open_launch_config_from_add_tab_menu_legacy() -> Builder {
 }
 
 pub fn test_launch_config_single_child_branch() -> Builder {
-    use galaxy::launch_configs::launch_config::{
+    use galaxyui_core::actions::StandardAction;
+    use warp::launch_configs::launch_config::{
         LaunchConfig, PaneMode, PaneTemplateType, SplitDirection, TabTemplate, WindowTemplate,
     };
-    use galaxyui::actions::StandardAction;
 
     /// Create a launch config that has a branch with a single child
     fn create_launch_config() -> LaunchConfig {
@@ -201,7 +195,7 @@ pub fn test_launch_config_single_child_branch() -> Builder {
                 .with_action(move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
@@ -233,9 +227,9 @@ pub fn test_open_launch_config_with_custom_size() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config:
-                                galaxy::launch_configs::launch_config::make_mock_single_window_launch_config(),
+                                warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
                         },
@@ -273,9 +267,9 @@ pub fn test_open_launch_config_in_active_window() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config:
-                                galaxy::launch_configs::launch_config::make_mock_single_window_launch_config(),
+                                warp::launch_configs::launch_config::make_mock_single_window_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: true,
                         },
@@ -294,7 +288,7 @@ pub fn test_open_launch_config_in_active_window() -> Builder {
 }
 
 pub fn test_with_launch_config_with_active_tab_index() -> Builder {
-    use galaxy::launch_configs::launch_config::{
+    use warp::launch_configs::launch_config::{
         LaunchConfig, PaneMode, PaneTemplateType, SplitDirection, TabTemplate, WindowTemplate,
     };
 
@@ -336,7 +330,7 @@ pub fn test_with_launch_config_with_active_tab_index() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
@@ -353,7 +347,7 @@ pub fn test_with_launch_config_with_active_tab_index() -> Builder {
 }
 
 pub fn test_with_launch_config_with_active_pane() -> Builder {
-    use galaxy::launch_configs::launch_config::{
+    use warp::launch_configs::launch_config::{
         LaunchConfig, PaneMode, PaneTemplateType, SplitDirection, TabTemplate, WindowTemplate,
     };
 
@@ -413,7 +407,7 @@ pub fn test_with_launch_config_with_active_pane() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,
@@ -431,7 +425,7 @@ pub fn test_with_launch_config_with_active_pane() -> Builder {
 }
 
 pub fn test_with_launch_config_with_no_active_pane() -> Builder {
-    use galaxy::launch_configs::launch_config::{
+    use warp::launch_configs::launch_config::{
         LaunchConfig, PaneMode, PaneTemplateType, SplitDirection, TabTemplate, WindowTemplate,
     };
 
@@ -491,7 +485,7 @@ pub fn test_with_launch_config_with_no_active_pane() -> Builder {
                 move |app, _, _| {
                     app.dispatch_global_action(
                         "root_view:open_launch_config",
-                        galaxy::root_view::OpenLaunchConfigArg {
+                        warp::root_view::OpenLaunchConfigArg {
                             launch_config: create_launch_config(),
                             ui_location: get_launch_config_ui_location(),
                             open_in_active_window: false,

@@ -1,10 +1,35 @@
-use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
+#![allow(dead_code)]
 
-pub struct NeedsSsoLinkView;
+use galaxyui::elements::{Align, MouseStateHandle, Shrinkable};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
+
+use super::auth_manager::AuthManager;
+use crate::appearance::Appearance;
+use crate::auth::login_error_modal::LoginErrorModal;
+
+#[derive(Debug)]
+pub enum NeedsSsoLinkViewAction {
+    ClickedLinkSsoButton,
+}
+
+pub struct NeedsSsoLinkView {
+    email: Option<String>,
+    mouse_state_handles: MouseStateHandles,
+}
+
+#[derive(Default)]
+struct MouseStateHandles {
+    link_sso_handle: MouseStateHandle,
+}
 
 impl NeedsSsoLinkView {
     pub fn new() -> Self {
-        Self
+        Self {
+            email: None,
+            mouse_state_handles: MouseStateHandles::default(),
+        }
     }
 
     pub fn set_email(&mut self, _email: String) {}

@@ -2,9 +2,8 @@ use galaxyui::elements::Align;
 use galaxyui::Element;
 use pathfinder_color::ColorU;
 
-use crate::visuals::onboarding_visual::Rect;
-
 use super::onboarding_visual::{OnboardingVisual, Pill, RectPct};
+use crate::visuals::onboarding_visual::Rect;
 
 pub(crate) fn intention_terminal_visual(
     panel_background: ColorU,

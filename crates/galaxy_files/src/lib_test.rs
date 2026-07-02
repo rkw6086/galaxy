@@ -1,5 +1,6 @@
 use async_channel::{unbounded, Receiver};
-use galaxyui::{r#async::block_on, App, ModelHandle};
+use galaxyui_core::r#async::block_on;
+use galaxyui_core::{App, ModelHandle};
 
 // lib_tests.rs
 use super::*;

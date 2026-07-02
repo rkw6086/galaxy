@@ -1,14 +1,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
+#[cfg(feature = "local_fs")]
+use anyhow::Context;
+use async_trait::async_trait;
+
 use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMetadata};
 #[cfg(feature = "local_fs")]
 use crate::supported_servers::CustomBinaryConfig;
 use crate::CommandBuilder;
-use async_trait::async_trait;
-
-#[cfg(feature = "local_fs")]
-use anyhow::Context;
 
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub struct TypeScriptLanguageServerCandidate {

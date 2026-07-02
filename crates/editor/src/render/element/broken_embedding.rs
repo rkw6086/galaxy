@@ -1,22 +1,16 @@
-use galaxyui::{
-    AppContext, Element, SizeConstraint,
-    elements::{
-        Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Icon,
-        ParentElement, Radius, Shrinkable, Text,
-    },
-    geometry::vector::vec2f,
+use galaxyui_core::elements::{
+    Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, Icon,
+    ParentElement, Radius, Shrinkable, Text,
 };
-
-use crate::{
-    editor::EmbeddedItemModel,
-    extract_block,
-    render::{
-        element::paint::{CursorData, CursorDisplayType},
-        model::{BlockItem, RichTextStyles, viewport::ViewportItem},
-    },
-};
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::{AppContext, Element, SizeConstraint};
 
 use super::RenderableBlock;
+use crate::editor::EmbeddedItemModel;
+use crate::extract_block;
+use crate::render::element::paint::{CursorData, CursorDisplayType};
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RichTextStyles};
 
 pub struct RenderableBrokenEmbedding {
     row: Box<dyn Element>,
@@ -79,8 +73,8 @@ impl RenderableBlock for RenderableBrokenEmbedding {
     fn layout(
         &mut self,
         model: &crate::render::model::RenderState,
-        ctx: &mut galaxyui::LayoutContext,
-        app: &galaxyui::AppContext,
+        ctx: &mut galaxyui_core::LayoutContext,
+        app: &galaxyui_core::AppContext,
     ) {
         self.row.layout(
             SizeConstraint::strict(vec2f(
@@ -104,7 +98,7 @@ impl RenderableBlock for RenderableBrokenEmbedding {
         &mut self,
         model: &crate::render::model::RenderState,
         ctx: &mut super::RenderContext,
-        app: &galaxyui::AppContext,
+        app: &galaxyui_core::AppContext,
     ) {
         let content = model.content();
         let broken_link = extract_block!(self.viewport_item, content, (block, BlockItem::Embedded(item)) => block.embedded(item));
@@ -156,21 +150,25 @@ impl RenderableBlock for RenderableBrokenEmbedding {
 
         ctx.paint
             .scene
-            .start_layer(galaxyui::ClipBounds::ActiveLayer);
+            .start_layer(galaxyui_core::ClipBounds::ActiveLayer);
         self.row
             .paint(ctx.content_to_screen(content_origin), ctx.paint, app);
         ctx.paint.scene.stop_layer();
     }
 
-    fn after_layout(&mut self, ctx: &mut galaxyui::AfterLayoutContext, app: &galaxyui::AppContext) {
+    fn after_layout(
+        &mut self,
+        ctx: &mut galaxyui_core::AfterLayoutContext,
+        app: &galaxyui_core::AppContext,
+    ) {
         self.row.after_layout(ctx, app);
     }
 
     fn dispatch_event(
         &mut self,
         _model: &crate::render::model::RenderState,
-        event: &galaxyui::event::DispatchedEvent,
-        ctx: &mut galaxyui::EventContext,
+        event: &galaxyui_core::event::DispatchedEvent,
+        ctx: &mut galaxyui_core::EventContext,
         app: &AppContext,
     ) -> bool {
         self.row.dispatch_event(event, ctx, app)

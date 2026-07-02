@@ -1,24 +1,24 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
+use std::path::Path;
 
 use galaxy_core::command::ExitCode;
-use galaxy_core::ui::{appearance::Appearance, color::blend::Blend as _};
-use galaxyui::{
-    elements::{
-        Border, Container, CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement,
-        HighlightedHyperlink, MainAxisSize, MouseStateHandle, ParentElement, Radius,
-    },
-    ui_components::{button::ButtonVariant, components::UiComponent as _},
-    Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::color::blend::Blend as _;
+use galaxyui::elements::{
+    Border, Container, CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement,
+    HighlightedHyperlink, MainAxisSize, MouseStateHandle, ParentElement, Radius,
 };
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::{Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 use itertools::Itertools;
 use markdown_parser::{
     FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
 };
 
-use crate::{
-    terminal::ssh::util::InteractiveSshCommand, ui_components::buttons::icon_button,
-    ui_components::icons::Icon,
-};
+use crate::terminal::ssh::util::InteractiveSshCommand;
+use crate::ui_components::buttons::icon_button;
+use crate::ui_components::icons::Icon;
 
 pub type FileUploadId = usize;
 

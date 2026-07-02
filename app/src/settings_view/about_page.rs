@@ -1,24 +1,21 @@
-use super::{
-    settings_page::{
-        MatchData, PageType, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
-        SettingsWidget,
-    },
-    SettingsSection,
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext, ViewHandle};
+use warpui::assets::asset_cache::AssetSource;
+use warpui::elements::{
+    Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Image,
+    MainAxisAlignment, MouseStateHandle, ParentElement, Wrap,
 };
-use crate::{
-    appearance::Appearance, channel::ChannelState, settings::app_icon::AppIconSettings,
-    workspace::WorkspaceAction,
+
+use super::settings_page::{
+    MatchData, PageType, SettingsPageEvent, SettingsPageMeta, SettingsPageViewHandle,
+    SettingsWidget,
 };
-use galaxyui::SingletonEntity;
-use galaxyui::{
-    assets::asset_cache::AssetSource,
-    elements::{
-        Align, CacheOption, ConstrainedBox, Container, CrossAxisAlignment, Element, Flex, Image,
-        MainAxisAlignment, MouseStateHandle, ParentElement, Wrap,
-    },
-    ui_components::components::UiComponent,
-    AppContext, Entity, View, ViewContext, ViewHandle,
-};
+use super::SettingsSection;
+use crate::appearance::Appearance;
+use crate::channel::ChannelState;
+use crate::settings::app_icon::AppIconSettings;
+use crate::themes::theme::ColorScheme;
+use crate::workspace::WorkspaceAction;
 
 pub struct AboutPageView {
     page: PageType<Self>,

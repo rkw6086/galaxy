@@ -1,14 +1,8 @@
-use crate::ai::block_context::BlockContext;
-use crate::ai_assistant::execution_context::WarpAiExecutionContext;
-use crate::completer::SessionContext;
-use crate::report_error;
-use crate::server::server_api::{AIApiError, ServerApi};
-use crate::settings::AISettings;
-use crate::terminal::event::UserBlockCompleted;
-use crate::terminal::input::{CompleterData, IntelligentAutosuggestionResult};
-use crate::terminal::model::session::Sessions;
-use crate::terminal::{History, HistoryEntry, TerminalModel};
-use crate::workspaces::user_workspaces::UserWorkspaces;
+use std::collections::HashMap;
+use std::sync::Arc;
+#[cfg(feature = "local_fs")]
+use std::time::Duration;
+
 use chrono::Utc;
 use futures::stream::AbortHandle;
 use galaxy_completer::completer::{
@@ -25,15 +19,24 @@ use galaxyui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 #[cfg_attr(not(feature = "local_fs"), allow(unused_imports))]
 use parking_lot::{FairMutex, Mutex};
-use std::collections::HashMap;
-use std::sync::Arc;
-#[cfg(feature = "local_fs")]
-use std::time::Duration;
 
 use super::generate_ai_input_suggestions::{
     create_generate_ai_input_suggestions_request, get_context_messages,
     GenerateAIInputSuggestionsRequest, GenerateAIInputSuggestionsResponseV2, NextCommandContext,
 };
+use crate::ai::block_context::BlockContext;
+use crate::ai_assistant::execution_context::WarpAiExecutionContext;
+use crate::completer::SessionContext;
+#[cfg(feature = "local_fs")]
+use crate::persistence::{database_file_path_for_scope, establish_ro_connection, PersistenceScope};
+use crate::report_error;
+use crate::server::server_api::{AIApiError, ServerApi};
+use crate::settings::AISettings;
+use crate::terminal::event::UserBlockCompleted;
+use crate::terminal::input::{CompleterData, IntelligentAutosuggestionResult};
+use crate::terminal::model::session::Sessions;
+use crate::terminal::{History, HistoryEntry, TerminalModel};
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
@@ -156,10 +159,10 @@ impl NextCommandModel {
         server_api: Arc<ServerApi>,
     ) -> Self {
         #[cfg(feature = "local_fs")]
-        let conn = crate::persistence::database_file_path()
+        let conn = database_file_path_for_scope(&PersistenceScope::App)
             .to_str()
             .and_then(|db_url| {
-                crate::persistence::establish_ro_connection(db_url)
+                establish_ro_connection(db_url)
                     .ok()
                     .map(|conn| Arc::new(Mutex::new(conn)))
             });
@@ -764,11 +767,10 @@ pub async fn is_command_valid(
     // We assume the command is valid on parse error because
     // 1. Our completion specs are not always comprehensive (unknown args/options cause parse error)
     // 2. Our parsing logic has some bugs that need to be investigated (INT-816)
-    if classified_command.error.is_some() {
+    if let Some(err) = &classified_command.error {
         log::debug!(
-            "Assuming command `{}` is valid because it failed to parse: {:?}",
+            "Assuming command `{}` is valid because it failed to parse: {err:?}",
             expanded_command_line,
-            classified_command.error.unwrap()
         );
         return true;
     }
@@ -828,5 +830,5 @@ fn find_potential_autosuggestions_from_history<'a>(
 }
 
 #[cfg(test)]
-#[path = "next_command_model_test.rs"]
+#[path = "next_command_model_tests.rs"]
 mod tests;

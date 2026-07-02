@@ -16,19 +16,15 @@ use super::local_code_editor::LocalCodeEditorView;
 const SIGNATURE_HELP_MAX_WIDTH: f32 = 500.;
 
 /// State for signature help display.
+#[derive(Default)]
 pub(super) enum SignatureHelpState {
+    #[default]
     None,
     Loading(Option<AbortHandle>),
     Showing {
         result: SignatureHelpResult,
         anchor_offset: CharOffset,
     },
-}
-
-impl Default for SignatureHelpState {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl SignatureHelpState {
@@ -73,10 +69,8 @@ impl LocalCodeEditorView {
             Some('(') | Some(',') => {
                 self.request_signature_help(cursor_offset, ctx);
             }
-            Some(')') => {
-                if self.signature_help_state.clear() {
-                    ctx.notify();
-                }
+            Some(')') if self.signature_help_state.clear() => {
+                ctx.notify();
             }
             _ => {}
         }

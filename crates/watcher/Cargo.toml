@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 async-channel.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 log.workspace = true
 anyhow.workspace = true
 notify-debouncer-full.workspace = true

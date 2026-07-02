@@ -1,38 +1,34 @@
-//! Module for utlities related to editing items in the file tree.
+//! Module for utilities related to editing items in the file tree.
 
 #[cfg(test)]
 #[path = "editing_tests.rs"]
 mod tests;
 
-use galaxy_util::standardized_path::StandardizedPath;
-use galaxyui::{elements::MouseStateHandle, ViewContext};
-use repo_metadata::file_tree_store::FileTreeEntryState;
-use repo_metadata::{FileMetadata, FileTreeEntry};
 use std::cmp::Ordering;
 use std::sync::Arc;
 
+use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui::elements::MouseStateHandle;
+use galaxyui::ViewContext;
+use repo_metadata::file_tree_store::FileTreeEntryState;
+use repo_metadata::{FileMetadata, FileTreeEntry};
+
 use super::{FileTreeIdentifier, FileTreeItem, FileTreeView};
-use crate::{
-    code::file_tree::{
-        view::{PendingEdit, PendingEditKind},
-        FileTreeEvent,
-    },
-    send_telemetry_from_ctx,
-    server::telemetry::TelemetryEvent,
-};
+use crate::code::file_tree::view::{PendingEdit, PendingEditKind};
+use crate::code::file_tree::FileTreeEvent;
+use crate::send_telemetry_from_ctx;
+use crate::server::telemetry::TelemetryEvent;
 
 /// Custom ordering function for items in the file tree.
 ///
-/// Directories are ordered first, sorted alphabetically.
-/// Files are ordered second, sorted alphabetically.
+/// Directories are ordered first, sorted by natural (numeric-aware) order.
+/// Files are ordered second, sorted by natural (numeric-aware) order.
 /// Within each group, dotfiles (entries starting with a dot) are ordered first.
 pub(super) fn sort_entries_for_file_tree(
     entry_1: &StandardizedPath,
     entry_2: &StandardizedPath,
     entry_map: &FileTreeEntry,
 ) -> Ordering {
-    use std::cmp::Ordering;
-
     // Entries missing from the map sort before present entries, and compare
     // equal to each other. Using the same `Ordering` on both sides would
     // violate antisymmetry and cause `sorted_by` to panic with
@@ -70,7 +66,7 @@ pub(super) fn sort_entries_for_file_tree(
     match (starts_with_dot_1, starts_with_dot_2) {
         (true, false) => Ordering::Less,
         (false, true) => Ordering::Greater,
-        _ => name_1.cmp(name_2),
+        _ => alphanumeric_sort::compare_str(name_1, name_2),
     }
 }
 
@@ -240,7 +236,7 @@ impl FileTreeView {
                 });
 
                 // Rebuild and select the renamed item using its FileTreeIdentifier
-                self.rebuild_flatten_items_and_select_path(Some(&file_tree_id), None);
+                self.rebuild_flatten_items_impl(Some(&file_tree_id), None, None);
                 ctx.notify();
             }
         }

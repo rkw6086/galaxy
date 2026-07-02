@@ -1,14 +1,12 @@
-use galaxyui::keymap::Keystroke;
 #[cfg(not(test))]
-use galaxyui::keymap::Trigger;
+use std::env::var_os;
+
+use anyhow::Context;
+use galaxyui::keymap::Keystroke;
 use galaxyui::AppContext;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-#[cfg(not(test))]
-use std::env::var_os;
 use vec1::{vec1, Vec1};
-
-use anyhow::Context;
 
 /// Environment variable to disable saving keybindings to file (used in integration tests)
 pub const DISABLE_SAVE_ENV_VAR: &str = "WARP_TEST_DISABLE_KEYBINDING_SAVE";
@@ -30,7 +28,6 @@ impl UserDefinedKeybinding {
     }
 }
 
-#[cfg(not(test))]
 const KEYBINDINGS_FILE_NAME: &str = "keybindings.yaml";
 
 /// Load all stored custom keybindings into the UI framework so that they are used
@@ -42,10 +39,13 @@ pub fn load_custom_keybindings(app: &mut AppContext) {
 
             match keybinding_type {
                 Ok(UserDefinedKeybinding::Removed) => {
-                    app.set_custom_trigger(name, Trigger::Empty);
+                    app.set_custom_trigger(name, galaxyui::keymap::Trigger::Empty);
                 }
                 Ok(UserDefinedKeybinding::Keystrokes(keystrokes)) => {
-                    app.set_custom_trigger(name, Trigger::Keystrokes(keystrokes.to_vec()));
+                    app.set_custom_trigger(
+                        name,
+                        galaxyui::keymap::Trigger::Keystrokes(keystrokes.to_vec()),
+                    );
                 }
                 Err(e) => {
                     log::warn!(
@@ -93,7 +93,6 @@ where
     save_custom_keybindings(map);
 }
 
-#[cfg(not(test))]
 pub fn keybinding_file_path() -> std::path::PathBuf {
     galaxy_core::paths::config_local_dir().join(KEYBINDINGS_FILE_NAME)
 }
@@ -215,5 +214,5 @@ impl TryFrom<PersistedTrigger> for UserDefinedKeybinding {
 }
 
 #[cfg(test)]
-#[path = "keyboard_test.rs"]
+#[path = "keyboard_tests.rs"]
 mod tests;

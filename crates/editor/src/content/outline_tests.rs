@@ -1,13 +1,11 @@
+use galaxyui_core::App;
 use itertools::Itertools;
-
-use crate::content::{
-    buffer::Buffer,
-    outline::BlockOutline,
-    selection_model::BufferSelectionModel,
-    text::{BlockType, BufferBlockStyle, IndentBehavior, TextStyles},
-};
-use galaxyui::App;
 use string_offset::CharOffset;
+
+use crate::content::buffer::Buffer;
+use crate::content::outline::BlockOutline;
+use crate::content::selection_model::BufferSelectionModel;
+use crate::content::text::{BlockType, BufferBlockStyle, IndentBehavior, TextStyles};
 
 #[test]
 fn test_no_blocks() {

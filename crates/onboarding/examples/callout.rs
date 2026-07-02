@@ -1,17 +1,18 @@
+use std::borrow::Cow;
+
 use anyhow::{anyhow, Result};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{AnsiColor, AnsiColors, Details, Fill, GalaxyTheme, TerminalColors};
 use galaxyui::color::ColorU;
 use galaxyui::elements::{Rect, Stack};
 use galaxyui::fonts::{Cache, FamilyId, Weight};
-use galaxyui::platform;
-use galaxyui::{prelude::*, AddWindowOptions, AssetProvider, ModelContext};
+use galaxyui::prelude::*;
+use galaxyui::{platform, AddWindowOptions, AssetProvider, ModelContext};
 use onboarding::components::onboarding_callout::{
     Button as CalloutButton, OnboardingCallout, Options as CalloutOptions, Params as CalloutParams,
     StepStatus,
 };
 use rust_embed::RustEmbed;
-use std::borrow::Cow;
 use ui_components::Component as _;
 
 #[derive(Clone, Copy, RustEmbed)]
@@ -29,8 +30,11 @@ impl AssetProvider for Assets {
 }
 
 fn main() -> platform::app::TerminationResult {
-    let app_builder =
-        platform::AppBuilder::new(platform::AppCallbacks::default(), Box::new(ASSETS), None);
+    let app_builder = galaxyui::platform::AppBuilder::new(
+        platform::AppCallbacks::default(),
+        Box::new(ASSETS),
+        None,
+    );
 
     app_builder.run(move |ctx| {
         let font_name = if cfg!(target_os = "macos") {
@@ -41,7 +45,8 @@ fn main() -> platform::app::TerminationResult {
             "Noto Sans".to_string()
         };
 
-        let font_family = Cache::handle(ctx).update(ctx, |cache, _ctx| {
+        let cache_handle = Cache::handle(ctx);
+        let font_family = cache_handle.update(ctx, |cache, _ctx| {
             cache.load_system_font(&font_name).unwrap()
         });
 

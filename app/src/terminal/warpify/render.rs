@@ -1,5 +1,3 @@
-use crate::ai::blocklist::inline_action::inline_action_icons;
-use crate::ui_components::blended_colors;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::{Fill, GalaxyTheme};
 use galaxyui::elements::{
@@ -8,8 +6,7 @@ use galaxyui::elements::{
     Text,
 };
 use galaxyui::fonts::{FamilyId, Properties, Weight};
-use galaxyui::ui_components::components::UiComponent as _;
-use galaxyui::ui_components::components::UiComponentStyles;
+use galaxyui::ui_components::components::{UiComponent as _, UiComponentStyles};
 use galaxyui::{AppContext, Element, EventContext, PaintContext, SingletonEntity as _};
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_color::ColorU;
@@ -18,6 +15,8 @@ use pathfinder_geometry::vector::Vector2F;
 
 use super::settings::WarpifySettings;
 use super::SubshellSource;
+use crate::ai::blocklist::inline_action::inline_action_icons;
+use crate::ui_components::blended_colors;
 
 /// The flag font size varies with the monospace font width, but if it gets too big it will start
 /// to overlap with the prompt grid. This should eventually be fixed by growing the block height to

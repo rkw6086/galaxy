@@ -1,14 +1,12 @@
 use std::borrow::Cow;
 
-use galaxy_terminal::model::grid::{
-    cell::{self, Cell},
-    row::Row,
-    CellType,
-};
+use galaxy_terminal::model::grid::cell::{self, Cell};
+use galaxy_terminal::model::grid::row::Row;
+use galaxy_terminal::model::grid::CellType;
 
+use super::grid_handler::GridHandler;
+use super::{CursorDirection, CursorState, Dimensions as _};
 use crate::terminal::model::index::Point;
-
-use super::{grid_handler::GridHandler, CursorDirection, CursorState, Dimensions as _};
 
 /// The set of possible grapheme cursor wrapping behaviors.
 #[derive(PartialEq)]

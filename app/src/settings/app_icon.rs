@@ -1,5 +1,7 @@
 use enum_iterator::Sequence;
-use galaxy_core::settings::{macros::define_settings_group, SupportedPlatforms, SyncToCloud};
+use galaxy_core::channel::{Channel, ChannelState};
+use galaxy_core::settings::macros::define_settings_group;
+use galaxy_core::settings::{Setting, SupportedPlatforms, SyncToCloud};
 use serde::{Deserialize, Serialize};
 
 /// The app icon to use (mac-only).
@@ -71,5 +73,15 @@ define_settings_group!(AppIconSettings, settings: [
         storage_key: "AppIcon",
         toml_path: "appearance.icon.app_icon",
         description: "The app icon displayed in the dock.",
+    },
+    show_dock_icon: ShowDockIconState {
+        type: bool,
+        default: true,
+        supported_platforms: SupportedPlatforms::MAC,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        storage_key: "ShowDockIcon",
+        toml_path: "appearance.icon.show_dock_icon",
+        description: "Whether Warp is shown in the macOS Dock and Cmd-Tab switcher.",
     },
 ]);

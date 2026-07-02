@@ -3,13 +3,13 @@
 //! [`TextBuffer`] API.
 
 use anyhow::anyhow;
-use galaxyui::text::{TextBuffer, point::Point, word_boundaries::WordBoundariesPolicy};
+use galaxyui::text::TextBuffer;
+use galaxyui::text::point::Point;
+use galaxyui::text::word_boundaries::WordBoundariesPolicy;
 use string_offset::CharOffset;
 
-use super::{
-    buffer::{Buffer, ToBufferCharOffset, ToBufferPoint},
-    cursor::BufferCursor,
-};
+use super::buffer::{Buffer, ToBufferCharOffset, ToBufferPoint};
+use super::cursor::BufferCursor;
 
 #[cfg(test)]
 #[path = "segmentation_tests.rs"]

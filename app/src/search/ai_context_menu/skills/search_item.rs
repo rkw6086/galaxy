@@ -1,5 +1,11 @@
 use ai::skills::SkillProvider;
 use fuzzy_match::FuzzyMatchResult;
+use galaxy_core::ui::icons::Icon;
+use galaxyui::elements::{
+    ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, ParentElement, Shrinkable, Text,
+};
+use galaxyui::fonts::{Properties, Weight};
+use galaxyui::{AppContext, Element, SingletonEntity};
 use ordered_float::OrderedFloat;
 
 use crate::appearance::Appearance;
@@ -7,12 +13,6 @@ use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::ai_context_menu::styles;
 use crate::search::item::SearchItem;
 use crate::search::result_renderer::ItemHighlightState;
-use galaxy_core::ui::icons::Icon;
-use galaxyui::elements::{
-    ConstrainedBox, Container, CrossAxisAlignment, Flex, Highlight, ParentElement, Shrinkable, Text,
-};
-use galaxyui::fonts::{Properties, Weight};
-use galaxyui::{AppContext, Element, SingletonEntity};
 
 const MAX_DESCRIPTION_LEN: usize = 60;
 

@@ -6,11 +6,12 @@ use lsp::types::Location;
 use string_offset::CharOffset;
 use vec1::Vec1;
 
+use super::local_code_editor::LocalCodeEditorView;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, TextOptions};
 
-use super::local_code_editor::LocalCodeEditorView;
-
+#[derive(Default)]
 pub(super) enum RenameState {
+    #[default]
     Idle,
     Preparing {
         abort_handle: AbortHandle,
@@ -22,12 +23,6 @@ pub(super) enum RenameState {
     Applying {
         abort_handle: AbortHandle,
     },
-}
-
-impl Default for RenameState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl RenameState {
@@ -262,7 +257,7 @@ impl LocalCodeEditorView {
             return;
         }
 
-        edits_for_current_file.sort_by(|a, b| b.1.start.cmp(&a.1.start));
+        edits_for_current_file.sort_by_key(|b| std::cmp::Reverse(b.1.start));
 
         if let Ok(edits) = Vec1::try_from_vec(edits_for_current_file) {
             self.editor.update(ctx, |editor, ctx| {

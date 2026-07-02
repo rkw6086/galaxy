@@ -1,30 +1,27 @@
-use crate::ai::agent::{SuggestedAgentModeWorkflow, SuggestedLoggingId, SuggestedRule};
-use crate::ai::facts::CloudAIFactModel;
-use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::drive::CloudObjectTypeAndId;
-use crate::server::cloud_objects::update_manager::{
-    ObjectOperation, OperationSuccessType, UpdateManagerEvent,
-};
-use crate::server::ids::SyncId;
-use crate::view_components::action_button::{ActionButton, ActionButtonTheme, SecondaryTheme};
-use crate::TelemetryEvent;
-use crate::{
-    ai::facts::{AIFact, AIMemory},
-    server::{cloud_objects::update_manager::UpdateManager, ids::ClientId},
-    ui_components::{blended_colors, icons::Icon},
-};
 use galaxy_core::send_telemetry_from_ctx;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{Align, ChildView, Container, ParentElement, SavePosition, Stack};
 use galaxyui::{
-    elements::{Align, ChildView, Container, ParentElement, SavePosition, Stack},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use pathfinder_color::ColorU;
 
 use super::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use super::suggested_rule_modal::SuggestedRuleAndId;
+use crate::ai::agent::{SuggestedAgentModeWorkflow, SuggestedLoggingId, SuggestedRule};
+use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
+use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
+use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
+use crate::drive::CloudObjectTypeAndId;
+use crate::server::cloud_objects::update_manager::{
+    ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
+};
+use crate::server::ids::{ClientId, SyncId};
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
+use crate::view_components::action_button::{ActionButton, ActionButtonTheme, SecondaryTheme};
+use crate::TelemetryEvent;
 
 const MAX_CHIP_WIDTH: f32 = 316.;
 
@@ -315,12 +312,10 @@ impl SuggestionChipView {
             | CloudModelEvent::ObjectDeleted {
                 type_and_id: CloudObjectTypeAndId::GenericStringObject { id, .. },
                 ..
-            } => {
+            } if self.sync_id == *id => {
                 // If the rule or workflow has been deleted, then we should reset it such that
                 // the suggestion can be added again.
-                if self.sync_id == *id {
-                    self.reset_suggestion(ctx);
-                }
+                self.reset_suggestion(ctx);
             }
             _ => {}
         }

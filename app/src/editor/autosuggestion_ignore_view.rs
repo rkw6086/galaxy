@@ -1,8 +1,5 @@
 //! This module contains the code for the ignore button shown inline next to autosuggestions.
 
-use crate::appearance::Appearance;
-use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     ChildAnchor, ConstrainedBox, Container, CornerRadius, Element, Hoverable, MouseStateHandle,
@@ -10,11 +7,13 @@ use galaxyui::elements::{
 };
 use galaxyui::platform::Cursor;
 use galaxyui::ui_components::components::UiComponent;
-use galaxyui::{Entity, TypedActionView, View};
-use galaxyui::{SingletonEntity, ViewContext};
+use galaxyui::{Entity, SingletonEntity, TypedActionView, View, ViewContext};
 use pathfinder_geometry::vector::vec2f;
 
 use super::EditorElement;
+use crate::appearance::Appearance;
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
 
 pub const AUTOSUGGESTION_IGNORE_MINIMUM_HEIGHT: f32 = 12.;
 

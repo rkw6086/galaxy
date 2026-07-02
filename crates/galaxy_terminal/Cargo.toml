@@ -33,7 +33,7 @@ vte.workspace = true
 galaxy_completer.workspace = true
 galaxy_core.workspace = true
 galaxy_util.workspace = true
-galaxyui.workspace = true
+galaxyui_core.workspace = true
 
 [dev-dependencies]
 unicode-segmentation = "1.11.0"

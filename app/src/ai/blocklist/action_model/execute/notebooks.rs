@@ -3,25 +3,22 @@
 //! These tools interact with Galaxy Drive CloudNotebook objects directly,
 //! as opposed to the plan tools which work through AIDocumentModel.
 
-use futures::{future::BoxFuture, FutureExt};
+use futures::future::BoxFuture;
+use futures::FutureExt;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 
-use crate::{
-    ai::{
-        agent::{
-            AIAgentAction, AIAgentActionType, CreateDocumentsRequest, CreateDocumentsResult,
-            DocumentContext, EditDocumentsRequest, EditDocumentsResult, ReadDocumentsRequest,
-            ReadDocumentsResult,
-        },
-        document::ai_document_model::AIDocumentVersion,
-    },
-    cloud_object::model::persistence::CloudModel,
-    notebooks::CloudNotebookModel,
-    server::{cloud_objects::update_manager::UpdateManager, ids::ClientId},
-    workspaces::user_workspaces::UserWorkspaces,
-};
-
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
+use crate::ai::agent::{
+    AIAgentAction, AIAgentActionType, CreateDocumentsRequest, CreateDocumentsResult,
+    DocumentContext, EditDocumentsRequest, EditDocumentsResult, ReadDocumentsRequest,
+    ReadDocumentsResult,
+};
+use crate::ai::document::ai_document_model::AIDocumentVersion;
+use crate::cloud_object::model::persistence::CloudModel;
+use crate::notebooks::CloudNotebookModel;
+use crate::server::cloud_objects::update_manager::UpdateManager;
+use crate::server::ids::ClientId;
+use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub struct NotebookExecutor;
 

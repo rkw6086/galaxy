@@ -1,6 +1,8 @@
-use super::*;
-use crate::ai::agent::{task::TaskId, AIAgentAction, AIAgentActionId, AIAgentActionType};
 use std::collections::HashSet;
+
+use super::*;
+use crate::ai::agent::task::TaskId;
+use crate::ai::agent::{AIAgentAction, AIAgentActionId, AIAgentActionType};
 
 fn create_test_action(id: AIAgentActionId) -> AIAgentAction {
     AIAgentAction {
@@ -16,6 +18,7 @@ fn create_test_action(id: AIAgentActionId) -> AIAgentAction {
             citations: vec![],
         },
         requires_result: false,
+        tool_name: None,
     }
 }
 

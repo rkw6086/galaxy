@@ -1,18 +1,13 @@
 use std::borrow::Cow;
 
-use galaxy_core::ui::{
-    appearance::Appearance,
-    theme::{color::internal_colors, Fill},
-};
-use galaxyui::{
-    color::ColorU,
-    elements::{CornerRadius, Radius},
-    fonts::Weight,
-    ui_components::{
-        components::{UiComponent as _, UiComponentStyles},
-        text::Span,
-    },
-};
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::color::internal_colors;
+use galaxy_core::ui::theme::Fill;
+use galaxyui::color::ColorU;
+use galaxyui::elements::{CornerRadius, Radius};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{UiComponent as _, UiComponentStyles};
+use galaxyui::ui_components::text::Span;
 
 /// The padding around ACL items in the sharing dialog.
 pub const ACL_ITEM_PADDING: f32 = 16.;

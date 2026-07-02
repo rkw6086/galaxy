@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 
 use galaxy_editor::multiline::{MultilineStr, MultilineString};
+use galaxyui::App;
 use rangemap::RangeMap;
 use unindent::Unindent as _;
 
-use crate::code::editor::diff::ChangeType;
-
 use super::DiffModel;
+use crate::code::editor::diff::ChangeType;
 
 #[test]
 fn test_diff_generation() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let (change_mapping, deletion_mapping) = DiffModel::compute_diff_internal(
             MultilineStr::try_new("Hello World\nThis is the second line.\nThis is the third.")
@@ -76,7 +75,6 @@ fn test_diff_generation() {
 
 #[test]
 fn test_reverse_action() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         diff_model.set_base(MultilineString::apply(
@@ -109,7 +107,6 @@ fn test_reverse_action() {
 
 #[test]
 fn test_reverse_action_replaced_newlines() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         let base_text = r"
@@ -192,7 +189,6 @@ fn test_reverse_action_replaced_newlines() {
 
 #[test]
 fn test_reverse_action_replaced_text() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         let base_text = r"
@@ -269,7 +265,6 @@ fn test_reverse_action_replaced_text() {
 
 #[test]
 fn test_reverse_action_deleted_lines() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         let base_text = r"
@@ -353,7 +348,6 @@ fn test_reverse_action_deleted_lines() {
 
 #[test]
 fn test_diff_count_before_line() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         diff_model.set_base(
@@ -373,7 +367,6 @@ fn test_diff_count_before_line() {
 
 #[test]
 fn test_unified_diff() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let diff = DiffModel::retrieve_unified_diff_internal(
             MultilineStr::try_new("Hello World\nThis is the second line.\nThis is the third.")
@@ -395,7 +388,6 @@ fn test_unified_diff() {
 /// to produce duplicate deletion and insertion hunks for what is logically a replacement.
 #[test]
 fn test_coalesce_replacements() {
-    use galaxyui::App;
     App::test((), |_| async move {
         let mut diff_model = DiffModel::new();
         let base_text = r"

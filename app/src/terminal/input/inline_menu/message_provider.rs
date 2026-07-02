@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 use std::sync::LazyLock;
 
-use galaxyui::{keymap::Keystroke, AppContext};
+use galaxyui::keymap::Keystroke;
+use galaxyui::AppContext;
 
 use crate::editor::{SELECT_DOWN_ACTION_NAME, SELECT_UP_ACTION_NAME};
 use crate::terminal::input::inline_menu::{

@@ -4,12 +4,10 @@
 //! specify their header content without worrying about draggable behavior.
 
 use galaxy_core::ui::theme::Fill;
-use galaxyui::{
-    elements::{DraggableState, MouseStateHandle},
-    fonts::Properties,
-    text_layout::ClipConfig,
-    AppContext, Element,
-};
+use galaxyui::elements::{DraggableState, MouseStateHandle};
+use galaxyui::fonts::Properties;
+use galaxyui::text_layout::ClipConfig;
+use galaxyui::{AppContext, Element};
 
 /// Closure that renders sharing controls (share button, view-only indicator) for a pane header.
 /// Accepts optional icon color and button size overrides.

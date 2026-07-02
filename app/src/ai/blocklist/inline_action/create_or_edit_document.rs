@@ -1,16 +1,12 @@
-use galaxyui::SingletonEntity;
-use galaxyui::{
-    elements::{
-        Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex,
-        Hoverable, Icon, MouseStateHandle, ParentElement, Radius, Text,
-    },
-    platform::Cursor,
-    AppContext, Element,
-};
-
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::icons::Icon as CoreIcon;
 use galaxy_core::ui::theme::color::internal_colors::neutral_2;
+use galaxyui::elements::{
+    Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Expanded, Flex,
+    Hoverable, Icon, MouseStateHandle, ParentElement, Radius, Text,
+};
+use galaxyui::platform::Cursor;
+use galaxyui::{AppContext, Element, SingletonEntity};
 
 use crate::ai::blocklist::block::view_impl::WithContentItemSpacing;
 use crate::ai::blocklist::inline_action::inline_action_header::{

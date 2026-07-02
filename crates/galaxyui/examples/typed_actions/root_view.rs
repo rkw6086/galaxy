@@ -1,10 +1,10 @@
+use galaxyui::elements::{Align, ConstrainedBox, ParentElement, Rect, Stack, Text};
 use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
+use galaxyui::keymap::FixedBinding;
+use galaxyui::presenter::ChildView;
 use galaxyui::{
-    elements::{Align, ConstrainedBox, ParentElement, Rect, Stack, Text},
-    keymap::FixedBinding,
-    presenter::ChildView,
-    AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle,
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
+    ViewHandle,
 };
 use pathfinder_color::ColorU;
 

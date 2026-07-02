@@ -2,14 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use warp_multi_agent_api as api;
 
-use crate::ai::agent::api::ResponseStream;
-use crate::ai::bedrock::request_translator;
-use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
-
 use super::client::{OpenAIClient, OpenAIClientConfig, OpenAIError};
 use super::convert::build_openai_request;
 use super::request_translator::sanitize_messages_for_openai;
 use super::response_translator::openai_stream_to_response_events;
+use crate::ai::agent::api::ResponseStream;
+use crate::ai::bedrock::request_translator;
+use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
 
 pub struct TranslatorRequest {
     pub config: OpenAIClientConfig,

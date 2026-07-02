@@ -1,21 +1,15 @@
 use std::sync::Arc;
 
-use galaxyui::{
-    AppContext, LayoutContext,
-    geometry::vector::{Vector2F, vec2f},
-    text_layout::Line,
-};
-
-use crate::{
-    content::text::BufferBlockStyle,
-    render::{
-        element::paint::CursorDisplayType,
-        layout::{TextLayout, line_height},
-        model::{BlockItem, RenderState, viewport::ViewportItem},
-    },
-};
+use galaxyui_core::geometry::vector::{Vector2F, vec2f};
+use galaxyui_core::text_layout::Line;
+use galaxyui_core::{AppContext, LayoutContext};
 
 use super::{CursorData, RenderContext};
+use crate::content::text::BufferBlockStyle;
+use crate::render::element::paint::CursorDisplayType;
+use crate::render::layout::{TextLayout, line_height};
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RenderState};
 
 /// Ghost/placeholder text that's shown in an empty block to provide context.
 pub struct BlockPlaceholder {

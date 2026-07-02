@@ -1,13 +1,11 @@
 use std::collections::HashSet;
 
+use chrono::{DateTime, FixedOffset};
 use settings::Setting as _;
 
-use crate::{
-    report_if_error, terminal::general_settings::GeneralSettings,
-    util::bindings::trigger_to_keystroke,
-};
-
-use chrono::{DateTime, FixedOffset};
+use crate::report_if_error;
+use crate::terminal::general_settings::GeneralSettings;
+use crate::util::bindings::trigger_to_keystroke;
 
 mod main_page;
 pub mod utils;
@@ -18,7 +16,8 @@ mod section_views;
 pub use section_views::{ChangelogSectionView, ContentSectionView, FeatureSectionView};
 pub mod sections;
 mod view;
-use galaxyui::{keymap::Keystroke, AppContext, Entity, SingletonEntity};
+use galaxyui::keymap::Keystroke;
+use galaxyui::{AppContext, Entity, SingletonEntity};
 use serde::{Deserialize, Serialize};
 pub use view::{ResourceCenterAction, ResourceCenterEvent, ResourceCenterPage, ResourceCenterView};
 

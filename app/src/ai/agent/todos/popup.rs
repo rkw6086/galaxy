@@ -1,27 +1,24 @@
-use crate::ai::blocklist::{BlocklistAIContextEvent, BlocklistAIContextModel};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
-    ClippedScrollStateHandle, ClippedScrollable, Dismiss, Empty, Expanded, ParentElement,
-    SavePosition, ScrollTarget, ScrollToPositionMode, ScrollbarWidth, Shrinkable,
+    Border, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container, CornerRadius,
+    CrossAxisAlignment, Dismiss, DropShadow, Empty, Expanded, Flex, MainAxisSize, ParentElement,
+    Radius, SavePosition, ScrollTarget, ScrollToPositionMode, ScrollbarWidth, Shrinkable, Text,
 };
-use galaxyui::fonts::FamilyId;
-use galaxyui::ModelHandle;
-use galaxyui::SingletonEntity;
+use galaxyui::fonts::{FamilyId, Properties, Weight};
+use galaxyui::keymap::FixedBinding;
 use galaxyui::{
-    elements::{
-        Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DropShadow, Flex,
-        MainAxisSize, Radius, Text,
-    },
-    fonts::{Properties, Weight},
-    keymap::FixedBinding,
-    AppContext, Element, Entity, EntityId, TypedActionView, View, ViewContext,
+    AppContext, Element, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext,
 };
 use pathfinder_color::ColorU;
 
 use crate::ai::agent::icons::{in_progress_icon, pending_icon, succeeded_icon};
 use crate::ai::agent::todos::AIAgentTodoList;
-use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+use crate::ai::blocklist::{
+    BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIHistoryEvent,
+    BlocklistAIHistoryModel,
+};
 use crate::ui_components::blended_colors;
 
 pub struct AgentTodosPopupView {
@@ -86,8 +83,11 @@ impl AgentTodosPopupView {
         event: &BlocklistAIHistoryEvent,
         ctx: &mut ViewContext<Self>,
     ) {
-        if let BlocklistAIHistoryEvent::UpdatedTodoList { terminal_view_id } = event {
-            if *terminal_view_id == self.terminal_view_id {
+        if let BlocklistAIHistoryEvent::UpdatedTodoList {
+            terminal_surface_id,
+        } = event
+        {
+            if *terminal_surface_id == self.terminal_view_id {
                 ctx.notify();
             }
         }

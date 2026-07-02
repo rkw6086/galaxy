@@ -1,12 +1,29 @@
+use std::cell::RefCell;
+
+use galaxy_core::ui::appearance::Appearance;
+use galaxy_core::ui::theme::Fill;
+use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::Vector2F;
+use warp_editor::render::element::VerticalExpansionBehavior;
+use warpui::elements::{
+    Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex,
+    MainAxisAlignment, MainAxisSize, ParentElement, Radius, Shrinkable, Text,
+};
+use warpui::keymap::Keystroke;
+use warpui::text_layout::ClipConfig;
+use warpui::units::Pixels;
+use warpui::{
+    AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
+    ViewContext, ViewHandle,
+};
+
 use crate::code::editor::comments::{EditorCommentsModel, PendingCommentEvent};
 use crate::code::editor::line::EditorLineLocation;
 use crate::code_review::comments::{CommentId, CommentOrigin};
 use crate::editor::InteractionState;
-use crate::notebooks::editor::{
-    model::NotebooksEditorModel,
-    rich_text_styles,
-    view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorView},
-};
+use crate::notebooks::editor::model::NotebooksEditorModel;
+use crate::notebooks::editor::rich_text_styles;
+use crate::notebooks::editor::view::{EditorViewEvent, RichTextEditorConfig, RichTextEditorView};
 use crate::notebooks::link::{NotebookLinks, SessionSource};
 use crate::settings::FontSettings;
 use crate::ui_components::blended_colors;
@@ -14,22 +31,6 @@ use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, ButtonSize, DangerNakedTheme, KeystrokeSource, NakedTheme, PrimaryTheme,
 };
-use galaxy_core::ui::{appearance::Appearance, theme::Fill};
-use galaxy_editor::render::element::VerticalExpansionBehavior;
-use galaxyui::{
-    elements::{
-        Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        Flex, MainAxisAlignment, MainAxisSize, ParentElement, Radius, Shrinkable, Text,
-    },
-    keymap::Keystroke,
-    text_layout::ClipConfig,
-    units::Pixels,
-    AppContext, Element, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
-    ViewContext, ViewHandle,
-};
-use pathfinder_color::ColorU;
-use pathfinder_geometry::vector::Vector2F;
-use std::cell::RefCell;
 
 /// Default width of the comment editor, in pixels.
 pub(crate) const DEFAULT_COMMENT_MAX_WIDTH: f32 = 750.0;
@@ -165,7 +166,10 @@ impl CommentEditor {
         let save_button = ctx.add_typed_action_view(|ctx| {
             ActionButton::new("Comment", PrimaryTheme)
                 .with_keybinding(
-                    KeystrokeSource::Fixed(Keystroke::parse("cmdorctrl-enter").unwrap_or_default()),
+                    KeystrokeSource::Fixed(
+                        Keystroke::parse(crate::code_review::CODE_REVIEW_SUBMIT_KEYSTROKE)
+                            .unwrap_or_default(),
+                    ),
                     ctx,
                 )
                 .on_click(|ctx| {
@@ -234,12 +238,11 @@ impl CommentEditor {
             EditorViewEvent::CmdEnter => {
                 self.save_comment(ctx);
             }
-            EditorViewEvent::EscapePressed => {
-                // Dismiss the comment composer when pressing Escape on an empty draft.
-                if self.editor.as_ref(ctx).model().as_ref(ctx).is_empty(ctx) {
-                    self.reset(ctx);
-                    ctx.emit(CommentEditorEvent::CloseEditor);
-                }
+            EditorViewEvent::EscapePressed
+                if self.editor.as_ref(ctx).model().as_ref(ctx).is_empty(ctx) =>
+            {
+                self.reset(ctx);
+                ctx.emit(CommentEditorEvent::CloseEditor);
             }
             _ => {}
         }
@@ -423,8 +426,8 @@ impl View for CommentEditor {
                     )
                     .with_child(
                         Container::new(footer_row)
-                            .with_vertical_padding(8.)
-                            .with_horizontal_padding(8.)
+                            .with_vertical_padding(4.)
+                            .with_horizontal_padding(4.)
                             .with_border(Border::top(1.).with_border_fill(border_color))
                             .finish(),
                     )

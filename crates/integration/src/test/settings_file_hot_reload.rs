@@ -4,23 +4,21 @@
 //! filesystem watcher and pushed into the in-memory setting models, on every
 //! platform where Warp watches `config_local_dir()`.
 
-use galaxy::{
-    features::FeatureFlag,
-    integration_testing::{
-        step::new_step_with_default_assertions,
-        terminal::wait_until_bootstrapped_single_pane_for_tab,
-    },
-    settings::FontSettings,
-};
-use galaxyui::{async_assert_eq, integration::TestStep, SingletonEntity};
-use settings::Setting as _;
 use std::time::Duration;
+
+use galaxyui_core::integration::TestStep;
+use galaxyui_core::{async_assert_eq, SingletonEntity};
+use settings::Setting as _;
+use warp::features::FeatureFlag;
+use warp::integration_testing::step::new_step_with_default_assertions;
+use warp::integration_testing::terminal::wait_until_bootstrapped_single_pane_for_tab;
+use warp::settings::FontSettings;
 
 use super::{new_builder, Builder};
 
 /// Helper: returns the path to the TOML settings file.
 fn toml_file_path() -> std::path::PathBuf {
-    galaxy::settings::user_preferences_toml_file_path()
+    warp::settings::user_preferences_toml_file_path()
 }
 
 /// Verifies the full settings hot-reload pipeline end-to-end: the filesystem

@@ -12,7 +12,7 @@ path = "src/bin/main.rs"
 required-features = ["bin"]
 
 [features]
-bin = ["galaxyui/log_named_telemetry_events"]
+bin = ["galaxyui_core/log_named_telemetry_events"]
 
 [dependencies]
 ai.workspace = true
@@ -31,4 +31,8 @@ strum_macros.workspace = true
 uuid.workspace = true
 galaxy_core = { workspace = true }
 galaxyui.workspace = true
+galaxyui_core.workspace = true
 galaxy_logging.workspace = true
+
+[dev-dependencies]
+galaxy_core = { workspace = true, features = ["test-util"] }

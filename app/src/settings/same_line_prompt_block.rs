@@ -1,7 +1,6 @@
 use galaxy_core::define_settings_group;
-use settings::{SupportedPlatforms, SyncToCloud};
-
 use serde::{Deserialize, Serialize};
+use settings::{RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud};
 
 #[derive(
     Debug,

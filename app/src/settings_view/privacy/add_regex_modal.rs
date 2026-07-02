@@ -1,20 +1,21 @@
-use crate::editor::Event as EditorEvent;
-use crate::modal::{Modal, ModalViewState};
-use crate::{
-    appearance::Appearance,
-    editor::{EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions},
-};
 use galaxy_editor::editor::NavigationKey;
-use galaxyui::elements::{CrossAxisAlignment, Expanded, MainAxisSize};
+use galaxyui::elements::{
+    ChildView, Container, CrossAxisAlignment, Empty, Expanded, Flex, MainAxisSize,
+    MouseStateHandle, ParentElement, Text,
+};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{ChildView, Container, Empty, Flex, MouseStateHandle, ParentElement, Text},
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use regex::Regex;
+
+use crate::appearance::Appearance;
+use crate::editor::{
+    EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
+    TextOptions,
+};
+use crate::modal::{Modal, ModalViewState};
 
 const LABEL_FONT_SIZE: f32 = 12.;
 

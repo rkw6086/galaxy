@@ -22,6 +22,7 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         region,
         access_key_id: String::new(),
         secret_access_key: String::new(),
+        session_token: None,
         cross_region_inference: false,
     })
 }
@@ -81,6 +82,7 @@ async fn collect_stream_output(
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should be Ok");
         if let Some(event_type) = event.r#type {
+            use warp_multi_agent_api::message::Message;
             use warp_multi_agent_api::response_event::Type;
             match event_type {
                 Type::ClientActions(actions) => {
@@ -90,25 +92,16 @@ async fn collect_stream_output(
                             match action_type {
                                 Action::AddMessagesToTask(add) => {
                                     for msg in add.messages {
-                                        if let Some(msg_content) = msg.message {
-                                            use warp_multi_agent_api::message::Message;
-                                            match msg_content {
-                                                Message::AgentOutput(output) => {
-                                                    text.push_str(&output.text);
-                                                }
-                                                _ => {}
-                                            }
+                                        if let Some(Message::AgentOutput(output)) = msg.message {
+                                            text.push_str(&output.text);
                                         }
                                     }
                                 }
                                 Action::AppendToMessageContent(append) => {
-                                    if let Some(msg) = append.message {
-                                        if let Some(msg_content) = msg.message {
-                                            use warp_multi_agent_api::message::Message;
-                                            if let Message::AgentOutput(output) = msg_content {
-                                                text.push_str(&output.text);
-                                            }
-                                        }
+                                    if let Some(Message::AgentOutput(output)) =
+                                        append.message.and_then(|m| m.message)
+                                    {
+                                        text.push_str(&output.text);
                                     }
                                 }
                                 _ => {}
@@ -554,9 +547,10 @@ async fn test_arn_based_model() {
         return;
     };
 
-    let arn = std::env::var("BEDROCK_TEST_ARN").unwrap_or_else(|_| {
-        "arn:aws:bedrock:us-east-1:156729649053:application-inference-profile/1tim45pgo320".into()
-    });
+    let Some(arn) = std::env::var("BEDROCK_TEST_ARN").ok() else {
+        eprintln!("Skipping: BEDROCK_TEST_ARN not set");
+        return;
+    };
 
     let client = BedrockClient::from_config(config)
         .await
@@ -696,4 +690,101 @@ async fn test_all_tools_visible_to_model() {
         "Expected at least 17 tool definitions, got {}",
         tools.len()
     );
+}
+
+#[tokio::test]
+async fn test_bedrock_integration_live_stream() {
+    let Some(config) = get_test_config() else {
+        eprintln!("Skipping: BEDROCK_INTEGRATION_TEST not set");
+        return;
+    };
+
+    println!("[live-test] Initializing Bedrock client...");
+    let client = BedrockClient::from_config(config)
+        .await
+        .expect("client creation");
+    let model = get_test_model();
+    println!("[live-test] Using model: {model}");
+
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text(
+            "Write a 2-line poem about antigravity. Output only the poem.".into(),
+        ),
+    }];
+
+    println!("[live-test] Requesting stream response from Bedrock...");
+    let stream = client
+        .converse_stream(
+            &model,
+            "live-test-task-id",
+            true,
+            messages,
+            None,
+            None,
+            vec![],
+            1024,
+            None,
+            false,
+            None,
+            None,
+            Arc::new(Mutex::new(Vec::new())),
+            Vec::new(),
+        )
+        .await
+        .expect("converse_stream should succeed");
+
+    let mut full_text = String::new();
+    let mut stream = stream;
+
+    while let Some(event) = stream.next().await {
+        let event = event.expect("stream event should be Ok");
+        if let Some(event_type) = event.r#type {
+            use warp_multi_agent_api::message::Message;
+            use warp_multi_agent_api::response_event::Type;
+            match event_type {
+                Type::ClientActions(actions) => {
+                    for action in actions.actions {
+                        if let Some(action_type) = action.action {
+                            use warp_multi_agent_api::client_action::Action;
+                            match action_type {
+                                Action::AddMessagesToTask(add) => {
+                                    for msg in add.messages {
+                                        if let Some(Message::AgentOutput(output)) = msg.message {
+                                            print!("{}", output.text);
+                                            full_text.push_str(&output.text);
+                                        }
+                                    }
+                                }
+                                Action::AppendToMessageContent(append) => {
+                                    if let Some(Message::AgentOutput(output)) =
+                                        append.message.and_then(|m| m.message)
+                                    {
+                                        print!("{}", output.text);
+                                        full_text.push_str(&output.text);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                Type::Finished(finished) => {
+                    println!(
+                        "\n[live-test] Stream finished. Reason: {:?}",
+                        finished.reason
+                    );
+                    if let Some(meta) = finished.conversation_usage_metadata {
+                        if let Some(usage) = meta.byok_token_usage.get("bedrock") {
+                            println!("[live-test] Token Usage - Total: {}", usage.total_tokens);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    println!("[live-test] Received full response:\n{}", full_text.trim());
+    assert!(!full_text.is_empty(), "Model returned an empty response");
 }

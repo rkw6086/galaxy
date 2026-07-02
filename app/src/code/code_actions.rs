@@ -21,7 +21,9 @@ const CODE_ACTIONS_MENU_WIDTH: f32 = 380.;
 const CODE_ACTIONS_MENU_MAX_HEIGHT: f32 = 250.;
 const MAX_VISIBLE_ACTIONS: usize = 12;
 
+#[derive(Default)]
 pub(super) enum CodeActionsState {
+    #[default]
     Idle,
     Requesting {
         abort_handle: AbortHandle,
@@ -32,12 +34,6 @@ pub(super) enum CodeActionsState {
         menu_open: bool,
         selected_index: usize,
     },
-}
-
-impl Default for CodeActionsState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }
 
 impl CodeActionsState {

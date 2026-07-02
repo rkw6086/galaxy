@@ -1,9 +1,10 @@
 use std::ops::Range;
 
-use galaxyui::text::TextBuffer;
+use galaxyui_core::text::TextBuffer;
 use string_offset::CharOffset;
 
-use crate::{vim::WordType, word_iterator::CharacterKind};
+use crate::vim::WordType;
+use crate::word_iterator::CharacterKind;
 
 /// Vim's "inner word" text object, e.g. `diw`. This includes the series of either word chars,
 /// symbols, or whitespace around the cursor.

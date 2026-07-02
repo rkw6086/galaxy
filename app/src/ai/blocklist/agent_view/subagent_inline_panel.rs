@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Inline subagent panel rendered within the parent agent's chat flow.
 //!
 //! Shows a collapsible panel with the subagent's status, a mini-transcript of
@@ -11,7 +13,7 @@ use galaxyui::{AppContext, SingletonEntity};
 use pathfinder_color::ColorU;
 use warp_multi_agent_api as api;
 
-use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus, StatusColorStyle};
 use crate::ai::agent::AIAgentActionId;
 use crate::ai::blocklist::block::AIBlockAction;
 use crate::ai::blocklist::inline_action::inline_action_header::{
@@ -127,7 +129,7 @@ fn render_panel_header(
     // Left: status icon + agent name + status text
     let mut left_side = Flex::row().with_cross_axis_alignment(CrossAxisAlignment::Center);
 
-    let (icon, icon_color) = status.status_icon_and_color(theme);
+    let (icon, icon_color) = status.status_icon_and_color(theme, StatusColorStyle::Standard);
     let status_icon_element =
         ConstrainedBox::new(galaxyui::elements::Icon::new(icon.into(), icon_color).finish())
             .with_width(icon_size(app))
@@ -151,8 +153,10 @@ fn render_panel_header(
         ConversationStatus::InProgress => "Working...",
         ConversationStatus::Success => "Complete",
         ConversationStatus::Error => "Error",
+        ConversationStatus::TransientError => "Retrying...",
         ConversationStatus::Cancelled => "Cancelled",
         ConversationStatus::Blocked { .. } => "Blocked",
+        ConversationStatus::WaitingForEvents => "Waiting...",
     };
     let status_text_color = blended_colors::text_disabled(theme, surface);
     left_side.add_child(

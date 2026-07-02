@@ -1,14 +1,14 @@
-use crate::modal::Modal;
-use crate::themes::theme::ThemeKind;
-use crate::themes::theme_deletion_body::{ThemeDeletionBody, ThemeDeletionBodyEvent};
+use std::default::Default;
+
 use galaxyui::fonts::Weight;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::{Coords, UiComponentStyles};
-use galaxyui::AppContext;
-use galaxyui::ViewHandle;
-use galaxyui::{Element, Entity, TypedActionView, View, ViewContext};
-use std::default::Default;
+use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext, ViewHandle};
+
+use crate::modal::Modal;
+use crate::themes::theme::ThemeKind;
+use crate::themes::theme_deletion_body::{ThemeDeletionBody, ThemeDeletionBodyEvent};
 
 const THEME_DELETION_MODAL_HEADER: &str = "Are you sure you want to delete this theme?";
 

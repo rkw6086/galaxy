@@ -1,9 +1,11 @@
+use std::path::{Path, PathBuf};
+
+use galaxy_util::standardized_path::StandardizedPath;
+
 use crate::entry::{DirectoryEntry, Entry, FileId, FileMetadata};
 use crate::file_tree_store::{FileTreeEntry, FileTreeEntryState};
 use crate::file_tree_update::*;
-use crate::local_model::LocalRepoMetadataModel;
-use galaxy_util::standardized_path::StandardizedPath;
-use std::path::{Path, PathBuf};
+use crate::local_model::{FileTreeMutation, LocalRepoMetadataModel};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -146,8 +148,6 @@ fn apply_mutations_generates_update_for_remove() {
 
 #[test]
 fn apply_mutations_generates_update_for_add_file() {
-    use crate::local_model::FileTreeMutation;
-
     let initial = dir("/repo", vec![dir("/repo/src", vec![])]);
     let mut tree = build_tree_from_entry(initial);
     let mutations = vec![FileTreeMutation::AddFile {
@@ -177,8 +177,6 @@ fn apply_mutations_generates_update_for_add_file() {
 
 #[test]
 fn apply_mutations_generates_update_for_add_directory_subtree() {
-    use crate::local_model::FileTreeMutation;
-
     let subtree = dir(
         "/repo/src/components",
         vec![
@@ -212,11 +210,9 @@ fn apply_mutations_generates_update_for_add_directory_subtree() {
 
 #[test]
 fn apply_mutations_generates_update_for_add_empty_directory() {
-    use crate::local_model::FileTreeMutation;
-
     let initial = dir("/repo", vec![dir("/repo/src", vec![])]);
     let mut tree = build_tree_from_entry(initial);
-    let mutations = vec![FileTreeMutation::AddEmptyDirectory {
+    let mutations = vec![FileTreeMutation::AddUnloadedDirectory {
         path: mutation_path("/repo/src/empty"),
         is_ignored: true,
     }];
@@ -237,8 +233,6 @@ fn apply_mutations_generates_update_for_add_empty_directory() {
 
 #[test]
 fn apply_mutations_generates_update_for_mixed_mutations() {
-    use crate::local_model::FileTreeMutation;
-
     let initial = dir("/repo", vec![file("/repo/old.rs")]);
     let mut tree = build_tree_from_entry(initial);
     let mutations = vec![
@@ -248,7 +242,7 @@ fn apply_mutations_generates_update_for_mixed_mutations() {
             is_ignored: false,
             extension: Some("rs".to_string()),
         },
-        FileTreeMutation::AddEmptyDirectory {
+        FileTreeMutation::AddUnloadedDirectory {
             path: mutation_path("/repo/new_dir"),
             is_ignored: false,
         },
@@ -264,8 +258,6 @@ fn apply_mutations_generates_update_for_mixed_mutations() {
 
 #[test]
 fn apply_mutations_returns_none_when_emit_updates_is_false() {
-    use crate::local_model::FileTreeMutation;
-
     let initial = dir("/repo", vec![file("/repo/old.rs")]);
     let mut tree = build_tree_from_entry(initial);
     let mutations = vec![FileTreeMutation::Remove(mutation_path("/repo/old.rs"))];
@@ -313,6 +305,7 @@ fn apply_complete_update_adds_files_and_directories() {
                 }),
             ],
         }],
+        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -359,6 +352,7 @@ fn apply_update_with_removals_and_additions() {
                 ignored: false,
             })],
         }],
+        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -389,6 +383,7 @@ fn apply_incomplete_update_missing_children_subtree() {
                 loaded: false,
             })],
         }],
+        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -417,6 +412,7 @@ fn apply_incomplete_update_missing_children_subtree() {
                 ignored: false,
             })],
         }],
+        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&followup);
@@ -444,6 +440,7 @@ fn apply_incomplete_update_missing_parent_from_undelivered_page() {
                 ignored: false,
             })],
         }],
+        standing_results_delta: Default::default(),
     };
 
     tree.apply_repo_metadata_update(&update);
@@ -475,8 +472,6 @@ fn apply_incomplete_update_missing_parent_from_undelivered_page() {
 
 #[test]
 fn round_trip_apply_mutations_then_apply_update_produces_equivalent_tree() {
-    use crate::local_model::FileTreeMutation;
-
     let server_tree_entry = dir(
         "/repo",
         vec![dir("/repo/src", vec![file("/repo/src/lib.rs")])],
@@ -545,8 +540,6 @@ fn round_trip_apply_mutations_then_apply_update_produces_equivalent_tree() {
 
 #[test]
 fn lazy_load_filters_mutations_for_unloaded_parents() {
-    use crate::local_model::FileTreeMutation;
-
     let initial = Entry::Directory(DirectoryEntry {
         path: std_path("/repo"),
         children: vec![

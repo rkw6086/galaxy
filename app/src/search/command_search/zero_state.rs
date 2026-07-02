@@ -2,20 +2,16 @@ use std::collections::HashMap;
 
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
-use galaxyui::elements::Wrap;
-use galaxyui::{
-    elements::{
-        Container, CornerRadius, Flex, Hoverable, MouseStateHandle, ParentElement, Radius, Text,
-    },
-    platform::Cursor,
-    AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext,
+use galaxyui::elements::{
+    Container, CornerRadius, Flex, Hoverable, MouseStateHandle, ParentElement, Radius, Text, Wrap,
 };
+use galaxyui::platform::Cursor;
+use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 use lazy_static::lazy_static;
 
 use crate::appearance::Appearance;
 use crate::drive::settings::{WarpDriveSettings, WarpDriveSettingsChangedEvent};
-use crate::search::FilterChipRenderer;
-use crate::search::QueryFilter;
+use crate::search::{FilterChipRenderer, QueryFilter};
 use crate::settings::{AISettings, AISettingsChangedEvent};
 
 lazy_static! {

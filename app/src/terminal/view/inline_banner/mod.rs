@@ -14,51 +14,39 @@ pub(crate) mod prompt_suggestions;
 mod session_state;
 mod shared_sessions;
 mod shell_process_terminated;
-mod ssh;
 mod vim_mode;
 
-pub use self::prompt_suggestions::*;
 pub use agent_mode_setup::*;
 pub use alias_expansion::*;
 pub use anonymous_user_ai_sign_up::*;
 pub use aws_bedrock_login::*;
 pub use aws_cli_not_installed::*;
+use galaxyui::elements::{
+    Align, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, SavePosition,
+    Shrinkable, Text,
+};
+use galaxyui::fonts::{FamilyId, Properties, Weight};
+use galaxyui::ui_components::button::ButtonVariant;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use galaxyui::Element;
 pub use notifications_discovery::*;
 pub use notifications_error::*;
 pub use open_in_warp::*;
 pub use passive_code_diff::*;
+use pathfinder_color::ColorU;
 pub use session_state::*;
 pub use shared_sessions::*;
 pub use shell_process_terminated::*;
-pub use ssh::*;
 pub use vim_mode::*;
 
-use galaxyui::elements::Clipped;
-use galaxyui::{
-    elements::{
-        Align, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Flex, Icon,
-        MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, SavePosition,
-        Shrinkable, Text,
-    },
-    fonts::{FamilyId, Properties, Weight},
-    ui_components::{
-        button::ButtonVariant,
-        components::{Coords, UiComponent, UiComponentStyles},
-    },
-    Element,
-};
-use pathfinder_color::ColorU;
-
+pub use self::prompt_suggestions::*;
+use crate::appearance::Appearance;
+use crate::terminal::view::TerminalAction;
+use crate::themes::theme::Blend;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon as UiIcon;
-
-use crate::util::color::{MinimumAllowedContrast, Opacity};
-use crate::{
-    appearance::Appearance,
-    terminal::view::TerminalAction,
-    themes::theme::Blend,
-    util::color::{coloru_with_opacity, ContrastingColor},
-};
+use crate::util::color::{coloru_with_opacity, ContrastingColor, MinimumAllowedContrast, Opacity};
 
 pub const INLINE_BANNER_BUTTON_PADDING: f32 = 4.0;
 const INLINE_BANNER_MARGIN: f32 = 20.0;

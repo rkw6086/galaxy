@@ -2,11 +2,12 @@ use std::borrow::Cow;
 
 use galaxy_core::ui::Icon;
 use galaxy_core::ui::appearance::Appearance;
-use galaxyui::{fonts, keymap::Keystroke, prelude::stack};
-
-use crate::{keyboard_shortcut, tooltip};
+use galaxyui_core::fonts;
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::stack;
 
 use super::Theme;
+use crate::{keyboard_shortcut, tooltip};
 
 /// The parameters for rendering a button.
 pub struct Params<'a> {

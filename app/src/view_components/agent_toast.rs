@@ -1,19 +1,17 @@
 use std::time::Duration;
 
-use galaxyui::elements::{DropShadow, Expanded};
-use galaxyui::r#async::Timer;
-use galaxyui::WindowId;
+use galaxyui::elements::{
+    ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult,
+    DropShadow, EventHandler, Expanded, Flex, Hoverable, Icon, MouseStateHandle, OffsetPositioning,
+    Padding, ParentElement, PositionedElementAnchor, PositionedElementOffsetBounds, Radius,
+    SavePosition, Stack,
+};
+use galaxyui::keymap::Keystroke;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-        DispatchEventResult, EventHandler, Flex, Hoverable, Icon, MouseStateHandle,
-        OffsetPositioning, Padding, ParentElement, PositionedElementAnchor,
-        PositionedElementOffsetBounds, Radius, SavePosition, Stack,
-    },
-    keymap::Keystroke,
-    r#async::SpawnedFutureHandle,
-    ui_components::components::{Coords, UiComponent, UiComponentStyles},
     AppContext, Element, Entity, EntityId, SingletonEntity, TypedActionView, View, ViewContext,
+    WindowId,
 };
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
@@ -433,8 +431,9 @@ impl AgentToast {
         appearance: &Appearance,
         keystroke: Keystroke,
     ) -> Box<dyn Element> {
-        use crate::ui_components::blended_colors;
         use galaxyui::ui_components::keyboard_shortcut::KeyboardShortcut;
+
+        use crate::ui_components::blended_colors;
 
         let theme = appearance.theme();
 

@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use galaxy_core::ui::{Icon, appearance::Appearance};
-use galaxyui::{
-    assets::asset_cache::AssetSource,
-    elements::{CacheOption, Dismiss, DispatchEventResult, EventHandler, Image, Shrinkable},
-    keymap::Keystroke,
-    prelude::{stack::*, *},
+use galaxy_core::ui::Icon;
+use galaxy_core::ui::appearance::Appearance;
+use galaxyui_core::assets::asset_cache::AssetSource;
+use galaxyui_core::elements::{
+    CacheOption, Dismiss, DispatchEventResult, EventHandler, Image, Shrinkable,
 };
+use galaxyui_core::keymap::Keystroke;
+use galaxyui_core::prelude::stack::*;
+use galaxyui_core::prelude::*;
 use pathfinder_geometry::vector::{Vector2F, vec2f};
 
 use crate::{Component, Options as _, button};
@@ -130,7 +132,7 @@ impl Component for Lightbox {
             appearance,
             button::Params {
                 content: button::Content::Icon(Icon::X),
-                theme: &button::themes::Secondary,
+                theme: &ButtonTheme,
                 options: button::Options {
                     size: button::Size::Small,
                     on_click: Some(Box::new(move |ctx, app, _| {
@@ -151,6 +153,7 @@ impl Component for Lightbox {
                     let image = ConstrainedBox::new(
                         Image::new(asset_source.clone(), CacheOption::Original)
                             .contain()
+                            .layout_using_paint_bounds()
                             .before_load(Align::new(loading_element(appearance)).finish())
                             .finish(),
                     )
@@ -225,7 +228,7 @@ impl Component for Lightbox {
                     appearance,
                     button::Params {
                         content: button::Content::Icon(Icon::ChevronLeft),
-                        theme: &button::themes::Secondary,
+                        theme: &ButtonTheme,
                         options: button::Options {
                             size: button::Size::Small,
                             on_click: Some(Box::new(move |ctx, app, _| {
@@ -253,7 +256,7 @@ impl Component for Lightbox {
                     appearance,
                     button::Params {
                         content: button::Content::Icon(Icon::ChevronRight),
-                        theme: &button::themes::Secondary,
+                        theme: &ButtonTheme,
                         options: button::Options {
                             size: button::Size::Small,
                             on_click: Some(Box::new(move |ctx, app, _| {
@@ -293,4 +296,39 @@ fn loading_element(appearance: &Appearance) -> Box<dyn Element> {
 
 fn lightbox_text_size(appearance: &Appearance) -> f32 {
     appearance.ui_font_size() + LIGHTBOX_TEXT_SIZE_DELTA
+}
+
+/// A custom button theme for lightbox buttons to force colors to match
+/// a Dark theme button, as these buttons always appear on top of a near-black
+/// scrim, independent of application theme.
+struct ButtonTheme;
+
+impl button::Theme for ButtonTheme {
+    fn background(
+        &self,
+        button_state: button::State,
+        _appearance: &Appearance,
+    ) -> Option<galaxy_core::ui::theme::Fill> {
+        match button_state {
+            button::State::Default => None,
+            button::State::Hovered => Some(galaxy_core::ui::theme::Fill::white().with_opacity(10)),
+            button::State::Pressed => Some(galaxy_core::ui::theme::Fill::white().with_opacity(15)),
+        }
+    }
+
+    fn text_color(
+        &self,
+        _background: Option<galaxy_core::ui::theme::Fill>,
+        _appearance: &Appearance,
+    ) -> ColorU {
+        ColorU::new(255, 255, 255, 255)
+    }
+
+    fn border(&self, _appearance: &Appearance) -> Option<ColorU> {
+        Some(ColorU::new(51, 51, 51, 255))
+    }
+
+    fn keyboard_shortcut_background(&self, _appearance: &Appearance) -> Option<ColorU> {
+        Some(ColorU::new(38, 38, 38, 255))
+    }
 }

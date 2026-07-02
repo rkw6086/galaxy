@@ -1,11 +1,12 @@
+use serde_yaml::{Mapping, Value};
+use warp_editor::content::markdown::MarkdownStyle;
+use warpui::{EntityId, WindowId};
+
 use super::{
     comment_embedded_item_conversion, EmbeddedCommentSpace, EmbeddedItem as _,
     COMMENT_ID_MAPPING_KEY, ENTITY_ID_MAPPING_KEY, WINDOW_ID_MAPPING_KEY,
 };
 use crate::code_review::comments::CommentId;
-use galaxy_editor::content::markdown::MarkdownStyle;
-use galaxyui::{EntityId, WindowId};
-use serde_yaml::{Mapping, Value};
 
 #[test]
 fn test_comment_embedded_item_conversion_valid_input() {

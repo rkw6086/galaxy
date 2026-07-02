@@ -1,21 +1,16 @@
-use crate::{
-    appearance::Appearance,
-    ui_components::avatar::{Avatar, AvatarContent},
+use galaxyui::elements::{
+    ChildAnchor, CornerRadius, Fill, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Radius, Stack,
 };
-use galaxyui::{elements::CornerRadius, fonts::Weight};
-
-use galaxyui::{
-    elements::{
-        ChildAnchor, Fill, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor,
-        ParentElement, ParentOffsetBounds, Radius, Stack,
-    },
-    ui_components::components::{UiComponent, UiComponentStyles},
-    AppContext, Element, SingletonEntity,
-};
+use galaxyui::fonts::Weight;
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
+use galaxyui::{AppContext, Element, SingletonEntity};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 
 use super::presence_manager::{Participant, MUTED_AVATAR_BORDER_COLOR, MUTED_PARTICIPANT_COLOR};
+use crate::appearance::Appearance;
+use crate::ui_components::avatar::{Avatar, AvatarContent};
 
 pub fn shared_session_indicator_color(appearance: &Appearance) -> ColorU {
     appearance.theme().terminal_colors().normal.red.into()

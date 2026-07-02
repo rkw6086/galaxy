@@ -1,18 +1,12 @@
-use galaxyui::{
-    Element, SizeConstraint,
-    elements::{CacheOption, Image},
-    geometry::vector::vec2f,
-};
-
-use crate::{
-    extract_block,
-    render::{
-        element::paint::{CursorData, CursorDisplayType},
-        model::{BlockItem, RenderState, viewport::ViewportItem},
-    },
-};
+use galaxyui_core::elements::{CacheOption, Image};
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::{Element, SizeConstraint};
 
 use super::{RenderContext, RenderableBlock};
+use crate::extract_block;
+use crate::render::element::paint::{CursorData, CursorDisplayType};
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RenderState};
 
 pub struct RenderableImage {
     viewport_item: ViewportItem,
@@ -39,8 +33,8 @@ impl RenderableBlock for RenderableImage {
     fn layout(
         &mut self,
         model: &RenderState,
-        ctx: &mut galaxyui::LayoutContext,
-        app: &galaxyui::AppContext,
+        ctx: &mut galaxyui_core::LayoutContext,
+        app: &galaxyui_core::AppContext,
     ) {
         let content = model.content();
         let (asset_source, config) = extract_block!(
@@ -60,7 +54,12 @@ impl RenderableBlock for RenderableImage {
         self.image_element = Some(Box::new(image));
     }
 
-    fn paint(&mut self, model: &RenderState, ctx: &mut RenderContext, app: &galaxyui::AppContext) {
+    fn paint(
+        &mut self,
+        model: &RenderState,
+        ctx: &mut RenderContext,
+        app: &galaxyui_core::AppContext,
+    ) {
         let content = model.content();
         let positioned_image = extract_block!(
             self.viewport_item,
@@ -83,7 +82,7 @@ impl RenderableBlock for RenderableImage {
         }
 
         if selected {
-            let rect_bounds = galaxyui::geometry::rect::RectF::new(screen_position, size);
+            let rect_bounds = galaxyui_core::geometry::rect::RectF::new(screen_position, size);
             ctx.paint
                 .scene
                 .draw_rect_with_hit_recording(rect_bounds)

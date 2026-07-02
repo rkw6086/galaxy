@@ -1,21 +1,17 @@
 use std::sync::Arc;
 
-use crate::{
-    content::text::BufferBlockStyle,
-    extract_block,
-    render::{
-        layout::TextLayout,
-        model::{BlockItem, RenderState, viewport::ViewportItem},
-    },
-};
-use galaxyui::elements::ListIndentLevel;
-use galaxyui::{geometry::vector::vec2f, text_layout::TextFrame};
+use galaxyui_core::elements::ListIndentLevel;
+use galaxyui_core::geometry::vector::vec2f;
+use galaxyui_core::text_layout::TextFrame;
 
-use super::{
-    RenderableBlock,
-    paint::RenderContext,
-    placeholder::{self, BlockPlaceholder},
-};
+use super::RenderableBlock;
+use super::paint::RenderContext;
+use super::placeholder::{self, BlockPlaceholder};
+use crate::content::text::BufferBlockStyle;
+use crate::extract_block;
+use crate::render::layout::TextLayout;
+use crate::render::model::viewport::ViewportItem;
+use crate::render::model::{BlockItem, RenderState};
 
 pub struct RenderableOrderedListItem {
     viewport_item: ViewportItem,
@@ -44,8 +40,8 @@ impl RenderableBlock for RenderableOrderedListItem {
     fn layout(
         &mut self,
         model: &RenderState,
-        ctx: &mut galaxyui::LayoutContext,
-        app: &galaxyui::AppContext,
+        ctx: &mut galaxyui_core::LayoutContext,
+        app: &galaxyui_core::AppContext,
     ) {
         let text_layout = TextLayout::from_layout_context(ctx, app, model);
         let block_style = BufferBlockStyle::OrderedList {
@@ -75,7 +71,12 @@ impl RenderableBlock for RenderableOrderedListItem {
             });
     }
 
-    fn paint(&mut self, model: &RenderState, ctx: &mut RenderContext, _app: &galaxyui::AppContext) {
+    fn paint(
+        &mut self,
+        model: &RenderState,
+        ctx: &mut RenderContext,
+        _app: &galaxyui_core::AppContext,
+    ) {
         let content = model.content();
         let paragraph = extract_block!(self.viewport_item, content, (block, BlockItem::OrderedList{ paragraph: inner, ..}) => block.ordered_list(inner));
 

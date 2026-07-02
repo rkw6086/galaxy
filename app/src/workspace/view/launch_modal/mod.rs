@@ -2,14 +2,8 @@
 pub mod cta_button;
 pub mod oz_launch;
 
-// Re-export slide types for convenience
-pub use oz_launch::OzLaunchSlide;
+use std::collections::HashMap;
 
-use crate::settings::PrivacySettings;
-use crate::ui_components::blended_colors;
-use crate::ui_components::icons::Icon;
-use crate::view_components::action_button::{ActionButton, PrimaryTheme, SecondaryTheme};
-use crate::workspace::view::launch_modal::cta_button::{CTAButton, CTAButtonAction};
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::assets::asset_cache::AssetSource;
@@ -29,8 +23,15 @@ use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use markdown_parser::{parse_markdown, FormattedText, FormattedTextLine};
+// Re-export slide types for convenience
+pub use oz_launch::OzLaunchSlide;
 use pathfinder_color::ColorU;
-use std::collections::HashMap;
+
+use crate::settings::PrivacySettings;
+use crate::ui_components::blended_colors;
+use crate::ui_components::icons::Icon;
+use crate::view_components::action_button::{ActionButton, PrimaryTheme, SecondaryTheme};
+use crate::workspace::view::launch_modal::cta_button::{CTAButton, CTAButtonAction};
 
 pub fn init<S: Slide>(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;

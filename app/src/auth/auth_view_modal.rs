@@ -1,4 +1,6 @@
-use anyhow::Result;
+#![allow(dead_code)]
+
+use anyhow::{anyhow, Result};
 use galaxyui::{AppContext, Element, Entity, TypedActionView, View, ViewContext};
 use url::Url;
 
@@ -17,12 +19,20 @@ impl AuthRedirectPayload {
     pub fn from_url(_url: Url) -> Result<Self> {
         anyhow::bail!("Auth UI removed")
     }
+
+    pub fn from_raw_url(raw_url: String) -> Result<Self> {
+        match Url::parse(&raw_url) {
+            Ok(parsed_url) => AuthRedirectPayload::from_url(parsed_url),
+            Err(error) => Err(anyhow!(error)),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum AuthViewVariant {
     Initial,
     RequireLoginCloseable,
+    HitDriveObjectLimitCloseable,
     ShareRequirementCloseable,
 }
 

@@ -1,5 +1,17 @@
 #![cfg_attr(not(feature = "local_fs"), allow(dead_code))]
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use futures_lite::future::yield_now;
+use fuzzy_match::FuzzyMatchResult;
+use itertools::Itertools;
+#[cfg(feature = "local_fs")]
+use repo_metadata::repositories::DetectedRepositories;
+use warpui::{AppContext, SingletonEntity};
+
 use super::search_item::FileSearchItem;
+#[cfg(feature = "local_fs")]
 use crate::code::opened_files::OpenedFilesModel;
 use crate::search::ai_context_menu::mixer::AIContextMenuSearchableAction;
 use crate::search::async_snapshot_data_source::AsyncSnapshotDataSource;
@@ -7,16 +19,8 @@ use crate::search::data_source::{Query, QueryResult};
 use crate::search::files::model::FileSearchModel;
 use crate::search::files::search_item::FileSearchResult;
 use crate::search::mixer::{BoxFuture, DataSourceRunErrorWrapper};
+#[cfg(feature = "local_fs")]
 use crate::workspace::ActiveSession;
-use futures_lite::future::yield_now;
-use fuzzy_match::FuzzyMatchResult;
-use galaxyui::{AppContext, SingletonEntity};
-use itertools::Itertools;
-use repo_metadata::repositories::DetectedRepositories;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 const MAX_RESULTS: usize = 200;
 
@@ -58,7 +62,7 @@ pub fn file_data_source_for_current_repo(
                     last_opened,
                 }
             } else {
-                let contents = file_search_model.get_repo_contents(app);
+                let contents = file_search_model.get_repo_contents(&query.text, app);
                 FileSnapshot {
                     contents,
                     git_changed_files: HashSet::new(),
@@ -104,31 +108,34 @@ pub fn file_data_source_for_pwd(
 
 /// Captures last-opened timestamps from `OpenedFilesModel` for the active
 /// repo at snapshot time. Returns an empty map when no repo is active.
+#[cfg(feature = "local_fs")]
 fn snapshot_last_opened(app: &AppContext) -> HashMap<String, instant::Instant> {
-    let git_repo_path = app
+    let repo_root = app
         .windows()
         .state()
         .active_window
-        .and_then(|window_id| ActiveSession::as_ref(app).path_if_local(window_id))
-        .and_then(|current_dir| {
-            DetectedRepositories::as_ref(app).get_root_for_path(Path::new(current_dir))
-        });
+        .and_then(|window_id| ActiveSession::as_ref(app).working_directory(window_id))
+        .and_then(|working_dir| DetectedRepositories::as_ref(app).get_root_for_path(working_dir));
 
-    let Some(repo_path) = git_repo_path else {
+    let Some(repo_root) = repo_root else {
         return HashMap::new();
     };
 
     let opened_files_model = OpenedFilesModel::as_ref(app);
-    let Some(opened_in_repo) = opened_files_model.opened_files_for_repo(&repo_path) else {
+    let Some(opened_in_repo) = opened_files_model.opened_files_for_repo(&repo_root) else {
         return HashMap::new();
     };
 
-    // Convert PathBuf keys to String keys matching FileSearchResult.path
-    // (relative paths from repo root).
     opened_in_repo
         .iter()
-        .map(|(path, ts)| (path.to_string_lossy().to_string(), *ts))
+        .map(|(path, ts)| (path.clone(), *ts))
         .collect()
+}
+
+/// File-open recency is unavailable without a local filesystem.
+#[cfg(not(feature = "local_fs"))]
+fn snapshot_last_opened(_app: &AppContext) -> HashMap<String, instant::Instant> {
+    HashMap::new()
 }
 
 /// Routes file matching to zero-state ranking or query-based fuzzy scoring.
@@ -182,11 +189,7 @@ async fn fuzzy_match_files_zero_state(
 
             if is_git_changed || is_recently_opened {
                 let rank = recency_index.get(&item.path).copied().unwrap_or(0);
-                let recency_bonus = if max_recency > 0 {
-                    (30 * rank / max_recency) as i64
-                } else {
-                    0
-                };
+                let recency_bonus = (30 * rank).checked_div(max_recency).unwrap_or(0) as i64;
                 let base_score = if is_git_changed { 10000 } else { 0 };
                 let match_result = FuzzyMatchResult {
                     score: base_score + recency_bonus,
@@ -248,11 +251,7 @@ async fn fuzzy_match_files_query(
 
                 // Add a recency bonus, capped at 30.
                 let rank = recency_index.get(&item.path).copied().unwrap_or(0);
-                let recency_bonus = if max_recency > 0 {
-                    (30 * rank / max_recency) as i64
-                } else {
-                    0
-                };
+                let recency_bonus = (30 * rank).checked_div(max_recency).unwrap_or(0) as i64;
 
                 match_result.score += recency_bonus;
 
@@ -272,3 +271,7 @@ async fn fuzzy_match_files_query(
         .k_largest_relaxed_by_key(MAX_RESULTS, |item| item.score())
         .collect()
 }
+
+#[cfg(test)]
+#[path = "data_source_tests.rs"]
+mod tests;

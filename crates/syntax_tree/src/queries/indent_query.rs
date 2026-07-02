@@ -1,8 +1,9 @@
-use std::{collections::HashMap, ops::Range};
+use std::collections::HashMap;
+use std::ops::Range;
 
 use arborium::tree_sitter::{Node, Query, QueryCursor, Tree};
 use galaxy_editor::content::buffer::Buffer;
-use galaxyui::text::point::Point;
+use galaxyui_core::text::point::Point;
 use streaming_iterator::StreamingIterator;
 
 use super::highlight_query::TextBuffer;

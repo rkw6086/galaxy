@@ -2,7 +2,7 @@ use galaxy_terminal::shell::ShellLaunchData;
 use galaxy_util::path::{
     convert_msys2_to_windows_native_path, convert_wsl_to_windows_host_path, msys2_exe_to_root,
 };
-use galaxyui::platform::OperatingSystem;
+use galaxyui_core::platform::OperatingSystem;
 use typed_path::{TypedPath, TypedPathBuf, WindowsPath};
 
 fn use_unix_paths(shell: Option<&ShellLaunchData>) -> bool {

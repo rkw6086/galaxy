@@ -3,10 +3,8 @@
 #![cfg_attr(feature = "release_bundle", windows_subsystem = "windows")]
 
 use anyhow::Result;
-use galaxy_core::{
-    channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig},
-    AppId,
-};
+use galaxy_core::channel::{Channel, ChannelConfig, ChannelState, OzConfig, WarpServerConfig};
+use galaxy_core::AppId;
 
 fn main() -> Result<()> {
     use galaxy_core::features::FeatureFlag;

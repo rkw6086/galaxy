@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod service_tests {
-    use crate::{JsonRpcService, Transport};
+    use std::sync::{Arc, Mutex};
+
     use async_trait::async_trait;
-    use galaxyui::r#async::executor::Background;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use galaxyui_core::r#async::executor::Background;
+
+    use crate::{JsonRpcService, Transport};
 
     #[derive(Debug, Clone)]
     struct MockTransport {

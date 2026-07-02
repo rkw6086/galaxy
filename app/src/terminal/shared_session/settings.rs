@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use settings::{macros::define_settings_group, Setting, SupportedPlatforms, SyncToCloud};
+use settings::macros::define_settings_group;
+use settings::{
+    ChangeEventReason, RespectUserSyncSetting, Setting, SupportedPlatforms, SyncToCloud,
+};
 
 define_settings_group!(SharedSessionSettings, settings: [
     onboarding_block_shown: SessionSharingOnboardingBlockShown {

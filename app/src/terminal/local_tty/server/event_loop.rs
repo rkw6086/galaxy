@@ -1,4 +1,7 @@
-use std::{collections::HashMap, os::unix::prelude::*, process::Child, sync::Arc};
+use std::collections::HashMap;
+use std::os::unix::prelude::*;
+use std::process::Child;
+use std::sync::Arc;
 
 use galaxy_cli::TerminalServerArgs;
 use itertools::Itertools;
@@ -6,12 +9,10 @@ use mio::Interest;
 use parking_lot::Mutex;
 use signal_hook_mio::v1_0::Signals;
 
-use crate::terminal::{
-    local_tty::{self, server::protocol::NonblockingSocketFd},
-    platform,
-};
-
 use super::{api, logging, protocol, RECV_SOCKET_FILENO, SEND_SOCKET_FILENO};
+use crate::terminal::local_tty::server::protocol::NonblockingSocketFd;
+use crate::terminal::local_tty::{self};
+use crate::terminal::platform;
 
 const RECV_SOCKET_TOKEN: mio::Token = mio::Token(0);
 const SIGNALS_TOKEN: mio::Token = mio::Token(1);

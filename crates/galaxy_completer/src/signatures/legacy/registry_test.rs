@@ -1,6 +1,5 @@
 use crate::completer::testing::FakeCompletionContext;
-use crate::completer::CompletionContext;
-use crate::completer::TopLevelCommandCaseSensitivity;
+use crate::completer::{CompletionContext, TopLevelCommandCaseSensitivity};
 use crate::signatures::registry::SignatureResult;
 use crate::signatures::testing::{create_test_command_registry, test_signature};
 
@@ -193,7 +192,7 @@ fn test_alias_expansion_path_skips_flag_with_value_before_subcommand() {
     let ctx = FakeCompletionContext::new(registry).with_case_sensitivity();
 
     let result =
-        galaxyui::r#async::block_on(ctx.command_registry().signature_with_alias_expansion(
+        galaxyui_core::r#async::block_on(ctx.command_registry().signature_with_alias_expansion(
             &["kubectl", "-n", "default", "get"],
             true,
             &ctx,
@@ -216,7 +215,7 @@ fn test_alias_expansion_path_skips_multiple_flags_before_subcommand() {
     let ctx = FakeCompletionContext::new(registry).with_case_sensitivity();
 
     let result =
-        galaxyui::r#async::block_on(ctx.command_registry().signature_with_alias_expansion(
+        galaxyui_core::r#async::block_on(ctx.command_registry().signature_with_alias_expansion(
             &[
                 "kubectl",
                 "--context",

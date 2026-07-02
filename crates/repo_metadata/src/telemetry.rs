@@ -1,7 +1,5 @@
-use galaxy_core::{
-    register_telemetry_event,
-    telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc},
-};
+use galaxy_core::register_telemetry_event;
+use galaxy_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 use serde_json::{json, Value};
 use strum_macros::{EnumDiscriminants, EnumIter};
 

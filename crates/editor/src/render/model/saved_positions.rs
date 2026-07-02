@@ -1,4 +1,4 @@
-use galaxyui::EntityId;
+use galaxyui_core::EntityId;
 
 /// Utility for consistently creating and referencing saved position IDs for
 /// rich text.

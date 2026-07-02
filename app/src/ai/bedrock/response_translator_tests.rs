@@ -1,4 +1,5 @@
-use warp_multi_agent_api::{self as api, response_event::stream_finished};
+use warp_multi_agent_api::response_event::stream_finished;
+use warp_multi_agent_api::{self as api};
 
 use super::response_translator::*;
 

@@ -1,8 +1,8 @@
-use dirs::home_dir;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_family = "wasm"))]
 use std::{fs, sync::Arc, time::Duration};
 
+use dirs::home_dir;
 #[cfg(not(target_family = "wasm"))]
 use galaxyui::ModelHandle;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
@@ -51,6 +51,7 @@ pub(crate) fn galaxy_home_config_dir() -> Option<PathBuf> {
     galaxy_core::paths::galaxy_home_config_dir()
 }
 
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn galaxy_home_skills_dir() -> Option<PathBuf> {
     galaxy_core::paths::galaxy_home_skills_dir()
 }
@@ -62,17 +63,18 @@ pub(crate) fn galaxy_home_mcp_config_file_path() -> Option<PathBuf> {
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GalaxyMcpConfigPath {
+pub struct GalaxyMcpConfigPath {
     pub(crate) root_path: PathBuf,
     pub(crate) config_path: PathBuf,
 }
 
-pub(crate) fn galaxy_managed_skill_dirs() -> Vec<PathBuf> {
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
+pub fn warp_managed_skill_dirs() -> Vec<PathBuf> {
     galaxy_home_skills_dir().into_iter().collect()
 }
 
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
-pub(crate) fn galaxy_managed_mcp_config_path() -> Option<GalaxyMcpConfigPath> {
+pub fn galaxy_managed_mcp_config_path() -> Option<GalaxyMcpConfigPath> {
     Some(GalaxyMcpConfigPath {
         root_path: home_dir()?,
         config_path: galaxy_home_mcp_config_file_path()?,
@@ -118,6 +120,7 @@ fn filter_repository_update(
     let mut filtered = RepositoryUpdate {
         commit_updated: update.commit_updated,
         index_lock_detected: update.index_lock_detected,
+        remote_ref_updated: update.remote_ref_updated,
         ..Default::default()
     };
 
@@ -195,25 +198,26 @@ fn filesystem_event_to_repository_update(event: &BulkFilesystemWatcherEvent) -> 
             .collect(),
         commit_updated: false,
         index_lock_detected: false,
+        remote_ref_updated: false,
     }
 }
 
 #[cfg(target_family = "wasm")]
 #[allow(dead_code)]
-pub(crate) enum GalaxyManagedPathsWatcherEvent {}
+pub enum GalaxyManagedPathsWatcherEvent {}
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) enum GalaxyManagedPathsWatcherEvent {
+pub enum GalaxyManagedPathsWatcherEvent {
     FilesChanged(RepositoryUpdate),
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) struct GalaxyManagedPathsWatcher {
+pub struct GalaxyManagedPathsWatcher {
     _watcher: ModelHandle<BulkFilesystemWatcher>,
 }
 
 #[cfg(target_family = "wasm")]
-pub(crate) struct GalaxyManagedPathsWatcher;
+pub struct GalaxyManagedPathsWatcher;
 
 #[cfg(not(target_family = "wasm"))]
 impl GalaxyManagedPathsWatcher {
@@ -244,11 +248,15 @@ impl GalaxyManagedPathsWatcher {
             let config_local_dir = galaxy_core::paths::config_local_dir();
             let should_register_config_local_dir = config_local_dir != data_dir;
             let worktrees_dir = data_dir.join("worktrees");
+            // Safe to use for both directory registration and event emission.
+            // If this rejects `worktrees_dir`, every descendant should be rejected too,
+            // so the recursive watcher never prunes an ancestor needed to reach an allowed path.
+            let filter = Arc::new(move |path: &Path| !path.starts_with(&worktrees_dir));
             Self::register_path(
                 ctx,
                 &watcher,
                 data_dir.clone(),
-                WatchFilter::with_filter(Arc::new(move |path| !path.starts_with(&worktrees_dir))),
+                WatchFilter::with_filter(filter.clone(), filter),
                 RecursiveMode::Recursive,
                 "Galaxy data directory",
             );
@@ -286,13 +294,14 @@ impl GalaxyManagedPathsWatcher {
                     && (!should_register_config_local_dir
                         || !galaxy_home_config_dir.starts_with(&config_local_dir))
                 {
+                    // Watch the config directory non-recursively,
+                    // and ignore events for files other than the MCP config file.
+                    let emit = Arc::new(move |path: &Path| path == warp_home_mcp_config_path);
                     Self::register_path(
                         ctx,
                         &watcher,
                         galaxy_home_config_dir,
-                        WatchFilter::with_filter(Arc::new(move |path| {
-                            path == warp_home_mcp_config_path
-                        })),
+                        WatchFilter::with_filter(Arc::new(|_: &Path| true), emit),
                         RecursiveMode::NonRecursive,
                         "Galaxy home MCP config directory",
                     );
@@ -328,6 +337,7 @@ impl GalaxyManagedPathsWatcher {
 
     fn handle_fs_event(
         &mut self,
+        _: ModelHandle<BulkFilesystemWatcher>,
         event: &BulkFilesystemWatcherEvent,
         ctx: &mut ModelContext<Self>,
     ) {
@@ -356,93 +366,11 @@ impl Entity for GalaxyManagedPathsWatcher {
 
 impl SingletonEntity for GalaxyManagedPathsWatcher {}
 
+pub type WarpManagedPathsWatcher = GalaxyManagedPathsWatcher;
+pub type WarpManagedPathsWatcherEvent = GalaxyManagedPathsWatcherEvent;
+pub use galaxy_managed_mcp_config_path as warp_managed_mcp_config_path;
+pub use warp_managed_skill_dirs as galaxy_managed_skill_dirs;
+
 #[cfg(test)]
-mod tests {
-    use dirs::home_dir;
-    use std::collections::{HashMap, HashSet};
-    use std::path::PathBuf;
-
-    use repo_metadata::{RepositoryUpdate, TargetFile};
-
-    use super::{
-        filter_repository_update_by_prefix, galaxy_home_mcp_config_file_path,
-        galaxy_home_skills_dir, galaxy_managed_mcp_config_path, galaxy_managed_skill_dirs,
-    };
-
-    #[test]
-    fn galaxy_managed_skill_dirs_contains_only_warp_home_path() {
-        let dirs = galaxy_managed_skill_dirs();
-        match galaxy_home_skills_dir() {
-            Some(galaxy_home_skills_dir) => assert_eq!(dirs, vec![galaxy_home_skills_dir]),
-            None => assert!(dirs.is_empty()),
-        }
-    }
-
-    #[test]
-    fn galaxy_managed_mcp_config_path_contains_only_warp_home_path() {
-        match (
-            home_dir(),
-            galaxy_home_mcp_config_file_path(),
-            galaxy_managed_mcp_config_path(),
-        ) {
-            (Some(home_dir), Some(warp_home_mcp_config_path), Some(path)) => {
-                assert_eq!(path.root_path, home_dir);
-                assert_eq!(path.config_path, warp_home_mcp_config_path);
-            }
-            (_, _, None) => {}
-            _ => panic!("Expected Warp MCP path when home directory is available"),
-        }
-    }
-
-    #[test]
-    fn filter_repository_update_by_prefix_keeps_only_matching_paths() {
-        let skills_dir = PathBuf::from("/tmp/.warp-local/skills");
-        let other_dir = PathBuf::from("/tmp/.warp-local/worktrees/repo");
-        let skill_file = skills_dir.join("deploy").join("SKILL.md");
-        let other_file = other_dir.join("README.md");
-
-        let update = RepositoryUpdate {
-            added: HashSet::from([
-                TargetFile::new(skill_file.clone(), false),
-                TargetFile::new(other_file.clone(), false),
-            ]),
-            modified: HashSet::new(),
-            deleted: HashSet::new(),
-            moved: HashMap::new(),
-            commit_updated: false,
-            index_lock_detected: false,
-        };
-
-        let filtered =
-            filter_repository_update_by_prefix(&update, &skills_dir).expect("expected update");
-
-        assert!(filtered.contains_added_or_modified(&TargetFile::new(skill_file, false)));
-        assert!(!filtered.contains_added_or_modified(&TargetFile::new(other_file, false)));
-    }
-
-    #[test]
-    fn filter_repository_update_by_prefix_converts_cross_boundary_moves() {
-        let skills_dir = PathBuf::from("/tmp/.warp-local/skills");
-        let skill_file = skills_dir.join("deploy").join("SKILL.md");
-        let ignored_file = PathBuf::from("/tmp/.warp-local/worktrees/repo/SKILL.md");
-
-        let update = RepositoryUpdate {
-            added: HashSet::new(),
-            modified: HashSet::new(),
-            deleted: HashSet::new(),
-            moved: HashMap::from([(
-                TargetFile::new(skill_file.clone(), false),
-                TargetFile::new(ignored_file, false),
-            )]),
-            commit_updated: false,
-            index_lock_detected: false,
-        };
-
-        let filtered =
-            filter_repository_update_by_prefix(&update, &skills_dir).expect("expected update");
-
-        assert!(filtered.contains_added_or_modified(&TargetFile::new(skill_file, false)));
-        assert!(filtered.moved.is_empty());
-        assert!(filtered.deleted.is_empty());
-    }
-}
+#[path = "warp_managed_paths_watcher_tests.rs"]
+mod tests;

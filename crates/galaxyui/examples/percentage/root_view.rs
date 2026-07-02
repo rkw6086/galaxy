@@ -1,12 +1,11 @@
+use galaxyui::color::ColorU;
+use galaxyui::elements::{
+    Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment,
+    MainAxisSize, ParentElement, Percentage, Rect, Shrinkable, Text,
+};
 use galaxyui::fonts::FamilyId;
-use galaxyui::SingletonEntity as _;
 use galaxyui::{
-    color::ColorU,
-    elements::{
-        Align, Border, ConstrainedBox, Container, CrossAxisAlignment, Flex, MainAxisAlignment,
-        MainAxisSize, ParentElement, Percentage, Rect, Shrinkable, Text,
-    },
-    AppContext, Element, Entity, TypedActionView, View, ViewContext,
+    AppContext, Element, Entity, SingletonEntity as _, TypedActionView, View, ViewContext,
 };
 
 pub struct RootView {

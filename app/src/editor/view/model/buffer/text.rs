@@ -1,13 +1,12 @@
+use std::cmp;
+use std::fmt::{self, Debug};
+use std::ops::{Bound, Index, Range, RangeBounds};
+use std::rc::Rc;
+
 use arrayvec::ArrayVec;
 use galaxyui::text::point::Point;
 use galaxyui::text_layout::TextStyle;
 use num_traits::SaturatingSub;
-use std::{
-    cmp,
-    fmt::{self, Debug},
-    ops::{Bound, Index, Range, RangeBounds},
-    rc::Rc,
-};
 use string_offset::{ByteOffset, CharOffset};
 use sum_tree::{self, SeekBias, SumTree};
 
@@ -390,5 +389,5 @@ impl Text {
 }
 
 #[cfg(test)]
-#[path = "text_test.rs"]
+#[path = "text_tests.rs"]
 mod tests;

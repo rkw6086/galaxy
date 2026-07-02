@@ -1,23 +1,21 @@
 use std::path::PathBuf;
 
 use galaxy_core::ui::theme::Fill;
+use galaxyui::elements::{
+    Align, ChildAnchor, ChildView, Container, OffsetPositioning, ParentAnchor, ParentOffsetBounds,
+    Stack,
+};
+use galaxyui::keymap::{FixedBinding, Keystroke};
+use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::{
-    elements::{
-        Align, ChildAnchor, ChildView, Container, OffsetPositioning, ParentAnchor,
-        ParentOffsetBounds, Stack,
-    },
-    keymap::{FixedBinding, Keystroke},
-    ui_components::components::{UiComponent, UiComponentStyles},
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
 use pathfinder_geometry::vector::vec2f;
 
-use crate::{
-    appearance::Appearance,
-    ui_components::dialog::{dialog_styles, Dialog},
-    view_components::action_button::{
-        ActionButton, DangerPrimaryTheme, KeystrokeSource, NakedTheme,
-    },
+use crate::appearance::Appearance;
+use crate::ui_components::dialog::{dialog_styles, Dialog};
+use crate::view_components::action_button::{
+    ActionButton, DangerPrimaryTheme, KeystrokeSource, NakedTheme,
 };
 
 pub(crate) fn init(app: &mut AppContext) {

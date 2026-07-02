@@ -1,24 +1,20 @@
 use std::ops::Range;
 
-use galaxyui::{
+use galaxyui_core::elements::Point;
+use galaxyui_core::event::DispatchedEvent;
+use galaxyui_core::geometry::rect::RectF;
+use galaxyui_core::geometry::vector::Vector2F;
+use galaxyui_core::units::IntoPixels;
+use galaxyui_core::{
     AfterLayoutContext, AppContext, Element, EventContext, LayoutContext, ModelHandle,
     PaintContext, SizeConstraint, WeakViewHandle,
-    elements::Point,
-    event::DispatchedEvent,
-    geometry::{rect::RectF, vector::Vector2F},
-    units::IntoPixels,
 };
 
-use crate::{
-    editor::EditorView,
-    render::{
-        element::{
-            DisplayOptions, RenderContext, RenderableBlock, paragraph::RenderableParagraph,
-            temporary_block::RenderableTemporaryBlock,
-        },
-        model::{BlockItem, RenderLineLocation, RenderState},
-    },
-};
+use crate::editor::EditorView;
+use crate::render::element::paragraph::RenderableParagraph;
+use crate::render::element::temporary_block::RenderableTemporaryBlock;
+use crate::render::element::{DisplayOptions, RenderContext, RenderableBlock};
+use crate::render::model::{BlockItem, RenderLineLocation, RenderState};
 
 pub struct RichTextElementLens<V: EditorView> {
     blocks: Option<Vec<Box<dyn RenderableBlock>>>,

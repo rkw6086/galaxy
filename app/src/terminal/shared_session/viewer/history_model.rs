@@ -1,5 +1,6 @@
-use crate::terminal::HistoryEntry;
 use galaxyui::Entity;
+
+use crate::terminal::HistoryEntry;
 
 /// Responsible for managing the history of a shared session for a viewer.
 #[derive(Default)]

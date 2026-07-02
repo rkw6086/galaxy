@@ -133,7 +133,6 @@ mod unix_tests {
 // Windows-specific tests use Windows paths
 #[cfg(windows)]
 mod windows_tests {
-    use super::*;
 
     #[test]
     fn test_lsp_uri_to_path_basic() {

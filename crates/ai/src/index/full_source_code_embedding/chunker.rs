@@ -1,5 +1,7 @@
 use std::path::Path;
 
+#[cfg(not(target_family = "wasm"))]
+use galaxy_util::standardized_path::StandardizedPath;
 use string_offset::ByteOffset;
 
 mod naive;
@@ -99,7 +101,8 @@ pub fn chunk_code<'a>(code: &'a str, path: &'a Path) -> Vec<Fragment<'a>> {
 /// could not be chunked for any reason.
 #[cfg(not(target_family = "wasm"))]
 fn try_chunk_code_semantically<'a>(code: &'a str, path: &'a Path) -> Option<Vec<Fragment<'a>>> {
-    let language = languages::language_by_filename(path)?;
+    let standardized_path = StandardizedPath::try_from_local(path).ok()?;
+    let language = languages::language_by_filename(&standardized_path)?;
     semantic::chunk_code(code, path, MAX_BYTES_PER_CHUNK, &language.grammar).ok()
 }
 

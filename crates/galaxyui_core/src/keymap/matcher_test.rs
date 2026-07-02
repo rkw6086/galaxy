@@ -1,6 +1,5 @@
-use crate::keymap::macros::*;
-
 use super::*;
+use crate::keymap::macros::*;
 
 #[test]
 fn test_matcher() -> anyhow::Result<()> {
@@ -96,7 +95,6 @@ fn test_editable_binding_matching() {
     }
 
     let mut keymap = Keymap::default();
-    use crate::keymap::macros::*;
     keymap.register_editable_bindings([
         EditableBinding::new("a", "Action for A", Action::A("b"))
             .with_key_binding("a")

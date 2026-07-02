@@ -1,11 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use galaxyui::integration::{AssertionOutcome, TestStep};
-
-use crate::Builder;
+use galaxyui_core::integration::{AssertionOutcome, TestStep};
 
 use super::wait_until_bootstrapped_single_pane_for_tab;
+use crate::Builder;
 
 /// Returns the current `$HOME` as a [`PathBuf`].
 /// In integration tests, `HOME` is overridden to a hermetic temp directory.
@@ -37,7 +36,7 @@ pub fn test_preview_config_dir_migration() -> Builder {
             // integration channel is Integration, not Preview, so the public
             // entry point would no-op.
             let new_dir = home.join(".warp-preview");
-            galaxy::integration_testing::preview_config_migration::run_config_dir_symlink_migration(
+            warp::integration_testing::preview_config_migration::run_config_dir_symlink_migration(
                 &old_dir, &new_dir,
             );
         })

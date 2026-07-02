@@ -7,13 +7,12 @@ use galaxy_completer::completer::SuggestionTypeName;
 use galaxy_completer::signatures::CommandRegistry;
 use galaxy_core::ui::theme::AnsiColorIdentifier;
 use galaxyui::r#async::SpawnedFutureHandle;
-use galaxyui::ViewHandle;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{Entity, ModelContext, SingletonEntity, ViewHandle};
 use string_offset::ByteOffset;
 
 use crate::appearance::Appearance;
 use crate::completer::SessionAgnosticContext;
-use crate::debounce::debounce;
+use crate::debounce;
 use crate::editor::{EditorView, TextStyleOperation};
 use crate::terminal::input::decorations::{
     parse_current_commands_and_tokens, ParsedTokenData, ParsedTokensSnapshot,

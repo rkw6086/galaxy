@@ -1,5 +1,6 @@
 use comfy_table::Cell;
-use galaxy_cli::{agent::AgentProfileCommand, GlobalOptions};
+use galaxy_cli::agent::AgentProfileCommand;
+use galaxy_cli::GlobalOptions;
 use galaxyui::{AppContext, ModelContext, SingletonEntity};
 use serde::Serialize;
 

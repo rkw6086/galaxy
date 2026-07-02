@@ -61,3 +61,8 @@ impl TelemetryApi {
         Ok(())
     }
 }
+
+#[allow(dead_code)]
+pub fn clear_event_queue() {
+    let _ = galaxyui::telemetry::flush_events();
+}

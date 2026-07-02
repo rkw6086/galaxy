@@ -1,25 +1,24 @@
-use crate::settings::EnforceMinimumContrast;
-use crate::terminal::color;
-use crate::terminal::grid_renderer::{render_cursor, render_grid, CellGlyphCache};
-use crate::terminal::model::blockgrid::{BlockGrid, CursorDisplayPoint};
-use crate::terminal::model::grid::grid_handler::Link;
-use crate::terminal::model::index::Point;
-use crate::terminal::model::ObfuscateSecrets;
-use crate::terminal::SizeInfo;
-use crate::themes::theme::GalaxyTheme;
+use std::collections::HashMap;
+use std::ops::{Neg, RangeInclusive};
+
 use galaxyui::fonts::{FamilyId, Properties, Weight};
 use galaxyui::geometry::rect::RectF;
 use galaxyui::geometry::vector::{vec2f, Vector2F};
 use galaxyui::{AppContext, Element, EntityId, PaintContext};
 use pathfinder_color::ColorU;
-use std::collections::HashMap;
-use std::ops::Neg;
-use std::ops::RangeInclusive;
 
 use super::model::ansi::{CursorShape, CursorStyle};
 use super::model::grid::RespectDisplayedOutput;
 use super::model::image_map::StoredImageMetadata;
 use super::model::SecretHandle;
+use crate::settings::EnforceMinimumContrast;
+use crate::terminal::grid_renderer::{render_cursor, render_grid, CellGlyphCache};
+use crate::terminal::model::blockgrid::{BlockGrid, CursorDisplayPoint};
+use crate::terminal::model::grid::grid_handler::Link;
+use crate::terminal::model::index::Point;
+use crate::terminal::model::ObfuscateSecrets;
+use crate::terminal::{color, SizeInfo};
+use crate::themes::theme::GalaxyTheme;
 
 pub struct GridRenderParams {
     pub warp_theme: GalaxyTheme,

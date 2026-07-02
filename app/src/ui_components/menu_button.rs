@@ -1,4 +1,3 @@
-use crate::appearance::Appearance;
 use galaxyui::elements::{
     ChildAnchor, ChildView, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Stack,
@@ -10,6 +9,7 @@ use pathfinder_geometry::vector::{vec2f, Vector2F};
 
 use super::buttons::{highlight, icon_button};
 use super::icons::Icon;
+use crate::appearance::Appearance;
 
 #[derive(Clone, Copy)]
 pub enum MenuDirection {

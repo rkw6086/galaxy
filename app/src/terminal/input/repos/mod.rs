@@ -4,11 +4,10 @@ mod data_source;
 mod search_item;
 mod view;
 
-pub use view::{InlineReposMenuEvent, InlineReposMenuView};
-
 use std::path::PathBuf;
 
 use galaxyui::keymap::Keystroke;
+pub use view::{InlineReposMenuEvent, InlineReposMenuView};
 
 use crate::terminal::input::inline_menu::{
     default_navigation_message_items, InlineMenuAction, InlineMenuMessageArgs, InlineMenuRowAction,

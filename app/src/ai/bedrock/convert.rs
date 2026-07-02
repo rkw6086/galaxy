@@ -10,7 +10,6 @@ use aws_smithy_types::Document;
 use serde_json::Value as JsonValue;
 
 use super::external_config::ExternalBedrockConfig;
-
 // Re-export shared provider types so existing imports from bedrock::convert continue to work.
 pub use crate::ai::provider::types::{
     ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
@@ -47,6 +46,7 @@ pub struct ConvertedRequest {
     pub tool_config: Option<ToolConfiguration>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_converse_request(
     messages: Vec<ConversationMessage>,
     system_prompt: Option<String>,
