@@ -1562,6 +1562,41 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                     None => ("Agent completed.".to_string(), false),
                 }
             }
+            api::request::input::tool_call_result::Result::AskUserQuestion(ask_result) => {
+                match &ask_result.result {
+                    Some(api::ask_user_question_result::Result::Success(success)) => {
+                        let answers_text: Vec<String> = success
+                            .answers
+                            .iter()
+                            .map(|item| {
+                                let answer_str = match &item.answer {
+                                    Some(api::ask_user_question_result::answer_item::Answer::MultipleChoice(mc)) => {
+                                        let mut parts = mc.selected_options.clone();
+                                        if !mc.other_text.is_empty() {
+                                            parts.push(mc.other_text.clone());
+                                        }
+                                        parts.join(", ")
+                                    }
+                                    Some(api::ask_user_question_result::answer_item::Answer::Skipped(_)) => {
+                                        "Skipped".to_string()
+                                    }
+                                    None => "No answer provided".to_string(),
+                                };
+                                if item.question_id.is_empty() {
+                                    answer_str
+                                } else {
+                                    format!("{}: {}", item.question_id, answer_str)
+                                }
+                            })
+                            .collect();
+                        (format!("User's answers:\n{}", answers_text.join("\n")), false)
+                    }
+                    Some(api::ask_user_question_result::Result::Error(error)) => {
+                        (format!("User question error: {}", error.message), true)
+                    }
+                    None => ("User did not answer.".to_string(), true),
+                }
+            }
             _ => ("Tool completed successfully.".to_string(), false),
         }
     } else {

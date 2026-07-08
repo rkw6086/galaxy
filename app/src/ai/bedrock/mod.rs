@@ -1,5 +1,6 @@
 pub mod client;
 pub mod convert;
+pub mod crash_log;
 pub mod diagnostic;
 pub mod external_config;
 pub mod models;

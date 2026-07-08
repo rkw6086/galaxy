@@ -268,6 +268,15 @@ impl BedrockClient {
                     );
                 }
             }
+
+            super::crash_log::log_crash(
+                "BedrockApiError",
+                &msg,
+                &effective_model_id,
+                messages.len(),
+                None,
+            );
+
             if msg.contains("AccessDenied") || msg.contains("access denied") {
                 BedrockError::AccessDenied(msg)
             } else if msg.contains("ThrottlingException") || msg.contains("throttl") {

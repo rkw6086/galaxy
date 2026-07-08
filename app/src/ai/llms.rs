@@ -21,7 +21,7 @@ use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::server::server_api::ServerApiProvider;
-use crate::settings::{BedrockModelConfig, OpenAIModelConfig, OpenAIProviderConfig};
+use crate::settings::{BedrockModelConfig, OpenAIModelConfig};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
@@ -601,6 +601,10 @@ pub struct LLMPreferences {
     custom_model_routers: Vec<CustomModelRouter>,
     #[cfg(not(target_family = "wasm"))]
     openai_provider_routing: HashMap<String, super::openai::client::OpenAIClientConfig>,
+    /// Models fetched from the OpenAI-compatible /models endpoint at runtime.
+    /// Stored in memory only — not persisted to TOML.
+    #[cfg(not(target_family = "wasm"))]
+    fetched_openai_models: Vec<OpenAIModelConfig>,
 }
 
 impl LLMPreferences {
@@ -657,6 +661,28 @@ impl LLMPreferences {
             });
         }
 
+        // Re-inject provider models when Bedrock or OpenAI enabled state changes.
+        #[cfg(not(target_family = "wasm"))]
+        ctx.subscribe_to_model(&AISettings::handle(ctx), |me, _, event, ctx| {
+            use crate::settings::AISettingsChangedEvent;
+            if matches!(
+                event,
+                AISettingsChangedEvent::BedrockEnabled { .. }
+                    | AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+            ) {
+                me.inject_bedrock_models(ctx);
+                me.inject_openai_models(ctx);
+                if matches!(event, AISettingsChangedEvent::OpenAIEnabled { .. } | AISettingsChangedEvent::OpenAIBaseUrl { .. }) {
+                    me.fetch_openai_models_from_endpoint(ctx);
+                }
+                // Safety: ensure the default model is still present in choices.
+                // If all provider models were removed, the default_id would dangle.
+                me.ensure_default_model_present();
+                ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            }
+        });
+
         let base_llm_for_terminal_view = HashMap::new();
         let custom_llms = build_custom_llm_infos(ApiKeyManager::as_ref(ctx).keys());
 
@@ -668,6 +694,8 @@ impl LLMPreferences {
             custom_model_routers: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
             openai_provider_routing: HashMap::new(),
+            #[cfg(not(target_family = "wasm"))]
+            fetched_openai_models: Vec::new(),
         };
 
         // Seed from any already-loaded local config (the async load emits
@@ -688,6 +716,7 @@ impl LLMPreferences {
             Self::ensure_default_models_in_settings(ctx);
             me.inject_bedrock_models(ctx);
             me.inject_openai_models(ctx);
+            me.fetch_openai_models_from_endpoint(ctx);
         }
 
         me
@@ -932,27 +961,11 @@ impl LLMPreferences {
             return;
         }
 
-        // Collect all (provider_name, base_url, api_key, models) tuples from both config paths.
+        // Models come exclusively from the in-memory /models endpoint fetch.
         let mut provider_entries: Vec<(String, String, Option<String>, Vec<OpenAIModelConfig>)> =
             Vec::new();
 
-        // Path 1: Multi-provider `ai.providers[]`
-        let providers: Vec<OpenAIProviderConfig> = settings.openai_providers.value().clone();
-        for provider in providers {
-            if provider.models.is_empty() {
-                continue;
-            }
-            provider_entries.push((
-                provider.name,
-                provider.base_url,
-                provider.api_key,
-                provider.models,
-            ));
-        }
-
-        // Path 2: Legacy single-provider `ai.openai.{base_url, models}`
-        let legacy_models: Vec<OpenAIModelConfig> = settings.openai_models.value().clone();
-        if !legacy_models.is_empty() {
+        if !self.fetched_openai_models.is_empty() {
             let base_url = settings.openai_base_url.value().clone();
             let api_key = {
                 let key = settings.openai_api_key.value().clone();
@@ -967,7 +980,7 @@ impl LLMPreferences {
             } else {
                 "LiteLLM".to_string()
             };
-            provider_entries.push((name, base_url, api_key, legacy_models));
+            provider_entries.push((name, base_url, api_key, self.fetched_openai_models.clone()));
         }
 
         if provider_entries.is_empty() {
@@ -975,6 +988,7 @@ impl LLMPreferences {
         }
 
         let mut total_injected = 0;
+        let mut seen_model_ids: HashSet<String> = HashSet::new();
         for (provider_name, base_url, api_key, models) in provider_entries {
             let client_config = OpenAIClientConfig {
                 base_url: base_url.clone(),
@@ -983,6 +997,10 @@ impl LLMPreferences {
             };
 
             for model in &models {
+                if !seen_model_ids.insert(model.model_id.clone()) {
+                    continue;
+                }
+
                 // Register the routing entry
                 self.openai_provider_routing
                     .insert(model.model_id.clone(), client_config.clone());
@@ -1026,6 +1044,36 @@ impl LLMPreferences {
         log::info!("[openai/litellm] Injected {total_injected} model(s) into available choices");
     }
 
+    /// Ensures the default model ID in each feature's choices still points to
+    /// an existing entry. If the default was removed (e.g. provider disabled),
+    /// switch to the first remaining choice.
+    #[cfg(not(target_family = "wasm"))]
+    fn ensure_default_model_present(&mut self) {
+        fn fix_default(feature: &mut AvailableLLMs) {
+            if feature.choices.is_empty() {
+                return;
+            }
+            let default_exists = feature
+                .choices
+                .iter()
+                .any(|m| m.id == feature.default_id);
+            if !default_exists {
+                let new_default = feature.choices[0].id.clone();
+                log::info!(
+                    "[llm] Default model {:?} no longer available, switching to {:?}",
+                    feature.default_id,
+                    new_default
+                );
+                feature.default_id = new_default;
+            }
+        }
+        fix_default(&mut self.models_by_feature.agent_mode);
+        fix_default(&mut self.models_by_feature.coding);
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            fix_default(cli);
+        }
+    }
+
     /// Returns the OpenAI client config for a given model ID, if it was injected
     /// from an OpenAI-compatible provider.
     #[cfg(not(target_family = "wasm"))]
@@ -1034,6 +1082,130 @@ impl LLMPreferences {
         model_id: &str,
     ) -> Option<&super::openai::client::OpenAIClientConfig> {
         self.openai_provider_routing.get(model_id)
+    }
+
+    /// Fetches available models from the configured OpenAI-compatible /models endpoint
+    /// and stores them in memory. Called at startup and when the user clicks "Fetch Models".
+    #[cfg(not(target_family = "wasm"))]
+    pub fn fetch_openai_models_from_endpoint(&mut self, ctx: &mut ModelContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.openai_enabled.value() {
+            return;
+        }
+
+        let base_url = settings.openai_base_url.value().clone();
+        if base_url.is_empty() {
+            return;
+        }
+
+        let api_key = {
+            let key = settings.openai_api_key.value().clone();
+            if key.is_empty() {
+                None
+            } else {
+                Some(key)
+            }
+        };
+
+        let _ = ctx.spawn(
+            async move {
+                let url = format!("{}/models", base_url.trim_end_matches('/'));
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap_or_default();
+                let mut request = client.get(&url);
+                if let Some(ref key) = api_key {
+                    request = request.header("Authorization", format!("Bearer {key}"));
+                }
+
+                let response = match request.send().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log::warn!("[openai/litellm] Failed to fetch models from endpoint: {e}");
+                        return Vec::new();
+                    }
+                };
+
+                if !response.status().is_success() {
+                    log::warn!(
+                        "[openai/litellm] Model fetch returned HTTP {}",
+                        response.status()
+                    );
+                    return Vec::new();
+                }
+
+                let body: serde_json::Value = match response.json().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!("[openai/litellm] Failed to parse models response: {e}");
+                        return Vec::new();
+                    }
+                };
+
+                let models: Vec<OpenAIModelConfig> = body["data"]
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|m| {
+                        let id = m["id"].as_str()?;
+                        let context_size = m["max_model_len"]
+                            .as_u64()
+                            .or_else(|| m["context_window"].as_u64())
+                            .or_else(|| m["max_input_tokens"].as_u64())
+                            .unwrap_or(200_000) as u32;
+
+                        let display_name = id
+                            .split('/')
+                            .next_back()
+                            .unwrap_or(id)
+                            .replace(['-', '_'], " ");
+                        let display_name = display_name
+                            .split_whitespace()
+                            .map(|word| {
+                                let mut chars = word.chars();
+                                match chars.next() {
+                                    None => String::new(),
+                                    Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+
+                        let provider = if id.contains("claude") || id.contains("anthropic") {
+                            Some("anthropic".to_string())
+                        } else if id.contains("gpt") || id.contains("o1") || id.contains("o3") {
+                            Some("openai".to_string())
+                        } else if id.contains("gemini") {
+                            Some("google".to_string())
+                        } else {
+                            None
+                        };
+
+                        Some(OpenAIModelConfig {
+                            model_id: id.to_string(),
+                            display_name,
+                            vision_supported: m["supports_vision"].as_bool().unwrap_or(false),
+                            context_size,
+                            provider,
+                        })
+                    })
+                    .collect();
+
+                log::info!(
+                    "[openai/litellm] Fetched {} model(s) from endpoint",
+                    models.len()
+                );
+                models
+            },
+            |me, models, ctx| {
+                if !models.is_empty() {
+                    me.fetched_openai_models = models;
+                    me.inject_openai_models(ctx);
+                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+                }
+            },
+        );
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.

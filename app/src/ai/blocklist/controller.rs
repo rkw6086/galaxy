@@ -404,6 +404,8 @@ pub struct BlocklistAIController {
 
     /// Per-conversation loop detection state for preventing recursive tool failures.
     loop_detection: HashMap<AIConversationId, LoopDetectionState>,
+    /// Per-conversation error retry count for injecting corrective messages on failure.
+    error_retry_counts: HashMap<AIConversationId, usize>,
     /// Passive suggestion results that should be included with the next request
     /// for a given conversation (e.g. accepted/iterated code diffs that weren't
     /// auto-resumed).
@@ -684,6 +686,7 @@ impl BlocklistAIController {
             pending_passive_follow_ups: HashSet::new(),
             pending_passive_suggestion_results: HashMap::new(),
             loop_detection: HashMap::new(),
+            error_retry_counts: HashMap::new(),
         }
     }
 
@@ -1233,8 +1236,9 @@ impl BlocklistAIController {
         queued_query_id: Option<QueuedQueryId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        // User sending a new query resets loop detection — fresh context.
+        // User sending a new query resets loop detection and error retry state — fresh context.
         self.loop_detection.remove(&conversation_id);
+        self.error_retry_counts.remove(&conversation_id);
 
         let is_viewer = self
             .terminal_model
@@ -3132,42 +3136,145 @@ impl BlocklistAIController {
                             });
                         }
 
-                        // A resume scheduled for this failure keeps the conversation in
-                        // the non-terminal TransientError status instead of Error.
-                        let recovery_pending = response_stream
-                            .as_ref(ctx)
-                            .should_resume_conversation_after_stream_finished();
-                        let mut renderable_error: RenderableAIError = (&e).into();
-                        if let RenderableAIError::Other {
-                            will_attempt_resume,
-                            waiting_for_network,
-                            ..
-                        }
-                        | RenderableAIError::TransientNetworkError {
-                            will_attempt_resume,
-                            waiting_for_network,
-                            ..
-                        } = &mut renderable_error
-                        {
-                            // Rendering-only hints; state machine consumers key off the
-                            // TransientError conversation status instead.
-                            *will_attempt_resume |= recovery_pending;
-                            if recovery_pending {
-                                let network_status = NetworkStatus::as_ref(ctx);
-                                *waiting_for_network = !network_status.is_online();
-                            }
-                        }
+                        // Check if this error is eligible for corrective retry.
+                        // Similar to loop detection, inject a message telling the LLM
+                        // to try a different approach rather than just failing.
+                        let error_str = format!("{e}");
+                        let is_corrective_retry_candidate = !matches!(
+                            e.as_ref(),
+                            AIApiError::QuotaLimit { .. }
+                        ) && (error_str.contains("ValidationException")
+                            || error_str.contains("validation")
+                            || error_str.contains("context window")
+                            || error_str.contains("too many tokens")
+                            || error_str.contains("input is too long")
+                            || error_str.contains("throttl")
+                            || error_str.contains("ThrottlingException"));
 
-                        history_model.update(ctx, |history_model, ctx| {
-                            history_model.mark_response_stream_completed_with_error(
-                                renderable_error,
-                                recovery_pending,
-                                &stream_id,
+                        const MAX_ERROR_RETRIES: usize = 2;
+                        let retry_count = self
+                            .error_retry_counts
+                            .entry(conversation_id)
+                            .or_insert(0);
+                        let should_corrective_retry =
+                            is_corrective_retry_candidate && *retry_count < MAX_ERROR_RETRIES;
+
+                        if should_corrective_retry {
+                            *retry_count += 1;
+                            let retry_num = *retry_count;
+                            log::warn!(
+                                "[error-retry] Attempting corrective retry {}/{} for conversation {:?}: {}",
+                                retry_num,
+                                MAX_ERROR_RETRIES,
                                 conversation_id,
-                                self.terminal_surface_id,
-                                ctx,
+                                error_str
                             );
-                        });
+
+                            // Mark the error on the conversation but with recovery pending
+                            let renderable_error = RenderableAIError::Other {
+                                error_message: format!(
+                                    "Error encountered, retrying with different approach (attempt {}/{})",
+                                    retry_num, MAX_ERROR_RETRIES
+                                ),
+                                will_attempt_resume: true,
+                                waiting_for_network: false,
+                                is_user_error: false,
+                            };
+                            history_model.update(ctx, |history_model, ctx| {
+                                history_model.mark_response_stream_completed_with_error(
+                                    renderable_error,
+                                    /*recovery_pending*/ true,
+                                    &stream_id,
+                                    conversation_id,
+                                    self.terminal_surface_id,
+                                    ctx,
+                                );
+                            });
+
+                            // Inject a corrective message and resume
+                            if let Some(conversation) =
+                                BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+                            {
+                                let root_task_id = conversation.get_root_task_id().clone();
+                                let corrective_msg = format!(
+                                    "[SYSTEM] The previous request resulted in an error: {}\n\n\
+                                     Please try a completely different approach to accomplish the goal. \
+                                     If the error is related to context size, reduce the amount of content \
+                                     you are working with (read fewer files, use smaller commands, break \
+                                     the task into smaller steps). If you cannot find an alternative, \
+                                     explain to the user what is failing and why.",
+                                    error_str
+                                );
+
+                                let inputs = vec![
+                                    AIAgentInput::UserQuery {
+                                        query: corrective_msg,
+                                        context: Arc::from([]),
+                                        static_query_type: None,
+                                        referenced_attachments: HashMap::new(),
+                                        user_query_mode: UserQueryMode::Normal,
+                                        running_command: None,
+                                        intended_agent: None,
+                                    },
+                                ];
+
+                                let _ = self.send_request_input(
+                                    RequestInput::for_task(
+                                        inputs,
+                                        root_task_id,
+                                        &self.active_session,
+                                        self.get_current_response_initiator(),
+                                        conversation_id,
+                                        self.terminal_surface_id,
+                                        ctx,
+                                    ),
+                                    None,
+                                    /*can_attempt_resume_on_error*/ false,
+                                    /*is_queued_prompt*/ false,
+                                    ctx,
+                                );
+                            }
+                        } else {
+                            // Clear retry count on non-retryable errors or exhausted retries
+                            self.error_retry_counts.remove(&conversation_id);
+
+                            // A resume scheduled for this failure keeps the conversation in
+                            // the non-terminal TransientError status instead of Error.
+                            let recovery_pending = response_stream
+                                .as_ref(ctx)
+                                .should_resume_conversation_after_stream_finished();
+                            let mut renderable_error: RenderableAIError = (&e).into();
+                            if let RenderableAIError::Other {
+                                will_attempt_resume,
+                                waiting_for_network,
+                                ..
+                            }
+                            | RenderableAIError::TransientNetworkError {
+                                will_attempt_resume,
+                                waiting_for_network,
+                                ..
+                            } = &mut renderable_error
+                            {
+                                // Rendering-only hints; state machine consumers key off the
+                                // TransientError conversation status instead.
+                                *will_attempt_resume |= recovery_pending;
+                                if recovery_pending {
+                                    let network_status = NetworkStatus::as_ref(ctx);
+                                    *waiting_for_network = !network_status.is_online();
+                                }
+                            }
+
+                            history_model.update(ctx, |history_model, ctx| {
+                                history_model.mark_response_stream_completed_with_error(
+                                    renderable_error,
+                                    recovery_pending,
+                                    &stream_id,
+                                    conversation_id,
+                                    self.terminal_surface_id,
+                                    ctx,
+                                );
+                            });
+                        }
                     }
                 }
             }
@@ -3510,6 +3617,13 @@ impl BlocklistAIController {
             }
             Some(warp_multi_agent_api::response_event::stream_finished::Reason::ContextWindowExceeded(_)) => {
                 let error_message = "Input exceeded context window limit.";
+                crate::ai::bedrock::crash_log::log_crash(
+                    "ContextWindowExceeded",
+                    error_message,
+                    "unknown",
+                    0,
+                    None,
+                );
                 history_model.update(ctx, |history_model, ctx| {
                     history_model.mark_response_stream_completed_with_error(
                         RenderableAIError::ContextWindowExceeded(error_message.to_owned()),
@@ -3596,6 +3710,13 @@ impl BlocklistAIController {
                 let error_message = format!(
                     "Response stream finished unexpectedly with internal error: {message}",
                 );
+                crate::ai::bedrock::crash_log::log_crash(
+                    "InternalError",
+                    &error_message,
+                    "unknown",
+                    0,
+                    None,
+                );
                 history_model.update(ctx, |history_model, ctx| {
                     history_model.mark_response_stream_completed_with_error(
                         RenderableAIError::Other {
@@ -3614,6 +3735,13 @@ impl BlocklistAIController {
             }
             Some(warp_multi_agent_api::response_event::stream_finished::Reason::MaxTokenLimit(_)) => {
                 let error_message = "Input exceeded context window limit.";
+                crate::ai::bedrock::crash_log::log_crash(
+                    "MaxTokenLimit",
+                    error_message,
+                    "unknown",
+                    0,
+                    None,
+                );
                 history_model.update(ctx, |history_model, ctx| {
                     history_model.mark_response_stream_completed_with_error(
                         RenderableAIError::ContextWindowExceeded(error_message.to_owned()),

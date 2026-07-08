@@ -2732,118 +2732,13 @@ impl AISettingsPageView {
         }
     }
 
-    /// Fetches models from the LiteLLM endpoint and updates settings.
+    /// Fetches models from the LiteLLM endpoint and stores them in memory via LLMPreferences.
     fn fetch_litellm_models(&mut self, ctx: &mut ViewContext<Self>) {
-        let settings = AISettings::as_ref(ctx);
-        let base_url = settings.openai_base_url.value().clone();
-        let api_key = {
-            let key = settings.openai_api_key.value().clone();
-            if key.is_empty() {
-                None
-            } else {
-                Some(key)
-            }
-        };
+        use crate::ai::llms::LLMPreferences;
 
-        let _ = ctx.spawn(
-            async move {
-                use crate::settings::ai::OpenAIModelConfig;
-
-                let url = format!("{}/models", base_url.trim_end_matches('/'));
-                let client = reqwest::Client::new();
-                let mut request = client.get(&url);
-                if let Some(ref key) = api_key {
-                    request = request.header("Authorization", format!("Bearer {key}"));
-                }
-
-                let response = match request.send().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::error!("[litellm] Failed to fetch models: {e}");
-                        return Vec::new();
-                    }
-                };
-
-                if !response.status().is_success() {
-                    log::error!("[litellm] Model fetch returned HTTP {}", response.status());
-                    return Vec::new();
-                }
-
-                let body: serde_json::Value = match response.json().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!("[litellm] Failed to parse models response: {e}");
-                        return Vec::new();
-                    }
-                };
-
-                // LiteLLM /models endpoint returns OpenAI-compatible format:
-                // { "data": [{ "id": "model-name", "max_model_len": N, ... }] }
-                let models: Vec<OpenAIModelConfig> = body["data"]
-                    .as_array()
-                    .unwrap_or(&vec![])
-                    .iter()
-                    .filter_map(|m| {
-                        let id = m["id"].as_str()?;
-                        // Try multiple context window fields used by different proxies
-                        let context_size = m["max_model_len"]
-                            .as_u64()
-                            .or_else(|| m["context_window"].as_u64())
-                            .or_else(|| m["max_input_tokens"].as_u64())
-                            .unwrap_or(200_000) as u32;
-
-                        // Derive display name from model ID
-                        let display_name = id
-                            .split('/')
-                            .next_back()
-                            .unwrap_or(id)
-                            .replace(['-', '_'], " ");
-                        // Capitalize first letter of each word
-                        let display_name = display_name
-                            .split_whitespace()
-                            .map(|word| {
-                                let mut chars = word.chars();
-                                match chars.next() {
-                                    None => String::new(),
-                                    Some(c) => c.to_uppercase().to_string() + chars.as_str(),
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
-
-                        // Infer provider from model ID prefix
-                        let provider = if id.contains("claude") || id.contains("anthropic") {
-                            Some("anthropic".to_string())
-                        } else if id.contains("gpt") || id.contains("o1") || id.contains("o3") {
-                            Some("openai".to_string())
-                        } else if id.contains("gemini") {
-                            Some("google".to_string())
-                        } else {
-                            None
-                        };
-
-                        Some(OpenAIModelConfig {
-                            model_id: id.to_string(),
-                            display_name,
-                            vision_supported: m["supports_vision"].as_bool().unwrap_or(false),
-                            context_size,
-                            provider,
-                        })
-                    })
-                    .collect();
-
-                log::info!("[litellm] Fetched {} model(s) from {}", models.len(), url);
-                models
-            },
-            |_view, models, ctx| {
-                if !models.is_empty() {
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let _ = settings.openai_models.set_value(models, ctx);
-                    });
-                }
-                ctx.notify();
-            },
-        );
+        LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
+            llm_prefs.fetch_openai_models_from_endpoint(ctx);
+        });
     }
 
     fn build_page(

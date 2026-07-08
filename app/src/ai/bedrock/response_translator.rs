@@ -397,6 +397,13 @@ pub fn bedrock_stream_to_response_events(
                             );
                         }
                     }
+                    super::crash_log::log_crash(
+                        "BedrockStreamError",
+                        &format!("{e}"),
+                        &model_id,
+                        event_count as usize,
+                        Some(input_tokens as u32),
+                    );
                     if !buffered_text.is_empty() {
                         let msg_id = current_text_message_id
                             .clone()

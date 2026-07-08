@@ -16,6 +16,7 @@ use crate::ai::agent::api::{self, generate_multi_agent_output, ConvertToAPITypeE
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
 use crate::ai::bedrock::client::BedrockClientConfig;
+use crate::ai::llms::LLMPreferences;
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
 use crate::network::NetworkStatus;
@@ -174,32 +175,18 @@ impl ResponseStream {
     fn resolve_provider_config(model_id: &str, ctx: &ModelContext<Self>) -> ProviderConfig {
         let settings = AISettings::as_ref(ctx);
 
-        // Check if OpenAI/LiteLLM provider is enabled
+        // Check if this specific model has an OpenAI-compatible routing entry.
+        // This allows OpenAI/LiteLLM models to coexist with Bedrock models —
+        // only models fetched from the OpenAI endpoint route through it.
         if *settings.openai_enabled.value() {
-            let base_url = settings.openai_base_url.value().clone();
-            let api_key = {
-                let key = settings.openai_api_key.value().clone();
-                if key.is_empty() {
-                    None
-                } else {
-                    Some(key)
-                }
-            };
-            // Use the model override from settings if set, otherwise use the selected model ID.
-            // This allows LiteLLM models to pass through their actual model_id to the proxy.
-            let model = {
-                let m = settings.openai_model.value().clone();
-                if m.is_empty() {
-                    Some(model_id.to_string())
-                } else {
-                    Some(m)
-                }
-            };
-            return ProviderConfig::OpenAI(OpenAIClientConfig {
-                base_url,
-                api_key,
-                model,
-            });
+            let llm_prefs = LLMPreferences::as_ref(ctx);
+            if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
+                return ProviderConfig::OpenAI(OpenAIClientConfig {
+                    base_url: client_config.base_url.clone(),
+                    api_key: client_config.api_key.clone(),
+                    model: Some(model_id.to_string()),
+                });
+            }
         }
 
         // Fall back to Bedrock
