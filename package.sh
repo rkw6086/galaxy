@@ -57,7 +57,9 @@ codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
 
 echo "Submitting DMG to Apple notary service..."
 RESULT=$(xcrun notarytool submit "$DMG_PATH" \
-    --keychain-profile notarytool-profile \
+    --apple-id "g.brancovici@samsung.com" \
+    --team-id "3JU72Z7Y3J" \
+    --password "cowi-fved-uajk-arsk" \
     --wait 2>&1)
 echo "$RESULT"
 

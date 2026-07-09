@@ -29,7 +29,9 @@ ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
 echo "Submitting to Apple notary service (this may take a few minutes)..."
 RESULT=$(xcrun notarytool submit "$ZIP_PATH" \
-    --keychain-profile notarytool-profile \
+    --apple-id "g.brancovici@samsung.com" \
+    --team-id "3JU72Z7Y3J" \
+    --password "cowi-fved-uajk-arsk" \
     --wait 2>&1)
 echo "$RESULT"
 
