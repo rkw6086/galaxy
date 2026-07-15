@@ -9,6 +9,8 @@ pub struct OpenAIClientConfig {
     pub base_url: String,
     pub api_key: Option<String>,
     pub model: Option<String>,
+    pub max_input_tokens: Option<u32>,
+    pub max_output_tokens: Option<u32>,
 }
 
 pub struct OpenAIClient {

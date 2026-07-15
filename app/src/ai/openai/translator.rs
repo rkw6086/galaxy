@@ -10,6 +10,8 @@ use crate::ai::agent::api::ResponseStream;
 use crate::ai::bedrock::request_translator;
 use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
 
+const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 64_000;
+
 pub struct TranslatorRequest {
     pub config: OpenAIClientConfig,
     pub model_id: String,
@@ -98,6 +100,10 @@ pub async fn execute(
         messages.extend(new_input_messages);
     }
 
+    for message in &mut messages {
+        message.truncate_tool_results_for_provider_request();
+    }
+
     sanitize_messages_for_openai(&mut messages);
 
     let system_prompt = request_translator::extract_system_prompt(request);
@@ -112,11 +118,17 @@ pub async fn execute(
 
     let user_query_text = request_translator::extract_user_query_text(request);
 
+    let max_output_tokens = params
+        .config
+        .max_output_tokens
+        .unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS)
+        .min(i32::MAX as u32) as i32;
+
     let request_body = build_openai_request(
         messages.clone(),
         system_prompt,
         tools,
-        64000,
+        max_output_tokens,
         None,
         &model_id,
     );
@@ -140,6 +152,7 @@ pub async fn execute(
         user_query_text,
         params.messages_sent.clone(),
         model_id,
+        params.config.max_input_tokens,
         params.tool_result_archive,
     );
 

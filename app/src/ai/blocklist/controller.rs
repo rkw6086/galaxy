@@ -3139,17 +3139,20 @@ impl BlocklistAIController {
                         // Check if this error is eligible for corrective retry.
                         // Similar to loop detection, inject a message telling the LLM
                         // to try a different approach rather than just failing.
+                        // Exclude errors that are proxy/config issues (cache_control,
+                        // BadRequestError from LiteLLM) since the LLM can't fix those.
                         let error_str = format!("{e}");
-                        let is_corrective_retry_candidate = !matches!(
-                            e.as_ref(),
-                            AIApiError::QuotaLimit { .. }
-                        ) && (error_str.contains("ValidationException")
-                            || error_str.contains("validation")
-                            || error_str.contains("context window")
-                            || error_str.contains("too many tokens")
-                            || error_str.contains("input is too long")
-                            || error_str.contains("throttl")
-                            || error_str.contains("ThrottlingException"));
+                        let is_proxy_config_error = error_str.contains("cache_control")
+                            || error_str.contains("tool_use` ids were found without")
+                            || error_str.contains("BadRequestError");
+                        let is_corrective_retry_candidate = !is_proxy_config_error
+                            && !matches!(e.as_ref(), AIApiError::QuotaLimit { .. })
+                            && (error_str.contains("ValidationException")
+                                || error_str.contains("context window")
+                                || error_str.contains("too many tokens")
+                                || error_str.contains("input is too long")
+                                || error_str.contains("throttl")
+                                || error_str.contains("ThrottlingException"));
 
                         const MAX_ERROR_RETRIES: usize = 2;
                         let retry_count = self
@@ -4026,7 +4029,7 @@ impl BlocklistAIController {
                                 let max_ctx = context_window_for_model(&active_model_id);
                                 let new_usage =
                                     (summary_tokens + remaining_msgs_tokens) as f32 / max_ctx as f32;
-                                conversation.set_context_window_usage(new_usage);
+                                conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
                                 conversation
                                     .set_current_context_tokens(summary_tokens + remaining_msgs_tokens);
 

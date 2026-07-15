@@ -1942,7 +1942,7 @@ impl AgentInputFooter {
         if let Some(conversation) =
             BlocklistAIHistoryModel::as_ref(ctx).active_conversation(self.terminal_view_id)
         {
-            let usage = conversation.context_window_usage();
+            let usage = conversation.context_window_usage().clamp(0.0, 1.0);
             let icon = icon_for_context_window_usage(usage);
             let remaining_pct = ((1.0 - usage) * 100.0).round() as i32;
 

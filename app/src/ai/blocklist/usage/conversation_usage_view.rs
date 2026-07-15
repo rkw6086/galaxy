@@ -522,7 +522,8 @@ impl ConversationUsageView {
         }
 
         labels.push(render_label_text("Context window used", appearance));
-        let context_usage_pct = self.usage_info.context_window_usage * 100.;
+        let context_window_usage = self.usage_info.context_window_usage.clamp(0.0, 1.0);
+        let context_usage_pct = context_window_usage * 100.;
         let context_usage_str = if context_window_breakdown_enabled && self.context_window_expanded
         {
             format!("{context_usage_pct:.2}%")
@@ -540,7 +541,7 @@ impl ConversationUsageView {
             )
             .with_child(
                 ConstrainedBox::new(render_context_window_usage_icon(
-                    self.usage_info.context_window_usage,
+                    context_window_usage,
                     theme,
                     None,
                 ))

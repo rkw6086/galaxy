@@ -8,7 +8,7 @@ use galaxyui::elements::{
     PositioningAxis, Radius, SavePosition, Stack, Text, XAxisAnchor, YAxisAnchor,
 };
 use galaxyui::presenter::ChildView;
-use galaxyui::{AppContext, SingletonEntity as _};
+use galaxyui::{AppContext, EntityId, SingletonEntity as _};
 use pathfinder_color::ColorU;
 
 use super::common::{
@@ -22,7 +22,10 @@ use crate::ai::blocklist::agent_view::shortcuts::{
 };
 use crate::ai::blocklist::agent_view::{agent_view_bg_fill, AgentViewState};
 use crate::ai::blocklist::InputType;
+use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
+use crate::ai::execution_profiles::AIExecutionProfileAppExt;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
+use crate::ai::llms::LLMPreferences;
 use crate::appearance::Appearance;
 use crate::context_chips::spacing::{self};
 use crate::editor::position_id_for_cursor;
@@ -167,7 +170,9 @@ impl Input {
             .agent_view_state()
             .active_conversation_id()
         {
-            if let Some(status_bar) = render_session_status_bar(appearance, app, conv_id) {
+            if let Some(status_bar) =
+                render_session_status_bar(appearance, app, self.terminal_view_id, conv_id)
+            {
                 column.add_child(status_bar);
             }
         }
@@ -753,6 +758,7 @@ fn cache_hit_color(pct: f64, theme: &galaxy_core::ui::theme::GalaxyTheme) -> Col
 fn render_session_status_bar(
     appearance: &Appearance,
     app: &AppContext,
+    terminal_view_id: EntityId,
     conversation_id: crate::ai::agent::conversation::AIConversationId,
 ) -> Option<Box<dyn Element>> {
     let (cache_read, cache_write, cache_miss, cost_cents, context_usage, current_context) =
@@ -778,12 +784,20 @@ fn render_session_status_bar(
         0.0
     };
 
-    let max_context: u32 = if context_usage > 0.0 {
-        (current_context as f32 / context_usage).round() as u32
-    } else {
-        200_000
-    };
-    let context_pct = context_usage * 100.0;
+    let active_model =
+        LLMPreferences::as_ref(app).get_active_base_model(app, Some(terminal_view_id));
+    let profile_context = AIExecutionProfilesModel::as_ref(app)
+        .active_profile(Some(terminal_view_id), app)
+        .data()
+        .context_window_display_value(app);
+    let model_max_context = active_model
+        .context_window
+        .default_max
+        .max(active_model.context_window.max);
+    let max_context = profile_context
+        .or((model_max_context > 0).then_some(model_max_context))
+        .unwrap_or(200_000);
+    let context_pct = context_usage.clamp(0.0, 1.0) * 100.0;
 
     let theme = appearance.theme();
     let font_family = appearance.ui_font_family();

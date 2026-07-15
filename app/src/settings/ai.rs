@@ -733,8 +733,8 @@ impl schemars::JsonSchema for ToolbarCommandMap {
         std::borrow::Cow::Borrowed("ToolbarCommandMap")
     }
 
-    fn json_schema(gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        gen.subschema_for::<HashMap<String, String>>()
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        generator.subschema_for::<HashMap<String, String>>()
     }
 }
 
@@ -847,12 +847,29 @@ pub struct OpenAIModelConfig {
     pub model_id: String,
     #[schemars(description = "Display name shown in the model picker.")]
     pub display_name: String,
-    #[serde(default)]
+    #[serde(default, alias = "vision_support", alias = "supports_vision")]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
-    #[serde(default = "default_context_size")]
+    #[serde(
+        default = "default_context_size",
+        alias = "token_size",
+        alias = "max_model_len",
+        alias = "context_window"
+    )]
     #[schemars(description = "Maximum context window size in tokens.")]
     pub context_size: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(description = "Optional maximum input tokens supported by this model.")]
+    pub max_input_tokens: Option<u32>,
+    #[serde(
+        default,
+        alias = "output_token_limit",
+        alias = "max_completion_tokens",
+        alias = "max_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(description = "Optional maximum output tokens to request from this model.")]
+    pub max_output_tokens: Option<u32>,
     #[serde(default)]
     #[schemars(
         description = "Optional provider hint (e.g. anthropic, openai, google) for icon display."

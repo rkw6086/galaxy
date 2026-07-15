@@ -30,6 +30,7 @@ pub fn openai_stream_to_response_events(
     user_query: Option<String>,
     messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     model_id: String,
+    max_context_tokens: Option<u32>,
     _tool_result_archive: Vec<ConversationMessage>,
 ) -> BoxStream<'static, Event> {
     use futures::StreamExt;
@@ -269,7 +270,14 @@ pub fn openai_stream_to_response_events(
         }
 
         let cost = estimate_cost_cents(input_tokens as u32, output_tokens as u32, &model_id);
-        let finished_event = build_stream_finished(stop_reason, input_tokens, output_tokens, cost, &model_id);
+        let finished_event = build_stream_finished(
+            stop_reason,
+            input_tokens,
+            output_tokens,
+            cost,
+            &model_id,
+            max_context_tokens,
+        );
         yield Ok(finished_event);
 
         log::info!("[openai] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");
@@ -409,6 +417,7 @@ fn build_stream_finished(
     output_tokens: i32,
     cost_in_cents: f32,
     model_id: &str,
+    max_context_tokens: Option<u32>,
 ) -> ResponseEvent {
     let total_tokens = (input_tokens + output_tokens) as u32;
 
@@ -434,12 +443,14 @@ fn build_stream_finished(
         cost_in_cents,
     }];
 
-    let max_context_tokens = context_window_for_model(model_id);
+    let max_context_tokens =
+        max_context_tokens.unwrap_or_else(|| context_window_for_model(model_id));
     let context_usage = if max_context_tokens > 0 {
         input_tokens as f32 / max_context_tokens as f32
     } else {
         0.0
-    };
+    }
+    .clamp(0.0, 1.0);
 
     #[allow(deprecated)]
     let conversation_usage_metadata = Some(stream_finished::ConversationUsageMetadata {

@@ -2250,7 +2250,7 @@ impl AIConversation {
 
         if let Some(usage_metadata) = usage_metadata {
             self.conversation_usage_metadata.context_window_usage =
-                usage_metadata.context_window_usage;
+                usage_metadata.context_window_usage.clamp(0.0, 1.0);
             self.conversation_usage_metadata.credits_spent = usage_metadata.credits_spent;
             self.conversation_usage_metadata.platform_credits_spent =
                 usage_metadata.platform_credits_spent;

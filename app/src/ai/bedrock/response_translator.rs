@@ -678,7 +678,8 @@ pub fn build_stream_finished(
             / max_context_tokens as f32
     } else {
         0.0
-    };
+    }
+    .clamp(0.0, 1.0);
 
     #[allow(deprecated)]
     let conversation_usage_metadata = Some(stream_finished::ConversationUsageMetadata {

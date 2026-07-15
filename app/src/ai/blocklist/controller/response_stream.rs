@@ -185,6 +185,8 @@ impl ResponseStream {
                     base_url: client_config.base_url.clone(),
                     api_key: client_config.api_key.clone(),
                     model: Some(model_id.to_string()),
+                    max_input_tokens: client_config.max_input_tokens,
+                    max_output_tokens: client_config.max_output_tokens,
                 });
             }
         }

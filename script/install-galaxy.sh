@@ -34,8 +34,6 @@ unzip -q "$TMP_DIR/Galaxy.zip" -d "$TMP_DIR" || fail "Failed to extract Galaxy.z
 rm -rf "$TMP_DIR/__MACOSX"
 find "$TMP_DIR/$APP_NAME" -name '.DS_Store' -delete 2>/dev/null || true
 find "$TMP_DIR/$APP_NAME" -name '._*' -delete 2>/dev/null || true
-# Remove custom Icon file from bundle root (causes "unsealed contents" codesign error)
-rm -f "$TMP_DIR/$APP_NAME/Icon"$'\r' "$TMP_DIR/$APP_NAME/Icon" 2>/dev/null || true
 
 if [[ ! -d "$TMP_DIR/$APP_NAME" ]]; then
     fail "$APP_NAME not found after extraction."

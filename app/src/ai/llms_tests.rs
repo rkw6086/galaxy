@@ -10,6 +10,7 @@ use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
+use crate::settings::{OpenAIModelConfig, OpenAIProviderConfig};
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -240,6 +241,7 @@ fn custom_endpoint_usage_display_label_resolves_alias_name_and_generic_fallback(
         custom_llms: build_custom_llm_infos(&keys),
         custom_model_routers: Vec::new(),
         openai_provider_routing: HashMap::new(),
+        fetched_openai_models: Vec::new(),
     };
 
     assert_eq!(
@@ -258,6 +260,176 @@ fn custom_endpoint_usage_display_label_resolves_alias_name_and_generic_fallback(
         preferences.custom_endpoint_usage_display_label("unknown"),
         CUSTOM_ENDPOINT_USAGE_FALLBACK_LABEL
     );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn empty_llm_preferences_for_provider_tests() -> LLMPreferences {
+    LLMPreferences {
+        models_by_feature: ModelsByFeature::default(),
+        last_update: None,
+        base_llm_for_terminal_view: HashMap::new(),
+        custom_llms: Vec::new(),
+        custom_model_routers: Vec::new(),
+        openai_provider_routing: HashMap::new(),
+        fetched_openai_models: Vec::new(),
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn openai_model(
+    model_id: &str,
+    display_name: &str,
+    context_size: u32,
+    max_input_tokens: Option<u32>,
+    max_output_tokens: Option<u32>,
+    vision_supported: bool,
+) -> OpenAIModelConfig {
+    OpenAIModelConfig {
+        model_id: model_id.to_string(),
+        display_name: display_name.to_string(),
+        vision_supported,
+        context_size,
+        max_input_tokens,
+        max_output_tokens,
+        provider: Some("openai".to_string()),
+    }
+}
+
+#[test]
+#[cfg(not(target_family = "wasm"))]
+fn openai_model_config_accepts_legacy_and_endpoint_field_names() {
+    let model: OpenAIModelConfig = toml::from_str(
+        r#"
+model_id = "provider/custom-model"
+display_name = "Custom Model"
+vision_support = true
+token_size = 123456
+max_input_tokens = 111111
+max_tokens = 8192
+provider = "openai"
+"#,
+    )
+    .expect("model config should parse");
+
+    assert_eq!(model.model_id, "provider/custom-model");
+    assert!(model.vision_supported);
+    assert_eq!(model.context_size, 123_456);
+    assert_eq!(model.max_input_tokens, Some(111_111));
+    assert_eq!(model.max_output_tokens, Some(8_192));
+}
+
+#[test]
+#[cfg(not(target_family = "wasm"))]
+fn inject_openai_models_uses_persisted_model_metadata_and_routing() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let mut preferences = empty_llm_preferences_for_provider_tests();
+
+        app.update(|ctx| {
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings.openai_enabled.set_value(true, ctx).unwrap();
+                settings
+                    .openai_base_url
+                    .set_value("https://litellm.example/v1".to_string(), ctx)
+                    .unwrap();
+                settings
+                    .openai_api_key
+                    .set_value("test-key".to_string(), ctx)
+                    .unwrap();
+                settings
+                    .openai_models
+                    .set_value(
+                        vec![openai_model(
+                            "provider/custom-model",
+                            "Custom Model",
+                            200_000,
+                            Some(128_000),
+                            Some(8_192),
+                            true,
+                        )],
+                        ctx,
+                    )
+                    .unwrap();
+            });
+
+            preferences.inject_openai_models(ctx);
+
+            let model = preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .find(|model| model.id.as_str() == "provider/custom-model")
+                .expect("configured model should be injected");
+            assert_eq!(model.provider, LLMProvider::LiteLLM);
+            assert_eq!(model.description.as_deref(), Some("LiteLLM"));
+            assert!(model.vision_supported);
+            assert_eq!(model.context_window.default_max, 128_000);
+            assert_eq!(model.context_window.max, 128_000);
+
+            let client_config = preferences
+                .openai_client_config_for_model("provider/custom-model")
+                .expect("configured model should have routing");
+            assert_eq!(client_config.base_url, "https://litellm.example/v1");
+            assert_eq!(client_config.api_key.as_deref(), Some("test-key"));
+            assert_eq!(client_config.max_input_tokens, Some(128_000));
+            assert_eq!(client_config.max_output_tokens, Some(8_192));
+        });
+    });
+}
+
+#[test]
+#[cfg(not(target_family = "wasm"))]
+fn inject_openai_models_uses_multi_provider_models() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let mut preferences = empty_llm_preferences_for_provider_tests();
+
+        app.update(|ctx| {
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                settings.openai_enabled.set_value(true, ctx).unwrap();
+                settings
+                    .openai_providers
+                    .set_value(
+                        vec![OpenAIProviderConfig {
+                            name: "Ollama".to_string(),
+                            base_url: "http://localhost:11434/v1".to_string(),
+                            api_key: None,
+                            models: vec![openai_model(
+                                "llama3.2",
+                                "Llama 3.2",
+                                64_000,
+                                None,
+                                Some(4_096),
+                                false,
+                            )],
+                        }],
+                        ctx,
+                    )
+                    .unwrap();
+            });
+
+            preferences.inject_openai_models(ctx);
+
+            let model = preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .find(|model| model.id.as_str() == "llama3.2")
+                .expect("provider model should be injected");
+            assert_eq!(model.description.as_deref(), Some("Ollama"));
+            assert!(!model.vision_supported);
+            assert_eq!(model.context_window.default_max, 64_000);
+
+            let client_config = preferences
+                .openai_client_config_for_model("llama3.2")
+                .expect("provider model should have routing");
+            assert_eq!(client_config.base_url, "http://localhost:11434/v1");
+            assert_eq!(client_config.max_input_tokens, Some(64_000));
+            assert_eq!(client_config.max_output_tokens, Some(4_096));
+        });
+    });
 }
 
 #[test]

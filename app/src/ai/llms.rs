@@ -602,7 +602,7 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     openai_provider_routing: HashMap<String, super::openai::client::OpenAIClientConfig>,
     /// Models fetched from the OpenAI-compatible /models endpoint at runtime.
-    /// Stored in memory only — not persisted to TOML.
+    /// Used as a short-lived fallback while the fetched list is persisted to settings.
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
 }
@@ -670,10 +670,18 @@ impl LLMPreferences {
                 AISettingsChangedEvent::BedrockEnabled { .. }
                     | AISettingsChangedEvent::OpenAIEnabled { .. }
                     | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+                    | AISettingsChangedEvent::OpenAIApiKey { .. }
+                    | AISettingsChangedEvent::OpenAIModels { .. }
+                    | AISettingsChangedEvent::OpenAIProviders { .. }
             ) {
                 me.inject_bedrock_models(ctx);
                 me.inject_openai_models(ctx);
-                if matches!(event, AISettingsChangedEvent::OpenAIEnabled { .. } | AISettingsChangedEvent::OpenAIBaseUrl { .. }) {
+                if matches!(
+                    event,
+                    AISettingsChangedEvent::OpenAIEnabled { .. }
+                        | AISettingsChangedEvent::OpenAIBaseUrl { .. }
+                        | AISettingsChangedEvent::OpenAIApiKey { .. }
+                ) {
                     me.fetch_openai_models_from_endpoint(ctx);
                 }
                 // Safety: ensure the default model is still present in choices.
@@ -961,11 +969,17 @@ impl LLMPreferences {
             return;
         }
 
-        // Models come exclusively from the in-memory /models endpoint fetch.
         let mut provider_entries: Vec<(String, String, Option<String>, Vec<OpenAIModelConfig>)> =
             Vec::new();
 
-        if !self.fetched_openai_models.is_empty() {
+        let configured_models = settings.openai_models.value().clone();
+        let single_provider_models = if configured_models.is_empty() {
+            self.fetched_openai_models.clone()
+        } else {
+            configured_models
+        };
+
+        if !single_provider_models.is_empty() {
             let base_url = settings.openai_base_url.value().clone();
             let api_key = {
                 let key = settings.openai_api_key.value().clone();
@@ -980,8 +994,26 @@ impl LLMPreferences {
             } else {
                 "LiteLLM".to_string()
             };
-            provider_entries.push((name, base_url, api_key, self.fetched_openai_models.clone()));
+            provider_entries.push((name, base_url, api_key, single_provider_models));
         }
+
+        provider_entries.extend(
+            settings
+                .openai_providers
+                .value()
+                .iter()
+                .filter_map(|provider| {
+                    if provider.base_url.trim().is_empty() || provider.models.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        provider.name.clone(),
+                        provider.base_url.clone(),
+                        provider.api_key.clone(),
+                        provider.models.clone(),
+                    ))
+                }),
+        );
 
         if provider_entries.is_empty() {
             return;
@@ -990,20 +1022,21 @@ impl LLMPreferences {
         let mut total_injected = 0;
         let mut seen_model_ids: HashSet<String> = HashSet::new();
         for (provider_name, base_url, api_key, models) in provider_entries {
-            let client_config = OpenAIClientConfig {
-                base_url: base_url.clone(),
-                api_key: api_key.clone(),
-                model: None, // filled per-request from model_id
-            };
-
             for model in &models {
                 if !seen_model_ids.insert(model.model_id.clone()) {
                     continue;
                 }
 
                 // Register the routing entry
+                let client_config = OpenAIClientConfig {
+                    base_url: base_url.clone(),
+                    api_key: api_key.clone(),
+                    model: None, // filled per-request from model_id
+                    max_input_tokens: Some(openai_model_context_size(model)),
+                    max_output_tokens: model.max_output_tokens,
+                };
                 self.openai_provider_routing
-                    .insert(model.model_id.clone(), client_config.clone());
+                    .insert(model.model_id.clone(), client_config);
 
                 let llm_info = LLMInfo {
                     id: LLMId::from(model.model_id.as_str()),
@@ -1027,7 +1060,7 @@ impl LLMPreferences {
                         },
                     )]),
                     discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
+                    context_window: openai_model_context_window(model),
                 };
                 self.models_by_feature
                     .agent_mode
@@ -1053,10 +1086,7 @@ impl LLMPreferences {
             if feature.choices.is_empty() {
                 return;
             }
-            let default_exists = feature
-                .choices
-                .iter()
-                .any(|m| m.id == feature.default_id);
+            let default_exists = feature.choices.iter().any(|m| m.id == feature.default_id);
             if !default_exists {
                 let new_default = feature.choices[0].id.clone();
                 log::info!(
@@ -1143,17 +1173,36 @@ impl LLMPreferences {
                     }
                 };
 
+                fn u32_from_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
+                    keys.iter()
+                        .find_map(|key| value[*key].as_u64())
+                        .and_then(|value| u32::try_from(value).ok())
+                }
+
                 let models: Vec<OpenAIModelConfig> = body["data"]
                     .as_array()
-                    .unwrap_or(&vec![])
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
                     .iter()
                     .filter_map(|m| {
                         let id = m["id"].as_str()?;
-                        let context_size = m["max_model_len"]
-                            .as_u64()
-                            .or_else(|| m["context_window"].as_u64())
-                            .or_else(|| m["max_input_tokens"].as_u64())
-                            .unwrap_or(200_000) as u32;
+                        let max_input_tokens = u32_from_any(
+                            m,
+                            &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
+                        );
+                        let context_size =
+                            u32_from_any(m, &["max_model_len", "context_window", "token_size"])
+                                .or(max_input_tokens)
+                                .unwrap_or(200_000);
+                        let max_output_tokens = u32_from_any(
+                            m,
+                            &[
+                                "max_output_tokens",
+                                "output_token_limit",
+                                "max_completion_tokens",
+                                "max_tokens",
+                            ],
+                        );
 
                         let display_name = id
                             .split('/')
@@ -1185,8 +1234,13 @@ impl LLMPreferences {
                         Some(OpenAIModelConfig {
                             model_id: id.to_string(),
                             display_name,
-                            vision_supported: m["supports_vision"].as_bool().unwrap_or(false),
+                            vision_supported: m["supports_vision"]
+                                .as_bool()
+                                .or_else(|| m["vision_support"].as_bool())
+                                .unwrap_or(false),
                             context_size,
+                            max_input_tokens,
+                            max_output_tokens,
                             provider,
                         })
                     })
@@ -1200,7 +1254,12 @@ impl LLMPreferences {
             },
             |me, models, ctx| {
                 if !models.is_empty() {
-                    me.fetched_openai_models = models;
+                    me.fetched_openai_models = models.clone();
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        if let Err(err) = settings.openai_models.set_value(models, ctx) {
+                            report_error!(err.context("Failed to persist fetched OpenAI models"));
+                        }
+                    });
                     me.inject_openai_models(ctx);
                     ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
                 }
@@ -2099,6 +2158,22 @@ fn get_new_agent_mode_choices(
         .filter(|info| !old_ids.contains(&info.id))
         .cloned()
         .collect()
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn openai_model_context_size(model: &OpenAIModelConfig) -> u32 {
+    model.max_input_tokens.unwrap_or(model.context_size)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
+    let context_size = openai_model_context_size(model);
+    LLMContextWindow {
+        is_configurable: false,
+        min: context_size,
+        max: context_size,
+        default_max: context_size,
+    }
 }
 
 /// Builds synthetic [`LLMInfo`]s from the user's persisted custom endpoints.

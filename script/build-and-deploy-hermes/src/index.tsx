@@ -19,7 +19,9 @@ if (!HERMES_PASS) {
 
 const BASE_URL = "https://client.wst.mini-games.tv";
 const UPLOAD_KEY = "wst-data/ryan-share/galaxy/Galaxy.zip";
+const INSTALL_SCRIPT_KEY = "wst-data/ryan-share/galaxy/install-galaxy.sh";
 const CONTENT_TYPE = "application/zip";
+const SCRIPT_CONTENT_TYPE = "text/x-shellscript";
 
 // Workspace root is three levels up from script/build-and-deploy-hermes/src
 const WORKSPACE_ROOT = path.resolve(import.meta.dirname, "../../..");
@@ -271,6 +273,7 @@ function App() {
     { label: "Start multipart upload", status: "pending" },
     { label: "Upload parts", status: "pending" },
     { label: "Complete upload", status: "pending" },
+    { label: "Upload install-galaxy.sh", status: "pending" },
   ]);
 
   const updateStep = useCallback((index: number, update: Partial<Step>) => {
@@ -421,6 +424,76 @@ function App() {
 
         appendLog(5, `Key: ${UPLOAD_KEY}`);
         updateStep(5, { status: "done" });
+
+        // ─── Step 6: Upload install-galaxy.sh ────────────────────────────
+        updateStep(6, { status: "running" });
+
+        const installScriptPath = path.join(WORKSPACE_ROOT, "script", "install-galaxy.sh");
+        const scriptFileSize = statSync(installScriptPath).size;
+        const scriptFileHash = computeFileHash(installScriptPath);
+
+        const scriptStartRes = await apiPost<StartUploadResponse>(
+          `${BASE_URL}/api/uploads/start`,
+          {
+            key: INSTALL_SCRIPT_KEY,
+            contentType: SCRIPT_CONTENT_TYPE,
+            fileSize: scriptFileSize,
+            fileHash: scriptFileHash,
+          },
+          authHeaders(token)
+        );
+
+        const scriptCompletedParts: { partNumber: number; etag: string }[] = [];
+        let scriptBytesUploaded = 0;
+
+        updateStep(6, { status: "running", progress: { bytes: 0, totalBytes: scriptFileSize } });
+
+        for (const part of scriptStartRes.urls) {
+          const prevBytes = scriptBytesUploaded;
+          const etag = await uploadPart(
+            part.url,
+            installScriptPath,
+            part.partNumber,
+            scriptStartRes.partSize,
+            scriptStartRes.totalParts,
+            (partBytes) => {
+              updateStep(6, {
+                status: "running",
+                progress: { bytes: prevBytes + partBytes, totalBytes: scriptFileSize },
+              });
+            }
+          );
+
+          const thisPartSize = part.partNumber === scriptStartRes.totalParts
+            ? scriptFileSize - (scriptStartRes.partSize * (scriptStartRes.totalParts - 1))
+            : scriptStartRes.partSize;
+          scriptBytesUploaded += thisPartSize;
+
+          scriptCompletedParts.push({ partNumber: part.partNumber, etag });
+
+          await apiPost(
+            `${BASE_URL}/api/uploads/part-complete`,
+            {
+              uploadId: scriptStartRes.uploadId,
+              partNumber: part.partNumber,
+              etag,
+            },
+            authHeaders(token)
+          );
+        }
+
+        await apiPost(
+          `${BASE_URL}/api/uploads/complete`,
+          {
+            key: INSTALL_SCRIPT_KEY,
+            uploadId: scriptStartRes.uploadId,
+            parts: scriptCompletedParts.sort((a, b) => a.partNumber - b.partNumber),
+          },
+          authHeaders(token)
+        );
+
+        appendLog(6, `Key: ${INSTALL_SCRIPT_KEY}`);
+        updateStep(6, { status: "done", detail: `${(scriptFileSize / 1024).toFixed(1)} KB`, progress: undefined });
 
         // Cleanup zip
         execSync(`rm -f "${zipPath}"`, { stdio: "pipe" });

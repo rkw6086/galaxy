@@ -98,6 +98,10 @@ pub async fn execute(
         messages.extend(new_input_messages);
     }
 
+    for message in &mut messages {
+        message.truncate_tool_results_for_provider_request();
+    }
+
     request_translator::sanitize_messages_for_bedrock(&mut messages);
 
     let system_prompt = request_translator::extract_system_prompt(request);
