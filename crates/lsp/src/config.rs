@@ -205,7 +205,16 @@ impl LspServerConfig {
             custom_binary_config
         );
 
-        let params = default_init_params(&self.initial_workspace, self.client_name)?;
+        let mut params = default_init_params(&self.initial_workspace, self.client_name)?;
+
+        // Resolve server-specific initialization options (e.g., tsserver.path for TypeScript)
+        let init_options = self
+            .server_type
+            .initialization_options(&self.initial_workspace, executor.path_env_var())
+            .await;
+        if let Some(options) = init_options {
+            params.initialization_options = Some(options);
+        }
 
         Ok(ResolvedLspCommand { command, params })
     }

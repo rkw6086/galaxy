@@ -6,6 +6,8 @@ use std::sync::Arc;
 use command::r#async::Command;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
+use serde_json::Value;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
@@ -194,6 +196,30 @@ impl LSPServerType {
                     }
                 })
                 .join("/"),
+        }
+    }
+
+    /// Returns server-specific `initializationOptions` to send during LSP initialization.
+    ///
+    /// For most servers this returns `None`. For `typescript-language-server`, it resolves
+    /// the path to `tsserver` from the workspace's `node_modules` or a globally-installed
+    /// TypeScript package so the server doesn't fail with "Could not find a valid TypeScript
+    /// installation".
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn initialization_options(
+        &self,
+        workspace_root: &std::path::Path,
+        path_env_var: Option<&str>,
+    ) -> Option<Value> {
+        match self {
+            LSPServerType::TypeScriptLanguageServer => {
+                TypeScriptLanguageServerCandidate::resolve_initialization_options(
+                    workspace_root,
+                    path_env_var,
+                )
+                .await
+            }
+            _ => None,
         }
     }
 
