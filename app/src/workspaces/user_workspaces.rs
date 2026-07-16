@@ -717,10 +717,18 @@ impl UserWorkspaces {
     // Returns the [`Owner`] for the user's personal drive. If the user is not authenticated, this
     // returns `None`.
     pub fn personal_drive(&self, ctx: &AppContext) -> Option<Owner> {
-        AuthStateProvider::as_ref(ctx)
-            .get()
-            .user_id()
-            .map(|user_uid| Owner::User { user_uid })
+        // Return the authenticated user's ID if available, otherwise provide a
+        // synthetic local owner so cloud objects (rules, etc.) can be created and
+        // stored locally without requiring Warp authentication.
+        Some(
+            AuthStateProvider::as_ref(ctx)
+                .get()
+                .user_id()
+                .map(|user_uid| Owner::User { user_uid })
+                .unwrap_or_else(|| Owner::User {
+                    user_uid: UserUid::new("local-galaxy-user"),
+                }),
+        )
     }
 
     // Maps a [`Space`] into an [`Owner`], based on the user's team memberships. If the space
