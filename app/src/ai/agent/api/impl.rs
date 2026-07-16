@@ -198,31 +198,16 @@ pub async fn generate_multi_agent_output(
             }
         }
         ProviderConfig::None => {
-            let response_stream = warp_multi_agent_client::generate_multi_agent_output(
-                server_api.base_client().as_ref(),
-                &request,
-            )
-            .await;
-            match response_stream {
-                Ok(stream) => {
-                    let output_stream = stream
-                        .then(|result| async {
-                            match result {
-                                Ok(event) => Ok(event),
-                                Err(error) => Err(convert_multi_agent_client_error(error).await),
-                            }
-                        })
-                        .take_until(cancellation_rx);
-                    Ok(Box::pin(output_stream))
-                }
-                Err(e) => {
-                    let (tx, rx) = async_channel::unbounded();
-                    let _ = tx
-                        .send(Err(convert_multi_agent_client_error(e).await))
-                        .await;
-                    Ok(Box::pin(rx))
-                }
-            }
+            // No provider configured — do not fall back to Warp's cloud API.
+            let err = Arc::new(crate::server::server_api::AIApiError::Stream {
+                stream_type: "none",
+                source: anyhow::anyhow!(
+                    "No AI provider configured. Enable Bedrock or OpenAI/LiteLLM in settings."
+                ),
+            });
+            let (tx, rx) = async_channel::unbounded();
+            let _ = tx.send(Err(err)).await;
+            Ok(Box::pin(rx))
         }
     }
 }

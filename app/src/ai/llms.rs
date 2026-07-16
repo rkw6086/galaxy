@@ -423,8 +423,32 @@ impl AvailableLLMs {
     }
 
     fn default_llm_info(&self) -> &LLMInfo {
+        static NO_PROVIDER_FALLBACK: std::sync::LazyLock<LLMInfo> = std::sync::LazyLock::new(|| {
+            LLMInfo {
+                display_name: "No models configured".to_owned(),
+                base_model_name: "No models configured".to_owned(),
+                id: "none".to_owned().into(),
+                reasoning_level: None,
+                usage_metadata: LLMUsageMetadata {
+                    request_multiplier: 1,
+                    credit_multiplier: None,
+                },
+                description: Some(
+                    "Enable Bedrock or OpenAI/LiteLLM in settings".to_string(),
+                ),
+                disable_reason: Some(DisableReason::Unavailable),
+                vision_supported: false,
+                spec: None,
+                provider: LLMProvider::Unknown,
+                host_configs: HashMap::new(),
+                discount_percentage: None,
+                context_window: LLMContextWindow::default(),
+            }
+        });
+
         self.info_for_id(&self.default_id)
-            .expect("Default LLM ID must be present in choices")
+            .or_else(|| self.choices.first())
+            .unwrap_or(&NO_PROVIDER_FALLBACK)
     }
 
     #[cfg(feature = "integration_tests")]
@@ -499,74 +523,37 @@ fn default_computer_use_llms() -> AvailableLLMs {
 }
 
 impl Default for ModelsByFeature {
+    /// Returns a minimal placeholder. The real model list is populated exclusively
+    /// by `inject_bedrock_models` and `inject_openai_models` based on local settings.
+    /// The placeholder entry uses `LLMProvider::Unknown` so it gets stripped by
+    /// `inject_bedrock_models` once real models are loaded.
     fn default() -> Self {
+        let placeholder = || AvailableLLMs {
+            default_id: "placeholder".to_owned().into(),
+            choices: vec![LLMInfo {
+                display_name: "No models configured".to_owned(),
+                base_model_name: "No models configured".to_owned(),
+                id: "placeholder".to_owned().into(),
+                reasoning_level: None,
+                usage_metadata: LLMUsageMetadata {
+                    request_multiplier: 1,
+                    credit_multiplier: None,
+                },
+                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
+                disable_reason: None,
+                vision_supported: false,
+                spec: None,
+                provider: LLMProvider::Unknown,
+                host_configs: HashMap::new(),
+                discount_percentage: None,
+                context_window: LLMContextWindow::default(),
+            }],
+            preferred_codex_model_id: None,
+        };
         Self {
-            agent_mode: AvailableLLMs {
-                default_id: "anthropic.claude-opus-4-6[1m]".to_owned().into(),
-                choices: vec![LLMInfo {
-                    display_name: "Claude Opus 4.6".to_owned(),
-                    base_model_name: "Claude Opus 4.6".to_owned(),
-                    id: "anthropic.claude-opus-4-6[1m]".to_owned().into(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: None,
-                    disable_reason: None,
-                    vision_supported: true,
-                    spec: None,
-                    provider: LLMProvider::Unknown,
-                    host_configs: HashMap::new(),
-                    discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
-                }],
-                preferred_codex_model_id: None,
-            },
-            coding: AvailableLLMs {
-                default_id: "anthropic.claude-sonnet-4-6[1m]".to_owned().into(),
-                choices: vec![LLMInfo {
-                    display_name: "Claude Sonnet 4.6".to_owned(),
-                    base_model_name: "Claude Sonnet 4.6".to_owned(),
-                    id: "anthropic.claude-sonnet-4-6[1m]".to_owned().into(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: None,
-                    disable_reason: None,
-                    vision_supported: true,
-                    spec: None,
-                    provider: LLMProvider::Unknown,
-                    host_configs: HashMap::new(),
-                    discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
-                }],
-                preferred_codex_model_id: None,
-            },
-            cli_agent: Some(AvailableLLMs {
-                default_id: "anthropic.claude-haiku-4-5-20251001-v1:0".to_owned().into(),
-                choices: vec![LLMInfo {
-                    display_name: "Claude Haiku 4.5".to_owned(),
-                    base_model_name: "Claude Haiku 4.5".to_owned(),
-                    id: "anthropic.claude-haiku-4-5-20251001-v1:0".to_owned().into(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: None,
-                    disable_reason: None,
-                    vision_supported: false,
-                    spec: None,
-                    provider: LLMProvider::Unknown,
-                    host_configs: HashMap::new(),
-                    discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
-                }],
-                preferred_codex_model_id: None,
-            }),
+            agent_mode: placeholder(),
+            coding: placeholder(),
+            cli_agent: Some(placeholder()),
             computer_use: Some(default_computer_use_llms()),
         }
     }
@@ -765,16 +752,17 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_bedrock_models(&mut self, ctx: &AppContext) {
+        // Strip both existing Bedrock models and placeholder Unknown models.
         self.models_by_feature
             .agent_mode
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock);
+            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
         self.models_by_feature
             .coding
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock);
+            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock);
+            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -861,19 +849,6 @@ impl LLMPreferences {
             if let Some(ref mut cli) = self.models_by_feature.cli_agent {
                 cli.choices.push(llm_info);
             }
-        }
-
-        // Remove any placeholder/auto-routing entries now that real Bedrock models are available.
-        self.models_by_feature
-            .agent_mode
-            .choices
-            .retain(|m| m.provider != LLMProvider::Unknown);
-        self.models_by_feature
-            .coding
-            .choices
-            .retain(|m| m.provider != LLMProvider::Unknown);
-        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::Unknown);
         }
 
         // Default agent mode to ANTHROPIC_MODEL from external config if set,
@@ -1781,6 +1756,17 @@ impl LLMPreferences {
     }
 
     /// Returns the default base model as a fallback.
+    /// Returns `true` if at least one real AI provider model is configured and available.
+    /// When this returns `false`, agent mode should be disabled to avoid null references
+    /// or attempts to call unconfigured providers.
+    pub fn has_any_provider_models(&self) -> bool {
+        self.models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .any(|m| m.provider != LLMProvider::Unknown)
+    }
+
     pub fn get_default_base_model(&self) -> &LLMInfo {
         self.models_by_feature.agent_mode.default_llm_info()
     }
@@ -1920,110 +1906,38 @@ impl LLMPreferences {
     }
 
     /// Fetches the latest set of models from the server for the currently logged in user, and updates the model.
-    pub fn refresh_authed_models(&self, ctx: &mut ModelContext<Self>) {
-        // Don't try to fetch auth'd models if the user is not logged in yet.
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
-            return;
-        }
-
-        let ai_api_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        ctx.spawn(
-            async move { ai_api_client.get_feature_model_choices().await },
-            |me, result, ctx| match result {
-                Ok(update) => {
-                    if update != me.models_by_feature {
-                        me.on_server_update(update, ctx);
-                    }
-                }
-                Err(e) => {
-                    report_error!(e.context("Failed to fetch LLMs from server"));
-                }
-            },
-        );
+    ///
+    /// NOTE: Disabled — Galaxy uses only locally configured providers (Bedrock/LiteLLM).
+    /// No models are fetched from Warp's cloud API.
+    pub fn refresh_authed_models(&self, _ctx: &mut ModelContext<Self>) {
+        log::debug!("[llm] Server model fetch disabled — using local providers only");
     }
 
     /// No auth required (i.e. to populate the pre-login onboarding picker).
-    fn refresh_public_models(&self, ctx: &mut ModelContext<Self>) {
-        let ai_api_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        ctx.spawn(
-            async move { ai_api_client.get_free_available_models(None).await },
-            |me, result, ctx| match result {
-                Ok(update) => {
-                    if update != me.models_by_feature {
-                        me.on_server_update(update, ctx);
-                    }
-                }
-                Err(e) => {
-                    report_error!(e.context("Failed to fetch free-tier LLMs from server"));
-                }
-            },
-        );
+    ///
+    /// NOTE: Disabled — Galaxy uses only locally configured providers (Bedrock/LiteLLM).
+    /// No models are fetched from Warp's cloud API.
+    fn refresh_public_models(&self, _ctx: &mut ModelContext<Self>) {
+        log::debug!("[llm] Server model fetch disabled — using local providers only");
     }
 
-    pub fn refresh_available_models(&self, ctx: &mut ModelContext<Self>) {
-        if AuthStateProvider::as_ref(ctx).get().is_logged_in() {
-            self.refresh_authed_models(ctx);
-        } else {
-            self.refresh_public_models(ctx);
-        }
+    /// NOTE: Disabled — Galaxy uses only locally configured providers (Bedrock/LiteLLM).
+    pub fn refresh_available_models(&self, _ctx: &mut ModelContext<Self>) {
+        log::debug!("[llm] Server model fetch disabled — using local providers only");
     }
 
+    /// Disabled — Galaxy does not accept model updates from Warp's server.
     pub fn update_feature_model_choices(
         &mut self,
-        choices_result: Result<ModelsByFeature, anyhow::Error>,
-        ctx: &mut ModelContext<Self>,
+        _choices_result: Result<ModelsByFeature, anyhow::Error>,
+        _ctx: &mut ModelContext<Self>,
     ) {
-        if let Ok(choices) = choices_result {
-            self.on_server_update(choices, ctx);
-        }
+        log::debug!("[llm] Server model update ignored — using local providers only");
     }
 
-    fn on_server_update(&mut self, update: ModelsByFeature, ctx: &mut ModelContext<Self>) {
-        let has_existing_persisted_config = get_cached_models(ctx).is_some();
-
-        let old = std::mem::replace(&mut self.models_by_feature, update);
-
-        match serde_json::to_string(&self.models_by_feature) {
-            Ok(serialized_update) => {
-                if let Err(e) = ctx
-                    .private_user_preferences()
-                    .write_value(MODELS_BY_FEATURE_CACHE_KEY, serialized_update)
-                {
-                    log::error!("Failed to cache LLMs: {e}");
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to serialize LLMs for cache: {e}");
-            }
-        }
-
-        self.reconcile_disabled_model_preferences(ctx);
-
-        // Re-evaluate custom model routers now that the server catalog is fresh.
-        // A router that was excluded at startup (because its target wasn't in the
-        // cached catalog) is reconsidered here with the authoritative model list.
-        if FeatureFlag::CustomModelRouters.is_enabled() {
-            self.rebuild_custom_model_routers(ctx);
-            self.reconcile_stale_custom_router_selection(ctx);
-        }
-
-        let new_choices =
-            get_new_agent_mode_choices(&old.agent_mode, &self.models_by_feature.agent_mode);
-        if !new_choices.is_empty() {
-            self.last_update = Some(AvailableLLMsUpdate {
-                new_choices,
-                // We shouldn't show the update for the initial LLM config creation.
-                popup_visibility_state: Arc::new(FairMutex::new(
-                    if has_existing_persisted_config {
-                        UpdatePopupVisibilityState::WaitingToBeShown
-                    } else {
-                        UpdatePopupVisibilityState::Hidden
-                    },
-                )),
-            });
-        }
-
-        ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+    /// Disabled — Galaxy does not accept model updates from Warp's server.
+    fn on_server_update(&mut self, _update: ModelsByFeature, _ctx: &mut ModelContext<Self>) {
+        log::debug!("[llm] Server model update ignored — using local providers only");
     }
 
     /// Clear any model selections where the model is no longer supported
@@ -2223,32 +2137,11 @@ fn custom_llm_info_from(endpoint: &CustomEndpoint, model: &CustomEndpointModel) 
 }
 
 /// Gets the last cached LLM metadata.
-fn get_cached_models(app: &mut AppContext) -> Option<ModelsByFeature> {
-    let value = app
-        .private_user_preferences()
-        .read_value(MODELS_BY_FEATURE_CACHE_KEY)
-        .ok()
-        .flatten()?;
-
-    // Try to deserialize to the [`ModelsByFeature`] type.
-    match serde_json::from_str::<ModelsByFeature>(value.as_str()) {
-        Ok(config) => Some(config),
-        Err(e1) => {
-            // If that fails, try to deserialize directly to [`AvailableLLMs`].
-            // Before we had model choice by feature, all available LLMs were solely
-            // for Agent Mode.
-            match serde_json::from_str::<AvailableLLMs>(value.as_str()) {
-                Ok(config) => Some(ModelsByFeature {
-                    agent_mode: config,
-                    ..Default::default()
-                }),
-                Err(e2) => {
-                    log::warn!("Failed to deserialize cached LLMs: {e1}\n{e2}");
-                    None
-                }
-            }
-        }
-    }
+/// Disabled — Galaxy uses only locally configured providers. No server-fetched models
+/// are cached or restored. The model list is built exclusively from Bedrock/LiteLLM
+/// settings at startup.
+fn get_cached_models(_app: &mut AppContext) -> Option<ModelsByFeature> {
+    None
 }
 
 #[cfg(test)]
