@@ -152,6 +152,9 @@ pub struct RequestParams {
     /// can store them back into the conversation for the next request cycle.
     pub bedrock_messages_sent:
         std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
+    /// Global rules (name, content) from the local CloudModel (AIFact/AIMemory).
+    /// Injected into the system prompt when `is_memory_enabled` is true.
+    pub global_rules: Vec<(String, String)>,
 }
 
 pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
@@ -216,6 +219,7 @@ impl RequestParams {
             bedrock_progressive_summary: None,
             bedrock_tool_result_archive: vec![],
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+            global_rules: vec![],
         }
     }
 
@@ -421,6 +425,31 @@ impl RequestParams {
             bedrock_progressive_summary: None,
             bedrock_tool_result_archive: Vec::new(),
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            global_rules: if is_memory_enabled {
+                Self::load_global_rules(app)
+            } else {
+                vec![]
+            },
         }
+    }
+
+    /// Load global rules (AIFact/AIMemory) from the local CloudModel.
+    fn load_global_rules(app: &AppContext) -> Vec<(String, String)> {
+        use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
+        use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
+        use crate::cloud_object::model::persistence::CloudModel;
+
+        CloudModel::as_ref(app)
+            .get_all_objects_of_type::<GenericStringObjectId, CloudAIFactModel>()
+            .filter_map(|fact| {
+                let AIFact::Memory(AIMemory { name, content, .. }) =
+                    fact.model().string_model.clone();
+                if content.is_empty() {
+                    None
+                } else {
+                    Some((name.unwrap_or_default(), content))
+                }
+            })
+            .collect()
     }
 }

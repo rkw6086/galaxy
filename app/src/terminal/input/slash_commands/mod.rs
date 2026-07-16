@@ -1162,6 +1162,133 @@ impl Input {
                 }
                 self.open_repos_menu(ctx);
             }
+            _context if command.name == commands::CONTEXT.name => {
+                // Debug command: dump the full context window (system prompt, rules,
+                // messages) to the clipboard so the user can inspect what the model sees.
+                use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
+                use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
+                use crate::cloud_object::model::persistence::CloudModel;
+
+                let history = BlocklistAIHistoryModel::handle(ctx);
+
+                // Extract data from conversation while the borrow is active,
+                // then drop it before using ctx mutably.
+                let context_data = {
+                    let Some(conversation) = history
+                        .as_ref(ctx)
+                        .active_conversation(self.terminal_view_id)
+                    else {
+                        show_error_toast("No active conversation.".to_owned(), ctx);
+                        return true;
+                    };
+
+                    let summary = conversation.progressive_summary().map(str::to_string);
+                    let messages: Vec<String> = conversation
+                        .bedrock_message_history()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, msg)| {
+                            let content_str = match &msg.content {
+                                crate::ai::bedrock::convert::MessageContent::Text(t) => {
+                                    if t.len() > 500 {
+                                        format!("{}... ({} chars total)", &t[..500], t.len())
+                                    } else {
+                                        t.clone()
+                                    }
+                                }
+                                crate::ai::bedrock::convert::MessageContent::ToolUse {
+                                    name,
+                                    tool_use_id,
+                                    ..
+                                } => {
+                                    format!("ToolUse(name={name}, id={tool_use_id})")
+                                }
+                                crate::ai::bedrock::convert::MessageContent::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                } => {
+                                    let truncated = if content.len() > 200 {
+                                        format!("{}...", &content[..200])
+                                    } else {
+                                        content.clone()
+                                    };
+                                    format!(
+                                        "ToolResult(id={tool_use_id}, err={is_error}): {truncated}"
+                                    )
+                                }
+                                crate::ai::bedrock::convert::MessageContent::MultiPart(
+                                    parts,
+                                ) => {
+                                    format!("MultiPart({} parts)", parts.len())
+                                }
+                            };
+                            format!("[{i}] {:?}: {content_str}", msg.role)
+                        })
+                        .collect();
+                    let msg_count = messages.len();
+                    (summary, messages, msg_count)
+                };
+
+                let (summary, messages, msg_count) = context_data;
+
+                // Global rules (no lifetime conflict since CloudModel is separate)
+                let global_rules: Vec<(String, String)> = CloudModel::as_ref(ctx)
+                    .get_all_objects_of_type::<GenericStringObjectId, CloudAIFactModel>()
+                    .filter_map(|fact| {
+                        let AIFact::Memory(AIMemory { name, content, .. }) =
+                            fact.model().string_model.clone();
+                        if content.is_empty() {
+                            None
+                        } else {
+                            Some((name.unwrap_or_default(), content))
+                        }
+                    })
+                    .collect();
+
+                let mut output = String::new();
+
+                output.push_str("=== GLOBAL RULES ===");
+                output.push('\n');
+                if global_rules.is_empty() {
+                    output.push_str("(none)\n");
+                } else {
+                    for (name, content) in &global_rules {
+                        output.push_str(&format!("### {name}\n{content}\n\n"));
+                    }
+                }
+                output.push('\n');
+
+                output.push_str("=== PROGRESSIVE SUMMARY ===");
+                output.push('\n');
+                match &summary {
+                    Some(s) => {
+                        output.push_str(s);
+                        output.push('\n');
+                    }
+                    None => output.push_str("(none)\n"),
+                }
+                output.push('\n');
+
+                output.push_str(&format!(
+                    "=== MESSAGE HISTORY ({msg_count} messages) ===\n"
+                ));
+                for line in &messages {
+                    output.push_str(line);
+                    output.push('\n');
+                }
+
+                ctx.clipboard()
+                    .write(ClipboardContent::plain_text(output));
+
+                let window_id = ctx.window_id();
+                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                    let toast = DismissibleToast::default(
+                        "Full context has been copied to the clipboard.".to_string(),
+                    );
+                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
+                });
+            }
             _ if slash_command_is_submitted_as_prompt(command) => {
                 // These slash commands just send AI requests with the slash command text as a
                 // prefix, and special handling is done downstream as an implementation detail

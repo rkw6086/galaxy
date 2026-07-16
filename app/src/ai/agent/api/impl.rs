@@ -150,6 +150,7 @@ pub async fn generate_multi_agent_output(
                 tool_result_archive: params.bedrock_tool_result_archive.clone(),
                 progressive_summary: params.bedrock_progressive_summary.clone(),
                 messages_sent: params.bedrock_messages_sent.clone(),
+                global_rules: params.global_rules.clone(),
             };
 
             match openai_translator::execute(translator_request, &mut request).await {
@@ -178,6 +179,7 @@ pub async fn generate_multi_agent_output(
                 bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
                 bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
                 bedrock_messages_sent: params.bedrock_messages_sent.clone(),
+                global_rules: params.global_rules.clone(),
             };
 
             match crate::ai::bedrock::translator::execute(translator_request, &mut request).await {

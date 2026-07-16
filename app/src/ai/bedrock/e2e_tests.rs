@@ -1890,7 +1890,7 @@ async fn test_full_proto_round_trip_with_tool_history() {
     );
 
     let messages = super::request_translator::extract_messages_from_request(&request);
-    let system_prompt = super::request_translator::extract_system_prompt(&request);
+    let system_prompt = super::request_translator::extract_system_prompt(&request, &[]);
     let tools = super::request_translator::extract_tools(&request);
 
     println!("\n=== FULL PROTO ROUND-TRIP TEST ===");

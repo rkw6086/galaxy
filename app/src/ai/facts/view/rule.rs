@@ -319,8 +319,10 @@ impl RuleView {
                 .on_click(|ctx| ctx.dispatch_typed_action(RuleViewAction::InitializeProject))
         });
 
-        // Seed predefined rules on first launch if no global rules exist
-        if ai_rules.is_empty() && !AISettings::as_ref(ctx).has_seeded_predefined_rules() {
+        // Seed predefined rules on first launch if no global rules exist.
+        // Also re-seed if the flag was set but rules are empty (e.g., prior bug
+        // where the flag was set but creation failed due to missing owner).
+        if ai_rules.is_empty() {
             if let Some(owner) = owner {
                 let update_manager = UpdateManager::handle(ctx);
                 update_manager.update(ctx, |update_manager, ctx| {

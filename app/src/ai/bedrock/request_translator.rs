@@ -954,7 +954,7 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
     }
 }
 
-pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
+pub fn extract_system_prompt(request: &api::Request, global_rules: &[(String, String)]) -> Option<String> {
     let mut prompt = String::with_capacity(2048);
 
     prompt.push_str("You are Galaxy, an AI coding assistant embedded in a terminal application. You help users with software engineering tasks including writing code, debugging, explaining concepts, and navigating codebases.\n\n");
@@ -1006,6 +1006,19 @@ pub fn extract_system_prompt(request: &api::Request) -> Option<String> {
                 }
                 prompt.push('\n');
             }
+        }
+    }
+
+    // Inject global rules from the local CloudModel (stored as AIFact/AIMemory)
+    if !global_rules.is_empty() {
+        prompt.push_str("## Global Rules\n");
+        prompt.push_str("The following rules have been configured by the user and should be followed:\n\n");
+        for (name, content) in global_rules {
+            if !name.is_empty() {
+                prompt.push_str(&format!("### {}\n", name));
+            }
+            prompt.push_str(content);
+            prompt.push_str("\n\n");
         }
     }
 

@@ -18,6 +18,8 @@ pub struct TranslatorRequest {
     pub bedrock_tool_result_archive: Vec<ConversationMessage>,
     pub bedrock_progressive_summary: Option<String>,
     pub bedrock_messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+    /// Global rules (name, content) from the local CloudModel.
+    pub global_rules: Vec<(String, String)>,
 }
 
 pub async fn execute(
@@ -104,7 +106,7 @@ pub async fn execute(
 
     request_translator::sanitize_messages_for_bedrock(&mut messages);
 
-    let system_prompt = request_translator::extract_system_prompt(request);
+    let system_prompt = request_translator::extract_system_prompt(request, &params.global_rules);
     let tools = request_translator::extract_tools(request);
 
     log::info!(
