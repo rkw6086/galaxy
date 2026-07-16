@@ -103,8 +103,13 @@ fn test_does_not_require_user_assistant_alternation() {
 
     sanitize_messages_for_openai(&mut messages);
 
-    // Both user messages should remain — OpenAI allows consecutive same-role
-    assert_eq!(messages.len(), 3);
+    // Both user messages should remain — OpenAI allows consecutive same-role.
+    // A trailing user message is appended since it ends with assistant.
+    assert_eq!(messages.len(), 4);
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[1].role, MessageRole::User);
+    assert_eq!(messages[2].role, MessageRole::Assistant);
+    assert_eq!(messages[3].role, MessageRole::User);
 }
 
 #[test]
@@ -116,9 +121,12 @@ fn test_does_not_require_starting_with_user() {
 
     sanitize_messages_for_openai(&mut messages);
 
-    // Should NOT prepend a user message (unlike Bedrock)
-    assert_eq!(messages.len(), 1);
+    // Should NOT prepend a user message (unlike Bedrock), but WILL append
+    // a user continuation because Bedrock (via LiteLLM) requires the
+    // conversation to end with a user message.
+    assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].role, MessageRole::Assistant);
+    assert_eq!(messages[1].role, MessageRole::User);
 }
 
 #[test]
@@ -141,8 +149,51 @@ fn test_multipart_tool_uses_all_get_results() {
 
     sanitize_messages_for_openai(&mut messages);
 
-    // Should synthesize results for both unanswered tool calls
-    assert_eq!(messages.len(), 3);
+    // Should synthesize results for both unanswered tool calls in a single
+    // user message with MultiPart content
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].role, MessageRole::Assistant);
     assert_eq!(messages[1].role, MessageRole::User);
-    assert_eq!(messages[2].role, MessageRole::User);
+    match &messages[1].content {
+        MessageContent::MultiPart(parts) => {
+            assert_eq!(parts.len(), 2);
+            for part in parts {
+                match part {
+                    ContentPart::ToolResult { is_error, .. } => assert!(is_error),
+                    _ => panic!("Expected ToolResult part"),
+                }
+            }
+        }
+        _ => panic!("Expected MultiPart content"),
+    }
+}
+
+#[test]
+fn test_ensure_ends_with_user_message_no_op_when_already_user() {
+    let mut messages = vec![
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Hello".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Hi back".to_string()),
+        },
+    ];
+
+    sanitize_messages_for_openai(&mut messages);
+
+    // Already ends with user — no extra message appended
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1].role, MessageRole::User);
+}
+
+#[test]
+fn test_ensure_ends_with_user_message_empty_messages() {
+    let mut messages: Vec<ConversationMessage> = vec![];
+
+    sanitize_messages_for_openai(&mut messages);
+
+    // Empty messages should stay empty
+    assert!(messages.is_empty());
 }

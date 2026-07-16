@@ -6,9 +6,11 @@ use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageConten
 /// alternation and allows system messages anywhere. The main constraints are:
 /// - Tool results must reference a valid tool_call_id from a preceding assistant message
 /// - Tool calls in assistant messages must eventually have matching tool results
+/// - When routed to Bedrock via LiteLLM, the conversation must end with a user message
 pub fn sanitize_messages_for_openai(messages: &mut Vec<ConversationMessage>) {
     remove_orphaned_tool_results(messages);
     synthesize_missing_tool_results(messages);
+    ensure_ends_with_user_message(messages);
 }
 
 /// Removes tool_result messages that reference tool_use_ids not found in any
@@ -216,5 +218,26 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
             }
         }
         _ => {}
+    }
+}
+
+/// Ensures the message array ends with a user message. Some providers (e.g. Bedrock
+/// via LiteLLM) reject requests where the conversation ends with an assistant message
+/// ("assistant message prefill"). If the last message is from the assistant, append a
+/// minimal user message to satisfy this constraint.
+fn ensure_ends_with_user_message(messages: &mut Vec<ConversationMessage>) {
+    if messages.is_empty() {
+        return;
+    }
+    if let Some(last) = messages.last() {
+        if last.role == MessageRole::Assistant {
+            log::info!(
+                "[openai] Conversation ends with assistant message — appending user continuation message"
+            );
+            messages.push(ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("Continue.".to_string()),
+            });
+        }
     }
 }
