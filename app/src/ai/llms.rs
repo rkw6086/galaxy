@@ -1089,8 +1089,12 @@ impl LLMPreferences {
         self.openai_provider_routing.get(model_id)
     }
 
-    /// Fetches available models from the configured OpenAI-compatible /models endpoint
-    /// and stores them in memory. Called at startup and when the user clicks "Fetch Models".
+    /// Fetches available models from the configured OpenAI-compatible endpoint.
+    ///
+    /// Tries LiteLLM's `/model/info` first (which returns rich metadata including
+    /// accurate `max_input_tokens`, `max_output_tokens`, `supports_vision`, and
+    /// `supports_function_calling`). Falls back to the standard OpenAI `/models`
+    /// endpoint if `/model/info` is unavailable.
     #[cfg(not(target_family = "wasm"))]
     pub fn fetch_openai_models_from_endpoint(&mut self, ctx: &mut ModelContext<Self>) {
         let settings = AISettings::as_ref(ctx);
@@ -1114,118 +1118,21 @@ impl LLMPreferences {
 
         let _ = ctx.spawn(
             async move {
-                let url = format!("{}/models", base_url.trim_end_matches('/'));
+                let base = base_url.trim_end_matches('/');
                 let client = reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(10))
                     .build()
                     .unwrap_or_default();
-                let mut request = client.get(&url);
-                if let Some(ref key) = api_key {
-                    request = request.header("Authorization", format!("Bearer {key}"));
+
+                // Try LiteLLM /model/info first for rich metadata
+                if let Some(models) =
+                    fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
+                {
+                    return models;
                 }
 
-                let response = match request.send().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        log::warn!("[openai/litellm] Failed to fetch models from endpoint: {e}");
-                        return Vec::new();
-                    }
-                };
-
-                if !response.status().is_success() {
-                    log::warn!(
-                        "[openai/litellm] Model fetch returned HTTP {}",
-                        response.status()
-                    );
-                    return Vec::new();
-                }
-
-                let body: serde_json::Value = match response.json().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::warn!("[openai/litellm] Failed to parse models response: {e}");
-                        return Vec::new();
-                    }
-                };
-
-                fn u32_from_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
-                    keys.iter()
-                        .find_map(|key| value[*key].as_u64())
-                        .and_then(|value| u32::try_from(value).ok())
-                }
-
-                let models: Vec<OpenAIModelConfig> = body["data"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|m| {
-                        let id = m["id"].as_str()?;
-                        let max_input_tokens = u32_from_any(
-                            m,
-                            &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
-                        );
-                        let context_size =
-                            u32_from_any(m, &["max_model_len", "context_window", "token_size"])
-                                .or(max_input_tokens)
-                                .unwrap_or(200_000);
-                        let max_output_tokens = u32_from_any(
-                            m,
-                            &[
-                                "max_output_tokens",
-                                "output_token_limit",
-                                "max_completion_tokens",
-                                "max_tokens",
-                            ],
-                        );
-
-                        let display_name = id
-                            .split('/')
-                            .next_back()
-                            .unwrap_or(id)
-                            .replace(['-', '_'], " ");
-                        let display_name = display_name
-                            .split_whitespace()
-                            .map(|word| {
-                                let mut chars = word.chars();
-                                match chars.next() {
-                                    None => String::new(),
-                                    Some(c) => c.to_uppercase().to_string() + chars.as_str(),
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
-
-                        let provider = if id.contains("claude") || id.contains("anthropic") {
-                            Some("anthropic".to_string())
-                        } else if id.contains("gpt") || id.contains("o1") || id.contains("o3") {
-                            Some("openai".to_string())
-                        } else if id.contains("gemini") {
-                            Some("google".to_string())
-                        } else {
-                            None
-                        };
-
-                        Some(OpenAIModelConfig {
-                            model_id: id.to_string(),
-                            display_name,
-                            vision_supported: m["supports_vision"]
-                                .as_bool()
-                                .or_else(|| m["vision_support"].as_bool())
-                                .unwrap_or(false),
-                            context_size,
-                            max_input_tokens,
-                            max_output_tokens,
-                            provider,
-                        })
-                    })
-                    .collect();
-
-                log::info!(
-                    "[openai/litellm] Fetched {} model(s) from endpoint",
-                    models.len()
-                );
-                models
+                // Fallback to standard OpenAI /models endpoint
+                fetch_from_openai_models(base, api_key.as_deref(), &client).await
             },
             |me, models, ctx| {
                 if !models.is_empty() {
@@ -2134,6 +2041,251 @@ fn custom_llm_info_from(endpoint: &CustomEndpoint, model: &CustomEndpointModel) 
         discount_percentage: None,
         context_window: LLMContextWindow::default(),
     }
+}
+
+/// Fetches model metadata from LiteLLM's `/model/info` endpoint which returns rich
+/// metadata including accurate context window sizes, output token limits, and
+/// capability flags (vision, function calling).
+///
+/// Returns `None` if the endpoint is unavailable or doesn't return valid data,
+/// allowing the caller to fall back to the standard `/models` endpoint.
+#[cfg(not(target_family = "wasm"))]
+async fn fetch_from_litellm_model_info(
+    base_url: &str,
+    api_key: Option<&str>,
+    client: &reqwest::Client,
+) -> Option<Vec<OpenAIModelConfig>> {
+    let url = format!("{base_url}/model/info");
+    let mut request = client.get(&url);
+    if let Some(key) = api_key {
+        request = request.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            log::info!("[openai/litellm] /model/info not available ({e}), falling back to /models");
+            return None;
+        }
+    };
+
+    if !response.status().is_success() {
+        log::info!(
+            "[openai/litellm] /model/info returned HTTP {}, falling back to /models",
+            response.status()
+        );
+        return None;
+    }
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("[openai/litellm] Failed to parse /model/info response: {e}");
+            return None;
+        }
+    };
+
+    let data = body["data"].as_array()?;
+    if data.is_empty() {
+        return None;
+    }
+
+    let models: Vec<OpenAIModelConfig> = data
+        .iter()
+        .filter_map(|entry| {
+            let model_name = entry["model_name"].as_str()?;
+            let model_info = &entry["model_info"];
+
+            let max_input_tokens = model_info["max_input_tokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok());
+            let max_output_tokens = model_info["max_output_tokens"]
+                .as_u64()
+                .and_then(|v| u32::try_from(v).ok());
+            let context_size = max_input_tokens.unwrap_or(200_000);
+
+            let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(false);
+
+            let display_name = model_name.replace(['-', '_'], " ");
+            let display_name = display_name
+                .split_whitespace()
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Detect provider from the underlying model path if available
+            let litellm_model = entry["litellm_params"]["model"]
+                .as_str()
+                .unwrap_or(model_name);
+            let provider = if litellm_model.contains("claude")
+                || litellm_model.contains("anthropic")
+                || litellm_model.contains("bedrock")
+            {
+                Some("anthropic".to_string())
+            } else if litellm_model.contains("gpt")
+                || litellm_model.contains("o1")
+                || litellm_model.contains("o3")
+            {
+                Some("openai".to_string())
+            } else if litellm_model.contains("gemini") {
+                Some("google".to_string())
+            } else {
+                None
+            };
+
+            log::info!(
+                "[openai/litellm] Discovered model '{}': context={}, max_output={}, vision={}",
+                model_name,
+                context_size,
+                max_output_tokens.unwrap_or(0),
+                vision_supported,
+            );
+
+            Some(OpenAIModelConfig {
+                model_id: model_name.to_string(),
+                display_name,
+                vision_supported,
+                context_size,
+                max_input_tokens,
+                max_output_tokens,
+                provider,
+            })
+        })
+        .collect();
+
+    if models.is_empty() {
+        return None;
+    }
+
+    log::info!(
+        "[openai/litellm] Fetched {} model(s) from /model/info endpoint",
+        models.len()
+    );
+    Some(models)
+}
+
+/// Fetches models from the standard OpenAI-compatible `/models` endpoint.
+/// Used as a fallback when `/model/info` is unavailable.
+#[cfg(not(target_family = "wasm"))]
+async fn fetch_from_openai_models(
+    base_url: &str,
+    api_key: Option<&str>,
+    client: &reqwest::Client,
+) -> Vec<OpenAIModelConfig> {
+    let url = format!("{base_url}/models");
+    let mut request = client.get(&url);
+    if let Some(key) = api_key {
+        request = request.header("Authorization", format!("Bearer {key}"));
+    }
+
+    let response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("[openai/litellm] Failed to fetch models from /models endpoint: {e}");
+            return Vec::new();
+        }
+    };
+
+    if !response.status().is_success() {
+        log::warn!(
+            "[openai/litellm] /models returned HTTP {}",
+            response.status()
+        );
+        return Vec::new();
+    }
+
+    let body: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("[openai/litellm] Failed to parse /models response: {e}");
+            return Vec::new();
+        }
+    };
+
+    fn u32_from_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
+        keys.iter()
+            .find_map(|key| value[*key].as_u64())
+            .and_then(|value| u32::try_from(value).ok())
+    }
+
+    let models: Vec<OpenAIModelConfig> = body["data"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|m| {
+            let id = m["id"].as_str()?;
+            let max_input_tokens = u32_from_any(
+                m,
+                &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
+            );
+            let context_size =
+                u32_from_any(m, &["max_model_len", "context_window", "token_size"])
+                    .or(max_input_tokens)
+                    .unwrap_or(200_000);
+            let max_output_tokens = u32_from_any(
+                m,
+                &[
+                    "max_output_tokens",
+                    "output_token_limit",
+                    "max_completion_tokens",
+                    "max_tokens",
+                ],
+            );
+
+            let display_name = id
+                .split('/')
+                .next_back()
+                .unwrap_or(id)
+                .replace(['-', '_'], " ");
+            let display_name = display_name
+                .split_whitespace()
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let provider = if id.contains("claude") || id.contains("anthropic") {
+                Some("anthropic".to_string())
+            } else if id.contains("gpt") || id.contains("o1") || id.contains("o3") {
+                Some("openai".to_string())
+            } else if id.contains("gemini") {
+                Some("google".to_string())
+            } else {
+                None
+            };
+
+            Some(OpenAIModelConfig {
+                model_id: id.to_string(),
+                display_name,
+                vision_supported: m["supports_vision"]
+                    .as_bool()
+                    .or_else(|| m["vision_support"].as_bool())
+                    .unwrap_or(false),
+                context_size,
+                max_input_tokens,
+                max_output_tokens,
+                provider,
+            })
+        })
+        .collect();
+
+    log::info!(
+        "[openai/litellm] Fetched {} model(s) from /models endpoint",
+        models.len()
+    );
+    models
 }
 
 /// Gets the last cached LLM metadata.
