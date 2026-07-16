@@ -224,6 +224,42 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                 content: MessageContent::Text(prompt),
             });
         }
+        api::request::input::Type::InvokeSkill(invoke_skill) => {
+            if let Some(skill) = &invoke_skill.skill {
+                let skill_name = skill
+                    .descriptor
+                    .as_ref()
+                    .map(|d| d.name.as_str())
+                    .unwrap_or("unknown");
+                let skill_content = skill
+                    .content
+                    .as_ref()
+                    .map(|c| c.content.as_str())
+                    .unwrap_or("");
+                let user_query_text = invoke_skill
+                    .user_query
+                    .as_ref()
+                    .map(|q| q.query.as_str())
+                    .unwrap_or("");
+
+                let query = if user_query_text.is_empty() {
+                    format!(
+                        "Execute the following skill: {skill_name}\n\n\
+                         <skill-instructions>\n{skill_content}\n</skill-instructions>"
+                    )
+                } else {
+                    format!(
+                        "Execute the following skill: {skill_name}\n\n\
+                         <skill-instructions>\n{skill_content}\n</skill-instructions>\n\n\
+                         Additional context from user: {user_query_text}"
+                    )
+                };
+                results.push(ConversationMessage {
+                    role: MessageRole::User,
+                    content: MessageContent::Text(query),
+                });
+            }
+        }
         _ => {}
     }
 
@@ -283,6 +319,19 @@ pub fn extract_user_query_text(request: &api::Request) -> Option<String> {
                 Some(query.query.clone())
             } else {
                 None
+            }
+        }
+        api::request::input::Type::InvokeSkill(invoke_skill) => {
+            let skill_name = invoke_skill
+                .skill
+                .as_ref()
+                .and_then(|s| s.descriptor.as_ref())
+                .map(|d| d.name.clone())
+                .unwrap_or_default();
+            if skill_name.is_empty() {
+                None
+            } else {
+                Some(format!("/{skill_name}"))
             }
         }
         _ => None,
@@ -507,6 +556,65 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     ..Default::default()
                 })),
             });
+        }
+        api::request::input::Type::InvokeSkill(invoke_skill) => {
+            if let Some(skill) = &invoke_skill.skill {
+                let skill_name = skill
+                    .descriptor
+                    .as_ref()
+                    .map(|d| d.name.as_str())
+                    .unwrap_or("unknown");
+                let skill_content = skill
+                    .content
+                    .as_ref()
+                    .map(|c| c.content.as_str())
+                    .unwrap_or("");
+                let user_query_text = invoke_skill
+                    .user_query
+                    .as_ref()
+                    .map(|q| q.query.as_str())
+                    .unwrap_or("");
+
+                let query = if user_query_text.is_empty() {
+                    format!(
+                        "Execute the following skill: {skill_name}\n\n\
+                         <skill-instructions>\n{skill_content}\n</skill-instructions>"
+                    )
+                } else {
+                    format!(
+                        "Execute the following skill: {skill_name}\n\n\
+                         <skill-instructions>\n{skill_content}\n</skill-instructions>\n\n\
+                         Additional context from user: {user_query_text}"
+                    )
+                };
+                let message_user_query =
+                    invoke_skill.user_query.as_ref().map(|input_query| {
+                        api::message::UserQuery {
+                            query: input_query.query.clone(),
+                            context: None,
+                            referenced_attachments: input_query
+                                .referenced_attachments
+                                .clone(),
+                            mode: input_query.mode,
+                            intended_agent: input_query.intended_agent,
+                        }
+                    });
+                results.push(api::Message {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    task_id: task_id.clone(),
+                    request_id: String::new(),
+                    timestamp: None,
+                    server_message_data: String::new(),
+                    citations: vec![],
+                    fetched_memories: vec![],
+                    message: Some(api::message::Message::InvokeSkill(
+                        api::message::InvokeSkill {
+                            skill: invoke_skill.skill.clone(),
+                            user_query: message_user_query,
+                        },
+                    )),
+                });
+            }
         }
         _ => {}
     }
