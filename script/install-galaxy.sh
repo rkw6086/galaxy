@@ -7,6 +7,7 @@
 #   — or —
 #   ./script/install-galaxy.sh
 #
+#
 
 set -euo pipefail
 
@@ -18,6 +19,10 @@ INSTALL_DIR="/Applications"
 info()  { printf "\033[1;34m==>\033[0m %s\n" "$1"; }
 warn()  { printf "\033[1;33m==> WARNING:\033[0m %s\n" "$1"; }
 fail()  { printf "\033[1;31m==> ERROR:\033[0m %s\n" "$1"; exit 1; }
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    fail "This installer only supports macOS."
+fi
 
 # ---------- 1. Download ----------
 TMP_DIR=$(mktemp -d)
@@ -41,10 +46,13 @@ fi
 
 # ---------- 3. Clear quarantine & ad-hoc sign ----------
 info "Clearing quarantine attributes..."
-sudo /usr/bin/xattr -cr "$TMP_DIR/$APP_NAME"
+/usr/bin/xattr -cr "$TMP_DIR/$APP_NAME" || fail "Failed to clear quarantine attributes."
 
 info "Ad-hoc code signing..."
-codesign --force --deep --sign - "$TMP_DIR/$APP_NAME" || fail "Code signing failed."
+/usr/bin/codesign --force --deep --sign - "$TMP_DIR/$APP_NAME" || fail "Code signing failed."
+
+info "Verifying code signature..."
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$TMP_DIR/$APP_NAME" || fail "Code signature verification failed."
 
 # ---------- 4. Kill, remove, install, launch ----------
 info "Stopping any running Galaxy processes..."
@@ -52,13 +60,22 @@ pkill -x "Galaxy" 2>/dev/null && sleep 1 || true
 pkill -9 -x "Galaxy" 2>/dev/null || true
 
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME"
+STAGED_APP="$INSTALL_DIR/.$APP_NAME.new"
+
+info "Staging $APP_NAME in $INSTALL_DIR..."
+rm -rf "$STAGED_APP"
+cp -R "$TMP_DIR/$APP_NAME" "$STAGED_APP" || fail "Failed to copy $APP_NAME to $INSTALL_DIR."
+
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP" ||
+    fail "Installed application signature verification failed."
+
 if [[ -d "$INSTALLED_APP" ]]; then
     info "Removing existing $INSTALLED_APP..."
     rm -rf "$INSTALLED_APP"
 fi
 
-info "Copying $APP_NAME to $INSTALL_DIR..."
-cp -R "$TMP_DIR/$APP_NAME" "$INSTALL_DIR/"
+info "Installing $APP_NAME to $INSTALL_DIR..."
+mv "$STAGED_APP" "$INSTALLED_APP" || fail "Failed to install $APP_NAME."
 
 info "Launching Galaxy..."
 open "$INSTALLED_APP"
