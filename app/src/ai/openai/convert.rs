@@ -4,6 +4,21 @@ use crate::ai::provider::types::{
     ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
 };
 
+/// Sanitizes a tool_use_id to match Bedrock's required pattern `^[a-zA-Z0-9_-]+$`.
+/// LiteLLM may proxy to Bedrock which rejects IDs with characters outside this set.
+/// Replaces any invalid character with an underscore.
+fn sanitize_tool_id(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 pub fn build_openai_request(
     messages: Vec<ConversationMessage>,
     system_prompt: Option<String>,
@@ -75,7 +90,7 @@ fn convert_user_message(content: MessageContent) -> ConvertedMessages {
         } => {
             let mut msg = json!({
                 "role": "tool",
-                "tool_call_id": tool_use_id,
+                "tool_call_id": sanitize_tool_id(&tool_use_id),
                 "content": content,
             });
             if is_error {
@@ -117,7 +132,7 @@ fn convert_user_message(content: MessageContent) -> ConvertedMessages {
                         };
                         messages.push(json!({
                             "role": "tool",
-                            "tool_call_id": tool_use_id,
+                            "tool_call_id": sanitize_tool_id(&tool_use_id),
                             "content": result_content,
                         }));
                     }
@@ -157,7 +172,7 @@ fn convert_assistant_message(content: MessageContent) -> ConvertedMessages {
             "role": "assistant",
             "content": null,
             "tool_calls": [{
-                "id": tool_use_id,
+                "id": sanitize_tool_id(&tool_use_id),
                 "type": "function",
                 "function": {
                     "name": name,
@@ -190,7 +205,7 @@ fn convert_assistant_message(content: MessageContent) -> ConvertedMessages {
                         input,
                     } => {
                         tool_calls.push(json!({
-                            "id": tool_use_id,
+                            "id": sanitize_tool_id(&tool_use_id),
                             "type": "function",
                             "function": {
                                 "name": name,

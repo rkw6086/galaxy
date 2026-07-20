@@ -822,35 +822,39 @@ fn render_session_status_bar(
             .finish(),
     );
 
-    // Separator
-    row.add_child(
-        Container::new(
-            Text::new_inline("  \u{2502}  ".to_string(), font_family, font_size)
+    // Only show cache stats when the provider actually reports them
+    // (Bedrock reports cache data; LiteLLM/OpenAI typically does not)
+    if cache_read > 0 || cache_write > 0 {
+        // Separator
+        row.add_child(
+            Container::new(
+                Text::new_inline("  \u{2502}  ".to_string(), font_family, font_size)
+                    .with_color(dim_color)
+                    .finish(),
+            )
+            .finish(),
+        );
+
+        // Cache Hit: XX.X% (R: Xk W: Xk M: Xk)
+        let cache_label = format!("\u{25c6} Cache: {:.1}%", cache_hit_pct);
+        row.add_child(
+            Text::new_inline(cache_label, font_family, font_size)
+                .with_color(cache_color)
+                .finish(),
+        );
+
+        let cache_detail = format!(
+            " (R:{} W:{} M:{})",
+            format_token_count(cache_read),
+            format_token_count(cache_write),
+            format_token_count(cache_miss),
+        );
+        row.add_child(
+            Text::new_inline(cache_detail, font_family, font_size)
                 .with_color(dim_color)
                 .finish(),
-        )
-        .finish(),
-    );
-
-    // Cache Hit: XX.X% (R: Xk W: Xk M: Xk)
-    let cache_label = format!("\u{25c6} Cache: {:.1}%", cache_hit_pct);
-    row.add_child(
-        Text::new_inline(cache_label, font_family, font_size)
-            .with_color(cache_color)
-            .finish(),
-    );
-
-    let cache_detail = format!(
-        " (R:{} W:{} M:{})",
-        format_token_count(cache_read),
-        format_token_count(cache_write),
-        format_token_count(cache_miss),
-    );
-    row.add_child(
-        Text::new_inline(cache_detail, font_family, font_size)
-            .with_color(dim_color)
-            .finish(),
-    );
+        );
+    }
 
     // Separator
     row.add_child(

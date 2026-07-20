@@ -59,6 +59,8 @@ pub fn openai_stream_to_response_events(
         let mut tool_calls: Vec<ToolCallAccumulator> = Vec::new();
         let mut input_tokens: i32 = 0;
         let mut output_tokens: i32 = 0;
+        let mut cache_read_tokens: i32 = 0;
+        let mut cache_write_tokens: i32 = 0;
         let mut stop_reason = stream_finished::Reason::Done(api::response_event::stream_finished::Done {});
         let mut line_buffer = String::new();
 
@@ -110,6 +112,22 @@ pub fn openai_stream_to_response_events(
                         }
                         if let Some(completion) = usage.get("completion_tokens").and_then(|v| v.as_i64()) {
                             output_tokens = completion as i32;
+                        }
+
+                        // LiteLLM/OpenAI returns cache stats in prompt_tokens_details.cached_tokens
+                        if let Some(details) = usage.get("prompt_tokens_details") {
+                            if let Some(cached) = details.get("cached_tokens").and_then(|v| v.as_i64()) {
+                                cache_read_tokens = cached as i32;
+                            }
+                        }
+
+                        // Anthropic-via-LiteLLM may also report cache_creation_input_tokens
+                        // and cache_read_input_tokens at the top level of usage
+                        if let Some(cr) = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()) {
+                            cache_read_tokens = cr as i32;
+                        }
+                        if let Some(cw) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()) {
+                            cache_write_tokens = cw as i32;
                         }
                     }
 
@@ -269,18 +287,34 @@ pub fn openai_stream_to_response_events(
             }
         }
 
-        let cost = estimate_cost_cents(input_tokens as u32, output_tokens as u32, &model_id);
+        // If we got cache_read but no explicit cache_write, infer it:
+        // cache_write = prompt_tokens - cache_read (the non-cached input that will be cached)
+        if cache_read_tokens > 0 && cache_write_tokens == 0 {
+            cache_write_tokens = (input_tokens - cache_read_tokens).max(0);
+        }
+
+        let cost = estimate_cost_cents(
+            input_tokens as u32,
+            output_tokens as u32,
+            cache_read_tokens as u32,
+            cache_write_tokens as u32,
+            &model_id,
+        );
         let finished_event = build_stream_finished(
             stop_reason,
             input_tokens,
             output_tokens,
+            cache_read_tokens,
+            cache_write_tokens,
             cost,
             &model_id,
             max_context_tokens,
         );
         yield Ok(finished_event);
 
-        log::info!("[openai] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}");
+        log::info!(
+            "[openai] Stream finished: input_tokens={input_tokens}, output_tokens={output_tokens}, cache_read={cache_read_tokens}, cache_write={cache_write_tokens}"
+        );
     };
 
     Box::pin(stream)
@@ -415,11 +449,14 @@ fn build_stream_finished(
     reason: stream_finished::Reason,
     input_tokens: i32,
     output_tokens: i32,
+    cache_read_tokens: i32,
+    cache_write_tokens: i32,
     cost_in_cents: f32,
     model_id: &str,
     max_context_tokens: Option<u32>,
 ) -> ResponseEvent {
-    let total_tokens = (input_tokens + output_tokens) as u32;
+    let total_tokens =
+        (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) as u32;
 
     let mut byok_token_usage = std::collections::HashMap::new();
     if total_tokens > 0 {
@@ -438,15 +475,17 @@ fn build_stream_finished(
         model_id: "openai".to_string(),
         total_input: input_tokens as u32,
         output: output_tokens as u32,
-        input_cache_read: 0,
-        input_cache_write: 0,
+        input_cache_read: cache_read_tokens as u32,
+        input_cache_write: cache_write_tokens as u32,
         cost_in_cents,
     }];
 
     let max_context_tokens =
         max_context_tokens.unwrap_or_else(|| context_window_for_model(model_id));
+    // Context usage should reflect the full input including cached tokens
+    let effective_input = input_tokens + cache_read_tokens + cache_write_tokens;
     let context_usage = if max_context_tokens > 0 {
-        input_tokens as f32 / max_context_tokens as f32
+        effective_input as f32 / max_context_tokens as f32
     } else {
         0.0
     }
@@ -482,28 +521,46 @@ fn build_stream_finished(
 
 /// LiteLLM proxies to various backends — estimate cost based on model name.
 /// These are rough estimates; actual billing comes from LiteLLM.
-fn estimate_cost_cents(input_tokens: u32, output_tokens: u32, model_id: &str) -> f32 {
+/// Pricing varies by model (per 1M tokens, in dollars):
+///   Opus:    input $15, output $75, cache_read $1.50, cache_write $18.75
+///   Sonnet:  input $3, output $15, cache_read $0.30, cache_write $3.75
+///   Haiku:   input $0.80, output $4, cache_read $0.08, cache_write $1.00
+///   GPT-4o:  input $2.50, output $10, cache_read $1.25 (50% discount)
+///   GPT-4:   input $30, output $60, cache_read $15 (50% discount)
+///   GPT-3.5: input $0.50, output $1.50, cache_read $0.25 (50% discount)
+fn estimate_cost_cents(
+    input_tokens: u32,
+    output_tokens: u32,
+    cache_read_tokens: u32,
+    cache_write_tokens: u32,
+    model_id: &str,
+) -> f32 {
     let lower = model_id.to_lowercase();
 
-    let (input_rate, output_rate) = if lower.contains("opus") {
-        (15.0, 75.0)
+    // (input_per_1m, output_per_1m, cache_read_per_1m, cache_write_per_1m) in dollars
+    let (input_rate, output_rate, cache_read_rate, cache_write_rate) = if lower.contains("opus") {
+        (15.0, 75.0, 1.50, 18.75)
     } else if lower.contains("haiku") {
-        (0.80, 4.0)
+        (0.80, 4.0, 0.08, 1.0)
     } else if lower.contains("sonnet") {
-        (3.0, 15.0)
+        (3.0, 15.0, 0.30, 3.75)
     } else if lower.contains("gpt-4o") {
-        (2.50, 10.0)
+        (2.50, 10.0, 1.25, 2.50)
     } else if lower.contains("gpt-4") {
-        (30.0, 60.0)
+        (30.0, 60.0, 15.0, 30.0)
     } else if lower.contains("gpt-3.5") {
-        (0.50, 1.50)
+        (0.50, 1.50, 0.25, 0.50)
     } else {
-        (3.0, 15.0) // Default to Sonnet-tier pricing
+        // Default to Sonnet-tier pricing
+        (3.0, 15.0, 0.30, 3.75)
     };
 
+    // Convert from dollars per 1M tokens to cents per token
     let input_cost = input_tokens as f64 * input_rate * 100.0 / 1_000_000.0;
     let output_cost = output_tokens as f64 * output_rate * 100.0 / 1_000_000.0;
-    (input_cost + output_cost) as f32
+    let cache_read_cost = cache_read_tokens as f64 * cache_read_rate * 100.0 / 1_000_000.0;
+    let cache_write_cost = cache_write_tokens as f64 * cache_write_rate * 100.0 / 1_000_000.0;
+    (input_cost + output_cost + cache_read_cost + cache_write_cost) as f32
 }
 
 const KNOWN_TOOLS: &[&str] = &[
