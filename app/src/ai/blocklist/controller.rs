@@ -416,6 +416,8 @@ pub struct BlocklistAIController {
             Option<PassiveSuggestionTrigger>,
         )>,
     >,
+    /// The crosscheck reviewer model for the "Crosscheck Work" experiment.
+    crosscheck_reviewer: ModelHandle<crate::ai::crosscheck::CrosscheckReviewer>,
 }
 
 enum InputQueryType {
@@ -669,6 +671,16 @@ impl BlocklistAIController {
             OrchestrationEventStreamerEvent::ChildSpawned { .. }
             | OrchestrationEventStreamerEvent::ChildStatusChanged { .. } => {}
         });
+        let crosscheck_reviewer =
+            ctx.add_model(crate::ai::crosscheck::CrosscheckReviewer::new);
+        ctx.subscribe_to_model(&crosscheck_reviewer, move |me, _, event, ctx| {
+            use crate::ai::crosscheck::{CrosscheckReviewerEvent, ReviewOutcome};
+            let CrosscheckReviewerEvent::ReviewCompleted {
+                conversation_id,
+                outcome,
+            } = event;
+            me.handle_crosscheck_review_completed(*conversation_id, outcome.clone(), ctx);
+        });
         Self {
             input_model,
             context_model,
@@ -687,6 +699,7 @@ impl BlocklistAIController {
             pending_passive_suggestion_results: HashMap::new(),
             loop_detection: HashMap::new(),
             error_retry_counts: HashMap::new(),
+            crosscheck_reviewer,
         }
     }
 
@@ -1239,6 +1252,10 @@ impl BlocklistAIController {
         // User sending a new query resets loop detection and error retry state — fresh context.
         self.loop_detection.remove(&conversation_id);
         self.error_retry_counts.remove(&conversation_id);
+        // Reset any in-flight crosscheck review for this conversation.
+        self.crosscheck_reviewer.update(ctx, |reviewer, _| {
+            reviewer.reset_review(conversation_id);
+        });
 
         let is_viewer = self
             .terminal_model
@@ -2140,6 +2157,225 @@ impl BlocklistAIController {
     /// Schedules an auto-resume-after-error for the conversation once the network is online
     /// and the auto-handoff sleep modal is closed, so the resume doesn't race the user's
     /// enable/dismiss decision on wake.
+    /// Handles the completion of a crosscheck review cycle.
+    ///
+    /// If the reviewer provided feedback, it is injected as a synthetic user
+    /// query to the main agent. If approved or max iterations reached, the
+    /// conversation is allowed to complete normally.
+    fn handle_crosscheck_review_completed(
+        &mut self,
+        conversation_id: AIConversationId,
+        outcome: crate::ai::crosscheck::ReviewOutcome,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use crate::ai::crosscheck::ReviewOutcome;
+
+        match outcome {
+            ReviewOutcome::Approved => {
+                log::info!(
+                    "[crosscheck] Work approved for conversation {conversation_id:?}"
+                );
+                // Nothing to do — the conversation completes normally.
+            }
+            ReviewOutcome::MaxIterationsReached { last_feedback } => {
+                log::warn!(
+                    "[crosscheck] Max iterations reached for {conversation_id:?}; showing last feedback to user"
+                );
+                // Inject the last feedback as a visible message so the user is aware.
+                self.inject_crosscheck_feedback(conversation_id, last_feedback, true, ctx);
+            }
+            ReviewOutcome::Feedback { message } => {
+                log::info!(
+                    "[crosscheck] Injecting reviewer feedback into conversation {conversation_id:?}"
+                );
+                self.inject_crosscheck_feedback(conversation_id, message, false, ctx);
+            }
+            ReviewOutcome::Error { error } => {
+                log::error!(
+                    "[crosscheck] Reviewer failed for {conversation_id:?}: {error}"
+                );
+                // Don't block the conversation on reviewer errors; just log it.
+            }
+        }
+    }
+
+    /// Injects crosscheck reviewer feedback as a synthetic user query to the
+    /// main agent, prompting it to address the feedback.
+    fn inject_crosscheck_feedback(
+        &mut self,
+        conversation_id: AIConversationId,
+        feedback: String,
+        is_final: bool,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+        else {
+            return;
+        };
+        let root_task_id = conversation.get_root_task_id().clone();
+
+        let prefix = if is_final {
+            "[CROSSCHECK REVIEWER - FINAL NOTE] The reviewer reached the maximum number of \
+             review cycles. Below is the last feedback. Please address what you can, but you \
+             may proceed even if not all items are resolved:"
+        } else {
+            "[CROSSCHECK REVIEWER] The following feedback was provided by an automated \
+             reviewer. Please address ALL items below and then present your updated work:"
+        };
+
+        let corrective_msg = format!("{prefix}\n\n{feedback}");
+
+        let inputs = vec![AIAgentInput::UserQuery {
+            query: corrective_msg,
+            context: Arc::from([]),
+            static_query_type: None,
+            referenced_attachments: HashMap::new(),
+            user_query_mode: UserQueryMode::Normal,
+            running_command: None,
+            intended_agent: None,
+        }];
+
+        let _ = self.send_request_input(
+            RequestInput::for_task(
+                inputs,
+                root_task_id,
+                &self.active_session,
+                self.get_current_response_initiator(),
+                conversation_id,
+                self.terminal_surface_id,
+                ctx,
+            ),
+            None,
+            /*can_attempt_resume_on_error*/ false,
+            /*is_queued_prompt*/ false,
+            ctx,
+        );
+    }
+
+    /// Checks whether a crosscheck review should be triggered for a conversation
+    /// that just finished with no actions to queue (i.e., the agent is "done").
+    ///
+    /// If eligible, extracts the agent's last output text and kicks off the
+    /// reviewer sub-agent.
+    fn maybe_trigger_crosscheck(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use settings::Setting;
+
+        let ai_settings = crate::AISettings::as_ref(ctx);
+        if !ai_settings.is_crosscheck_enabled(ctx) {
+            return;
+        }
+
+        // Don't trigger crosscheck for child conversations
+        let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+        else {
+            return;
+        };
+        if conversation.parent_conversation_id().is_some() {
+            return;
+        }
+
+        // Extract the agent's last output text
+        let agent_output = self.extract_last_agent_output(conversation_id, ctx);
+        if agent_output.is_empty() {
+            return;
+        }
+
+        // Determine which model to use for the reviewer
+        let model_id = {
+            let configured = ai_settings.crosscheck_model_id().to_string();
+            if configured.is_empty() {
+                // Fall back to the conversation's active model
+                LLMPreferences::as_ref(ctx)
+                    .get_active_base_model(ctx, Some(self.terminal_surface_id))
+                    .id
+                    .to_string()
+            } else {
+                configured
+            }
+        };
+
+        let max_iterations = ai_settings.crosscheck_max_iterations();
+
+        self.crosscheck_reviewer.update(ctx, |reviewer, ctx| {
+            reviewer.start_review(
+                conversation_id,
+                max_iterations,
+                agent_output,
+                model_id,
+                ctx,
+            );
+        });
+    }
+
+    /// Extracts the text content of the main agent's most recent output for a
+    /// conversation (used as input to the crosscheck reviewer).
+    fn extract_last_agent_output(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &AppContext,
+    ) -> String {
+        let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+        else {
+            return String::new();
+        };
+
+        // Get the last exchange's output messages
+        let exchanges = conversation.all_exchanges();
+        let Some(last_exchange) = exchanges.last() else {
+            return String::new();
+        };
+
+        let AIAgentOutputStatus::Finished {
+            finished_output: FinishedAIAgentOutput::Success { output },
+            ..
+        } = &last_exchange.output_status
+        else {
+            return String::new();
+        };
+
+        // Collect text messages from the output
+        output
+            .get()
+            .messages
+            .iter()
+            .filter_map(|msg| {
+                use crate::ai::agent::{AIAgentOutputMessageType, AIAgentTextSection};
+                match &msg.message {
+                    AIAgentOutputMessageType::Text(text) => {
+                        let plain_text: String = text
+                            .sections
+                            .iter()
+                            .filter_map(|section| match section {
+                                AIAgentTextSection::PlainText { text } => {
+                                    Some(text.text().to_string())
+                                }
+                                AIAgentTextSection::Code { code, .. } => {
+                                    Some(code.clone())
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        if plain_text.is_empty() {
+                            None
+                        } else {
+                            Some(plain_text)
+                        }
+                    }
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    }
+
     fn schedule_auto_resume_after_error(
         &mut self,
         conversation_id: AIConversationId,
@@ -3466,6 +3702,14 @@ impl BlocklistAIController {
                                 ctx,
                             );
                         });
+                    }
+
+                    // Crosscheck Work experiment: if the main agent finished
+                    // with no actions (i.e., it produced a final response), and
+                    // this is not a child or passive conversation, trigger a
+                    // reviewer sub-agent to critique the output.
+                    if !is_child && !was_passive_request {
+                        self.maybe_trigger_crosscheck(conversation_id, ctx);
                     }
                 }
 
