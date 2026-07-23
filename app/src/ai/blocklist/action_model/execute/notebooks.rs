@@ -13,7 +13,7 @@ use crate::ai::agent::{
     DocumentContext, EditDocumentsRequest, EditDocumentsResult, ReadDocumentsRequest,
     ReadDocumentsResult,
 };
-use crate::ai::document::ai_document_model::AIDocumentVersion;
+use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::UpdateManager;
@@ -59,10 +59,11 @@ impl NotebookExecutor {
 
         for document in documents {
             let client_id = ClientId::new();
+            let document_id = AIDocumentId::new();
             let model = CloudNotebookModel {
                 title: document.title.clone(),
                 data: document.content.clone(),
-                ai_document_id: None,
+                ai_document_id: Some(document_id),
                 conversation_id: None,
             };
 
@@ -79,7 +80,7 @@ impl NotebookExecutor {
             });
 
             created.push(DocumentContext {
-                document_id: crate::ai::document::ai_document_model::AIDocumentId::new(),
+                document_id,
                 document_version: AIDocumentVersion::default(),
                 content: document.content.clone(),
                 line_ranges: vec![],
@@ -112,10 +113,15 @@ impl NotebookExecutor {
         let mut documents = Vec::new();
 
         for id in document_ids {
-            // Try to find the notebook by treating the ID as a SyncId string
+            // Look up the notebook by its ai_document_id field, falling back to SyncId matching
             let notebook = cloud_model
                 .get_all_active_notebooks()
-                .find(|nb| nb.id.uid() == id.to_string());
+                .find(|nb| nb.model().ai_document_id.as_ref() == Some(id))
+                .or_else(|| {
+                    cloud_model
+                        .get_all_active_notebooks()
+                        .find(|nb| nb.id.uid() == id.to_string())
+                });
 
             if let Some(notebook) = notebook {
                 documents.push(DocumentContext {
@@ -149,9 +155,15 @@ impl NotebookExecutor {
 
         for diff in diffs {
             let cloud_model = CloudModel::as_ref(ctx);
+            // Look up the notebook by its ai_document_id field, falling back to SyncId matching
             let notebook_data = cloud_model
                 .get_all_active_notebooks()
-                .find(|nb| nb.id.uid() == diff.document_id.to_string())
+                .find(|nb| nb.model().ai_document_id.as_ref() == Some(&diff.document_id))
+                .or_else(|| {
+                    cloud_model
+                        .get_all_active_notebooks()
+                        .find(|nb| nb.id.uid() == diff.document_id.to_string())
+                })
                 .map(|nb| (nb.id, nb.model().data.clone()));
 
             let Some((notebook_id, current_data)) = notebook_data else {

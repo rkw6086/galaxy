@@ -61,7 +61,6 @@ use crate::pane_group::pane::get_started_view::GetStartedView;
 use crate::server::network_log_view::NetworkLogView;
 use crate::server::telemetry::SharingDialogSource;
 use crate::settings::PaneSettings;
-use crate::settings_view::environments_page::EnvironmentsPageView;
 use crate::settings_view::SettingsView;
 use crate::terminal::available_shells::AvailableShell;
 use crate::terminal::TerminalView;
@@ -214,9 +213,9 @@ impl PaneId {
         Self::new_from_ctx(IPaneType::EnvVarCollection, ctx)
     }
 
-    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<EnvironmentsPageView>>`]
+    /// Creates a [`PaneId`] from a [`ViewContext<PaneView<SettingsView>>`] (environment management stub)
     pub fn from_environment_management_pane_ctx(
-        ctx: &ViewContext<PaneView<EnvironmentsPageView>>,
+        ctx: &ViewContext<PaneView<SettingsView>>,
     ) -> Self {
         Self::new_from_ctx(IPaneType::EnvironmentManagement, ctx)
     }
@@ -312,9 +311,9 @@ impl PaneId {
         Self::new(IPaneType::EnvVarCollection, env_var_collection_view)
     }
 
-    /// Creates a [`PaneId`] from a [`PaneView<EnvironmentsPageView>`] entity ID.
+    /// Creates a [`PaneId`] from a [`PaneView<SettingsView>`] entity ID (environment management stub).
     pub fn from_environment_management_pane_view(
-        environment_management_pane_view: &ViewHandle<PaneView<EnvironmentsPageView>>,
+        environment_management_pane_view: &ViewHandle<PaneView<SettingsView>>,
     ) -> Self {
         Self::new(
             IPaneType::EnvironmentManagement,
@@ -469,7 +468,7 @@ impl PaneId {
                 ChildView::<PaneView<EnvVarCollectionView>>::with_id(self.0.pane_view_id).finish()
             }
             IPaneType::EnvironmentManagement => {
-                ChildView::<PaneView<EnvironmentsPageView>>::with_id(self.0.pane_view_id).finish()
+                ChildView::<PaneView<SettingsView>>::with_id(self.0.pane_view_id).finish()
             }
             IPaneType::Workflow => {
                 ChildView::<PaneView<WorkflowView>>::with_id(self.0.pane_view_id).finish()

@@ -1476,9 +1476,8 @@ impl View for RequestedCommandView {
         let is_input_pinned_to_top =
             *InputModeSettings::as_ref(app).input_mode.value() == InputMode::PinnedToTop;
 
-        // When expanded details are rendered using a regular block, having a non-zero horizontal
-        // margin while toggled expanded will cause the body to look wider than the header.
-        // The expanded details should also appear connected to the header, so we remove bottom margin in this case.
+        // Tracks whether the expanded command has a terminal output block directly below it.
+        // Used to remove the bottom margin for visual continuity with the terminal block.
         let is_rendered_above_expanded_command_block = {
             let terminal_model = self.terminal_model.lock();
 
@@ -1517,7 +1516,6 @@ impl View for RequestedCommandView {
         let header_element = self.render_header(
             !should_render_editor
                 && !should_render_mcp_content
-                && !is_rendered_above_expanded_command_block
                 && !has_citations_footer,
             app,
         );
@@ -1613,12 +1611,9 @@ impl View for RequestedCommandView {
             theme.surface_2()
         };
 
-        // If the requested command state is completed and input isn't pinned to the top, we're
-        // going to have a regular block directly below this one with the output of the executed
-        // command. Since we can't control the top padding of the AI block that comes _after_ the
-        // subsequent regular block, we'll simply need to eliminate the bottom margin on this block
-        // and have the next AI block take care of the vertical spacing. Moreover, having a non-zero
-        // bottom margin while expanded will cause the body to look disconnected from the header.
+        // If the requested command is expanded above a terminal block or
+        // the next exchange flows directly after, remove bottom margin for
+        // visual continuity.
         let should_remove_bottom_margin = is_rendered_above_expanded_command_block
             || ((self.action_type.is_requested_command() || self.action_type.is_mcp_tool())
                 && is_last_output_message_in_output
@@ -1645,28 +1640,20 @@ impl View for RequestedCommandView {
                 && !is_input_pinned_to_top);
 
         let container = Container::new(content.finish())
-            .with_margin_left(if is_rendered_above_expanded_command_block {
-                0.
-            } else if action_status.is_some_and(|status| status.is_blocked()) {
-                CONTENT_HORIZONTAL_PADDING
-            } else {
-                CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
-            })
-            .with_margin_right(if is_rendered_above_expanded_command_block {
-                0.
-            } else {
-                CONTENT_HORIZONTAL_PADDING
-            })
+            .with_margin_left(
+                if action_status.is_some_and(|status| status.is_blocked()) {
+                    CONTENT_HORIZONTAL_PADDING
+                } else {
+                    CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
+                },
+            )
+            .with_margin_right(CONTENT_HORIZONTAL_PADDING)
             .with_margin_bottom(if should_remove_bottom_margin {
                 0.
             } else {
                 CONTENT_ITEM_VERTICAL_MARGIN
             })
-            .with_corner_radius(if is_rendered_above_expanded_command_block {
-                CornerRadius::with_top(Radius::Pixels(8.))
-            } else {
-                CornerRadius::with_all(Radius::Pixels(8.))
-            })
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
             .with_border(Border::all(1.).with_border_fill(border_color))
             .finish();
 

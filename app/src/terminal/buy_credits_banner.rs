@@ -7,7 +7,7 @@ use galaxy_graphql::billing::AddonCreditsOption;
 use galaxy_graphql::error::BudgetExceededError;
 use galaxyui::elements::{
     Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, DropShadow, Expanded, Flex, FormattedTextElement, HighlightedHyperlink,
+    CrossAxisAlignment, DropShadow, Empty, Expanded, Flex, FormattedTextElement, HighlightedHyperlink,
     Hoverable, Icon as WarpUiIcon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     OffsetPositioning, ParentAnchor, ParentElement as _, ParentOffsetBounds, Radius, Shrinkable,
     SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
@@ -31,7 +31,6 @@ use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
 use crate::send_telemetry_from_ctx;
 use crate::server::ids::ServerId;
 use crate::server::telemetry::{OutOfCreditsBannerAction, TelemetryEvent};
-use crate::settings_view::create_discount_badge;
 use crate::view_components::{Dropdown, DropdownAction};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 
@@ -356,7 +355,7 @@ impl BuyCreditsBanner {
                             .with_color(text_color.into())
                             .finish();
 
-                            let discount_badge = create_discount_badge(discount_percent, appearance);
+                            let discount_badge = Empty::new().finish();
 
                             Flex::row()
                                 .with_cross_axis_alignment(CrossAxisAlignment::Center)

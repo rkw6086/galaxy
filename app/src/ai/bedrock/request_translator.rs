@@ -1718,6 +1718,69 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                     None => ("User did not answer.".to_string(), true),
                 }
             }
+            api::request::input::tool_call_result::Result::CreateDocuments(create_result) => {
+                match &create_result.result {
+                    Some(api::create_documents_result::Result::Success(success)) => {
+                        let docs_info: Vec<String> = success
+                            .created_documents
+                            .iter()
+                            .map(|doc| {
+                                format!(
+                                    "Created document (id: {}):\n{}",
+                                    doc.document_id, doc.content
+                                )
+                            })
+                            .collect();
+                        (docs_info.join("\n\n"), false)
+                    }
+                    Some(api::create_documents_result::Result::Error(error)) => {
+                        (format!("Error creating documents: {}", error.message), true)
+                    }
+                    None => ("Create documents cancelled.".to_string(), true),
+                }
+            }
+            api::request::input::tool_call_result::Result::EditDocuments(edit_result) => {
+                match &edit_result.result {
+                    Some(api::edit_documents_result::Result::Success(success)) => {
+                        let docs_info: Vec<String> = success
+                            .updated_documents
+                            .iter()
+                            .map(|doc| {
+                                format!(
+                                    "Updated document (id: {}):\n{}",
+                                    doc.document_id, doc.content
+                                )
+                            })
+                            .collect();
+                        (docs_info.join("\n\n"), false)
+                    }
+                    Some(api::edit_documents_result::Result::Error(error)) => {
+                        (format!("Error editing documents: {}", error.message), true)
+                    }
+                    None => ("Edit documents cancelled.".to_string(), true),
+                }
+            }
+            api::request::input::tool_call_result::Result::ReadDocuments(read_result) => {
+                match &read_result.result {
+                    Some(api::read_documents_result::Result::Success(success)) => {
+                        let docs_info: Vec<String> = success
+                            .documents
+                            .iter()
+                            .map(|doc| {
+                                format!(
+                                    "Document (id: {}):\n{}",
+                                    doc.document_id, doc.content
+                                )
+                            })
+                            .collect();
+                        (docs_info.join("\n\n"), false)
+                    }
+                    Some(api::read_documents_result::Result::Error(error)) => {
+                        (format!("Error reading documents: {}", error.message), true)
+                    }
+                    None => ("Read documents cancelled.".to_string(), true),
+                }
+            }
             _ => ("Tool completed successfully.".to_string(), false),
         }
     } else {

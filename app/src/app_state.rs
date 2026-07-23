@@ -15,7 +15,6 @@ use crate::code::editor_management::CodeSource;
 use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::root_view::quake_mode_window_id;
 use crate::server::ids::SyncId;
-use crate::settings_view::environments_page::EnvironmentsPage;
 use crate::settings_view::SettingsSection;
 use crate::tab::SelectedTabColor;
 use crate::terminal::ShellLaunchData;
@@ -282,9 +281,7 @@ pub enum EnvVarCollectionPaneSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct EnvironmentManagementPaneSnapshot {
-    pub mode: EnvironmentsPage,
-}
+pub struct EnvironmentManagementPaneSnapshot;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SettingsPaneSnapshot {

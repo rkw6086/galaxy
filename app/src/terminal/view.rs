@@ -27165,7 +27165,7 @@ impl TypedActionView for TerminalView {
                 });
             }
             OpenBillingAndUsagePane => {
-                ctx.emit(Event::OpenSettings(SettingsSection::BillingAndUsage));
+                ctx.emit(Event::OpenSettings(SettingsSection::About));
             }
             OpenAddRulePane => {
                 ctx.emit(Event::OpenAddRulePane);
