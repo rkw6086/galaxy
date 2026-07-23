@@ -1804,8 +1804,10 @@ impl NotebooksEditorModel {
         diffs: Vec<ai::diff_validation::DiffDelta>,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Get current markdown content
-        let current_markdown = self.markdown(ctx);
+        // Get current markdown content using the unescaped form so that line
+        // ranges computed by fuzzy_match_diffs (which operates on
+        // markdown_unescaped output) align correctly.
+        let current_markdown = self.markdown_unescaped(ctx);
 
         let lines: Vec<&str> = current_markdown.lines().collect();
         let mut result_lines = Vec::new();

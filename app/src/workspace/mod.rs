@@ -1501,7 +1501,7 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         EditableBinding::new(
             "workspace:show_settings_account_page",
             "Open Settings: Account",
-            WorkspaceAction::ShowSettingsPage(SettingsSection::Account),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::About),
         )
         .with_context_predicate(id!("Workspace"))
         .with_group(bindings::BindingGroup::Settings.as_str())
@@ -1526,7 +1526,7 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
             "workspace:show_settings_shared_blocks_page",
             BindingDescription::new("Open Settings: Shared Blocks")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "View Shared Blocks..."),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::SharedBlocks),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::About),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace"))
@@ -1584,13 +1584,6 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),
         EditableBinding::new(
-            "workspace:show_settings_billing_and_usage_page",
-            BindingDescription::new("Open Settings: Billing and usage"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::BillingAndUsage),
-        )
-        .with_group(bindings::BindingGroup::Settings.as_str())
-        .with_context_predicate(id!("Workspace")),
-        EditableBinding::new(
             "workspace:show_settings_code_page",
             BindingDescription::new("Open Settings: Code"),
             WorkspaceAction::ShowSettingsPage(SettingsSection::CodeIndexing),
@@ -1600,14 +1593,14 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         EditableBinding::new(
             "workspace:show_settings_referrals_page",
             BindingDescription::new("Open Settings: Referrals"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::Referrals),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::About),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),
         EditableBinding::new(
             "workspace:show_settings_environments_page",
             BindingDescription::new("Open Settings: Environments"),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::CloudEnvironments),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::About),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),

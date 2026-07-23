@@ -20,7 +20,6 @@ use crate::modal::{Modal, ModalEvent, MODAL_PADDING, MODAL_WIDTH};
 use crate::pricing::{PricingInfoModel, PricingInfoModelEvent};
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::{AutoReloadModalAction, TelemetryEvent};
-use crate::settings_view::create_discount_badge;
 use crate::ui_components::blended_colors;
 use crate::view_components::{Dropdown, DropdownAction, ToastFlavor};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
@@ -182,7 +181,7 @@ impl EnableAutoReloadModalBody {
                             .with_color(text_color.into())
                             .finish();
 
-                            let discount_badge = create_discount_badge(discount_percent, appearance);
+                            let discount_badge = Empty::new().finish();
 
                             Flex::row()
                                 .with_cross_axis_alignment(CrossAxisAlignment::Center)

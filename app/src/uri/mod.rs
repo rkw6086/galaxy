@@ -405,7 +405,7 @@ impl UriHost {
                                 primary_window_id,
                                 "root_view:open_settings_page_in_existing_window",
                                 "root_view:open_settings_page_in_new_window",
-                                &SettingsSection::CloudEnvironments,
+                                &SettingsSection::About,
                                 ctx,
                             );
                         }
@@ -1631,8 +1631,8 @@ fn dispatch_action_in_new_or_existing_window<T: 'static>(
 
 fn settings_section_for_simple_subpage(subpage: &str) -> Option<SettingsSection> {
     match subpage {
-        "billing_and_usage" => Some(SettingsSection::BillingAndUsage),
-        "platform" => Some(SettingsSection::OzCloudAPIKeys),
+        "billing_and_usage" => Some(SettingsSection::About),
+        "platform" => Some(SettingsSection::About),
         "appearance" => Some(SettingsSection::Appearance),
         "warp_agent" => Some(SettingsSection::WarpAgent),
         _ => None,

@@ -35,13 +35,7 @@ use regex::Regex;
 use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
 
-use super::custom_inference_modal::{
-    CustomEndpointModal, CustomEndpointModalEvent, CustomEndpointModalViewState,
-};
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
-use super::remove_custom_endpoint_confirmation_dialog::{
-    RemoveCustomEndpointConfirmationDialog, RemoveCustomEndpointConfirmationDialogEvent,
-};
 use super::set_default_model_modal::{SetDefaultModelModalBody, SetDefaultModelModalBodyEvent};
 use super::settings_page::{
     build_sub_header, build_toggle_element, render_body_item_label,
@@ -708,13 +702,6 @@ pub struct AISettingsPageView {
     #[cfg(feature = "local_fs")]
     add_router_button: ViewHandle<ActionButton>,
 
-    // Custom inference (custom endpoints)
-    custom_endpoint_modal_state: CustomEndpointModalViewState,
-    remove_custom_endpoint_confirmation_dialog: ViewHandle<RemoveCustomEndpointConfirmationDialog>,
-    pending_remove_custom_endpoint_index: Option<usize>,
-    custom_inference_add_button: ViewHandle<ActionButton>,
-    custom_endpoint_edit_buttons: Vec<ViewHandle<ActionButton>>,
-
     // Prompt offering to switch the default Agent Mode model after a BYO key or
     // custom endpoint is saved while the default isn't backed by a credential.
     set_default_model_modal: ModalViewState<Modal<SetDefaultModelModalBody>>,
@@ -765,7 +752,6 @@ impl AISettingsPageView {
                     ctx,
                 );
 
-                me.sync_custom_endpoint_buttons(ctx);
                 ctx.notify();
             }
         });
@@ -1075,7 +1061,6 @@ impl AISettingsPageView {
             // Re-render if teams-related data changed that may affect whether features such as voice input are enabled.
             Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
             Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
-            me.sync_custom_endpoint_buttons(ctx);
             ctx.notify();
         });
 
@@ -1146,7 +1131,6 @@ impl AISettingsPageView {
             Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
             Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
             me.sync_context_window_editor(ctx, false);
-            me.sync_custom_endpoint_buttons(ctx);
             // Driving the prompt off the key-store update (rather than the editor's
             // blur/Enter) means it fires reliably however the key was committed —
             // clicking outside the field, pressing Enter, or tabbing away.
@@ -1229,7 +1213,6 @@ impl AISettingsPageView {
                     Self::refresh_mcp_allowlist_dropdown(&me.mcp_allowlist_dropdown, ctx);
                     Self::refresh_mcp_denylist_dropdown(&me.mcp_denylist_dropdown, ctx);
                     me.sync_context_window_editor(ctx, true);
-                    me.sync_custom_endpoint_buttons(ctx);
                 }
                 AISettingsChangedEvent::VoiceInputEnabled { .. } => {
                     me.update_voice_input_dropdown_enablement(ctx);
@@ -1719,68 +1702,6 @@ impl AISettingsPageView {
             button.set_disabled(!is_any_ai_enabled, ctx);
         });
 
-        // Custom inference
-        let custom_inference_controls_enabled =
-            is_any_ai_enabled && UserWorkspaces::as_ref(ctx).is_custom_inference_enabled(ctx);
-        let custom_inference_add_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("+ Add custom model", SecondaryTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::OpenAddCustomEndpointModal);
-                })
-        });
-        custom_inference_add_button.update(ctx, |button, ctx| {
-            button.set_disabled(!custom_inference_controls_enabled, ctx);
-        });
-
-        let custom_endpoint_modal_body =
-            ctx.add_typed_action_view(|ctx| CustomEndpointModal::new(None, None, ctx));
-        ctx.subscribe_to_view(&custom_endpoint_modal_body, |me, _, event, ctx| {
-            me.handle_custom_endpoint_modal_event(event, ctx);
-        });
-
-        let custom_endpoint_modal_view = ctx.add_typed_action_view(|ctx| {
-            Modal::new(
-                Some("Add custom endpoint".to_string()),
-                custom_endpoint_modal_body.clone(),
-                ctx,
-            )
-            .with_modal_style(UiComponentStyles {
-                width: Some(560.),
-                ..Default::default()
-            })
-            .with_header_style(UiComponentStyles {
-                padding: Some(Coords {
-                    top: 24.,
-                    bottom: 0.,
-                    left: 24.,
-                    right: 24.,
-                }),
-                font_size: Some(16.),
-                font_weight: Some(Weight::Bold),
-                ..Default::default()
-            })
-            .with_body_style(UiComponentStyles {
-                padding: Some(Coords {
-                    top: 0.,
-                    bottom: 24.,
-                    left: 24.,
-                    right: 0.,
-                }),
-                ..Default::default()
-            })
-            .with_background_opacity(100)
-            .with_max_height_percentage(CUSTOM_ENDPOINT_MODAL_MAX_HEIGHT_PERCENTAGE)
-            .with_dismiss_on_click()
-            .with_dismiss_keystroke(Keystroke::parse("escape").unwrap())
-        });
-        ctx.subscribe_to_view(&custom_endpoint_modal_view, |me, _, event, ctx| {
-            me.handle_custom_endpoint_modal_close_event(event, ctx);
-        });
-
-        let custom_endpoint_modal_state =
-            CustomEndpointModalViewState::new(ModalViewState::new(custom_endpoint_modal_view));
-
         let set_default_model_modal_body = ctx.add_typed_action_view(SetDefaultModelModalBody::new);
         ctx.subscribe_to_view(&set_default_model_modal_body, |me, _, event, ctx| {
             me.handle_set_default_model_modal_event(event, ctx);
@@ -1812,21 +1733,6 @@ impl AISettingsPageView {
         );
         let set_default_model_modal = ModalViewState::new(set_default_model_modal_view);
         let last_seen_provider_keys = ApiKeyManager::as_ref(ctx).keys().clone();
-
-        let remove_custom_endpoint_confirmation_dialog =
-            ctx.add_typed_action_view(RemoveCustomEndpointConfirmationDialog::new);
-        ctx.subscribe_to_view(
-            &remove_custom_endpoint_confirmation_dialog,
-            |me, _, event, ctx| {
-                me.handle_remove_custom_endpoint_confirmation_dialog_event(event, ctx);
-            },
-        );
-
-        let custom_endpoint_edit_buttons = Self::create_custom_endpoint_edit_buttons(
-            ApiKeyManager::as_ref(ctx).keys().custom_endpoints.len(),
-            custom_inference_controls_enabled,
-            ctx,
-        );
 
         let agent_toolbar_inline_editor = ctx.add_typed_action_view(|ctx| {
             AgentToolbarInlineEditor::new(AgentToolbarEditorMode::AgentView, ctx)
@@ -1959,11 +1865,6 @@ impl AISettingsPageView {
             router_views,
             #[cfg(feature = "local_fs")]
             add_router_button,
-            custom_endpoint_modal_state,
-            remove_custom_endpoint_confirmation_dialog,
-            pending_remove_custom_endpoint_index: None,
-            custom_inference_add_button,
-            custom_endpoint_edit_buttons,
             set_default_model_modal,
             last_seen_provider_keys,
             #[cfg(not(target_family = "wasm"))]
@@ -1986,17 +1887,9 @@ impl AISettingsPageView {
         ctx.notify();
     }
 
-    pub fn get_modal_content(&self, app: &AppContext) -> Option<Box<dyn Element>> {
-        if self.custom_endpoint_modal_state.is_open() {
-            Some(self.custom_endpoint_modal_state.render())
-        } else if self.set_default_model_modal.is_open() {
+    pub fn get_modal_content(&self, _app: &AppContext) -> Option<Box<dyn Element>> {
+        if self.set_default_model_modal.is_open() {
             Some(self.set_default_model_modal.render())
-        } else if self
-            .remove_custom_endpoint_confirmation_dialog
-            .as_ref(app)
-            .is_visible()
-        {
-            Some(ChildView::new(&self.remove_custom_endpoint_confirmation_dialog).finish())
         } else {
             None
         }
@@ -2172,336 +2065,6 @@ impl AISettingsPageView {
              your default model?"
         );
         self.show_set_default_model_modal(description, choices, ctx);
-    }
-
-    /// After a custom endpoint is added or saved, offer to switch the default
-    /// Agent Mode model to one of its models.
-    fn maybe_prompt_set_default_model_for_custom_endpoint(
-        &mut self,
-        endpoint_index: usize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !Self::can_use_custom_inference_controls(ctx) {
-            return;
-        }
-        if !Self::should_offer_default_model_switch(ctx) {
-            return;
-        }
-        let Some(endpoint) = ApiKeyManager::as_ref(ctx)
-            .keys()
-            .custom_endpoints
-            .get(endpoint_index)
-            .cloned()
-        else {
-            return;
-        };
-        // Build directly from the endpoint's models rather than the synthetic
-        // `custom_llms`, which are rebuilt asynchronously on `KeysUpdated`.
-        let choices: Vec<(LLMId, String)> = endpoint
-            .models
-            .iter()
-            .filter(|m| !m.name.trim().is_empty() && !m.config_key.is_empty())
-            .map(|m| {
-                (
-                    LLMId::from(m.config_key.clone()),
-                    m.display_label().to_string(),
-                )
-            })
-            .collect();
-        if choices.is_empty() {
-            return;
-        }
-        let current_default = Self::active_base_model_display_name(ctx);
-        let description = format!(
-            "You added the \"{}\" custom endpoint, but your default model is currently set to \
-             {current_default}, which won't work without Warp credits. Would you like to change \
-             your default model?",
-            endpoint.name
-        );
-        self.show_set_default_model_modal(description, choices, ctx);
-    }
-
-    fn sync_custom_endpoint_buttons(&mut self, ctx: &mut ViewContext<Self>) {
-        let enabled = Self::can_use_custom_inference_controls(ctx);
-
-        self.custom_inference_add_button.update(ctx, |button, ctx| {
-            button.set_disabled(!enabled, ctx);
-        });
-
-        let endpoint_count = ApiKeyManager::as_ref(ctx).keys().custom_endpoints.len();
-        if self.custom_endpoint_edit_buttons.len() != endpoint_count {
-            self.custom_endpoint_edit_buttons =
-                Self::create_custom_endpoint_edit_buttons(endpoint_count, enabled, ctx);
-        } else {
-            for button in &self.custom_endpoint_edit_buttons {
-                button.update(ctx, |button, ctx| {
-                    button.set_disabled(!enabled, ctx);
-                });
-            }
-        }
-    }
-
-    fn create_custom_endpoint_edit_buttons(
-        count: usize,
-        enabled: bool,
-        ctx: &mut ViewContext<Self>,
-    ) -> Vec<ViewHandle<ActionButton>> {
-        (0..count)
-            .map(|index| {
-                let button = ctx.add_typed_action_view(move |_| {
-                    ActionButton::new("Edit", SecondaryTheme)
-                        .with_icon(Icon::Pencil)
-                        .with_size(ButtonSize::Small)
-                        .on_click(move |ctx| {
-                            ctx.dispatch_typed_action(
-                                AISettingsPageAction::OpenEditCustomEndpointModal(index),
-                            );
-                        })
-                });
-                button.update(ctx, |button, ctx| {
-                    button.set_disabled(!enabled, ctx);
-                });
-                button
-            })
-            .collect()
-    }
-    fn can_use_custom_inference_controls(app: &AppContext) -> bool {
-        FeatureFlag::CustomInferenceEndpoints.is_enabled()
-            && AISettings::as_ref(app).is_any_ai_enabled(app)
-            && UserWorkspaces::as_ref(app).is_custom_inference_enabled(app)
-    }
-
-    fn show_add_custom_endpoint_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        if !Self::can_use_custom_inference_controls(ctx) {
-            return;
-        }
-        self.remove_custom_endpoint_confirmation_dialog
-            .update(ctx, |dialog, ctx| {
-                dialog.hide(ctx);
-            });
-        self.pending_remove_custom_endpoint_index = None;
-
-        self.custom_endpoint_modal_state
-            .set_title(Some("Add custom endpoint".to_string()), ctx);
-        self.custom_endpoint_modal_state.prefill(None, None, ctx);
-        self.custom_endpoint_modal_state.open(ctx);
-        ctx.emit(AISettingsPageEvent::ShowModal);
-        ctx.notify();
-    }
-
-    fn show_edit_custom_endpoint_modal(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
-        if !Self::can_use_custom_inference_controls(ctx) {
-            return;
-        }
-        let endpoint = ApiKeyManager::as_ref(ctx)
-            .keys()
-            .custom_endpoints
-            .get(index)
-            .cloned();
-        if endpoint.is_none() {
-            return;
-        }
-
-        self.remove_custom_endpoint_confirmation_dialog
-            .update(ctx, |dialog, ctx| {
-                dialog.hide(ctx);
-            });
-        self.pending_remove_custom_endpoint_index = None;
-
-        self.custom_endpoint_modal_state
-            .set_title(Some("Edit custom endpoint".to_string()), ctx);
-        self.custom_endpoint_modal_state
-            .prefill(endpoint.as_ref(), Some(index), ctx);
-        self.custom_endpoint_modal_state.open(ctx);
-        ctx.emit(AISettingsPageEvent::ShowModal);
-        ctx.notify();
-    }
-
-    fn hide_custom_endpoint_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.custom_endpoint_modal_state.close(ctx);
-        ctx.emit(AISettingsPageEvent::HideModal);
-        ctx.notify();
-    }
-
-    fn handle_custom_endpoint_modal_close_event(
-        &mut self,
-        event: &ModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            ModalEvent::Close => {
-                self.hide_custom_endpoint_modal(ctx);
-            }
-        }
-    }
-
-    fn handle_custom_endpoint_modal_event(
-        &mut self,
-        event: &CustomEndpointModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            CustomEndpointModalEvent::Close => {
-                self.hide_custom_endpoint_modal(ctx);
-            }
-            CustomEndpointModalEvent::AddEndpoint {
-                name,
-                url,
-                api_key,
-                models,
-            } => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.hide_custom_endpoint_modal(ctx);
-                    return;
-                }
-                ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                    manager.add_custom_endpoint(
-                        name.clone(),
-                        url.clone(),
-                        api_key.clone(),
-                        models.clone(),
-                        ctx,
-                    );
-                });
-                self.hide_custom_endpoint_modal(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint added".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-
-                // The new endpoint is appended last.
-                let new_index = ApiKeyManager::as_ref(ctx)
-                    .keys()
-                    .custom_endpoints
-                    .len()
-                    .saturating_sub(1);
-                self.maybe_prompt_set_default_model_for_custom_endpoint(new_index, ctx);
-                ctx.notify();
-            }
-            CustomEndpointModalEvent::SaveEndpoint {
-                index,
-                name,
-                url,
-                api_key,
-                models,
-            } => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.hide_custom_endpoint_modal(ctx);
-                    return;
-                }
-                ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                    manager.save_custom_endpoint(
-                        *index,
-                        name.clone(),
-                        url.clone(),
-                        api_key.clone(),
-                        models.clone(),
-                        ctx,
-                    );
-                });
-                self.hide_custom_endpoint_modal(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint saved".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                self.maybe_prompt_set_default_model_for_custom_endpoint(*index, ctx);
-                ctx.notify();
-            }
-            CustomEndpointModalEvent::RemoveEndpoint { index } => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.hide_custom_endpoint_modal(ctx);
-                    return;
-                }
-                self.hide_custom_endpoint_modal(ctx);
-                self.show_remove_custom_endpoint_confirmation_dialog(*index, ctx);
-            }
-        }
-    }
-
-    fn show_remove_custom_endpoint_confirmation_dialog(
-        &mut self,
-        index: usize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !Self::can_use_custom_inference_controls(ctx) {
-            return;
-        }
-        let endpoint = ApiKeyManager::as_ref(ctx)
-            .keys()
-            .custom_endpoints
-            .get(index)
-            .cloned();
-        let Some(endpoint) = endpoint else {
-            return;
-        };
-
-        let model_labels = endpoint
-            .models
-            .iter()
-            .map(|model| model.alias.clone().unwrap_or_else(|| model.name.clone()))
-            .filter(|s| !s.trim().is_empty())
-            .collect();
-
-        self.pending_remove_custom_endpoint_index = Some(index);
-        self.remove_custom_endpoint_confirmation_dialog
-            .update(ctx, |dialog, ctx| {
-                dialog.show(index, endpoint.name.clone(), model_labels, ctx);
-            });
-        ctx.notify();
-    }
-
-    fn handle_remove_custom_endpoint_confirmation_dialog_event(
-        &mut self,
-        event: &RemoveCustomEndpointConfirmationDialogEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            RemoveCustomEndpointConfirmationDialogEvent::Cancel => {
-                self.pending_remove_custom_endpoint_index = None;
-                self.remove_custom_endpoint_confirmation_dialog
-                    .update(ctx, |dialog, ctx| {
-                        dialog.hide(ctx);
-                    });
-                ctx.notify();
-            }
-            RemoveCustomEndpointConfirmationDialogEvent::Confirm(index) => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.pending_remove_custom_endpoint_index = None;
-                    self.remove_custom_endpoint_confirmation_dialog
-                        .update(ctx, |dialog, ctx| {
-                            dialog.hide(ctx);
-                        });
-                    ctx.notify();
-                    return;
-                }
-                ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                    manager.remove_custom_endpoint(*index, ctx);
-                });
-                self.pending_remove_custom_endpoint_index = None;
-                self.remove_custom_endpoint_confirmation_dialog
-                    .update(ctx, |dialog, ctx| {
-                        dialog.hide(ctx);
-                    });
-                self.sync_custom_endpoint_buttons(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint removed".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                ctx.notify();
-            }
-        }
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -3635,9 +3198,6 @@ pub enum AISettingsPageAction {
     #[cfg(feature = "local_fs")]
     OpenAddCustomRouter,
 
-    // Custom inference
-    OpenAddCustomEndpointModal,
-    OpenEditCustomEndpointModal(usize),
     ConnectGrokSubscription,
     DisconnectGrokSubscription,
 
@@ -4439,12 +3999,6 @@ impl TypedActionView for AISettingsPageView {
             #[cfg(feature = "local_fs")]
             AISettingsPageAction::OpenAddCustomRouter => {
                 ctx.emit(AISettingsPageEvent::OpenCustomRouterEditor(None));
-            }
-            AISettingsPageAction::OpenAddCustomEndpointModal => {
-                self.show_add_custom_endpoint_modal(ctx);
-            }
-            AISettingsPageAction::OpenEditCustomEndpointModal(index) => {
-                self.show_edit_custom_endpoint_modal(*index, ctx);
             }
             AISettingsPageAction::ToggleCloudHandoff => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -8528,11 +8082,7 @@ impl ApiKeysWidget {
                 .with_child(chips)
                 .finish();
 
-            let edit_button = view
-                .custom_endpoint_edit_buttons
-                .get(index)
-                .map(|button| button.as_ref(app).render(app))
-                .unwrap_or_else(|| Empty::new().finish());
+            let edit_button = Empty::new().finish();
 
             let row = Flex::row()
                 .with_main_axis_size(MainAxisSize::Max)
@@ -8782,7 +8332,6 @@ impl SettingsWidget for ApiKeysWidget {
                 .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_child(header_left)
-                .with_child(view.custom_inference_add_button.as_ref(app).render(app))
                 .finish();
 
             column.add_child(

@@ -39,9 +39,6 @@ use super::settings_page::{
     SettingsPageMeta, SettingsPageViewHandle, SettingsWidget,
 };
 use super::tab_menu::Tabs;
-use super::transfer_ownership_confirmation_modal::{
-    TransferOwnershipConfirmationEvent, TransferOwnershipConfirmationModal,
-};
 use super::SettingsSection;
 use crate::ai::AIRequestUsageModel;
 use crate::appearance::Appearance;
@@ -475,7 +472,6 @@ pub struct TeamsPageView {
     team_action_confirmation_dialog: ViewHandle<CloudActionConfirmationDialog>,
     show_team_action_confirmation_dialog: bool,
     pending_team_action_confirmation: Option<TeamActionConfirmationTarget>,
-    transfer_ownership_modal_state: ModalViewState<Modal<TransferOwnershipConfirmationModal>>,
     clipped_scroll_state: ClippedScrollStateHandle,
     discoverable_teams_states: Vec<DiscoverableTeamState>,
     rename_team_editor: ViewHandle<ClickableTextInput>,
@@ -605,18 +601,7 @@ impl TypedActionView for TeamsPageView {
                 self.join_team_with_team_discovery(*team_uid, ctx);
                 ctx.notify();
             }
-            TeamsPageAction::ShowTransferOwnershipModal {
-                new_owner_email,
-                new_owner_uid,
-                team_uid,
-            } => {
-                self.show_transfer_ownership_modal(
-                    new_owner_email.clone(),
-                    *new_owner_uid,
-                    *team_uid,
-                    ctx,
-                );
-            }
+            TeamsPageAction::ShowTransferOwnershipModal { .. } => {}
             TeamsPageAction::ToggleTeamDiscoverabilityBeforeCreation => {
                 self.checkbox_value = !self.checkbox_value;
             }
@@ -796,35 +781,6 @@ impl TeamsPageView {
             me.handle_cloud_action_confirmation_dialog_event(event, ctx);
         });
 
-        let transfer_ownership_modal_body =
-            ctx.add_typed_action_view(|_| TransferOwnershipConfirmationModal::new());
-        ctx.subscribe_to_view(&transfer_ownership_modal_body, |me, _, event, ctx| {
-            me.handle_transfer_ownership_modal_event(event, ctx);
-        });
-        let transfer_ownership_modal = ctx.add_typed_action_view(|ctx| {
-            Modal::new(
-                Some("Transfer team ownership?".to_string()),
-                transfer_ownership_modal_body,
-                ctx,
-            )
-            .with_modal_style(UiComponentStyles {
-                height: Some(220.),
-                ..Default::default()
-            })
-            .with_header_style(UiComponentStyles {
-                padding: Some(Coords::uniform(24.).bottom(16.)),
-                ..Default::default()
-            })
-            .with_body_style(UiComponentStyles {
-                padding: Some(Coords::uniform(24.).top(0.).bottom(12.)),
-                height: Some(150.),
-                ..Default::default()
-            })
-        });
-        ctx.subscribe_to_view(&transfer_ownership_modal, |me, _, event, ctx| {
-            me.handle_transfer_ownership_modal_close_event(event, ctx);
-        });
-
         let member_actions_menu = ctx.add_typed_action_view(|_| Menu::new().with_drop_shadow());
         ctx.subscribe_to_view(&member_actions_menu, |me, _, event, ctx| {
             if let menu::Event::Close { .. } = event {
@@ -861,7 +817,6 @@ impl TeamsPageView {
             team_action_confirmation_dialog,
             show_team_action_confirmation_dialog: false,
             pending_team_action_confirmation: None,
-            transfer_ownership_modal_state: ModalViewState::new(transfer_ownership_modal),
             discoverable_teams_states: Vec::new(),
             rename_team_editor,
             checkbox_value: true,
@@ -1181,59 +1136,6 @@ impl TeamsPageView {
                 self.confirm_pending_team_action(ctx);
             }
         }
-    }
-
-    fn handle_transfer_ownership_modal_event(
-        &mut self,
-        event: &TransferOwnershipConfirmationEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            TransferOwnershipConfirmationEvent::Confirm {
-                new_owner_uid,
-                team_uid,
-            } => {
-                self.set_team_member_role(*new_owner_uid, *team_uid, MembershipRole::Owner, ctx);
-                self.transfer_ownership_modal_state.close();
-                ctx.notify();
-            }
-            TransferOwnershipConfirmationEvent::Cancel => {
-                self.transfer_ownership_modal_state.close();
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_transfer_ownership_modal_close_event(
-        &mut self,
-        event: &ModalEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            ModalEvent::Close => {
-                self.transfer_ownership_modal_state.close();
-                ctx.notify();
-            }
-        }
-    }
-
-    fn show_transfer_ownership_modal(
-        &mut self,
-        new_owner_email: String,
-        new_owner_uid: UserUid,
-        team_uid: ServerId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.transfer_ownership_modal_state
-            .view
-            .update(ctx, |modal, ctx| {
-                modal.body().update(ctx, |body, ctx| {
-                    body.set_new_owner(new_owner_email, new_owner_uid, team_uid);
-                    ctx.notify();
-                });
-            });
-        self.transfer_ownership_modal_state.open();
-        ctx.notify();
     }
 
     fn handle_approve_domains_block_editor_event(
@@ -4396,17 +4298,6 @@ impl SettingsWidget for TeamsWidget {
         let mut stack = Stack::new();
         stack.add_child(Flex::column().with_child(content).finish());
 
-        if view.transfer_ownership_modal_state.is_open() {
-            stack.add_positioned_overlay_child(
-                view.transfer_ownership_modal_state.render(),
-                OffsetPositioning::offset_from_parent(
-                    vec2f(0., 0.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::Center,
-                    ChildAnchor::Center,
-                ),
-            );
-        }
         if view.should_show_remove_user_from_team_confirmation_dialog() {
             stack.add_positioned_overlay_child(
                 ChildView::new(&view.team_action_confirmation_dialog).finish(),

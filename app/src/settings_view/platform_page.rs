@@ -910,7 +910,7 @@ impl PlatformPageWidget {
 
 impl SettingsPageMeta for PlatformPageView {
     fn section() -> SettingsSection {
-        SettingsSection::OzCloudAPIKeys
+        SettingsSection::About
     }
 
     fn should_render(&self, ctx: &AppContext) -> bool {
@@ -941,7 +941,7 @@ impl SettingsPageMeta for PlatformPageView {
 
 impl From<ViewHandle<PlatformPageView>> for SettingsPageViewHandle {
     fn from(view_handle: ViewHandle<PlatformPageView>) -> Self {
-        SettingsPageViewHandle::OzCloudAPIKeys(view_handle)
+        SettingsPageViewHandle::Platform(view_handle)
     }
 }
 
