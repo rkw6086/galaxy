@@ -577,9 +577,7 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
             )
             .with_group(bindings::BindingGroup::WarpAi)
             .is_supported_on_current_platform(
-                UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app)
-                    || (FeatureFlag::CustomInferenceEndpoints.is_enabled()
-                        && UserWorkspaces::as_ref(app).is_custom_inference_enabled(app)),
+                UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app),
             ),
             ToggleSettingActionPair::new(
                 "auto show or hide Rich Input based on agent status",
@@ -7640,8 +7638,6 @@ struct ApiKeysWidget {
     can_use_warp_credits_for_fallback: SwitchStateHandle,
     upgrade_highlight_index: HighlightedHyperlink,
 
-    custom_inference_info_tooltip: MouseStateHandle,
-    custom_inference_terms_index: HighlightedHyperlink,
     description_learn_more_index: HighlightedHyperlink,
 }
 
@@ -7860,8 +7856,6 @@ impl ApiKeysWidget {
             can_use_warp_credits_for_fallback: Default::default(),
             upgrade_highlight_index: Default::default(),
 
-            custom_inference_info_tooltip: Default::default(),
-            custom_inference_terms_index: Default::default(),
             description_learn_more_index: Default::default(),
         }
     }
@@ -7933,175 +7927,6 @@ impl ApiKeysWidget {
             app,
         ));
         column.finish()
-    }
-
-    fn render_custom_inference_description(&self, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let text_fragments = vec![
-            FormattedTextFragment::plain_text(
-                "Use your own API keys from model providers for Warp Agent. You can also add custom endpoints to use third-party models. Custom endpoints must support the OpenAI-compatible Chat Completions API. API keys are stored only on your device, never on Warp's servers. They're used to make requests to your chosen model provider. Using auto models or models from providers you have not provided API keys for will consume Warp credits. ",
-            ),
-            FormattedTextFragment::hyperlink("Learn more", CUSTOM_INFERENCE_LEARN_MORE_URL),
-        ];
-        let description = FormattedTextElement::new(
-            FormattedText::new([FormattedTextLine::Line(text_fragments)]),
-            CONTENT_FONT_SIZE,
-            appearance.ui_font_family(),
-            appearance.ui_font_family(),
-            blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-            self.description_learn_more_index.clone(),
-        )
-        .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-        .register_default_click_handlers(|url, ctx, _| {
-            ctx.dispatch_typed_action(AISettingsPageAction::HyperlinkClick(url));
-        });
-        Container::new(description.finish())
-            .with_margin_top(styles::DESCRIPTION_NEGATIVE_MARGIN_OFFSET)
-            .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
-            .with_margin_right(styles::TOGGLE_WIDTH_MARGIN)
-            .finish()
-    }
-
-    fn render_custom_inference_info_icon(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let icon = Container::new(
-            ConstrainedBox::new(
-                Icon::Info
-                    .to_galaxyui_icon(appearance.theme().active_ui_text_color())
-                    .finish(),
-            )
-            .with_width(13.)
-            .with_height(13.)
-            .finish(),
-        )
-        .finish();
-
-        let tooltip_text = FormattedText::new([FormattedTextLine::Line(vec![
-            FormattedTextFragment::plain_text(
-                "By using BYOK or custom endpoints, you agree to use them only as permitted by ",
-            ),
-            FormattedTextFragment::hyperlink("Warp's Terms of Service", CUSTOM_INFERENCE_TERMS_URL),
-            FormattedTextFragment::plain_text(
-                ". BYOK and custom endpoints are intended for individual use and small teams. Companies or organizations with more than 10 employees should use Warp Business or Enterprise.",
-            ),
-        ])]);
-        let tooltip_background = appearance.theme().tooltip_background();
-
-        let info_button =
-            Hoverable::new(self.custom_inference_info_tooltip.clone(), move |state| {
-                let mut stack = Stack::new().with_child(icon);
-                if state.is_hovered() {
-                    let tool_tip = ConstrainedBox::new(
-                        Container::new(
-                            FormattedTextElement::new(
-                                tooltip_text.clone(),
-                                10.,
-                                appearance.ui_font_family(),
-                                appearance.ui_font_family(),
-                                appearance.theme().background().into_solid(),
-                                self.custom_inference_terms_index.clone(),
-                            )
-                            .with_hyperlink_font_color(
-                                appearance
-                                    .theme()
-                                    .accent()
-                                    .on_background(
-                                        ThemeFill::Solid(tooltip_background),
-                                        MinimumAllowedContrast::Text,
-                                    )
-                                    .into(),
-                            )
-                            .register_default_click_handlers(|url, ctx, _| {
-                                ctx.dispatch_typed_action(AISettingsPageAction::HyperlinkClick(
-                                    url,
-                                ));
-                            })
-                            .finish(),
-                        )
-                        .with_background_color(tooltip_background)
-                        .with_vertical_padding(4.)
-                        .with_horizontal_padding(8.)
-                        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
-                        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-                        .finish(),
-                    )
-                    .with_max_width(CUSTOM_INFERENCE_INFO_TOOLTIP_MAX_WIDTH)
-                    .finish();
-                    stack.add_positioned_child(
-                        tool_tip,
-                        OffsetPositioning::offset_from_parent(
-                            vec2f(0., -3.),
-                            ParentOffsetBounds::WindowByPosition,
-                            ParentAnchor::TopMiddle,
-                            ChildAnchor::BottomMiddle,
-                        ),
-                    );
-                }
-                stack.finish()
-            })
-            .with_cursor(Cursor::PointingHand);
-
-        Container::new(Box::new(info_button))
-            .with_margin_left(4.)
-            .finish()
-    }
-
-    fn render_custom_endpoints_list(
-        &self,
-        view: &AISettingsPageView,
-        appearance: &Appearance,
-        is_enabled: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-        let text_color = styles::header_font_color(is_enabled, app);
-        let endpoints = &ApiKeyManager::as_ref(app).keys().custom_endpoints;
-        let chip_border = internal_colors::fg_overlay_3(theme);
-
-        let mut list = Flex::column().with_spacing(12.);
-        for (index, endpoint) in endpoints.iter().enumerate() {
-            let model_labels = endpoint
-                .models
-                .iter()
-                .map(|model| model.alias.clone().unwrap_or_else(|| model.name.clone()))
-                .filter(|s| !s.trim().is_empty());
-
-            let chips = super::render_model_chips(model_labels, appearance, text_color);
-
-            let endpoint_name = Text::new_inline(
-                endpoint.name.clone(),
-                appearance.ui_font_family(),
-                appearance.ui_font_size(),
-            )
-            .with_style(Properties::default().weight(Weight::Semibold))
-            .with_color(text_color.into())
-            .finish();
-
-            let left = Flex::column()
-                .with_spacing(8.)
-                .with_child(endpoint_name)
-                .with_child(chips)
-                .finish();
-
-            let edit_button = Empty::new().finish();
-
-            let row = Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(Shrinkable::new(1., left).finish())
-                .with_child(edit_button)
-                .finish();
-
-            list.add_child(
-                Container::new(row)
-                    .with_uniform_padding(12.)
-                    .with_background(internal_colors::fg_overlay_1(theme))
-                    .with_border(Border::all(1.).with_border_fill(chip_border))
-                    .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
-                    .finish(),
-            );
-        }
-        list.finish()
     }
 
     /// The "Connect SuperGrok subscription" row: label and description on the
@@ -8299,95 +8124,23 @@ impl SettingsWidget for ApiKeysWidget {
         let ai_settings = AISettings::as_ref(app);
         let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
         let is_byo_enabled = UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app);
-        let is_custom_inference_enabled =
-            UserWorkspaces::as_ref(app).is_custom_inference_enabled(app);
         let provider_keys_enabled = is_any_ai_enabled && is_byo_enabled;
-        let custom_inference_controls_enabled = is_any_ai_enabled && is_custom_inference_enabled;
-        let custom_inference_flag_on = FeatureFlag::CustomInferenceEndpoints.is_enabled();
-        let show_custom_inference = custom_inference_flag_on && is_custom_inference_enabled;
 
         let mut column = Flex::column().with_child(render_separator(appearance));
 
-        if show_custom_inference {
-            // Header row: "Custom inference" + info icon on left, "+ Add custom model" on right
-            let header_left = Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(
-                    build_sub_header(
-                        appearance,
-                        "Custom inference",
-                        Some(styles::header_font_color(
-                            custom_inference_controls_enabled,
-                            app,
-                        )),
-                    )
-                    .with_margin_bottom(0.)
-                    .finish(),
-                )
-                .with_child(self.render_custom_inference_info_icon(appearance))
-                .finish();
-
-            let header_row = Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(header_left)
-                .finish();
-
-            column.add_child(
-                Container::new(header_row)
-                    .with_padding_bottom(HEADER_PADDING)
-                    .finish(),
-            );
-
-            // Description with Learn more link
-            column.add_child(self.render_custom_inference_description(app));
-        } else {
-            // Fallback: old "API Keys" header only
-            column.add_child(
-                build_sub_header(
-                    appearance,
-                    "API Keys",
-                    Some(styles::header_font_color(is_any_ai_enabled, app)),
-                )
-                .with_padding_bottom(HEADER_PADDING)
-                .finish(),
-            );
-        }
+        column.add_child(
+            build_sub_header(
+                appearance,
+                "API Keys",
+                Some(styles::header_font_color(is_any_ai_enabled, app)),
+            )
+            .with_padding_bottom(HEADER_PADDING)
+            .finish(),
+        );
 
         // Provider key editors (always visible)
         column.add_child(self.render_provider_key_editors(appearance, provider_keys_enabled, app));
 
-        // Custom endpoints sub-label + list (only when flag on and endpoints non-empty)
-        if show_custom_inference {
-            let endpoints = &ApiKeyManager::as_ref(app).keys().custom_endpoints;
-            if !endpoints.is_empty() {
-                column.add_child(
-                    Container::new(
-                        Text::new_inline(
-                            "Custom endpoints",
-                            appearance.ui_font_family(),
-                            CONTENT_FONT_SIZE,
-                        )
-                        .with_color(
-                            styles::header_font_color(custom_inference_controls_enabled, app)
-                                .into(),
-                        )
-                        .with_style(Properties::default().weight(Weight::Semibold))
-                        .finish(),
-                    )
-                    .with_margin_top(16.)
-                    .with_margin_bottom(8.)
-                    .finish(),
-                );
-                column.add_child(self.render_custom_endpoints_list(
-                    view,
-                    appearance,
-                    custom_inference_controls_enabled,
-                    app,
-                ));
-            }
-        }
 
         // Entrypoint for connecting a SuperGrok (xAI) subscription via OAuth.
         if FeatureFlag::SuperGrok.is_enabled() {
@@ -8420,8 +8173,8 @@ impl SettingsWidget for ApiKeysWidget {
             }
         }
 
-        // Warp credit fallback toggle (shown when BYO or custom inference is enabled)
-        if is_byo_enabled || show_custom_inference {
+        // Warp credit fallback toggle (shown when BYO is enabled)
+        if is_byo_enabled {
             column.add_child(
                 Container::new(self.render_warp_credit_fallback_toggle(view, app))
                     .with_margin_top(16.)

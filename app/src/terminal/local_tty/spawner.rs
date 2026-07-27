@@ -76,28 +76,9 @@ impl PtyHandle for DirectPtyHandle {
         Ok(())
     }
 }
-/// Invokes the provided callback function without crash reporting enabled.
-fn invoke_without_crash_reporting<T>(
-    is_crash_reporting_enabled: bool,
-    func: impl FnOnce() -> T,
-) -> T {
-    // Uninitialize cocoa-sentry before spawning the shell process to avoid passing any custom state
-    // (such as BSD signal handlers and mach exception handlers) into the shell process. This means
-    // we lose all Cocoa crash reports from now until when the session is successfully spawned,
-    // which is not ideal but allows us to fully ensure that we don't improperly leak any Sentry state
-    // into the child processes.
-    #[cfg(feature = "crash_reporting")]
-    crate::crash_reporting::uninit_cocoa_sentry();
-
-    let retval = func();
-
-    // Now that the child has spawned--reinitialize cocoa sentry.
-    if is_crash_reporting_enabled {
-        #[cfg(feature = "crash_reporting")]
-        crate::crash_reporting::init_cocoa_sentry();
-    }
-
-    retval
+/// Invokes the provided callback function while spawning a shell process.
+fn invoke_without_crash_reporting<T>(func: impl FnOnce() -> T) -> T {
+    func()
 }
 
 pub(super) struct PtySpawnInfo {
@@ -239,7 +220,7 @@ impl PtySpawner {
         is_crash_reporting_enabled: bool,
     ) -> Result<(PtySpawnResult, Box<dyn PtyHandle>)> {
         let pty_spawn_info =
-            invoke_without_crash_reporting(is_crash_reporting_enabled, move || {
+            invoke_without_crash_reporting(move || {
                 local_tty::spawn(
                     options,
                     #[cfg(windows)]

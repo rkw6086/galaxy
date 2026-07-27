@@ -628,14 +628,10 @@ impl LLMPreferences {
         // RequiresUpgrade models may become usable or unusable.
         // Also rebuild `custom_llms` so adds/edits/removals to the user's custom endpoints
         // immediately flow through to the model picker.
-        ctx.subscribe_to_model(
-            &ApiKeyManager::handle(ctx),
-            |me, _, _event: &ApiKeyManagerEvent, ctx| {
-                me.rebuild_custom_llms(ctx);
-                me.reconcile_disabled_model_preferences(ctx);
-                ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
-            },
-        );
+        ctx.subscribe_to_model(&ApiKeyManager::handle(ctx), |me, _, _event, ctx| {
+            me.reconcile_disabled_model_preferences(ctx);
+            ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+        });
 
         // Rebuild custom model routers whenever the local `model_configs/` directory
         // changes, and reconcile any now-stale local selection.
@@ -1400,8 +1396,8 @@ impl LLMPreferences {
     }
 
     fn custom_inference_enabled(app: &AppContext) -> bool {
-        FeatureFlag::CustomInferenceEndpoints.is_enabled()
-            && UserWorkspaces::as_ref(app).is_custom_inference_enabled(app)
+        let _ = app;
+        false
     }
 
     /// Resolves a custom model router by its `config_key`/`LLMId`.
@@ -1583,84 +1579,7 @@ impl LLMPreferences {
     /// Reads the user's current `ApiKeyManager.custom_endpoints` and replaces `custom_llms`
     /// with synthetic `LLMInfo`s. Called on every `ApiKeyManagerEvent::KeysUpdated`, so adds,
     /// edits, and removals all propagate immediately.
-    fn rebuild_custom_llms(&mut self, app: &AppContext) {
-        self.custom_llms = build_custom_llm_infos(ApiKeyManager::as_ref(app).keys());
-    }
-
-    fn sanitize_disabled_custom_model_preferences(&mut self, ctx: &mut ModelContext<Self>) {
-        if Self::custom_inference_enabled(ctx) || self.custom_llms.is_empty() {
-            return;
-        }
-
-        let custom_ids: HashSet<_> = self
-            .custom_llms
-            .iter()
-            .map(|info| info.id.clone())
-            .collect();
-        let mut updated_agent_mode = false;
-        let mut updated_coding = false;
-        let mut updated_other = false;
-
-        self.base_llm_for_terminal_view.retain(|_, id| {
-            let keep = !custom_ids.contains(id);
-            updated_agent_mode |= !keep;
-            keep
-        });
-
-        AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles, ctx| {
-            for profile_id in profiles.get_all_profile_ids() {
-                let Some(profile) = profiles.get_profile_by_id(profile_id, ctx) else {
-                    continue;
-                };
-                let profile_data = profile.data();
-
-                if profile_data
-                    .base_model
-                    .as_ref()
-                    .is_some_and(|id| custom_ids.contains(id))
-                {
-                    profiles.set_base_model(profile_id, None, ctx);
-                    profiles.set_context_window_limit(profile_id, None, ctx);
-                    updated_agent_mode = true;
-                }
-                if profile_data
-                    .coding_model
-                    .as_ref()
-                    .is_some_and(|id| custom_ids.contains(id))
-                {
-                    profiles.set_coding_model(profile_id, None, ctx);
-                    updated_coding = true;
-                }
-                if profile_data
-                    .cli_agent_model
-                    .as_ref()
-                    .is_some_and(|id| custom_ids.contains(id))
-                {
-                    profiles.set_cli_agent_model(profile_id, None, ctx);
-                    updated_other = true;
-                }
-                if profile_data
-                    .computer_use_model
-                    .as_ref()
-                    .is_some_and(|id| custom_ids.contains(id))
-                {
-                    profiles.set_computer_use_model(profile_id, None, ctx);
-                    updated_other = true;
-                }
-            }
-        });
-
-        if updated_agent_mode {
-            self.trigger_snapshot_save(ctx);
-            ctx.emit(LLMPreferencesEvent::UpdatedActiveAgentModeLLM);
-        }
-        if updated_coding {
-            ctx.emit(LLMPreferencesEvent::UpdatedActiveCodingLLM);
-        }
-        if updated_other {
-            ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
-        }
-    }
+    fn sanitize_disabled_custom_model_preferences(&mut self, _ctx: &mut ModelContext<Self>) {}
 
     /// Returns the default base model as a fallback.
     /// Returns `true` if at least one real AI provider model is configured and available.

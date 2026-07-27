@@ -130,11 +130,7 @@ pub fn init(app: &mut AppContext) {
     ]);
 
     if ChannelState::enable_debug_features() {
-        let crash_description = if cfg!(target_os = "macos") {
-            "Crash the app (for testing sentry-cocoa)"
-        } else {
-            "Crash the app (for testing sentry-native)"
-        };
+        let crash_description = "Crash the app (for testing)";
         app.register_editable_bindings([
             EditableBinding::new("workspace:crash", crash_description, WorkspaceAction::Crash)
                 .with_context_predicate(id!("Workspace")),
@@ -146,7 +142,7 @@ pub fn init(app: &mut AppContext) {
             .with_context_predicate(id!("Workspace")),
             EditableBinding::new(
                 "workspace:panic",
-                "Trigger a panic (for testing sentry-rust)",
+                "Trigger a panic (for testing)",
                 WorkspaceAction::Panic,
             )
             .with_context_predicate(id!("Workspace")),

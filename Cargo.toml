@@ -5,9 +5,8 @@ members = [
 ]
 resolver = "2"
 
-# Include all members except serve-wasm (since it's a helper helper for serving
-# wasm binaries and not something we want to regularly compile or run
-# tests against) and integration (since it is only used for testing).
+# Include only the application and core libraries used by the shipped local
+# client. Integration-only and server-only crates remain outside default builds.
 default-members = [
   "app",
   "crates/channel_versions",
@@ -91,7 +90,6 @@ galaxy_isolation_platform = { path = "crates/isolation_platform" }
 galaxy_js = { path = "crates/galaxy_js" }
 galaxy_logging = { path = "crates/galaxy_logging" }
 galaxy_managed_secrets = { path = "crates/managed_secrets" }
-warp_multi_agent_client = { path = "crates/warp_multi_agent_client" }
 galaxy_ripgrep = { path = "crates/galaxy_ripgrep" }
 warp_search_core = { path = "crates/warp_search_core" }
 warp_server_auth = { path = "crates/warp_server_auth" }
@@ -262,17 +260,6 @@ rust-embed = { version = "8.7.0", features = ["include-exclude"] }
 rustc-hash = "2.1.1"
 rustls = "0.23.39"
 schemars = { version = "1", features = ["chrono04"] }
-sentry = { version = "0.47.0", default-features = false, features = [
-  "anyhow",
-  "backtrace",
-  "contexts",
-  "debug-images",
-  "panic",
-  "release-health",
-  "reqwest",
-  "rustls",
-] }
-sentry-log = "0.47.0"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_bytes = "0.11"
 serde-bytes-repr = "0.3"

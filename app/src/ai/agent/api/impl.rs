@@ -214,25 +214,6 @@ pub async fn generate_multi_agent_output(
     }
 }
 
-async fn convert_multi_agent_client_error(
-    error: warp_multi_agent_client::Error,
-) -> Arc<AIApiError> {
-    let error = match error {
-        warp_multi_agent_client::Error::Authentication(error)
-        | warp_multi_agent_client::Error::AmbientHeaders(error) => AIApiError::Other(error),
-        warp_multi_agent_client::Error::Base64Decode(error) => {
-            AIApiError::Other(anyhow::Error::from(error))
-        }
-        warp_multi_agent_client::Error::ProtobufDecode(error) => {
-            AIApiError::Other(anyhow::Error::from(error))
-        }
-        warp_multi_agent_client::Error::EventSource(error) => {
-            AIApiError::from_stream_error("GenerateMultiAgentOutput", *error).await
-        }
-    };
-    Arc::new(error)
-}
-
 fn api_keys_with_warp_credit_fallback_setting(
     api_keys: Option<api::request::settings::ApiKeys>,
     allow_use_of_warp_credits: bool,
