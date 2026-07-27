@@ -1865,6 +1865,48 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
         private: true,
     }
+
+    // Whether the "Crosscheck Work" experiment is enabled.
+    // When enabled, a reviewer sub-agent is spawned after the main agent finishes
+    // a turn (with no pending tool calls) to critique the output. The feedback
+    // loop continues until the reviewer responds with "LGTM!".
+    crosscheck_enabled: CrosscheckEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "agents.experiments.crosscheck_enabled",
+        description: "Enables the Crosscheck Work experiment: a reviewer agent critiques agent output until satisfied.",
+        feature_flag: FeatureFlag::CrosscheckWork,
+    }
+
+    // The model ID to use for the crosscheck reviewer agent.
+    // Must be a valid model ID from the configured LLM providers.
+    // If empty, the currently active model for the conversation is used.
+    crosscheck_model_id: CrosscheckModelId {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "agents.experiments.crosscheck_model_id",
+        description: "The LLM model ID used by the crosscheck reviewer agent.",
+        feature_flag: FeatureFlag::CrosscheckWork,
+    }
+
+    // Maximum number of crosscheck review cycles before stopping.
+    // Prevents infinite feedback loops between the main agent and reviewer.
+    crosscheck_max_iterations: CrosscheckMaxIterations {
+        type: u32,
+        default: 3,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "agents.experiments.crosscheck_max_iterations",
+        description: "Maximum number of crosscheck review cycles before auto-accepting.",
+        feature_flag: FeatureFlag::CrosscheckWork,
+    }
 ]);
 
 impl AISettings {
@@ -2049,6 +2091,24 @@ impl AISettings {
     /// Returns true when local-to-cloud handoff is effectively enabled.
     /// False when the user/org has disabled it, cloud conversations are off,
     /// or AI is globally off.
+    /// Returns `true` when the Crosscheck Work experiment is active.
+    pub fn is_crosscheck_enabled(&self, app: &galaxyui::AppContext) -> bool {
+        self.is_any_ai_enabled(app)
+            && FeatureFlag::CrosscheckWork.is_enabled()
+            && *self.crosscheck_enabled
+    }
+
+    /// Returns the model ID configured for the crosscheck reviewer, or empty
+    /// string if the active model should be used.
+    pub fn crosscheck_model_id(&self) -> &str {
+        &self.crosscheck_model_id
+    }
+
+    /// Maximum number of crosscheck review iterations.
+    pub fn crosscheck_max_iterations(&self) -> u32 {
+        (*self.crosscheck_max_iterations).max(1)
+    }
+
     pub fn is_cloud_handoff_enabled(&self, app: &galaxyui::AppContext) -> bool {
         if !self.is_any_ai_enabled(app) || *self.should_force_disable_cloud_handoff {
             return false;

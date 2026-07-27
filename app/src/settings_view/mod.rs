@@ -247,6 +247,7 @@ pub enum SettingsSection {
     ThirdPartyCLIAgents,
     Bedrock,
     OpenAI,
+    Experiments,
     /// Internal backing-page identifier for CodeSettingsPageView. Multiple subpages
     /// (CodeIndexing, EditorAndCodeReview) share this single backing page,
     /// so this variant is needed as the key in `settings_pages`.
@@ -275,6 +276,7 @@ impl Display for SettingsSection {
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Bedrock => write!(f, "AWS Bedrock"),
             SettingsSection::OpenAI => write!(f, "OpenAI / LiteLLM"),
+            SettingsSection::Experiments => write!(f, "Experiments"),
             SettingsSection::Warpify => write!(f, "Wormhole"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
@@ -332,6 +334,7 @@ impl SettingsSection {
             Self::ThirdPartyCLIAgents,
             Self::Bedrock,
             Self::OpenAI,
+            Self::Experiments,
         ]
     }
 
@@ -366,6 +369,7 @@ impl FromStr for SettingsSection {
             "AWS Bedrock" | "Bedrock" => Ok(Self::Bedrock),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
+            "Experiments" => Ok(Self::Experiments),
             _ => Err(()),
         }
     }

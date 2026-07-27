@@ -907,6 +907,12 @@ pub enum FeatureFlag {
     LspCompletion,
     LspRename,
     LspSignatureHelp,
+
+    /// Enables the "Crosscheck Work" experiment, which spawns a reviewer
+    /// sub-agent after the main agent finishes a turn. The reviewer critiques
+    /// the output and sends feedback back to the main agent until it responds
+    /// with "LGTM!".
+    CrosscheckWork,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =
@@ -976,6 +982,7 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::BackgroundComputerUse,
     FeatureFlag::ContextWindowUsageBreakdown,
     FeatureFlag::WaitForEventsParentRegistration,
+    FeatureFlag::CrosscheckWork,
 ];
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
