@@ -57,11 +57,6 @@ pub async fn generate_multi_agent_output(
         redaction::redact_inputs(&mut params.input);
     }
 
-    let api_keys = api_keys_with_warp_credit_fallback_setting(
-        params.api_keys,
-        params.allow_use_of_warp_credits,
-    );
-
     let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
             tasks: params.tasks,
@@ -91,7 +86,7 @@ pub async fn generate_multi_agent_output(
             supports_suggest_prompt: true,
             supports_read_image_files: FeatureFlag::ReadImageFiles.is_enabled(),
             supports_reasoning_message: true,
-            api_keys,
+            api_keys: params.api_keys,
             autonomy_level: params.autonomy_level.into(),
             isolation_level: params.isolation_level.into(),
             web_search_enabled: params.web_search_enabled,
@@ -211,23 +206,6 @@ pub async fn generate_multi_agent_output(
             let _ = tx.send(Err(err)).await;
             Ok(Box::pin(rx))
         }
-    }
-}
-
-fn api_keys_with_warp_credit_fallback_setting(
-    api_keys: Option<api::request::settings::ApiKeys>,
-    allow_use_of_warp_credits: bool,
-) -> Option<api::request::settings::ApiKeys> {
-    match api_keys {
-        Some(mut api_keys) => {
-            api_keys.allow_use_of_warp_credits = allow_use_of_warp_credits;
-            Some(api_keys)
-        }
-        None if allow_use_of_warp_credits => Some(api::request::settings::ApiKeys {
-            allow_use_of_warp_credits: true,
-            ..Default::default()
-        }),
-        None => None,
     }
 }
 

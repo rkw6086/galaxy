@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use ai::api_keys::ApiKeyManager;
 use chrono::{DateTime, Local, Utc};
 use galaxy_core::user_preferences::GetUserPreferences as _;
 pub use galaxy_graphql::billing::BonusGrantType;
@@ -401,8 +400,6 @@ impl AIRequestUsageModel {
     /// 4. user's team plan has pay-as-you-go enabled (enterprise only)
     /// 5. user's team has enterprise bonus grants auto-reload enabled (enterprise only)
     /// 6. user's team has self-serve auto-reload enabled within its monthly spend limit
-    /// 7. user has BYOK enabled and has either provided at least one API key or
-    ///    connected a Grok subscription
     /// Use this method as the starting point for AI availability checking.
     pub fn has_any_ai_remaining(&self, ctx: &AppContext) -> bool {
         let current_workspace = UserWorkspaces::as_ref(ctx).current_workspace();
@@ -435,18 +432,12 @@ impl AIRequestUsageModel {
                     .is_some_and(|price| !workspace.would_addon_purchase_reach_limit(price))
         });
 
-        // If you have provided your own API key or connected a Grok
-        // subscription, it doesn't matter if you are out of warp-provided requests.
-        let has_byo_credentials = UserWorkspaces::as_ref(ctx).is_byo_api_key_enabled(ctx)
-            && ApiKeyManager::as_ref(ctx).has_any_key();
-
         has_base_plan_ai_requests
             || (user_bonus_credits || workspace_bonus_credits)
             || workspace_has_overages
             || is_payg_enabled
             || is_enterprise_auto_reload_enabled
             || is_self_serve_auto_reload_enabled
-            || has_byo_credentials
     }
 
     pub fn requests_used(&self) -> usize {

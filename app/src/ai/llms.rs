@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
-use ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, CustomEndpoint, CustomEndpointModel};
+use ai::api_keys::ApiKeyManager;
 pub use ai::LLMId;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
@@ -27,23 +27,10 @@ use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
 
 /// Checks if a user's' API key is being used for the given provider.
-/// Returns `true` if BYO API key is enabled and a key exists for the provider.
-/// For xAI, a connected Grok subscription counts: its OAuth access token is
-/// sent like a BYO key (see `ApiKeyManager::api_keys_for_request`).
-pub fn is_using_api_key_for_provider(provider: &LLMProvider, app: &AppContext) -> bool {
-    if !UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app) {
-        return false;
-    }
-    let manager = ApiKeyManager::as_ref(app);
-
-    match provider {
-        LLMProvider::OpenAI => manager.keys().openai.is_some(),
-        LLMProvider::Anthropic => manager.keys().anthropic.is_some(),
-        LLMProvider::Google => manager.keys().google.is_some(),
-        LLMProvider::Xai => manager.grok_tokens().is_some(),
-        LLMProvider::Bedrock | LLMProvider::LiteLLM => false,
-        LLMProvider::Unknown => false,
-    }
+/// AWS Bedrock is the only supported provider in Galaxy; there is no
+/// user-pasted BYO key path for other providers.
+pub fn is_using_api_key_for_provider(_provider: &LLMProvider, _app: &AppContext) -> bool {
+    false
 }
 
 pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, app: &AppContext) -> bool {
@@ -423,8 +410,8 @@ impl AvailableLLMs {
     }
 
     fn default_llm_info(&self) -> &LLMInfo {
-        static NO_PROVIDER_FALLBACK: std::sync::LazyLock<LLMInfo> = std::sync::LazyLock::new(|| {
-            LLMInfo {
+        static NO_PROVIDER_FALLBACK: std::sync::LazyLock<LLMInfo> =
+            std::sync::LazyLock::new(|| LLMInfo {
                 display_name: "No models configured".to_owned(),
                 base_model_name: "No models configured".to_owned(),
                 id: "none".to_owned().into(),
@@ -433,9 +420,7 @@ impl AvailableLLMs {
                     request_multiplier: 1,
                     credit_multiplier: None,
                 },
-                description: Some(
-                    "Enable Bedrock or OpenAI/LiteLLM in settings".to_string(),
-                ),
+                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
                 disable_reason: Some(DisableReason::Unavailable),
                 vision_supported: false,
                 spec: None,
@@ -443,8 +428,7 @@ impl AvailableLLMs {
                 host_configs: HashMap::new(),
                 discount_percentage: None,
                 context_window: LLMContextWindow::default(),
-            }
-        });
+            });
 
         self.info_for_id(&self.default_id)
             .or_else(|| self.choices.first())
@@ -675,7 +659,7 @@ impl LLMPreferences {
         });
 
         let base_llm_for_terminal_view = HashMap::new();
-        let custom_llms = build_custom_llm_infos(ApiKeyManager::as_ref(ctx).keys());
+        let custom_llms = Vec::new();
 
         let mut me = Self {
             models_by_feature,
@@ -758,7 +742,9 @@ impl LLMPreferences {
             .choices
             .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
+            cli.choices.retain(|m| {
+                m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown
+            });
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -1916,52 +1902,6 @@ fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
     }
 }
 
-/// Builds synthetic [`LLMInfo`]s from the user's persisted custom endpoints.
-///
-/// One entry per `CustomEndpointModel`. The display label is the **alias** when present,
-/// falling back to the raw model name. The `id` is the model's `config_key`, which is
-/// also what flows out to `Request.Settings.custom_model_providers` so the server can map
-/// a `ModelConfig.{base,coding,cli_agent,computer_use_agent}` selection back to the
-/// user-provided endpoint.
-///
-/// Endpoints with empty URL or API key, and models with empty name or config_key, are
-/// skipped — they shouldn't surface in the picker until the user finishes configuring them.
-fn build_custom_llm_infos(keys: &ai::api_keys::ApiKeys) -> Vec<LLMInfo> {
-    keys.custom_endpoints
-        .iter()
-        .filter(|ep| !ep.url.trim().is_empty() && !ep.api_key.is_empty())
-        .flat_map(|endpoint| {
-            endpoint
-                .models
-                .iter()
-                .filter(|m| !m.name.trim().is_empty() && !m.config_key.is_empty())
-                .map(move |model| custom_llm_info_from(endpoint, model))
-        })
-        .collect()
-}
-
-fn custom_llm_info_from(endpoint: &CustomEndpoint, model: &CustomEndpointModel) -> LLMInfo {
-    let label = model.display_label().to_owned();
-    LLMInfo {
-        display_name: label.clone(),
-        base_model_name: label,
-        id: model.config_key.clone().into(),
-        reasoning_level: None,
-        usage_metadata: LLMUsageMetadata {
-            request_multiplier: 1,
-            credit_multiplier: None,
-        },
-        description: Some(format!("Custom · {}", endpoint.name)),
-        disable_reason: None,
-        vision_supported: true,
-        spec: None,
-        provider: LLMProvider::Unknown,
-        host_configs: HashMap::new(),
-        discount_percentage: None,
-        context_window: LLMContextWindow::default(),
-    }
-}
-
 /// Fetches model metadata from LiteLLM's `/model/info` endpoint which returns rich
 /// metadata including accurate context window sizes, output token limits, and
 /// capability flags (vision, function calling).
@@ -2144,10 +2084,9 @@ async fn fetch_from_openai_models(
                 m,
                 &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
             );
-            let context_size =
-                u32_from_any(m, &["max_model_len", "context_window", "token_size"])
-                    .or(max_input_tokens)
-                    .unwrap_or(200_000);
+            let context_size = u32_from_any(m, &["max_model_len", "context_window", "token_size"])
+                .or(max_input_tokens)
+                .unwrap_or(200_000);
             let max_output_tokens = u32_from_any(
                 m,
                 &[

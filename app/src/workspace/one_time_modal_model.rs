@@ -1,6 +1,5 @@
 use std::future::Future;
 
-use ai::api_keys::ApiKeyManager;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::send_telemetry_from_ctx;
 use settings::Setting as _;
@@ -442,7 +441,10 @@ impl OneTimeModalModel {
             .current_workspace()
             .map(|workspace| workspace.billing_metadata.customer_type);
         let is_warp_ai_enabled = *AISettings::as_ref(ctx).is_any_ai_enabled;
-        let has_byok_or_byoe = ApiKeyManager::as_ref(ctx).has_any_key();
+        // BYOK/BYOE (bring your own provider key/endpoint) has been removed; Galaxy
+        // only supports AWS Bedrock and OpenAI-compatible endpoints configured by
+        // the user in Settings, neither of which participate in this decision.
+        let has_byok_or_byoe = false;
         let completed_new_onboarding = has_completed_local_onboarding(ctx);
         let has_zero_base_credits = AIRequestUsageModel::as_ref(ctx).request_limit() == 0;
 

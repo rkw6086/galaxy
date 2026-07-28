@@ -1,6 +1,4 @@
-use ::ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, ApiKeys};
-#[cfg(not(target_family = "wasm"))]
-use ::ai::grok_subscription::oauth::{self, ManualCodeExchange};
+use ::ai::api_keys::ApiKeyManager;
 use chrono::{DateTime, Local};
 use enum_iterator::all;
 use galaxy_core::channel::ChannelState;
@@ -85,15 +83,14 @@ use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
-    BedrockEnabled, CanUseWarpCreditsForFallback, CodeSettings, CodebaseContextEnabled,
-    CrosscheckEnabled, FileBasedMcpEnabled, GitOperationsAutogenEnabled,
-    IncludeAgentCommandsInHistory, InputSettings, IntelligentAutosuggestionsEnabled,
-    LongRunningCommandSubmissionMode, MemoryEnabled, NLDInTerminalEnabled,
-    NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled, OrchestrationMessageDisplayMode,
-    PromptSubmissionMode, RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled,
-    ShouldRenderCLIAgentToolbar, ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips,
-    ShowConversationHistory, ShowHintText, ThinkingDisplayMode, VoiceInputEnabled,
-    WarpDriveContextEnabled,
+    BedrockEnabled, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled, FileBasedMcpEnabled,
+    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
+    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
+    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled,
+    OrchestrationMessageDisplayMode, PromptSubmissionMode, RuleSuggestionsEnabled,
+    SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
+    ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
+    ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
 };
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::CLIAgent;
@@ -111,7 +108,7 @@ use crate::workspaces::user_workspaces::UserWorkspacesEvent;
 /// When `None`, the page shows all widgets (legacy/full view).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AISubpage {
-    /// The main "WarpAgent" page: global AI toggle + Active AI + Input + Other sections.
+    /// The main Galaxy Agent page: global AI toggle + Active AI + Input + Other sections.
     WarpAgent,
     /// Agent profiles and permissions.
     Profiles,
@@ -187,11 +184,6 @@ const SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION: &str =
 const GIT_OPERATIONS_AUTOGEN_DESCRIPTION: &str =
     "Let AI generate commit messages and pull request titles and descriptions.";
 const WISPR_FLOW_URL: &str = "https://wisprflow.ai/";
-const CUSTOM_INFERENCE_LEARN_MORE_URL: &str =
-    "https://docs.warp.dev/agent-platform/inference/custom-inference-endpoint/";
-const CUSTOM_INFERENCE_TERMS_URL: &str = "https://www.warp.dev/legal/terms-of-service";
-const CUSTOM_INFERENCE_INFO_TOOLTIP_MAX_WIDTH: f32 = 320.;
-const CUSTOM_ENDPOINT_MODAL_MAX_HEIGHT_PERCENTAGE: f32 = 0.8;
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
     app: &mut AppContext,
@@ -572,18 +564,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
         vec![
             ToggleSettingActionPair::new(
-                "Warp credit fallback",
-                builder(SettingsAction::AI(
-                    AISettingsPageAction::ToggleCanUseWarpCreditsForFallback,
-                )),
-                &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-                flags::WARP_CREDIT_FALLBACK_FLAG,
-            )
-            .with_group(bindings::BindingGroup::WarpAi)
-            .is_supported_on_current_platform(
-                UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app),
-            ),
-            ToggleSettingActionPair::new(
                 "auto show or hide Rich Input based on agent status",
                 builder(SettingsAction::AI(
                     AISettingsPageAction::ToggleAutoToggleRichInput,
@@ -703,21 +683,6 @@ pub struct AISettingsPageView {
     router_views: Vec<ViewHandle<super::custom_router_view::CustomRouterView>>,
     #[cfg(feature = "local_fs")]
     add_router_button: ViewHandle<ActionButton>,
-
-    // Prompt offering to switch the default Agent Mode model after a BYO key or
-    // custom endpoint is saved while the default isn't backed by a credential.
-    set_default_model_modal: ModalViewState<Modal<SetDefaultModelModalBody>>,
-    // Snapshot of the provider keys from the last `KeysUpdated`, used to detect a
-    // newly added key and prompt the user to switch their default model.
-    last_seen_provider_keys: ApiKeys,
-
-    // In-flight fallback exchange for a pasted SuperGrok authorization code.
-    // This stores only the PKCE verifier clone needed by the manual path while
-    // `OauthAttempt::finish` owns the full loopback attempt.
-    #[cfg(not(target_family = "wasm"))]
-    grok_oauth_attempt: Option<ManualCodeExchange>,
-    #[cfg(not(target_family = "wasm"))]
-    grok_code_editor: ViewHandle<EditorView>,
 }
 
 impl AISettingsPageView {
@@ -1128,15 +1093,11 @@ impl AISettingsPageView {
             },
         );
 
-        // Refresh model dropdowns when BYO API keys update so key icons reflect latest state.
+        // Refresh model dropdowns when Bedrock credentials update so key icons reflect latest state.
         ctx.subscribe_to_model(&ApiKeyManager::handle(ctx), |me, _model, _event, ctx| {
             Self::refresh_base_model_menu(&me.base_model_dropdown, ctx);
             Self::refresh_coding_model_menu(&me.coding_model_dropdown, ctx);
             me.sync_context_window_editor(ctx, false);
-            // Driving the prompt off the key-store update (rather than the editor's
-            // blur/Enter) means it fires reliably however the key was committed —
-            // clicking outside the field, pressing Enter, or tabbing away.
-            me.maybe_prompt_for_newly_added_provider_key(ctx);
             ctx.notify();
         });
 
@@ -1704,38 +1665,6 @@ impl AISettingsPageView {
             button.set_disabled(!is_any_ai_enabled, ctx);
         });
 
-        let set_default_model_modal_body = ctx.add_typed_action_view(SetDefaultModelModalBody::new);
-        ctx.subscribe_to_view(&set_default_model_modal_body, |me, _, event, ctx| {
-            me.handle_set_default_model_modal_event(event, ctx);
-        });
-        let set_default_model_modal_view = ctx.add_typed_action_view(|ctx| {
-            Modal::new(
-                Some("Change your default model?".to_string()),
-                set_default_model_modal_body.clone(),
-                ctx,
-            )
-            .with_modal_style(UiComponentStyles {
-                width: Some(480.),
-                height: Some(380.),
-                ..Default::default()
-            })
-            .with_body_style(UiComponentStyles {
-                height: Some(300.),
-                ..Default::default()
-            })
-            .with_background_opacity(100)
-            .with_dismiss_on_click()
-            .with_dismiss_keystroke(Keystroke::parse("escape").unwrap())
-        });
-        ctx.subscribe_to_view(
-            &set_default_model_modal_view,
-            |me, _, event, ctx| match event {
-                ModalEvent::Close => me.hide_set_default_model_modal(ctx),
-            },
-        );
-        let set_default_model_modal = ModalViewState::new(set_default_model_modal_view);
-        let last_seen_provider_keys = ApiKeyManager::as_ref(ctx).keys().clone();
-
         let agent_toolbar_inline_editor = ctx.add_typed_action_view(|ctx| {
             AgentToolbarInlineEditor::new(AgentToolbarEditorMode::AgentView, ctx)
         });
@@ -1776,29 +1705,6 @@ impl AISettingsPageView {
             dropdown
         });
 
-        #[cfg(not(target_family = "wasm"))]
-        let grok_code_editor = Self::create_grok_code_editor(ctx);
-        #[cfg(not(target_family = "wasm"))]
-        ctx.subscribe_to_view(&grok_code_editor, |me, _, event, ctx| {
-            if matches!(event, EditorEvent::Enter | EditorEvent::Paste) {
-                let code = me.grok_code_editor.as_ref(ctx).buffer_text(ctx);
-                me.submit_grok_code(code, ctx);
-            }
-        });
-        // Keep the snapshotted editor text colors in sync with theme changes,
-        // like the API key editors above.
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let grok_code_editor = grok_code_editor.clone();
-            ctx.subscribe_to_model(&Appearance::handle(ctx), move |_, _, event, ctx| {
-                if let AppearanceEvent::ThemeChanged = event {
-                    let colors = editor_text_colors(Appearance::as_ref(ctx));
-                    grok_code_editor.update(ctx, move |editor, ctx| {
-                        editor.set_text_colors(colors, ctx);
-                    });
-                }
-            });
-        }
         // Subscribe to GalaxyConfig to refresh router views when files change.
         #[cfg(feature = "local_fs")]
         ctx.subscribe_to_model(
@@ -1867,12 +1773,6 @@ impl AISettingsPageView {
             router_views,
             #[cfg(feature = "local_fs")]
             add_router_button,
-            set_default_model_modal,
-            last_seen_provider_keys,
-            #[cfg(not(target_family = "wasm"))]
-            grok_oauth_attempt: None,
-            #[cfg(not(target_family = "wasm"))]
-            grok_code_editor,
         }
     }
 
@@ -1890,401 +1790,7 @@ impl AISettingsPageView {
     }
 
     pub fn get_modal_content(&self, _app: &AppContext) -> Option<Box<dyn Element>> {
-        if self.set_default_model_modal.is_open() {
-            Some(self.set_default_model_modal.render())
-        } else {
-            None
-        }
-    }
-
-    fn handle_set_default_model_modal_event(
-        &mut self,
-        event: &SetDefaultModelModalBodyEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SetDefaultModelModalBodyEvent::Close => self.hide_set_default_model_modal(ctx),
-            SetDefaultModelModalBodyEvent::SetDefault(id) => {
-                // Mirror `AISettingsPageAction::SetBaseModel`: set the active
-                // profile's base model and clear any stale context-window limit.
-                AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
-                    let profile_id = *profiles_model.active_profile(None, ctx).id();
-                    profiles_model.set_base_model(profile_id, Some(id.clone()), ctx);
-                    profiles_model.set_context_window_limit(profile_id, None, ctx);
-                });
-                self.sync_context_window_editor(ctx, true);
-                self.hide_set_default_model_modal(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Default model updated".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                ctx.notify();
-            }
-        }
-    }
-
-    fn hide_set_default_model_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.set_default_model_modal.close();
-        ctx.emit(AISettingsPageEvent::HideModal);
-        ctx.notify();
-    }
-
-    fn show_set_default_model_modal(
-        &mut self,
-        description: String,
-        choices: Vec<(LLMId, String)>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        self.set_default_model_modal.view.update(ctx, |modal, ctx| {
-            modal.body().update(ctx, |body, ctx| {
-                body.set_choices(description, choices, ctx);
-            });
-        });
-        self.set_default_model_modal.open();
-        // Focus the modal so Escape closes it (the modal's escape binding only
-        // fires while something inside the modal holds focus).
-        ctx.focus(&self.set_default_model_modal.view);
-        ctx.emit(AISettingsPageEvent::ShowModal);
-        ctx.notify();
-    }
-
-    /// Returns `true` when the active Agent Mode default model is already served
-    /// by a credential the user has: a BYO key/subscription for its provider, or
-    /// one of their custom-endpoint models. `auto` models report `false` since
-    /// they always consume Warp credits.
-    fn active_base_model_is_byo_covered(ctx: &AppContext) -> bool {
-        let (active_id, active_provider) = {
-            let prefs = LLMPreferences::as_ref(ctx);
-            let active = prefs.get_active_base_model(ctx, None);
-            (active.id.clone(), active.provider.clone())
-        };
-        if LLMPreferences::as_ref(ctx)
-            .custom_llm_info_for_id(&active_id)
-            .is_some()
-        {
-            return true;
-        }
-        is_using_api_key_for_provider(&active_provider, ctx)
-    }
-
-    /// The display name of the user's current default Agent Mode model, used in
-    /// the prompt copy (e.g. "auto (cost-efficient)").
-    fn active_base_model_display_name(ctx: &AppContext) -> String {
-        LLMPreferences::as_ref(ctx)
-            .get_active_base_model(ctx, None)
-            .display_name
-            .clone()
-    }
-
-    /// Whether to offer switching the default model. Scoped to free-plan users
-    /// who are out of monthly (base-plan) credits, since only they hit the
-    /// "no credits" error with an `auto` model. Also skips when the current
-    /// default is already served by a BYO credential.
-    fn should_offer_default_model_switch(ctx: &AppContext) -> bool {
-        // Exclude only confirmed paid plans. Solo/individual users have no
-        // `current_workspace`, and billing may not have loaded yet (Unknown), so
-        // treat both as eligible and rely on the out-of-credits check below to
-        // filter anyone who can still run Warp-hosted models. (A strict
-        // `is_free_plan()` check here meant solo free users — the common case —
-        // never saw the prompt.)
-        let on_paid_plan = UserWorkspaces::as_ref(ctx)
-            .current_workspace()
-            .is_some_and(|workspace| workspace.billing_metadata.is_user_on_paid_plan());
-        let out_of_monthly_credits = !AIRequestUsageModel::as_ref(ctx).has_requests_remaining();
-        !on_paid_plan && out_of_monthly_credits && !Self::active_base_model_is_byo_covered(ctx)
-    }
-
-    /// Detects a provider key that was just added (absent -> present) by diffing
-    /// against the last-seen keys, then offers to switch the default model. Run
-    /// from `ApiKeyManagerEvent::KeysUpdated` so it fires regardless of how the
-    /// key editor was committed.
-    fn maybe_prompt_for_newly_added_provider_key(&mut self, ctx: &mut ViewContext<Self>) {
-        let current = ApiKeyManager::as_ref(ctx).keys().clone();
-        let newly_added = [
-            (
-                LLMProvider::OpenAI,
-                &self.last_seen_provider_keys.openai,
-                &current.openai,
-            ),
-            (
-                LLMProvider::Anthropic,
-                &self.last_seen_provider_keys.anthropic,
-                &current.anthropic,
-            ),
-            (
-                LLMProvider::Google,
-                &self.last_seen_provider_keys.google,
-                &current.google,
-            ),
-        ]
-        .into_iter()
-        .find_map(|(provider, previous_key, current_key)| {
-            let was_present = previous_key
-                .as_deref()
-                .is_some_and(|key| !key.trim().is_empty());
-            let now_present = current_key
-                .as_deref()
-                .is_some_and(|key| !key.trim().is_empty());
-            (!was_present && now_present).then_some(provider)
-        });
-        self.last_seen_provider_keys = current;
-        if let Some(provider) = newly_added {
-            self.maybe_prompt_set_default_model_for_provider(provider, ctx);
-        }
-    }
-
-    /// After a BYO provider key is added, offer to switch the default Agent Mode
-    /// model to one from that provider.
-    fn maybe_prompt_set_default_model_for_provider(
-        &mut self,
-        provider: LLMProvider,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Only prompt when the key is actually usable for requests (BYO enabled).
-        if !is_using_api_key_for_provider(&provider, ctx) {
-            return;
-        }
-        if !Self::should_offer_default_model_switch(ctx) {
-            return;
-        }
-        let choices: Vec<(LLMId, String)> = LLMPreferences::as_ref(ctx)
-            .get_base_llm_choices_for_agent_mode(ctx)
-            .filter(|llm| llm.provider == provider)
-            .map(|llm| (llm.id.clone(), llm.menu_display_name()))
-            .collect();
-        if choices.is_empty() {
-            return;
-        }
-        let provider_name = provider.display_name();
-        let current_default = Self::active_base_model_display_name(ctx);
-        let description = format!(
-            "You added your own {provider_name} API key, but your default model is currently set \
-             to {current_default}, which won't work without Warp credits. Would you like to change \
-             your default model?"
-        );
-        self.show_set_default_model_modal(description, choices, ctx);
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn create_grok_code_editor(ctx: &mut ViewContext<Self>) -> ViewHandle<EditorView> {
-        ctx.add_typed_action_view(|ctx| {
-            let appearance = Appearance::handle(ctx).as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(editor_text_colors(appearance)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("Paste sign-in code", ctx);
-            editor
-        })
-    }
-
-    /// Kicks off the xAI (Grok) subscription OAuth flow: opens the consent
-    /// screen in the browser, runs a loopback PKCE callback server, exchanges
-    /// the resulting authorization code for OAuth tokens, and persists them via
-    /// `ApiKeyManager` (which then proactively refreshes them before expiry).
-    ///
-    /// In parallel, this reveals the manual code-entry row so the user can
-    /// paste the code xAI displays when the browser can't reach the loopback
-    /// callback. Whichever path completes first connects the subscription; the
-    /// other completion is ignored once the view-owned attempt state is cleared.
-    #[cfg(not(target_family = "wasm"))]
-    fn start_grok_oauth(&mut self, ctx: &mut ViewContext<Self>) {
-        use galaxy_core::safe_error;
-
-        use crate::view_components::{DismissibleToast, ToastLink};
-        use crate::workspace::WorkspaceAction;
-        use crate::ToastStack;
-
-        /// Object id shared by the connect-flow toasts so the completion toast
-        /// (success or error) automatically replaces the in-progress one.
-        const CONNECT_TOAST_OBJECT_ID: &str = "grok_oauth_connect_toast";
-
-        // Record attempt initiation on click (before we attempt to bind the
-        // loopback server). This ensures every terminal SuperGrokSubscriptionConnectFinished
-        // (including immediate bind failures) is paired with a preceding Initiated
-        // for funnel/drop-off analysis.
-        send_telemetry_from_ctx!(TelemetryEvent::SuperGrokSubscriptionConnectInitiated, ctx);
-
-        // Starting the attempt binds the loopback callback server before the
-        // browser opens, so a bind failure surfaces immediately, without a
-        // dangling browser tab.
-        let attempt = match oauth::OauthAttempt::start() {
-            Ok(attempt) => attempt,
-            Err(err) => {
-                safe_error!(
-                    safe: ("Failed to start Grok OAuth callback server"),
-                    full: ("Failed to start Grok OAuth callback server: {err:#}")
-                );
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::SuperGrokSubscriptionConnectFinished {
-                        error: Some("bind_failed".to_string()),
-                    },
-                    ctx
-                );
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast =
-                        DismissibleToast::error(format!("Couldn't start Grok login: {err}"));
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                return;
-            }
-        };
-
-        // Capture the PKCE verifier so the fallback is ready if xAI shows a
-        // code instead of redirecting.
-        self.grok_oauth_attempt = Some(attempt.manual_code_exchange());
-        self.grok_code_editor.update(ctx, |editor, ctx| {
-            editor.clear_buffer(ctx);
-        });
-        ctx.notify();
-        // Open xAI's consent screen in the user's default browser.
-        let authorize_url = attempt.authorize_url();
-        ctx.open_url(&authorize_url);
-
-        let window_id = ctx.window_id();
-        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-            // Persistent rather than ephemeral so the copy-URL fallback stays
-            // available when the browser fails to open. It can't linger
-            // forever: the completion toast below replaces it (shared object
-            // id), and the OAuth attempt itself times out when the callback
-            // never arrives.
-            let toast = DismissibleToast::default(
-                "Opening your browser to connect your SuperGrok subscription…".to_string(),
-            )
-            .with_object_id(CONNECT_TOAST_OBJECT_ID.to_string())
-            .with_link(
-                ToastLink::new("Copy URL".to_string())
-                    .with_onclick_action(WorkspaceAction::CopyTextToClipboard(authorize_url)),
-            );
-            toast_stack.add_persistent_toast(toast, window_id, ctx);
-        });
-
-        ctx.spawn(async move { attempt.finish().await }, |me, result, ctx| {
-            // Ignore loopback completion after a successful pasted-code path.
-            if me.grok_oauth_attempt.is_none() {
-                return;
-            }
-            let window_id = ctx.window_id();
-            let toast = match result {
-                Ok(tokens) => {
-                    me.grok_oauth_attempt = None;
-                    me.grok_code_editor.update(ctx, |editor, ctx| {
-                        editor.clear_buffer(ctx);
-                    });
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::SuperGrokSubscriptionConnectFinished { error: None },
-                        ctx
-                    );
-                    // Persist the tokens to secure storage and kick off the
-                    // proactive refresh loop so subsequent requests can
-                    // authenticate with the connected subscription.
-                    ApiKeyManager::handle(ctx).update(ctx, move |manager, ctx| {
-                        manager.store_grok_tokens(tokens, ctx);
-                    });
-                    DismissibleToast::success("SuperGrok subscription connected".to_string())
-                }
-                Err(err) => {
-                    me.grok_oauth_attempt = None;
-                    me.grok_code_editor.update(ctx, |editor, ctx| {
-                        editor.clear_buffer(ctx);
-                    });
-                    safe_error!(
-                        safe: ("Grok OAuth loopback callback failed"),
-                        full: ("Grok OAuth loopback callback failed: {err:#}")
-                    );
-                    send_telemetry_from_ctx!(
-                        TelemetryEvent::SuperGrokSubscriptionConnectFinished {
-                            error: Some("loopback_failed".to_string()),
-                        },
-                        ctx
-                    );
-                    DismissibleToast::error(format!("Couldn't connect SuperGrok: {err}"))
-                }
-            };
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                toast_stack.add_ephemeral_toast(
-                    toast.with_object_id(CONNECT_TOAST_OBJECT_ID.to_string()),
-                    window_id,
-                    ctx,
-                );
-            });
-            ctx.notify();
-        });
-    }
-
-    /// Exchanges a pasted SuperGrok authorization code using the current
-    /// attempt's PKCE verifier.
-    #[cfg(not(target_family = "wasm"))]
-    fn submit_grok_code(&mut self, code: String, ctx: &mut ViewContext<Self>) {
-        use crate::view_components::DismissibleToast;
-
-        // Shared with the browser connect-flow toasts.
-        const CONNECT_TOAST_OBJECT_ID: &str = "grok_oauth_connect_toast";
-        let Some(exchange) = self.grok_oauth_attempt.clone() else {
-            return;
-        };
-        if code.trim().is_empty() {
-            return;
-        }
-
-        ctx.spawn(
-            async move { exchange.exchange(&code).await },
-            |me, result, ctx| {
-                if me.grok_oauth_attempt.is_none() {
-                    return;
-                }
-                let window_id = ctx.window_id();
-                let toast = match result {
-                    Ok(tokens) => {
-                        me.grok_oauth_attempt = None;
-                        me.grok_code_editor.update(ctx, |editor, ctx| {
-                            editor.clear_buffer(ctx);
-                        });
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::SuperGrokSubscriptionConnectFinished { error: None },
-                            ctx
-                        );
-                        ApiKeyManager::handle(ctx).update(ctx, move |manager, ctx| {
-                            manager.store_grok_tokens(tokens, ctx);
-                        });
-                        DismissibleToast::success("SuperGrok subscription connected".to_string())
-                    }
-                    Err(err) => {
-                        // Keep the row open so the user can correct the code.
-                        safe_error!(
-                            safe: ("Grok manual code exchange failed"),
-                            full: ("Grok manual code exchange failed: {err:#}")
-                        );
-                        send_telemetry_from_ctx!(
-                            TelemetryEvent::SuperGrokSubscriptionConnectFinished {
-                                error: Some("manual_code_failed".to_string()),
-                            },
-                            ctx
-                        );
-                        DismissibleToast::error(format!("Couldn't connect SuperGrok: {err}"))
-                    }
-                };
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        toast.with_object_id(CONNECT_TOAST_OBJECT_ID.to_string()),
-                        window_id,
-                        ctx,
-                    );
-                });
-                ctx.notify();
-            },
-        );
+        None
     }
 
     /// Set the active subpage and rebuild the widget list to show only relevant widgets.
@@ -2365,7 +1871,7 @@ impl AISettingsPageView {
                 widgets.push(Box::new(OtherAIWidget::default()));
             }
             Some(AISubpage::WarpAgent) => {
-                // Oz page: global toggle + Active AI + Input + Other
+                // Galaxy Agent page: global toggle + Active AI + Input + Other
                 widgets.push(Box::new(GlobalAIWidget::default()));
                 if ai_settings
                     .intelligent_autosuggestions_enabled_internal
@@ -2397,8 +1903,6 @@ impl AISettingsPageView {
                     widgets.push(Box::new(VoiceWidget::default()));
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
-                widgets.push(Box::new(ApiKeysWidget::new(ctx)));
-                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
                 if FeatureFlag::CustomModelRouters.is_enabled() {
                     widgets.push(Box::new(CustomModelRoutersWidget));
                 }
@@ -3142,7 +2646,6 @@ pub enum AISettingsPageAction {
     ToggleCLIAgentToolbar,
     ToggleUseAgentToolbar,
     ToggleVoiceInput,
-    ToggleCanUseWarpCreditsForFallback,
     HyperlinkClick(HyperlinkUrl),
     ToggleCodebaseContext,
     ToggleShowInputHintText,
@@ -3202,9 +2705,6 @@ pub enum AISettingsPageAction {
     // Custom model routers
     #[cfg(feature = "local_fs")]
     OpenAddCustomRouter,
-
-    ConnectGrokSubscription,
-    DisconnectGrokSubscription,
 
     #[cfg(feature = "local_fs")]
     SetConversationLayout(crate::util::file::external_editor::settings::OpenConversationPreference),
@@ -3558,14 +3058,6 @@ impl TypedActionView for AISettingsPageView {
                         log::warn!("Failed to set value for Voice Input: {e:?}");
                     }
                 }
-                ctx.notify();
-            }
-            AISettingsPageAction::ToggleCanUseWarpCreditsForFallback => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .can_use_warp_credits_for_fallback
-                        .toggle_and_save_value(ctx));
-                });
                 ctx.notify();
             }
             AISettingsPageAction::HyperlinkClick(hyperlink) => {
@@ -4047,31 +3539,6 @@ impl TypedActionView for AISettingsPageView {
                 });
                 ctx.notify();
             }
-            AISettingsPageAction::ConnectGrokSubscription => {
-                #[cfg(not(target_family = "wasm"))]
-                self.start_grok_oauth(ctx);
-            }
-            AISettingsPageAction::DisconnectGrokSubscription => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    self.grok_oauth_attempt = None;
-                    self.grok_code_editor.update(ctx, |editor, ctx| {
-                        editor.clear_buffer(ctx);
-                    });
-                }
-                ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                    manager.set_grok_tokens(None, ctx);
-                });
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::default(
-                        "SuperGrok subscription disconnected".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                ctx.notify();
-            }
         }
     }
 }
@@ -4298,8 +3765,8 @@ impl SettingsWidget for GlobalAIWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "oz warp agent global ai a.i. active next command prompt code diffs suggestion suggested suggestions \
-                agent mode natural language detection input hint api keys bring your own byo google anthropic openai"
+        "galaxy agent global ai a.i. active next command prompt code diffs suggestion suggested suggestions \
+                agent mode natural language detection input hint"
     }
 
     fn render(
@@ -5584,7 +5051,7 @@ impl AgentsWidget {
         );
         render_ai_list(
             "Command denylist",
-            "Regular expressions to match commands that the Warp Agent should always ask permission to execute.",
+            "Regular expressions to match commands that the Galaxy Agent should always ask permission to execute.",
             list,
             view,
             ai_settings,
@@ -5619,7 +5086,7 @@ impl AgentsWidget {
 
         render_ai_list(
             "Command allowlist",
-            "Regular expressions to match commands that can be automatically executed by the Warp Agent.",
+            "Regular expressions to match commands that can be automatically executed by the Galaxy Agent.",
             list,
             view,
             ai_settings,
@@ -5721,7 +5188,7 @@ impl AgentsWidget {
             appearance,
             "Base model",
             Some(
-                "This model serves as the primary engine behind the Warp Agent. It powers most interactions and invokes other models for tasks like planning or code generation when necessary. Warp may automatically switch to alternate models based on model availability or for auxiliary tasks such as conversation summarization.",
+                "This model serves as the primary engine behind the Galaxy Agent. It powers most interactions and invokes other models for tasks like planning or code generation when necessary. Galaxy may automatically switch to alternate models based on model availability or for auxiliary tasks such as conversation summarization.",
             ),
             Some(show_in_prompt_checkbox),
             LocalOnlyIconState::Hidden,
@@ -5752,7 +5219,7 @@ impl AgentsWidget {
 
         let codebase_context_description = vec![
             FormattedTextFragment::plain_text(
-                "Allow the Warp Agent to generate an outline of your codebase that can be used for context. No code is ever stored on our servers. ",
+                "Allow the Galaxy Agent to generate an outline of your codebase that can be used for context. No code is ever stored on our servers. ",
             ),
             FormattedTextFragment::hyperlink(
                 "Learn more",
@@ -5825,7 +5292,7 @@ impl AgentsWidget {
         let subtext = {
             let subtext_fragments = vec![
                 FormattedTextFragment::plain_text(
-                    "You haven't added any MCP servers yet. Once you do, you'll be able to control how much autonomy the Warp Agent has when interacting with them. ",
+                    "You haven't added any MCP servers yet. Once you do, you'll be able to control how much autonomy the Galaxy Agent has when interacting with them. ",
                 ),
                 FormattedTextFragment::hyperlink_action(
                     "Add a server",
@@ -5906,7 +5373,7 @@ impl AgentsWidget {
         {
             let allowlist = self.render_mcp_list(
                 "MCP allowlist",
-                "Allow the Warp Agent to call these MCP servers.",
+                "Allow the Galaxy Agent to call these MCP servers.",
                 &view.mcp_allowlist_dropdown,
                 BlocklistAIPermissions::as_ref(app).get_mcp_allowlist(app, None),
                 view.mcp_allowlist_mouse_state_handles.clone(),
@@ -5923,7 +5390,7 @@ impl AgentsWidget {
         {
             let denylist = self.render_mcp_list(
                 "MCP denylist",
-                "The Warp Agent will always ask for permission before calling any MCP servers on this list.",
+                "The Galaxy Agent will always ask for permission before calling any MCP servers on this list.",
                 &view.mcp_denylist_dropdown,
                 BlocklistAIPermissions::as_ref(app).get_mcp_denylist(app, None),
                 view.mcp_denylist_mouse_state_handles.clone(),
@@ -6343,7 +5810,7 @@ impl SettingsWidget for MCPServersWidget {
 
         let mcp_description = vec![
             FormattedTextFragment::plain_text(
-                "Add MCP servers to extend the Warp Agent's capabilities. \
+                "Add MCP servers to extend the Galaxy Agent's capabilities. \
             MCP servers expose data sources or tools to agents through a standardized interface, essentially acting like plugins. ",
             ),
             FormattedTextFragment::hyperlink(
@@ -6475,7 +5942,7 @@ impl AIFactWidget {
 
         let rules_description = vec![
             FormattedTextFragment::plain_text(
-                "Rules help the Warp Agent follow your conventions, whether for codebases or specific workflows. ",
+                "Rules help the Galaxy Agent follow your conventions, whether for codebases or specific workflows. "
             ),
             FormattedTextFragment::hyperlink(
                 "Learn more",
@@ -7598,7 +7065,7 @@ impl SettingsWidget for CloudHandoffWidget {
                 );
                 column.add_child(auto_handoff_on_sleep_row);
                 column.add_child(render_ai_setting_description(
-                    "When macOS is about to sleep, automatically moves the most recently focused running local Warp Agent conversation to Cloud Mode so it can keep working.",
+                    "When macOS is about to sleep, automatically moves the most recently focused running local Galaxy Agent conversation to Cloud Mode so it can keep working.",
                     true,
                     app,
                 ));
@@ -7632,645 +7099,6 @@ impl SettingsWidget for CloudHandoffWidget {
                 true,
                 app,
             ));
-        }
-
-        column.finish()
-    }
-}
-
-struct ApiKeysWidget {
-    openai_api_key_editor: ViewHandle<EditorView>,
-    anthropic_api_key_editor: ViewHandle<EditorView>,
-    google_api_key_editor: ViewHandle<EditorView>,
-    /// Buttons for the SuperGrok (xAI) subscription row; which one renders
-    /// depends on whether OAuth tokens are stored or a connect attempt is in
-    /// progress.
-    grok_connect_button: ViewHandle<ActionButton>,
-    grok_connecting_button: ViewHandle<ActionButton>,
-    grok_disconnect_button: ViewHandle<ActionButton>,
-
-    can_use_warp_credits_for_fallback: SwitchStateHandle,
-    upgrade_highlight_index: HighlightedHyperlink,
-
-    description_learn_more_index: HighlightedHyperlink,
-}
-
-impl ApiKeysWidget {
-    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
-        let ai_settings = AISettings::as_ref(ctx);
-        let workspace_handle = UserWorkspaces::handle(ctx);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(ctx);
-        let is_byo_enabled = workspace_handle.as_ref(ctx).is_byo_api_key_enabled(ctx);
-
-        let ApiKeys {
-            openai: openai_key,
-            anthropic: anthropic_key,
-            google: google_key,
-            ..
-        } = ApiKeyManager::as_ref(ctx).keys().clone();
-
-        // A helper macro to create and configure an API key editor.  This avoids a lot
-        // of code duplication and ensures consistency between the editors.
-        macro_rules! create_api_key_editor {
-            ($editor:ident, $key:ident, $set_func:ident, $placeholder:literal) => {
-                let $editor = ctx.add_typed_action_view(move |ctx| {
-                    let appearance = Appearance::handle(ctx).as_ref(ctx);
-                    let options = SingleLineEditorOptions {
-                        is_password: true,
-                        // Emit Tab/Shift-Tab as navigation events instead of
-                        // inserting whitespace, so focus can move between the
-                        // key fields (see the focus wiring below).
-                        propagate_and_no_op_vertical_navigation_keys:
-                            PropagateAndNoOpNavigationKeys::Always,
-                        text: TextOptions {
-                            font_size_override: Some(appearance.ui_font_size()),
-                            font_family_override: Some(appearance.monospace_font_family()),
-                            text_colors_override: Some(TextColors {
-                                default_color: appearance.theme().active_ui_text_color(),
-                                disabled_color: appearance.theme().disabled_ui_text_color(),
-                                hint_color: appearance.theme().disabled_ui_text_color(),
-                            }),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    };
-                    let mut editor = EditorView::single_line(options, ctx);
-                    editor.set_placeholder_text($placeholder, ctx);
-                    if let Some(key) = &$key {
-                        editor.set_buffer_text(key, ctx);
-                    }
-                    editor
-                });
-                AISettingsPageView::update_editor_interaction_state(
-                    $editor.clone(),
-                    is_any_ai_enabled && is_byo_enabled,
-                    ctx,
-                );
-                // The default-model prompt is driven off `KeysUpdated` (see the
-                // `ApiKeyManager` subscription), so this only needs to persist
-                // the key on commit.
-                ctx.subscribe_to_view(&$editor, |_, $editor, event, ctx| {
-                    if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                        let buffer_text = $editor.as_ref(ctx).buffer_text(ctx);
-                        let key = (!buffer_text.is_empty()).then_some(buffer_text);
-                        ApiKeyManager::handle(ctx).update(ctx, |model, ctx| {
-                            model.$set_func(key, ctx);
-                        });
-                    }
-                });
-                let editor_clone = $editor.clone();
-                ctx.subscribe_to_model(&workspace_handle, move |_, workspace, event, ctx| {
-                    if let UserWorkspacesEvent::TeamsChanged = event {
-                        let is_any_ai_enabled =
-                            AISettings::handle(ctx).as_ref(ctx).is_any_ai_enabled(ctx);
-                        let is_byo_enabled = workspace.as_ref(ctx).is_byo_api_key_enabled(ctx);
-                        let is_enabled = is_any_ai_enabled && is_byo_enabled;
-                        let has_key = !editor_clone.as_ref(ctx).is_empty(ctx);
-
-                        // If BYO is disabled, clear the API key from the editor and storage
-                        if !is_byo_enabled && has_key {
-                            editor_clone.update(ctx, |editor, ctx| {
-                                editor.set_buffer_text("", ctx);
-                            });
-                            ApiKeyManager::handle(ctx).update(ctx, |model, ctx| {
-                                model.$set_func(None, ctx);
-                            });
-                        }
-
-                        AISettingsPageView::update_editor_interaction_state(
-                            editor_clone.clone(),
-                            is_enabled,
-                            ctx,
-                        );
-                        ctx.notify();
-                    }
-                })
-            };
-        }
-
-        create_api_key_editor!(openai_api_key_editor, openai_key, set_openai_key, "sk-...");
-        create_api_key_editor!(
-            anthropic_api_key_editor,
-            anthropic_key,
-            set_anthropic_key,
-            "sk-ant-..."
-        );
-        create_api_key_editor!(
-            google_api_key_editor,
-            google_key,
-            set_google_key,
-            "AIzaSy..."
-        );
-
-        // Tab / Shift-Tab move focus between the provider key fields instead of
-        // inserting whitespace.
-        let provider_key_editors = [
-            openai_api_key_editor.clone(),
-            anthropic_api_key_editor.clone(),
-            google_api_key_editor.clone(),
-        ];
-        for (index, editor) in provider_key_editors.iter().enumerate() {
-            let next = provider_key_editors.get(index + 1).cloned();
-            let previous = index
-                .checked_sub(1)
-                .and_then(|prev_index| provider_key_editors.get(prev_index).cloned());
-            ctx.subscribe_to_view(editor, move |_, _, event, ctx| match event {
-                EditorEvent::Navigate(NavigationKey::Tab) => {
-                    if let Some(next) = &next {
-                        ctx.focus(next);
-                    }
-                }
-                EditorEvent::Navigate(NavigationKey::ShiftTab) => {
-                    if let Some(previous) = &previous {
-                        ctx.focus(previous);
-                    }
-                }
-                _ => {}
-            });
-        }
-
-        // Editor text colors are snapshotted at construction via
-        // `text_colors_override`, so refresh them whenever the theme changes.
-        let api_key_editors = [
-            openai_api_key_editor.clone(),
-            anthropic_api_key_editor.clone(),
-            google_api_key_editor.clone(),
-        ];
-        ctx.subscribe_to_model(&Appearance::handle(ctx), move |_, _, event, ctx| {
-            if let AppearanceEvent::ThemeChanged = event {
-                let text_colors = editor_text_colors(Appearance::as_ref(ctx));
-                for editor in &api_key_editors {
-                    let colors = text_colors.clone();
-                    editor.update(ctx, move |editor, ctx| {
-                        editor.set_text_colors(colors, ctx);
-                    });
-                }
-            }
-        });
-
-        let grok_connect_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Connect", SecondaryTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::ConnectGrokSubscription);
-                })
-        });
-        let grok_connecting_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Connecting", SecondaryTheme).with_size(ButtonSize::Small)
-        });
-        grok_connecting_button.update(ctx, |button, ctx| {
-            button.set_disabled(true, ctx);
-        });
-        let grok_disconnect_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Disconnect", DangerSecondaryTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::DisconnectGrokSubscription);
-                })
-        });
-        for button in [&grok_connect_button, &grok_disconnect_button] {
-            button.update(ctx, |button, ctx| {
-                button.set_disabled(!(is_any_ai_enabled && is_byo_enabled), ctx);
-            });
-        }
-
-        // The Grok subscription is BYO auth, so keep the buttons' enablement
-        // in sync with the BYO API key policy, like the editors above.
-        let grok_buttons = [grok_connect_button.clone(), grok_disconnect_button.clone()];
-        ctx.subscribe_to_model(&workspace_handle, move |_, workspace, event, ctx| {
-            if let UserWorkspacesEvent::TeamsChanged = event {
-                let is_any_ai_enabled = AISettings::handle(ctx).as_ref(ctx).is_any_ai_enabled(ctx);
-                let is_byo_enabled = workspace.as_ref(ctx).is_byo_api_key_enabled(ctx);
-                for button in &grok_buttons {
-                    button.update(ctx, |button, ctx| {
-                        button.set_disabled(!(is_any_ai_enabled && is_byo_enabled), ctx);
-                    });
-                }
-                ctx.notify();
-            }
-        });
-
-        // Re-render the SuperGrok row whenever the stored tokens change (the
-        // connect flow completes, a disconnect, or a background refresh).
-        ctx.subscribe_to_model(&ApiKeyManager::handle(ctx), |_, _, event, ctx| {
-            if matches!(event, ApiKeyManagerEvent::KeysUpdated) {
-                ctx.notify();
-            }
-        });
-
-        Self {
-            openai_api_key_editor,
-            anthropic_api_key_editor,
-            google_api_key_editor,
-
-            grok_connect_button,
-            grok_connecting_button,
-            grok_disconnect_button,
-
-            can_use_warp_credits_for_fallback: Default::default(),
-            upgrade_highlight_index: Default::default(),
-
-            description_learn_more_index: Default::default(),
-        }
-    }
-
-    fn render_api_key_input(
-        &self,
-        appearance: &Appearance,
-        label: &'static str,
-        editor: ViewHandle<EditorView>,
-        is_enabled: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let padding = Some(Coords {
-            top: 10.,
-            bottom: 10.,
-            left: 16.,
-            right: 16.,
-        });
-        let editor_style = UiComponentStyles {
-            padding,
-            background: Some(appearance.theme().surface_2().into()),
-            ..Default::default()
-        };
-
-        let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-            .with_color(styles::header_font_color(is_enabled, app).into())
-            .finish();
-
-        let input = appearance
-            .ui_builder()
-            .text_input(editor)
-            .with_style(editor_style)
-            .build()
-            .finish();
-
-        Flex::column()
-            .with_spacing(8.)
-            .with_child(label)
-            .with_child(input)
-            .finish()
-    }
-
-    fn render_provider_key_editors(
-        &self,
-        appearance: &Appearance,
-        is_enabled: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let mut column = Flex::column().with_spacing(16.);
-        column.add_child(self.render_api_key_input(
-            appearance,
-            "OpenAI API key",
-            self.openai_api_key_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(self.render_api_key_input(
-            appearance,
-            "Anthropic API key",
-            self.anthropic_api_key_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(self.render_api_key_input(
-            appearance,
-            "Google API key",
-            self.google_api_key_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.finish()
-    }
-
-    /// The "Connect SuperGrok subscription" row: label and description on the
-    /// left, a Connect/Disconnect button on the right, and a "Connected on
-    /// ..." status line underneath while a subscription is connected.
-    fn render_grok_subscription_row(
-        &self,
-        appearance: &Appearance,
-        is_enabled: bool,
-        is_connecting: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let grok_tokens = ApiKeyManager::as_ref(app).grok_tokens();
-
-        let text_color = styles::header_font_color(is_enabled, app);
-        let label = Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(4.)
-            .with_child(
-                Text::new_inline("Use your", appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                    .with_color(text_color.into())
-                    .finish(),
-            )
-            .with_child(
-                ConstrainedBox::new(Icon::XLogo.to_galaxyui_icon(text_color).finish())
-                    .with_width(14.)
-                    .with_height(14.)
-                    .finish(),
-            )
-            .with_child(
-                Text::new_inline(
-                    "Premium or SuperGrok subscription",
-                    appearance.ui_font_family(),
-                    CONTENT_FONT_SIZE,
-                )
-                .with_color(text_color.into())
-                .finish(),
-            )
-            .finish();
-
-        let button = if grok_tokens.is_some() {
-            &self.grok_disconnect_button
-        } else if is_connecting {
-            &self.grok_connecting_button
-        } else {
-            &self.grok_connect_button
-        };
-
-        let header_row = Flex::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(Shrinkable::new(1., label).finish())
-            .with_child(button.as_ref(app).render(app))
-            .finish();
-
-        let description = Container::new(
-            Text::new(
-                "Connect your SuperGrok subscription to use Grok models in the Warp Agent through your xAI account.",
-                appearance.ui_font_family(),
-                CONTENT_FONT_SIZE,
-            )
-            .with_color(styles::description_font_color(is_enabled, app).into())
-            .soft_wrap(true)
-            .finish(),
-        )
-        .with_margin_right(styles::TOGGLE_WIDTH_MARGIN)
-        .finish();
-
-        let mut column = Flex::column()
-            .with_cross_axis_alignment(CrossAxisAlignment::Start)
-            .with_child(header_row)
-            .with_child(description);
-
-        if let Some(tokens) = grok_tokens {
-            let connected_text = match tokens.connected_at.map(DateTime::<Local>::from) {
-                Some(connected_at) => format!(
-                    "Connected on {}.",
-                    connected_at.format("%m/%d/%Y at %-I:%M%P")
-                ),
-                // Tokens stored before the connection time was tracked.
-                None => "Connected.".to_string(),
-            };
-            let check = ConstrainedBox::new(
-                Icon::Check
-                    .to_galaxyui_icon(appearance.theme().ansi_fg_green().into())
-                    .finish(),
-            )
-            .with_width(12.)
-            .with_height(12.)
-            .finish();
-            let status_text = Text::new_inline(
-                connected_text,
-                appearance.ui_font_family(),
-                CONTENT_FONT_SIZE,
-            )
-            .with_color(styles::description_font_color(is_enabled, app).into())
-            .finish();
-            column.add_child(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_spacing(4.)
-                    .with_child(check)
-                    .with_child(status_text)
-                    .finish(),
-            );
-        }
-
-        column.finish()
-    }
-
-    /// Paste-the-code fallback for the current SuperGrok connect attempt.
-    #[cfg(not(target_family = "wasm"))]
-    fn render_grok_manual_code_entry(
-        &self,
-        view: &AISettingsPageView,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let theme = appearance.theme();
-
-        let editor_style = UiComponentStyles {
-            padding: Some(Coords {
-                top: 10.,
-                bottom: 10.,
-                left: 16.,
-                right: 16.,
-            }),
-            background: Some(theme.surface_2().into()),
-            ..Default::default()
-        };
-        let input = appearance
-            .ui_builder()
-            .text_input(view.grok_code_editor.clone())
-            .with_style(editor_style)
-            .build()
-            .finish();
-
-        let row = Flex::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(8.)
-            .with_child(Shrinkable::new(1., input).finish())
-            .finish();
-
-        Flex::column()
-            .with_cross_axis_alignment(CrossAxisAlignment::Start)
-            .with_spacing(8.)
-            .with_child(row)
-            .finish()
-    }
-
-    fn render_warp_credit_fallback_toggle(
-        &self,
-        view: &AISettingsPageView,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-
-        let toggle = render_ai_setting_toggle::<CanUseWarpCreditsForFallback>(
-            "Warp credit fallback",
-            AISettingsPageAction::ToggleCanUseWarpCreditsForFallback,
-            *ai_settings.can_use_warp_credits_for_fallback,
-            ai_settings.is_any_ai_enabled(app),
-            self.can_use_warp_credits_for_fallback.clone(),
-            &view.local_only_icon_tooltip_states,
-            app,
-        );
-
-        let description = render_ai_setting_description(
-            "When enabled, agent requests may be routed to one of Warp's provided models in the event of an error. Warp will prioritize using your API keys over your Warp credits.",
-            ai_settings.is_any_ai_enabled(app),
-            app,
-        );
-
-        Flex::column()
-            .with_child(toggle)
-            .with_child(description)
-            .finish()
-    }
-}
-
-impl SettingsWidget for ApiKeysWidget {
-    type View = AISettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "api keys bring your own byo openai anthropic google claude gemini gpt custom inference endpoint grok supergrok xai subscription"
-    }
-
-    fn render(
-        &self,
-        view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
-        let is_byo_enabled = UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app);
-        let provider_keys_enabled = is_any_ai_enabled && is_byo_enabled;
-
-        let mut column = Flex::column().with_child(render_separator(appearance));
-
-        column.add_child(
-            build_sub_header(
-                appearance,
-                "API Keys",
-                Some(styles::header_font_color(is_any_ai_enabled, app)),
-            )
-            .with_padding_bottom(HEADER_PADDING)
-            .finish(),
-        );
-
-        // Provider key editors (always visible)
-        column.add_child(self.render_provider_key_editors(appearance, provider_keys_enabled, app));
-
-
-        // Entrypoint for connecting a SuperGrok (xAI) subscription via OAuth.
-        if FeatureFlag::SuperGrok.is_enabled() {
-            #[cfg(not(target_family = "wasm"))]
-            let grok_tokens = ApiKeyManager::as_ref(app).grok_tokens();
-            #[cfg(not(target_family = "wasm"))]
-            let has_grok_oauth_attempt = view.grok_oauth_attempt.is_some();
-            #[cfg(not(target_family = "wasm"))]
-            let is_grok_connecting = grok_tokens.is_none() && has_grok_oauth_attempt;
-            #[cfg(target_family = "wasm")]
-            let is_grok_connecting = false;
-            column.add_child(
-                Container::new(self.render_grok_subscription_row(
-                    appearance,
-                    provider_keys_enabled,
-                    is_grok_connecting,
-                    app,
-                ))
-                .with_margin_top(16.)
-                .finish(),
-            );
-
-            #[cfg(not(target_family = "wasm"))]
-            if has_grok_oauth_attempt {
-                column.add_child(
-                    Container::new(self.render_grok_manual_code_entry(view, appearance))
-                        .with_margin_top(8.)
-                        .finish(),
-                );
-            }
-        }
-
-        // Warp credit fallback toggle (shown when BYO is enabled)
-        if is_byo_enabled {
-            column.add_child(
-                Container::new(self.render_warp_credit_fallback_toggle(view, app))
-                    .with_margin_top(16.)
-                    .finish(),
-            );
-        }
-
-        // Upgrade CTA if BYOK not enabled
-        if !is_byo_enabled {
-            let auth_state = AuthStateProvider::as_ref(app).get();
-            let upgrade_text_fragments = if let Some(team) =
-                UserWorkspaces::as_ref(app).current_team()
-            {
-                if team.billing_metadata.customer_type == CustomerType::Enterprise {
-                    vec![
-                        FormattedTextFragment::hyperlink("Contact sales", "mailto:sales@warp.dev"),
-                        FormattedTextFragment::plain_text(
-                            " to enable bringing your own API keys on your Enterprise plan.",
-                        ),
-                    ]
-                } else {
-                    let current_user_email = auth_state.user_email().unwrap_or_default();
-                    let has_admin_permissions = team.has_admin_permissions(&current_user_email);
-                    let upgrade_url = UserWorkspaces::upgrade_link_for_team(team.uid);
-                    if has_admin_permissions {
-                        vec![
-                            FormattedTextFragment::hyperlink(
-                                "Upgrade to the Build plan",
-                                upgrade_url,
-                            ),
-                            FormattedTextFragment::plain_text(" to use your own API keys."),
-                        ]
-                    } else {
-                        vec![FormattedTextFragment::plain_text(
-                            "Ask your team's admin to upgrade to the Build plan to use your own API keys.",
-                        )]
-                    }
-                }
-            } else if FeatureFlag::SoloUserByok.is_enabled()
-                && auth_state.is_anonymous_or_logged_out()
-            {
-                vec![
-                    FormattedTextFragment::hyperlink_action(
-                        "Create an account",
-                        AISettingsPageAction::SignupAnonymousUser,
-                    ),
-                    FormattedTextFragment::plain_text(" to use your own API keys."),
-                ]
-            } else {
-                let user_id = auth_state.user_id().unwrap_or_default();
-                let upgrade_url = UserWorkspaces::upgrade_link(user_id);
-                vec![
-                    FormattedTextFragment::hyperlink("Upgrade to the Build plan", upgrade_url),
-                    FormattedTextFragment::plain_text(" to use your own API keys."),
-                ]
-            };
-
-            let upgrade_text_element = FormattedTextElement::new(
-                FormattedText::new([FormattedTextLine::Line(upgrade_text_fragments)]),
-                appearance.ui_font_size(),
-                appearance.ui_font_family(),
-                appearance.ui_font_family(),
-                blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-                self.upgrade_highlight_index.clone(),
-            )
-            .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-            .register_default_click_handlers_with_action_support(|hyperlink_lens, event, ctx| {
-                match hyperlink_lens {
-                    HyperlinkLens::Url(url) => {
-                        ctx.open_url(url);
-                    }
-                    HyperlinkLens::Action(action_ref) => {
-                        if let Some(action) =
-                            action_ref.as_any().downcast_ref::<AISettingsPageAction>()
-                        {
-                            event.dispatch_typed_action(action.clone());
-                        }
-                    }
-                }
-            });
-
-            column.add_child(Container::new(upgrade_text_element.finish()).finish());
         }
 
         column.finish()

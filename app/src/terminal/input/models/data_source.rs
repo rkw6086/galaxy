@@ -630,31 +630,12 @@ impl SearchItem for ModelSearchItem {
                 first.make_ascii_uppercase();
             }
 
-            // Show a BYOK option when the user's tier supports it and the provider
-            // is one that accepts user-supplied API keys.
-            let byok_available = UserWorkspaces::as_ref(app).is_byo_api_key_enabled(app)
-                && matches!(
-                    self.provider,
-                    LLMProvider::OpenAI | LLMProvider::Anthropic | LLMProvider::Google
-                );
-
             let mut text_fragments = vec![
                 FormattedTextFragment::plain_text(format!(
                     "{display_name} is not available for free users. "
                 )),
                 FormattedTextFragment::hyperlink("Upgrade", upgrade_url),
             ];
-
-            if byok_available {
-                text_fragments.push(FormattedTextFragment::plain_text(" or ".to_string()));
-                text_fragments.push(FormattedTextFragment::hyperlink_action(
-                    "bring your own key",
-                    WorkspaceAction::ShowSettingsPageWithSearch {
-                        search_query: "api".to_string(),
-                        section: Some(SettingsSection::WarpAgent),
-                    },
-                ));
-            }
 
             let upgrade_text = FormattedTextElement::new(
                 FormattedText::new([FormattedTextLine::Line(text_fragments)]),

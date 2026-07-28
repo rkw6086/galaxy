@@ -671,8 +671,7 @@ impl BlocklistAIController {
             OrchestrationEventStreamerEvent::ChildSpawned { .. }
             | OrchestrationEventStreamerEvent::ChildStatusChanged { .. } => {}
         });
-        let crosscheck_reviewer =
-            ctx.add_model(crate::ai::crosscheck::CrosscheckReviewer::new);
+        let crosscheck_reviewer = ctx.add_model(crate::ai::crosscheck::CrosscheckReviewer::new);
         ctx.subscribe_to_model(&crosscheck_reviewer, move |me, _, event, ctx| {
             use crate::ai::crosscheck::{CrosscheckReviewerEvent, ReviewOutcome};
             let CrosscheckReviewerEvent::ReviewCompleted {
@@ -2172,9 +2171,7 @@ impl BlocklistAIController {
 
         match outcome {
             ReviewOutcome::Approved => {
-                log::info!(
-                    "[crosscheck] Work approved for conversation {conversation_id:?}"
-                );
+                log::info!("[crosscheck] Work approved for conversation {conversation_id:?}");
                 // Nothing to do — the conversation completes normally.
             }
             ReviewOutcome::MaxIterationsReached { last_feedback } => {
@@ -2191,9 +2188,7 @@ impl BlocklistAIController {
                 self.inject_crosscheck_feedback(conversation_id, message, false, ctx);
             }
             ReviewOutcome::Error { error } => {
-                log::error!(
-                    "[crosscheck] Reviewer failed for {conversation_id:?}: {error}"
-                );
+                log::error!("[crosscheck] Reviewer failed for {conversation_id:?}: {error}");
                 // Don't block the conversation on reviewer errors; just log it.
             }
         }
@@ -2303,13 +2298,7 @@ impl BlocklistAIController {
         let max_iterations = ai_settings.crosscheck_max_iterations();
 
         self.crosscheck_reviewer.update(ctx, |reviewer, ctx| {
-            reviewer.start_review(
-                conversation_id,
-                max_iterations,
-                agent_output,
-                model_id,
-                ctx,
-            );
+            reviewer.start_review(conversation_id, max_iterations, agent_output, model_id, ctx);
         });
     }
 
@@ -2356,9 +2345,7 @@ impl BlocklistAIController {
                                 AIAgentTextSection::PlainText { text } => {
                                     Some(text.text().to_string())
                                 }
-                                AIAgentTextSection::Code { code, .. } => {
-                                    Some(code.clone())
-                                }
+                                AIAgentTextSection::Code { code, .. } => Some(code.clone()),
                                 _ => None,
                             })
                             .collect::<Vec<_>>()
@@ -2786,20 +2773,15 @@ impl BlocklistAIController {
             &conversation_data.server_conversation_token,
         );
 
-        // Safety net: if the connected Grok subscription's OAuth token is
+        // Safety net: if the Gemini Enterprise (GEAP) OIDC/WIF credential is
         // nearing or past expiry, kick off a background refresh so upcoming
-        // requests can authenticate even when the proactive refresh loop
-        // isn't running. This request still carries the currently stored
-        // token; the server is the authority on its validity. The Gemini
-        // Enterprise (GEAP) analog re-arms a parked or never-armed WIF
-        // credential refresh chain the same way.
+        // requests can authenticate even when the proactive refresh loop isn't
+        // running (e.g. a parked or never-armed refresh chain).
         #[cfg(not(target_family = "wasm"))]
         {
             use ::ai::api_keys::ApiKeyManager;
 
-            let byo_allowed = UserWorkspaces::as_ref(ctx).is_byo_api_key_enabled(ctx);
             ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
-                manager.refresh_grok_tokens_if_needed(byo_allowed, ctx);
                 crate::ai::geap_credentials::refresh_geap_credentials_if_needed(manager, ctx);
             });
         }
@@ -3391,10 +3373,8 @@ impl BlocklistAIController {
                                 || error_str.contains("ThrottlingException"));
 
                         const MAX_ERROR_RETRIES: usize = 2;
-                        let retry_count = self
-                            .error_retry_counts
-                            .entry(conversation_id)
-                            .or_insert(0);
+                        let retry_count =
+                            self.error_retry_counts.entry(conversation_id).or_insert(0);
                         let should_corrective_retry =
                             is_corrective_retry_candidate && *retry_count < MAX_ERROR_RETRIES;
 
@@ -3445,17 +3425,15 @@ impl BlocklistAIController {
                                     error_str
                                 );
 
-                                let inputs = vec![
-                                    AIAgentInput::UserQuery {
-                                        query: corrective_msg,
-                                        context: Arc::from([]),
-                                        static_query_type: None,
-                                        referenced_attachments: HashMap::new(),
-                                        user_query_mode: UserQueryMode::Normal,
-                                        running_command: None,
-                                        intended_agent: None,
-                                    },
-                                ];
+                                let inputs = vec![AIAgentInput::UserQuery {
+                                    query: corrective_msg,
+                                    context: Arc::from([]),
+                                    static_query_type: None,
+                                    referenced_attachments: HashMap::new(),
+                                    user_query_mode: UserQueryMode::Normal,
+                                    running_command: None,
+                                    intended_agent: None,
+                                }];
 
                                 let _ = self.send_request_input(
                                     RequestInput::for_task(
