@@ -7,10 +7,10 @@ use galaxy_graphql::billing::AddonCreditsOption;
 use galaxy_graphql::error::BudgetExceededError;
 use galaxyui::elements::{
     Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, DropShadow, Empty, Expanded, Flex, FormattedTextElement, HighlightedHyperlink,
-    Hoverable, Icon as WarpUiIcon, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-    OffsetPositioning, ParentAnchor, ParentElement as _, ParentOffsetBounds, Radius, Shrinkable,
-    SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    CrossAxisAlignment, DropShadow, Empty, Expanded, Flex, FormattedTextElement,
+    HighlightedHyperlink, Hoverable, Icon as WarpUiIcon, MainAxisAlignment, MainAxisSize,
+    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement as _, ParentOffsetBounds,
+    Radius, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
 };
 use galaxyui::fonts::Weight;
 use galaxyui::ui_components::button::ButtonVariant;
@@ -339,33 +339,35 @@ impl BuyCreditsBanner {
                 };
                 if discount_percent > 0 {
                     MenuItemFields::new_with_custom_label(
-                        Arc::new(enclose!((primary_text) move |is_selected, is_hovered, appearance, _| {
-                            let text_color = appearance.theme().main_text_color(
-                                if is_selected || is_hovered {
-                                    appearance.theme().accent()
-                                } else {
-                                    appearance.theme().surface_1()
-                                }
-                            );
-                            let main_text = Text::new_inline(
-                                primary_text.clone(),
-                                appearance.ui_font_family(),
-                                appearance.ui_font_size(),
-                            )
-                            .with_color(text_color.into())
-                            .finish();
+                        Arc::new(
+                            enclose!((primary_text) move |is_selected, is_hovered, appearance, _| {
+                                let text_color = appearance.theme().main_text_color(
+                                    if is_selected || is_hovered {
+                                        appearance.theme().accent()
+                                    } else {
+                                        appearance.theme().surface_1()
+                                    }
+                                );
+                                let main_text = Text::new_inline(
+                                    primary_text.clone(),
+                                    appearance.ui_font_family(),
+                                    appearance.ui_font_size(),
+                                )
+                                .with_color(text_color.into())
+                                .finish();
 
-                            let discount_badge = Empty::new().finish();
+                                let discount_badge = Empty::new().finish();
 
-                            Flex::row()
-                                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                                .with_main_axis_size(MainAxisSize::Max)
-                                .with_child(main_text)
-                                .with_child(discount_badge)
-                                .finish()
-                        })),
-                        Some(primary_text)
+                                Flex::row()
+                                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                                    .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                                    .with_main_axis_size(MainAxisSize::Max)
+                                    .with_child(main_text)
+                                    .with_child(discount_badge)
+                                    .finish()
+                            }),
+                        ),
+                        Some(primary_text),
                     )
                     .with_on_select_action(DropdownAction::select_action_and_close(
                         Action::SelectDenomination(index),

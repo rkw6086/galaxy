@@ -300,6 +300,10 @@ impl RunAgentsExecutor {
                                     _,
                                 )) => RunAgentsAgentOutcomeKind::Launched { agent_id },
                                 futures::future::Either::Left((
+                                    Ok(StartAgentOutcome::Completed { agent_id, .. }),
+                                    _,
+                                )) => RunAgentsAgentOutcomeKind::Launched { agent_id },
+                                futures::future::Either::Left((
                                     Ok(StartAgentOutcome::Error(error)),
                                     _,
                                 )) => RunAgentsAgentOutcomeKind::Failed { error },

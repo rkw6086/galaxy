@@ -199,7 +199,10 @@ impl HarnessAvailabilityModel {
             return;
         };
 
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+        if !AuthStateProvider::as_ref(ctx)
+            .get()
+            .has_server_credentials()
+        {
             return;
         }
 
@@ -340,7 +343,10 @@ impl HarnessAvailabilityModel {
 
     pub fn refresh(&self, ctx: &mut ModelContext<Self>) {
         // The endpoint queries `user`, which requires auth.
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+        if !AuthStateProvider::as_ref(ctx)
+            .get()
+            .has_server_credentials()
+        {
             return;
         }
 

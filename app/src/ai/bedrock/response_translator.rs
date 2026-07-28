@@ -273,7 +273,7 @@ pub fn bedrock_stream_to_response_events(
                                     current_tool_name, current_tool_use_id
                                 );
                                 let error_text = format!(
-                                    "Error: '{}' is not a valid tool. Available tools are: run_shell_command, read_files, apply_file_diffs, grep, file_glob. Please use one of these tools instead.",
+                                    "Error: '{}' is not a valid tool for this request. Use one of the tools in the current tool configuration; do not invent tool names.",
                                     current_tool_name
                                 );
                                 let input_json: serde_json::Value = serde_json::from_str(&current_tool_input_json)
@@ -846,15 +846,36 @@ pub fn build_tool_call_message(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let is_read_only = input
+                .get("is_read_only")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let uses_pager = input
+                .get("uses_pager")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let is_risky = input
+                .get("is_risky")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let wait_until_complete = input
+                .get("wait_until_complete")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let wait_until_complete_value = Some(
+                api::message::tool_call::run_shell_command::WaitUntilCompleteValue::WaitUntilComplete(
+                    wait_until_complete,
+                ),
+            );
             Some(api::message::tool_call::Tool::RunShellCommand(
                 api::message::tool_call::RunShellCommand {
                     command,
-                    is_read_only: false,
-                    uses_pager: true,
+                    is_read_only,
+                    uses_pager,
                     citations: vec![],
-                    is_risky: false,
+                    is_risky,
                     risk_category: 0,
-                    wait_until_complete_value: None,
+                    wait_until_complete_value,
                 },
             ))
         }
@@ -944,12 +965,14 @@ pub fn build_tool_call_message(
                         .collect()
                 })
                 .unwrap_or_default();
+            let path = input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             #[allow(deprecated)]
             Some(api::message::tool_call::Tool::FileGlob(
-                api::message::tool_call::FileGlob {
-                    patterns,
-                    path: String::new(),
-                },
+                api::message::tool_call::FileGlob { patterns, path },
             ))
         }
         "search_codebase" => {
@@ -972,27 +995,80 @@ pub fn build_tool_call_message(
             ))
         }
         "write_to_long_running_shell_command" => {
+            use api::message::tool_call::write_to_long_running_shell_command::mode::Mode;
+
             let text_input = input
                 .get("input")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let command_id = input
+                .get("command_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mode = input.get("mode").and_then(|v| v.as_str()).map(|mode| {
+                api::message::tool_call::write_to_long_running_shell_command::Mode {
+                    mode: Some(match mode {
+                        "line" => Mode::Line(()),
+                        "block" => Mode::Block(()),
+                        _ => Mode::Raw(()),
+                    }),
+                }
+            });
             Some(
                 api::message::tool_call::Tool::WriteToLongRunningShellCommand(
                     api::message::tool_call::WriteToLongRunningShellCommand {
                         input: text_input.into_bytes(),
-                        mode: None,
-                        command_id: String::new(),
+                        mode,
+                        command_id,
                     },
                 ),
             )
         }
-        "read_shell_command_output" => Some(api::message::tool_call::Tool::ReadShellCommandOutput(
-            api::message::tool_call::ReadShellCommandOutput {
-                command_id: String::new(),
-                delay: None,
-            },
-        )),
+        "read_shell_command_output" => {
+            let command_id = input
+                .get("command_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let delay = if input
+                .get("wait_until_complete")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
+                Some(api::message::tool_call::read_shell_command_output::Delay::OnCompletion(()))
+            } else {
+                let seconds = input
+                    .get("wait_seconds")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(2)
+                    .min(120);
+                Some(
+                    api::message::tool_call::read_shell_command_output::Delay::Duration(
+                        prost_types::Duration {
+                            seconds: seconds as i64,
+                            nanos: 0,
+                        },
+                    ),
+                )
+            };
+            Some(api::message::tool_call::Tool::ReadShellCommandOutput(
+                api::message::tool_call::ReadShellCommandOutput { command_id, delay },
+            ))
+        }
+        "transfer_shell_command_control_to_user" => {
+            let reason = input
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(
+                api::message::tool_call::Tool::TransferShellCommandControlToUser(
+                    api::message::tool_call::TransferShellCommandControlToUser { reason },
+                ),
+            )
+        }
         "read_mcp_resource" => {
             let server_id = input
                 .get("server_id")
@@ -1294,6 +1370,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "search_codebase",
     "write_to_long_running_shell_command",
     "read_shell_command_output",
+    "transfer_shell_command_control_to_user",
     "read_mcp_resource",
     "read_plan",
     "create_plan",

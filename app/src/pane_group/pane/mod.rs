@@ -214,9 +214,7 @@ impl PaneId {
     }
 
     /// Creates a [`PaneId`] from a [`ViewContext<PaneView<SettingsView>>`] (environment management stub)
-    pub fn from_environment_management_pane_ctx(
-        ctx: &ViewContext<PaneView<SettingsView>>,
-    ) -> Self {
+    pub fn from_environment_management_pane_ctx(ctx: &ViewContext<PaneView<SettingsView>>) -> Self {
         Self::new_from_ctx(IPaneType::EnvironmentManagement, ctx)
     }
 

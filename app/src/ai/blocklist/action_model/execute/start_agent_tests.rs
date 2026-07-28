@@ -17,9 +17,8 @@ use crate::test_util::settings::initialize_history_persistence_for_tests;
 const FIRST_REQUEST_ID: StartAgentRequestId = StartAgentRequestId::from_raw_for_test(0);
 
 /// Stable placeholder run_id assigned to the parent conversation in tests
-/// that dispatch an Oz local child. The Oz `Local` arm of
-/// `StartAgentExecutor::execute` bails out synchronously if the parent has
-/// no `run_id`, so every `local_with_defaults` test needs to assign one.
+/// that exercise the server-backed Oz child path. Tests without this id
+/// exercise the direct-provider local child path instead.
 const PARENT_RUN_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 fn build_start_agent_action(
@@ -369,6 +368,89 @@ fn execute_resolves_success_when_request_linkage_happens_after_child_already_sta
             }) if agent_id == run_id && version == StartAgentVersion::V1
         ));
 
+        executor.read(&app, |executor, _| {
+            assert!(executor.pending.is_empty());
+        });
+    });
+}
+
+#[test]
+fn execute_waits_for_direct_provider_child_and_returns_its_output() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let parent_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let execution = executor.update(&mut app, |executor, ctx| {
+            let input = ExecuteActionInput {
+                action: &action,
+                conversation_id: parent_conversation_id,
+            };
+            let result: AnyActionExecution = executor.execute(input, ctx).into();
+            result
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async execution");
+        };
+
+        let child_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_child_conversation(
+                terminal_view_id,
+                "Agent 1".to_string(),
+                parent_conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.record_new_conversation_request_complete(
+                FIRST_REQUEST_ID,
+                child_conversation_id,
+                ctx,
+            );
+        });
+
+        executor.read(&app, |executor, _| {
+            let pending = executor
+                .pending
+                .get(&FIRST_REQUEST_ID)
+                .expect("direct child should remain pending until completion");
+            assert!(pending.wait_for_completion);
+        });
+
+        history_model.update(&mut app, |history_model, ctx| {
+            history_model.update_conversation_status(
+                terminal_view_id,
+                child_conversation_id,
+                ConversationStatus::Success,
+                ctx,
+            );
+        });
+
+        let async_result = execute_future.await;
+        let result = app.update(|ctx| on_complete(async_result, ctx));
+        assert!(matches!(
+            result,
+            AIAgentActionResultType::StartAgent(StartAgentResult::Success {
+                agent_id,
+                version,
+            }) if agent_id.contains(&child_conversation_id.to_string())
+                && agent_id.contains("Agent output:")
+                && agent_id.contains("Agent completed but produced no text output.")
+                && version == StartAgentVersion::V1
+        ));
         executor.read(&app, |executor, _| {
             assert!(executor.pending.is_empty());
         });

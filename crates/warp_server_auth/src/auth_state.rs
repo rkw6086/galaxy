@@ -268,6 +268,15 @@ impl AuthState {
         self.credentials.read().clone()
     }
 
+    /// Returns whether requests to authenticated server endpoints can be made.
+    ///
+    /// Galaxy's local-first experience treats the user as logged in even when no
+    /// Warp server credentials are configured, so `is_logged_in` is not sufficient
+    /// for guarding authenticated network requests.
+    pub fn has_server_credentials(&self) -> bool {
+        self.credentials.read().is_some()
+    }
+
     /// Sets the credentials. Should only be called within the auth module.
     pub fn set_credentials(&self, credentials: Option<Credentials>) {
         *self.credentials.write() = credentials;

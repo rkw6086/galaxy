@@ -7,7 +7,7 @@ use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use shell_words::split as split_shell_words;
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
-use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionResultType, AIAgentActionType, LifecycleEventType,
     StartAgentExecutionMode, StartAgentResult,
@@ -21,6 +21,11 @@ use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 pub enum StartAgentOutcome {
     Started {
         agent_id: String,
+    },
+    /// A direct-provider child completed and returned its output inline.
+    Completed {
+        agent_id: String,
+        output: String,
     },
     /// An error occurred while starting the agent.
     Error(String),
@@ -114,6 +119,10 @@ struct PendingStartAgent {
     /// Set once the child conversation is synchronously created.
     child_conversation_id: Option<AIConversationId>,
     sender: async_channel::Sender<StartAgentOutcome>,
+    /// Direct Bedrock/OpenAI parents do not have a server run id or an
+    /// orchestration event stream. Keep the tool call open until their local
+    /// child finishes, then return the child's output inline.
+    wait_for_completion: bool,
 }
 
 pub struct StartAgentExecutor {
@@ -194,6 +203,35 @@ impl StartAgentExecutor {
         }
     }
 
+    fn complete_pending_as_completed(
+        &mut self,
+        request_id: StartAgentRequestId,
+        child_conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&child_conversation_id)
+        else {
+            return;
+        };
+        let agent_id = conversation
+            .orchestration_agent_id()
+            .or_else(|| {
+                conversation
+                    .server_conversation_token()
+                    .map(|token| token.as_str().to_string())
+            })
+            .unwrap_or_else(|| child_conversation_id.to_string());
+        let output = extract_child_output(conversation);
+
+        let Some(pending) = self.pending.remove(&request_id) else {
+            return;
+        };
+        let _ = pending
+            .sender
+            .try_send(StartAgentOutcome::Completed { agent_id, output });
+    }
+
     fn complete_pending_as_error(
         &mut self,
         request_id: StartAgentRequestId,
@@ -238,6 +276,14 @@ impl StartAgentExecutor {
             self.complete_pending_as_error(request_id, child_conversation_id, error_msg, ctx);
             return;
         }
+        let wait_for_completion = self
+            .pending
+            .get(&request_id)
+            .is_some_and(|pending| pending.wait_for_completion);
+        if wait_for_completion && matches!(conversation.status(), ConversationStatus::Success) {
+            self.complete_pending_as_completed(request_id, child_conversation_id, ctx);
+            return;
+        }
         if conversation.orchestration_agent_id().is_some() {
             self.complete_pending_as_started(request_id, child_conversation_id, ctx);
         }
@@ -256,7 +302,7 @@ impl StartAgentExecutor {
                 let Some(request_id) = self.find_pending_by_child(conversation_id) else {
                     return;
                 };
-                self.complete_pending_as_started(request_id, *conversation_id, ctx);
+                self.maybe_complete_pending_for_child_state(request_id, *conversation_id, ctx);
             }
             BlocklistAIHistoryEvent::UpdatedConversationStatus {
                 conversation_id, ..
@@ -264,17 +310,7 @@ impl StartAgentExecutor {
                 let Some(request_id) = self.find_pending_by_child(conversation_id) else {
                     return;
                 };
-                let history = BlocklistAIHistoryModel::as_ref(ctx);
-                let Some(conversation) = history.conversation(conversation_id) else {
-                    return;
-                };
-                let error_msg = start_agent_error_message_for_status(
-                    conversation.status(),
-                    conversation.status_error_message().as_deref(),
-                );
-                if let Some(error_msg) = error_msg {
-                    self.complete_pending_as_error(request_id, *conversation_id, error_msg, ctx);
-                }
+                self.maybe_complete_pending_for_child_state(request_id, *conversation_id, ctx);
             }
             BlocklistAIHistoryEvent::NewConversationRequestComplete {
                 request_id,
@@ -346,36 +382,19 @@ impl StartAgentExecutor {
                 harness_type: None,
                 model_id,
             } => {
-                // Oz local children resolve their parent's run id from the
-                // parent conversation. This mirrors the third-party-harness
-                // and remote-child branches below; the child task row is
-                // created eagerly at dispatch (see
-                // `launch_local_no_harness_child`) using this value as the
-                // `parent_run_id` on `CreateAgentTask`. Bail out if the
-                // parent has no `run_id` yet — the eager-create path has no
-                // late-binding fallback (the pre-change lazy path would have
-                // linked via `Request.metadata.parent_agent_id` later), so
-                // proceeding would mint an orphan child with no server-side
-                // parent linkage.
+                // Server-backed parents launch an Oz child and return its run
+                // id immediately. Direct Bedrock/OpenAI parents have no run
+                // id; terminal_pane creates a local hidden child instead and
+                // this executor waits for its final output.
                 let parent_run_id = BlocklistAIHistoryModel::as_ref(ctx)
                     .conversation(&parent_conversation_id)
                     .and_then(|conversation| conversation.run_id());
-                let Some(parent_run_id) = parent_run_id else {
-                    return ActionExecution::Sync(AIAgentActionResultType::StartAgent(
-                        StartAgentResult::Error {
-                            error:
-                                "Local Oz child agents require the parent run_id to be available."
-                                    .to_string(),
-                            version,
-                        },
-                    ));
-                };
                 (
                     StartAgentExecutionMode::Local {
                         harness_type: None,
                         model_id,
                     },
-                    Some(parent_run_id),
+                    parent_run_id,
                 )
             }
             StartAgentExecutionMode::Local {
@@ -485,7 +504,7 @@ impl StartAgentExecutor {
 
         // In local mode (no parent_run_id), block until the child finishes
         // so the parent model receives the child's output as the tool result.
-        let _wait_for_completion = parent_run_id.is_none();
+        let wait_for_completion = parent_run_id.is_none();
 
         let (sender, receiver) = async_channel::bounded(1);
         let request_id = self.next_request_id();
@@ -495,6 +514,7 @@ impl StartAgentExecutor {
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
+                wait_for_completion,
             },
         );
 
@@ -515,6 +535,12 @@ impl StartAgentExecutor {
                 Ok(StartAgentOutcome::Started { agent_id }) => {
                     AIAgentActionResultType::StartAgent(StartAgentResult::Success {
                         agent_id,
+                        version,
+                    })
+                }
+                Ok(StartAgentOutcome::Completed { agent_id, output }) => {
+                    AIAgentActionResultType::StartAgent(StartAgentResult::Success {
+                        agent_id: format!("{agent_id}\n\nAgent output:\n{output}"),
                         version,
                     })
                 }
@@ -551,6 +577,7 @@ impl StartAgentExecutor {
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
+                wait_for_completion: parent_run_id.is_none(),
             },
         );
         ctx.emit(StartAgentExecutorEvent::CreateAgent(Box::new(
@@ -573,6 +600,22 @@ impl StartAgentExecutor {
         _ctx: &mut ModelContext<Self>,
     ) -> BoxFuture<'static, ()> {
         futures::future::ready(()).boxed()
+    }
+}
+
+/// Extracts the text output from every completed exchange in a local child.
+fn extract_child_output(conversation: &AIConversation) -> String {
+    let output_parts = conversation
+        .all_exchanges()
+        .into_iter()
+        .filter_map(|exchange| exchange.output_status.output())
+        .map(|output| output.get().format_for_copy(None))
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+    if output_parts.is_empty() {
+        "Agent completed but produced no text output.".to_string()
+    } else {
+        output_parts.join("\n\n")
     }
 }
 

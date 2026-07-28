@@ -1514,9 +1514,7 @@ impl View for RequestedCommandView {
         let has_citations_footer =
             !self.derived_from_citations.is_empty() && !self.block_model.status(app).is_streaming();
         let header_element = self.render_header(
-            !should_render_editor
-                && !should_render_mcp_content
-                && !has_citations_footer,
+            !should_render_editor && !should_render_mcp_content && !has_citations_footer,
             app,
         );
 
@@ -1640,13 +1638,11 @@ impl View for RequestedCommandView {
                 && !is_input_pinned_to_top);
 
         let container = Container::new(content.finish())
-            .with_margin_left(
-                if action_status.is_some_and(|status| status.is_blocked()) {
-                    CONTENT_HORIZONTAL_PADDING
-                } else {
-                    CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
-                },
-            )
+            .with_margin_left(if action_status.is_some_and(|status| status.is_blocked()) {
+                CONTENT_HORIZONTAL_PADDING
+            } else {
+                CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
+            })
             .with_margin_right(CONTENT_HORIZONTAL_PADDING)
             .with_margin_bottom(if should_remove_bottom_margin {
                 0.

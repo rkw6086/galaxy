@@ -79,7 +79,14 @@ impl TypeScriptLanguageServerCandidate {
         if let Some(path_env) = path_env_var {
             let mut cmd = command::r#async::Command::new("npx");
             cmd.env("PATH", path_env);
-            cmd.args(["--yes", "--package", "typescript", "node", "-e", "console.log(require('typescript').sys.getExecutingFilePath())"]);
+            cmd.args([
+                "--yes",
+                "--package",
+                "typescript",
+                "node",
+                "-e",
+                "console.log(require('typescript').sys.getExecutingFilePath())",
+            ]);
             // Set cwd to workspace so npx resolves in the right context
             cmd.current_dir(workspace_root);
             if let Ok(output) = cmd.output().await {

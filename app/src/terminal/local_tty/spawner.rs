@@ -219,14 +219,13 @@ impl PtySpawner {
         >,
         is_crash_reporting_enabled: bool,
     ) -> Result<(PtySpawnResult, Box<dyn PtyHandle>)> {
-        let pty_spawn_info =
-            invoke_without_crash_reporting(move || {
-                local_tty::spawn(
-                    options,
-                    #[cfg(windows)]
-                    event_loop_tx,
-                )
-            })?;
+        let pty_spawn_info = invoke_without_crash_reporting(move || {
+            local_tty::spawn(
+                options,
+                #[cfg(windows)]
+                event_loop_tx,
+            )
+        })?;
         let direct_pty_handle = Box::new(DirectPtyHandle {
             child: pty_spawn_info.child,
         });

@@ -90,6 +90,12 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                                         let mut context =
                                             format!("[Running command: {}]\n", running_cmd.command);
                                         if let Some(snapshot) = &running_cmd.snapshot {
+                                            if !snapshot.command_id.is_empty() {
+                                                context.push_str(&format!(
+                                                    "[Command ID: {}]\n",
+                                                    snapshot.command_id
+                                                ));
+                                            }
                                             if !snapshot.output.is_empty() {
                                                 context.push_str(&format!(
                                                     "[Terminal output:\n{}\n]\n",
@@ -588,17 +594,16 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     )
                 };
                 let message_user_query =
-                    invoke_skill.user_query.as_ref().map(|input_query| {
-                        api::message::UserQuery {
+                    invoke_skill
+                        .user_query
+                        .as_ref()
+                        .map(|input_query| api::message::UserQuery {
                             query: input_query.query.clone(),
                             context: None,
-                            referenced_attachments: input_query
-                                .referenced_attachments
-                                .clone(),
+                            referenced_attachments: input_query.referenced_attachments.clone(),
                             mode: input_query.mode,
                             intended_agent: input_query.intended_agent,
-                        }
-                    });
+                        });
                 results.push(api::Message {
                     id: uuid::Uuid::new_v4().to_string(),
                     task_id: task_id.clone(),
@@ -1062,10 +1067,83 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
     }
 }
 
-pub fn extract_system_prompt(request: &api::Request, global_rules: &[(String, String)]) -> Option<String> {
-    let mut prompt = String::with_capacity(2048);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentMode {
+    Normal,
+    Plan,
+    Orchestrate,
+    Cli,
+}
 
-    prompt.push_str("You are Galaxy, an AI coding assistant embedded in a terminal application. You help users with software engineering tasks including writing code, debugging, explaining concepts, and navigating codebases.\n\n");
+fn request_agent_mode(request: &api::Request) -> AgentMode {
+    let Some(api::request::Input {
+        r#type: Some(api::request::input::Type::UserInputs(user_inputs)),
+        ..
+    }) = &request.input
+    else {
+        return AgentMode::Normal;
+    };
+
+    let mut mode = AgentMode::Normal;
+    for user_input in &user_inputs.inputs {
+        match &user_input.input {
+            Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(_)) => {
+                return AgentMode::Cli;
+            }
+            Some(api::request::input::user_inputs::user_input::Input::UserQuery(query)) => {
+                match query.mode.as_ref().and_then(|mode| mode.r#type.as_ref()) {
+                    Some(api::user_query_mode::Type::Plan(())) => mode = AgentMode::Plan,
+                    Some(api::user_query_mode::Type::Orchestrate(())) => {
+                        mode = AgentMode::Orchestrate
+                    }
+                    None => {}
+                }
+            }
+            Some(api::request::input::user_inputs::user_input::Input::ToolCallResult(result))
+                if tool_result_is_cli_command(result) =>
+            {
+                return AgentMode::Cli
+            }
+            _ => {}
+        }
+    }
+    mode
+}
+
+fn tool_result_is_cli_command(result: &api::request::input::ToolCallResult) -> bool {
+    use api::request::input::tool_call_result::Result;
+
+    match &result.result {
+        Some(Result::RunShellCommand(result)) => matches!(
+            result.result,
+            Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(_))
+        ),
+        Some(
+            Result::WriteToLongRunningShellCommand(_)
+            | Result::ReadShellCommandOutput(_)
+            | Result::TransferShellCommandControlToUser(_),
+        ) => true,
+        _ => false,
+    }
+}
+
+pub fn extract_system_prompt(
+    request: &api::Request,
+    global_rules: &[(String, String)],
+) -> Option<String> {
+    let mode = request_agent_mode(request);
+    let tool_names = extract_tools(request)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    let mut prompt = String::with_capacity(4096);
+
+    prompt.push_str(
+        "You are Galaxy, an AI software-engineering and terminal agent embedded in the user's \
+         terminal. Your job is to complete the user's task, not merely describe how they could \
+         complete it. You are especially capable at inspecting codebases, editing files, running \
+         commands, diagnosing failures, and validating changes.\n\n",
+    );
 
     if let Some(input) = &request.input {
         if let Some(context) = &input.context {
@@ -1120,7 +1198,9 @@ pub fn extract_system_prompt(request: &api::Request, global_rules: &[(String, St
     // Inject global rules from the local CloudModel (stored as AIFact/AIMemory)
     if !global_rules.is_empty() {
         prompt.push_str("## Global Rules\n");
-        prompt.push_str("The following rules have been configured by the user and should be followed:\n\n");
+        prompt.push_str(
+            "The following rules have been configured by the user and should be followed:\n\n",
+        );
         for (name, content) in global_rules {
             if !name.is_empty() {
                 prompt.push_str(&format!("### {}\n", name));
@@ -1130,28 +1210,119 @@ pub fn extract_system_prompt(request: &api::Request, global_rules: &[(String, St
         }
     }
 
-    prompt.push_str("## Tool Usage\n");
-    prompt.push_str("You have been given every tool you need to complete your tasks. Use them to achieve results with as few calls and as little back-and-forth as possible.\n\n");
-    prompt.push_str("**How to choose tools:**\n");
-    prompt.push_str("- For reading, writing, searching, and navigating files on the local filesystem, use your filesystem tools (`read_files`, `file_glob`, `grep`, `apply_file_diffs`).\n");
-    prompt.push_str("- For running commands, installing packages, building, testing, and any shell operation, use `run_shell_command`.\n");
-    prompt.push_str("- For tasks that require interacting with external services, web UIs, or capabilities not covered by your filesystem and shell tools, use your MCP tools.\n");
-    prompt.push_str("- For complex multi-step tasks where a single script would replace many tool calls, write code (Python, Node, bash) via `run_shell_command` to reduce round-trips. But never use scripts for simple operations that a single command handles.\n\n");
-    prompt.push_str("**Critical rules:**\n");
+    prompt.push_str("## Operating Contract\n");
     prompt.push_str(
-        "- Use ONLY the tools in your tool configuration. Never invent or guess tool names.\n",
+        "- If the user asks for a change, carry it through inspection, implementation, and \
+         proportionate validation. Do not stop after proposing a plan unless the request is in \
+         plan mode or user input is genuinely required.\n",
     );
-    prompt.push_str("- ALWAYS pass `--no-pager` (or equivalent) flags to CLI tools like git, less, man, etc. Tools that lock stdin will freeze the session.\n");
-    prompt.push_str("- Output text directly in your response instead of using `echo` — echo requires user approval and adds unnecessary friction.\n");
-    prompt.push_str("- Use absolute paths based on the working directory shown above.\n");
-    prompt.push_str("- Be logical in your tool choices. Read files before making claims about code. List files before assuming project structure.\n");
-    prompt.push_str("- Be concise and direct.\n");
+    prompt.push_str(
+        "- Inspect relevant files and current state before making claims. Preserve unrelated user \
+         changes and make the smallest coherent change that solves the problem.\n",
+    );
+    prompt.push_str(
+        "- Prefer non-interactive commands. Disable pagers (`--no-pager`, `PAGER=cat`, or the \
+         tool-specific equivalent) and avoid commands that wait for an editor or prompt unless \
+         interaction is intentional.\n",
+    );
+    prompt.push_str(
+        "- Treat tool results as evidence. Check exit codes and output, fix failures when they are \
+         in scope, and never claim a build, test, command, or edit succeeded without a successful \
+         result.\n",
+    );
+    prompt.push_str(
+        "- Ask the user only when a missing choice materially changes the result or when an action \
+         requires authority you do not have. Otherwise make a reasonable, scoped assumption and \
+         continue.\n",
+    );
+    prompt.push_str(
+        "- Avoid destructive or irreversible commands unless they are clearly requested and their \
+         target is verified. Never overwrite unrelated work.\n",
+    );
+    prompt.push_str("- Keep progress and final responses concise, concrete, and honest.\n\n");
+
+    match mode {
+        AgentMode::Normal => {}
+        AgentMode::Plan => {
+            prompt.push_str("## Plan Mode\n");
+            prompt.push_str(
+                "Analyze and produce an implementation-ready plan. You may inspect files and run \
+                 read-only commands, but do not edit files, install dependencies, or run commands \
+                 that change external state. Resolve as much uncertainty as possible through \
+                 inspection before presenting the plan.\n\n",
+            );
+        }
+        AgentMode::Orchestrate => {
+            prompt.push_str("## Orchestration Mode\n");
+            prompt.push_str(
+                "Coordinate independent work when delegation materially reduces latency or improves \
+                 coverage. Give each child agent a bounded task and synthesize its result. Do not \
+                 delegate trivial work or work that depends on unfinished local context.\n\n",
+            );
+        }
+        AgentMode::Cli => {
+            prompt.push_str("## Running Command Monitor\n");
+            prompt.push_str(
+                "This turn concerns a running or just-finished shell command. Act as its dedicated \
+                 monitor while still following the user's steering messages. Use the command ID from \
+                 the running-command context or tool result for every read/write operation. If the \
+                 result says the command finished, report its outcome and stop polling. Otherwise, \
+                 poll with `read_shell_command_output`; use a short delay for active progress and \
+                 `wait_until_complete` only when no intervention is expected. Use \
+                 `write_to_long_running_shell_command` only when the process needs input. Never start \
+                 a duplicate command merely to check its state, and never report completion while a \
+                 result says it is still running. If user interaction is the right next step and the \
+                 transfer tool is available, transfer control with a clear reason.\n\n",
+            );
+        }
+    }
+
+    prompt.push_str("## Available Tools\n");
+    if tool_names.is_empty() {
+        prompt.push_str("No tools are available for this request. Do not invent tool calls.\n\n");
+    } else {
+        prompt.push_str(&format!(
+            "Use only these tools: {}.\n\n",
+            tool_names.join(", ")
+        ));
+    }
+    let has_tool = |name: &str| tool_names.iter().any(|tool_name| tool_name == name);
+    if [
+        "read_files",
+        "apply_file_diffs",
+        "grep",
+        "file_glob",
+        "search_codebase",
+    ]
+    .into_iter()
+    .any(has_tool)
+    {
+        prompt.push_str(
+            "- Use filesystem/search tools to understand the codebase and focused diff tools to edit \
+             it. Use paths rooted in the working directory and absolute paths when a schema requires \
+             them.\n",
+        );
+    }
+    if has_tool("run_shell_command") {
+        prompt.push_str(
+            "- Use `run_shell_command` for builds, tests, package managers, git, and terminal work. \
+             Set `is_read_only` accurately, set `uses_pager=false`, and set \
+             `wait_until_complete=false` for commands that may run longer than a few seconds so they \
+             can be monitored asynchronously.\n",
+        );
+    }
+    if !tool_names.is_empty() {
+        prompt.push_str(
+            "- Batch independent reads and searches when the tool schema allows it, but do not hide \
+             important intermediate failures inside a large opaque script.\n",
+        );
+    }
+    prompt.push_str("- Never invent tool names or parameters.\n");
 
     Some(prompt)
 }
 
 pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
-    // Always start with the full set of default tools.
     let mut tools = default_tool_definitions();
     let mut seen_names: std::collections::HashSet<String> =
         tools.iter().map(|t| t.name.clone()).collect();
@@ -1202,30 +1373,72 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
         }
     }
 
-    // Filter out suggest_next_prompt — its action executor waits on a oneshot
-    // channel for UI interaction that never fires in the Bedrock path, causing
-    // the conversation to stay InProgress forever.
-    // Filter out start_agent/send_message_to_agent — sub-agents are disabled.
-    tools.retain(|t| {
-        t.name != "suggest_next_prompt"
-            && t.name != "start_agent"
-            && t.name != "send_message_to_agent"
-    });
+    // Only advertise tools the client reported for this request. CLI-agent turns
+    // use their narrower capability list so the command monitor stays focused.
+    if let Some(supported_tools) = supported_tool_types(request) {
+        tools.retain(|tool| tool_name_is_supported(&tool.name, &supported_tools));
+    }
 
     tools
+}
+
+fn supported_tool_types(request: &api::Request) -> Option<HashSet<api::ToolType>> {
+    let settings = request.settings.as_ref()?;
+    let raw_tools = if request_agent_mode(request) == AgentMode::Cli {
+        &settings.supported_cli_agent_tools
+    } else {
+        &settings.supported_tools
+    };
+    Some(
+        raw_tools
+            .iter()
+            .filter_map(|value| api::ToolType::try_from(*value).ok())
+            .collect(),
+    )
+}
+
+fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> bool {
+    use api::ToolType;
+
+    let has = |tool| supported.contains(&tool);
+    match name {
+        "run_shell_command" => has(ToolType::RunShellCommand),
+        "read_files" => has(ToolType::ReadFiles),
+        "apply_file_diffs" => has(ToolType::ApplyFileDiffs),
+        "grep" => has(ToolType::Grep),
+        "file_glob" => has(ToolType::FileGlob) || has(ToolType::FileGlobV2),
+        "search_codebase" => has(ToolType::SearchCodebase),
+        "write_to_long_running_shell_command" => has(ToolType::WriteToLongRunningShellCommand),
+        "read_shell_command_output" => has(ToolType::ReadShellCommandOutput),
+        "transfer_shell_command_control_to_user" => {
+            has(ToolType::TransferShellCommandControlToUser)
+        }
+        "read_mcp_resource" => has(ToolType::ReadMcpResource),
+        name if name.starts_with("mcp__") => has(ToolType::CallMcpTool),
+        "read_plan" | "read_notebook" => has(ToolType::ReadDocuments),
+        "create_plan" | "create_notebook" => has(ToolType::CreateDocuments),
+        "edit_plan" | "edit_notebook" => has(ToolType::EditDocuments),
+        "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
+        "ask_user_question" => has(ToolType::AskUserQuestion),
+        "read_skill" => has(ToolType::ReadSkill),
+        "fetch_conversation" => has(ToolType::FetchConversation),
+        _ => false,
+    }
 }
 
 pub fn default_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command in the user's terminal and return its output. Use for running builds, tests, git operations, installing packages, or any shell operation. Commands run in the user's actual shell with their environment. Set is_read_only=true for read-only commands (ls, cat, git status) to enable auto-execution. Always use --no-pager for git commands.".to_string(),
+            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in the user's actual shell and environment. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "The shell command to execute" },
                     "is_read_only": { "type": "boolean", "description": "True if command only reads data and makes no changes" },
-                    "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" }
+                    "is_risky": { "type": "boolean", "description": "True if command is destructive or irreversible (rm -rf, git push --force)" },
+                    "uses_pager": { "type": "boolean", "default": false, "description": "True only when the command intentionally launches a pager. Prefer false." },
+                    "wait_until_complete": { "type": "boolean", "default": false, "description": "Whether to wait for the process to exit. Defaults to false so builds, servers, watchers, and other potentially long-running commands can be monitored asynchronously." }
                 },
                 "required": ["command"]
             }),
@@ -1291,22 +1504,39 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "write_to_long_running_shell_command".to_string(),
-            description: "Send input (stdin) to a currently running shell command. Use this to interact with commands that are waiting for input, like interactive prompts, REPLs, or commands that accept piped input.".to_string(),
+            description: "Send input to a currently running shell command identified by command_id. Use only when the command is waiting for input, such as an interactive prompt or REPL.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "input": { "type": "string", "description": "Text to send as stdin to the running command" }
+                    "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" },
+                    "input": { "type": "string", "description": "Text to send to the running command" },
+                    "mode": { "type": "string", "enum": ["raw", "line", "block"], "default": "raw", "description": "raw sends exact bytes; line submits one line with Enter; block pastes multiline input" }
                 },
-                "required": ["input"]
+                "required": ["command_id", "input"]
             }),
         },
         ToolDefinition {
             name: "read_shell_command_output".to_string(),
-            description: "Read the latest output from a previously started long-running shell command. Use to check progress or get results from commands that are still running.".to_string(),
+            description: "Read output from a previously started long-running shell command identified by command_id. Use wait_seconds for a timed poll, or wait_until_complete=true only when no intervention is expected.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
-                "properties": {},
-                "required": []
+                "properties": {
+                    "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" },
+                    "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 120, "default": 2, "description": "Seconds to wait before returning a fresh snapshot; defaults to 2" },
+                    "wait_until_complete": { "type": "boolean", "description": "Wait until the command exits instead of returning a timed snapshot" }
+                },
+                "required": ["command_id"]
+            }),
+        },
+        ToolDefinition {
+            name: "transfer_shell_command_control_to_user".to_string(),
+            description: "Transfer control of the current long-running shell command to the user when manual interaction is needed. Explain why control is being transferred.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "reason": { "type": "string", "description": "Concise explanation of what the user needs to do" }
+                },
+                "required": ["reason"]
             }),
         },
         ToolDefinition {
@@ -1450,17 +1680,11 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
             api::request::input::tool_call_result::Result::RunShellCommand(cmd_result) => {
                 match &cmd_result.result {
                     Some(api::run_shell_command_result::Result::CommandFinished(finished)) => {
-                        let content = if finished.output.is_empty() {
-                            format!("Exit code: {}\n(no output)", finished.exit_code)
-                        } else {
-                            format!("Exit code: {}\n{}", finished.exit_code, finished.output)
-                        };
-                        let is_error = finished.exit_code != 0;
-                        (content, is_error)
+                        command_finished_content(finished)
                     }
                     Some(api::run_shell_command_result::Result::LongRunningCommandSnapshot(
                         snapshot,
-                    )) => (snapshot.output.clone(), false),
+                    )) => (long_running_command_content(snapshot), false),
                     Some(api::run_shell_command_result::Result::PermissionDenied(denied)) => {
                         let reason = match &denied.reason {
                             Some(api::permission_denied::Reason::DenylistedCommand(())) => {
@@ -1643,23 +1867,57 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                     api::write_to_long_running_shell_command_result::Result::LongRunningCommandSnapshot(
                         snapshot,
                     ),
-                ) => (snapshot.output.clone(), false),
+                ) => (long_running_command_content(snapshot), false),
                 Some(
                     api::write_to_long_running_shell_command_result::Result::CommandFinished(
                         finished,
                     ),
-                ) => {
-                    let content = format!(
-                        "Exit code: {}\n{}",
-                        finished.exit_code, finished.output
-                    );
-                    let is_error = finished.exit_code != 0;
-                    (content, is_error)
-                }
+                ) => command_finished_content(finished),
                 Some(api::write_to_long_running_shell_command_result::Result::Error(_)) => {
                     ("Error: shell command not found.".to_string(), true)
                 }
                 None => ("Write to shell command completed.".to_string(), false),
+            },
+            api::request::input::tool_call_result::Result::ReadShellCommandOutput(read_result) => {
+                match &read_result.result {
+                    Some(
+                        api::read_shell_command_output_result::Result::LongRunningCommandSnapshot(
+                            snapshot,
+                        ),
+                    ) => (long_running_command_content(snapshot), false),
+                    Some(api::read_shell_command_output_result::Result::CommandFinished(
+                        finished,
+                    )) => command_finished_content(finished),
+                    Some(api::read_shell_command_output_result::Result::Error(_)) => {
+                        ("Error: shell command not found.".to_string(), true)
+                    }
+                    None => ("Read shell command output completed.".to_string(), false),
+                }
+            }
+            api::request::input::tool_call_result::Result::TransferShellCommandControlToUser(
+                transfer_result,
+            ) => match &transfer_result.result {
+                Some(
+                    api::transfer_shell_command_control_to_user_result::Result::LongRunningCommandSnapshot(
+                        snapshot,
+                    ),
+                ) => {
+                    let mut content = long_running_command_content(snapshot);
+                    content.push_str(
+                        "\nControl has been transferred to the user. Do not write to the command \
+                         until control is returned.",
+                    );
+                    (content, false)
+                }
+                Some(
+                    api::transfer_shell_command_control_to_user_result::Result::CommandFinished(
+                        finished,
+                    ),
+                ) => command_finished_content(finished),
+                Some(api::transfer_shell_command_control_to_user_result::Result::Error(_)) => {
+                    ("Error: shell command not found.".to_string(), true)
+                }
+                None => ("Shell command control transferred to the user.".to_string(), false),
             },
             api::request::input::tool_call_result::Result::StartAgent(start_agent_result) => {
                 match &start_agent_result.result {
@@ -1786,6 +2044,38 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
     } else {
         ("Tool completed.".to_string(), false)
     }
+}
+
+fn command_finished_content(finished: &api::ShellCommandFinished) -> (String, bool) {
+    let mut content = String::new();
+    if !finished.command_id.is_empty() {
+        content.push_str(&format!("Command ID: {}\n", finished.command_id));
+    }
+    content.push_str(&format!(
+        "Command finished with exit code {}.",
+        finished.exit_code
+    ));
+    if finished.output.is_empty() {
+        content.push_str("\n(no output)");
+    } else {
+        content.push_str(&format!("\nOutput:\n{}", finished.output));
+    }
+    (content, finished.exit_code != 0)
+}
+
+fn long_running_command_content(snapshot: &api::LongRunningShellCommandSnapshot) -> String {
+    let output = if snapshot.output.is_empty() {
+        "(no output yet)"
+    } else {
+        &snapshot.output
+    };
+    format!(
+        "Command is still running.\nCommand ID: {}\nCurrent terminal output:\n{}\n\
+         Continue monitoring with `read_shell_command_output` using command_id `{}`. \
+         Use `write_to_long_running_shell_command` with the same command_id only if input is \
+         required. Do not report the command as complete while it is still running.",
+        snapshot.command_id, output, snapshot.command_id
+    )
 }
 
 #[cfg(test)]

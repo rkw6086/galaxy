@@ -7483,7 +7483,10 @@ impl EditorView {
 
     fn focused_in_active_window(&self, ctx: &AppContext) -> bool {
         let manager = self.windowing_state_handle.as_ref(ctx);
-        let active = manager.state().active_window.or_else(|| manager.active_window());
+        let active = manager
+            .state()
+            .active_window
+            .or_else(|| manager.active_window());
         Some(self.window_id) == active && self.focused
     }
 

@@ -1217,9 +1217,7 @@ impl Input {
                                         "ToolResult(id={tool_use_id}, err={is_error}): {truncated}"
                                     )
                                 }
-                                crate::ai::bedrock::convert::MessageContent::MultiPart(
-                                    parts,
-                                ) => {
+                                crate::ai::bedrock::convert::MessageContent::MultiPart(parts) => {
                                     format!("MultiPart({} parts)", parts.len())
                                 }
                             };
@@ -1270,16 +1268,13 @@ impl Input {
                 }
                 output.push('\n');
 
-                output.push_str(&format!(
-                    "=== MESSAGE HISTORY ({msg_count} messages) ===\n"
-                ));
+                output.push_str(&format!("=== MESSAGE HISTORY ({msg_count} messages) ===\n"));
                 for line in &messages {
                     output.push_str(line);
                     output.push('\n');
                 }
 
-                ctx.clipboard()
-                    .write(ClipboardContent::plain_text(output));
+                ctx.clipboard().write(ClipboardContent::plain_text(output));
 
                 let window_id = ctx.window_id();
                 ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {

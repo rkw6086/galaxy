@@ -572,6 +572,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "search_codebase",
     "write_to_long_running_shell_command",
     "read_shell_command_output",
+    "transfer_shell_command_control_to_user",
     "read_mcp_resource",
     "read_plan",
     "create_plan",

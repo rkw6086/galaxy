@@ -71,7 +71,10 @@ impl ReferralThemeStatus {
         referrals_client: Arc<dyn ReferralsClient>,
         ctx: &mut ModelContext<Self>,
     ) {
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+        if !AuthStateProvider::as_ref(ctx)
+            .get()
+            .has_server_credentials()
+        {
             return;
         }
 

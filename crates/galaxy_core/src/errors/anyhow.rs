@@ -24,6 +24,5 @@ impl AnyhowErrorExt for anyhow::Error {
         true
     }
 
-    fn report_error(&self) {
-    }
+    fn report_error(&self) {}
 }

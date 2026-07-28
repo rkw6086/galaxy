@@ -260,10 +260,7 @@ impl CrosscheckReviewer {
         });
 
         // Use a non-streaming request by calling the same endpoint but with stream: false
-        let url = format!(
-            "{}/chat/completions",
-            config.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
 
         let http = reqwest::Client::new();
         let mut request_builder = http.post(&url).json(&request_body);

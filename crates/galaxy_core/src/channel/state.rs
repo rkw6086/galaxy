@@ -195,7 +195,6 @@ impl ChannelState {
         CHANNEL_STATE.lock().config.telemetry_config.is_some()
     }
 
-
     pub fn releases_base_url() -> Cow<'static, str> {
         CHANNEL_STATE
             .lock()

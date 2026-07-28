@@ -1647,16 +1647,14 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    let mut toggle_binding_pairs = vec![
-        ToggleSettingActionPair::new(
-            "app analytics",
-            builder(SettingsAction::PrivacyPageToggle(
-                PrivacyPageAction::ToggleTelemetry,
-            )),
-            context,
-            flags::TELEMETRY_FLAG,
-        ),
-    ];
+    let mut toggle_binding_pairs = vec![ToggleSettingActionPair::new(
+        "app analytics",
+        builder(SettingsAction::PrivacyPageToggle(
+            PrivacyPageAction::ToggleTelemetry,
+        )),
+        context,
+        flags::TELEMETRY_FLAG,
+    )];
 
     toggle_binding_pairs.push(ToggleSettingActionPair::new(
         "secret redaction",

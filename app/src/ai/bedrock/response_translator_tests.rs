@@ -3,6 +3,21 @@ use warp_multi_agent_api::{self as api};
 
 use super::response_translator::*;
 
+fn tool_from_event(event: api::ResponseEvent) -> api::message::tool_call::Tool {
+    let Some(api::response_event::Type::ClientActions(actions)) = event.r#type else {
+        panic!("expected client actions");
+    };
+    let Some(api::client_action::Action::AddMessagesToTask(add_messages)) =
+        &actions.actions[0].action
+    else {
+        panic!("expected AddMessagesToTask");
+    };
+    let Some(api::message::Message::ToolCall(tool_call)) = &add_messages.messages[0].message else {
+        panic!("expected tool call message");
+    };
+    tool_call.tool.clone().expect("expected concrete tool")
+}
+
 #[test]
 fn test_build_stream_init_has_valid_ids() {
     let event = build_stream_init("req-123", "conv-456");
@@ -126,6 +141,76 @@ fn test_build_create_task_has_no_parent() {
             );
         }
     }
+}
+
+#[test]
+fn shell_tool_call_defaults_to_async_and_preserves_controls() {
+    let tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-1",
+        "run_shell_command",
+        r#"{
+            "command": "cargo test",
+            "is_read_only": true,
+            "is_risky": true,
+            "uses_pager": false
+        }"#,
+    ));
+
+    let api::message::tool_call::Tool::RunShellCommand(command) = tool else {
+        panic!("expected run_shell_command");
+    };
+    assert!(command.is_read_only);
+    assert!(command.is_risky);
+    assert!(!command.uses_pager);
+    assert!(matches!(
+        command.wait_until_complete_value,
+        Some(
+            api::message::tool_call::run_shell_command::WaitUntilCompleteValue::WaitUntilComplete(
+                false
+            )
+        )
+    ));
+}
+
+#[test]
+fn long_running_tool_calls_preserve_command_id_and_delay() {
+    let write_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-1",
+        "write_to_long_running_shell_command",
+        r#"{"command_id":"block-123","input":"yes","mode":"line"}"#,
+    ));
+    let api::message::tool_call::Tool::WriteToLongRunningShellCommand(write) = write_tool else {
+        panic!("expected write_to_long_running_shell_command");
+    };
+    assert_eq!(write.command_id, "block-123");
+    assert!(matches!(
+        write.mode.and_then(|mode| mode.mode),
+        Some(api::message::tool_call::write_to_long_running_shell_command::mode::Mode::Line(()))
+    ));
+
+    let read_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-2",
+        "read_shell_command_output",
+        r#"{"command_id":"block-123","wait_seconds":7}"#,
+    ));
+    let api::message::tool_call::Tool::ReadShellCommandOutput(read) = read_tool else {
+        panic!("expected read_shell_command_output");
+    };
+    assert_eq!(read.command_id, "block-123");
+    assert!(matches!(
+        read.delay,
+        Some(
+            api::message::tool_call::read_shell_command_output::Delay::Duration(
+                prost_types::Duration {
+                    seconds: 7,
+                    nanos: 0
+                }
+            )
+        )
+    ));
 }
 
 #[test]

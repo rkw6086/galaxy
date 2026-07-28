@@ -108,8 +108,7 @@ pub trait ErrorExt: RegisteredError + std::error::Error {
     /// engineering team.
     fn is_actionable(&self) -> bool;
 
-    fn report_error(&self) {
-    }
+    fn report_error(&self) {}
 }
 
 #[cfg(test)]

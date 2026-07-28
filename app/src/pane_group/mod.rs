@@ -8066,8 +8066,7 @@ impl View for PaneGroup {
             }
         }
         // Render agent-assisted environment modal at tab level when open.
-        if let Some(_pane_id) = self.pane_with_open_agent_assisted_environment_modal {
-        }
+        if let Some(_pane_id) = self.pane_with_open_agent_assisted_environment_modal {}
 
         stack.finish()
     }

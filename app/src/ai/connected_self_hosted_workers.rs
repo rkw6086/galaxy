@@ -75,7 +75,10 @@ impl ConnectedSelfHostedWorkersModel {
     }
 
     pub fn refresh(&mut self, ctx: &mut ModelContext<Self>) {
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+        if !AuthStateProvider::as_ref(ctx)
+            .get()
+            .has_server_credentials()
+        {
             self.clear_workers(ctx);
             return;
         }

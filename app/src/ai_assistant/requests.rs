@@ -130,7 +130,9 @@ impl Requests {
         };
 
         if cached_request_limit_info.is_none()
-            && AuthStateProvider::as_ref(ctx).get().is_logged_in()
+            && AuthStateProvider::as_ref(ctx)
+                .get()
+                .has_server_credentials()
         {
             let ai_client = requests.ai_client.clone();
             let _ = ctx.spawn(

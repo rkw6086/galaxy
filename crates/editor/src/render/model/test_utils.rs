@@ -318,4 +318,3 @@ pub fn init_logging() {
             .try_init();
     });
 }
-
