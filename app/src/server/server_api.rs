@@ -205,6 +205,29 @@ impl From<serde_json::Error> for AIApiError {
 }
 
 impl AIApiError {
+    /// Turns an upstream provider quota/budget response into a user-facing
+    /// quota error instead of a generic stream failure.
+    pub fn into_quota_limit_if_provider_budget_exhausted(self) -> Self {
+        let AIApiError::Stream { source, .. } = self else {
+            return self;
+        };
+        let message = source.to_string();
+        let lower = message.to_ascii_lowercase();
+        if lower.contains("budget has been exceeded")
+            || lower.contains("rate limit") && lower.contains("429")
+        {
+            return Self::QuotaLimit {
+                user_display_message: Some(
+                    "The AI provider has reached its rate limit or monthly budget. Please try again later or choose another configured model.".to_string(),
+                ),
+            };
+        }
+        Self::Stream {
+            stream_type: "provider",
+            source,
+        }
+    }
+
     /// Converts a reqwest error to an AIApiError, using response headers to distinguish
     /// between different types of 429 errors.
     fn from_response_error(

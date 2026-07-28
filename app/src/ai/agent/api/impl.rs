@@ -155,10 +155,13 @@ pub async fn generate_multi_agent_output(
                 }
                 Err(e) => {
                     log::error!("[openai] Translator error: {e}");
-                    let err = Arc::new(crate::server::server_api::AIApiError::Stream {
-                        stream_type: "openai_chat_completions",
-                        source: anyhow::anyhow!("{e}"),
-                    });
+                    let err = Arc::new(
+                        crate::server::server_api::AIApiError::Stream {
+                            stream_type: "openai_chat_completions",
+                            source: anyhow::anyhow!("{e}"),
+                        }
+                        .into_quota_limit_if_provider_budget_exhausted(),
+                    );
                     let (tx, rx) = async_channel::unbounded();
                     let _ = tx.send(Err(err)).await;
                     Ok(Box::pin(rx))

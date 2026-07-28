@@ -48,6 +48,7 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
         bedrock_progressive_summary: None,
         bedrock_tool_result_archive: Vec::new(),
         bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        global_rules: Vec::new(),
     }
 }
 
