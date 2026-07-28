@@ -121,9 +121,16 @@ impl SettingsWidget for AboutPageWidget {
                 .with_child(version_row.finish())
                 .with_child(
                     ui_builder
-                        .span("Copyright 2026 Samsung Electronics Co., Ltd.")
+                        .span("Open source software released under the MIT License.")
                         .build()
                         .with_margin_top(16.)
+                        .finish(),
+                )
+                .with_child(
+                    ui_builder
+                        .span("Source code and license details are available in the project repository.")
+                        .build()
+                        .with_margin_top(8.)
                         .finish(),
                 )
                 .finish(),
