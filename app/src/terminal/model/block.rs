@@ -67,7 +67,7 @@ use crate::terminal::shell::ShellType;
 use crate::terminal::view::WithinBlockBanner;
 use crate::terminal::{BlockPadding, ShellHost, SizeInfo};
 
-pub const LONG_RUNNING_COMMAND_DURATION_MS: u64 = 50;
+pub const LONG_RUNNING_COMMAND_DURATION_MS: u64 = 3_000;
 pub const LONG_RUNNING_BOTTOM_PADDING_LINES: f32 = 0.2;
 
 /// We don't consider commands that were killed via Ctrl-C (error code 130) or that were killed

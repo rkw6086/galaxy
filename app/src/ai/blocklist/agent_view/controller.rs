@@ -413,6 +413,10 @@ impl AgentViewController {
         self.agent_view_state.is_active()
     }
 
+    pub fn active_conversation_id(&self) -> Option<AIConversationId> {
+        self.agent_view_state.active_conversation_id()
+    }
+
     pub fn is_inline(&self) -> bool {
         self.agent_view_state.is_inline()
     }

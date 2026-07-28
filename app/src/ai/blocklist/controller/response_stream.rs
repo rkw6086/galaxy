@@ -93,6 +93,8 @@ pub struct ResponseStream {
     id: ResponseStreamId,
     params: api::RequestParams,
     retry_count: usize,
+    /// One-time fallback from the profile's thinking model to its coding model.
+    coding_model_fallback_attempted: bool,
     start_time: DateTime<Local>,
     time_to_latest_event: TimeDelta,
     cancellation_tx: Option<oneshot::Sender<()>>,
@@ -254,6 +256,7 @@ impl ResponseStream {
             time_to_latest_event: TimeDelta::seconds(0),
             cancellation_tx: Some(cancellation_tx),
             retry_count: 0,
+            coding_model_fallback_attempted: false,
             original_error: None,
             has_received_client_actions: false,
             ai_identifiers,
@@ -320,7 +323,7 @@ impl ResponseStream {
 
         let request_id = Uuid::new_v4();
         self.current_request_id = Some(request_id);
-        let params = self.params.clone();
+        let mut params = self.params.clone();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
         let server_api = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
         let _ = ctx.spawn(
@@ -332,6 +335,28 @@ impl ResponseStream {
                 me.handle_response_stream_result(request_id, stream, ctx);
             },
         );
+    }
+
+    fn should_fallback_to_coding_model(
+        &self,
+        error: &Arc<crate::server::server_api::AIApiError>,
+    ) -> bool {
+        if self.coding_model_fallback_attempted || self.has_received_client_actions {
+            return false;
+        }
+        let coding_model = self.params.coding_model.as_str();
+        !coding_model.is_empty()
+            && coding_model != self.params.model.as_str()
+            && matches!(
+                error.as_ref(),
+                crate::server::server_api::AIApiError::QuotaLimit { .. }
+            )
+    }
+
+    fn retry_with_coding_model(&mut self, ctx: &mut ModelContext<Self>) {
+        self.coding_model_fallback_attempted = true;
+        self.params.model = self.params.coding_model.clone();
+        self.retry(ctx);
     }
 
     /// Cancels the stream. The conversation_id is preserved in the emitted event for async handling.
@@ -476,6 +501,14 @@ impl ResponseStream {
                 // Store original error if this is the first error
                 if self.retry_count == 0 {
                     self.original_error = Some(format!("{e:?}"));
+                }
+
+                if self.should_fallback_to_coding_model(&e) {
+                    log::warn!(
+                        "Thinking model rate-limited; retrying with the profile coding model"
+                    );
+                    self.retry_with_coding_model(ctx);
+                    return;
                 }
 
                 let is_online = NetworkStatus::as_ref(ctx).is_online();

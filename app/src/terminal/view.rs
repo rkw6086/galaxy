@@ -7482,7 +7482,7 @@ impl TerminalView {
                 drop(model);
 
                 ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
-                    command,
+                    command: command.clone(),
                     session_id,
                     source,
                     should_add_command_to_history: true,
@@ -7498,21 +7498,66 @@ impl TerminalView {
                     });
                 }
 
-                // If the command turns out to be long-running, lock the input in agent mode.
+                // After three seconds, automatically open the inline command-monitoring agent.
+                // Use the same established tag-in path as the manual "Use agent" affordance so
+                // running-command context, the CLI subagent task, and main-conversation history
+                // remain connected through the existing machinery.
                 ctx.spawn(
-                    // Command execution is triggered by a subscriber to the event above, so
-                    // give some buffer to actually determine if its long running.
-                    Timer::after(Duration::from_millis(LONG_RUNNING_COMMAND_DURATION_MS * 2)),
+                    Timer::after(Duration::from_millis(LONG_RUNNING_COMMAND_DURATION_MS)),
                     move |me, _, ctx| {
-                        if me
-                            .model
-                            .lock()
-                            .block_list()
-                            .block_with_id(&block_id)
-                            .is_some_and(|block| block.is_active_and_long_running())
-                        {
-                            me.input.update(ctx, |input, ctx| {
-                                input.set_input_mode_agent(false, ctx);
+                        let is_still_running = {
+                            let model = me.model.lock();
+                            model
+                                .block_list()
+                                .block_with_id(&block_id)
+                                .is_some_and(|block| block.is_active_and_long_running())
+                        };
+                        if !is_still_running {
+                            return;
+                        }
+
+                        me.agent_view_controller.update(ctx, |controller, ctx| {
+                            if !controller.is_active() {
+                                if let Err(error) = controller.try_enter_inline_agent_view(
+                                    None,
+                                    AgentViewEntryOrigin::LongRunningCommand,
+                                    ctx,
+                                ) {
+                                    log::error!(
+                                        "Failed to automatically open long-running command monitor: {error}"
+                                    );
+                                }
+                            }
+                        });
+                        me.tag_in_agent_for_user_long_running_command(ctx);
+
+                        let active_profile = AIExecutionProfilesModel::as_ref(ctx)
+                            .active_profile(Some(me.view_id), ctx);
+                        let profile_name = active_profile.data().name.clone();
+                        let coding_model = active_profile
+                            .data()
+                            .coding_model
+                            .as_ref()
+                            .map(|model| model.as_str())
+                            .unwrap_or("profile default");
+                        log::info!(
+                            "Opening long-running command monitor with selected profile {profile_name:?} (coding model {coding_model})"
+                        );
+
+                        let prompt = format!(
+                            "Monitor this running command and report evidence-based status. Use the currently selected execution profile ({profile_name}) and its configured model choices. Identify concrete success signals, explicit failures, repeated retries, blocked input, lock waits, and suspicious lack of progress. Do not declare success merely because output stops, and do not interrupt or modify the process. For database work, flag a small update that appears stuck and distinguish a likely lock wait or deadlock from legitimate work when possible.\n\nCommand:\n```sh\n{command}\n```"
+                        );
+                        let conversation_id = me
+                            .agent_view_controller
+                            .as_ref(ctx)
+                            .active_conversation_id();
+                        if let Some(conversation_id) = conversation_id {
+                            me.ai_controller.update(ctx, |controller, ctx| {
+                                controller.send_agent_query_in_conversation(
+                                    prompt,
+                                    conversation_id,
+                                    ctx,
+                                );
                             });
                         }
                     },
