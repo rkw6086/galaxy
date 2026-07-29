@@ -5,7 +5,8 @@ use futures::channel::oneshot;
 use parking_lot::FairMutex;
 use warpui::{App, EntityId};
 
-use super::{BlockSelector, ShellCommandExecutor};
+use super::{ActionResult, BlockSelector, ShellCommandExecutor};
+use crate::ai::agent::ShellCommandDelay;
 use crate::terminal::event::{BlockMetadataReceivedEvent, BlockWorkingDirectoryUpdatedEvent};
 use crate::terminal::model::block::{BlockId, BlockMetadata};
 use crate::terminal::model::session::active_session::ActiveSession;
@@ -87,5 +88,89 @@ fn block_working_directory_updated_does_not_drain_finish_senders() {
             0,
             "BlockMetadataReceived should drain the finish senders"
         );
+    });
+}
+
+#[test]
+fn force_refresh_block_reports_and_resolves_matching_poll() {
+    App::test((), |mut app| async move {
+        let terminal_view_id = EntityId::new();
+        let sessions = app.add_model(|_| Sessions::new_for_test());
+        let (_model_events_tx, model_events_rx) = unbounded();
+        let model_event_dispatcher =
+            app.add_model(|ctx| ModelEventDispatcher::new(model_events_rx, sessions.clone(), ctx));
+        let active_session = app.add_model(|ctx| {
+            ActiveSession::new(sessions.clone(), model_event_dispatcher.clone(), ctx)
+        });
+        let terminal_model = Arc::new(FairMutex::new(TerminalModel::mock(None, None)));
+        let block_id = terminal_model.lock().active_block_id().clone();
+        let executor = app.add_model(|ctx| {
+            ShellCommandExecutor::new(
+                active_session,
+                terminal_model,
+                &model_event_dispatcher,
+                terminal_view_id,
+                ctx,
+            )
+        });
+
+        let (tx, mut rx) = oneshot::channel();
+        executor.update(&mut app, |executor, _| {
+            executor
+                .force_refresh_senders
+                .insert(BlockSelector::Id(block_id.clone()), tx);
+            assert!(executor.force_refresh_block(&block_id));
+            assert!(!executor.force_refresh_block(&block_id));
+        });
+
+        assert!(matches!(rx.try_recv(), Ok(Some(()))));
+    });
+}
+
+#[test]
+fn force_refresh_wakes_on_completion_poll_with_preempted_snapshot() {
+    App::test((), |mut app| async move {
+        let terminal_view_id = EntityId::new();
+        let sessions = app.add_model(|_| Sessions::new_for_test());
+        let (_model_events_tx, model_events_rx) = unbounded();
+        let model_event_dispatcher =
+            app.add_model(|ctx| ModelEventDispatcher::new(model_events_rx, sessions.clone(), ctx));
+        let active_session = app.add_model(|ctx| {
+            ActiveSession::new(sessions.clone(), model_event_dispatcher.clone(), ctx)
+        });
+        let terminal_model = Arc::new(FairMutex::new(TerminalModel::mock(None, None)));
+        terminal_model
+            .lock()
+            .simulate_long_running_block("sleep 120", "still running");
+        let block_id = terminal_model.lock().active_block_id().clone();
+        let executor = app.add_model(|ctx| {
+            ShellCommandExecutor::new(
+                active_session,
+                terminal_model,
+                &model_event_dispatcher,
+                terminal_view_id,
+                ctx,
+            )
+        });
+
+        let result_future = executor.update(&mut app, |executor, _| {
+            executor.action_result_future(
+                BlockSelector::Id(block_id.clone()),
+                Some(ShellCommandDelay::OnCompletion),
+            )
+        });
+        assert!(executor.update(&mut app, |executor, _| {
+            executor.force_refresh_block(&block_id)
+        }));
+        let result = result_future.await;
+
+        assert!(matches!(
+            result,
+            ActionResult::LongRunningCommandSnapshot {
+                block_id: result_block_id,
+                is_preempted: true,
+                ..
+            } if result_block_id == block_id
+        ));
     });
 }

@@ -38,9 +38,9 @@ use crate::{send_telemetry_from_ctx, TelemetryEvent};
 pub struct ShellCommandExecutor {
     active_session: ModelHandle<ActiveSession>,
     block_finished_senders: HashMap<BlockSelector, oneshot::Sender<()>>,
-    /// Senders used by the `Check now` affordance to force a long-running shell command's
-    /// pending poll future to resolve immediately with a fresh snapshot, bypassing the
-    /// agent-set timeout.
+    /// Senders used by `Check now` and the automatic monitor watchdog to force a long-running
+    /// shell command's pending poll future to resolve immediately with a fresh snapshot,
+    /// bypassing the agent-set timeout.
     force_refresh_senders: HashMap<BlockSelector, oneshot::Sender<()>>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
     terminal_view_id: EntityId,
@@ -542,8 +542,8 @@ impl ShellCommandExecutor {
         self.block_finished_senders
             .insert(block_selector.clone(), block_metadata_received_tx);
 
-        // Create a channel so the `Check now` affordance can short-circuit the timeout
-        // and deliver the agent a fresh snapshot immediately.
+        // Create a channel so `Check now` or the automatic monitor watchdog can short-circuit
+        // the timeout and deliver the agent a fresh snapshot immediately.
         let (force_refresh_tx, force_refresh_rx) = oneshot::channel();
         self.force_refresh_senders
             .insert(block_selector.clone(), force_refresh_tx);
@@ -555,9 +555,9 @@ impl ShellCommandExecutor {
         enum WakeReason {
             BlockFinished,
             Timeout,
-            /// User clicked `Check now` in the warping indicator, short-circuiting  
-            /// the agent-set poll timer. Treated as a preemption so the server does  
-            /// not interpret the early snapshot as a completion.  
+            /// The pending poll was explicitly refreshed before its agent-set timer elapsed.
+            /// Treated as a preemption so the provider does not interpret the early snapshot as
+            /// a completion.
             ForceRefresh,
         }
 
@@ -589,9 +589,8 @@ impl ShellCommandExecutor {
                     Err(_) => return ActionResult::Cancelled,
                 },
                 val = force_refresh_rx => match val {
-                    // User asked the agent to check now; fall through to the snapshot
-                    // code path below. Treated as a preemption (snapshot arrives before
-                    // the agent's own timer would have fired).
+                    // An explicit refresh was requested; fall through to the snapshot code path.
+                    // Treat it as a preemption because it arrived before the agent's timer.
                     Ok(_) => WakeReason::ForceRefresh,
                     // Sender was dropped (e.g. because the executor is being torn down).
                     Err(_) => return ActionResult::Cancelled,
@@ -673,10 +672,10 @@ impl ShellCommandExecutor {
     /// Force any in-flight poll for the given long-running command block to resolve
     /// immediately with a fresh snapshot, bypassing the agent-set timeout.
     ///
-    /// Called by the `Check now` affordance in the warping indicator. No-ops if there
-    /// is no matching in-flight poll (e.g. because the block already finished or the
-    /// agent has transferred control to the user).
-    pub fn force_refresh_block(&mut self, block_id: &BlockId) {
+    /// Called by the `Check now` affordance and automatic monitor watchdog. No-ops if there is no
+    /// matching in-flight poll (e.g. because the block already finished or the agent transferred
+    /// control to the user). Returns whether a matching poll was successfully refreshed.
+    pub fn force_refresh_block(&mut self, block_id: &BlockId) -> bool {
         let terminal_model = self.terminal_model.lock();
         // Find a sender whose selector resolves to this block. In practice there is at
         // most one: a given block can have at most one in-flight `action_result_future`
@@ -694,9 +693,10 @@ impl ShellCommandExecutor {
 
         if let Some(selector) = matching_selector {
             if let Some(sender) = self.force_refresh_senders.remove(&selector) {
-                let _ = sender.send(());
+                return sender.send(()).is_ok();
             }
         }
+        false
     }
 
     pub(super) fn preprocess_action(

@@ -104,7 +104,6 @@ impl SlashCommandRequest {
             is_invoke_skill,
             controller.context_model.as_ref(ctx),
             controller.active_session.as_ref(ctx),
-            conversation_id,
             image_context,
             ctx,
         );

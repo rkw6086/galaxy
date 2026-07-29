@@ -105,10 +105,10 @@ pub struct GlobalOptions {
     pub output_format: OutputFormat,
 }
 
-/// Normal argument parser for the shared Warp executable across all channels.
+/// Normal argument parser for the shared Galaxy executable across all channels.
 ///
 /// Oz commands are subcommands of this parser, so invoking an `oz` symlink does
-/// not require a mode flag. Warp Control uses its separate [`local_control::ControlArgs`]
+/// not require a mode flag. Galaxy Control uses its separate [`local_control::ControlArgs`]
 /// parser, selected before this parser sees the arguments.
 #[derive(Debug, Default, Parser, Clone)]
 #[command(
@@ -505,8 +505,8 @@ pub enum WorkerCommand {
     },
 }
 
-/// CLI-related subcommands. The command-line interface to Warp isn't a full SDK (e.g. with language bindings),
-/// but it allows scripting some Warp functionality.
+/// CLI-related subcommands. The Galaxy command-line interface isn't a full SDK (e.g. with language bindings),
+/// but it allows scripting some Galaxy functionality.
 #[derive(Debug, Clone, Subcommand)]
 pub enum CliCommand {
     /// Interact with Oz.

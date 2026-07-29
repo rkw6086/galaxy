@@ -18,3 +18,21 @@ fn local_child_harnesses_are_local_only_by_default() {
     assert!(!DEBUG_FLAGS.contains(&FeatureFlag::LocalClaudeCodexChildHarnesses));
     assert!(!DOGFOOD_FLAGS.contains(&FeatureFlag::LocalClaudeCodexChildHarnesses));
 }
+
+#[test]
+fn dogfood_flags_do_not_enable_upstream_hosted_services() {
+    for flag in [
+        FeatureFlag::CreatingSharedSessions,
+        FeatureFlag::AgentModeAnalytics,
+        FeatureFlag::ProviderCommand,
+        FeatureFlag::SummarizationViaMessageReplacement,
+        FeatureFlag::GeminiNotifications,
+        FeatureFlag::OzLaunchModal,
+        FeatureFlag::WaitForEventsParentRegistration,
+    ] {
+        assert!(
+            !DOGFOOD_FLAGS.contains(&flag),
+            "{flag:?} depends on upstream-hosted or upstream-branded infrastructure"
+        );
+    }
+}

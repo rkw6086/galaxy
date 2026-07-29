@@ -27,6 +27,7 @@ fn code_tools() -> Vec<ToolDefinition> {
         file_glob(),
         search_codebase(),
         write_to_long_running_shell_command(),
+        interrupt_shell_command(),
         read_shell_command_output(),
         read_mcp_resource(),
         read_documents(),
@@ -180,13 +181,29 @@ fn search_codebase() -> ToolDefinition {
 fn write_to_long_running_shell_command() -> ToolDefinition {
     ToolDefinition {
         name: "write_to_long_running_shell_command".to_string(),
-        description: "Send input (stdin) to a currently running shell command. Use this to interact with commands that are waiting for input, like interactive prompts, REPLs, or commands that accept piped input.".to_string(),
+        description: "Send input (stdin) to a currently running shell command. Use this to interact with commands that are waiting for input, like interactive prompts or REPLs. Do not use printable escape spellings to interrupt a command; use interrupt_shell_command.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "input": { "type": "string", "description": "Text to send as stdin to the running command" }
+                "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" },
+                "input": { "type": "string", "description": "Text to send as stdin to the running command" },
+                "mode": { "type": "string", "enum": ["raw", "line", "block"], "default": "raw" }
             },
-            "required": ["input"]
+            "required": ["command_id", "input"]
+        }),
+    }
+}
+
+fn interrupt_shell_command() -> ToolDefinition {
+    ToolDefinition {
+        name: "interrupt_shell_command".to_string(),
+        description: "Interrupt a currently running command with a real terminal Ctrl+C. Use only when the user asks to stop/cancel/interrupt, or when a user-specified stop condition is met.".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" }
+            },
+            "required": ["command_id"]
         }),
     }
 }
@@ -194,11 +211,14 @@ fn write_to_long_running_shell_command() -> ToolDefinition {
 fn read_shell_command_output() -> ToolDefinition {
     ToolDefinition {
         name: "read_shell_command_output".to_string(),
-        description: "Read the latest output from a previously started long-running shell command. Use to check progress or get results from commands that are still running.".to_string(),
+        description: "Read the latest output from a previously started long-running shell command. Poll for no more than 10 seconds at a time so steering and stop conditions remain responsive.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
-            "properties": {},
-            "required": []
+            "properties": {
+                "command_id": { "type": "string", "description": "Command ID returned by a long-running command result" },
+                "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 10, "default": 2 }
+            },
+            "required": ["command_id"]
         }),
     }
 }
@@ -311,15 +331,18 @@ fn ask_user_question() -> ToolDefinition {
 fn read_skill() -> ToolDefinition {
     ToolDefinition {
         name: "read_skill".to_string(),
-        description:
-            "Read a skill definition to understand available capabilities and how to use them."
-                .to_string(),
+        description: "Read a locally available skill definition. Use the exact skill reference and reference type advertised in the Available Skills system-prompt section.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "skill": { "type": "string", "description": "Skill identifier to read" }
+                "skill": { "type": "string", "description": "Exact skill path or bundled skill ID from Available Skills" },
+                "reference_type": {
+                    "type": "string",
+                    "enum": ["path", "bundled"],
+                    "description": "The exact reference type shown for this skill in Available Skills"
+                }
             },
-            "required": ["skill"]
+            "required": ["skill", "reference_type"]
         }),
     }
 }

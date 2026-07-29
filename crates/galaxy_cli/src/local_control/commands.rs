@@ -1,4 +1,4 @@
-//! Implementations for user-facing `warpctrl` command groups.
+//! Implementations for user-facing `galaxyctrl` command groups.
 use galaxy_core::channel::ChannelState;
 use local_control::discovery::InstanceRecord;
 use local_control::protocol::{
@@ -55,28 +55,6 @@ pub(super) fn run_surface_command(
         SurfaceCommand::Keybindings(command) => {
             run_surface_open_command(command, ActionKind::SurfaceKeybindingsOpen, output_format)
         }
-        SurfaceCommand::WarpDrive(command) => match command {
-            SurfaceOpenToggleCommand::Open(args) => run_action_with_params(
-                args,
-                ActionKind::SurfaceWarpDriveOpen,
-                EmptyParams {},
-                output_format,
-            ),
-            SurfaceOpenToggleCommand::Toggle(args) => run_action_with_params(
-                args,
-                ActionKind::SurfaceWarpDriveToggle,
-                EmptyParams {},
-                output_format,
-            ),
-        },
-        SurfaceCommand::ResourceCenter(command) => run_surface_toggle_command(
-            command,
-            ActionKind::SurfaceResourceCenterToggle,
-            output_format,
-        ),
-        SurfaceCommand::AiAssistant(command) => {
-            run_surface_toggle_command(command, ActionKind::SurfaceAiAssistantToggle, output_format)
-        }
         SurfaceCommand::CodeReview(command) => match command {
             SurfaceOpenToggleCommand::Open(args) => run_action_with_params(
                 args,
@@ -99,14 +77,6 @@ pub(super) fn run_surface_command(
         SurfaceCommand::GlobalSearch(command) => {
             run_surface_open_command(command, ActionKind::SurfaceGlobalSearchOpen, output_format)
         }
-        SurfaceCommand::ConversationList(command) => run_surface_open_command(
-            command,
-            ActionKind::SurfaceConversationListOpen,
-            output_format,
-        ),
-        SurfaceCommand::LeftPanel(command) => {
-            run_surface_toggle_command(command, ActionKind::SurfaceLeftPanelToggle, output_format)
-        }
         SurfaceCommand::RightPanel(command) => {
             run_surface_toggle_command(command, ActionKind::SurfaceRightPanelToggle, output_format)
         }
@@ -124,23 +94,18 @@ pub(super) fn run_surface_command(
                 output_format,
             ),
         },
-        SurfaceCommand::AgentManagement(command) => run_surface_open_command(
-            command,
-            ActionKind::SurfaceAgentManagementOpen,
-            output_format,
-        ),
     }
 }
 
 fn render_human_readable(action: ActionKind, data: &serde_json::Value) -> String {
     match action {
         ActionKind::AppPing => format!(
-            "Warp instance {} is reachable (protocol version {})",
+            "Galaxy instance {} is reachable (protocol version {})",
             value_or_unknown(data, "instance_id"),
             value_or_unknown(data, "protocol_version")
         ),
         ActionKind::AppVersion => format!(
-            "Warp instance {}\nchannel: {}\napp_id: {}\nprotocol_version: {}",
+            "Galaxy instance {}\nchannel: {}\napp_id: {}\nprotocol_version: {}",
             value_or_unknown(data, "instance_id"),
             value_or_unknown(data, "channel"),
             value_or_unknown(data, "app_id"),
@@ -191,7 +156,9 @@ pub(super) fn run_instance_command(
 ) -> Result<(), ControlError> {
     match command {
         InstanceCommand::List => render_instance_list(
-            local_control::discovery::list_instances(&ChannelState::channel().to_string()),
+            local_control::discovery::list_instances(
+                ChannelState::channel().local_control_channel_name(),
+            ),
             output_format,
         ),
         InstanceCommand::Inspect(args) => run_action_with_params(
@@ -203,7 +170,7 @@ pub(super) fn run_instance_command(
     }
 }
 
-/// JSON payload for `warpctrl instance list`.
+/// JSON payload for `galaxyctrl instance list`.
 #[derive(Serialize)]
 pub(super) struct InstanceListOutput {
     instances: Vec<InstanceSummary>,
@@ -249,7 +216,7 @@ fn render_instance_list(
         OutputFormat::Ndjson => write_json_line(&output),
         OutputFormat::Pretty | OutputFormat::Text => {
             if output.instances.is_empty() {
-                println!("No running Warp instances with local control were found.");
+                println!("No running Galaxy instances with local control were found.");
                 return Ok(());
             }
             for instance in &output.instances {
@@ -775,7 +742,9 @@ fn run_action_with_params<T: Serialize>(
     output_format: OutputFormat,
 ) -> Result<(), ControlError> {
     let selector = instance_selector(&args);
-    let records = local_control::discovery::list_instances(&ChannelState::channel().to_string());
+    let records = local_control::discovery::list_instances(
+        ChannelState::channel().local_control_channel_name(),
+    );
     let target = target_selector(&args)?;
     let instance = select_instance(&records, &selector)?;
     let mut request = RequestEnvelope::new(Action::with_params(action, params)?);

@@ -10,21 +10,20 @@ use super::{ConvertToAPITypeError, RequestParams, ResponseStream};
 use crate::ai::agent::redaction;
 use crate::ai::openai::translator as openai_translator;
 use crate::ai::provider::ProviderConfig;
-use crate::server::server_api::ai::AIClient;
 use crate::server::server_api::AIApiError;
 use crate::terminal::model::session::SessionType;
 
 pub async fn generate_multi_agent_output(
     provider_config: ProviderConfig,
-    server_api: Arc<dyn AIClient>,
     mut params: RequestParams,
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
-    let supported_tools = params
-        .supported_tools_override
-        .take()
+    let supported_tools_override = params.supported_tools_override.take();
+    let supported_tools = supported_tools_override
+        .clone()
         .unwrap_or_else(|| get_supported_tools(&params));
-    let supported_cli_agent_tools = get_supported_cli_agent_tools(&params);
+    let supported_cli_agent_tools =
+        supported_tools_override.unwrap_or_else(|| get_supported_cli_agent_tools(&params));
     let mut logging_metadata = HashMap::new();
     if let Some(metadata) = params.metadata {
         logging_metadata.insert(
@@ -83,7 +82,10 @@ pub async fn generate_multi_agent_output(
             supports_todos_ui: true,
             supports_linked_code_blocks: FeatureFlag::LinkedCodeBlocks.is_enabled(),
             supports_started_child_task_message: true,
-            supports_suggest_prompt: true,
+            // Galaxy's direct providers only receive tools with local schemas and
+            // executors. Hosted-only suggestion/orchestration capability bits must
+            // remain false so models do not plan around unavailable Warp services.
+            supports_suggest_prompt: false,
             supports_read_image_files: FeatureFlag::ReadImageFiles.is_enabled(),
             supports_reasoning_message: true,
             api_keys: params.api_keys,
@@ -99,7 +101,7 @@ pub async fn generate_multi_agent_output(
                 FeatureFlag::SummarizationViaMessageReplacement.is_enabled(),
             supports_bundled_skills: FeatureFlag::BundledSkills.is_enabled(),
             supports_research_agent: params.research_agent_enabled,
-            supports_orchestration_v2: supports_orchestration_v2(params.orchestration_enabled),
+            supports_orchestration_v2: false,
             supports_background_computer_use: FeatureFlag::BackgroundComputerUse.is_enabled()
                 && computer_use::background_supported(),
             custom_model_providers: params.custom_model_providers,
@@ -212,9 +214,6 @@ pub async fn generate_multi_agent_output(
     }
 }
 
-fn supports_orchestration_v2(orchestration_enabled: bool) -> bool {
-    orchestration_enabled
-}
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
     let mut supported_tools = vec![
         api::ToolType::Grep,
@@ -222,17 +221,13 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::FileGlobV2,
         api::ToolType::ReadMcpResource,
         api::ToolType::CallMcpTool,
-        api::ToolType::InitProject,
-        api::ToolType::OpenCodeReview,
         api::ToolType::RunShellCommand,
-        api::ToolType::SuggestNewConversation,
         api::ToolType::Subagent,
         api::ToolType::WriteToLongRunningShellCommand,
         api::ToolType::ReadShellCommandOutput,
         api::ToolType::ReadDocuments,
         api::ToolType::CreateDocuments,
         api::ToolType::EditDocuments,
-        api::ToolType::SuggestPrompt,
     ];
 
     if FeatureFlag::ConversationsAsContext.is_enabled() {
@@ -246,10 +241,6 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
                 api::ToolType::ApplyFileDiffs,
                 api::ToolType::SearchCodebase,
             ]);
-
-            if FeatureFlag::ArtifactCommand.is_enabled() {
-                supported_tools.push(api::ToolType::UploadFileArtifact);
-            }
         }
         Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
             // Remote session with a known host — enable tools that route
@@ -264,24 +255,8 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         Some(SessionType::WarpifiedRemote { host_id: None }) => {}
     }
 
-    if FeatureFlag::AgentModeComputerUse.is_enabled() && params.computer_use_enabled {
-        supported_tools.extend(&[api::ToolType::UseComputer]);
-        supported_tools.extend(&[api::ToolType::RequestComputerUse])
-    }
-
-    if FeatureFlag::PRCommentsSlashCommand.is_enabled() {
-        supported_tools.push(api::ToolType::InsertReviewComments);
-    }
-
     if FeatureFlag::ListSkills.is_enabled() {
         supported_tools.push(api::ToolType::ReadSkill);
-    }
-
-    if params.orchestration_enabled {
-        supported_tools.extend([api::ToolType::RunAgents, api::ToolType::SendMessageToAgent]);
-        // Declare client-handled wait_for_events so the server doesn't
-        // fall back to the legacy server-handled form.
-        supported_tools.push(api::ToolType::WaitForEvents);
     }
 
     if FeatureFlag::AskUserQuestion.is_enabled() && params.ask_user_question_enabled {

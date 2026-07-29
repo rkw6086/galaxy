@@ -1206,6 +1206,19 @@ impl BlocklistAIHistoryModel {
         Ok(conversation.create_optimistic_cli_subagent_task(&block_id, terminal_surface_id, ctx))
     }
 
+    pub fn deactivate_cli_subagent_task_for_conversation(
+        &mut self,
+        block_id: &BlockId,
+        conversation_id: AIConversationId,
+    ) -> Result<(), UpdateHistoryError> {
+        let conversation = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?;
+        conversation.deactivate_optimistic_cli_subagent_task(block_id);
+        Ok(())
+    }
+
     pub fn update_conversation_status(
         &mut self,
         terminal_surface_id: EntityId,

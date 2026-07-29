@@ -22,7 +22,7 @@ use crate::settings::user_preferences_toml_file_path;
 pub enum BundledSkillActivation {
     /// Always active.
     Always,
-    /// Active only when a specific Warp feature is enabled.
+    /// Active only when a specific Galaxy feature is enabled.
     RequiresFeature(FeatureFlag),
     /// Active only when a specific MCP server is running.
     RequiresMcp(McpIntegration),
@@ -170,14 +170,14 @@ struct BundledSkillDefinition {
     icon: Icon,
 }
 
-/// Skills bundled with Warp for a single host.
+/// Skills bundled with Galaxy for a single host.
 #[derive(Debug, Default)]
 pub struct BundledSkill {
     definitions: HashMap<String, BundledSkillDefinition>,
 }
 
 impl BundledSkill {
-    /// Detect all skill definitions bundled with Warp for the local host.
+    /// Detect all skill definitions bundled with Galaxy for the local host.
     pub async fn detect() -> Self {
         let Some(resources_dir) = galaxy_core::paths::bundled_resources_dir() else {
             return Self::default();
@@ -336,7 +336,7 @@ impl BundledSkill {
     }
 }
 
-/// Load skill definitions bundled with Warp.
+/// Load skill definitions bundled with Galaxy.
 async fn load_bundled_skill_definitions(
     resources_dir: &Path,
 ) -> HashMap<String, BundledSkillDefinition> {
@@ -439,11 +439,8 @@ pub(crate) async fn read_bundled_skills(
 /// Builds the context map for bundled skill variable substitution.
 ///
 /// Supported variables:
-/// - `{{warp_server_url}}` - The server root URL (e.g., `https://api.warp.dev`)
-/// - `{{warp_cli_binary_name}}` - The CLI binary name (e.g., `warp` or `warp-cli`)
-/// - `{{warpctrl_binary_name}}` - The channel-specific Warp Control command name
-/// - `{{warpctrl_wrapper_path}}` - Path to the bundled Warp Control wrapper
-/// - `{{warp_url_scheme}}` - The URL scheme (e.g., `warp`, `warpdev`, `warppreview`)
+/// - `{{galaxyctrl_binary_name}}` - The channel-specific Galaxy Control command name
+/// - `{{galaxyctrl_wrapper_path}}` - Path to the bundled Galaxy Control wrapper
 /// - `{{settings_schema_path}}` - Path to the bundled JSON settings schema
 /// - `{{skill_dir}}` - Path to the bundled skill's directory
 /// - `{{settings_file_path}}` - Path to the user's settings TOML file
@@ -454,28 +451,16 @@ pub(crate) fn build_bundled_skill_context(
 ) -> HashMap<String, String> {
     [
         (
-            "warp_server_url".to_owned(),
-            ChannelState::server_root_url().into_owned(),
+            "galaxyctrl_binary_name".to_owned(),
+            ChannelState::channel().galaxyctrl_command_name().to_owned(),
         ),
         (
-            "warp_cli_binary_name".to_owned(),
-            ChannelState::channel().cli_command_name().to_owned(),
-        ),
-        (
-            "warpctrl_binary_name".to_owned(),
-            ChannelState::channel().warpctrl_command_name().to_owned(),
-        ),
-        (
-            "warpctrl_wrapper_path".to_owned(),
+            "galaxyctrl_wrapper_path".to_owned(),
             resources_dir
                 .join("bin")
-                .join(ChannelState::channel().warpctrl_command_name())
+                .join(ChannelState::channel().galaxyctrl_command_name())
                 .display()
                 .to_string(),
-        ),
-        (
-            "warp_url_scheme".to_owned(),
-            ChannelState::url_scheme().to_owned(),
         ),
         (
             "settings_file_path".to_owned(),
@@ -500,11 +485,11 @@ pub(crate) fn build_bundled_skill_context(
 
 /// Returns the icon for a bundled skill, given its directory-based ID.
 /// Skills with a known brand (e.g. `pr-comments` → GitHub) get a
-/// branded icon; everything else falls back to the Warp logo.
+/// branded icon; everything else falls back to the Galaxy logo.
 pub(crate) fn icon_for_bundled_skill(skill_id: &str) -> Icon {
     match skill_id {
         "pr-comments" => Icon::Github,
-        _ => Icon::WarpLogoLight,
+        _ => Icon::GalaxyLogo,
     }
 }
 
@@ -520,7 +505,7 @@ pub(crate) fn activation_for_bundled_skill(
         "modify-settings" => {
             BundledSkillActivation::RequiresFile(resources_dir.join("settings_schema.json"))
         }
-        "warpctrl" => BundledSkillActivation::RequiresFeature(FeatureFlag::WarpControlCli),
+        "galaxyctrl" => BundledSkillActivation::RequiresFeature(FeatureFlag::GalaxyControlCli),
         _ => BundledSkillActivation::Always,
     }
 }

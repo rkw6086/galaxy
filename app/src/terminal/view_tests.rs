@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -19,7 +19,8 @@ use super::*;
 use crate::ai::agent::conversation::{AIConversation, ConversationStatus};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
+    AIAgentActionId, AIAgentActionResult, AIAgentActionResultType, AIAgentExchange,
+    AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, RequestCommandOutputResult,
     UserQueryMode,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
@@ -394,6 +395,94 @@ fn set_active_block_agent_driving(view: &mut TerminalView, conversation_id: AICo
         .block_list_mut()
         .active_block_mut()
         .set_agent_interaction_mode_for_requested_command(action_id, None, conversation_id);
+}
+
+#[test]
+fn automatic_monitor_delay_is_separate_from_long_running_classification() {
+    assert_eq!(COMMAND_AUTO_MONITOR_DELAY, Duration::from_secs(3));
+    assert_eq!(LONG_RUNNING_COMMAND_DURATION_MS, 50);
+    assert!(Duration::from_millis(LONG_RUNNING_COMMAND_DURATION_MS) < COMMAND_AUTO_MONITOR_DELAY);
+}
+
+#[test]
+fn cli_subagent_exchange_creates_right_side_conversation_view() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        let (block_id, conversation_id, task_id) = terminal.update(&mut app, |view, ctx| {
+            bootstrap_with_long_running_block(view);
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(view.view_id, false, false, false, ctx)
+                });
+            set_active_block_agent_driving(view, conversation_id);
+            let block_id = view.model.lock().active_block_id().clone();
+
+            let task_id = BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history
+                    .create_cli_subagent_task_for_conversation(
+                        block_id.clone(),
+                        conversation_id,
+                        view.view_id,
+                        ctx,
+                    )
+                    .expect("CLI monitor task should be created")
+            });
+
+            (block_id, conversation_id, task_id)
+        });
+
+        assert!(
+            !terminal.read(&app, |view, _| view
+                .cli_subagent_views
+                .contains_key(&block_id)),
+            "a task without an exchange must not construct a conversation view"
+        );
+
+        terminal.update(&mut app, |view, ctx| {
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history
+                    .conversation_mut(&conversation_id)
+                    .expect("conversation should exist")
+                    .append_task_exchange_for_test(
+                        &task_id,
+                        exchange_with_inputs(vec![AIAgentInput::ActionResult {
+                            result: AIAgentActionResult {
+                                id: AIAgentActionId::from("request-command-output".to_string()),
+                                task_id: task_id.clone(),
+                                result: AIAgentActionResultType::RequestCommandOutput(
+                                    RequestCommandOutputResult::LongRunningCommandSnapshot {
+                                        block_id: block_id.clone(),
+                                        command: "long-command".to_string(),
+                                        grid_contents: "output".to_string(),
+                                        cursor: String::new(),
+                                        is_alt_screen_active: false,
+                                    },
+                                ),
+                            },
+                            context: Default::default(),
+                        }]),
+                        view.view_id,
+                        ctx,
+                    )
+                    .expect("CLI monitor exchange should be appended");
+            });
+        });
+
+        assert_eventually!(
+            terminal.read(&app, |view, _| {
+                view.cli_subagent_views.contains_key(&block_id)
+                    && view
+                        .model
+                        .lock()
+                        .block_list()
+                        .block_with_id(&block_id)
+                        .is_some_and(|block| block.is_agent_monitoring())
+            }),
+            "CLI monitor exchange should construct the right-side conversation view"
+        );
+    });
 }
 
 #[test]

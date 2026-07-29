@@ -211,6 +211,143 @@ fn long_running_tool_calls_preserve_command_id_and_delay() {
             )
         )
     ));
+
+    let bounded_read_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-2b",
+        "read_shell_command_output",
+        r#"{"command_id":"block-123","wait_seconds":120}"#,
+    ));
+    let api::message::tool_call::Tool::ReadShellCommandOutput(bounded_read) = bounded_read_tool
+    else {
+        panic!("expected bounded read_shell_command_output");
+    };
+    assert!(matches!(
+        bounded_read.delay,
+        Some(
+            api::message::tool_call::read_shell_command_output::Delay::Duration(
+                prost_types::Duration {
+                    seconds: 10,
+                    nanos: 0
+                }
+            )
+        )
+    ));
+
+    let interrupt_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-3",
+        "interrupt_shell_command",
+        r#"{"command_id":"block-123"}"#,
+    ));
+    let api::message::tool_call::Tool::WriteToLongRunningShellCommand(interrupt) = interrupt_tool
+    else {
+        panic!("expected interrupt_shell_command to use the write-to-command transport");
+    };
+    assert_eq!(interrupt.command_id, "block-123");
+    assert_eq!(
+        interrupt.input,
+        vec![galaxy_terminal::model::escape_sequences::C0::ETX]
+    );
+    assert!(matches!(
+        interrupt.mode.and_then(|mode| mode.mode),
+        Some(api::message::tool_call::write_to_long_running_shell_command::mode::Mode::Raw(()))
+    ));
+}
+
+#[test]
+fn read_skill_tool_call_preserves_bundled_reference_type() {
+    let tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-1",
+        "read_skill",
+        r#"{"skill":"galaxyctrl","reference_type":"bundled"}"#,
+    ));
+    let api::message::tool_call::Tool::ReadSkill(read_skill) = tool else {
+        panic!("expected read_skill");
+    };
+    assert!(matches!(
+        read_skill.skill_reference,
+        Some(
+            api::message::tool_call::read_skill::SkillReference::BundledSkillId(ref id)
+        ) if id == "galaxyctrl"
+    ));
+}
+
+#[test]
+fn read_skill_tool_call_preserves_path_and_legacy_inputs() {
+    for input in [
+        r#"{"skill":"/repo/.agents/skills/deploy/SKILL.md","reference_type":"path"}"#,
+        r#"{"skill":"/repo/.agents/skills/deploy/SKILL.md"}"#,
+    ] {
+        let tool = tool_from_event(build_tool_call_message(
+            "task-1",
+            "tool-1",
+            "read_skill",
+            input,
+        ));
+        let api::message::tool_call::Tool::ReadSkill(read_skill) = tool else {
+            panic!("expected read_skill");
+        };
+        assert!(matches!(
+            read_skill.skill_reference,
+            Some(
+                api::message::tool_call::read_skill::SkillReference::SkillPath(ref path)
+            ) if path == "/repo/.agents/skills/deploy/SKILL.md"
+        ));
+    }
+}
+
+#[test]
+fn development_tool_calls_preserve_focused_reads_file_lifecycle_and_search_filters() {
+    let read_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-read",
+        "read_files",
+        r#"{"files":["/repo/Cargo.toml",{"path":"/repo/src/lib.rs","line_ranges":[{"start":10,"end":25},{"start":0,"end":2}]}]}"#,
+    ));
+    let api::message::tool_call::Tool::ReadFiles(read_files) = read_tool else {
+        panic!("expected read_files");
+    };
+    assert_eq!(read_files.files.len(), 2);
+    assert_eq!(read_files.files[0].name, "/repo/Cargo.toml");
+    assert!(read_files.files[0].line_ranges.is_empty());
+    assert_eq!(read_files.files[1].name, "/repo/src/lib.rs");
+    assert_eq!(
+        read_files.files[1].line_ranges,
+        vec![api::FileContentLineRange { start: 10, end: 25 }]
+    );
+
+    let edit_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-edit",
+        "apply_file_diffs",
+        r#"{
+            "summary":"Update implementation",
+            "diffs":[{"file_path":"/repo/src/lib.rs","search":"old","replace":"new"}],
+            "new_files":[{"file_path":"/repo/src/new.rs","content":"pub fn new() {}"}],
+            "deleted_files":["/repo/src/obsolete.rs"]
+        }"#,
+    ));
+    let api::message::tool_call::Tool::ApplyFileDiffs(edits) = edit_tool else {
+        panic!("expected apply_file_diffs");
+    };
+    assert_eq!(edits.diffs.len(), 1);
+    assert_eq!(edits.new_files[0].file_path, "/repo/src/new.rs");
+    assert_eq!(edits.new_files[0].content, "pub fn new() {}");
+    assert_eq!(edits.deleted_files[0].file_path, "/repo/src/obsolete.rs");
+
+    let search_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-search",
+        "search_codebase",
+        r#"{"query":"provider routing","path":"/repo","path_filters":["app/src/ai","crates/ai"]}"#,
+    ));
+    let api::message::tool_call::Tool::SearchCodebase(search) = search_tool else {
+        panic!("expected search_codebase");
+    };
+    assert_eq!(search.codebase_path, "/repo");
+    assert_eq!(search.path_filters, vec!["app/src/ai", "crates/ai"]);
 }
 
 #[test]
@@ -324,4 +461,12 @@ fn test_cost_zero_for_zero_tokens() {
         _ => panic!("Expected Finished"),
     };
     assert_eq!(cost, 0.0);
+}
+
+#[test]
+fn direct_provider_known_tools_exclude_hosted_only_tools() {
+    assert!(!is_known_tool("send_message_to_agent"));
+    assert!(!is_known_tool("suggest_next_prompt"));
+    assert!(is_known_tool("recall_tool_history"));
+    assert!(is_known_tool("interrupt_shell_command"));
 }

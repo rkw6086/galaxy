@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use aws_sdk_bedrockruntime::types::{
-    CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole,
-    InferenceConfiguration, Message as BedrockMessage, SystemContentBlock, Tool, ToolConfiguration,
-    ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification,
-    ToolUseBlock,
+    CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole, ImageBlock,
+    ImageFormat, ImageSource, InferenceConfiguration, Message as BedrockMessage,
+    SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema, ToolResultBlock,
+    ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
 };
-use aws_smithy_types::Document;
+use aws_smithy_types::{Blob, Document};
 use serde_json::Value as JsonValue;
 
 use super::external_config::ExternalBedrockConfig;
@@ -148,6 +148,7 @@ fn convert_messages(
                 .into_iter()
                 .map(|part| match part {
                     ContentPart::Text(text) => ContentBlock::Text(text),
+                    ContentPart::Image { data, mime_type } => image_content_block(data, &mime_type),
                     ContentPart::ToolUse {
                         tool_use_id,
                         name,
@@ -223,6 +224,31 @@ fn convert_messages(
     }
 
     messages
+}
+
+fn image_content_block(data: Vec<u8>, mime_type: &str) -> ContentBlock {
+    let format = match mime_type.to_ascii_lowercase().as_str() {
+        "image/gif" | "gif" => ImageFormat::Gif,
+        "image/jpeg" | "image/jpg" | "jpeg" | "jpg" => ImageFormat::Jpeg,
+        "image/png" | "png" => ImageFormat::Png,
+        "image/webp" | "webp" => ImageFormat::Webp,
+        _ => {
+            log::warn!(
+                "[bedrock] Omitting image attachment with unsupported MIME type: {mime_type}"
+            );
+            return ContentBlock::Text(
+                "[Image attachment omitted because its format is unsupported.]".to_string(),
+            );
+        }
+    };
+
+    ContentBlock::Image(
+        ImageBlock::builder()
+            .format(format)
+            .source(ImageSource::Bytes(Blob::new(data)))
+            .build()
+            .expect("valid image block"),
+    )
 }
 
 fn coalesce_consecutive_roles(messages: Vec<BedrockMessage>) -> Vec<BedrockMessage> {

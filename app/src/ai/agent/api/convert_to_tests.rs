@@ -4,10 +4,36 @@ use warp_multi_agent_api as api;
 
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionResult, AIAgentActionResultType, AIAgentContext,
+    AIAgentActionResult, AIAgentActionResultType, AIAgentContext, ImageContext,
     TransferShellCommandControlToUserResult,
 };
 use crate::terminal::model::block::BlockId;
+
+#[test]
+fn image_context_decodes_base64_into_proto_bytes() {
+    let api_context = super::convert_context(&[AIAgentContext::Image(ImageContext {
+        data: "AQIDBA==".to_string(),
+        mime_type: "image/png".to_string(),
+        file_name: "test.png".to_string(),
+        is_figma: false,
+    })]);
+
+    assert_eq!(api_context.images.len(), 1);
+    assert_eq!(api_context.images[0].data, vec![1, 2, 3, 4]);
+    assert_eq!(api_context.images[0].mime_type, "image/png");
+}
+
+#[test]
+fn image_context_skips_invalid_base64() {
+    let api_context = super::convert_context(&[AIAgentContext::Image(ImageContext {
+        data: "not base64".to_string(),
+        mime_type: "image/png".to_string(),
+        file_name: "test.png".to_string(),
+        is_figma: false,
+    })]);
+
+    assert_eq!(api_context.images, vec![]);
+}
 
 #[test]
 fn git_context_converts_repository_and_pull_request_metadata() {

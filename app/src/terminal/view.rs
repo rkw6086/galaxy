@@ -726,6 +726,13 @@ lazy_static! {
 
 /// Interval at which the live command duration counter repaints.
 const LIVE_COMMAND_DURATION_REPAINT_INTERVAL: Duration = Duration::from_secs(1);
+/// Give ordinary commands a few seconds to finish before starting an automatic AI monitor.
+///
+/// This is deliberately separate from `LONG_RUNNING_COMMAND_DURATION_MS`: that much shorter,
+/// established threshold also drives terminal interaction and status-bar behavior.
+const COMMAND_AUTO_MONITOR_DELAY: Duration = Duration::from_secs(3);
+const COMMAND_MONITOR_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+const COMMAND_MONITOR_FORCE_REFRESH_RETRIES: u8 = 20;
 
 #[derive(Default)]
 pub struct ControlMasterErrorBannerState {
@@ -2825,9 +2832,6 @@ pub struct TerminalView {
     /// A list of callbacks to run on the next [`ModelEvent::AfterBlockCompleted`] received.
     block_completed_callbacks: Vec<TerminalViewCallback>,
 
-    /// Process conversation associated with the automatically monitored shell block.
-    active_process_monitor: Option<(BlockId, AIConversationId, AIConversationId)>,
-
     /// A list of callbacks to run on the next
     /// [`BlocklistAIControllerEvent::FinishedReceivingOutput`] received, regardless of the finish reason.
     conversation_completed_callbacks: Vec<ConversationFinishedCallback>,
@@ -4399,7 +4403,6 @@ impl TerminalView {
             github_repo_model: None,
             deferred_code_review_open: None,
             block_completed_callbacks: Default::default(),
-            active_process_monitor: None,
             conversation_completed_callbacks: Default::default(),
             current_repo_path: None,
             terminal_title: Default::default(),
@@ -7380,48 +7383,77 @@ impl TerminalView {
         }
     }
 
-    fn schedule_process_monitor_check(
+    fn schedule_command_monitor_start(&mut self, block_id: BlockId, ctx: &mut ViewContext<Self>) {
+        self.schedule_command_monitor_start_after(
+            block_id,
+            COMMAND_AUTO_MONITOR_DELAY,
+            COMMAND_MONITOR_FORCE_REFRESH_RETRIES,
+            ctx,
+        );
+    }
+
+    fn schedule_command_monitor_start_after(
         &mut self,
         block_id: BlockId,
-        process_conversation_id: AIConversationId,
-        parent_conversation_id: AIConversationId,
         delay: Duration,
+        remaining_force_refresh_retries: u8,
         ctx: &mut ViewContext<Self>,
     ) {
         ctx.spawn(Timer::after(delay), move |me, _, ctx| {
-            let snapshot = {
+            let (needs_monitor, waiting_for_threshold) = {
                 let model = me.model.lock();
-                model.block_list().block_with_id(&block_id).and_then(|block| {
-                    block.is_active_and_long_running().then(|| {
-                        crate::terminal::model::block::formatted_terminal_contents_for_input(
-                            block.output_grid().grid_handler(),
-                            Some(1000),
-                            crate::terminal::model::block::CURSOR_MARKER,
-                        )
-                    })
-                })
+                let Some(block) = model.block_list().block_with_id(&block_id) else {
+                    return;
+                };
+                if block.is_agent_monitoring() {
+                    (false, false)
+                } else if block.is_active_and_long_running() {
+                    (true, false)
+                } else {
+                    (
+                        false,
+                        block.is_executing() || block.is_command_grid_active(),
+                    )
+                }
             };
-            let Some(snapshot) = snapshot else {
+            if !needs_monitor {
+                if waiting_for_threshold && remaining_force_refresh_retries > 0 {
+                    me.schedule_command_monitor_start_after(
+                        block_id,
+                        COMMAND_MONITOR_RETRY_INTERVAL,
+                        remaining_force_refresh_retries - 1,
+                        ctx,
+                    );
+                } else if waiting_for_threshold {
+                    log::warn!(
+                        "Command block {block_id:?} never reached the long-running threshold; \
+                             automatic command monitoring was not started"
+                    );
+                }
                 return;
-            };
+            }
 
-            let prompt = format!(
-                "Review the latest process output and report progress, failure, or suspicious inactivity to the user. Continue actively monitoring and choose a short next interval; Galaxy will check again automatically.\n\nLatest output:\n```text\n{snapshot}\n```"
-            );
-            me.ai_controller.update(ctx, |controller, ctx| {
-                controller.send_agent_query_in_conversation(
-                    prompt,
-                    process_conversation_id,
+            let refresh_requested = me.cli_subagent_controller.update(ctx, |controller, ctx| {
+                controller.request_force_refresh(&block_id, ctx)
+            });
+            if refresh_requested {
+                log::info!(
+                    "Requested an immediate command snapshot to start monitoring block \
+                         {block_id:?}"
+                );
+            } else if remaining_force_refresh_retries > 0 {
+                me.schedule_command_monitor_start_after(
+                    block_id,
+                    COMMAND_MONITOR_RETRY_INTERVAL,
+                    remaining_force_refresh_retries - 1,
                     ctx,
                 );
-            });
-            me.schedule_process_monitor_check(
-                block_id,
-                process_conversation_id,
-                parent_conversation_id,
-                Duration::from_secs(5),
-                ctx,
-            );
+            } else {
+                log::warn!(
+                    "Could not find the pending shell action for long-running block \
+                         {block_id:?}; automatic command monitoring was not started"
+                );
+            }
         });
     }
 
@@ -7508,6 +7540,10 @@ impl TerminalView {
 
                 let agent_metadata =
                     AgentInteractionMetadata::new_hidden(action_id.clone(), parent_conversation_id);
+                let workflow_id = associated_workflow.map(|workflow| workflow.sync_id());
+                let workflow_command = associated_workflow
+                    .and_then(|workflow| workflow.model().data.command())
+                    .map(str::to_string);
 
                 // We use the basic AI source when this is a non-shared
                 // command originating from the agent.
@@ -7534,15 +7570,17 @@ impl TerminalView {
                 let block_id = model.active_block_id().clone();
                 drop(model);
 
+                self.cli_subagent_controller.update(ctx, |controller, _| {
+                    controller.track_requested_command(&block_id, action_id);
+                });
+
                 ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
-                    command: command.clone(),
+                    command,
                     session_id,
                     source,
                     should_add_command_to_history: true,
-                    workflow_id: associated_workflow.map(|workflow| workflow.sync_id()),
-                    workflow_command: associated_workflow
-                        .and_then(|workflow| workflow.model().data.command())
-                        .map(str::to_string),
+                    workflow_id,
+                    workflow_command,
                 }));
 
                 if let Some(active_ai_block) = self.active_ai_block(ctx) {
@@ -7551,105 +7589,7 @@ impl TerminalView {
                     });
                 }
 
-                // After three seconds, automatically open the inline command-monitoring agent.
-                // Use the same established tag-in path as the manual "Use agent" affordance so
-                // running-command context, the CLI subagent task, and main-conversation history
-                // remain connected through the existing machinery.
-                ctx.spawn(
-                    Timer::after(Duration::from_millis(LONG_RUNNING_COMMAND_DURATION_MS)),
-                    move |me, _, ctx| {
-                        let is_still_running = {
-                            let model = me.model.lock();
-                            model
-                                .block_list()
-                                .block_with_id(&block_id)
-                                .is_some_and(|block| block.is_active_and_long_running())
-                        };
-                        if !is_still_running {
-                            return;
-                        }
-
-                        let process_conversation_id = me.agent_view_controller.update(
-                            ctx,
-                            |controller, ctx| {
-                                if controller.is_active() {
-                                    controller.agent_view_state().active_conversation_id()
-                                } else {
-                                    controller
-                                        .try_enter_inline_agent_view(
-                                            None,
-                                            AgentViewEntryOrigin::LongRunningCommand,
-                                            ctx,
-                                        )
-                                        .map(Some)
-                                        .unwrap_or_else(|error| {
-                                            log::error!(
-                                                "Failed to automatically open long-running command monitor: {error}"
-                                            );
-                                            None
-                                        })
-                                }
-                            },
-                        );
-                        let Some(process_conversation_id) = process_conversation_id else {
-                            return;
-                        };
-                        me.active_process_monitor = Some((
-                            block_id.clone(),
-                            process_conversation_id,
-                            parent_conversation_id,
-                        ));
-                        me.tag_in_agent_for_user_long_running_command(ctx);
-
-                        let monitor_prompt = format!(
-                            "Actively monitor the running process below. Immediately review its current output and report progress to the user. Continue checking it proactively; short waits are required initially and may grow gradually only when steady progress is evident. Waiting indefinitely or awaiting further user instruction is unacceptable. Identify concrete success signals, failures, retries, lock waits, and suspicious inactivity. Do not interrupt the process unless the user's stated stop condition is met or the user authorizes it.\n\nCommand:\n```sh\n{command}\n```"
-                        );
-                        me.ai_controller.update(ctx, |controller, ctx| {
-                            controller.send_agent_query_in_conversation(
-                                monitor_prompt,
-                                process_conversation_id,
-                                ctx,
-                            );
-                        });
-                        me.schedule_process_monitor_check(
-                            block_id,
-                            process_conversation_id,
-                            parent_conversation_id,
-                            Duration::from_secs(3),
-                            ctx,
-                        );
-
-                        let active_profile = AIExecutionProfilesModel::as_ref(ctx)
-                            .active_profile(Some(me.view_id), ctx);
-                        let profile_name = active_profile.data().name.clone();
-                        let coding_model = active_profile
-                            .data()
-                            .coding_model
-                            .as_ref()
-                            .map(|model| model.as_str())
-                            .unwrap_or("profile default");
-                        log::info!(
-                            "Opening long-running command monitor with selected profile {profile_name:?} (coding model {coding_model})"
-                        );
-
-                        let prompt = format!(
-                            "Monitor this running command and report evidence-based status. Use the currently selected execution profile ({profile_name}) and its configured model choices. Identify concrete success signals, explicit failures, repeated retries, blocked input, lock waits, and suspicious lack of progress. Do not declare success merely because output stops, and do not interrupt or modify the process. For database work, flag a small update that appears stuck and distinguish a likely lock wait or deadlock from legitimate work when possible.\n\nCommand:\n```sh\n{command}\n```"
-                        );
-                        let conversation_id = me
-                            .agent_view_controller
-                            .as_ref(ctx)
-                            .active_conversation_id();
-                        if let Some(conversation_id) = conversation_id {
-                            me.ai_controller.update(ctx, |controller, ctx| {
-                                controller.send_agent_query_in_conversation(
-                                    prompt,
-                                    conversation_id,
-                                    ctx,
-                                );
-                            });
-                        }
-                    },
-                );
+                self.schedule_command_monitor_start(block_id, ctx);
 
                 if let Some(metadata) = workflow_telem_metadata {
                     send_telemetry_from_ctx!(TelemetryEvent::WorkflowExecuted(metadata), ctx);
@@ -7687,6 +7627,10 @@ impl TerminalView {
         match event {
             StartAgentExecutorEvent::CreateAgent(request) => {
                 ctx.emit(Event::StartAgentConversation(request.as_ref().clone()));
+            }
+            StartAgentExecutorEvent::DirectProviderChildConversationCreated { .. } => {
+                // AI blocks subscribe directly to this executor event so the
+                // StartAgent card can render its live child transcript.
             }
             StartAgentExecutorEvent::CleanupFailedChildLaunch { conversation_id } => {
                 // The child failed at launch and never started a server-side
@@ -12149,44 +12093,6 @@ impl TerminalView {
                 cloud_workflow_id,
                 cloud_env_var_collection_id,
             }) => {
-                if let Some((block_id, process_conversation_id, parent_conversation_id)) =
-                    self.active_process_monitor.take()
-                {
-                    if let BlockType::User(completed) = block_type {
-                        if completed.serialized_block.id == block_id {
-                            let exit_code = completed.serialized_block.exit_code.value();
-                            let process_summary = format!(
-                                "The monitored process finished with exit code {exit_code}. Review the final output and give the user a concise final assessment. Do not schedule another check.\n\nFinal output:\n```text\n{}\n```",
-                                completed.output_truncated_with_obfuscated_secrets
-                            );
-                            self.ai_controller.update(ctx, |controller, ctx| {
-                                controller.send_agent_query_in_conversation(
-                                    process_summary,
-                                    process_conversation_id,
-                                    ctx,
-                                );
-                            });
-                            let main_summary = format!(
-                                "A monitored shell process finished with exit code {exit_code}. The process-monitor conversation contains the detailed observations. Final output:\n```text\n{}\n```",
-                                completed.output_truncated_with_obfuscated_secrets
-                            );
-                            self.ai_controller.update(ctx, |controller, ctx| {
-                                controller.send_agent_query_in_conversation(
-                                    main_summary,
-                                    parent_conversation_id,
-                                    ctx,
-                                );
-                            });
-                        } else {
-                            self.active_process_monitor =
-                                Some((block_id, process_conversation_id, parent_conversation_id));
-                        }
-                    } else {
-                        self.active_process_monitor =
-                            Some((block_id, process_conversation_id, parent_conversation_id));
-                    }
-                }
-
                 // To automatically warpify a subshell, we run the relevant command
                 // subshell and create a future to delay bootstrapping the subshell long enough for
                 // the command to complete. We receive AfterBlockCompleted if the subshell command

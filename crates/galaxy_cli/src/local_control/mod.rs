@@ -1,4 +1,4 @@
-//! Command-line interface for controlling a running local Warp app.
+//! Command-line interface for controlling a running local Galaxy app.
 mod commands;
 mod completions;
 mod output;
@@ -19,15 +19,22 @@ use output::write_control_error;
 
 use crate::agent::OutputFormat;
 
-/// Hidden flag used by the channel-specific Warp app binary to enter `warpctrl` mode.
-pub const CONTROL_MODE_FLAG: &str = "--warpctrl";
+/// Hidden flag used by the channel-specific Galaxy app binary to enter `galaxyctrl` mode.
+pub const CONTROL_MODE_FLAG: &str = "--galaxyctrl";
 
-/// Parsed top-level arguments for `warpctrl`.
+fn normalized_control_command_name(invocation_name: Option<&str>) -> String {
+    invocation_name
+        .filter(|name| *name == "galaxyctrl" || name.starts_with("galaxyctrl-"))
+        .unwrap_or("galaxyctrl")
+        .to_owned()
+}
+
+/// Parsed top-level arguments for `galaxyctrl`.
 #[derive(Debug, Parser)]
 #[command(
-    name = "warpctrl",
-    display_name = "warpctrl",
-    about = "Control a running local Warp app instance"
+    name = "galaxyctrl",
+    display_name = "galaxyctrl",
+    about = "Control a running local Galaxy app instance"
 )]
 pub struct ControlArgs {
     /// Set the output format.
@@ -36,7 +43,7 @@ pub struct ControlArgs {
         global = true,
         value_enum,
         default_value_t = OutputFormat::Pretty,
-        env = "WARP_OUTPUT_FORMAT"
+        env = "GALAXY_OUTPUT_FORMAT"
     )]
     pub output_format: OutputFormat,
 
@@ -59,15 +66,15 @@ pub enum ActionCatalogCommand {
 
 impl ControlArgs {
     pub fn from_env() -> Self {
-        let bin_name = crate::binary_name().unwrap_or_else(|| "warpctrl".to_owned());
+        let bin_name = crate::binary_name().unwrap_or_else(|| "galaxyctrl".to_owned());
         Self::try_parse_from_args(std::env::args_os(), bin_name).unwrap_or_else(|err| err.exit())
     }
 
-    /// Parse Warp Control arguments only when the wrapper-injected mode flag is present.
+    /// Parse Galaxy Control arguments only when the wrapper-injected mode flag is present.
     ///
-    /// Startup calls this before the normal Warp/Oz parser. Arguments through
-    /// `--warpctrl` are removed, and the remaining arguments are parsed as if
-    /// the standalone command name were `warpctrl`.
+    /// Startup calls this before the normal Galaxy parser. Arguments through
+    /// `--galaxyctrl` are removed, and the remaining arguments are parsed as if
+    /// the standalone command name were `galaxyctrl`.
     pub fn from_control_mode_env() -> Option<Self> {
         Self::try_parse_control_mode_from(std::env::args_os())
             .map(|result| result.unwrap_or_else(|err| err.exit()))
@@ -79,7 +86,7 @@ impl ControlArgs {
         I: IntoIterator<Item = T>,
         T: Into<OsString>,
     {
-        let mut stripped_args = vec![OsString::from("warpctrl")];
+        let mut stripped_args = vec![OsString::from("galaxyctrl")];
         let mut found_control_mode = false;
 
         for arg in args {
@@ -93,11 +100,12 @@ impl ControlArgs {
             stripped_args.push(arg);
         }
 
-        found_control_mode.then(|| Self::try_parse_from_args(stripped_args, "warpctrl"))
+        found_control_mode.then(|| Self::try_parse_from_args(stripped_args, "galaxyctrl"))
     }
 
     pub fn clap_command() -> clap::Command {
-        let bin_name = crate::binary_name().unwrap_or_else(|| "warpctrl".to_owned());
+        let invocation_name = crate::binary_name();
+        let bin_name = normalized_control_command_name(invocation_name.as_deref());
         Self::clap_command_for_bin_name(bin_name)
     }
 
@@ -133,13 +141,13 @@ impl ControlArgs {
     }
 }
 
-/// Top-level `warpctrl` command groups.
+/// Top-level `galaxyctrl` command groups.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ControlCommand {
-    /// Inspect local Warp app instances.
+    /// Inspect local Galaxy app instances.
     #[command(subcommand)]
     Instance(InstanceCommand),
-    /// Inspect a selected local Warp app.
+    /// Inspect and control a selected local Galaxy app.
     #[command(subcommand)]
     App(AppCommand),
     /// Inspect local-control capabilities.
@@ -149,34 +157,34 @@ pub enum ControlCommand {
     #[command(subcommand)]
     Action(ActionCatalogCommand),
 
-    /// Inspect local Warp windows.
+    /// Control local Galaxy windows.
     #[command(subcommand)]
     Window(WindowCommand),
 
-    /// Control local Warp tabs.
+    /// Control local Galaxy tabs.
     #[command(subcommand)]
     Tab(TabCommand),
-    /// Inspect local Warp panes.
+    /// Control local Galaxy panes.
     #[command(subcommand)]
     Pane(PaneCommand),
 
-    /// Inspect local Warp sessions.
+    /// Control local Galaxy sessions.
     #[command(subcommand)]
     Session(SessionCommand),
 
-    /// Inspect terminal input state.
+    /// Edit terminal input without submitting it.
     #[command(subcommand)]
     Input(InputCommand),
 
-    /// Inspect Warp themes.
+    /// Inspect and change Galaxy themes.
     #[command(subcommand)]
     Theme(ThemeCommand),
 
-    /// Inspect appearance state.
+    /// Inspect and change Galaxy appearance.
     #[command(subcommand)]
     Appearance(AppearanceCommand),
 
-    /// Inspect allowlisted settings.
+    /// Inspect and change allowlisted settings.
     #[command(subcommand)]
     Setting(SettingCommand),
 
@@ -184,29 +192,29 @@ pub enum ControlCommand {
     #[command(subcommand)]
     Keybinding(KeybindingCommand),
 
-    /// Inspect open file app-state metadata.
+    /// Open files in Galaxy.
     #[command(subcommand)]
     File(FileCommand),
 
-    /// Open or toggle local Warp surfaces.
+    /// Open or toggle local Galaxy surfaces.
     #[command(subcommand)]
     Surface(SurfaceCommand),
 
     /// Generate shell completions for your shell to stdout.
     ///
     /// For bash, add the following to ~/.bashrc:
-    ///     source <(path/to/warpctrl completions bash)
+    ///     source <(path/to/galaxyctrl completions bash)
     ///
     /// For zsh, add the following to ~/.zshrc:
-    ///     source <(path/to/warpctrl completions zsh)
+    ///     source <(path/to/galaxyctrl completions zsh)
     ///
     /// For fish, add the following to ~/.config/fish/config.fish:
-    ///     path/to/warpctrl completions fish | source
+    ///     path/to/galaxyctrl completions fish | source
     ///
     /// For Powershell, add the following to $PROFILE:
-    ///     path\to\warpctrl completions powershell | Out-String | Invoke-Expression
+    ///     path\to\galaxyctrl completions powershell | Out-String | Invoke-Expression
     ///
-    /// If no shell is provided, this defaults to the shell that Warp was run from.
+    /// If no shell is provided, this defaults to the shell that Galaxy was run from.
     #[command(verbatim_doc_comment)]
     Completions {
         /// Shell to generate completions for.
@@ -215,29 +223,29 @@ pub enum ControlCommand {
     },
 }
 
-/// Commands that inspect locally discoverable Warp instances.
+/// Commands that inspect locally discoverable Galaxy instances.
 #[derive(Debug, Clone, Subcommand)]
 pub enum InstanceCommand {
-    /// List locally discoverable Warp instances.
+    /// List locally discoverable Galaxy instances.
     List,
 
     /// Print app, protocol, active target, and action metadata for the selected instance.
     Inspect(TargetArgs),
 }
 
-/// Commands that inspect the selected Warp app instance.
+/// Commands that inspect and control the selected Galaxy app instance.
 #[derive(Debug, Clone, Subcommand)]
 pub enum AppCommand {
-    /// Check that the selected local Warp app responds.
+    /// Check that the selected local Galaxy app responds.
     Ping(TargetArgs),
 
-    /// Print protocol and build identity metadata for the selected local Warp app.
+    /// Print protocol and build identity metadata for the selected local Galaxy app.
     Version(TargetArgs),
 
     /// Print the active window/tab/pane/session chain.
     Active(TargetArgs),
 
-    /// Focus the selected local Warp app.
+    /// Focus the selected local Galaxy app.
     Focus(TargetArgs),
 }
 
@@ -256,10 +264,10 @@ pub enum CapabilityCommand {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum WindowCommand {
-    /// List windows in the selected local Warp app.
+    /// List windows in the selected local Galaxy app.
     List(TargetArgs),
 
-    /// Inspect one window in the selected local Warp app.
+    /// Inspect one window in the selected local Galaxy app.
     Inspect(TargetArgs),
 
     /// Create a new window.
@@ -272,13 +280,13 @@ pub enum WindowCommand {
     Close(TargetArgs),
 }
 
-/// Commands that control tabs in the selected Warp app instance.
+/// Commands that control tabs in the selected Galaxy app instance.
 #[derive(Debug, Clone, Subcommand)]
 pub enum TabCommand {
-    /// List tabs in the selected local Warp app.
+    /// List tabs in the selected local Galaxy app.
     List(TargetArgs),
 
-    /// Inspect one tab in the selected local Warp app.
+    /// Inspect one tab in the selected local Galaxy app.
     Inspect(TargetArgs),
 
     /// Create a new terminal tab in the active window.
@@ -314,13 +322,13 @@ pub enum TabColorCommand {
     Clear(TargetArgs),
 }
 
-/// Commands that inspect local Warp panes.
+/// Commands that control local Galaxy panes.
 #[derive(Debug, Clone, Subcommand)]
 pub enum PaneCommand {
-    /// List panes in the selected local Warp app.
+    /// List panes in the selected local Galaxy app.
     List(TargetArgs),
 
-    /// Inspect one pane in the selected local Warp app.
+    /// Inspect one pane in the selected local Galaxy app.
     Inspect(TargetArgs),
 
     /// Split the active pane.
@@ -351,13 +359,13 @@ pub enum PaneCommand {
     ResetName(TargetArgs),
 }
 
-/// Commands that inspect local Warp sessions.
+/// Commands that control local Galaxy sessions.
 #[derive(Debug, Clone, Subcommand)]
 pub enum SessionCommand {
-    /// List sessions in the selected local Warp app.
+    /// List sessions in the selected local Galaxy app.
     List(TargetArgs),
 
-    /// Inspect one session in the selected local Warp app.
+    /// Inspect one session in the selected local Galaxy app.
     Inspect(TargetArgs),
 
     /// Activate a session.
@@ -384,7 +392,7 @@ pub enum InputCommand {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum SurfaceCommand {
-    /// List available and unavailable tour surfaces.
+    /// List available and unavailable Galaxy surfaces.
     List(TargetArgs),
     /// Open settings surfaces.
     #[command(subcommand)]
@@ -405,18 +413,6 @@ pub enum SurfaceCommand {
     #[command(subcommand)]
     Keybindings(SurfaceOpenCommand),
 
-    /// Open or toggle Warp Drive.
-    #[command(subcommand)]
-    WarpDrive(SurfaceOpenToggleCommand),
-
-    /// Toggle the resource center.
-    #[command(subcommand)]
-    ResourceCenter(SurfaceToggleCommand),
-
-    /// Toggle the AI assistant.
-    #[command(subcommand)]
-    AiAssistant(SurfaceToggleCommand),
-
     /// Open or toggle code review.
     #[command(subcommand)]
     CodeReview(SurfaceOpenToggleCommand),
@@ -429,14 +425,6 @@ pub enum SurfaceCommand {
     #[command(subcommand)]
     GlobalSearch(SurfaceOpenCommand),
 
-    /// Open the conversation list.
-    #[command(subcommand)]
-    ConversationList(SurfaceOpenCommand),
-
-    /// Toggle the left panel.
-    #[command(subcommand)]
-    LeftPanel(SurfaceToggleCommand),
-
     /// Toggle the right panel.
     #[command(subcommand)]
     RightPanel(SurfaceToggleCommand),
@@ -444,10 +432,6 @@ pub enum SurfaceCommand {
     /// Open or toggle vertical tabs.
     #[command(subcommand)]
     VerticalTabs(SurfaceOpenToggleCommand),
-
-    /// Open agent management.
-    #[command(subcommand)]
-    AgentManagement(SurfaceOpenCommand),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -482,7 +466,7 @@ pub enum SurfaceToggleCommand {
     Toggle(TargetArgs),
 }
 
-/// Commands that inspect Warp themes.
+/// Commands that inspect and change Galaxy themes.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ThemeCommand {
     /// List available themes.
@@ -494,7 +478,7 @@ pub enum ThemeCommand {
     /// Set the current theme.
     Set(ThemeSetArgs),
 
-    /// Set whether Warp follows the system theme.
+    /// Set whether Galaxy follows the system theme.
     SystemSet(ThemeSystemSetArgs),
 
     /// Set the light theme used when following the system theme.
@@ -554,18 +538,18 @@ pub enum KeybindingCommand {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum FileCommand {
-    /// Open a file in Warp.
+    /// Open a file in Galaxy.
     Open(FileOpenArgs),
 }
 
-/// Exact selectors for a target within the selected Warp instance.
+/// Exact selectors for a target within the selected Galaxy instance.
 #[derive(Debug, Clone, Args, Default)]
 pub struct TargetArgs {
-    /// Target a specific local Warp instance id from `warpctrl instance list`.
+    /// Target a specific local Galaxy instance id from `galaxyctrl instance list`.
     #[arg(long = "instance", conflicts_with = "pid")]
     pub instance: Option<String>,
 
-    /// Target a specific local Warp process id.
+    /// Target a specific local Galaxy process id.
     #[arg(long = "pid", conflicts_with = "instance")]
     pub pid: Option<u32>,
 
@@ -815,7 +799,6 @@ pub struct KeybindingGetArgs {
 pub enum CliTabType {
     Terminal,
     Agent,
-    CloudAgent,
     Default,
 }
 
@@ -824,7 +807,6 @@ impl From<CliTabType> for local_control::protocol::TabType {
         match value {
             CliTabType::Terminal => Self::Terminal,
             CliTabType::Agent => Self::Agent,
-            CliTabType::CloudAgent => Self::CloudAgent,
             CliTabType::Default => Self::Default,
         }
     }

@@ -1,4 +1,4 @@
-//! Settings UI for local scripting and Warp control permissions.
+//! Settings UI for Galaxy Control installation and local automation permissions.
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -31,7 +31,7 @@ use crate::workspace::{cli_install, ToastStack};
 pub enum ScriptingSettingsPageAction {
     SetLocalControlMode(LocalControlMode),
     #[cfg(target_os = "macos")]
-    InstallWarpControlCli,
+    InstallGalaxyControlCli,
 }
 
 pub struct ScriptingSettingsPageView {
@@ -39,7 +39,7 @@ pub struct ScriptingSettingsPageView {
     local_only_icon_tooltip_states: RefCell<HashMap<String, MouseStateHandle>>,
     local_control_mode_dropdown: ViewHandle<Dropdown<ScriptingSettingsPageAction>>,
     #[cfg(target_os = "macos")]
-    warpctrl_installing: bool,
+    galaxyctrl_installing: bool,
 }
 
 impl ScriptingSettingsPageView {
@@ -51,7 +51,7 @@ impl ScriptingSettingsPageView {
         });
         Self::update_local_control_mode_dropdown(local_control_mode_dropdown.clone(), ctx);
 
-        if FeatureFlag::WarpControlCli.is_enabled() {
+        if FeatureFlag::GalaxyControlCli.is_enabled() {
             ctx.subscribe_to_model(&LocalControlSettings::handle(ctx), |view, _, _, ctx| {
                 Self::update_local_control_mode_dropdown(
                     view.local_control_mode_dropdown.clone(),
@@ -63,7 +63,7 @@ impl ScriptingSettingsPageView {
 
         #[cfg(target_os = "macos")]
         let widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
-            Box::new(WarpControlCliInstallWidget::default()),
+            Box::new(GalaxyControlCliInstallWidget::default()),
             Box::new(LocalControlModeWidget),
         ];
         #[cfg(not(target_os = "macos"))]
@@ -71,11 +71,11 @@ impl ScriptingSettingsPageView {
             vec![Box::new(LocalControlModeWidget)];
 
         Self {
-            page: PageType::new_uncategorized(widgets, Some("Scripting")),
+            page: PageType::new_uncategorized(widgets, Some("Galaxy Control")),
             local_only_icon_tooltip_states: RefCell::new(HashMap::new()),
             local_control_mode_dropdown,
             #[cfg(target_os = "macos")]
-            warpctrl_installing: false,
+            galaxyctrl_installing: false,
         }
     }
 
@@ -105,23 +105,23 @@ impl ScriptingSettingsPageView {
     }
 
     #[cfg(target_os = "macos")]
-    fn install_warpctrl(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.warpctrl_installing || cli_install::is_warpctrl_installed() {
+    fn install_galaxyctrl(&mut self, ctx: &mut ViewContext<Self>) {
+        if self.galaxyctrl_installing || cli_install::is_galaxyctrl_installed() {
             return;
         }
 
-        self.warpctrl_installing = true;
+        self.galaxyctrl_installing = true;
         ctx.notify();
         let window_id = ctx.window_id();
         ctx.spawn(
-            async { cli_install::install_warpctrl() },
+            async { cli_install::install_galaxyctrl() },
             move |view, result, ctx| {
-                view.warpctrl_installing = false;
+                view.galaxyctrl_installing = false;
                 match result {
                     Ok(()) => {
-                        let command_name = ChannelState::channel().warpctrl_command_name();
+                        let command_name = ChannelState::channel().galaxyctrl_command_name();
                         let message = format!(
-                            "Successfully installed the Warp Control CLI! You can now run '{command_name}' from the command line."
+                            "Galaxy Control CLI installed. You can now run '{command_name}' from any terminal."
                         );
                         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
                             toast_stack.add_ephemeral_toast(
@@ -132,7 +132,7 @@ impl ScriptingSettingsPageView {
                         });
                     }
                     Err(error) => {
-                        let message = format!("Failed to install Warp Control command: {error}");
+                        let message = format!("Failed to install Galaxy Control CLI: {error}");
                         log::warn!("{message}");
                         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
                             toast_stack.add_persistent_toast(
@@ -165,7 +165,7 @@ impl TypedActionView for ScriptingSettingsPageView {
                 ctx.notify();
             }
             #[cfg(target_os = "macos")]
-            ScriptingSettingsPageAction::InstallWarpControlCli => self.install_warpctrl(ctx),
+            ScriptingSettingsPageAction::InstallGalaxyControlCli => self.install_galaxyctrl(ctx),
         }
     }
 }
@@ -186,7 +186,7 @@ impl SettingsPageMeta for ScriptingSettingsPageView {
     }
 
     fn should_render(&self, _ctx: &AppContext) -> bool {
-        cfg!(not(target_family = "wasm")) && FeatureFlag::WarpControlCli.is_enabled()
+        cfg!(not(target_family = "wasm")) && FeatureFlag::GalaxyControlCli.is_enabled()
     }
 
     fn update_filter(&mut self, query: &str, ctx: &mut ViewContext<Self>) -> MatchData {
@@ -210,16 +210,16 @@ impl From<ViewHandle<ScriptingSettingsPageView>> for SettingsPageViewHandle {
 
 #[cfg(target_os = "macos")]
 #[derive(Default)]
-struct WarpControlCliInstallWidget {
+struct GalaxyControlCliInstallWidget {
     install_button_mouse_state: MouseStateHandle,
 }
 
 #[cfg(target_os = "macos")]
-impl SettingsWidget for WarpControlCliInstallWidget {
+impl SettingsWidget for GalaxyControlCliInstallWidget {
     type View = ScriptingSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "warp control cli command warpctrl install scripting"
+        "galaxy control cli command galaxyctrl install scripting automation"
     }
 
     fn render(
@@ -228,9 +228,9 @@ impl SettingsWidget for WarpControlCliInstallWidget {
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        let installed = cli_install::is_warpctrl_installed();
-        let disabled = view.warpctrl_installing || installed;
-        let label = if view.warpctrl_installing {
+        let installed = cli_install::is_galaxyctrl_installed();
+        let disabled = view.galaxyctrl_installing || installed;
+        let label = if view.galaxyctrl_installing {
             "Installing…"
         } else if installed {
             "Installed"
@@ -253,19 +253,19 @@ impl SettingsWidget for WarpControlCliInstallWidget {
             button
                 .build()
                 .on_click(|ctx, _, _| {
-                    ctx.dispatch_typed_action(ScriptingSettingsPageAction::InstallWarpControlCli);
+                    ctx.dispatch_typed_action(ScriptingSettingsPageAction::InstallGalaxyControlCli);
                 })
                 .finish()
         };
 
         render_body_item::<ScriptingSettingsPageAction>(
-            "Warp Control CLI command".into(),
+            "Galaxy Control CLI".into(),
             None,
             LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
             button,
-            Some("Install the warpctrl command for scripting Warp from your terminal.".to_owned()),
+            Some("Install the galaxyctrl command to control Galaxy from your terminal.".to_owned()),
         )
     }
 }
@@ -275,7 +275,7 @@ impl SettingsWidget for LocalControlModeWidget {
     type View = ScriptingSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "scripting warp control automation warpctrl local cli scripts disabled enabled"
+        "galaxy control scripting automation galaxyctrl local cli scripts access disabled enabled"
     }
 
     fn render(
@@ -285,7 +285,7 @@ impl SettingsWidget for LocalControlModeWidget {
         app: &AppContext,
     ) -> Box<dyn Element> {
         render_body_item::<ScriptingSettingsPageAction>(
-            "warpctrl CLI".into(),
+            "Local automation access".into(),
             None,
             LocalOnlyIconState::for_setting(
                 LocalControlModeSetting::storage_key(),
@@ -296,7 +296,10 @@ impl SettingsWidget for LocalControlModeWidget {
             ToggleState::Enabled,
             appearance,
             ChildView::new(&view.local_control_mode_dropdown).finish(),
-            Some("warpctrl allows for scripting Warp's UI. Use with care.".to_owned()),
+            Some(
+                "Allow local scripts and agents running as your user account to control approved parts of Galaxy. Enable this only when you trust other software running on this computer."
+                    .to_owned(),
+            ),
         )
     }
 }

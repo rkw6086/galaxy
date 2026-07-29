@@ -119,7 +119,8 @@ diesel::define_sql_function! {
 const CHANNEL_SIZE: usize = 1024;
 const COMMANDS_COUNT_LIMIT: i64 = 10000;
 
-const WARP_SQLITE_FILE_NAME: &str = "warp.sqlite";
+const GALAXY_SQLITE_FILE_NAME: &str = "galaxy.sqlite";
+const LEGACY_SQLITE_FILE_NAME: &str = "warp.sqlite";
 
 /// Runs any migrations and creates the Sqlite database if it doesn't exist.
 /// Reads from the sqlite database to get the app state for session restoration.
@@ -298,7 +299,7 @@ pub(super) fn init_db(scope: &PersistenceScope) -> Result<SqliteConnection> {
     }
 
     if matches!(scope, PersistenceScope::App) {
-        migrate_old_sqlite_into_secure_container_if_needed(&db_path);
+        migrate_legacy_sqlite_if_needed(&db_path);
     }
 
     let conn = setup_database(&db_path)?;
@@ -308,48 +309,80 @@ pub(super) fn init_db(scope: &PersistenceScope) -> Result<SqliteConnection> {
     Ok(conn)
 }
 
-fn migrate_old_sqlite_into_secure_container_if_needed(db_path: &Path) {
-    let old_db_path = galaxy_core::paths::state_dir().join(WARP_SQLITE_FILE_NAME);
-    if old_db_path == db_path || !old_db_path.exists() || db_path.exists() {
+fn migrate_legacy_sqlite_if_needed(db_path: &Path) {
+    if db_path.exists() {
         return;
     }
 
-    match std::fs::rename(&old_db_path, db_path) {
-        Ok(_) => {
-            safe_info!(
-                safe: ("Migrated SQLite database into application container"),
-                full: ("Migrated SQLite database from `{}` to `{}`", old_db_path.display(), db_path.display())
-            );
-
-            // Also migrate the associated WAL and SHM files.
-            let old_wal = old_db_path.with_extension("sqlite-wal");
-            let old_shm = old_db_path.with_extension("sqlite-shm");
-            let new_wal = db_path.with_extension("sqlite-wal");
-            let new_shm = db_path.with_extension("sqlite-shm");
-
-            if let Err(err) = std::fs::rename(&old_wal, &new_wal) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    report_error!(anyhow::Error::new(err)
-                        .context("Failed to migrate SQLite WAL into application container"));
-                }
-            } else {
-                log::info!("Migrated SQLite WAL into application container");
-            }
-
-            if let Err(err) = std::fs::rename(&old_shm, &new_shm) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    report_error!(anyhow::Error::new(err)
-                        .context("Failed to migrate SQLite SHM into application container"));
-                }
-            } else {
-                log::info!("Migrated SQLite shared memory file into application container");
-            }
+    // Check the current secure container first, then the pre-container state
+    // directory. The first path handles existing Galaxy builds that still used
+    // `warp.sqlite`; the latter two preserve earlier container migrations.
+    let legacy_paths = [
+        db_path.with_file_name(LEGACY_SQLITE_FILE_NAME),
+        galaxy_core::paths::state_dir().join(GALAXY_SQLITE_FILE_NAME),
+        galaxy_core::paths::state_dir().join(LEGACY_SQLITE_FILE_NAME),
+    ];
+    let mut seen = HashSet::new();
+    for old_db_path in legacy_paths {
+        if old_db_path == db_path || !seen.insert(old_db_path.clone()) || !old_db_path.exists() {
+            continue;
         }
-        Err(err) => {
-            report_error!(anyhow::Error::new(err)
-                .context("Failed to migrate SQLite database into application container"));
+
+        match migrate_sqlite_database(&old_db_path, db_path) {
+            Ok(()) => {
+                safe_info!(
+                    safe: ("Migrated legacy SQLite database to Galaxy"),
+                    full: (
+                        "Migrated SQLite database from `{}` to `{}`",
+                        old_db_path.display(),
+                        db_path.display()
+                    )
+                );
+                return;
+            }
+            Err(err) => {
+                report_error!(err.context("Failed to migrate legacy Galaxy SQLite database"));
+                // Do not mix the primary database or sidecars with a different
+                // legacy candidate after a partial migration.
+                return;
+            }
         }
     }
+}
+
+fn migrate_sqlite_database(old_db_path: &Path, db_path: &Path) -> Result<()> {
+    // Move sidecars first and the primary database last. If a sidecar move
+    // fails, the authoritative database remains at the legacy path and a later
+    // launch can safely retry the migration.
+    for extension in ["sqlite-wal", "sqlite-shm"] {
+        let old_sidecar = old_db_path.with_extension(extension);
+        let new_sidecar = db_path.with_extension(extension);
+        match std::fs::rename(&old_sidecar, &new_sidecar) {
+            Ok(()) => {
+                log::info!(
+                    "Migrated SQLite sidecar from {} to {}",
+                    old_sidecar.display(),
+                    new_sidecar.display()
+                );
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(anyhow::Error::new(err).context(format!(
+                    "moving SQLite sidecar from {} to {}",
+                    old_sidecar.display(),
+                    new_sidecar.display()
+                )));
+            }
+        }
+    }
+
+    std::fs::rename(old_db_path, db_path).with_context(|| {
+        format!(
+            "moving SQLite database from {} to {}",
+            old_db_path.display(),
+            db_path.display()
+        )
+    })
 }
 
 /// Creates or connects to the database at `database_path` and runs any migrations.
@@ -385,13 +418,15 @@ pub fn database_file_path_for_scope(scope: &PersistenceScope) -> PathBuf {
 fn app_database_file_path() -> PathBuf {
     galaxy_core::paths::secure_state_dir()
         .unwrap_or_else(galaxy_core::paths::state_dir)
-        .join(WARP_SQLITE_FILE_NAME)
+        .join(GALAXY_SQLITE_FILE_NAME)
 }
 
 fn remote_server_daemon_database_file_path(identity_key: &str) -> PathBuf {
     let data_dir = remote_server::setup::remote_server_daemon_data_dir(identity_key);
     let expanded_data_dir = shellexpand::tilde(&data_dir).into_owned();
-    PathBuf::from(expanded_data_dir).join(WARP_SQLITE_FILE_NAME)
+    // Remote-server installations may be shared with older clients, so retain
+    // their on-disk filename until that protocol has its own coordinated migration.
+    PathBuf::from(expanded_data_dir).join(LEGACY_SQLITE_FILE_NAME)
 }
 
 #[cfg(unix)]

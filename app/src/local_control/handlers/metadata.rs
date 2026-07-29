@@ -15,12 +15,11 @@ use serde_json::{json, Value};
 use settings::Setting as _;
 use warpui::{AppContext, ModelContext, SingletonEntity, ViewHandle, WindowId};
 
-use crate::drive::settings::WarpDriveSettings;
 use crate::features::FeatureFlag;
 use crate::local_control::resolver::{reject_target_families, require_active_window_id_for_action};
 use crate::local_control::LocalControlBridge;
 use crate::pane_group::{PaneGroup, PaneId};
-use crate::settings::{AISettings, CodeSettings};
+use crate::settings::CodeSettings;
 use crate::workspace::tab_settings::TabSettings;
 use crate::workspace::Workspace;
 
@@ -135,17 +134,11 @@ pub(crate) enum SurfaceDestination {
     CommandSearch,
     ThemePicker,
     Keybindings,
-    WarpDrive,
-    ResourceCenter,
-    AiAssistant,
     CodeReview,
     ProjectExplorer,
     GlobalSearch,
-    ConversationList,
-    LeftPanel,
     RightPanel,
     VerticalTabs,
-    AgentManagement,
 }
 
 impl SurfaceDestination {
@@ -155,17 +148,11 @@ impl SurfaceDestination {
         Self::CommandSearch,
         Self::ThemePicker,
         Self::Keybindings,
-        Self::WarpDrive,
-        Self::ResourceCenter,
-        Self::AiAssistant,
         Self::CodeReview,
         Self::ProjectExplorer,
         Self::GlobalSearch,
-        Self::ConversationList,
-        Self::LeftPanel,
         Self::RightPanel,
         Self::VerticalTabs,
-        Self::AgentManagement,
     ];
 
     fn name(self) -> &'static str {
@@ -175,17 +162,11 @@ impl SurfaceDestination {
             Self::CommandSearch => "command_search",
             Self::ThemePicker => "theme_picker",
             Self::Keybindings => "keybindings",
-            Self::WarpDrive => "warp_drive",
-            Self::ResourceCenter => "resource_center",
-            Self::AiAssistant => "ai_assistant",
             Self::CodeReview => "code_review",
             Self::ProjectExplorer => "project_explorer",
             Self::GlobalSearch => "global_search",
-            Self::ConversationList => "conversation_list",
-            Self::LeftPanel => "left_panel",
             Self::RightPanel => "right_panel",
             Self::VerticalTabs => "vertical_tabs",
-            Self::AgentManagement => "agent_management",
         }
     }
 }
@@ -197,7 +178,9 @@ pub(crate) fn instance(
         action: ActionKind::InstanceList.as_str(),
         instance_id: instance_id.as_ref().map(|id| id.0.as_str()),
         pid: std::process::id(),
-        channel: ChannelState::channel().to_string(),
+        channel: ChannelState::channel()
+            .local_control_channel_name()
+            .to_owned(),
         app_id: ChannelState::app_id().to_string(),
         protocol_version: PROTOCOL_VERSION,
         actions: ActionKind::implemented_metadata(),
@@ -218,7 +201,9 @@ pub(crate) fn version(instance_id: &Option<InstanceId>) -> Result<serde_json::Va
         action: ActionKind::AppVersion.as_str(),
         instance_id: instance_id.as_ref().map(|id| id.0.as_str()),
         protocol_version: PROTOCOL_VERSION,
-        channel: ChannelState::channel().to_string(),
+        channel: ChannelState::channel()
+            .local_control_channel_name()
+            .to_owned(),
         app_id: ChannelState::app_id().to_string(),
     })
 }
@@ -241,7 +226,7 @@ pub(crate) fn inspect(
         "action": ActionKind::InstanceInspect.as_str(),
         "instance_id": instance_id.as_ref().map(|id| id.0.as_str()),
         "pid": std::process::id(),
-        "channel": ChannelState::channel().to_string(),
+        "channel": ChannelState::channel().local_control_channel_name(),
         "app_id": ChannelState::app_id().to_string(),
         "protocol_version": PROTOCOL_VERSION,
         "active": active_chain(instance_id, ctx)?,
@@ -310,16 +295,7 @@ pub(crate) fn surface_unavailable_reason(
         | SurfaceDestination::CommandPalette
         | SurfaceDestination::CommandSearch
         | SurfaceDestination::ThemePicker
-        | SurfaceDestination::Keybindings
-        | SurfaceDestination::ResourceCenter => None,
-        SurfaceDestination::WarpDrive if !WarpDriveSettings::is_warp_drive_enabled(ctx) => {
-            Some("Warp Drive is disabled")
-        }
-        SurfaceDestination::WarpDrive => None,
-        SurfaceDestination::AiAssistant if !AISettings::as_ref(ctx).is_any_ai_enabled(ctx) => {
-            Some("AI features are disabled")
-        }
-        SurfaceDestination::AiAssistant => None,
+        | SurfaceDestination::Keybindings => None,
         SurfaceDestination::CodeReview | SurfaceDestination::RightPanel
             if !cfg!(feature = "local_fs") =>
         {
@@ -341,24 +317,6 @@ pub(crate) fn surface_unavailable_reason(
             Some("global search is unavailable or disabled")
         }
         SurfaceDestination::GlobalSearch => None,
-        SurfaceDestination::ConversationList
-            if !FeatureFlag::AgentViewConversationListView.is_enabled()
-                || !AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-                || !*AISettings::as_ref(ctx).show_conversation_history.value() =>
-        {
-            Some("agent conversation history is unavailable or disabled")
-        }
-        SurfaceDestination::ConversationList => None,
-        SurfaceDestination::LeftPanel
-            if surface_unavailable_reason(SurfaceDestination::ProjectExplorer, ctx).is_some()
-                && surface_unavailable_reason(SurfaceDestination::GlobalSearch, ctx).is_some()
-                && surface_unavailable_reason(SurfaceDestination::ConversationList, ctx)
-                    .is_some()
-                && surface_unavailable_reason(SurfaceDestination::WarpDrive, ctx).is_some() =>
-        {
-            Some("the left panel has no available views")
-        }
-        SurfaceDestination::LeftPanel => None,
         SurfaceDestination::VerticalTabs
             if !FeatureFlag::VerticalTabs.is_enabled()
                 || !*TabSettings::as_ref(ctx).use_vertical_tabs.value() =>
@@ -366,13 +324,6 @@ pub(crate) fn surface_unavailable_reason(
             Some("vertical tabs are unavailable or disabled")
         }
         SurfaceDestination::VerticalTabs => None,
-        SurfaceDestination::AgentManagement
-            if !FeatureFlag::AgentManagementView.is_enabled()
-                || !AISettings::as_ref(ctx).is_any_ai_enabled(ctx) =>
-        {
-            Some("agent management is unavailable or disabled")
-        }
-        SurfaceDestination::AgentManagement => None,
     }
 }
 

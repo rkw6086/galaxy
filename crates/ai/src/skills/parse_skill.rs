@@ -120,8 +120,8 @@ pub fn parse_skill(path: &Path) -> Result<ParsedSkill> {
 /// Parse a bundled skill markdown file.
 ///
 /// Unlike `parse_skill`, this function does not require the path to match a known
-/// skill provider directory. Bundled skills are always assigned `SkillProvider::Warp`
-/// and `SkillScope::Bundled`.
+/// skill provider directory. Bundled Galaxy skills retain the wire-compatible
+/// `SkillProvider::Warp` variant and use `SkillScope::Bundled`.
 ///
 /// # Arguments
 /// * `path` - Path to the skill markdown file to parse

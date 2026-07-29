@@ -37,6 +37,7 @@ use crate::persistence::model::{
 use crate::persistence::ModelEvent;
 use crate::server::ids::ServerId;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
+use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::SessionId;
 use crate::test_util::ai_agent_tasks::{create_api_task, create_message};
 use crate::test_util::settings::{
@@ -64,6 +65,165 @@ fn create_persisted_query(
         model_id: LLMId::from("test-model"),
         coding_model_id: LLMId::from("test-coding-model"),
     }
+}
+
+#[test]
+fn repeated_command_steering_reuses_the_active_cli_subtask() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let block_id = BlockId::new();
+
+        let (first_task_id, second_task_id) = history_model.update(&mut app, |model, ctx| {
+            let conversation_id =
+                model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            let first_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    block_id.clone(),
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("initial CLI subtask should be created");
+            let second_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    block_id,
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("steering should reuse the active CLI subtask");
+            (first_task_id, second_task_id)
+        });
+
+        assert_eq!(first_task_id, second_task_id);
+    });
+}
+
+#[test]
+fn deactivating_cli_subtask_clears_activity_without_deleting_task() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let block_id = BlockId::new();
+        let other_block_id = BlockId::new();
+
+        history_model.update(&mut app, |model, ctx| {
+            let conversation_id =
+                model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            let task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    block_id.clone(),
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("CLI subtask should be created");
+
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            assert!(conversation.has_active_subagent());
+
+            model
+                .deactivate_cli_subagent_task_for_conversation(&other_block_id, conversation_id)
+                .expect("a block mismatch should be a safe no-op");
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should still exist");
+            assert!(conversation.has_active_subagent());
+
+            model
+                .deactivate_cli_subagent_task_for_conversation(&block_id, conversation_id)
+                .expect("matching CLI subtask should deactivate");
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should still exist");
+            assert!(!conversation.has_active_subagent());
+            assert!(
+                conversation.get_task(&task_id).is_some(),
+                "deactivation must preserve the direct-provider task"
+            );
+        });
+    });
+}
+
+#[test]
+fn monitoring_a_different_block_preserves_completed_cli_task_history() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let first_block_id = BlockId::new();
+        let second_block_id = BlockId::new();
+
+        history_model.update(&mut app, |model, ctx| {
+            let conversation_id =
+                model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            let first_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    first_block_id,
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("first CLI subtask should be created");
+            model
+                .update_conversation_for_new_request_input(
+                    RequestInput {
+                        conversation_id,
+                        input_messages: HashMap::from([(first_task_id.clone(), vec![])]),
+                        working_directory: None,
+                        model_id: LLMId::from("test-model"),
+                        coding_model_id: LLMId::from("test-coding-model"),
+                        cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                        computer_use_model_id: LLMId::from("test-computer-use-model"),
+                        shared_session_response_initiator: None,
+                        request_start_ts: Local::now(),
+                        supported_tools_override: None,
+                    },
+                    crate::ai::blocklist::ResponseStreamId::new_for_test(),
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("first CLI subtask exchange should be recorded");
+
+            let second_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    second_block_id.clone(),
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("second CLI subtask should be created");
+
+            assert_ne!(first_task_id, second_task_id);
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            assert_eq!(
+                conversation
+                    .get_task(&first_task_id)
+                    .expect("first task should be retained")
+                    .exchanges_len(),
+                1
+            );
+            assert!(conversation.get_task(&second_task_id).is_some());
+            assert!(conversation.has_active_subagent());
+
+            model
+                .deactivate_cli_subagent_task_for_conversation(&second_block_id, conversation_id)
+                .expect("second CLI subtask should deactivate");
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should still exist");
+            assert!(!conversation.has_active_subagent());
+            assert!(conversation.get_task(&first_task_id).is_some());
+            assert!(conversation.get_task(&second_task_id).is_some());
+        });
+    });
 }
 
 fn create_user_query_message(

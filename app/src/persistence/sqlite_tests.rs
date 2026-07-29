@@ -13,7 +13,7 @@ use pathfinder_geometry::vector::Vector2F;
 use super::{
     app_database_file_path, database_file_path_for_scope, decode_path, deduplicate_events,
     encode_path, get_all_codebase_index_metadata, read_sqlite_data, save_app_state,
-    save_codebase_index_metadata, setup_database, start_writer,
+    save_codebase_index_metadata, setup_database, start_writer, GALAXY_SQLITE_FILE_NAME,
 };
 use crate::app_state::{
     AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot,
@@ -37,6 +37,38 @@ fn app_scope_database_path_matches_app_database_path() {
         database_file_path_for_scope(&PersistenceScope::App),
         app_database_file_path()
     );
+    assert_eq!(
+        app_database_file_path()
+            .file_name()
+            .and_then(|name| name.to_str()),
+        Some(GALAXY_SQLITE_FILE_NAME)
+    );
+}
+
+#[test]
+fn legacy_database_migration_moves_database_and_sidecars() {
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let legacy_path = tempdir.path().join("warp.sqlite");
+    let galaxy_path = tempdir.path().join(GALAXY_SQLITE_FILE_NAME);
+    std::fs::write(&legacy_path, b"database").expect("legacy database should be created");
+    std::fs::write(legacy_path.with_extension("sqlite-wal"), b"wal")
+        .expect("legacy WAL should be created");
+    std::fs::write(legacy_path.with_extension("sqlite-shm"), b"shm")
+        .expect("legacy SHM should be created");
+
+    super::migrate_sqlite_database(&legacy_path, &galaxy_path)
+        .expect("legacy database should migrate");
+
+    assert_eq!(std::fs::read(&galaxy_path).unwrap(), b"database");
+    assert_eq!(
+        std::fs::read(galaxy_path.with_extension("sqlite-wal")).unwrap(),
+        b"wal"
+    );
+    assert_eq!(
+        std::fs::read(galaxy_path.with_extension("sqlite-shm")).unwrap(),
+        b"shm"
+    );
+    assert!(!legacy_path.exists());
 }
 
 #[test]

@@ -9,7 +9,7 @@ use shell_words::split as split_shell_words;
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{
-    AIAgentAction, AIAgentActionResultType, AIAgentActionType, LifecycleEventType,
+    AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, LifecycleEventType,
     StartAgentExecutionMode, StartAgentResult,
 };
 use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer;
@@ -115,6 +115,9 @@ pub struct StartAgentRequest {
 }
 
 struct PendingStartAgent {
+    /// Present for standalone StartAgent tool calls. RunAgents dispatches use
+    /// the same executor but do not have a one-to-one StartAgent action card.
+    action_id: Option<AIAgentActionId>,
     parent_conversation_id: AIConversationId,
     /// Set once the child conversation is synchronously created.
     child_conversation_id: Option<AIConversationId>,
@@ -155,10 +158,35 @@ impl StartAgentExecutor {
         child_conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let Some(pending) = self.pending.get_mut(&request_id) else {
-            return;
+        let direct_provider_panel_link = {
+            let Some(pending) = self.pending.get_mut(&request_id) else {
+                return;
+            };
+            pending.child_conversation_id = Some(child_conversation_id);
+            if pending.wait_for_completion {
+                pending.action_id.clone().map(|action_id| {
+                    (
+                        action_id,
+                        pending.parent_conversation_id,
+                        child_conversation_id,
+                    )
+                })
+            } else {
+                None
+            }
         };
-        pending.child_conversation_id = Some(child_conversation_id);
+
+        if let Some((action_id, parent_conversation_id, child_conversation_id)) =
+            direct_provider_panel_link
+        {
+            ctx.emit(
+                StartAgentExecutorEvent::DirectProviderChildConversationCreated {
+                    action_id,
+                    parent_conversation_id,
+                    child_conversation_id,
+                },
+            );
+        }
         self.maybe_complete_pending_for_child_state(request_id, child_conversation_id, ctx);
     }
 
@@ -374,6 +402,7 @@ impl StartAgentExecutor {
 
         let prompt = prompt.clone();
         let version = *version;
+        let action_id = input.action.id.clone();
         let parent_conversation_id = input.conversation_id;
         let (prompt, execution_mode) =
             normalize_legacy_local_child_harness_command(prompt, execution_mode.clone());
@@ -511,6 +540,7 @@ impl StartAgentExecutor {
         self.pending.insert(
             request_id,
             PendingStartAgent {
+                action_id: Some(action_id),
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
@@ -574,6 +604,7 @@ impl StartAgentExecutor {
         self.pending.insert(
             request_id,
             PendingStartAgent {
+                action_id: None,
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
@@ -676,6 +707,14 @@ impl Entity for StartAgentExecutor {
 
 pub enum StartAgentExecutorEvent {
     CreateAgent(Box<StartAgentRequest>),
+    /// A direct-provider child conversation is available while its StartAgent
+    /// tool call remains open waiting for completion. This lets the parent
+    /// action render the live child panel before the tool result exists.
+    DirectProviderChildConversationCreated {
+        action_id: AIAgentActionId,
+        parent_conversation_id: AIConversationId,
+        child_conversation_id: AIConversationId,
+    },
     /// A child agent failed at the launch stage (never started a server-side
     /// run). The owning terminal view removes its hidden pane and conversation
     /// so the orchestration pill bar does not retain a dead chip.

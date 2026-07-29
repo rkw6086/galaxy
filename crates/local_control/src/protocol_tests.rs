@@ -151,14 +151,26 @@ fn malformed_and_removed_action_names_are_not_deserialized() {
         "drive.object.insert",
         "drive.object.share_to_team",
         "drive.workflow.run",
+        "surface.warp_drive.open",
+        "surface.warp_drive.toggle",
+        "surface.resource_center.toggle",
+        "surface.ai_assistant.toggle",
+        "surface.conversation_list.open",
+        "surface.agent_management.open",
+        "surface.left_panel.toggle",
     ] {
         assert!(serde_json::from_value::<ActionKind>(serde_json::json!(action)).is_err());
     }
 }
 
 #[test]
-fn catalog_has_exactly_84_retained_actions() {
-    assert_eq!(ActionKind::ALL.len(), 84);
+fn removed_cloud_agent_tab_type_is_not_deserialized() {
+    assert!(serde_json::from_value::<TabType>(serde_json::json!("cloud_agent")).is_err());
+}
+
+#[test]
+fn catalog_has_exactly_77_retained_actions() {
+    assert_eq!(ActionKind::ALL.len(), 77);
 }
 
 #[test]
@@ -185,16 +197,8 @@ fn direct_surface_actions_have_stable_names() {
         "surface.global_search.open"
     );
     assert_eq!(
-        ActionKind::SurfaceConversationListOpen.as_str(),
-        "surface.conversation_list.open"
-    );
-    assert_eq!(
         ActionKind::SurfaceVerticalTabsOpen.as_str(),
         "surface.vertical_tabs.open"
-    );
-    assert_eq!(
-        ActionKind::SurfaceAgentManagementOpen.as_str(),
-        "surface.agent_management.open"
     );
 }
 

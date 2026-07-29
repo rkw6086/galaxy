@@ -24,10 +24,19 @@ use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::workspace::{RestoreConversationLayout, WorkspaceAction, WorkspaceRegistry};
 
+const DIRECT_PROVIDER_AGENT_OUTPUT_DELIMITER: &str = "\n\nAgent output:\n";
+
+fn canonical_agent_id(agent_id: &str) -> &str {
+    agent_id
+        .split_once(DIRECT_PROVIDER_AGENT_OUTPUT_DELIMITER)
+        .map_or(agent_id, |(agent_id, _)| agent_id)
+}
+
 pub(crate) fn conversation_id_for_agent_id(
     agent_id: &str,
     app: &AppContext,
 ) -> Option<AIConversationId> {
+    let agent_id = canonical_agent_id(agent_id);
     let history_model = BlocklistAIHistoryModel::as_ref(app);
     history_model
         .conversation_id_for_agent_id(agent_id)
@@ -35,6 +44,13 @@ pub(crate) fn conversation_id_for_agent_id(
             history_model.find_conversation_id_by_server_token(&ServerConversationToken::new(
                 agent_id.to_string(),
             ))
+        })
+        .or_else(|| {
+            let conversation_id = AIConversationId::try_from(agent_id.to_string()).ok()?;
+            history_model
+                .conversation(&conversation_id)
+                .is_some()
+                .then_some(conversation_id)
         })
 }
 
@@ -303,3 +319,7 @@ pub(crate) fn conversation_navigation_card_with_icon(
 
     hoverable.finish()
 }
+
+#[cfg(test)]
+#[path = "orchestration_conversation_links_tests.rs"]
+mod tests;

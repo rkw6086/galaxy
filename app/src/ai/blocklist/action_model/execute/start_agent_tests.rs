@@ -21,6 +21,37 @@ const FIRST_REQUEST_ID: StartAgentRequestId = StartAgentRequestId::from_raw_for_
 /// exercise the direct-provider local child path instead.
 const PARENT_RUN_ID: &str = "00000000-0000-0000-0000-000000000001";
 
+#[derive(Default)]
+struct CapturedDirectProviderChildLinks(Vec<(AIAgentActionId, AIConversationId, AIConversationId)>);
+
+impl Entity for CapturedDirectProviderChildLinks {
+    type Event = ();
+}
+
+fn capture_direct_provider_child_links(
+    app: &mut App,
+    executor: &ModelHandle<StartAgentExecutor>,
+) -> ModelHandle<CapturedDirectProviderChildLinks> {
+    let captured = app.add_model(|_| CapturedDirectProviderChildLinks::default());
+    captured.update(app, |captured, ctx| {
+        ctx.subscribe_to_model(executor, |captured, _, event, _ctx| {
+            if let StartAgentExecutorEvent::DirectProviderChildConversationCreated {
+                action_id,
+                parent_conversation_id,
+                child_conversation_id,
+            } = event
+            {
+                captured.0.push((
+                    action_id.clone(),
+                    *parent_conversation_id,
+                    *child_conversation_id,
+                ));
+            }
+        });
+    });
+    captured
+}
+
 fn build_start_agent_action(
     version: StartAgentVersion,
     execution_mode: StartAgentExecutionMode,
@@ -371,6 +402,144 @@ fn execute_resolves_success_when_request_linkage_happens_after_child_already_sta
         executor.read(&app, |executor, _| {
             assert!(executor.pending.is_empty());
         });
+    });
+}
+
+#[test]
+fn direct_provider_child_link_is_published_before_start_agent_completes() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let captured = capture_direct_provider_child_links(&mut app, &executor);
+        let parent_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let execution = executor.update(&mut app, |executor, ctx| {
+            let input = ExecuteActionInput {
+                action: &action,
+                conversation_id: parent_conversation_id,
+            };
+            let result: AnyActionExecution = executor.execute(input, ctx).into();
+            result
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async execution");
+        };
+
+        let child_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_child_conversation(
+                terminal_view_id,
+                "Agent 1".to_string(),
+                parent_conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.record_new_conversation_request_complete(
+                FIRST_REQUEST_ID,
+                child_conversation_id,
+                ctx,
+            );
+        });
+
+        captured.read(&app, |captured, _| {
+            assert_eq!(
+                captured.0,
+                vec![(
+                    action.id.clone(),
+                    parent_conversation_id,
+                    child_conversation_id,
+                )]
+            );
+        });
+        executor.read(&app, |executor, _| {
+            assert!(
+                executor.pending.contains_key(&FIRST_REQUEST_ID),
+                "publishing the child link must not complete the StartAgent tool call"
+            );
+        });
+
+        drop(execute_future);
+        drop(on_complete);
+    });
+}
+
+#[test]
+fn hosted_child_link_does_not_publish_direct_provider_panel_event() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let captured = capture_direct_provider_child_links(&mut app, &executor);
+        let parent_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.assign_run_id_for_conversation(
+                parent_conversation_id,
+                PARENT_RUN_ID.to_string(),
+                None,
+                terminal_view_id,
+                ctx,
+            );
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let execution = executor.update(&mut app, |executor, ctx| {
+            let input = ExecuteActionInput {
+                action: &action,
+                conversation_id: parent_conversation_id,
+            };
+            let result: AnyActionExecution = executor.execute(input, ctx).into();
+            result
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async execution");
+        };
+
+        let child_conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_child_conversation(
+                terminal_view_id,
+                "Agent 1".to_string(),
+                parent_conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.record_new_conversation_request_complete(
+                FIRST_REQUEST_ID,
+                child_conversation_id,
+                ctx,
+            );
+        });
+
+        captured.read(&app, |captured, _| {
+            assert_eq!(captured.0, Vec::new());
+        });
+
+        drop(execute_future);
+        drop(on_complete);
     });
 }
 

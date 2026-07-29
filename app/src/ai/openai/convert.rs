@@ -1,3 +1,5 @@
+use base64::engine::general_purpose;
+use base64::Engine as _;
 use serde_json::{json, Value as JsonValue};
 
 use crate::ai::provider::types::{
@@ -70,6 +72,11 @@ enum ConvertedMessages {
     Multiple(Vec<JsonValue>),
 }
 
+enum UserContentPart {
+    Text(String),
+    Image { data: Vec<u8>, mime_type: String },
+}
+
 fn convert_message(msg: ConversationMessage) -> ConvertedMessages {
     match msg.role {
         MessageRole::User => convert_user_message(msg.content),
@@ -107,24 +114,22 @@ fn convert_user_message(content: MessageContent) -> ConvertedMessages {
         }
         MessageContent::MultiPart(parts) => {
             let mut messages = Vec::new();
-            let mut text_parts: Vec<String> = Vec::new();
+            let mut user_content_parts = Vec::new();
 
             for part in parts {
                 match part {
-                    ContentPart::Text(text) => text_parts.push(text),
+                    ContentPart::Text(text) => {
+                        user_content_parts.push(UserContentPart::Text(text));
+                    }
+                    ContentPart::Image { data, mime_type } => {
+                        user_content_parts.push(UserContentPart::Image { data, mime_type });
+                    }
                     ContentPart::ToolResult {
                         tool_use_id,
                         content,
                         is_error,
                     } => {
-                        // Flush any accumulated text as a user message first
-                        if !text_parts.is_empty() {
-                            messages.push(json!({
-                                "role": "user",
-                                "content": text_parts.join("\n"),
-                            }));
-                            text_parts.clear();
-                        }
+                        flush_user_content(&mut messages, &mut user_content_parts);
                         let result_content = if is_error {
                             format!("[ERROR] {content}")
                         } else {
@@ -137,17 +142,14 @@ fn convert_user_message(content: MessageContent) -> ConvertedMessages {
                         }));
                     }
                     ContentPart::ToolUse { .. } => {
-                        text_parts.push("[unexpected tool_use in user message]".to_string());
+                        user_content_parts.push(UserContentPart::Text(
+                            "[unexpected tool_use in user message]".to_string(),
+                        ));
                     }
                 }
             }
 
-            if !text_parts.is_empty() {
-                messages.push(json!({
-                    "role": "user",
-                    "content": text_parts.join("\n"),
-                }));
-            }
+            flush_user_content(&mut messages, &mut user_content_parts);
 
             if messages.len() == 1 {
                 ConvertedMessages::Single(messages.into_iter().next().unwrap())
@@ -214,6 +216,12 @@ fn convert_assistant_message(content: MessageContent) -> ConvertedMessages {
                         }));
                     }
                     ContentPart::ToolResult { .. } => {}
+                    ContentPart::Image { .. } => {
+                        if !text_content.is_empty() {
+                            text_content.push('\n');
+                        }
+                        text_content.push_str("[unexpected image in assistant message]");
+                    }
                 }
             }
 
@@ -230,6 +238,53 @@ fn convert_assistant_message(content: MessageContent) -> ConvertedMessages {
             ConvertedMessages::Single(msg)
         }
     }
+}
+
+fn flush_user_content(messages: &mut Vec<JsonValue>, content_parts: &mut Vec<UserContentPart>) {
+    if content_parts.is_empty() {
+        return;
+    }
+
+    let has_image = content_parts
+        .iter()
+        .any(|part| matches!(part, UserContentPart::Image { .. }));
+    let content = if has_image {
+        JsonValue::Array(
+            std::mem::take(content_parts)
+                .into_iter()
+                .map(|part| match part {
+                    UserContentPart::Text(text) => json!({
+                        "type": "text",
+                        "text": text,
+                    }),
+                    UserContentPart::Image { data, mime_type } => {
+                        let data = general_purpose::STANDARD.encode(data);
+                        json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:{mime_type};base64,{data}"),
+                            },
+                        })
+                    }
+                })
+                .collect(),
+        )
+    } else {
+        JsonValue::String(
+            std::mem::take(content_parts)
+                .into_iter()
+                .map(|part| match part {
+                    UserContentPart::Text(text) => text,
+                    UserContentPart::Image { .. } => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    };
+    messages.push(json!({
+        "role": "user",
+        "content": content,
+    }));
 }
 
 fn convert_tool_definition(tool: ToolDefinition) -> JsonValue {

@@ -1,7 +1,7 @@
-//! Running app-side server for local Warp control requests.
+//! Running app-side server for local Galaxy control requests.
 //!
 //! This module owns the in-process listener, discovery registration, credential
-//! broker socket, and request handoff from Axum into the WarpUI model graph.
+//! broker socket, and request handoff from Axum into the GalaxyUI model graph.
 //! It complements `crates/local_control/src/discovery.rs`: that shared module
 //! defines how clients find and validate candidate instances, while this module
 //! creates the app-owned endpoints and publishes their routing metadata through
@@ -25,7 +25,7 @@
 //!                 [0600 socket + kernel-reported peer UID]
 //!                                             |
 //!                                             v
-//!                           feature flag + Settings > Scripting gate
+//!                           feature flag + Settings > Galaxy Control gate
 //!                           + protocol + exact action metadata
 //!                                             |
 //!                                             v
@@ -52,11 +52,11 @@
 //! application: malicious software already running as the same user remains
 //! outside this boundary.
 //!
-//! The Settings > Scripting gates used here are local-only settings backed by
-//! Warp's secure storage provider.
+//! The Settings > Galaxy Control gate used here is a local-only setting backed by
+//! Galaxy's secure storage provider.
 //!
 //! Discovery records never include raw bearer tokens: discovery only exposes
-//! endpoint metadata and credential broker references while Scripting is enabled.
+//! endpoint metadata and credential broker references while Galaxy Control is enabled.
 mod bridge;
 mod handlers;
 mod permissions;
@@ -111,7 +111,7 @@ struct ControlServerState {
     expected_host: String,
     credentials: Arc<Mutex<HashMap<String, CredentialGrant>>>,
 }
-/// Process-local publisher, credential broker, and HTTP server for one Warp instance.
+/// Process-local publisher, credential broker, and HTTP server for one Galaxy instance.
 ///
 /// Holding the runtime and registration keeps both listeners and the discovery
 /// route alive. Dropping them stops request handling and removes the app's
@@ -151,7 +151,7 @@ impl LocalControlServer {
 
     /// Starts, refreshes, or removes local-control publication as settings change.
     fn refresh_for_settings(&mut self, ctx: &mut ModelContext<Self>) -> Result<(), ControlError> {
-        if !permissions::warp_control_cli_enabled() {
+        if !permissions::galaxy_control_cli_enabled() {
             self.stop(ctx);
             return Ok(());
         }
@@ -287,7 +287,7 @@ impl LocalControlServer {
 /// Builds routing metadata without embedding any bearer credential or secret.
 ///
 /// The endpoint and derived broker reference are published only while the
-/// protected Scripting setting permits clients to use them.
+/// protected Galaxy Control setting permits clients to use them.
 fn discovery_record_for_settings(
     ctx: &ModelContext<LocalControlServer>,
     control_endpoint: ControlEndpoint,
@@ -297,7 +297,9 @@ fn discovery_record_for_settings(
         .then_some(control_endpoint);
     InstanceRecord::for_current_process(
         endpoint,
-        ChannelState::channel().to_string(),
+        ChannelState::channel()
+            .local_control_channel_name()
+            .to_owned(),
         ChannelState::app_id().to_string(),
         ChannelState::app_version().map(str::to_owned),
         ActionKind::implemented_metadata(),
@@ -403,9 +405,9 @@ async fn handle_credential_broker_connection(
 }
 
 #[cfg(unix)]
-/// Requires the kernel-reported peer UID to match Warp's effective UID.
+/// Requires the kernel-reported peer UID to match Galaxy's effective UID.
 ///
-/// This excludes other OS users but does not distinguish trusted Warp code from
+/// This excludes other OS users but does not distinguish trusted Galaxy code from
 /// arbitrary processes already running as the same user.
 fn ensure_same_user_peer(stream: &tokio::net::UnixStream) -> Result<(), ControlError> {
     ensure_peer_uid(stream, unsafe { libc::geteuid() })

@@ -1,4 +1,4 @@
-pkgname=warp-terminal@@CHANNEL_SUFFIX@@
+pkgname=@@PACKAGE_NAME@@
 pkgver=@@VERSION@@
 pkgrel=@@RELEASE@@
 pkgdesc="Warp, the Rust-based terminal for developers and teams"

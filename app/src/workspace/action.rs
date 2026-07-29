@@ -668,12 +668,16 @@ pub enum WorkspaceAction {
     /// Uninstall the Oz CLI command from /usr/local/bin
     #[cfg(target_os = "macos")]
     UninstallOz,
-    /// Install the Warp Control CLI command to /usr/local/bin
+    /// Allow local Galaxy Control clients to automate this app.
+    EnableGalaxyControl,
+    /// Reject local Galaxy Control clients and withdraw discovery credentials.
+    DisableGalaxyControl,
+    /// Install the Galaxy Control CLI command to /usr/local/bin
     #[cfg(target_os = "macos")]
-    InstallWarpctrl,
-    /// Uninstall the Warp Control CLI command from /usr/local/bin
+    InstallGalaxyctrl,
+    /// Uninstall the Galaxy Control CLI command from /usr/local/bin
     #[cfg(target_os = "macos")]
-    UninstallWarpctrl,
+    UninstallGalaxyctrl,
     UndoRevertInCodeReviewPane {
         window_id: WindowId,
         view_id: EntityId,
@@ -1211,8 +1215,9 @@ impl WorkspaceAction {
             SampleProcess => false,
             #[cfg(target_os = "macos")]
             InstallOz | UninstallOz => false,
+            EnableGalaxyControl | DisableGalaxyControl => false,
             #[cfg(target_os = "macos")]
-            InstallWarpctrl | UninstallWarpctrl => false,
+            InstallGalaxyctrl | UninstallGalaxyctrl => false,
             #[cfg(feature = "local_fs")]
             FileRenamed { .. } => false, // File rename doesn't change workspace state
             #[cfg(feature = "local_fs")]

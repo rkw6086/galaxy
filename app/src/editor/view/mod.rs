@@ -23,6 +23,7 @@ use base64::engine::general_purpose;
 use base64::Engine as _;
 use element::CommandXRayMouseStateHandle;
 use figma_utils::is_figma_png;
+use futures::AsyncReadExt as _;
 use galaxy_core::semantic_selection::SemanticSelection;
 use galaxy_core::{safe_error, send_telemetry_from_ctx};
 use itertools::{Either, Itertools};
@@ -123,7 +124,10 @@ use crate::ui_components::icons;
 use crate::util::bindings::{cmd_or_ctrl_shift, keybinding_name_to_keystroke, CustomAction};
 use crate::util::clipboard::clipboard_content_with_escaped_paths;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
-use crate::util::image::{resize_image, MAX_IMAGE_COUNT_FOR_QUERY, MAX_IMAGE_SIZE_BYTES};
+use crate::util::image::{
+    infer_mime_type, is_supported_image_mime_type, resize_image, MAX_IMAGE_COUNT_FOR_QUERY,
+    MAX_IMAGE_SIZE_BYTES, MIME_SNIFF_BYTES,
+};
 use crate::util::merge_ranges;
 use crate::view_components::DismissibleToast;
 #[cfg(feature = "voice_input")]
@@ -140,8 +144,6 @@ pub const VOICE_LIMIT_HIT_TOAST_TEXT: &str = "You have hit the limit for Voice r
 pub const VOICE_ERROR_TOAST_TEXT: &str = "An error occurred while processing your voice input.";
 
 pub const MAX_IMAGES_PER_CONVERSATION: usize = 200;
-
-use galaxyui::clipboard_utils::CLIPBOARD_IMAGE_MIME_TYPES;
 
 #[derive(Clone, Copy)]
 pub enum AutosuggestionLocation {
@@ -1077,6 +1079,9 @@ pub enum EditorAction {
     ToggleVoiceInput(voice_input::VoiceInputToggledFrom),
     AttachFiles,
     SetAIContextMenuOpen(bool),
+    ClassifyAndProcessPickedFilesAsync {
+        file_paths: Vec<String>,
+    },
     ReadAndProcessImagesAsync {
         num_images_user_attached: usize,
         file_paths: Vec<String>,
@@ -1415,6 +1420,24 @@ impl fmt::Debug for AttachedImage {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PickedFileKind {
+    SupportedImage,
+    UnsupportedImage,
+    File,
+}
+
+fn classify_picked_file(path: &Path, file_prefix: &[u8]) -> PickedFileKind {
+    let mime_type = infer_mime_type(path, file_prefix);
+    if is_supported_image_mime_type(&mime_type) {
+        PickedFileKind::SupportedImage
+    } else if mime_type.starts_with("image/") {
+        PickedFileKind::UnsupportedImage
+    } else {
+        PickedFileKind::File
+    }
+}
+
 /// Interface for picking different options for the editor's behavior.
 pub struct EditorOptions {
     pub text: TextOptions,
@@ -1683,28 +1706,38 @@ impl ImageContextOptions {
         } = self
         {
             if *unsupported_model {
-                return "Image attachment isn't supported by this model".into();
+                return "Attach files (this model doesn't support image input)".into();
             }
 
             if *is_processing_attached_images {
-                return "Loading...".into();
+                return "Loading images...".into();
             }
 
             if *num_images_attached >= MAX_IMAGE_COUNT_FOR_QUERY {
                 return format!(
-                    "Image attachment is disabled — limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query"
+                    "Attach files (image limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query)"
                 );
             }
 
             let total_images = *num_images_attached + *num_images_in_conversation;
             if total_images >= MAX_IMAGES_PER_CONVERSATION {
                 return format!(
-                    "Image attachment is disabled — limit is {MAX_IMAGES_PER_CONVERSATION} per conversation"
+                    "Attach files (image limit is {MAX_IMAGES_PER_CONVERSATION} per conversation)"
                 );
             }
         }
 
-        "Attach images".into()
+        "Attach files or images".into()
+    }
+
+    pub fn is_processing_attached_images(&self) -> bool {
+        matches!(
+            self,
+            ImageContextOptions::Enabled {
+                is_processing_attached_images: true,
+                ..
+            }
+        )
     }
 
     pub fn num_images_attached(&self) -> usize {
@@ -1735,6 +1768,44 @@ impl ImageContextOptions {
                 ..
             }
         )
+    }
+
+    fn image_attachment_error_message(&self) -> Option<String> {
+        if self.is_enabled() {
+            return None;
+        }
+
+        match self {
+            ImageContextOptions::Enabled {
+                unsupported_model: true,
+                ..
+            } => Some("The selected model does not support images as context.".to_string()),
+            ImageContextOptions::Enabled {
+                is_processing_attached_images: true,
+                ..
+            } => Some("Images are still loading. Try again when processing finishes.".to_string()),
+            ImageContextOptions::Enabled {
+                num_images_attached,
+                ..
+            } if *num_images_attached >= MAX_IMAGE_COUNT_FOR_QUERY => Some(format!(
+                "Image attachment limit reached ({MAX_IMAGE_COUNT_FOR_QUERY} per query)."
+            )),
+            ImageContextOptions::Enabled {
+                num_images_attached,
+                num_images_in_conversation,
+                ..
+            } if *num_images_attached + *num_images_in_conversation
+                >= MAX_IMAGES_PER_CONVERSATION =>
+            {
+                Some(format!(
+                    "Image attachment limit reached ({MAX_IMAGES_PER_CONVERSATION} per conversation)."
+                ))
+            }
+            ImageContextOptions::Enabled { .. } => None,
+            ImageContextOptions::Disabled => {
+                Some("Image attachment is not available in this input.".to_string())
+            }
+        }
     }
 }
 
@@ -4969,121 +5040,190 @@ impl EditorView {
 
         let file_picker_config = FilePickerConfiguration::new().allow_multi_select();
 
-        let is_unsupported_model = self.image_context_options.is_unsupported_model();
-        let num_images_attached = self.image_context_options.num_images_attached();
-        let num_images_in_conversation = self.image_context_options.num_images_in_conversation();
-
         ctx.open_file_picker(
-            move |result, ctx| {
-                match result {
-                    Ok(paths) => {
-                        // Split picked paths into image and non-image files by MIME type.
-                        let mut image_paths = Vec::new();
-                        let mut non_image_paths = Vec::new();
-                        for path in &paths {
-                            let mime = mime_guess::from_path(path)
-                                .first_or_octet_stream()
-                                .to_string();
-                            if CLIPBOARD_IMAGE_MIME_TYPES.contains(&mime.as_str()) {
-                                image_paths.push(path.clone());
-                            } else {
-                                non_image_paths.push(path.clone());
-                            }
-                        }
-
-                        // If the model doesn't support vision, show toast and clear images.
-                        if !image_paths.is_empty() && is_unsupported_model {
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_ephemeral_toast(
-                                    DismissibleToast::error(
-                                        "The selected model does not support images as context."
-                                            .to_string(),
-                                    ),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                            image_paths.clear();
-                        }
-
-                        // Apply image count limits.
-                        let num_images_user_attached = image_paths.len();
-                        let num_excess_images_by_query_limit = (image_paths.len()
-                            + num_images_attached)
-                            .saturating_sub(MAX_IMAGE_COUNT_FOR_QUERY);
-                        let num_excess_images_by_conversation_limit =
-                            (image_paths.len() + num_images_attached + num_images_in_conversation)
-                                .saturating_sub(MAX_IMAGES_PER_CONVERSATION);
-                        let num_excess_images = num_excess_images_by_query_limit
-                            .max(num_excess_images_by_conversation_limit);
-
-                        if num_excess_images > 0 {
-                            let limit_reason = if num_excess_images
-                                == num_excess_images_by_query_limit
-                            {
-                                format!("limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query")
-                            } else {
-                                format!("limit is {MAX_IMAGES_PER_CONVERSATION} per conversation")
-                            };
-
-                            let message = if num_excess_images == 1 {
-                                format!("1 image wasn't attached - {limit_reason}.")
-                            } else {
-                                format!(
-                                    "{num_excess_images} images weren't attached - {limit_reason}."
-                                )
-                            };
-
-                            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                                toast_stack.add_persistent_toast(
-                                    DismissibleToast::error(message),
-                                    window_id,
-                                    ctx,
-                                );
-                            });
-                        }
-
-                        // Process image paths (excluding excess).
-                        let image_paths_to_process: Vec<String> =
-                            image_paths[0..(image_paths.len() - num_excess_images)].to_vec();
-
-                        if !image_paths_to_process.is_empty() {
-                            ctx.dispatch_typed_action_for_view(
-                                window_id,
-                                view_id,
-                                &EditorAction::ReadAndProcessImagesAsync {
-                                    num_images_user_attached,
-                                    file_paths: image_paths_to_process,
-                                },
-                            );
-                        }
-
-                        // Process non-image file paths.
-                        if !non_image_paths.is_empty() {
-                            ctx.dispatch_typed_action_for_view(
-                                window_id,
-                                view_id,
-                                &EditorAction::ProcessNonImageFiles {
-                                    file_paths: non_image_paths,
-                                },
-                            );
-                        }
-                    }
-                    Err(err) => {
-                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                            toast_stack.add_persistent_toast(
-                                DismissibleToast::error(format!("{err}")),
-                                window_id,
-                                ctx,
-                            );
-                        });
-                    }
+            move |result, ctx| match result {
+                Ok(file_paths) => {
+                    ctx.dispatch_typed_action_for_view(
+                        window_id,
+                        view_id,
+                        &EditorAction::ClassifyAndProcessPickedFilesAsync { file_paths },
+                    );
+                }
+                Err(err) => {
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_persistent_toast(
+                            DismissibleToast::error(format!("{err}")),
+                            window_id,
+                            ctx,
+                        );
+                    });
                 }
             },
             file_picker_config,
         );
 
         ctx.notify();
+    }
+
+    fn classify_and_process_picked_files_async(
+        &mut self,
+        file_paths: Vec<String>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if file_paths.is_empty() {
+            return;
+        }
+
+        let window_id = ctx.window_id();
+        ctx.spawn(
+            async move {
+                let mut image_paths = Vec::new();
+                let mut non_image_paths = Vec::new();
+                let mut num_unsupported_images = 0;
+                let mut num_read_errors = 0;
+
+                for path_str in file_paths {
+                    let path = Path::new(&path_str);
+                    let mut file = match async_fs::File::open(path).await {
+                        Ok(file) => file,
+                        Err(error) => {
+                            safe_error!(
+                                safe: ("Failed to open selected attachment: {error}"),
+                                full: ("Failed to open selected attachment {path_str}: {error}")
+                            );
+                            num_read_errors += 1;
+                            continue;
+                        }
+                    };
+                    let mut prefix = vec![0; MIME_SNIFF_BYTES];
+                    let bytes_read = match file.read(&mut prefix).await {
+                        Ok(bytes_read) => bytes_read,
+                        Err(error) => {
+                            safe_error!(
+                                safe: ("Failed to read selected attachment: {error}"),
+                                full: ("Failed to read selected attachment {path_str}: {error}")
+                            );
+                            num_read_errors += 1;
+                            continue;
+                        }
+                    };
+                    prefix.truncate(bytes_read);
+
+                    match classify_picked_file(path, &prefix) {
+                        PickedFileKind::SupportedImage => image_paths.push(path_str),
+                        PickedFileKind::UnsupportedImage => num_unsupported_images += 1,
+                        PickedFileKind::File => non_image_paths.push(path_str),
+                    }
+                }
+
+                (
+                    image_paths,
+                    non_image_paths,
+                    num_unsupported_images,
+                    num_read_errors,
+                )
+            },
+            move |this,
+                  (
+                mut image_paths,
+                non_image_paths,
+                num_unsupported_images,
+                num_read_errors,
+            ),
+                  ctx| {
+                if num_unsupported_images > 0 {
+                    let message = if num_unsupported_images == 1 {
+                        "1 image wasn't attached — supported types are PNG, JPG, GIF, and WEBP."
+                            .to_string()
+                    } else {
+                        format!(
+                            "{num_unsupported_images} images weren't attached — supported types are PNG, JPG, GIF, and WEBP."
+                        )
+                    };
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_persistent_toast(
+                            DismissibleToast::error(message),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                }
+
+                if num_read_errors > 0 {
+                    let message = if num_read_errors == 1 {
+                        "1 file wasn't attached — failed to read it.".to_string()
+                    } else {
+                        format!("{num_read_errors} files weren't attached — failed to read them.")
+                    };
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_persistent_toast(
+                            DismissibleToast::error(message),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                }
+
+                if !image_paths.is_empty() && this.image_context_options.is_unsupported_model() {
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_ephemeral_toast(
+                            DismissibleToast::error(
+                                "The selected model does not support images as context.".to_string(),
+                            ),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                    image_paths.clear();
+                }
+
+                let num_images_user_attached = image_paths.len();
+                let num_images_attached = this.image_context_options.num_images_attached();
+                let num_images_in_conversation =
+                    this.image_context_options.num_images_in_conversation();
+                let num_excess_images_by_query_limit = (image_paths.len() + num_images_attached)
+                    .saturating_sub(MAX_IMAGE_COUNT_FOR_QUERY);
+                let num_excess_images_by_conversation_limit =
+                    (image_paths.len() + num_images_attached + num_images_in_conversation)
+                        .saturating_sub(MAX_IMAGES_PER_CONVERSATION);
+                let num_excess_images = num_excess_images_by_query_limit
+                    .max(num_excess_images_by_conversation_limit)
+                    .min(image_paths.len());
+
+                if num_excess_images > 0 {
+                    let limit_reason =
+                        if num_excess_images == num_excess_images_by_query_limit {
+                            format!("limit is {MAX_IMAGE_COUNT_FOR_QUERY} per query")
+                        } else {
+                            format!("limit is {MAX_IMAGES_PER_CONVERSATION} per conversation")
+                        };
+                    let message = if num_excess_images == 1 {
+                        format!("1 image wasn't attached — {limit_reason}.")
+                    } else {
+                        format!("{num_excess_images} images weren't attached — {limit_reason}.")
+                    };
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_persistent_toast(
+                            DismissibleToast::error(message),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                    image_paths.truncate(image_paths.len() - num_excess_images);
+                }
+
+                if !image_paths.is_empty() {
+                    this.read_and_process_images_async(
+                        num_images_user_attached,
+                        image_paths,
+                        ctx,
+                    );
+                }
+                if !non_image_paths.is_empty() {
+                    this.process_non_image_files(non_image_paths, ctx);
+                }
+            },
+        );
     }
 
     /// Reads and processes images asynchronously from file paths.
@@ -5096,19 +5236,11 @@ impl EditorView {
         file_paths: Vec<String>,
         ctx: &mut ViewContext<Self>,
     ) {
-        if !self.image_context_options.is_enabled() {
-            if self.image_context_options.is_unsupported_model() {
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        DismissibleToast::error(
-                            "The selected model does not support images as context".to_owned(),
-                        ),
-                        window_id,
-                        ctx,
-                    );
-                });
-            }
+        if let Some(message) = self.image_context_options.image_attachment_error_message() {
+            let window_id = ctx.window_id();
+            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                toast_stack.add_ephemeral_toast(DismissibleToast::error(message), window_id, ctx);
+            });
             return;
         }
 
@@ -5132,9 +5264,10 @@ impl EditorView {
                                 continue;
                             };
 
-                            let mime_type = from_path(path).first_or_octet_stream().to_string();
+                            let sniff_len = bytes.len().min(MIME_SNIFF_BYTES);
+                            let mime_type = infer_mime_type(path, &bytes[..sniff_len]);
 
-                            if !CLIPBOARD_IMAGE_MIME_TYPES.contains(&mime_type.as_str()) {
+                            if !is_supported_image_mime_type(&mime_type) {
                                 num_unsupported_images += 1;
                                 continue;
                             }
@@ -5211,19 +5344,11 @@ impl EditorView {
         pending_images: Vec<AttachedImage>,
         ctx: &mut ViewContext<Self>,
     ) {
-        if !self.image_context_options.is_enabled() {
-            if self.image_context_options.is_unsupported_model() {
-                let window_id = ctx.window_id();
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        DismissibleToast::error(
-                            "The selected model does not support images as context".to_owned(),
-                        ),
-                        window_id,
-                        ctx,
-                    );
-                });
-            }
+        if let Some(message) = self.image_context_options.image_attachment_error_message() {
+            let window_id = ctx.window_id();
+            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                toast_stack.add_ephemeral_toast(DismissibleToast::error(message), window_id, ctx);
+            });
             return;
         }
 
@@ -5260,11 +5385,21 @@ impl EditorView {
                         continue;
                     }
 
+                    let sniff_len = resized_image_bytes.len().min(MIME_SNIFF_BYTES);
+                    let mime_type = infer_mime_type(
+                        Path::new(&image.file_name),
+                        &resized_image_bytes[..sniff_len],
+                    );
+                    if !is_supported_image_mime_type(&mime_type) {
+                        num_unprocessed_images += 1;
+                        continue;
+                    }
+
                     let base64_str = general_purpose::STANDARD.encode(&resized_image_bytes);
 
                     processed_pending_images.push(ImageContext {
                         data: base64_str,
-                        mime_type: image.mime_type,
+                        mime_type,
                         file_name: image.file_name,
                         is_figma,
                     });
@@ -8226,7 +8361,7 @@ impl EditorView {
         if should_show_image {
             controls.add_child(
                 Container::new(self.render_image_context_button(
-                    !self.image_context_options.is_enabled(),
+                    self.image_context_options.is_processing_attached_images(),
                     self.image_context_options.tooltip_text(),
                     icon_size,
                     appearance,
@@ -8447,6 +8582,9 @@ impl TypedActionView for EditorView {
                 self.toggle_voice_input(source, ctx);
             }
             AttachFiles => self.attach_files(ctx),
+            ClassifyAndProcessPickedFilesAsync { file_paths } => {
+                self.classify_and_process_picked_files_async(file_paths.clone(), ctx);
+            }
             ReadAndProcessImagesAsync {
                 num_images_user_attached,
                 file_paths,

@@ -97,7 +97,7 @@ pub fn register_all_settings(ctx: &mut AppContext) {
     EmacsBindingsSettings::register(ctx);
     SameLinePromptBlockSettings::register(ctx);
     SemanticSelection::register(ctx);
-    if FeatureFlag::WarpControlCli.is_enabled() {
+    if FeatureFlag::GalaxyControlCli.is_enabled() {
         LocalControlSettings::register(ctx);
     }
 

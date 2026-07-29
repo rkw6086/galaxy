@@ -797,8 +797,8 @@ pub enum FeatureFlag {
     /// Enables tab configs — user-definable TOML templates for launching custom tab layouts.
     TabConfigs,
 
-    /// Enables Warp local control through the standalone warpctrl CLI.
-    WarpControlCli,
+    /// Enables Galaxy local control through the standalone galaxyctrl CLI.
+    GalaxyControlCli,
 
     /// Enables the ask_user_question tool allowing the agent to ask clarifying questions.
     AskUserQuestion,
@@ -931,18 +931,16 @@ static FEATURES_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Features used in debugging.
 pub const DEBUG_FLAGS: &[FeatureFlag] = &[FeatureFlag::DebugMode, FeatureFlag::RuntimeFeatureFlags];
-/// Features enabled only for the WarpLocal developer build.
+/// Features enabled only for the Galaxy Local developer build.
 pub const LOCAL_FLAGS: &[FeatureFlag] = &[FeatureFlag::LocalClaudeCodexChildHarnesses];
 
 /// Features enabled for the development team.  The expectation is that, over
 /// time, these will move on to PREVIEW_FLAGS before being launched.
 pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::ToggleBootstrapBlock,
-    FeatureFlag::CreatingSharedSessions,
     FeatureFlag::RemoveAutosuggestionDuringTabCompletions,
     FeatureFlag::ResizeFix,
     FeatureFlag::AgentModeWorkflows,
-    FeatureFlag::AgentModeAnalytics,
     FeatureFlag::LazySceneBuilding,
     FeatureFlag::SshDragAndDrop,
     FeatureFlag::MultiWorkspace,
@@ -952,15 +950,11 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::ContextLineReviewComments,
     FeatureFlag::RunGeneratorsWithCmdExe,
     FeatureFlag::Projects,
-    FeatureFlag::ProviderCommand,
     FeatureFlag::MarkdownImages,
     FeatureFlag::FileAndDiffSetComments,
     FeatureFlag::FileGlobV2Warnings,
-    FeatureFlag::SummarizationViaMessageReplacement,
     FeatureFlag::LocalComputerUse,
-    FeatureFlag::OzLaunchModal,
-    // These are enabled via 100% experiment on prod warp-server,
-    // but we need to enable here for dogfood builds.
+    // Keep local code-context experiments enabled in Galaxy dogfood builds.
     FeatureFlag::CrossRepoContext,
     FeatureFlag::CodebaseIndexPersistence,
     FeatureFlag::FullSourceCodeEmbedding,
@@ -969,31 +963,28 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::EditableMarkdownMermaid,
     FeatureFlag::CodeReviewScrollPreservation,
     FeatureFlag::RememberFastForwardState,
-    FeatureFlag::GeminiNotifications,
     FeatureFlag::LocalDockerSandbox,
     #[cfg(not(windows))]
     FeatureFlag::SshRemoteServer,
     FeatureFlag::RemoteCodebaseIndexing,
     FeatureFlag::GPTConfigurableContextWindow,
     FeatureFlag::RestorePromptOnInlineModelSelectorSearch,
-    FeatureFlag::WarpControlCli,
     FeatureFlag::PromptCacheExpiryWarning,
     FeatureFlag::PinnedTabs,
     FeatureFlag::BackgroundComputerUse,
     FeatureFlag::ContextWindowUsageBreakdown,
-    FeatureFlag::WaitForEventsParentRegistration,
     FeatureFlag::CrosscheckWork,
 ];
 
-/// Features enabled for feature preview build users (e.g.: Friends of Warp).
-/// All PREVIEW_FLAGS are also automatically added to dogfood builds (WarpDev).
+/// Features enabled for Galaxy Preview builds.
+/// All PREVIEW_FLAGS are also automatically added to Galaxy dogfood builds.
 pub const PREVIEW_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::AsyncFind,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     FeatureFlag::DragTabsToWindows,
 ];
 
-/// Features enabled for all release builds (i.e.: everything but WarpLocal).
+/// Features enabled for all Galaxy release builds (i.e. everything but Galaxy Local).
 /// NOTE: if you are promoting a feature from Preview to launch, you'll likely
 /// want to enable the feature by default in app/Cargo.toml, rather than add it to RELEASE_FLAGS.
 pub const RELEASE_FLAGS: &[FeatureFlag] = &[

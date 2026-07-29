@@ -648,24 +648,29 @@ fn apply_scroll_multiplier(event: &mut Event, app: &AppContext) {
     }
 }
 
-/// Runs the shared Warp executable as the app or as one of its command-line modes.
+/// Runs the shared Galaxy executable as the app or as one of its command-line modes.
 ///
-/// The bundled Warp Control wrapper injects `--warpctrl`, which is dispatched
-/// before the normal Warp/Oz parser. Oz subcommands are part of that normal
-/// parser and therefore do not require a separate mode flag.
-#[::tracing::instrument(skip_all, fields(tags.cloud_agent = true))]
+/// The bundled Galaxy Control wrapper injects `--galaxyctrl`, which is dispatched
+/// before the normal Galaxy command-line parser.
 pub fn run() -> Result<()> {
     // Perform any necessary platform-specific initialization.
     platform::init();
 
     // Ensure feature flags are initialized before parsing command-line arguments.
     features::init_feature_flags();
-    if let Some(args) = warp_cli::local_control::ControlArgs::from_control_mode_env() {
+    if let Some(args) = galaxy_cli::local_control::ControlArgs::from_control_mode_env() {
         #[cfg(windows)]
         warp_util::windows::attach_to_parent_console();
-        warp_cli::local_control::run_and_exit(args);
+        galaxy_cli::local_control::run_and_exit(args);
     }
 
+    run_app_or_cli()
+}
+
+/// Runs normal app and command-line modes after the telemetry-neutral Galaxy
+/// Control dispatch has had an opportunity to exit.
+#[::tracing::instrument(skip_all)]
+fn run_app_or_cli() -> Result<()> {
     // Parse command-line arguments.
     let args = galaxy_cli::Args::from_env();
 
@@ -736,10 +741,14 @@ pub fn run() -> Result<()> {
         }
     }
 
-    // If running as a standalone CLI binary or invoked as "oz", print help
-    // instead of launching the GUI app.
+    // If running as a standalone CLI binary or through a channel-specific
+    // Galaxy AI launcher, print help instead of launching the GUI app. Keep
+    // recognizing the former Oz launcher because existing installations may
+    // still contain that external symlink.
     let is_cli_binary = cfg!(feature = "standalone")
-        || galaxy_cli::binary_name().is_some_and(|name| name.starts_with("oz"))
+        || galaxy_cli::binary_name()
+            .is_some_and(|name| name.starts_with("galaxy-ai") || name.starts_with("oz"))
+        || std::env::var_os("GALAXY_CLI_MODE").is_some()
         || std::env::var_os("WARP_CLI_MODE").is_some();
     if is_cli_binary {
         galaxy_cli::Args::clap_command().print_help()?;
@@ -1568,7 +1577,7 @@ pub(crate) fn initialize_app(
     remote_server::wire_auth_token_rotation(ctx);
 
     log::info!(
-        "Starting warp with channel state {} and version {:?}",
+        "Starting Galaxy with channel state {} and version {:?}",
         ChannelState::debug_str(),
         ChannelState::app_version()
     );
@@ -2241,7 +2250,7 @@ pub(crate) fn initialize_app(
     if matches!(
         launch_mode,
         LaunchMode::App { .. } | LaunchMode::Test { .. }
-    ) && FeatureFlag::WarpControlCli.is_enabled()
+    ) && FeatureFlag::GalaxyControlCli.is_enabled()
     {
         ctx.add_singleton_model(local_control::LocalControlBridge::new);
         ctx.add_singleton_model(local_control::LocalControlServer::new);

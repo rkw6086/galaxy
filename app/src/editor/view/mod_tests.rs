@@ -4149,6 +4149,71 @@ fn test_buffer_points_to_cache() {
 }
 
 #[test]
+fn picked_file_classification_uses_file_content_instead_of_extension() {
+    let png_header = [137, 80, 78, 71, 13, 10, 26, 10];
+    assert_eq!(
+        infer_mime_type(Path::new("misleading.jpg"), &png_header),
+        "image/png"
+    );
+    assert_eq!(
+        classify_picked_file(Path::new("extensionless"), &png_header),
+        PickedFileKind::SupportedImage
+    );
+
+    let bmp_header = [66, 77, 54, 0, 0, 0, 0, 0];
+    assert_eq!(
+        classify_picked_file(Path::new("misleading.png"), &bmp_header),
+        PickedFileKind::UnsupportedImage
+    );
+
+    assert_eq!(
+        classify_picked_file(Path::new("notes.txt"), b"plain text"),
+        PickedFileKind::File
+    );
+}
+
+#[test]
+fn image_context_options_describe_the_combined_attachment_picker() {
+    let options = ImageContextOptions::Enabled {
+        unsupported_model: false,
+        is_processing_attached_images: false,
+        num_images_attached: 0,
+        num_images_in_conversation: 0,
+    };
+
+    assert_eq!(options.tooltip_text(), "Attach files or images");
+    assert!(!options.is_processing_attached_images());
+
+    let unsupported_vision_model = ImageContextOptions::Enabled {
+        unsupported_model: true,
+        is_processing_attached_images: false,
+        num_images_attached: 0,
+        num_images_in_conversation: 0,
+    };
+    assert_eq!(
+        unsupported_vision_model.tooltip_text(),
+        "Attach files (this model doesn't support image input)"
+    );
+    assert!(!unsupported_vision_model.is_processing_attached_images());
+    assert_eq!(
+        unsupported_vision_model.image_attachment_error_message(),
+        Some("The selected model does not support images as context.".to_string())
+    );
+
+    let processing = ImageContextOptions::Enabled {
+        unsupported_model: false,
+        is_processing_attached_images: true,
+        num_images_attached: 0,
+        num_images_in_conversation: 0,
+    };
+    assert!(processing.is_processing_attached_images());
+    assert_eq!(
+        processing.image_attachment_error_message(),
+        Some("Images are still loading. Try again when processing finishes.".to_string())
+    );
+}
+
+#[test]
 fn test_paste_clipboard_with_text_only_should_paste_text_normally() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);

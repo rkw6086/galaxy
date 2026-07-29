@@ -82,22 +82,6 @@ pub(crate) fn handle(
             target,
             ctx,
         ),
-        ActionKind::SurfaceWarpDriveOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::WarpDrive,
-            WorkspaceAction::OpenGalaxyDrive,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceAgentManagementOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::AgentManagement,
-            WorkspaceAction::OpenAgentManagementView,
-            target,
-            ctx,
-        ),
         ActionKind::SessionNext => workspace_action(
             instance_id,
             action,
@@ -121,27 +105,6 @@ pub(crate) fn handle(
             surface_command_search_open(instance_id, params, target, ctx)
         }
         ActionKind::SurfaceThemePickerOpen => surface_theme_picker_open(instance_id, target, ctx),
-        ActionKind::SurfaceWarpDriveToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleGalaxyDrive,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceResourceCenterToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleResourceCenter,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceAiAssistantToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleAIAssistant,
-            target,
-            ctx,
-        ),
         ActionKind::SurfaceCodeReviewOpen => surface_code_review_open(instance_id, target, ctx),
         ActionKind::SurfaceCodeReviewToggle | ActionKind::SurfaceRightPanelToggle => {
             workspace_action(
@@ -165,21 +128,6 @@ pub(crate) fn handle(
             action,
             SurfaceDestination::GlobalSearch,
             WorkspaceAction::OpenGlobalSearch,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceConversationListOpen => surface_workspace_action(
-            instance_id,
-            action,
-            SurfaceDestination::ConversationList,
-            WorkspaceAction::OpenConversationListView,
-            target,
-            ctx,
-        ),
-        ActionKind::SurfaceLeftPanelToggle => workspace_action(
-            instance_id,
-            action,
-            WorkspaceAction::ToggleLeftPanel,
             target,
             ctx,
         ),
@@ -239,7 +187,7 @@ fn window_create(
     let params = decode_params::<TabCreateParams>(params)?;
     match params.tab_type {
         None | Some(TabType::Terminal | TabType::Default) => {}
-        Some(TabType::Agent | TabType::CloudAgent) => {
+        Some(TabType::Agent) => {
             return Err(ControlError::new(
                 ErrorCode::UnsupportedAction,
                 "window.create only supports terminal or default window types",
@@ -695,7 +643,7 @@ fn settings_section(page: String) -> Result<SettingsSection, ControlError> {
     if section == SettingsSection::WarpDrive {
         return Err(ControlError::new(
             ErrorCode::UnsupportedAction,
-            "surface.settings.open does not open Warp Drive settings",
+            "surface.settings.open does not open Galaxy Drive settings",
         ));
     }
     Ok(section)
@@ -715,7 +663,7 @@ fn surface_palette_open(
         action_kind,
         WorkspaceAction::OpenPalette {
             mode,
-            source: PaletteSource::Keybinding,
+            source: PaletteSource::LocalControl,
             query,
         },
         target,

@@ -10,7 +10,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use crate::ai::agent::api::Event;
 use crate::ai::bedrock::response_translator::{
-    build_create_task, build_stream_init, context_window_for_model,
+    build_create_task, build_stream_init, context_window_for_model, recall_from_history,
 };
 use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use crate::server::server_api::AIApiError;
@@ -23,18 +23,41 @@ struct ToolCallAccumulator {
     arguments: String,
 }
 
-pub fn openai_stream_to_response_events(
-    byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
-    task_id: String,
-    needs_create_task: bool,
-    user_query: Option<String>,
-    messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+pub struct OpenAIStreamContext {
+    pub task_id: String,
+    pub needs_create_task: bool,
+    pub user_query: Option<String>,
+    pub messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
+    pub model_id: String,
+    pub max_context_tokens: Option<u32>,
+    pub tool_result_archive: Vec<ConversationMessage>,
+}
+
+struct StreamUsage {
+    input_tokens: i32,
+    output_tokens: i32,
+    cache_read_tokens: i32,
+    cache_write_tokens: i32,
+    cost_in_cents: f32,
     model_id: String,
     max_context_tokens: Option<u32>,
-    _tool_result_archive: Vec<ConversationMessage>,
+}
+
+pub fn openai_stream_to_response_events(
+    byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+    context: OpenAIStreamContext,
 ) -> BoxStream<'static, Event> {
     use futures::StreamExt;
 
+    let OpenAIStreamContext {
+        task_id,
+        needs_create_task,
+        user_query,
+        messages_sent,
+        model_id,
+        max_context_tokens,
+        tool_result_archive,
+    } = context;
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
 
@@ -220,21 +243,80 @@ pub fn openai_stream_to_response_events(
         if !full_text.is_empty() {
             assistant_parts.push(ContentPart::Text(full_text.clone()));
         }
+        let mut synthetic_tool_results: Vec<ContentPart> = Vec::new();
 
         for tc in &tool_calls {
             if tc.id.is_empty() || tc.name.is_empty() {
                 continue;
             }
 
-            let event = build_tool_call_message(&task_id, &tc.id, &tc.name, &tc.arguments);
-            yield Ok(event);
-
             let input: JsonValue = serde_json::from_str(&tc.arguments).unwrap_or(serde_json::json!({}));
             assistant_parts.push(ContentPart::ToolUse {
                 tool_use_id: tc.id.clone(),
                 name: tc.name.clone(),
-                input,
+                input: input.clone(),
             });
+
+            if tc.name == "recall_tool_history" {
+                log::info!("[openai] Handling recall_tool_history locally");
+                let search_query = input
+                    .get("search_query")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let tool_name_filter = input
+                    .get("tool_name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let tool_use_id = input
+                    .get("tool_use_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let offset = input
+                    .get("offset_from_end")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0) as usize;
+                let recall_result = match messages_sent.lock() {
+                    Ok(sent) => recall_from_history(
+                        &sent,
+                        &tool_result_archive,
+                        search_query,
+                        tool_name_filter,
+                        tool_use_id,
+                        offset,
+                    ),
+                    Err(_) => "Error: could not access conversation history.".to_string(),
+                };
+                synthetic_tool_results.push(ContentPart::ToolResult {
+                    tool_use_id: tc.id.clone(),
+                    content: recall_result,
+                    is_error: false,
+                });
+                continue;
+            }
+
+            if !is_known_tool(&tc.name) {
+                log::warn!("[openai] Model called unknown tool: {}", tc.name);
+                let error_text = format!(
+                    "Error: '{}' is not a valid tool. Please use one of the available tools.",
+                    tc.name
+                );
+                synthetic_tool_results.push(ContentPart::ToolResult {
+                    tool_use_id: tc.id.clone(),
+                    content: error_text.clone(),
+                    is_error: true,
+                });
+                let error_msg_id = Uuid::new_v4().to_string();
+                let error_display = format!("Failed tool call: `{}`\n\n{error_text}", tc.name);
+                yield Ok(build_add_agent_output_message(
+                    &task_id,
+                    &error_msg_id,
+                    &error_display,
+                ));
+                continue;
+            }
+
+            let event = build_tool_call_message(&task_id, &tc.id, &tc.name, &tc.arguments);
+            yield Ok(event);
         }
 
         // Store the complete assistant message in messages_sent
@@ -260,29 +342,33 @@ pub fn openai_stream_to_response_events(
 
             if let Ok(mut sent) = messages_sent.lock() {
                 sent.push(assistant_msg);
-            }
-        }
 
-        // Emit hallucinated tool error results (tools the model called that aren't known)
-        for tc in &tool_calls {
-            if tc.id.is_empty() || tc.name.is_empty() {
-                continue;
-            }
-            if !is_known_tool(&tc.name) {
-                log::warn!("[openai] Model called unknown tool: {}", tc.name);
-                let error_result = ConversationMessage {
-                    role: MessageRole::User,
-                    content: MessageContent::ToolResult {
-                        tool_use_id: tc.id.clone(),
-                        content: format!(
-                            "Error: '{}' is not a valid tool. Please use one of the available tools.",
-                            tc.name
-                        ),
-                        is_error: true,
-                    },
-                };
-                if let Ok(mut sent) = messages_sent.lock() {
-                    sent.push(error_result);
+                // Inline tools and rejected tool calls need immediate results so
+                // the next request never contains an unpaired tool use.
+                if !synthetic_tool_results.is_empty() {
+                    let result_msg = if synthetic_tool_results.len() == 1 {
+                        match synthetic_tool_results.remove(0) {
+                            ContentPart::ToolResult {
+                                tool_use_id,
+                                content,
+                                is_error,
+                            } => ConversationMessage {
+                                role: MessageRole::User,
+                                content: MessageContent::ToolResult {
+                                    tool_use_id,
+                                    content,
+                                    is_error,
+                                },
+                            },
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        ConversationMessage {
+                            role: MessageRole::User,
+                            content: MessageContent::MultiPart(synthetic_tool_results),
+                        }
+                    };
+                    sent.push(result_msg);
                 }
             }
         }
@@ -302,13 +388,15 @@ pub fn openai_stream_to_response_events(
         );
         let finished_event = build_stream_finished(
             stop_reason,
-            input_tokens,
-            output_tokens,
-            cache_read_tokens,
-            cache_write_tokens,
-            cost,
-            &model_id,
-            max_context_tokens,
+            StreamUsage {
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                cost_in_cents: cost,
+                model_id: model_id.clone(),
+                max_context_tokens,
+            },
         );
         yield Ok(finished_event);
 
@@ -445,16 +533,16 @@ fn build_tool_call_message(
     )
 }
 
-fn build_stream_finished(
-    reason: stream_finished::Reason,
-    input_tokens: i32,
-    output_tokens: i32,
-    cache_read_tokens: i32,
-    cache_write_tokens: i32,
-    cost_in_cents: f32,
-    model_id: &str,
-    max_context_tokens: Option<u32>,
-) -> ResponseEvent {
+fn build_stream_finished(reason: stream_finished::Reason, usage: StreamUsage) -> ResponseEvent {
+    let StreamUsage {
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+        cost_in_cents,
+        model_id,
+        max_context_tokens,
+    } = usage;
     let total_tokens =
         (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) as u32;
 
@@ -481,7 +569,7 @@ fn build_stream_finished(
     }];
 
     let max_context_tokens =
-        max_context_tokens.unwrap_or_else(|| context_window_for_model(model_id));
+        max_context_tokens.unwrap_or_else(|| context_window_for_model(&model_id));
     // Context usage should reflect the full input including cached tokens
     let effective_input = input_tokens + cache_read_tokens + cache_write_tokens;
     let context_usage = if max_context_tokens > 0 {
@@ -571,6 +659,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "file_glob",
     "search_codebase",
     "write_to_long_running_shell_command",
+    "interrupt_shell_command",
     "read_shell_command_output",
     "transfer_shell_command_control_to_user",
     "read_mcp_resource",
@@ -585,14 +674,12 @@ const KNOWN_TOOLS: &[&str] = &[
     "create_documents",
     "edit_documents",
     "start_agent",
-    "send_message_to_agent",
     "ask_user_question",
-    "suggest_next_prompt",
     "read_skill",
     "fetch_conversation",
     "recall_tool_history",
 ];
 
-fn is_known_tool(name: &str) -> bool {
+pub(super) fn is_known_tool(name: &str) -> bool {
     KNOWN_TOOLS.contains(&name) || name.starts_with("mcp__")
 }

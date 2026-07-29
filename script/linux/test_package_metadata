@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -e
+
+workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+assert_metadata() {
+  local artifact="$1"
+  local channel="$2"
+  local expected_suffix="$3"
+  local expected_package="$4"
+
+  ARTIFACT="$artifact"
+  RELEASE_CHANNEL="$channel"
+  source "$workspace_root/script/linux/package_metadata"
+
+  [[ "$CHANNEL_SUFFIX" == "$expected_suffix" ]]
+  [[ "$PACKAGE_NAME" == "$expected_package" ]]
+  [[ "$GALAXY_AI_COMMAND_NAME" == "galaxy-ai$expected_suffix" ]]
+  [[ "$GALAXY_CONTROL_COMMAND_NAME" == "galaxyctrl$expected_suffix" ]]
+}
+
+assert_metadata app stable "" galaxy-terminal
+assert_metadata app local -local galaxy-terminal-local
+assert_metadata app dev -dev galaxy-terminal-dev
+assert_metadata app preview -preview galaxy-terminal-preview
+assert_metadata app oss -oss galaxy-oss
+
+assert_metadata cli stable "" galaxy-ai
+assert_metadata cli local -local galaxy-ai-local
+assert_metadata cli dev -dev galaxy-ai-dev
+assert_metadata cli preview -preview galaxy-ai-preview
+assert_metadata cli oss -oss galaxy-ai-oss
+
+assert_desktop_launcher() {
+  local channel="$1"
+  local app_name="$2"
+  local expected_launcher="$3"
+  local desktop_file="$workspace_root/app/channels/$channel/dev.galaxy.$app_name.desktop"
+
+  [[ -f "$desktop_file" ]]
+  grep -qx -- "Exec=$expected_launcher %U" "$desktop_file"
+}
+
+assert_desktop_launcher stable Galaxy galaxy-terminal
+assert_desktop_launcher local GalaxyLocal galaxy-terminal-local
+assert_desktop_launcher dev GalaxyDev galaxy-terminal-dev
+assert_desktop_launcher preview GalaxyPreview galaxy-terminal-preview
+assert_desktop_launcher oss GalaxyOss galaxy-oss
+
+grep -qx -- 'Package: @@PACKAGE_NAME@@' \
+  "$workspace_root/resources/linux/debian/app/control.template" \
+  "$workspace_root/resources/linux/debian/cli/control.template"
+grep -qx -- 'Name:        @@PACKAGE_NAME@@' \
+  "$workspace_root/resources/linux/rpm/app/warp.spec.template" \
+  "$workspace_root/resources/linux/rpm/cli/warp.spec.template"
+grep -qx -- '%{_bindir}/@@GALAXY_AI_COMMAND_NAME@@' \
+  "$workspace_root/resources/linux/rpm/app/warp.spec.template"
+grep -qx -- '%{_bindir}/@@GALAXY_CONTROL_COMMAND_NAME@@' \
+  "$workspace_root/resources/linux/rpm/app/warp.spec.template"
+grep -qx -- 'pkgname=@@PACKAGE_NAME@@' \
+  "$workspace_root/resources/linux/arch/app/PKGBUILD.template" \
+  "$workspace_root/resources/linux/arch/cli/PKGBUILD.template"
+
+temp_dir="$(mktemp -d)"
+trap 'rm -rf "$temp_dir"' EXIT
+fake_workspace="$temp_dir/workspace"
+stage_dir="$temp_dir/stage"
+mkdir -p \
+  "$fake_workspace/bin" \
+  "$fake_workspace/script/linux" \
+  "$fake_workspace/app/channels/dev" \
+  "$stage_dir"
+ln -s \
+  "$workspace_root/script/linux/package_metadata" \
+  "$fake_workspace/script/linux/package_metadata"
+cat > "$fake_workspace/script/prepare_bundled_resources" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$fake_workspace/script/prepare_bundled_resources"
+cat > "$fake_workspace/bin/install" <<'EOF'
+#!/usr/bin/env bash
+paths=()
+for arg in "$@"; do
+  if [[ "$arg" != -* ]]; then
+    paths+=("$arg")
+  fi
+done
+mkdir -p "$(dirname "${paths[1]}")"
+cp "${paths[0]}" "${paths[1]}"
+EOF
+chmod +x "$fake_workspace/bin/install"
+cat > "$fake_workspace/app/channels/dev/dev.galaxy.GalaxyDev.desktop" <<'EOF'
+[Desktop Entry]
+Name=Galaxy Dev
+Exec=galaxy-terminal-dev %U
+EOF
+cat > "$temp_dir/galaxy-dev" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$temp_dir/galaxy-dev"
+
+PATH="$fake_workspace/bin:$PATH" \
+  WORKSPACE_ROOT_DIR="$fake_workspace" \
+  RELEASE_CHANNEL=dev \
+  ARTIFACT=app \
+  BUNDLE_ID=dev.galaxy.GalaxyDev \
+  EXECUTABLE_PATH="$temp_dir/galaxy-dev" \
+  BINARY_NAME=galaxy-dev \
+  OPT_DIR=/opt/warpdotdev/galaxy-terminal-dev \
+  CARGO_PROFILE=dev \
+  "$workspace_root/script/linux/bundle_install" "$stage_dir"
+
+grep -Fq 'exec -a "$0" "/opt/warpdotdev/galaxy-terminal-dev/galaxy-dev" "$@"' \
+  "$stage_dir/usr/bin/galaxy-ai-dev"
+grep -Fq 'exec -a "$0" "/opt/warpdotdev/galaxy-terminal-dev/galaxy-dev" --galaxyctrl "$@"' \
+  "$stage_dir/usr/bin/galaxyctrl-dev"

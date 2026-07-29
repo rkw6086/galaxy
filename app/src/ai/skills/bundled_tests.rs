@@ -30,6 +30,12 @@ fn remote_content<'a>(bundled_skills: &'a BundledSkills, host_id: &HostId) -> Op
 }
 
 #[test]
+fn bundled_skill_icons_use_galaxy_brand_by_default() {
+    assert_eq!(icon_for_bundled_skill("galaxyctrl"), Icon::GalaxyLogo);
+    assert_eq!(icon_for_bundled_skill("pr-comments"), Icon::Github);
+}
+
+#[test]
 fn local_and_remote_catalogs_are_isolated() {
     let first_host_id = HostId::new("first-host".to_string());
     let second_host_id = HostId::new("second-host".to_string());

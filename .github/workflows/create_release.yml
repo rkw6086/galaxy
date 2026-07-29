@@ -408,7 +408,7 @@ jobs:
           path: ${{ steps.bundle_app.outputs.dmg_path }}
 
   release_macos_cli:
-    name: Build Release (macOS CLI ${{ matrix.arch }})
+    name: Build Release (macOS Galaxy CLI ${{ matrix.arch }})
     runs-on: macos-26-xlarge
     needs: prepare_release
     if: ${{ inputs.build_macos != false }}
@@ -447,10 +447,10 @@ jobs:
           config_file: ${{ env.CONFIG_FILE }}
           channel: ${{ inputs.channel }}
 
-      - name: Build ${{ matrix.arch }} binary
+      - name: Build ${{ matrix.arch }} Galaxy CLI binary
         id: bundle_cli
         run: |
-          script/bundle --read-passwords-from-env --channel $CHANNEL --arch ${{ matrix.arch }} --artifact cli
+          script/bundle --read-passwords-from-env --channel "$CHANNEL" --arch ${{ matrix.arch }} --artifact cli --features galaxy_control_cli
         shell: bash
         env:
           CHANNEL: ${{ steps.get-config.outputs.channel }}
@@ -461,17 +461,94 @@ jobs:
           WARP_NOTARIZATION_APPLE_ID: ${{ secrets.WARP_NOTARIZATION_APPLE_ID }}
           WARP_NOTARIZATION_PASSWORD: ${{ secrets.WARP_NOTARIZATION_PASSWORD }}
 
-      - name: Package CLI binary
+      - name: Package Galaxy CLI binary
+        id: package_cli
         run: |
-          mv ${{ steps.bundle_cli.outputs.binary_path }} oz-${{ steps.get-config.outputs.channel }}
-          tar czf oz-${{ steps.get-config.outputs.channel }}-macos-${{ matrix.arch }}.tar.gz oz-${{ steps.get-config.outputs.channel }} -C "$(dirname "${{ steps.bundle_cli.outputs.bundled_resources_dir }}")" resources
+          if [[ "$CHANNEL" == "stable" ]]; then
+            command_name="galaxy-ai"
+          else
+            command_name="galaxy-ai-$CHANNEL"
+          fi
 
-      - name: Add CLI to GitHub release assets
+          archive="galaxy-ai-$CHANNEL-macos-$ARCH.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$BINARY_PATH" "$staging_dir/$command_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" resources
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          BINARY_PATH: ${{ steps.bundle_cli.outputs.binary_path }}
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
+
+      - name: Create Galaxy Control wrapper
+        id: bundle_galaxyctrl
+        run: |
+          script/bundle --read-passwords-from-env --channel "$CHANNEL" --arch ${{ matrix.arch }} --artifact galaxyctrl --skip-build
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+          WARP_DEVELOPER_ID_CERT: ${{ secrets.WARP_DEVELOPER_ID_CERT }}
+          WARP_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.WARP_DEVELOPER_ID_CERT_PASSWORD }}
+          WARP_CODESIGN_KEYCHAIN_PASSWORD: ${{ secrets.WARP_CODESIGN_KEYCHAIN_PASSWORD }}
+          WARP_NOTARIZATION_APPLE_ID: ${{ secrets.WARP_NOTARIZATION_APPLE_ID }}
+          WARP_NOTARIZATION_PASSWORD: ${{ secrets.WARP_NOTARIZATION_PASSWORD }}
+
+      - name: Package Galaxy Control wrapper
+        id: package_galaxyctrl
+        run: |
+          case "$CHANNEL" in
+            stable)
+              command_name="galaxyctrl"
+              forwarded_binary_name="stable"
+              ;;
+            local|dev|preview)
+              command_name="galaxyctrl-$CHANNEL"
+              forwarded_binary_name="galaxy-$CHANNEL"
+              ;;
+            oss)
+              command_name="galaxyctrl-oss"
+              forwarded_binary_name="galaxy-oss"
+              ;;
+            *)
+              echo "Unsupported release channel: $CHANNEL" >&2
+              exit 1
+              ;;
+          esac
+
+          artifact_dir="$(dirname "$WRAPPER_PATH")"
+          forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
+          test -x "$WRAPPER_PATH"
+          test -x "$forwarded_binary_path"
+
+          archive="galaxyctrl-$CHANNEL-macos-$ARCH.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$WRAPPER_PATH" "$staging_dir/$command_name"
+          cp "$forwarded_binary_path" "$staging_dir/$forwarded_binary_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" "$forwarded_binary_name" resources
+          rm -f "$WRAPPER_PATH" "$forwarded_binary_path"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
+          WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.binary_path }}
+
+      - name: Add Galaxy CLI artifacts to GitHub release assets
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           tag_name: ${{ needs.prepare_release.outputs.release_tag }}
-          files: oz-${{ steps.get-config.outputs.channel }}-macos-${{ matrix.arch }}.tar.gz
+          files: |
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -479,21 +556,32 @@ jobs:
         with:
           credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
 
-      - name: Upload CLI to Google Cloud Storage
+      - name: Upload Galaxy CLI to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
-          path: oz-${{ steps.get-config.outputs.channel }}-macos-${{ matrix.arch }}.tar.gz
+          path: ${{ steps.package_cli.outputs.archive }}
           destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
           headers: |-
             cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
 
-      - name: Upload CLI as workflow artifact
+      - name: Upload Galaxy Control to Google Cloud Storage
+        if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
+        uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
+        with:
+          path: ${{ steps.package_galaxyctrl.outputs.archive }}
+          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
+          headers: |-
+            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+
+      - name: Upload Galaxy CLI artifacts as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-macos-cli-${{ matrix.arch }}-${{ steps.get-config.outputs.channel }}
-          path: oz-${{ steps.get-config.outputs.channel }}-macos-${{ matrix.arch }}.tar.gz
+          path: |
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
 
       - name: Set up Sentry CLI
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -673,7 +761,7 @@ jobs:
           path: ${{ steps.bundle_app.outputs.packages_dir }}
 
   release_linux_cli_x86:
-    name: Build Release (Linux CLI x86_64)
+    name: Build Release (Linux Galaxy CLI x86_64)
     runs-on: namespace-profile-ubuntu-22-04
     needs: prepare_release
     if: ${{ inputs.build_linux != false }}
@@ -754,20 +842,89 @@ jobs:
           fi
         shell: bash
 
-      - name: Bundle CLI
+      - name: Bundle Galaxy CLI
         id: bundle_cli
         run: |
-          # Build CLI only
-          script/bundle --channel $CHANNEL --artifact cli --packages deb,rpm
+          # Build the shared CLI binary with Galaxy Control enabled so the
+          # release can package both entrypoints from identical bits.
+          script/bundle --channel "$CHANNEL" --artifact cli --packages deb,rpm --features galaxy_control_cli
         shell: bash
         env:
           CHANNEL: ${{ steps.get-config.outputs.channel }}
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
-      - name: Package CLI tar.gz
+      - name: Package Galaxy CLI tar.gz
+        id: package_cli
         run: |
-          cp ${{ steps.bundle_cli.outputs.executable_path }} oz-${{ steps.get-config.outputs.channel }}
-          tar czf oz-${{ steps.get-config.outputs.channel }}-linux-x86_64.tar.gz oz-${{ steps.get-config.outputs.channel }} -C "$(dirname "${{ steps.bundle_cli.outputs.bundled_resources_dir }}")" resources
+          if [[ "$CHANNEL" == "stable" ]]; then
+            command_name="galaxy-ai"
+          else
+            command_name="galaxy-ai-$CHANNEL"
+          fi
+
+          archive="galaxy-ai-$CHANNEL-linux-x86_64.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$BINARY_PATH" "$staging_dir/$command_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" resources
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          BINARY_PATH: ${{ steps.bundle_cli.outputs.executable_path }}
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
+
+      - name: Create Galaxy Control wrapper
+        id: bundle_galaxyctrl
+        run: |
+          script/bundle --channel "$CHANNEL" --artifact galaxyctrl --packages none --skip-build
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+
+      - name: Package Galaxy Control tar.gz
+        id: package_galaxyctrl
+        run: |
+          case "$CHANNEL" in
+            stable)
+              command_name="galaxyctrl"
+              forwarded_binary_name="stable"
+              ;;
+            local|dev|preview)
+              command_name="galaxyctrl-$CHANNEL"
+              forwarded_binary_name="galaxy-$CHANNEL"
+              ;;
+            oss)
+              command_name="galaxyctrl-oss"
+              forwarded_binary_name="galaxy-oss"
+              ;;
+            *)
+              echo "Unsupported release channel: $CHANNEL" >&2
+              exit 1
+              ;;
+          esac
+
+          artifact_dir="$(dirname "$WRAPPER_PATH")"
+          forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
+          test -x "$WRAPPER_PATH"
+          test -x "$forwarded_binary_path"
+
+          archive="galaxyctrl-$CHANNEL-linux-x86_64.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$WRAPPER_PATH" "$staging_dir/$command_name"
+          cp "$forwarded_binary_path" "$staging_dir/$forwarded_binary_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" "$forwarded_binary_name" resources
+          rm -f "$WRAPPER_PATH" "$forwarded_binary_path"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
+          WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.executable_path }}
 
       - name: Bundle Arch Linux CLI package
         uses: ./.github/actions/bundle_arch_package
@@ -824,31 +981,43 @@ jobs:
           headers: |-
             cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
 
-      - name: Add CLI tar.gz to GitHub release assets
+      - name: Add Galaxy CLI tar.gz files to GitHub release assets
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           tag_name: ${{ needs.prepare_release.outputs.release_tag }}
-          files: oz-${{ steps.get-config.outputs.channel }}-linux-x86_64.tar.gz
+          files: |
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload CLI tar.gz to Google Cloud Storage
+      - name: Upload Galaxy CLI tar.gz to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
-          path: oz-${{ steps.get-config.outputs.channel }}-linux-x86_64.tar.gz
+          path: ${{ steps.package_cli.outputs.archive }}
           destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
           headers: |-
             cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
 
-      - name: Upload CLI packages as workflow artifact
+      - name: Upload Galaxy Control tar.gz to Google Cloud Storage
+        if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
+        uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
+        with:
+          path: ${{ steps.package_galaxyctrl.outputs.archive }}
+          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
+          headers: |-
+            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+
+      - name: Upload Galaxy CLI packages as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: release-linux-cli-x86_64-${{ steps.get-config.outputs.channel }}
           path: |
             ${{ steps.bundle_cli.outputs.packages_dir }}
-            oz-${{ steps.get-config.outputs.channel }}-linux-x86_64.tar.gz
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
 
   build_linux_arm_binaries:
     name: Build Release (Linux ARM)
@@ -948,7 +1117,7 @@ jobs:
           path: binaries.tar.gz
 
   build_linux_cli_arm_binaries:
-    name: Build Release (Linux CLI ARM)
+    name: Build Release (Linux Galaxy CLI ARM)
     runs-on: namespace-profile-ubuntu-22-04
     needs: prepare_release
     if: ${{ inputs.build_linux != false }}
@@ -994,8 +1163,9 @@ jobs:
       - name: Build CLI
         id: build_cli
         run: |
-          # Build the CLI only
-          script/bundle --channel $CHANNEL --artifact cli --packages none --arch aarch64
+          # Build the shared CLI binary with Galaxy Control enabled so the
+          # packaging job can emit both entrypoints from identical bits.
+          script/bundle --channel "$CHANNEL" --artifact cli --packages none --arch aarch64 --features galaxy_control_cli
         shell: bash
         env:
           CHANNEL: ${{ steps.get-config.outputs.channel }}
@@ -1184,10 +1354,78 @@ jobs:
           CHANNEL: ${{ steps.get-config.outputs.channel }}
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
-      - name: Package CLI tar.gz
+      - name: Package Galaxy CLI tar.gz
+        id: package_cli
         run: |
-          cp ${{ steps.bundle_cli.outputs.executable_path }} oz-${{ steps.get-config.outputs.channel }}
-          tar czf oz-${{ steps.get-config.outputs.channel }}-linux-aarch64.tar.gz oz-${{ steps.get-config.outputs.channel }} -C "$(dirname "${{ steps.bundle_cli.outputs.bundled_resources_dir }}")" resources
+          if [[ "$CHANNEL" == "stable" ]]; then
+            command_name="galaxy-ai"
+          else
+            command_name="galaxy-ai-$CHANNEL"
+          fi
+
+          archive="galaxy-ai-$CHANNEL-linux-aarch64.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$BINARY_PATH" "$staging_dir/$command_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" resources
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          BINARY_PATH: ${{ steps.bundle_cli.outputs.executable_path }}
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
+
+      - name: Create Galaxy Control wrapper
+        id: bundle_galaxyctrl
+        run: |
+          script/bundle --channel "$CHANNEL" --skip-build --arch aarch64 --packages none --artifact galaxyctrl
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
+
+      - name: Package Galaxy Control tar.gz
+        id: package_galaxyctrl
+        run: |
+          case "$CHANNEL" in
+            stable)
+              command_name="galaxyctrl"
+              forwarded_binary_name="stable"
+              ;;
+            local|dev|preview)
+              command_name="galaxyctrl-$CHANNEL"
+              forwarded_binary_name="galaxy-$CHANNEL"
+              ;;
+            oss)
+              command_name="galaxyctrl-oss"
+              forwarded_binary_name="galaxy-oss"
+              ;;
+            *)
+              echo "Unsupported release channel: $CHANNEL" >&2
+              exit 1
+              ;;
+          esac
+
+          artifact_dir="$(dirname "$WRAPPER_PATH")"
+          forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
+          test -x "$WRAPPER_PATH"
+          test -x "$forwarded_binary_path"
+
+          archive="galaxyctrl-$CHANNEL-linux-aarch64.tar.gz"
+          staging_dir="$(mktemp -d)"
+          trap 'rm -rf "$staging_dir"' EXIT
+          cp "$WRAPPER_PATH" "$staging_dir/$command_name"
+          cp "$forwarded_binary_path" "$staging_dir/$forwarded_binary_name"
+          cp -R "$RESOURCES_DIR" "$staging_dir/resources"
+          tar czf "$archive" -C "$staging_dir" "$command_name" "$forwarded_binary_name" resources
+          rm -f "$WRAPPER_PATH" "$forwarded_binary_path"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+        shell: bash
+        env:
+          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
+          WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.executable_path }}
 
       - name: Bundle Arch Linux CLI package
         uses: ./.github/actions/bundle_arch_package
@@ -1233,12 +1471,14 @@ jobs:
           files: ${{ steps.bundle_cli.outputs.packages_dir }}/*
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Add CLI tar.gz to GitHub release assets
+      - name: Add Galaxy CLI tar.gz files to GitHub release assets
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
           tag_name: ${{ needs.prepare_release.outputs.release_tag }}
-          files: oz-${{ steps.get-config.outputs.channel }}-linux-aarch64.tar.gz
+          files: |
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload app packages to Google Cloud Storage
@@ -1267,11 +1507,20 @@ jobs:
           headers: |-
             cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
 
-      - name: Upload CLI tar.gz to Google Cloud Storage
+      - name: Upload Galaxy CLI tar.gz to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
-          path: oz-${{ steps.get-config.outputs.channel }}-linux-aarch64.tar.gz
+          path: ${{ steps.package_cli.outputs.archive }}
+          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
+          headers: |-
+            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+
+      - name: Upload Galaxy Control tar.gz to Google Cloud Storage
+        if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
+        uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
+        with:
+          path: ${{ steps.package_galaxyctrl.outputs.archive }}
           destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
           headers: |-
             cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
@@ -1283,7 +1532,8 @@ jobs:
           name: release-linux-arm64-${{ steps.get-config.outputs.channel }}
           path: |
             ${{ steps.bundle_app.outputs.packages_dir }}
-            oz-${{ steps.get-config.outputs.channel }}-linux-aarch64.tar.gz
+            ${{ steps.package_cli.outputs.archive }}
+            ${{ steps.package_galaxyctrl.outputs.archive }}
 
   release_web:
     name: Build Release (Web)

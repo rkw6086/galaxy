@@ -640,6 +640,7 @@ default = [
     "supergrok",
     "remote_code_review",
     "git_operations_in_code_review",
+    "galaxy_control_cli",
 ]
 # Enable this feature to automatically perform heap profiling.  NOTE: This will
 # substantially slow down program execution.
@@ -942,7 +943,7 @@ vertical_tabs_summary_mode = []
 tab_configs = []
 grouped_tabs = []
 pinned_tabs = []
-warp_control_cli = []
+galaxy_control_cli = []
 agent_harness = []
 oz_handoff = []
 handoff_local_cloud = []
@@ -977,7 +978,7 @@ resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]
 short_description = "Galaxy - AI-powered terminal for development teams."
 
-[package.metadata.bundle.bin.galaxy-stable]
+[package.metadata.bundle.bin.stable]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
 identifier = "samsung.galaxy.GalaxyStable"

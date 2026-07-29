@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Cross-platform entrypoint for running a local Warp build.
+# Cross-platform entrypoint for running a local Galaxy build.
 #
-# On macOS this delegates to `./script/macos/run`, which builds and runs Warp
+# On macOS this delegates to `./script/macos/run`, which builds and runs Galaxy
 # as a real `.app` bundle (with code signing, plist updates, etc.). On Linux
 # and Windows it invokes `cargo run` directly for the appropriate binary.
 #
@@ -18,7 +18,7 @@ cd "${REPO_ROOT}"
 
 OS_TYPE="$(uname -s)"
 
-FEATURES="gui"
+FEATURES="gui,galaxy_control_cli"
 INSTALL_COMMON_SKILLS=1
 FORCE_COMMON_SKILLS=0
 COMMON_SKILLS_TARGET="${WARP_COMMON_SKILLS_INSTALL_TARGET:-}"

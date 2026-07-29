@@ -533,7 +533,7 @@ fn test_read_bundled_skills_with_variable_substitution() {
     let resources_dir = temp_dir.path();
     let skills_dir = resources_dir.join("bundled/skills");
 
-    // Create a test skill with variables
+    // Create a test skill with local variables.
     let skill_dir = skills_dir.join("test-skill");
     fs::create_dir_all(&skill_dir).unwrap();
     let skill_file = skill_dir.join("SKILL.md");
@@ -544,8 +544,8 @@ name: test-skill
 description: Test skill with variables
 ---
 
-Run `{{galaxy_cli_binary_name}}` to connect to {{warp_server_url}}.
-Use `{{warpctrl_binary_name}}` from {{warpctrl_wrapper_path}}.
+Use `{{galaxyctrl_binary_name}}` from {{galaxyctrl_wrapper_path}}.
+Read {{settings_schema_path}} when validating settings.
 "#,
     )
     .unwrap();
@@ -555,16 +555,15 @@ Use `{{warpctrl_binary_name}}` from {{warpctrl_wrapper_path}}.
     assert_eq!(skills.len(), 1);
     let skill = skills.get("test-skill").unwrap();
 
-    let expected_cli = ChannelState::channel().cli_command_name();
-    let expected_url = ChannelState::server_root_url();
+    let expected_galaxyctrl = ChannelState::channel().galaxyctrl_command_name();
+    let expected_wrapper = resources_dir.join("bin").join(expected_galaxyctrl);
     assert!(skill.content.contains(&format!(
-        "Run `{expected_cli}` to connect to {expected_url}."
-    )));
-    let expected_warpctrl = ChannelState::channel().warpctrl_command_name();
-    let expected_wrapper = resources_dir.join("bin").join(expected_warpctrl);
-    assert!(skill.content.contains(&format!(
-        "Use `{expected_warpctrl}` from {}.",
+        "Use `{expected_galaxyctrl}` from {}.",
         expected_wrapper.display()
+    )));
+    assert!(skill.content.contains(&format!(
+        "Read {} when validating settings.",
+        resources_dir.join("settings_schema.json").display()
     )));
 }
 
@@ -611,7 +610,7 @@ fn test_read_bundled_skills_preserves_other_content() {
     let resources_dir = temp_dir.path();
     let skills_dir = resources_dir.join("bundled/skills");
 
-    // Create a test skill with both warp and non-warp variables
+    // Create a test skill with both known and unknown variables.
     let skill_dir = skills_dir.join("test-skill");
     fs::create_dir_all(&skill_dir).unwrap();
     let skill_file = skill_dir.join("SKILL.md");
@@ -622,7 +621,7 @@ name: test-skill
 description: Test skill with mixed variables
 ---
 
-Use {{other_var}}, {{galaxy_cli_binary_name}}, and {{skill_dir}} together.
+Use {{other_var}}, {{galaxyctrl_binary_name}}, and {{skill_dir}} together.
 "#,
     )
     .unwrap();
@@ -632,9 +631,9 @@ Use {{other_var}}, {{galaxy_cli_binary_name}}, and {{skill_dir}} together.
     assert_eq!(skills.len(), 1);
     let skill = skills.get("test-skill").unwrap();
 
-    let expected_cli = ChannelState::channel().cli_command_name();
+    let expected_control = ChannelState::channel().galaxyctrl_command_name();
     assert!(skill.content.contains(&format!(
-        "Use {{{{other_var}}}}, {expected_cli}, and {} together.",
+        "Use {{{{other_var}}}}, {expected_control}, and {} together.",
         skill_dir.display()
     )));
 }
@@ -675,14 +674,14 @@ fn test_build_bundled_skill_context() {
     let skill_dir = resources_dir.join("bundled/skills/test-skill");
     let context = build_bundled_skill_context(resources_dir, &skill_dir);
 
-    assert_eq!(context.len(), 9);
-    assert!(context.contains_key("warp_server_url"));
-    assert!(context.contains_key("galaxy_cli_binary_name"));
-    assert!(context.contains_key("warpctrl_binary_name"));
-    assert!(context.contains_key("warpctrl_wrapper_path"));
-    assert!(context.contains_key("warp_url_scheme"));
+    assert_eq!(context.len(), 6);
+    assert!(context.contains_key("galaxyctrl_binary_name"));
+    assert!(context.contains_key("galaxyctrl_wrapper_path"));
     assert!(context.contains_key("settings_file_path"));
     assert!(context.contains_key("keybindings_file_path"));
+    assert!(!context.contains_key("warp_server_url"));
+    assert!(!context.contains_key("warp_cli_binary_name"));
+    assert!(!context.contains_key("warp_url_scheme"));
     assert_eq!(
         context.get("settings_schema_path").unwrap(),
         &resources_dir
@@ -696,28 +695,16 @@ fn test_build_bundled_skill_context() {
     );
 
     assert_eq!(
-        context.get("warp_server_url").unwrap(),
-        &ChannelState::server_root_url().to_string()
+        context.get("galaxyctrl_binary_name").unwrap(),
+        ChannelState::channel().galaxyctrl_command_name()
     );
     assert_eq!(
-        context.get("galaxy_cli_binary_name").unwrap(),
-        ChannelState::channel().cli_command_name()
-    );
-    assert_eq!(
-        context.get("warpctrl_binary_name").unwrap(),
-        ChannelState::channel().warpctrl_command_name()
-    );
-    assert_eq!(
-        context.get("warpctrl_wrapper_path").unwrap(),
+        context.get("galaxyctrl_wrapper_path").unwrap(),
         &resources_dir
             .join("bin")
-            .join(ChannelState::channel().warpctrl_command_name())
+            .join(ChannelState::channel().galaxyctrl_command_name())
             .display()
             .to_string()
-    );
-    assert_eq!(
-        context.get("warp_url_scheme").unwrap(),
-        ChannelState::url_scheme()
     );
     assert_eq!(
         context.get("settings_file_path").unwrap(),
@@ -1024,13 +1011,13 @@ fn feature_gated_bundled_skill_is_listed_only_when_enabled() {
         app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
         let handle = app.add_singleton_model(SkillManager::new);
         let bundled_skills_guard = FeatureFlag::BundledSkills.override_enabled(true);
-        let warp_control_cli = FeatureFlag::WarpControlCli.override_enabled(false);
+        let galaxy_control_cli = FeatureFlag::GalaxyControlCli.override_enabled(false);
 
         handle.update(&mut app, |manager, _| {
             manager.add_bundled_skill_for_testing(
-                "warpctrl",
-                bundled_test_skill("warpctrl", "Control Warp"),
-                BundledSkillActivation::RequiresFeature(FeatureFlag::WarpControlCli),
+                "galaxyctrl",
+                bundled_test_skill("galaxyctrl", "Control Galaxy"),
+                BundledSkillActivation::RequiresFeature(FeatureFlag::GalaxyControlCli),
             );
             manager.add_bundled_skill_for_testing(
                 "always",
@@ -1046,11 +1033,11 @@ fn feature_gated_bundled_skill_is_listed_only_when_enabled() {
                 .map(|skill| skill.name)
                 .collect::<HashSet<_>>()
         });
-        assert!(!disabled_names.contains("warpctrl"));
+        assert!(!disabled_names.contains("galaxyctrl"));
         assert!(disabled_names.contains("always"));
 
-        drop(warp_control_cli);
-        let warp_control_cli_enabled = FeatureFlag::WarpControlCli.override_enabled(true);
+        drop(galaxy_control_cli);
+        let galaxy_control_cli_enabled = FeatureFlag::GalaxyControlCli.override_enabled(true);
         let enabled_names = handle.read(&app, |manager, ctx| {
             manager
                 .get_skills_for_working_directory(None, ctx)
@@ -1058,36 +1045,36 @@ fn feature_gated_bundled_skill_is_listed_only_when_enabled() {
                 .map(|skill| skill.name)
                 .collect::<HashSet<_>>()
         });
-        assert!(enabled_names.contains("warpctrl"));
+        assert!(enabled_names.contains("galaxyctrl"));
         assert!(enabled_names.contains("always"));
-        drop(warp_control_cli_enabled);
+        drop(galaxy_control_cli_enabled);
         drop(bundled_skills_guard);
     });
 }
 
 #[test]
-fn warp_control_bundled_skill_activations_track_warp_control_feature() {
+fn galaxy_control_bundled_skill_activations_track_galaxy_control_feature() {
     App::test((), |app| async move {
         let settings = app.add_singleton_model(AISettings::new_with_defaults);
-        let warp_control_cli = FeatureFlag::WarpControlCli.override_enabled(false);
-        let activations = ["warpctrl"]
+        let galaxy_control_cli = FeatureFlag::GalaxyControlCli.override_enabled(false);
+        let activations = ["galaxyctrl"]
             .map(|skill_id| activation_for_bundled_skill(skill_id, Path::new("/resources")));
         for activation in &activations {
             assert!(!settings.read(&app, |_, ctx| activation.is_enabled(ctx)));
         }
 
-        drop(warp_control_cli);
-        let warp_control_cli_enabled = FeatureFlag::WarpControlCli.override_enabled(true);
+        drop(galaxy_control_cli);
+        let galaxy_control_cli_enabled = FeatureFlag::GalaxyControlCli.override_enabled(true);
         for activation in &activations {
             assert!(settings.read(&app, |_, ctx| activation.is_enabled(ctx)));
         }
-        drop(warp_control_cli_enabled);
+        drop(galaxy_control_cli_enabled);
     });
 }
 
 #[test]
-fn warp_control_direct_read_respects_warp_control_feature() {
-    let reference = SkillReference::BundledSkillId("warpctrl".to_owned());
+fn galaxy_control_direct_read_respects_galaxy_control_feature() {
+    let reference = SkillReference::BundledSkillId("galaxyctrl".to_owned());
 
     App::test((), |mut app| async move {
         app.add_singleton_model(DirectoryWatcher::new);
@@ -1097,13 +1084,13 @@ fn warp_control_direct_read_respects_warp_control_feature() {
         app.add_singleton_model(HomeDirectoryWatcher::new_for_test);
         app.add_singleton_model(WarpManagedPathsWatcher::new_for_testing);
         let handle = app.add_singleton_model(SkillManager::new);
-        let warp_control_cli = FeatureFlag::WarpControlCli.override_enabled(false);
+        let galaxy_control_cli = FeatureFlag::GalaxyControlCli.override_enabled(false);
 
         handle.update(&mut app, |manager, _| {
             manager.add_bundled_skill_for_testing(
-                "warpctrl",
-                bundled_test_skill("warpctrl", "Control Warp"),
-                BundledSkillActivation::RequiresFeature(FeatureFlag::WarpControlCli),
+                "galaxyctrl",
+                bundled_test_skill("galaxyctrl", "Control Galaxy"),
+                BundledSkillActivation::RequiresFeature(FeatureFlag::GalaxyControlCli),
             );
         });
 
@@ -1114,12 +1101,12 @@ fn warp_control_direct_read_respects_warp_control_feature() {
             .active_skill_by_reference(&reference, ctx)
             .is_none()));
 
-        drop(warp_control_cli);
-        let warp_control_cli_enabled = FeatureFlag::WarpControlCli.override_enabled(true);
+        drop(galaxy_control_cli);
+        let galaxy_control_cli_enabled = FeatureFlag::GalaxyControlCli.override_enabled(true);
         assert!(handle.read(&app, |manager, ctx| manager
             .active_skill_by_reference(&reference, ctx)
             .is_some()));
-        drop(warp_control_cli_enabled);
+        drop(galaxy_control_cli_enabled);
     });
 }
 #[test]

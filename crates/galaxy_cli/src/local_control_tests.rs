@@ -9,7 +9,7 @@ use super::*;
 #[test]
 fn parses_typed_create_and_setting_list_params() {
     let args = ControlArgs::try_parse_from([
-        "warpctrl",
+        "galaxyctrl",
         "tab",
         "create",
         "--type",
@@ -28,7 +28,7 @@ fn parses_typed_create_and_setting_list_params() {
     assert_eq!(args.target.session.as_deref(), Some("session_1"));
 
     let args =
-        ControlArgs::try_parse_from(["warpctrl", "setting", "list", "--namespace", "editor"])
+        ControlArgs::try_parse_from(["galaxyctrl", "setting", "list", "--namespace", "editor"])
             .expect("setting list parses");
     let ControlCommand::Setting(SettingCommand::List(args)) = args.command else {
         panic!("expected setting list command");
@@ -39,7 +39,7 @@ fn parses_typed_create_and_setting_list_params() {
 #[test]
 fn rejects_conflicting_instance_selectors() {
     let err = ControlArgs::try_parse_from([
-        "warpctrl",
+        "galaxyctrl",
         "tab",
         "create",
         "--instance",
@@ -53,14 +53,15 @@ fn rejects_conflicting_instance_selectors() {
 
 #[test]
 fn parses_instance_and_pid_selectors() {
-    let args = ControlArgs::try_parse_from(["warpctrl", "tab", "create", "--instance", "inst_123"])
-        .expect("instance selector parses");
+    let args =
+        ControlArgs::try_parse_from(["galaxyctrl", "tab", "create", "--instance", "inst_123"])
+            .expect("instance selector parses");
     let ControlCommand::Tab(TabCommand::Create(create)) = args.command else {
         panic!("expected tab create command");
     };
     assert_eq!(create.target.instance.as_deref(), Some("inst_123"));
 
-    let args = ControlArgs::try_parse_from(["warpctrl", "app", "ping", "--pid", "123"])
+    let args = ControlArgs::try_parse_from(["galaxyctrl", "app", "ping", "--pid", "123"])
         .expect("pid selector parses");
     let ControlCommand::App(AppCommand::Ping(target)) = args.command else {
         panic!("expected app ping command");
@@ -71,7 +72,7 @@ fn parses_instance_and_pid_selectors() {
 #[test]
 fn surface_list_accepts_instance_selection() {
     let args =
-        ControlArgs::try_parse_from(["warpctrl", "surface", "list", "--instance", "inst_123"])
+        ControlArgs::try_parse_from(["galaxyctrl", "surface", "list", "--instance", "inst_123"])
             .expect("surface list instance selector parses");
     let ControlCommand::Surface(SurfaceCommand::List(target)) = args.command else {
         panic!("expected surface list command");
@@ -82,17 +83,25 @@ fn surface_list_accepts_instance_selection() {
 #[test]
 fn rejects_excluded_command_routes() {
     for args in [
-        vec!["warpctrl", "history", "list"],
-        vec!["warpctrl", "block", "list"],
-        vec!["warpctrl", "block", "inspect", "block_1"],
-        vec!["warpctrl", "block", "output", "block_1"],
-        vec!["warpctrl", "input", "get"],
-        vec!["warpctrl", "input", "clear"],
-        vec!["warpctrl", "input", "mode", "set", "agent"],
-        vec!["warpctrl", "input", "run", "pwd"],
-        vec!["warpctrl", "file", "list"],
-        vec!["warpctrl", "drive", "list"],
-        vec!["warpctrl", "auth", "status"],
+        vec!["galaxyctrl", "history", "list"],
+        vec!["galaxyctrl", "block", "list"],
+        vec!["galaxyctrl", "block", "inspect", "block_1"],
+        vec!["galaxyctrl", "block", "output", "block_1"],
+        vec!["galaxyctrl", "input", "get"],
+        vec!["galaxyctrl", "input", "clear"],
+        vec!["galaxyctrl", "input", "mode", "set", "agent"],
+        vec!["galaxyctrl", "input", "run", "pwd"],
+        vec!["galaxyctrl", "file", "list"],
+        vec!["galaxyctrl", "drive", "list"],
+        vec!["galaxyctrl", "auth", "status"],
+        vec!["galaxyctrl", "surface", "warp-drive", "open"],
+        vec!["galaxyctrl", "surface", "warp-drive", "toggle"],
+        vec!["galaxyctrl", "surface", "resource-center", "toggle"],
+        vec!["galaxyctrl", "surface", "ai-assistant", "toggle"],
+        vec!["galaxyctrl", "surface", "conversation-list", "open"],
+        vec!["galaxyctrl", "surface", "agent-management", "open"],
+        vec!["galaxyctrl", "surface", "left-panel", "toggle"],
+        vec!["galaxyctrl", "tab", "create", "--type", "cloud-agent"],
     ] {
         assert!(ControlArgs::try_parse_from(args).is_err());
     }
@@ -100,7 +109,7 @@ fn rejects_excluded_command_routes() {
 
 #[test]
 fn parses_first_slice_instance_list() {
-    let args = ControlArgs::try_parse_from(["warpctrl", "instance", "list"])
+    let args = ControlArgs::try_parse_from(["galaxyctrl", "instance", "list"])
         .expect("instance list parses");
     assert!(matches!(
         args.command,
@@ -110,31 +119,31 @@ fn parses_first_slice_instance_list() {
 
 #[test]
 fn parses_first_slice_app_smoke_metadata_commands() {
-    assert!(ControlArgs::try_parse_from(["warpctrl", "app", "ping"]).is_ok());
-    assert!(ControlArgs::try_parse_from(["warpctrl", "app", "version"]).is_ok());
-    assert!(ControlArgs::try_parse_from(["warpctrl", "app", "active"]).is_ok());
-    assert!(ControlArgs::try_parse_from(["warpctrl", "app", "focus"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "app", "ping"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "app", "version"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "app", "active"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "app", "focus"]).is_ok());
 }
 
 #[test]
 fn parses_catalog_metadata_commands() {
     let args =
-        ControlArgs::try_parse_from(["warpctrl", "action", "inspect", "surface.settings.open"])
+        ControlArgs::try_parse_from(["galaxyctrl", "action", "inspect", "surface.settings.open"])
             .expect("action inspect parses");
     let ControlCommand::Action(ActionCatalogCommand::Inspect { action }) = args.command else {
         panic!("expected action inspect command");
     };
     assert_eq!(action, "surface.settings.open");
-    assert!(ControlArgs::try_parse_from(["warpctrl", "action", "list"]).is_ok());
-    assert!(ControlArgs::try_parse_from(["warpctrl", "capability", "list"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "action", "list"]).is_ok());
+    assert!(ControlArgs::try_parse_from(["galaxyctrl", "capability", "list"]).is_ok());
     assert!(
-        ControlArgs::try_parse_from(["warpctrl", "capability", "inspect", "tab.create"]).is_ok()
+        ControlArgs::try_parse_from(["galaxyctrl", "capability", "inspect", "tab.create"]).is_ok()
     );
 }
 
 #[test]
 fn parses_control_mode_args_after_hidden_flag() {
-    let args = ControlArgs::try_parse_control_mode_from(["warp", "--warpctrl", "tab", "create"])
+    let args = ControlArgs::try_parse_control_mode_from(["warp", "--galaxyctrl", "tab", "create"])
         .expect("control mode flag is present")
         .expect("control mode args parse");
     assert!(matches!(
@@ -150,7 +159,7 @@ fn ignores_args_without_control_mode_flag() {
 
 #[test]
 fn parses_completion_generation_command() {
-    let args = ControlArgs::try_parse_from(["warpctrl", "completions", "bash"])
+    let args = ControlArgs::try_parse_from(["galaxyctrl", "completions", "bash"])
         .expect("completions parses");
     assert!(matches!(
         args.command,
@@ -163,7 +172,7 @@ fn parses_completion_generation_command() {
 #[test]
 fn parses_exact_window_tab_pane_and_session_selectors() {
     let args = ControlArgs::try_parse_from([
-        "warpctrl",
+        "galaxyctrl",
         "session",
         "inspect",
         "--window-title",
@@ -194,7 +203,7 @@ fn instance_list_output_serializes_empty_and_populated_lists() {
     let record = local_control::discovery::InstanceRecord::for_current_process(
         None,
         "dev",
-        "dev.warp.Warp",
+        "dev.galaxy.Galaxy",
         Some("v0.1.0".to_owned()),
         Vec::new(),
     );
@@ -203,7 +212,10 @@ fn instance_list_output_serializes_empty_and_populated_lists() {
         .expect("populated list serializes");
     assert_eq!(populated["instances"][0]["instance_id"], json!(instance_id));
     assert_eq!(populated["instances"][0]["channel"], json!("dev"));
-    assert_eq!(populated["instances"][0]["app_id"], json!("dev.warp.Warp"));
+    assert_eq!(
+        populated["instances"][0]["app_id"],
+        json!("dev.galaxy.Galaxy")
+    );
     assert_eq!(populated["instances"][0]["app_version"], json!("v0.1.0"));
 }
 
@@ -258,8 +270,13 @@ fn generated_bash_completions_include_mutating_command_groups() {
         generate_completion_string(Shell::Bash).expect("bash completions render to UTF-8");
     assert!(completions.contains("surface"));
     assert!(completions.contains("command-palette"));
-    assert!(completions.contains("warp-drive"));
-    assert!(completions.contains("resource-center"));
+    assert!(!completions.contains("warp-drive"));
+    assert!(!completions.contains("resource-center"));
+    assert!(!completions.contains("ai-assistant"));
+    assert!(!completions.contains("conversation-list"));
+    assert!(!completions.contains("agent-management"));
+    assert!(!completions.contains("left-panel"));
+    assert!(!completions.contains("cloud-agent"));
     assert!(completions.contains("activate"));
     assert!(completions.contains("split"));
     assert!(!completions.contains("history"));
@@ -267,8 +284,25 @@ fn generated_bash_completions_include_mutating_command_groups() {
 }
 
 #[test]
+fn completion_name_never_falls_back_to_the_forwarded_app_binary() {
+    assert_eq!(
+        normalized_control_command_name(Some("galaxyctrl-dev")),
+        "galaxyctrl-dev"
+    );
+    assert_eq!(
+        normalized_control_command_name(Some("galaxy-dev")),
+        "galaxyctrl"
+    );
+    assert_eq!(
+        normalized_control_command_name(Some("galaxy-oss")),
+        "galaxyctrl"
+    );
+    assert_eq!(normalized_control_command_name(None), "galaxyctrl");
+}
+
+#[test]
 fn structured_error_output_uses_stable_error_code() {
-    let error = ControlError::new(ErrorCode::NoInstance, "no local Warp control instances");
+    let error = ControlError::new(ErrorCode::NoInstance, "no local Galaxy control instances");
     let value = serde_json::to_value(ErrorSummary {
         ok: false,
         error: &error,
@@ -278,7 +312,7 @@ fn structured_error_output_uses_stable_error_code() {
     assert_eq!(value["error"]["code"], json!("no_instance"));
     assert_eq!(
         value["error"]["message"],
-        json!("no local Warp control instances")
+        json!("no local Galaxy control instances")
     );
 }
 
@@ -307,75 +341,87 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
     vec![
         (
             ActionKind::InstanceList,
-            vec!["warpctrl", "instance", "list"],
+            vec!["galaxyctrl", "instance", "list"],
         ),
         (
             ActionKind::InstanceInspect,
-            vec!["warpctrl", "instance", "inspect"],
+            vec!["galaxyctrl", "instance", "inspect"],
         ),
-        (ActionKind::AppPing, vec!["warpctrl", "app", "ping"]),
-        (ActionKind::AppVersion, vec!["warpctrl", "app", "version"]),
-        (ActionKind::AppActive, vec!["warpctrl", "app", "active"]),
-        (ActionKind::AppFocus, vec!["warpctrl", "app", "focus"]),
+        (ActionKind::AppPing, vec!["galaxyctrl", "app", "ping"]),
+        (ActionKind::AppVersion, vec!["galaxyctrl", "app", "version"]),
+        (ActionKind::AppActive, vec!["galaxyctrl", "app", "active"]),
+        (ActionKind::AppFocus, vec!["galaxyctrl", "app", "focus"]),
         (
             ActionKind::CapabilityList,
-            vec!["warpctrl", "capability", "list"],
+            vec!["galaxyctrl", "capability", "list"],
         ),
         (
             ActionKind::CapabilityInspect,
-            vec!["warpctrl", "capability", "inspect", "tab.create"],
+            vec!["galaxyctrl", "capability", "inspect", "tab.create"],
         ),
-        (ActionKind::WindowList, vec!["warpctrl", "window", "list"]),
+        (ActionKind::WindowList, vec!["galaxyctrl", "window", "list"]),
         (
             ActionKind::WindowInspect,
-            vec!["warpctrl", "window", "inspect"],
+            vec!["galaxyctrl", "window", "inspect"],
         ),
         (
             ActionKind::WindowCreate,
-            vec!["warpctrl", "window", "create"],
+            vec!["galaxyctrl", "window", "create"],
         ),
-        (ActionKind::WindowFocus, vec!["warpctrl", "window", "focus"]),
-        (ActionKind::WindowClose, vec!["warpctrl", "window", "close"]),
-        (ActionKind::TabList, vec!["warpctrl", "tab", "list"]),
-        (ActionKind::TabInspect, vec!["warpctrl", "tab", "inspect"]),
-        (ActionKind::TabCreate, vec!["warpctrl", "tab", "create"]),
-        (ActionKind::TabActivate, vec!["warpctrl", "tab", "activate"]),
+        (
+            ActionKind::WindowFocus,
+            vec!["galaxyctrl", "window", "focus"],
+        ),
+        (
+            ActionKind::WindowClose,
+            vec!["galaxyctrl", "window", "close"],
+        ),
+        (ActionKind::TabList, vec!["galaxyctrl", "tab", "list"]),
+        (ActionKind::TabInspect, vec!["galaxyctrl", "tab", "inspect"]),
+        (ActionKind::TabCreate, vec!["galaxyctrl", "tab", "create"]),
+        (
+            ActionKind::TabActivate,
+            vec!["galaxyctrl", "tab", "activate"],
+        ),
         (
             ActionKind::TabMove,
-            vec!["warpctrl", "tab", "move", "--direction", "next"],
+            vec!["galaxyctrl", "tab", "move", "--direction", "next"],
         ),
-        (ActionKind::TabClose, vec!["warpctrl", "tab", "close"]),
+        (ActionKind::TabClose, vec!["galaxyctrl", "tab", "close"]),
         (
             ActionKind::TabRename,
-            vec!["warpctrl", "tab", "rename", "docs"],
+            vec!["galaxyctrl", "tab", "rename", "docs"],
         ),
         (
             ActionKind::TabResetName,
-            vec!["warpctrl", "tab", "reset-name"],
+            vec!["galaxyctrl", "tab", "reset-name"],
         ),
         (
             ActionKind::TabColorSet,
-            vec!["warpctrl", "tab", "color", "set", "red"],
+            vec!["galaxyctrl", "tab", "color", "set", "red"],
         ),
         (
             ActionKind::TabColorClear,
-            vec!["warpctrl", "tab", "color", "clear"],
+            vec!["galaxyctrl", "tab", "color", "clear"],
         ),
-        (ActionKind::PaneList, vec!["warpctrl", "pane", "list"]),
-        (ActionKind::PaneInspect, vec!["warpctrl", "pane", "inspect"]),
+        (ActionKind::PaneList, vec!["galaxyctrl", "pane", "list"]),
+        (
+            ActionKind::PaneInspect,
+            vec!["galaxyctrl", "pane", "inspect"],
+        ),
         (
             ActionKind::PaneSplit,
-            vec!["warpctrl", "pane", "split", "--direction", "right"],
+            vec!["galaxyctrl", "pane", "split", "--direction", "right"],
         ),
-        (ActionKind::PaneFocus, vec!["warpctrl", "pane", "focus"]),
+        (ActionKind::PaneFocus, vec!["galaxyctrl", "pane", "focus"]),
         (
             ActionKind::PaneNavigate,
-            vec!["warpctrl", "pane", "navigate", "--direction", "next"],
+            vec!["galaxyctrl", "pane", "navigate", "--direction", "next"],
         ),
         (
             ActionKind::PaneResize,
             vec![
-                "warpctrl",
+                "galaxyctrl",
                 "pane",
                 "resize",
                 "--direction",
@@ -386,199 +432,183 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
         ),
         (
             ActionKind::PaneMaximize,
-            vec!["warpctrl", "pane", "maximize"],
+            vec!["galaxyctrl", "pane", "maximize"],
         ),
         (
             ActionKind::PaneUnmaximize,
-            vec!["warpctrl", "pane", "unmaximize"],
+            vec!["galaxyctrl", "pane", "unmaximize"],
         ),
-        (ActionKind::PaneClose, vec!["warpctrl", "pane", "close"]),
+        (ActionKind::PaneClose, vec!["galaxyctrl", "pane", "close"]),
         (
             ActionKind::PaneRename,
-            vec!["warpctrl", "pane", "rename", "server"],
+            vec!["galaxyctrl", "pane", "rename", "server"],
         ),
         (
             ActionKind::PaneResetName,
-            vec!["warpctrl", "pane", "reset-name"],
+            vec!["galaxyctrl", "pane", "reset-name"],
         ),
-        (ActionKind::SessionList, vec!["warpctrl", "session", "list"]),
+        (
+            ActionKind::SessionList,
+            vec!["galaxyctrl", "session", "list"],
+        ),
         (
             ActionKind::SessionInspect,
-            vec!["warpctrl", "session", "inspect"],
+            vec!["galaxyctrl", "session", "inspect"],
         ),
         (
             ActionKind::SessionActivate,
-            vec!["warpctrl", "session", "activate"],
+            vec!["galaxyctrl", "session", "activate"],
         ),
         (
             ActionKind::SessionPrevious,
-            vec!["warpctrl", "session", "previous"],
+            vec!["galaxyctrl", "session", "previous"],
         ),
-        (ActionKind::SessionNext, vec!["warpctrl", "session", "next"]),
+        (
+            ActionKind::SessionNext,
+            vec!["galaxyctrl", "session", "next"],
+        ),
         (
             ActionKind::SessionReopenClosed,
-            vec!["warpctrl", "session", "reopen-closed"],
+            vec!["galaxyctrl", "session", "reopen-closed"],
         ),
         (
             ActionKind::InputInsert,
-            vec!["warpctrl", "input", "insert", "hello"],
+            vec!["galaxyctrl", "input", "insert", "hello"],
         ),
         (
             ActionKind::InputReplace,
-            vec!["warpctrl", "input", "replace", "hello"],
+            vec!["galaxyctrl", "input", "replace", "hello"],
         ),
-        (ActionKind::ThemeList, vec!["warpctrl", "theme", "list"]),
-        (ActionKind::ThemeGet, vec!["warpctrl", "theme", "get"]),
+        (ActionKind::ThemeList, vec!["galaxyctrl", "theme", "list"]),
+        (ActionKind::ThemeGet, vec!["galaxyctrl", "theme", "get"]),
         (
             ActionKind::ThemeSet,
-            vec!["warpctrl", "theme", "set", "Dracula"],
+            vec!["galaxyctrl", "theme", "set", "Dracula"],
         ),
         (
             ActionKind::ThemeSystemSet,
-            vec!["warpctrl", "theme", "system-set", "true"],
+            vec!["galaxyctrl", "theme", "system-set", "true"],
         ),
         (
             ActionKind::ThemeLightSet,
-            vec!["warpctrl", "theme", "light-set", "Light"],
+            vec!["galaxyctrl", "theme", "light-set", "Light"],
         ),
         (
             ActionKind::ThemeDarkSet,
-            vec!["warpctrl", "theme", "dark-set", "Dark"],
+            vec!["galaxyctrl", "theme", "dark-set", "Dark"],
         ),
         (
             ActionKind::AppearanceGet,
-            vec!["warpctrl", "appearance", "get"],
+            vec!["galaxyctrl", "appearance", "get"],
         ),
         (
             ActionKind::AppearanceFontSizeIncrease,
-            vec!["warpctrl", "appearance", "font-size-increase"],
+            vec!["galaxyctrl", "appearance", "font-size-increase"],
         ),
         (
             ActionKind::AppearanceFontSizeDecrease,
-            vec!["warpctrl", "appearance", "font-size-decrease"],
+            vec!["galaxyctrl", "appearance", "font-size-decrease"],
         ),
         (
             ActionKind::AppearanceFontSizeReset,
-            vec!["warpctrl", "appearance", "font-size-reset"],
+            vec!["galaxyctrl", "appearance", "font-size-reset"],
         ),
         (
             ActionKind::AppearanceZoomIncrease,
-            vec!["warpctrl", "appearance", "zoom-increase"],
+            vec!["galaxyctrl", "appearance", "zoom-increase"],
         ),
         (
             ActionKind::AppearanceZoomDecrease,
-            vec!["warpctrl", "appearance", "zoom-decrease"],
+            vec!["galaxyctrl", "appearance", "zoom-decrease"],
         ),
         (
             ActionKind::AppearanceZoomReset,
-            vec!["warpctrl", "appearance", "zoom-reset"],
+            vec!["galaxyctrl", "appearance", "zoom-reset"],
         ),
-        (ActionKind::SettingList, vec!["warpctrl", "setting", "list"]),
+        (
+            ActionKind::SettingList,
+            vec!["galaxyctrl", "setting", "list"],
+        ),
         (
             ActionKind::SettingGet,
-            vec!["warpctrl", "setting", "get", "font_size"],
+            vec!["galaxyctrl", "setting", "get", "font_size"],
         ),
         (
             ActionKind::SettingSet,
-            vec!["warpctrl", "setting", "set", "font_size", "14"],
+            vec!["galaxyctrl", "setting", "set", "font_size", "14"],
         ),
         (
             ActionKind::SettingToggle,
-            vec!["warpctrl", "setting", "toggle", "autosuggestions"],
+            vec!["galaxyctrl", "setting", "toggle", "autosuggestions"],
         ),
         (
             ActionKind::KeybindingList,
-            vec!["warpctrl", "keybinding", "list"],
+            vec!["galaxyctrl", "keybinding", "list"],
         ),
         (
             ActionKind::KeybindingGet,
-            vec!["warpctrl", "keybinding", "get", "copy"],
+            vec!["galaxyctrl", "keybinding", "get", "copy"],
         ),
-        (ActionKind::ActionList, vec!["warpctrl", "action", "list"]),
+        (ActionKind::ActionList, vec!["galaxyctrl", "action", "list"]),
         (
             ActionKind::ActionInspect,
-            vec!["warpctrl", "action", "inspect", "tab.create"],
+            vec!["galaxyctrl", "action", "inspect", "tab.create"],
         ),
-        (ActionKind::SurfaceList, vec!["warpctrl", "surface", "list"]),
+        (
+            ActionKind::SurfaceList,
+            vec!["galaxyctrl", "surface", "list"],
+        ),
         (
             ActionKind::SurfaceSettingsOpen,
-            vec!["warpctrl", "surface", "settings", "open"],
+            vec!["galaxyctrl", "surface", "settings", "open"],
         ),
         (
             ActionKind::SurfaceCommandPaletteOpen,
-            vec!["warpctrl", "surface", "command-palette", "open"],
+            vec!["galaxyctrl", "surface", "command-palette", "open"],
         ),
         (
             ActionKind::SurfaceCommandSearchOpen,
-            vec!["warpctrl", "surface", "command-search", "open"],
+            vec!["galaxyctrl", "surface", "command-search", "open"],
         ),
         (
             ActionKind::SurfaceThemePickerOpen,
-            vec!["warpctrl", "surface", "theme-picker", "open"],
+            vec!["galaxyctrl", "surface", "theme-picker", "open"],
         ),
         (
             ActionKind::SurfaceKeybindingsOpen,
-            vec!["warpctrl", "surface", "keybindings", "open"],
-        ),
-        (
-            ActionKind::SurfaceWarpDriveOpen,
-            vec!["warpctrl", "surface", "warp-drive", "open"],
-        ),
-        (
-            ActionKind::SurfaceWarpDriveToggle,
-            vec!["warpctrl", "surface", "warp-drive", "toggle"],
-        ),
-        (
-            ActionKind::SurfaceResourceCenterToggle,
-            vec!["warpctrl", "surface", "resource-center", "toggle"],
-        ),
-        (
-            ActionKind::SurfaceAiAssistantToggle,
-            vec!["warpctrl", "surface", "ai-assistant", "toggle"],
+            vec!["galaxyctrl", "surface", "keybindings", "open"],
         ),
         (
             ActionKind::SurfaceCodeReviewOpen,
-            vec!["warpctrl", "surface", "code-review", "open"],
+            vec!["galaxyctrl", "surface", "code-review", "open"],
         ),
         (
             ActionKind::SurfaceCodeReviewToggle,
-            vec!["warpctrl", "surface", "code-review", "toggle"],
+            vec!["galaxyctrl", "surface", "code-review", "toggle"],
         ),
         (
             ActionKind::SurfaceProjectExplorerOpen,
-            vec!["warpctrl", "surface", "project-explorer", "open"],
+            vec!["galaxyctrl", "surface", "project-explorer", "open"],
         ),
         (
             ActionKind::SurfaceGlobalSearchOpen,
-            vec!["warpctrl", "surface", "global-search", "open"],
-        ),
-        (
-            ActionKind::SurfaceConversationListOpen,
-            vec!["warpctrl", "surface", "conversation-list", "open"],
-        ),
-        (
-            ActionKind::SurfaceLeftPanelToggle,
-            vec!["warpctrl", "surface", "left-panel", "toggle"],
+            vec!["galaxyctrl", "surface", "global-search", "open"],
         ),
         (
             ActionKind::SurfaceRightPanelToggle,
-            vec!["warpctrl", "surface", "right-panel", "toggle"],
+            vec!["galaxyctrl", "surface", "right-panel", "toggle"],
         ),
         (
             ActionKind::SurfaceVerticalTabsOpen,
-            vec!["warpctrl", "surface", "vertical-tabs", "open"],
+            vec!["galaxyctrl", "surface", "vertical-tabs", "open"],
         ),
         (
             ActionKind::SurfaceVerticalTabsToggle,
-            vec!["warpctrl", "surface", "vertical-tabs", "toggle"],
-        ),
-        (
-            ActionKind::SurfaceAgentManagementOpen,
-            vec!["warpctrl", "surface", "agent-management", "open"],
+            vec!["galaxyctrl", "surface", "vertical-tabs", "toggle"],
         ),
         (
             ActionKind::FileOpen,
-            vec!["warpctrl", "file", "open", "/tmp/example.txt"],
+            vec!["galaxyctrl", "file", "open", "/tmp/example.txt"],
         ),
     ]
 }
@@ -696,16 +726,6 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
             SurfaceCommand::Keybindings(command) => match command {
                 SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceKeybindingsOpen),
             },
-            SurfaceCommand::WarpDrive(command) => match command {
-                SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceWarpDriveOpen),
-                SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceWarpDriveToggle),
-            },
-            SurfaceCommand::ResourceCenter(command) => match command {
-                SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceResourceCenterToggle),
-            },
-            SurfaceCommand::AiAssistant(command) => match command {
-                SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceAiAssistantToggle),
-            },
             SurfaceCommand::CodeReview(command) => match command {
                 SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceCodeReviewOpen),
                 SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceCodeReviewToggle),
@@ -716,21 +736,12 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
             SurfaceCommand::GlobalSearch(command) => match command {
                 SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceGlobalSearchOpen),
             },
-            SurfaceCommand::ConversationList(command) => match command {
-                SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceConversationListOpen),
-            },
-            SurfaceCommand::LeftPanel(command) => match command {
-                SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceLeftPanelToggle),
-            },
             SurfaceCommand::RightPanel(command) => match command {
                 SurfaceToggleCommand::Toggle(_) => Some(ActionKind::SurfaceRightPanelToggle),
             },
             SurfaceCommand::VerticalTabs(command) => match command {
                 SurfaceOpenToggleCommand::Open(_) => Some(ActionKind::SurfaceVerticalTabsOpen),
                 SurfaceOpenToggleCommand::Toggle(_) => Some(ActionKind::SurfaceVerticalTabsToggle),
-            },
-            SurfaceCommand::AgentManagement(command) => match command {
-                SurfaceOpenCommand::Open(_) => Some(ActionKind::SurfaceAgentManagementOpen),
             },
         },
         ControlCommand::Completions { .. } => None,

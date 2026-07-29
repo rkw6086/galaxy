@@ -128,6 +128,8 @@ const HAS_PENDING_CLI_ACTION_CONTEXT_KEY: &str = "HasPendingCLIAgentAction";
 const HAS_PENDING_NON_TRANSFER_CONTROL_ACTION_CONTEXT_KEY: &str =
     "HasPendingNonTransferControlCLIAgentAction";
 const BLOCKED_ACTION_MESSAGE_FOR_TRANSFER_CONTROL: &str = "Agent is asking you to take control.";
+const BLOCKED_ACTION_MESSAGE_FOR_INTERRUPT: &str =
+    "Agent wants to interrupt this running command with Ctrl+C.";
 
 pub fn init(app: &mut AppContext) {
     use galaxyui::keymap::macros::*;
@@ -198,6 +200,7 @@ pub struct CLISubagentView {
     action_model: ModelHandle<BlocklistAIActionModel>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
     conversation_id: AIConversationId,
+    task_id: TaskId,
     terminal_view_id: EntityId,
 
     state_handles: StateHandles,
@@ -349,6 +352,7 @@ impl CLISubagentView {
                     ..
                 } if *old_id == task_id_clone => {
                     task_id_clone = new_id.clone();
+                    me.task_id = new_id.clone();
                 }
                 BlocklistAIHistoryEvent::AppendedExchange {
                     exchange_id,
@@ -371,10 +375,6 @@ impl CLISubagentView {
                                 ctx,
                             );
                             me.model = Rc::new(model);
-                            me.code_editor_views = Default::default();
-                            me.code_editor_buttons = Default::default();
-                            me.table_section_handles = Default::default();
-                            me.secret_redaction_state.reset();
                             me.set_state_from_updated_inputs(ctx);
                         }
                         ctx.notify();
@@ -459,6 +459,7 @@ impl CLISubagentView {
             terminal_model,
             subagent_controller,
             conversation_id,
+            task_id,
             terminal_view_id: ctx.view_id(),
             link_detection_state: Default::default(),
             code_editor_views: Default::default(),
@@ -483,7 +484,65 @@ impl CLISubagentView {
             selected_text: Arc::new(RwLock::new(None)),
         };
         view.set_state_from_updated_inputs(ctx);
+        view.handle_updated_exchange_output(ctx);
         view
+    }
+
+    fn task_inputs_to_render(&self, app: &AppContext) -> Vec<AIAgentInput> {
+        BlocklistAIHistoryModel::as_ref(app)
+            .conversation(&self.conversation_id)
+            .and_then(|conversation| conversation.get_task(&self.task_id))
+            .map(|task| {
+                task.exchanges()
+                    .flat_map(|exchange| exchange.input.iter().cloned())
+                    .collect()
+            })
+            .unwrap_or_else(|| self.model.inputs_to_render(app).to_vec())
+    }
+
+    /// Builds the visible CLI transcript across every exchange in the monitor task.
+    ///
+    /// User queries and assistant text remain visible across automatic polling exchanges. Internal
+    /// `ActionResult` inputs remain absent because input rendering still explicitly accepts only
+    /// `UserQuery`. Historical tool activity is omitted to avoid a growing stack of repeated poll
+    /// cards; only the newest exchange's live action is retained.
+    fn task_output_to_render(&self, app: &AppContext) -> AIAgentOutput {
+        let Some(task) = BlocklistAIHistoryModel::as_ref(app)
+            .conversation(&self.conversation_id)
+            .and_then(|conversation| conversation.get_task(&self.task_id))
+        else {
+            return self
+                .model
+                .status(app)
+                .output_to_render()
+                .map(|output| output.get().clone())
+                .unwrap_or_default();
+        };
+
+        let Some(last_exchange_id) = task.last_exchange().map(|exchange| exchange.id) else {
+            return AIAgentOutput::default();
+        };
+
+        let mut visible_output = AIAgentOutput::default();
+        for exchange in task.exchanges() {
+            let Some(output) = exchange.output_status.output() else {
+                continue;
+            };
+            let output = output.get();
+            visible_output.messages.extend(
+                output
+                    .messages
+                    .iter()
+                    .filter(|message| {
+                        should_retain_task_output_message(
+                            &message.message,
+                            exchange.id == last_exchange_id,
+                        )
+                    })
+                    .cloned(),
+            );
+        }
+        visible_output
     }
 
     fn execute_pending_action(&mut self, ctx: &mut ViewContext<Self>) {
@@ -653,26 +712,12 @@ impl CLISubagentView {
     }
 
     fn handle_updated_exchange_output(&mut self, ctx: &mut ViewContext<Self>) {
-        match self.model.status(ctx) {
-            AIBlockOutputStatus::Pending => {
-                self.secret_redaction_state.reset();
-            }
-            AIBlockOutputStatus::PartiallyReceived { output } => {
-                let output = output.get();
-                self.handle_updated_output(&output, ctx);
-            }
-            AIBlockOutputStatus::Complete { output } => {
-                let output = output.get();
-                self.handle_updated_output(&output, ctx);
+        let output = self.task_output_to_render(ctx);
+        if !output.messages.is_empty() {
+            self.handle_updated_output(&output, ctx);
+            if self.model.status(ctx).is_complete() {
                 self.handle_complete_output(&output, ctx);
             }
-            AIBlockOutputStatus::Cancelled { partial_output, .. } => {
-                if let Some(output) = partial_output.as_ref() {
-                    let output = output.get();
-                    self.handle_updated_output(&output, ctx);
-                }
-            }
-            AIBlockOutputStatus::Failed { .. } => (),
         }
         ctx.notify();
     }
@@ -827,8 +872,7 @@ impl CLISubagentView {
         }
 
         let has_user_input = self
-            .model
-            .inputs_to_render(ctx)
+            .task_inputs_to_render(ctx)
             .iter()
             .any(|input| input.is_user_query());
         let should_hide_responses = self
@@ -859,7 +903,7 @@ impl CLISubagentView {
         self.reset_input_dismiss_timer(ctx);
 
         // Detect links in all user queries
-        for (input_index, input) in self.model.inputs_to_render(ctx).iter().enumerate() {
+        for (input_index, input) in self.task_inputs_to_render(ctx).iter().enumerate() {
             if let AIAgentInput::UserQuery { query, .. } = input {
                 detect_links(
                     &mut self.link_detection_state,
@@ -977,7 +1021,7 @@ impl View for CLISubagentView {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch);
 
         // Render user queries/follow-ups with avatar and interactive text
-        let inputs = self.model.inputs_to_render(app);
+        let inputs = self.task_inputs_to_render(app);
         for (input_index, input) in inputs.iter().enumerate() {
             if let AIAgentInput::UserQuery { query, .. } = input {
                 let text = render_query_text(
@@ -1059,11 +1103,12 @@ impl View for CLISubagentView {
 
         let status = self.model.status(app);
         let blocked_action = self.model.blocked_action(&self.action_model, app);
+        let has_blocked_action = blocked_action.is_some();
         let should_hide_responses = block.should_hide_responses();
+        let mut has_visible_response = false;
 
-        if let Some(output) = status.output_to_render() {
-            let output = output.get();
-
+        let output = self.task_output_to_render(app);
+        if !output.messages.is_empty() {
             let mut code_section_index = 0;
             let mut text_section_index = 0;
             let mut table_section_index = 0;
@@ -1082,6 +1127,7 @@ impl View for CLISubagentView {
                     AIAgentOutputMessageType::Text(AIAgentText { sections })
                         if !are_all_text_sections_empty(sections) =>
                     {
+                        has_visible_response = true;
                         let text_color = blended_colors::text_main(theme, theme.surface_1());
                         output_items.add_child(render_text_sections(
                             TextSectionsProps {
@@ -1129,6 +1175,7 @@ impl View for CLISubagentView {
                         if blocked_action.is_none() && !is_cancelled && !should_hide_responses {
                             if let Some(rendered_action) = render_action(action.action.clone(), app)
                             {
+                                has_visible_response = true;
                                 result.add_child(
                                     render_scrollable_container(
                                         ScrollableContainerProps {
@@ -1156,6 +1203,7 @@ impl View for CLISubagentView {
                     AIAgentOutputMessageType::WebSearch(WebSearchStatus::Searching { query })
                         if !should_hide_responses =>
                     {
+                        has_visible_response = true;
                         result.add_child(
                             render_scrollable_container(
                                 ScrollableContainerProps {
@@ -1189,6 +1237,7 @@ impl View for CLISubagentView {
             // surfaced only once recovery has actually failed. Dogfood builds (Local/Dev)
             // opt out so developers still see every transport failure aggressively.
             if !error.should_suppress_during_recovery() {
+                has_visible_response = true;
                 output_border = Border::all(1.).with_border_color(theme.ui_error_color());
                 output_items.add_child(render_failed_output(
                     FailedOutputProps {
@@ -1244,6 +1293,29 @@ impl View for CLISubagentView {
             }
         }
 
+        if !has_visible_response && !has_blocked_action && !should_hide_responses {
+            result.add_child(
+                render_scrollable_container(
+                    ScrollableContainerProps {
+                        scroll_state: self.state_handles.action_scroll_state.clone(),
+                        child: render_action_status(
+                            "Agent is monitoring the command…".to_string(),
+                            Icon::ClockRefresh,
+                            app,
+                        ),
+                        background_color: internal_colors::neutral_2(appearance.theme()),
+                        border: Some(
+                            Border::all(1.).with_border_fill(internal_colors::neutral_3(theme)),
+                        ),
+                        max_height: resizable_height,
+                    },
+                    app,
+                )
+                .with_margin_bottom(8.)
+                .finish(),
+            );
+        }
+
         if !output_items.is_empty() && !should_hide_responses {
             let selected_text = self.selected_text.clone();
             let query_selection_handle = self.state_handles.query_selection_handle.clone();
@@ -1288,10 +1360,14 @@ impl View for CLISubagentView {
 
         if let Some(rendered_action) = blocked_action.and_then(|action| match action.action {
             AIAgentActionType::WriteToLongRunningShellCommand { input, mode, .. } => {
+                let header = if mode.is_shell_interrupt(&input) {
+                    BLOCKED_ACTION_MESSAGE_FOR_INTERRUPT
+                } else {
+                    BLOCKED_ACTION_MESSAGE_FOR_WRITE_TO_LONG_RUNNING_SHELL_COMMAND
+                };
                 Some(render_blocked_action(
                     BlockedActionProps {
-                        header: BLOCKED_ACTION_MESSAGE_FOR_WRITE_TO_LONG_RUNNING_SHELL_COMMAND
-                            .to_string(),
+                        header: header.to_string(),
                         description: Some(render_write_to_pty_input(
                             WriteToPtyInputProps {
                                 input: input.clone(),
@@ -1557,7 +1633,23 @@ fn should_show_read_files_speedbump(app: &AppContext) -> bool {
         && *AISettings::as_ref(app).should_show_agent_mode_autoread_files_speedbump
 }
 
+fn should_retain_task_output_message(
+    message: &AIAgentOutputMessageType,
+    is_latest_exchange: bool,
+) -> bool {
+    matches!(message, AIAgentOutputMessageType::Text(_))
+        || (is_latest_exchange
+            && matches!(
+                message,
+                AIAgentOutputMessageType::Action(_) | AIAgentOutputMessageType::WebSearch(_)
+            ))
+}
+
 fn get_action_loading_text(action: AIAgentActionType) -> Option<String> {
+    if action.is_shell_command_interrupt() {
+        return Some("Interrupting the running command with Ctrl+C…".to_string());
+    }
+
     match action {
         AIAgentActionType::SearchCodebase(_) => {
             Some(LOAD_OUTPUT_MESSAGE_FOR_SEARCH_CODEBASE.to_string())
@@ -1565,26 +1657,46 @@ fn get_action_loading_text(action: AIAgentActionType) -> Option<String> {
         AIAgentActionType::ReadFiles(_) => Some(LOAD_OUTPUT_MESSAGE_FOR_READING_FILES.to_string()),
         AIAgentActionType::Grep { .. } => Some(LOAD_OUTPUT_MESSAGE_FOR_GREP.to_string()),
         AIAgentActionType::FileGlobV2 { .. } => Some(LOAD_OUTPUT_MESSAGE_FOR_FILE_GLOB.to_string()),
+        AIAgentActionType::ReadShellCommandOutput { delay, .. } => match delay {
+            Some(crate::ai::agent::ShellCommandDelay::OnCompletion) => {
+                Some("Waiting for the running command to finish…".to_string())
+            }
+            Some(crate::ai::agent::ShellCommandDelay::Duration(_)) | None => {
+                Some("Checking the running command output…".to_string())
+            }
+        },
+        AIAgentActionType::WriteToLongRunningShellCommand { .. } => {
+            Some("Sending input to the running command…".to_string())
+        }
         _ => None,
     }
 }
 
 fn get_action_icon(action: AIAgentActionType) -> Option<Icon> {
+    if action.is_shell_command_interrupt() {
+        return Some(Icon::Stop);
+    }
+
     match action {
         AIAgentActionType::SearchCodebase(_)
         | AIAgentActionType::ReadFiles(_)
         | AIAgentActionType::Grep { .. }
         | AIAgentActionType::FileGlobV2 { .. } => Some(Icon::Search),
+        AIAgentActionType::ReadShellCommandOutput { .. } => Some(Icon::ClockRefresh),
+        AIAgentActionType::WriteToLongRunningShellCommand { .. } => Some(Icon::TerminalInput),
         _ => None,
     }
 }
 
 fn render_action(action: AIAgentActionType, app: &AppContext) -> Option<Box<dyn Element>> {
-    let appearance = Appearance::as_ref(app);
-    let theme = appearance.theme();
-
     let text = get_action_loading_text(action.clone())?;
     let icon = get_action_icon(action)?;
+    Some(render_action_status(text, icon, app))
+}
+
+fn render_action_status(text: String, icon: Icon, app: &AppContext) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
+    let theme = appearance.theme();
 
     let icon = Container::new(
         ConstrainedBox::new(
@@ -1609,13 +1721,11 @@ fn render_action(action: AIAgentActionType, app: &AppContext) -> Option<Box<dyn 
     )
     .finish();
 
-    let row = Flex::row()
+    Flex::row()
         .with_cross_axis_alignment(CrossAxisAlignment::Center)
         .with_main_axis_alignment(MainAxisAlignment::Center)
         .with_children([icon, text])
-        .finish();
-
-    Some(row)
+        .finish()
 }
 
 fn render_web_search(query: Option<String>, app: &AppContext) -> Box<dyn Element> {
@@ -1915,6 +2025,10 @@ fn render_transfer_control_reason(reason: &str, app: &AppContext) -> Box<dyn Ele
 }
 
 fn get_blocked_action_header(action: AIAgentActionType) -> Option<String> {
+    if action.is_shell_command_interrupt() {
+        return Some(BLOCKED_ACTION_MESSAGE_FOR_INTERRUPT.to_string());
+    }
+
     match action {
         AIAgentActionType::WriteToLongRunningShellCommand { .. } => {
             Some(BLOCKED_ACTION_MESSAGE_FOR_WRITE_TO_LONG_RUNNING_SHELL_COMMAND.to_string())
@@ -2170,3 +2284,7 @@ fn render_blocked_action(props: BlockedActionProps<'_>, app: &AppContext) -> Box
     )
     .finish()
 }
+
+#[cfg(test)]
+#[path = "cli_tests.rs"]
+mod tests;

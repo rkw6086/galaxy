@@ -9,7 +9,6 @@ use galaxyui::{AppContext, SingletonEntity};
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentAttachment, AIAgentContext, DocumentContentAttachmentSource, DriveObjectPayload,
 };
@@ -17,7 +16,7 @@ use crate::ai::block_context::BlockContext;
 use crate::ai::blocklist::{BlocklistAIContextModel, SessionContext};
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentModel};
 use crate::ai::facts::CloudAIFactModel;
-use crate::ai::skills::list_skills_if_changed;
+use crate::ai::skills::list_skills_for_request;
 use crate::cloud_object::model::generic_string_model::{CloudStringObject, GenericStringObjectId};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{
@@ -48,7 +47,6 @@ pub(super) fn input_context_for_request(
     is_user_query: bool,
     context_model: &BlocklistAIContextModel,
     active_session: &ActiveSession,
-    conversation_id: Option<AIConversationId>,
     additional_context: Vec<AIAgentContext>,
     app: &AppContext,
 ) -> Arc<[AIAgentContext]> {
@@ -80,16 +78,12 @@ pub(super) fn input_context_for_request(
 
     if FeatureFlag::ListSkills.is_enabled() {
         let path_origin = SessionContext::from_session(active_session, app).skill_path_origin();
-        let skills = list_skills_if_changed(
+        let skills = list_skills_for_request(
             current_working_directory_location.as_ref(),
             &path_origin,
-            conversation_id,
             app,
         );
-
-        if let Some(skills) = skills {
-            context.push(AIAgentContext::Skills { skills });
-        }
+        context.push(AIAgentContext::Skills { skills });
     }
 
     context.extend(additional_context);

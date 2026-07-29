@@ -211,15 +211,7 @@ pub fn bedrock_stream_to_response_events(
                     StreamEvent::ContentBlockStop(_) => {
                         log::debug!("[bedrock] Event #{event_count}: ContentBlockStop (tool_use_id={:?})", if current_tool_use_id.is_empty() { "none" } else { &current_tool_use_id });
                         if !current_tool_use_id.is_empty() {
-                            // Skip suggest_next_prompt — its executor hangs forever
-                            // waiting for UI interaction that doesn't exist in the
-                            // Bedrock path.
-                            if current_tool_name == "suggest_next_prompt" {
-                                log::info!("[bedrock] Skipping suggest_next_prompt tool call");
-                                current_tool_use_id.clear();
-                                current_tool_name.clear();
-                                current_tool_input_json.clear();
-                            } else if current_tool_name == "recall_tool_history" {
+                            if current_tool_name == "recall_tool_history" {
                                 // Handle recall_tool_history locally by searching
                                 // the conversation messages that were sent.
                                 log::info!("[bedrock] Handling recall_tool_history locally");
@@ -885,10 +877,37 @@ pub fn build_tool_call_message(
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|f| f.as_str())
-                        .map(|name| api::message::tool_call::read_files::File {
-                            name: name.to_string(),
-                            line_ranges: vec![],
+                        .filter_map(|file| {
+                            if let Some(name) = file.as_str() {
+                                return Some(api::message::tool_call::read_files::File {
+                                    name: name.to_string(),
+                                    line_ranges: vec![],
+                                });
+                            }
+
+                            let name = file
+                                .get("path")
+                                .or_else(|| file.get("name"))
+                                .and_then(|value| value.as_str())?
+                                .to_string();
+                            let line_ranges = file
+                                .get("line_ranges")
+                                .and_then(|value| value.as_array())
+                                .map(|ranges| {
+                                    ranges
+                                        .iter()
+                                        .filter_map(|range| {
+                                            let start =
+                                                range.get("start")?.as_u64()?.try_into().ok()?;
+                                            let end =
+                                                range.get("end")?.as_u64()?.try_into().ok()?;
+                                            (start > 0 && end >= start)
+                                                .then_some(api::FileContentLineRange { start, end })
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            Some(api::message::tool_call::read_files::File { name, line_ranges })
                         })
                         .collect()
                 })
@@ -926,12 +945,46 @@ pub fn build_tool_call_message(
                         .collect()
                 })
                 .unwrap_or_default();
+            let new_files = input
+                .get("new_files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|file| {
+                            Some(api::message::tool_call::apply_file_diffs::NewFile {
+                                file_path: file.get("file_path")?.as_str()?.to_string(),
+                                content: file
+                                    .get("content")
+                                    .and_then(|value| value.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let deleted_files = input
+                .get("deleted_files")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|file| {
+                            let file_path = file.as_str().or_else(|| {
+                                file.get("file_path").and_then(|value| value.as_str())
+                            })?;
+                            Some(api::message::tool_call::apply_file_diffs::DeleteFile {
+                                file_path: file_path.to_string(),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             Some(api::message::tool_call::Tool::ApplyFileDiffs(
                 api::message::tool_call::ApplyFileDiffs {
                     summary,
                     diffs,
-                    new_files: vec![],
-                    deleted_files: vec![],
+                    new_files,
+                    deleted_files,
                     v4a_updates: vec![],
                 },
             ))
@@ -986,10 +1039,20 @@ pub fn build_tool_call_message(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let path_filters = input
+                .get("path_filters")
+                .and_then(|v| v.as_array())
+                .map(|filters| {
+                    filters
+                        .iter()
+                        .filter_map(|filter| filter.as_str().map(ToOwned::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
             Some(api::message::tool_call::Tool::SearchCodebase(
                 api::message::tool_call::SearchCodebase {
                     query,
-                    path_filters: vec![],
+                    path_filters,
                     codebase_path,
                 },
             ))
@@ -1026,33 +1089,58 @@ pub fn build_tool_call_message(
                 ),
             )
         }
+        "interrupt_shell_command" => {
+            use api::message::tool_call::write_to_long_running_shell_command::mode::Mode;
+            use galaxy_terminal::model::escape_sequences;
+
+            let command_id = input
+                .get("command_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            Some(
+                api::message::tool_call::Tool::WriteToLongRunningShellCommand(
+                    api::message::tool_call::WriteToLongRunningShellCommand {
+                        input: vec![escape_sequences::C0::ETX],
+                        mode: Some(
+                            api::message::tool_call::write_to_long_running_shell_command::Mode {
+                                mode: Some(Mode::Raw(())),
+                            },
+                        ),
+                        command_id,
+                    },
+                ),
+            )
+        }
         "read_shell_command_output" => {
             let command_id = input
                 .get("command_id")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let delay = if input
+            let requested_wait_until_complete = input
                 .get("wait_until_complete")
                 .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                Some(api::message::tool_call::read_shell_command_output::Delay::OnCompletion(()))
+                .unwrap_or(false);
+            let seconds = if requested_wait_until_complete {
+                // Preserve compatibility with in-flight prompts that still use the old flag, but
+                // wake the monitor on the same bounded cadence as an explicit timed poll.
+                super::request_translator::COMMAND_MONITOR_MAX_POLL_SECONDS
             } else {
-                let seconds = input
+                input
                     .get("wait_seconds")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(2)
-                    .min(120);
-                Some(
-                    api::message::tool_call::read_shell_command_output::Delay::Duration(
-                        prost_types::Duration {
-                            seconds: seconds as i64,
-                            nanos: 0,
-                        },
-                    ),
-                )
+                    .min(super::request_translator::COMMAND_MONITOR_MAX_POLL_SECONDS)
             };
+            let delay = Some(
+                api::message::tool_call::read_shell_command_output::Delay::Duration(
+                    prost_types::Duration {
+                        seconds: seconds as i64,
+                        nanos: 0,
+                    },
+                ),
+            );
             Some(api::message::tool_call::Tool::ReadShellCommandOutput(
                 api::message::tool_call::ReadShellCommandOutput { command_id, delay },
             ))
@@ -1230,12 +1318,27 @@ pub fn build_tool_call_message(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let skill_reference = match input.get("reference_type").and_then(|v| v.as_str()) {
+                Some("bundled") => {
+                    api::message::tool_call::read_skill::SkillReference::BundledSkillId(
+                        skill.clone(),
+                    )
+                }
+                Some("path") | None => {
+                    api::message::tool_call::read_skill::SkillReference::SkillPath(skill.clone())
+                }
+                Some(reference_type) => {
+                    log::warn!(
+                        "[bedrock] Unknown read_skill reference_type {reference_type:?}; \
+                         treating it as a path for backward compatibility"
+                    );
+                    api::message::tool_call::read_skill::SkillReference::SkillPath(skill.clone())
+                }
+            };
             Some(api::message::tool_call::Tool::ReadSkill(
                 api::message::tool_call::ReadSkill {
                     name: skill.clone(),
-                    skill_reference: Some(
-                        api::message::tool_call::read_skill::SkillReference::SkillPath(skill),
-                    ),
+                    skill_reference: Some(skill_reference),
                 },
             ))
         }
@@ -1369,6 +1472,7 @@ const KNOWN_TOOLS: &[&str] = &[
     "file_glob",
     "search_codebase",
     "write_to_long_running_shell_command",
+    "interrupt_shell_command",
     "read_shell_command_output",
     "transfer_shell_command_control_to_user",
     "read_mcp_resource",
@@ -1383,15 +1487,13 @@ const KNOWN_TOOLS: &[&str] = &[
     "create_documents",
     "edit_documents",
     "start_agent",
-    "send_message_to_agent",
     "ask_user_question",
-    "suggest_next_prompt",
     "read_skill",
     "fetch_conversation",
     "recall_tool_history",
 ];
 
-fn is_known_tool(name: &str) -> bool {
+pub(super) fn is_known_tool(name: &str) -> bool {
     KNOWN_TOOLS.contains(&name) || name.starts_with("mcp__")
 }
 
@@ -1400,7 +1502,7 @@ fn is_notebook_tool(name: &str) -> bool {
 }
 
 /// Searches conversation message history for tool call results matching the given criteria.
-fn recall_from_history(
+pub(crate) fn recall_from_history(
     messages: &[ConversationMessage],
     archive: &[ConversationMessage],
     search_query: &str,

@@ -3,7 +3,7 @@
 ###############################################################################
 
 Summary:     The orchestration platform for cloud agents.
-Name:        oz@@CHANNEL_SUFFIX@@
+Name:        @@PACKAGE_NAME@@
 Version:     @@VERSION@@
 Release:     @@RELEASE@@
 Vendor:      Denver Technologies, Inc.

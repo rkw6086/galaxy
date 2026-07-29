@@ -492,6 +492,14 @@ fn serialize_messages(messages: &[ConversationMessage]) -> JsonValue {
                             super::convert::ContentPart::Text(t) => {
                                 serde_json::json!({"type": "text", "text": t})
                             }
+                            super::convert::ContentPart::Image { data, mime_type } => {
+                                serde_json::json!({
+                                    "type": "image",
+                                    "mime_type": mime_type,
+                                    "byte_length": data.len(),
+                                    "data": "REDACTED",
+                                })
+                            }
                             super::convert::ContentPart::ToolUse {
                                 tool_use_id,
                                 name,

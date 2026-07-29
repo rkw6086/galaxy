@@ -2,6 +2,8 @@
 
 use ai::agent::convert::ConvertToAPITypeError;
 use anyhow::anyhow;
+use base64::engine::general_purpose;
+use base64::Engine as _;
 use chrono::{DateTime, Local, Timelike};
 use warp_multi_agent_api as api;
 
@@ -763,8 +765,15 @@ fn convert_context(context: &[AIAgentContext]) -> api::InputContext {
                 });
             }
             AIAgentContext::Image(image_context) => {
+                let Ok(data) = general_purpose::STANDARD.decode(&image_context.data) else {
+                    log::warn!(
+                        "Skipping AI image context with invalid base64 data (mime_type={})",
+                        image_context.mime_type
+                    );
+                    continue;
+                };
                 api_context.images.push(api::input_context::Image {
-                    data: image_context.data.into(),
+                    data,
                     mime_type: image_context.mime_type,
                 });
             }

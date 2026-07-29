@@ -765,11 +765,11 @@ fn test_settings_section_for_simple_subpage() {
     );
     assert_eq!(
         settings_section_for_simple_subpage("billing_and_usage"),
-        Some(SettingsSection::BillingAndUsage),
+        Some(SettingsSection::About),
     );
     assert_eq!(
         settings_section_for_simple_subpage("platform"),
-        Some(SettingsSection::OzCloudAPIKeys),
+        Some(SettingsSection::About),
     );
     assert_eq!(
         settings_section_for_simple_subpage("warp_agent"),

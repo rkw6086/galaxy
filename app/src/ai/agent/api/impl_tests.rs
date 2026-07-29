@@ -2,7 +2,7 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::HostId;
 use warp_multi_agent_api as api;
 
-use super::{get_supported_cli_agent_tools, get_supported_tools, supports_orchestration_v2};
+use super::{get_supported_cli_agent_tools, get_supported_tools};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::blocklist::SessionContext;
 use crate::ai::llms::LLMId;
@@ -62,34 +62,44 @@ fn request_params_for_remote(host_id: Option<HostId>) -> RequestParams {
 }
 
 #[test]
-fn supports_orchestration_v2_matches_request_orchestration_setting() {
-    assert!(supports_orchestration_v2(true));
-    assert!(!supports_orchestration_v2(false));
-}
-
-#[test]
-fn supported_tools_include_orchestration_tools_when_orchestration_enabled() {
+fn supported_tools_expose_local_subagents_without_hosted_orchestration_tools() {
     let mut params = request_params_with_ask_user_question_enabled(false);
     params.orchestration_enabled = true;
 
     let supported_tools = get_supported_tools(&params);
 
-    assert!(supported_tools.contains(&api::ToolType::RunAgents));
-    assert!(supported_tools.contains(&api::ToolType::SendMessageToAgent));
-    assert!(!supported_tools.contains(&api::ToolType::StartAgent));
+    assert!(supported_tools.contains(&api::ToolType::Subagent));
+    assert!(!supported_tools.contains(&api::ToolType::RunAgents));
+    assert!(!supported_tools.contains(&api::ToolType::SendMessageToAgent));
+    assert!(!supported_tools.contains(&api::ToolType::WaitForEvents));
     assert!(!supported_tools.contains(&api::ToolType::StartAgentV2));
 }
 
 #[test]
-fn supported_tools_omit_orchestration_tools_when_orchestration_disabled() {
+fn supported_tools_omit_hosted_only_capabilities() {
     let params = request_params_with_ask_user_question_enabled(false);
     let supported_tools = get_supported_tools(&params);
 
-    assert!(!supported_tools.contains(&api::ToolType::RunAgents));
-    assert!(!supported_tools.contains(&api::ToolType::SendMessageToAgent));
-    assert!(!supported_tools.contains(&api::ToolType::StartAgent));
-    assert!(!supported_tools.contains(&api::ToolType::StartAgentV2));
+    for hosted_only_tool in [
+        api::ToolType::InitProject,
+        api::ToolType::OpenCodeReview,
+        api::ToolType::SuggestNewConversation,
+        api::ToolType::SuggestPrompt,
+        api::ToolType::UploadFileArtifact,
+        api::ToolType::UseComputer,
+        api::ToolType::RequestComputerUse,
+        api::ToolType::InsertReviewComments,
+        api::ToolType::RunAgents,
+        api::ToolType::SendMessageToAgent,
+        api::ToolType::WaitForEvents,
+    ] {
+        assert!(
+            !supported_tools.contains(&hosted_only_tool),
+            "{hosted_only_tool:?} has no direct-provider tool schema"
+        );
+    }
 }
+
 #[test]
 fn supported_tools_omits_ask_user_question_when_disabled() {
     let params = request_params_with_ask_user_question_enabled(false);
@@ -108,24 +118,6 @@ fn supported_tools_includes_ask_user_question_when_enabled_and_feature_flag_is_e
     let supported_tools = get_supported_tools(&params);
 
     assert!(supported_tools.contains(&api::ToolType::AskUserQuestion));
-}
-
-#[test]
-fn supported_tools_include_upload_artifact_when_feature_flag_is_enabled() {
-    let _flag = FeatureFlag::ArtifactCommand.override_enabled(true);
-    let params = request_params_with_ask_user_question_enabled(false);
-    let supported_tools = get_supported_tools(&params);
-
-    assert!(supported_tools.contains(&api::ToolType::UploadFileArtifact));
-}
-
-#[test]
-fn supported_tools_omit_upload_artifact_when_feature_flag_is_disabled() {
-    let _flag = FeatureFlag::ArtifactCommand.override_enabled(false);
-    let params = request_params_with_ask_user_question_enabled(false);
-    let supported_tools = get_supported_tools(&params);
-
-    assert!(!supported_tools.contains(&api::ToolType::UploadFileArtifact));
 }
 
 #[test]

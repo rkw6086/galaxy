@@ -631,31 +631,40 @@ pub(super) fn render_start_agent(
                 column.add_child(body);
             }
         }
-        if let Some(card_data) = child_conversation_card_data {
-            let navigation_card_handle = props
+        if let Some(panel_state) = props.state_handles.subagent_panel_states.get(action_id) {
+            column.add_child(
+                crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+                    panel_state,
+                    action_id,
+                    props.terminal_view_id,
+                    app,
+                ),
+            );
+        } else if let Some(card_data) = child_conversation_card_data {
+            if let Some(navigation_card_handle) = props
                 .state_handles
                 .orchestration_navigation_card_handles
                 .get(action_id)
                 .cloned()
-                .unwrap_or_else(|| {
-                    log::error!(
-                        "Missing orchestration navigation card handle for StartAgent action {:?}",
-                        action_id
-                    );
-                    MouseStateHandle::default()
-                });
-            let status_icon = card_data
-                .status
-                .status_icon_and_color(theme, StatusColorStyle::Standard);
-            column.add_child(render_conversation_navigation_card_row(
-                &card_data.agent_name,
-                Some(&card_data.title),
-                Some(status_icon),
-                card_data.conversation_id,
-                navigation_card_handle,
-                true,
-                app,
-            ));
+            {
+                let status_icon = card_data
+                    .status
+                    .status_icon_and_color(theme, StatusColorStyle::Standard);
+                column.add_child(render_conversation_navigation_card_row(
+                    &card_data.agent_name,
+                    Some(&card_data.title),
+                    Some(status_icon),
+                    card_data.conversation_id,
+                    navigation_card_handle,
+                    true,
+                    app,
+                ));
+            } else {
+                log::error!(
+                    "Missing orchestration navigation card handle for StartAgent action {:?}",
+                    action_id
+                );
+            }
         }
 
         return column
@@ -715,6 +724,16 @@ pub(super) fn render_start_agent(
         ) {
             column.add_child(body);
         }
+    }
+    if let Some(panel_state) = props.state_handles.subagent_panel_states.get(action_id) {
+        column.add_child(
+            crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+                panel_state,
+                action_id,
+                props.terminal_view_id,
+                app,
+            ),
+        );
     }
 
     column

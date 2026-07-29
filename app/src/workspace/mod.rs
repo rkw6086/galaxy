@@ -1190,6 +1190,25 @@ pub fn init(app: &mut AppContext) {
     .with_group(bindings::BindingGroup::Settings.as_str())
     .with_context_predicate(id!("Workspace") & !id!("IsAnonymousUser"))]);
 
+    if FeatureFlag::GalaxyControlCli.is_enabled() {
+        app.register_editable_bindings([
+            EditableBinding::new(
+                "workspace:enable_galaxy_control",
+                "Enable Galaxy Control",
+                WorkspaceAction::EnableGalaxyControl,
+            )
+            .with_group(bindings::BindingGroup::Settings.as_str())
+            .with_context_predicate(id!("Workspace") & !id!(flags::GALAXY_CONTROL_ENABLED)),
+            EditableBinding::new(
+                "workspace:disable_galaxy_control",
+                "Disable Galaxy Control",
+                WorkspaceAction::DisableGalaxyControl,
+            )
+            .with_group(bindings::BindingGroup::Settings.as_str())
+            .with_context_predicate(id!("Workspace") & id!(flags::GALAXY_CONTROL_ENABLED)),
+        ]);
+    }
+
     if !FeatureFlag::AvatarInTabBar.is_enabled() {
         app.register_editable_bindings([EditableBinding::new(
             "workspace:toggle_resource_center",
@@ -1211,7 +1230,7 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(id!("Workspace") & id!(flags::ENABLE_WARP_DRIVE))]);
     }
 
-    // Oz and Warp Control CLI install/uninstall actions (macOS only)
+    // Oz and Galaxy Control CLI install/uninstall actions (macOS only)
     #[cfg(target_os = "macos")]
     {
         app.register_editable_bindings([
@@ -1230,19 +1249,19 @@ pub fn init(app: &mut AppContext) {
             .with_group(bindings::BindingGroup::Settings.as_str())
             .with_context_predicate(id!("Workspace")),
         ]);
-        if FeatureFlag::WarpControlCli.is_enabled() {
+        if FeatureFlag::GalaxyControlCli.is_enabled() {
             app.register_editable_bindings([
                 EditableBinding::new(
-                    "workspace:install_warpctrl",
-                    "Install Warp Control CLI globally for use outside of Warp",
-                    WorkspaceAction::InstallWarpctrl,
+                    "workspace:install_galaxyctrl",
+                    "Install Galaxy Control CLI globally",
+                    WorkspaceAction::InstallGalaxyctrl,
                 )
                 .with_group(bindings::BindingGroup::Settings.as_str())
                 .with_context_predicate(id!("Workspace")),
                 EditableBinding::new(
-                    "workspace:uninstall_warpctrl",
-                    "Undo global Warp Control CLI installation (warpctrl will still work within Warp)",
-                    WorkspaceAction::UninstallWarpctrl,
+                    "workspace:uninstall_galaxyctrl",
+                    "Remove global Galaxy Control CLI installation",
+                    WorkspaceAction::UninstallGalaxyctrl,
                 )
                 .with_group(bindings::BindingGroup::Settings.as_str())
                 .with_context_predicate(id!("Workspace")),

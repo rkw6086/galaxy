@@ -50,6 +50,40 @@ fn child_conversation_card_data_for_success_result_returns_conversation_id_and_t
 }
 
 #[test]
+fn child_conversation_card_data_resolves_tokenless_direct_provider_inline_output() {
+    App::test((), |mut app| async move {
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let conversation_id = history_model.update(&mut app, |history_model, ctx| {
+            let conversation_id =
+                history_model.start_new_conversation(EntityId::new(), false, false, false, ctx);
+            history_model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .set_fallback_display_title("Generated child title".to_string());
+            conversation_id
+        });
+        let result = StartAgentResult::Success {
+            agent_id: format!(
+                "{conversation_id}\n\nAgent output:\nThe child completed successfully."
+            ),
+            version: StartAgentVersion::V1,
+        };
+
+        let actual = app.read(|ctx| child_conversation_card_data_for_result(&result, ctx));
+
+        assert_eq!(
+            actual,
+            Some(ChildConversationCardData {
+                conversation_id,
+                agent_name: "Agent".to_string(),
+                title: "Generated child title".to_string(),
+                status: ConversationStatus::InProgress,
+            })
+        );
+    });
+}
+
+#[test]
 fn start_agent_copy_uses_local_labels_for_local_children() {
     let execution_mode = StartAgentExecutionMode::local_harness("claude-code".to_string());
 

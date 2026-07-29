@@ -153,7 +153,7 @@ fn surface_list_rejects_target_selectors() {
 
 #[test]
 fn capabilities_advertises_the_complete_catalog() {
-    assert_eq!(capabilities().len(), 84);
+    assert_eq!(capabilities().len(), 77);
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn missing_window_index_returns_missing_target() {
 
 #[test]
 fn feature_flag_disabled_denies_local_control() {
-    let _flag = FeatureFlag::WarpControlCli.override_enabled(false);
+    let _flag = FeatureFlag::GalaxyControlCli.override_enabled(false);
     let err = ensure_feature_enabled().expect_err("feature flag disabled");
     assert_eq!(err.code, ErrorCode::LocalControlDisabled);
 }
@@ -379,7 +379,7 @@ fn expired_credential_is_rejected_and_pruned_before_request_decode() {
 
 #[test]
 fn disabling_scripting_invalidates_existing_grant_and_prevents_new_grants() {
-    let _flag = FeatureFlag::WarpControlCli.override_enabled(true);
+    let _flag = FeatureFlag::GalaxyControlCli.override_enabled(true);
     warpui::App::test((), |mut app| async move {
         crate::test_util::settings::initialize_settings_for_tests(&mut app);
         app.update(|ctx| {

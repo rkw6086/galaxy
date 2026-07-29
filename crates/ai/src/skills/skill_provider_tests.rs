@@ -1,3 +1,4 @@
+use galaxy_core::ui::icons::Icon;
 use galaxy_util::host_id::HostId;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxy_util::remote_path::RemotePath;
@@ -9,7 +10,7 @@ use super::{
 };
 
 #[test]
-fn warp_home_skills_path_uses_warp_home_path() {
+fn galaxy_managed_home_skills_path_uses_galaxy_home_path() {
     assert_eq!(
         home_skills_path(SkillProvider::Warp),
         galaxy_core::paths::galaxy_home_skills_dir()
@@ -17,18 +18,23 @@ fn warp_home_skills_path_uses_warp_home_path() {
 }
 
 #[test]
-fn warp_home_skill_path_is_home_warp_skill() {
-    let Some(warp_home_skills_dir) = galaxy_core::paths::galaxy_home_skills_dir() else {
+fn galaxy_managed_home_skill_path_is_home_skill() {
+    let Some(galaxy_home_skills_dir) = galaxy_core::paths::galaxy_home_skills_dir() else {
         eprintln!("Skipping test: home directory not available");
         return;
     };
-    let path = warp_home_skills_dir.join("my-skill").join("SKILL.md");
+    let path = galaxy_home_skills_dir.join("my-skill").join("SKILL.md");
 
     assert_eq!(
         get_provider_for_path(&LocalOrRemotePath::Local(path.clone())),
         Some(SkillProvider::Warp)
     );
     assert_eq!(get_scope_for_path(&path), SkillScope::Home);
+}
+
+#[test]
+fn galaxy_managed_skills_use_the_galaxy_logo() {
+    assert_eq!(SkillProvider::Warp.icon(), Icon::GalaxyLogo);
 }
 
 #[test]

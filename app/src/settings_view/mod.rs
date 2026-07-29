@@ -267,7 +267,7 @@ impl Display for SettingsSection {
         match self {
             SettingsSection::Keybindings => write!(f, "Keyboard shortcuts"),
             SettingsSection::MCPServers => write!(f, "MCP Servers"),
-            SettingsSection::Scripting => write!(f, "Scripting"),
+            SettingsSection::Scripting => write!(f, "Galaxy Control"),
             SettingsSection::WarpDrive => write!(f, "Galaxy Drive"),
             SettingsSection::WarpAgent => write!(f, "Galaxy Agent"),
             SettingsSection::AgentProfiles => write!(f, "Profiles"),
@@ -302,6 +302,7 @@ impl SettingsSection {
                 | Self::ThirdPartyCLIAgents
                 | Self::Bedrock
                 | Self::OpenAI
+                | Self::Experiments
         )
     }
 
@@ -357,7 +358,7 @@ impl FromStr for SettingsSection {
             "Features" => Ok(Self::Features),
             "Keyboard shortcuts" => Ok(Self::Keybindings),
             "Privacy" => Ok(Self::Privacy),
-            "Scripting" => Ok(Self::Scripting),
+            "Galaxy Control" | "Scripting" => Ok(Self::Scripting),
             "Teams" => Ok(Self::Teams),
             "Warpify" => Ok(Self::Warpify),
             "WarpDrive" | "Galaxy Drive" => Ok(Self::WarpDrive),
@@ -367,9 +368,11 @@ impl FromStr for SettingsSection {
             "Knowledge" => Ok(Self::Knowledge),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
             "AWS Bedrock" | "Bedrock" => Ok(Self::Bedrock),
+            "OpenAI / LiteLLM" | "OpenAI" => Ok(Self::OpenAI),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
             "Experiments" => Ok(Self::Experiments),
+            "Wormhole" => Ok(Self::Warpify),
             _ => Err(()),
         }
     }
@@ -587,6 +590,7 @@ pub mod flags {
         "AutoOpenRichInputOnCLIAgentStart";
     pub const AUTO_DISMISS_RICH_INPUT_AFTER_SUBMIT_FLAG: &str = "AutoDismissRichInputAfterSubmit";
     pub const ENABLE_WARP_DRIVE: &str = "EnableWarpDrive";
+    pub const GALAXY_CONTROL_ENABLED: &str = "GalaxyControlEnabled";
     // Tools panel settings
     pub const SHOW_CONVERSATION_HISTORY: &str = "ShowConversationHistory";
     pub const SHOW_PROJECT_EXPLORER: &str = "ShowProjectExplorer";
@@ -1150,7 +1154,7 @@ impl SettingsView {
             me.handle_privacy_page_event(event, ctx);
         });
 
-        let scripting_page_handle = if FeatureFlag::WarpControlCli.is_enabled() {
+        let scripting_page_handle = if FeatureFlag::GalaxyControlCli.is_enabled() {
             Some(ctx.add_typed_action_view(ScriptingSettingsPageView::new))
         } else {
             None
@@ -1246,7 +1250,7 @@ impl SettingsView {
             SettingsNavItem::Page(SettingsSection::About),
         ];
 
-        if FeatureFlag::WarpControlCli.is_enabled() {
+        if FeatureFlag::GalaxyControlCli.is_enabled() {
             nav_items.push(SettingsNavItem::Page(SettingsSection::Scripting));
         }
 
@@ -1254,7 +1258,7 @@ impl SettingsView {
         let initial_page = match page {
             Some(SettingsSection::AI) => SettingsSection::WarpAgent,
             Some(SettingsSection::Code) => SettingsSection::CodeIndexing,
-            Some(SettingsSection::Scripting) if !FeatureFlag::WarpControlCli.is_enabled() => {
+            Some(SettingsSection::Scripting) if !FeatureFlag::GalaxyControlCli.is_enabled() => {
                 SettingsSection::About
             }
             Some(section) if section.is_subpage() => section,

@@ -55,7 +55,12 @@ pub fn log_crash(
         error_message,
     );
 
-    match OpenOptions::new().create(true).write(true).open(&path) {
+    match OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+    {
         Ok(mut file) => {
             if let Err(e) = file.write_all(content.as_bytes()) {
                 log::warn!("[crash-log] Failed to write crash log: {e}");

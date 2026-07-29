@@ -29,6 +29,54 @@ fn test_text_message_converts_to_single_block() {
 }
 
 #[test]
+fn test_multimodal_user_message_converts_image_to_bedrock_block() {
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::Text("Describe this image".to_string()),
+            ContentPart::Image {
+                data: vec![1, 2, 3, 4],
+                mime_type: "image/png".to_string(),
+            },
+        ]),
+    }];
+
+    let result = build_converse_request(
+        messages,
+        None,
+        None,
+        vec![],
+        4096,
+        None,
+        None,
+        None,
+        CachingConfig::default(),
+    );
+
+    assert_eq!(result.messages.len(), 1);
+    assert_eq!(result.messages[0].content().len(), 2);
+    assert!(matches!(
+        &result.messages[0].content()[0],
+        ContentBlock::Text(text) if text == "Describe this image"
+    ));
+    let ContentBlock::Image(image) = &result.messages[0].content()[1] else {
+        panic!("expected Bedrock image block");
+    };
+    assert_eq!(
+        image.format(),
+        &aws_sdk_bedrockruntime::types::ImageFormat::Png
+    );
+    let source = image.source().expect("expected image source");
+    assert_eq!(
+        source
+            .as_bytes()
+            .expect("expected inline image bytes")
+            .as_ref(),
+        &[1, 2, 3, 4]
+    );
+}
+
+#[test]
 fn test_tool_use_produces_valid_json_input() {
     let messages = vec![ConversationMessage {
         role: MessageRole::Assistant,

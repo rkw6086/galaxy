@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Builds a Warp binary and bundles it up for distribution.
+# Builds a Galaxy binary and bundles it up for distribution.
 
 set -e
 
@@ -20,8 +20,6 @@ CARGO_TARGET_DIR="$WORKSPACE_ROOT_DIR/target/wasm32-unknown-unknown"
 
 # By default we build dev bundles.
 RELEASE_CHANNEL="dev"
-# TODO: We should enable crash_reporting and before enabling for trusted testers.
-# https://linear.app/warpdotdev/issue/PLAT-428/crash-reporting-on-web
 FEATURES="release_bundle,gui"
 DEBUG=false
 
@@ -114,20 +112,20 @@ mkdir -p "$EXTRAS_DIR"
 
 # Update parameters based on the target release channel.
 #
-# WARP_BIN is the name of the binary produced by cargo.
-# N.B. The bundled outputs will always be warp.js and warp_bg.wasm.
+# GALAXY_BIN is the name of the binary produced by cargo.
+# N.B. The bundled outputs will always be galaxy.js and galaxy_bg.wasm.
 if [[ $RELEASE_CHANNEL = "local" ]]; then
-  WARP_BIN="warp"
+  GALAXY_BIN="galaxy-local"
   FEATURES="$FEATURES,remote_tty"
 elif [[ $RELEASE_CHANNEL = "dev" ]]; then
-  WARP_BIN="dev"
+  GALAXY_BIN="galaxy-dev"
 elif [[ $RELEASE_CHANNEL = "preview" ]]; then
-  WARP_BIN="preview"
+  GALAXY_BIN="galaxy-preview"
   FEATURES="$FEATURES,preview_channel"
 elif [[ $RELEASE_CHANNEL = "stable" ]]; then
-  WARP_BIN="stable"
+  GALAXY_BIN="stable"
 elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-  WARP_BIN="warp-oss"
+  GALAXY_BIN="galaxy-oss"
 fi
 
 if [ -n "${FEATURES_OVERRIDE+x}" ]; then
@@ -138,20 +136,20 @@ fi
 # then exit.  We use this script to invoke `cargo check` to ensure that we are
 # using the same feature flags and profile that we would be using in production.
 if [[ "$CHECK_ONLY" == "true" ]]; then
-  ASSET_TARGET_DIR="$ASSET_TARGET_DIR" cargo check --target wasm32-unknown-unknown --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES"
+  ASSET_TARGET_DIR="$ASSET_TARGET_DIR" cargo check --package galaxy --target wasm32-unknown-unknown --profile "$CARGO_PROFILE" --bin "$GALAXY_BIN" --features "$FEATURES"
   exit 0
 fi
 
 # Build the wasm binary.
-echo "Building and bundling Warp for channel $RELEASE_CHANNEL"
-ASSET_TARGET_DIR="$ASSET_TARGET_DIR" cargo build --target wasm32-unknown-unknown --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --features "$FEATURES"
+echo "Building and bundling Galaxy for channel $RELEASE_CHANNEL"
+ASSET_TARGET_DIR="$ASSET_TARGET_DIR" cargo build --package galaxy --target wasm32-unknown-unknown --profile "$CARGO_PROFILE" --bin "$GALAXY_BIN" --features "$FEATURES"
 
 # Generate linked JS and wasm files that can be run in the browser.
-echo "Running wasm-bindgen on $CARGO_TARGET_OUTPUT_DIR/$WARP_BIN.wasm"
-wasm-bindgen --target web --out-dir "$OUT_DIR" --out-name "warp" --keep-debug --no-typescript "$CARGO_TARGET_OUTPUT_DIR/$WARP_BIN.wasm"
+echo "Running wasm-bindgen on $CARGO_TARGET_OUTPUT_DIR/$GALAXY_BIN.wasm"
+wasm-bindgen --target web --out-dir "$OUT_DIR" --out-name "galaxy" --keep-debug --no-typescript "$CARGO_TARGET_OUTPUT_DIR/$GALAXY_BIN.wasm"
 
-WASM_BINARY_OUT="${OUT_DIR}/warp_bg.wasm"
-WASM_BINARY_DEBUG="${EXTRAS_DIR}/warp_bg.debug.wasm"
+WASM_BINARY_OUT="${OUT_DIR}/galaxy_bg.wasm"
+WASM_BINARY_DEBUG="${EXTRAS_DIR}/galaxy_bg.debug.wasm"
 
 if [[ "$NO_SPLIT" != "true" ]]; then
   # Run Sentry's wasm-split binary to separate out debug information from the

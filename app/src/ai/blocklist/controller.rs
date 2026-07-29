@@ -49,8 +49,8 @@ use crate::ai::agent::{
     AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, AIIdentifiers,
     CancellationOutcome, CancellationReason, DocumentContentAttachmentSource, EntrypointType,
     FileContext, FinishedAIAgentOutput, PassiveSuggestionResultType, PassiveSuggestionTrigger,
-    PassiveSuggestionTriggerType, RenderableAIError, RequestCost, RequestMetadata, RunningCommand,
-    StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
+    PassiveSuggestionTriggerType, RenderableAIError, RequestCommandOutputResult, RequestCost,
+    RequestMetadata, RunningCommand, StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
 };
 use crate::ai::agent_events::AgentMessageEventMetadata;
 #[cfg(not(target_family = "wasm"))]
@@ -261,6 +261,12 @@ pub struct RequestInput {
     pub shared_session_response_initiator: Option<ParticipantId>,
     pub request_start_ts: DateTime<Local>,
     pub supported_tools_override: Option<Vec<ToolType>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RunningCommandDetection {
+    Detect,
+    Skip,
 }
 
 impl RequestInput {
@@ -808,7 +814,6 @@ impl BlocklistAIController {
             false,
             self.context_model.as_ref(ctx),
             self.active_session.as_ref(ctx),
-            Some(conversation_id),
             vec![],
             ctx,
         );
@@ -1134,13 +1139,77 @@ impl BlocklistAIController {
             query,
             conversation_id,
             None,
-            false,
+            RunningCommandDetection::Detect,
             HashMap::new(),
             EntrypointType::AgentInitiated,
             /*is_queued_prompt*/ false,
             /*queued_query_id*/ None,
             ctx,
         );
+    }
+
+    /// Sends one non-preemptive final assessment to a completed CLI-monitor task.
+    ///
+    /// This deliberately bypasses `send_query`: command completion must not cancel
+    /// another conversation, drain unrelated action results, or replace a request
+    /// that is still delivering the command's final tool result.
+    pub fn send_command_completion_assessment(
+        &mut self,
+        conversation_id: AIConversationId,
+        task_id: TaskId,
+        query: String,
+        completed_command: RunningCommand,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        if self
+            .in_flight_response_streams
+            .has_active_stream_for_conversation(conversation_id, ctx)
+            || self
+                .action_model
+                .as_ref(ctx)
+                .has_unfinished_actions_for_conversation(conversation_id)
+        {
+            return false;
+        }
+
+        let context = input_context_for_request(
+            false,
+            self.context_model.as_ref(ctx),
+            self.active_session.as_ref(ctx),
+            vec![],
+            ctx,
+        );
+        let request_input = RequestInput::for_task(
+            vec![AIAgentInput::UserQuery {
+                query,
+                context,
+                static_query_type: None,
+                referenced_attachments: HashMap::new(),
+                user_query_mode: UserQueryMode::Normal,
+                running_command: Some(completed_command),
+                intended_agent: None,
+            }],
+            task_id,
+            &self.active_session,
+            self.get_current_response_initiator(),
+            conversation_id,
+            self.terminal_surface_id,
+            ctx,
+        )
+        .with_supported_tools(vec![]);
+
+        self.send_request_input(
+            request_input,
+            Some(RequestMetadata {
+                is_autodetected_user_query: false,
+                entrypoint: EntrypointType::AgentInitiated,
+                is_auto_resume_after_error: false,
+            }),
+            /*can_attempt_resume_on_error*/ false,
+            /*is_queued_prompt*/ false,
+            ctx,
+        )
+        .is_ok()
     }
 
     /// Sends the given user query to the AI model.
@@ -1155,7 +1224,7 @@ impl BlocklistAIController {
             query,
             conversation_id,
             participant_id,
-            false, // skip_running_command_detection
+            RunningCommandDetection::Detect,
             HashMap::new(),
             EntrypointType::UserInitiated,
             /*is_queued_prompt*/ false,
@@ -1180,7 +1249,7 @@ impl BlocklistAIController {
             query,
             conversation_id,
             participant_id,
-            false, // skip_running_command_detection
+            RunningCommandDetection::Detect,
             HashMap::new(),
             EntrypointType::UserInitiated,
             /*is_queued_prompt*/ true,
@@ -1202,7 +1271,7 @@ impl BlocklistAIController {
             query,
             conversation_id,
             participant_id,
-            false, // skip_running_command_detection
+            RunningCommandDetection::Detect,
             additional_attachments,
             EntrypointType::UserInitiated,
             /*is_queued_prompt*/ false,
@@ -1226,7 +1295,7 @@ impl BlocklistAIController {
             query,
             conversation_id,
             participant_id,
-            true, // skip_running_command_detection
+            RunningCommandDetection::Skip,
             HashMap::new(),
             EntrypointType::UserInitiated,
             /*is_queued_prompt*/ false,
@@ -1241,7 +1310,7 @@ impl BlocklistAIController {
         query: String,
         conversation_id: AIConversationId,
         participant_id: Option<ParticipantId>,
-        skip_running_command_detection: bool,
+        running_command_detection: RunningCommandDetection,
         additional_attachments: HashMap<String, AIAgentAttachment>,
         entrypoint_type: EntrypointType,
         is_queued_prompt: bool,
@@ -1274,6 +1343,14 @@ impl BlocklistAIController {
 
         let (promoted_blocks, task_id, running_command) = {
             let mut terminal_model = self.terminal_model.lock();
+
+            let running_command_opt = match running_command_detection {
+                RunningCommandDetection::Detect => {
+                    get_running_command_for_conversation(&terminal_model, conversation_id)
+                }
+                RunningCommandDetection::Skip => None,
+            };
+
             terminal_model
                 .block_list_mut()
                 .associate_blocks_with_conversation(context_block_ids.iter(), conversation_id);
@@ -1285,13 +1362,21 @@ impl BlocklistAIController {
                 .promote_blocks_to_attached_from_conversation(conversation_id);
 
             let active_block = terminal_model.block_list().active_block();
-            let running_command_opt = if !skip_running_command_detection {
-                get_running_command(&terminal_model)
-            } else {
-                None
-            };
+            let existing_cli_task_id = active_block
+                .is_agent_monitoring()
+                .then(|| active_block.agent_interaction_metadata())
+                .flatten()
+                .filter(|metadata| metadata.conversation_id() == &conversation_id)
+                .and_then(|metadata| metadata.subagent_task_id().cloned());
 
-            let (task_id, running_command) = if let Some(running_command) = running_command_opt {
+            // Steering for a command that already has a monitor must remain on
+            // that monitor's task. Creating another optimistic CLI task here
+            // replaces the active task ID and strands the previous exchange.
+            // Keep attaching the current running-command snapshot so the
+            // direct provider continues selecting the CLI-agent model.
+            let (task_id, running_command) = if let Some(task_id) = existing_cli_task_id {
+                (task_id, running_command_opt)
+            } else if let Some(running_command) = running_command_opt {
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match history_model.update(ctx, |history_model, ctx| {
                     history_model.create_cli_subagent_task_for_conversation(
@@ -1307,14 +1392,6 @@ impl BlocklistAIController {
                         return;
                     }
                 }
-            } else if let Some(task_id) = active_block
-                .is_agent_monitoring()
-                .then(|| active_block.agent_interaction_metadata())
-                .flatten()
-                .filter(|metadata| metadata.conversation_id() == &conversation_id)
-                .and_then(|metadata| metadata.subagent_task_id().cloned())
-            {
-                (task_id, None)
             } else {
                 let history_model = BlocklistAIHistoryModel::as_ref(ctx);
                 let Some(conversation) = history_model.conversation(&conversation_id) else {
@@ -1498,7 +1575,6 @@ impl BlocklistAIController {
             false,
             self.context_model.as_ref(ctx),
             self.active_session.as_ref(ctx),
-            None,
             vec![],
             ctx,
         );
@@ -1533,7 +1609,6 @@ impl BlocklistAIController {
             false,
             self.context_model.as_ref(ctx),
             self.active_session.as_ref(ctx),
-            conversation_id,
             vec![],
             ctx,
         );
@@ -1599,11 +1674,61 @@ impl BlocklistAIController {
             history.mark_active_conversation_id(conversation_id, self.terminal_surface_id, ctx);
         });
 
-        let finished_results = self.action_model.update(ctx, |action_model, _| {
+        let mut finished_results = self.action_model.update(ctx, |action_model, _| {
             action_model.drain_finished_action_results(conversation_id)
         });
         if finished_results.is_empty() {
             return;
+        }
+
+        // Direct providers do not rely on a hosted orchestrator to create a CLI
+        // subtask after the initial long-running-command snapshot. Create that
+        // task locally at the action-result boundary, then route the snapshot
+        // and every resulting monitor response through it. This is non-preemptive:
+        // the original model stream has already finished and the action result is
+        // ready for its normal follow-up.
+        let initial_cli_block_id =
+            finished_results
+                .iter()
+                .find_map(|result| match &result.result {
+                    AIAgentActionResultType::RequestCommandOutput(
+                        RequestCommandOutputResult::LongRunningCommandSnapshot { block_id, .. },
+                    ) => Some(block_id.clone()),
+                    _ => None,
+                });
+        if let Some(block_id) = initial_cli_block_id {
+            let cli_task_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    history_model.create_cli_subagent_task_for_conversation(
+                        block_id.clone(),
+                        conversation_id,
+                        self.terminal_surface_id,
+                        ctx,
+                    )
+                });
+            match cli_task_id {
+                Ok(cli_task_id) => {
+                    for result in &mut finished_results {
+                        if matches!(
+                            &result.result,
+                            AIAgentActionResultType::RequestCommandOutput(
+                                RequestCommandOutputResult::LongRunningCommandSnapshot {
+                                    block_id: result_block_id,
+                                    ..
+                                }
+                            ) if result_block_id == &block_id
+                        ) {
+                            result.task_id = cli_task_id.clone();
+                        }
+                    }
+                }
+                Err(error) => {
+                    log::error!(
+                        "Could not create direct-provider CLI monitor task for block \
+                         {block_id:?}: {error:?}"
+                    );
+                }
+            }
         }
 
         // Loop detection: record failures and check for repeated patterns
@@ -1624,7 +1749,6 @@ impl BlocklistAIController {
             false,
             self.context_model.as_ref(ctx),
             self.active_session.as_ref(ctx),
-            Some(conversation_id),
             vec![],
             ctx,
         );
@@ -2121,7 +2245,6 @@ impl BlocklistAIController {
             false,
             self.context_model.as_ref(ctx),
             self.active_session.as_ref(ctx),
-            Some(conversation_id),
             additional_context,
             ctx,
         );
@@ -2523,7 +2646,6 @@ impl BlocklistAIController {
                 false,
                 self.context_model.as_ref(ctx),
                 self.active_session.as_ref(ctx),
-                Some(conversation_id),
                 vec![],
                 ctx,
             ),
@@ -2575,7 +2697,6 @@ impl BlocklistAIController {
                 false,
                 self.context_model.as_ref(ctx),
                 self.active_session.as_ref(ctx),
-                None,
                 vec![],
                 ctx,
             ),
@@ -4128,6 +4249,7 @@ impl BlocklistAIController {
                         .iter()
                         .map(|p| match p {
                             ContentPart::Text(t) => t.clone(),
+                            ContentPart::Image { .. } => "[Image attachment]".to_string(),
                             ContentPart::ToolUse { name, input, .. } => {
                                 format!("[Tool: {}] {}", name, input)
                             }
@@ -4236,6 +4358,7 @@ impl BlocklistAIController {
                                                 .iter()
                                                 .map(|p| match p {
                                                     ContentPart::Text(t) => (t.len() / 4) as u32,
+                                                    ContentPart::Image { .. } => 1_600,
                                                     ContentPart::ToolUse { input, .. } => {
                                                         (input.to_string().len() / 4) as u32
                                                     }
@@ -4363,14 +4486,8 @@ fn input_for_query(
         }
     }
 
-    let context = input_context_for_request(
-        true,
-        context_model,
-        active_session,
-        Some(conversation_id),
-        image_context,
-        app,
-    );
+    let context =
+        input_context_for_request(true, context_model, active_session, image_context, app);
     let intended_agent = BlocklistAIHistoryModel::as_ref(app)
         .conversation(&conversation_id)
         .and_then(|c| c.get_task(task_id))
@@ -4465,8 +4582,34 @@ fn get_running_command(terminal_model: &TerminalModel) -> Option<RunningCommand>
     if !active_block.is_active_and_long_running() || active_block.is_agent_monitoring() {
         return None;
     }
+    Some(running_command_snapshot(terminal_model))
+}
+
+/// Returns the active command when it is unclaimed or already monitored by the
+/// requested conversation. This keeps steering on the CLI task and preserves
+/// the terminal-specialized model/tool set for every subsequent user turn.
+fn get_running_command_for_conversation(
+    terminal_model: &TerminalModel,
+    conversation_id: AIConversationId,
+) -> Option<RunningCommand> {
+    let active_block = terminal_model.block_list().active_block();
+    if !active_block.is_active_and_long_running() {
+        return None;
+    }
+    if active_block.is_agent_monitoring()
+        && active_block
+            .agent_interaction_metadata()
+            .is_none_or(|metadata| metadata.conversation_id() != &conversation_id)
+    {
+        return None;
+    }
+    Some(running_command_snapshot(terminal_model))
+}
+
+fn running_command_snapshot(terminal_model: &TerminalModel) -> RunningCommand {
+    let active_block = terminal_model.block_list().active_block();
     let is_alt_screen_active = terminal_model.is_alt_screen_active();
-    Some(RunningCommand {
+    RunningCommand {
         block_id: active_block.id().clone(),
         command: active_block.command_to_string(),
         grid_contents: if is_alt_screen_active {
@@ -4486,7 +4629,7 @@ fn get_running_command(terminal_model: &TerminalModel) -> Option<RunningCommand>
         cursor: CURSOR_MARKER.to_owned(),
         requested_command_id: active_block.requested_command_action_id().cloned(),
         is_alt_screen_active,
-    })
+    }
 }
 
 #[cfg(test)]

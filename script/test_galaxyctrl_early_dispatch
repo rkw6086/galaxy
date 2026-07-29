@@ -6,6 +6,7 @@ discovery_dir="$(mktemp -d)"
 trap 'rm -rf "$discovery_dir"' EXIT
 
 python3 - "$workspace_root" "$discovery_dir" <<'PY'
+import json
 import os
 import pathlib
 import subprocess
@@ -14,19 +15,19 @@ import sys
 workspace_root = pathlib.Path(sys.argv[1])
 discovery_dir = sys.argv[2]
 environment = os.environ.copy()
-environment["WARP_LOCAL_CONTROL_DISCOVERY_DIR"] = discovery_dir
+environment["GALAXY_LOCAL_CONTROL_DISCOVERY_DIR"] = discovery_dir
 result = subprocess.run(
     [
         "cargo",
         "run",
         "-p",
-        "warp",
+        "galaxy",
         "--bin",
-        "warp",
+        "galaxy-oss",
         "--features",
-        "warp_control_cli",
+        "galaxy_control_cli",
         "--",
-        "--warpctrl",
+        "--galaxyctrl",
         "--output-format",
         "json",
         "instance",
@@ -36,14 +37,20 @@ result = subprocess.run(
     env=environment,
     capture_output=True,
     text=True,
-    timeout=180,
+    timeout=600,
 )
 if result.returncode != 0:
     sys.stderr.write(result.stderr)
     sys.stderr.write(result.stdout)
     raise SystemExit(result.returncode)
-if result.stdout.strip() != "[]":
+try:
+    output = json.loads(result.stdout)
+except json.JSONDecodeError as error:
     sys.stderr.write(result.stderr)
-    sys.stderr.write(f"unexpected warpctrl output: {result.stdout!r}\n")
+    sys.stderr.write(f"invalid galaxyctrl JSON output: {error}: {result.stdout!r}\n")
+    raise SystemExit(1)
+if output != {"instances": []}:
+    sys.stderr.write(result.stderr)
+    sys.stderr.write(f"unexpected galaxyctrl output: {output!r}\n")
     raise SystemExit(1)
 PY

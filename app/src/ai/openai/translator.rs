@@ -5,7 +5,7 @@ use warp_multi_agent_api as api;
 use super::client::{OpenAIClient, OpenAIClientConfig, OpenAIError};
 use super::convert::build_openai_request;
 use super::request_translator::sanitize_messages_for_openai;
-use super::response_translator::openai_stream_to_response_events;
+use super::response_translator::{openai_stream_to_response_events, OpenAIStreamContext};
 use crate::ai::agent::api::ResponseStream;
 use crate::ai::bedrock::request_translator;
 use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
@@ -149,13 +149,15 @@ pub async fn execute(
 
     let stream = openai_stream_to_response_events(
         byte_stream,
-        task_id,
-        needs_create_task,
-        user_query_text,
-        params.messages_sent.clone(),
-        model_id,
-        params.config.max_input_tokens,
-        params.tool_result_archive,
+        OpenAIStreamContext {
+            task_id,
+            needs_create_task,
+            user_query: user_query_text,
+            messages_sent: params.messages_sent.clone(),
+            model_id,
+            max_context_tokens: params.config.max_input_tokens,
+            tool_result_archive: params.tool_result_archive,
+        },
     );
 
     Ok(stream)

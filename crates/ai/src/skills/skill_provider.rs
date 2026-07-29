@@ -1,6 +1,6 @@
 //! Skill provider definitions and utilities.
 //!
-//! This module defines the supported skill providers (i.e. Agents, Claude, Codex, Warp) and their
+//! This module defines the supported skill providers (i.e. Agents, Claude, Codex, Galaxy) and their
 //! associated skills directory paths. It provides utilities for looking up providers
 //! from paths and vice versa.
 use std::path::{Path, PathBuf};
@@ -14,7 +14,9 @@ use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumString, VariantNames};
 
-/// Represents a skill provider/origin (Agents, Claude, Codex, or Warp).
+/// Represents a skill provider/origin.
+///
+/// `Warp` is retained as the wire-compatible variant for Galaxy-managed skills.
 #[derive(
     Debug,
     Clone,
@@ -62,7 +64,7 @@ pub enum SkillScope {
     Home,
     /// Skills from a project directory (e.g., `./repo/.agents/skills`).
     Project,
-    /// Bundled skills distributed with Warp.
+    /// Bundled skills distributed with Galaxy.
     Bundled,
 }
 
@@ -82,11 +84,11 @@ impl SkillProvider {
             SkillProvider::Gemini => Icon::GeminiLogo,
             SkillProvider::Droid => Icon::DroidLogo,
             SkillProvider::OpenCode => Icon::OpenCodeLogo,
-            SkillProvider::Warp
-            | SkillProvider::Agents
+            SkillProvider::Warp => Icon::GalaxyLogo,
+            SkillProvider::Agents
             | SkillProvider::Cursor
             | SkillProvider::Copilot
-            | SkillProvider::Github => Icon::WarpLogoLight,
+            | SkillProvider::Github => Icon::GalaxyLogo,
         }
     }
 

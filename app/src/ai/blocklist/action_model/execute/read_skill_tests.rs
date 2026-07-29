@@ -334,17 +334,17 @@ fn test_read_skill_executor_reads_enabled_bundled_skill() {
 }
 
 #[test]
-fn test_read_skill_executor_rejects_warp_control_bundled_skills_when_disabled() {
+fn test_read_skill_executor_rejects_galaxy_control_bundled_skills_when_disabled() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
         let _bundled_skills = FeatureFlag::BundledSkills.override_enabled(true);
-        let _warp_control_cli = FeatureFlag::WarpControlCli.override_enabled(false);
-        let skill_id = "warpctrl";
+        let _galaxy_control_cli = FeatureFlag::GalaxyControlCli.override_enabled(false);
+        let skill_id = "galaxyctrl";
         SkillManager::handle(&app).update(&mut app, |manager, _ctx| {
             manager.add_bundled_skill_for_testing(
                 skill_id,
                 bundled_skill(skill_id),
-                BundledSkillActivation::RequiresFeature(FeatureFlag::WarpControlCli),
+                BundledSkillActivation::RequiresFeature(FeatureFlag::GalaxyControlCli),
             );
         });
         let executor_handle = add_test_read_skill_executor(&mut app);

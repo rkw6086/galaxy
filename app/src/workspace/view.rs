@@ -337,8 +337,8 @@ use crate::settings::{
     AccessibilitySettings, AliasExpansionSettings, AppEditorSettings, BlockVisibilitySettings,
     ChangelogSettings, CodeSettings, CodeSettingsChangedEvent, CtrlTabBehavior, CursorBlink,
     DebugSettings, DefaultSessionMode, FontSettings, GPUSettings, InputModeSettings, InputSettings,
-    MonospaceFontSize, PaneSettings, PrivacySettings, SelectionSettings, Settings, SshSettings,
-    ThemeSettings,
+    LocalControlMode, LocalControlSettings, MonospaceFontSize, PaneSettings, PrivacySettings,
+    SelectionSettings, Settings, SshSettings, ThemeSettings,
 };
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::settings_view::mcp_servers_page::MCPServersSettingsPage;
@@ -3154,6 +3154,11 @@ impl Workspace {
                 ctx.notify();
             }
         });
+        if FeatureFlag::GalaxyControlCli.is_enabled() {
+            ctx.subscribe_to_model(&LocalControlSettings::handle(ctx), |_, _, _, ctx| {
+                ctx.notify();
+            });
+        }
 
         let toast_stack =
             ctx.add_typed_action_view(|_| DismissibleToastStack::new(Duration::from_secs(4)));
@@ -8866,39 +8871,40 @@ impl Workspace {
         );
     }
 
-    /// Install the Warp Control CLI by creating a symlink in /usr/local/bin
+    /// Install the Galaxy Control CLI by creating a symlink in /usr/local/bin
     #[cfg(target_os = "macos")]
-    fn install_warpctrl(&mut self, ctx: &mut ViewContext<Self>) {
+    fn install_galaxyctrl(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.spawn(
-            async { cli_install::install_warpctrl() },
+            async { cli_install::install_galaxyctrl() },
             |view, result, ctx| {
-                let command_name = ChannelState::channel().warpctrl_command_name();
-                let message = format!("Installed the Warp Control CLI globally. You can now run '{command_name}' from any terminal outside of Warp.");
+                let command_name = ChannelState::channel().galaxyctrl_command_name();
+                let message = format!(
+                    "Galaxy Control CLI installed globally. You can now run '{command_name}' from any terminal."
+                );
                 let toast = DismissibleToast::success(message);
                 view.handle_cli_command_result(
                     result,
                     toast,
-                    "Failed to install Warp Control command",
+                    "Failed to install Galaxy Control command",
                     ctx,
                 );
             },
         );
     }
 
-    /// Uninstall the Warp Control CLI by removing the symlink from /usr/local/bin
+    /// Uninstall the Galaxy Control CLI by removing the symlink from /usr/local/bin
     #[cfg(target_os = "macos")]
-    fn uninstall_warpctrl(&mut self, ctx: &mut ViewContext<Self>) {
+    fn uninstall_galaxyctrl(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.spawn(
-            async { cli_install::uninstall_warpctrl() },
+            async { cli_install::uninstall_galaxyctrl() },
             |view, result, ctx| {
                 let toast = DismissibleToast::success(
-                    "Removed the global Warp Control CLI installation — it still works inside Warp."
-                        .to_string(),
+                    "Removed the global Galaxy Control CLI installation.".to_string(),
                 );
                 view.handle_cli_command_result(
                     result,
                     toast,
-                    "Failed to uninstall Warp Control command",
+                    "Failed to uninstall Galaxy Control command",
                     ctx,
                 );
             },
@@ -12274,13 +12280,15 @@ impl Workspace {
         source: AddTabWithShellSource,
         ctx: &mut ViewContext<Self>,
     ) {
-        send_telemetry_from_ctx!(
-            TelemetryEvent::AddTabWithShell {
-                source,
-                shell: shell.telemetry_value()
-            },
-            ctx
-        );
+        if !matches!(source, AddTabWithShellSource::LocalControl) {
+            send_telemetry_from_ctx!(
+                TelemetryEvent::AddTabWithShell {
+                    source,
+                    shell: shell.telemetry_value()
+                },
+                ctx
+            );
+        }
         self.add_new_session_tab_with_default_mode(
             NewSessionSource::Tab,
             Some(ctx.window_id()),
@@ -14373,7 +14381,9 @@ impl Workspace {
 
         ctx.focus(&self.palette);
 
-        send_telemetry_from_ctx!(TelemetryEvent::PaletteSearchOpened { mode, source }, ctx);
+        if !matches!(source, PaletteSource::LocalControl) {
+            send_telemetry_from_ctx!(TelemetryEvent::PaletteSearchOpened { mode, source }, ctx);
+        }
 
         ctx.notify();
     }
@@ -23830,10 +23840,24 @@ impl TypedActionView for Workspace {
             InstallOz => self.install_oz(ctx),
             #[cfg(target_os = "macos")]
             UninstallOz => self.uninstall_oz(ctx),
+            EnableGalaxyControl => {
+                LocalControlSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings
+                        .local_control_mode
+                        .set_value(LocalControlMode::Enabled, ctx));
+                });
+            }
+            DisableGalaxyControl => {
+                LocalControlSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings
+                        .local_control_mode
+                        .set_value(LocalControlMode::Disabled, ctx));
+                });
+            }
             #[cfg(target_os = "macos")]
-            InstallWarpctrl => self.install_warpctrl(ctx),
+            InstallGalaxyctrl => self.install_galaxyctrl(ctx),
             #[cfg(target_os = "macos")]
-            UninstallWarpctrl => self.uninstall_warpctrl(ctx),
+            UninstallGalaxyctrl => self.uninstall_galaxyctrl(ctx),
             UndoRevertInCodeReviewPane { window_id, view_id } => {
                 self.undo_revert_in_code_review_pane(*window_id, *view_id, ctx)
             }
@@ -25717,6 +25741,11 @@ impl View for Workspace {
 
         if WarpDriveSettings::is_warp_drive_enabled(app) {
             context.set.insert(flags::ENABLE_WARP_DRIVE);
+        }
+        if FeatureFlag::GalaxyControlCli.is_enabled()
+            && LocalControlSettings::as_ref(app).is_enabled()
+        {
+            context.set.insert(flags::GALAXY_CONTROL_ENABLED);
         }
 
         if AISettings::as_ref(app).is_any_ai_enabled(app)

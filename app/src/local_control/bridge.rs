@@ -1,4 +1,4 @@
-//! Bridge between protocol-level control requests and Warp application models.
+//! Bridge between protocol-level control requests and Galaxy application models.
 //!
 //! The bridge validates protocol version, selectors, credentials, and settings
 //! before routing each supported action to an app-side handler.
@@ -17,7 +17,7 @@ use crate::local_control::permissions::{
 };
 use crate::local_control::resolver::{validate_action_params, validate_action_target};
 
-/// WarpUI model that executes already-authenticated local-control actions.
+/// GalaxyUI model that executes already-authenticated local-control actions.
 pub struct LocalControlBridge {
     instance_id: Option<InstanceId>,
 }
@@ -105,20 +105,13 @@ impl LocalControlBridge {
             | ActionKind::SurfaceCommandSearchOpen
             | ActionKind::SurfaceThemePickerOpen
             | ActionKind::SurfaceKeybindingsOpen
-            | ActionKind::SurfaceWarpDriveOpen
-            | ActionKind::SurfaceWarpDriveToggle
-            | ActionKind::SurfaceResourceCenterToggle
-            | ActionKind::SurfaceAiAssistantToggle
             | ActionKind::SurfaceCodeReviewOpen
             | ActionKind::SurfaceCodeReviewToggle
             | ActionKind::SurfaceProjectExplorerOpen
             | ActionKind::SurfaceGlobalSearchOpen
-            | ActionKind::SurfaceConversationListOpen
-            | ActionKind::SurfaceLeftPanelToggle
             | ActionKind::SurfaceRightPanelToggle
             | ActionKind::SurfaceVerticalTabsOpen
             | ActionKind::SurfaceVerticalTabsToggle
-            | ActionKind::SurfaceAgentManagementOpen
             | ActionKind::FileOpen => app_state::handle(
                 &self.instance_id,
                 request.action.kind,

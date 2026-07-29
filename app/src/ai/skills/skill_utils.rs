@@ -1,7 +1,7 @@
 //! Utility functions for working with skills.
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use ai::skills::{
@@ -18,9 +18,7 @@ use warpui::prelude::MouseStateHandle;
 use warpui::{AppContext, Element, EventContext, SingletonEntity};
 
 use super::{SkillDescriptor, SkillManager};
-use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::view_util::render_provider_icon_button;
-use crate::ai::blocklist::BlocklistAIHistoryModel;
 
 lazy_static! {
     static ref CONTENT_HASHER: SipHasher = SipHasher::new_with_keys(0, 0);
@@ -110,45 +108,21 @@ pub(crate) fn unique_skills(
     deduplicator.into_descriptors()
 }
 
-/// Returns the list of skills if they have changed since the last time we sent them to the server.
-/// Skills are always included except when the current list matches the last list sent.
-pub fn list_skills_if_changed(
+/// Returns the current skill catalog for a model request.
+///
+/// Direct Bedrock and LiteLLM requests rebuild their system prompt on every
+/// turn, so the complete catalog must be present on every request rather than
+/// relying on hosted-server delta state.
+pub fn list_skills_for_request(
     working_directory: Option<&LocalOrRemotePath>,
     path_origin: &SkillPathOrigin,
-    conversation_id: Option<AIConversationId>,
     app: &AppContext,
-) -> Option<Vec<SkillDescriptor>> {
-    let current_skills = SkillManager::as_ref(app).get_skills_for_working_directory_with_origin(
+) -> Vec<SkillDescriptor> {
+    SkillManager::as_ref(app).get_skills_for_working_directory_with_origin(
         working_directory,
         path_origin,
         app,
-    );
-
-    let previous_skills: Option<Vec<SkillDescriptor>> =
-        conversation_id.and_then(|conversation_id| {
-            let history_model = BlocklistAIHistoryModel::as_ref(app);
-            history_model
-                .conversation(&conversation_id)
-                .and_then(|conversation| conversation.latest_skills())
-        });
-
-    // If there are no previous skills, we consider the skills changed and push the current skills to the context
-    let skills_changed = previous_skills
-        .map(|previous_skills| {
-            let previous_skills_set: HashSet<SkillDescriptor> =
-                HashSet::from_iter(previous_skills.iter().cloned());
-            let current_skills_set: HashSet<SkillDescriptor> =
-                HashSet::from_iter(current_skills.iter().cloned());
-
-            previous_skills_set != current_skills_set
-        })
-        .unwrap_or(true);
-
-    if skills_changed {
-        Some(current_skills)
-    } else {
-        None
-    }
+    )
 }
 
 /// Renders an 'open skill' button for blocklist AI actions and the code diff view.

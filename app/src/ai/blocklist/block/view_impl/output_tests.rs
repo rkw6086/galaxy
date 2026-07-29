@@ -127,7 +127,7 @@ fn read_skill_display_text_no_double_slash_when_skill_not_found_with_path_refere
 fn read_skill_display_text_bundled_id_fallback_when_skill_not_found() {
     let reference = SkillReference::BundledSkillId("create-pr".to_string());
     let display = read_skill_display_text(None, &reference);
-    assert_eq!(display, "@warp-skill:create-pr");
+    assert_eq!(display, "@galaxy-skill:create-pr");
 }
 
 fn remote_location(host_id: &HostId, path: &str) -> LocalOrRemotePath {

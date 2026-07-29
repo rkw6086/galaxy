@@ -1,20 +1,21 @@
-#![allow(dead_code)]
-
 //! Inline subagent panel rendered within the parent agent's chat flow.
 //!
 //! Shows a collapsible panel with the subagent's status, a mini-transcript of
-//! recent messages, and controls to expand to full view or cancel.
+//! recent messages, and controls to expand inline or open the full child view.
 
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Empty, Flex, Hoverable,
     MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
 };
-use galaxyui::{AppContext, SingletonEntity};
+use galaxyui::platform::Cursor;
+use galaxyui::ui_components::components::UiComponent;
+use galaxyui::{AppContext, EntityId, SingletonEntity};
 use pathfinder_color::ColorU;
 use warp_multi_agent_api as api;
 
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus, StatusColorStyle};
 use crate::ai::agent::AIAgentActionId;
+use crate::ai::blocklist::agent_view::orchestration_conversation_links::dispatch_focus_or_open_child_agent_pane;
 use crate::ai::blocklist::block::AIBlockAction;
 use crate::ai::blocklist::inline_action::inline_action_header::{
     ICON_MARGIN, INLINE_ACTION_HEADER_VERTICAL_PADDING, INLINE_ACTION_HORIZONTAL_PADDING,
@@ -23,9 +24,12 @@ use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
+use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
 
 const MINI_TRANSCRIPT_MAX_LINES: usize = 8;
+const MINI_TRANSCRIPT_MAX_CHARS: usize = 120;
+const COMPLETION_SUMMARY_MAX_CHARS: usize = 300;
 const PANEL_MAX_HEIGHT: f32 = 200.;
 const PANEL_CORNER_RADIUS: f32 = 8.;
 
@@ -35,14 +39,18 @@ pub struct SubagentPanelState {
     pub conversation_id: AIConversationId,
     pub is_expanded: bool,
     pub header_mouse_state: MouseStateHandle,
+    pub open_mouse_state: MouseStateHandle,
 }
 
 impl SubagentPanelState {
     pub fn new(conversation_id: AIConversationId) -> Self {
         Self {
             conversation_id,
-            is_expanded: false,
+            // The panel exists to expose the child agent's live conversation.
+            // Start expanded so its responses are visible without another click.
+            is_expanded: true,
             header_mouse_state: MouseStateHandle::default(),
+            open_mouse_state: MouseStateHandle::default(),
         }
     }
 }
@@ -51,6 +59,7 @@ impl SubagentPanelState {
 pub fn render_subagent_inline_panel(
     state: &SubagentPanelState,
     action_id: &AIAgentActionId,
+    self_terminal_view_id: EntityId,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
@@ -70,19 +79,52 @@ pub fn render_subagent_inline_panel(
 
     // Header — always visible, click to toggle expand/collapse
     let header_mouse_state = state.header_mouse_state.clone();
+    let open_mouse_state = state.open_mouse_state.clone();
+    let ui_builder = appearance.ui_builder().clone();
     let toggle_action_id = action_id.clone();
     let header_status = status.clone();
     let header_expanded = state.is_expanded;
+    let toggle = Hoverable::new(header_mouse_state, move |_mouse_state| {
+        render_panel_header(&agent_name, &header_status, header_expanded, panel_bg, app)
+    })
+    .with_cursor(Cursor::PointingHand)
+    .on_click(move |ctx, _, _| {
+        ctx.dispatch_typed_action(AIBlockAction::ToggleSubagentPanel {
+            action_id: toggle_action_id.clone(),
+        });
+    })
+    .finish();
+    let child_conversation_id = state.conversation_id;
+    let open = icon_button(appearance, Icon::LinkExternal, false, open_mouse_state)
+        .with_tooltip(move || {
+            ui_builder
+                .tool_tip("Open child conversation".to_string())
+                .build()
+                .finish()
+        })
+        .build()
+        .on_click(move |ctx, app, _| {
+            dispatch_focus_or_open_child_agent_pane(
+                child_conversation_id,
+                self_terminal_view_id,
+                ctx,
+                app,
+            );
+        })
+        .finish();
     column.add_child(
-        Hoverable::new(header_mouse_state, move |_mouse_state| {
-            render_panel_header(&agent_name, &header_status, header_expanded, panel_bg, app)
-        })
-        .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(AIBlockAction::ToggleSubagentPanel {
-                action_id: toggle_action_id.clone(),
-            });
-        })
-        .finish(),
+        Flex::row()
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(Shrinkable::new(1., toggle).finish())
+            .with_child(
+                Container::new(open)
+                    .with_padding_left(4.)
+                    .with_padding_right(INLINE_ACTION_HORIZONTAL_PADDING)
+                    .finish(),
+            )
+            .finish(),
     );
 
     // Body (mini-transcript) — only when expanded
@@ -204,35 +246,44 @@ fn collect_mini_transcript(conversation_id: &AIConversationId, app: &AppContext)
         return vec![];
     };
 
-    let mut lines = Vec::new();
     let messages = conversation.all_linearized_messages();
-    for msg in messages.iter().rev().take(MINI_TRANSCRIPT_MAX_LINES * 2) {
-        if let Some(text) = extract_message_text(msg) {
-            let truncated = if text.len() > 120 {
-                format!("{}...", &text[..117])
-            } else {
-                text
-            };
-            lines.push(truncated);
-            if lines.len() >= MINI_TRANSCRIPT_MAX_LINES {
-                break;
-            }
-        }
-    }
+    collect_visible_transcript(&messages, MINI_TRANSCRIPT_MAX_LINES)
+}
+
+fn collect_visible_transcript(messages: &[&api::Message], max_lines: usize) -> Vec<String> {
+    let mut lines = messages
+        .iter()
+        .rev()
+        // Filter first, then apply the visible-line limit. A tool-heavy turn can
+        // contain many internal messages between user/agent chat messages.
+        .filter_map(|message| extract_message_text(message))
+        .take(max_lines)
+        .map(|text| truncate_with_ellipsis(&text, MINI_TRANSCRIPT_MAX_CHARS))
+        .collect::<Vec<_>>();
     lines.reverse();
     lines
+}
+
+fn truncate_with_ellipsis(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let prefix = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_none() {
+        return prefix;
+    }
+
+    let visible_prefix_chars = max_chars.saturating_sub(3);
+    let mut truncated = prefix
+        .chars()
+        .take(visible_prefix_chars)
+        .collect::<String>();
+    truncated.push_str(&".".repeat(max_chars.min(3)));
+    truncated
 }
 
 fn extract_message_text(msg: &api::Message) -> Option<String> {
     let message_content = msg.message.as_ref()?;
     match message_content {
-        api::message::Message::AgentOutput(output) => {
-            if output.text.is_empty() {
-                None
-            } else {
-                Some(output.text.clone())
-            }
-        }
+        api::message::Message::AgentOutput(_) => extract_agent_output_text(msg),
         api::message::Message::UserQuery(query) => {
             if query.query.is_empty() {
                 None
@@ -242,6 +293,13 @@ fn extract_message_text(msg: &api::Message) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn extract_agent_output_text(msg: &api::Message) -> Option<String> {
+    let api::message::Message::AgentOutput(output) = msg.message.as_ref()? else {
+        return None;
+    };
+    (!output.text.is_empty()).then(|| output.text.clone())
 }
 
 fn render_mini_transcript(
@@ -285,20 +343,14 @@ fn get_completion_summary(conversation_id: &AIConversationId, app: &AppContext) 
         return None;
     }
 
-    let messages = conversation.all_linearized_messages();
-    for msg in messages.iter().rev() {
-        if let Some(text) = extract_message_text(msg) {
-            if !text.is_empty() {
-                let truncated = if text.len() > 300 {
-                    format!("{}...", &text[..297])
-                } else {
-                    text
-                };
-                return Some(truncated);
-            }
-        }
-    }
-    None
+    completion_summary_from_messages(&conversation.all_linearized_messages())
+}
+
+fn completion_summary_from_messages(messages: &[&api::Message]) -> Option<String> {
+    messages.iter().rev().find_map(|message| {
+        extract_agent_output_text(message)
+            .map(|text| truncate_with_ellipsis(&text, COMPLETION_SUMMARY_MAX_CHARS))
+    })
 }
 
 fn render_summary_footer(summary: &str, _background: ColorU, app: &AppContext) -> Box<dyn Element> {
@@ -333,3 +385,7 @@ fn render_summary_footer(summary: &str, _background: ColorU, app: &AppContext) -
         .with_padding_bottom(6.)
         .finish()
 }
+
+#[cfg(test)]
+#[path = "subagent_inline_panel_tests.rs"]
+mod tests;

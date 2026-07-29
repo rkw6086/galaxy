@@ -1,7 +1,7 @@
 //! Secure local setting that gates local control.
 //!
 //! This setting is local-only, kept out of the user-visible settings file, and
-//! persisted through Warp's secure storage provider. It is the authoritative
+//! persisted through Galaxy's secure storage provider. It is the authoritative
 //! enablement bit for local control.
 use anyhow::Result;
 use galaxy_core::channel::{Channel, ChannelState};
@@ -27,7 +27,7 @@ const LOCAL_CONTROL_MODE_STORAGE_KEY: &str = "LocalControlMode";
     settings_value::SettingsValue,
 )]
 #[schemars(
-    description = "Whether local control is enabled.",
+    description = "Whether Galaxy Control local automation access is enabled.",
     rename_all = "snake_case"
 )]
 pub enum LocalControlMode {
@@ -37,7 +37,7 @@ pub enum LocalControlMode {
 }
 
 /// Channel-based default: local control is on for internal dogfood builds and
-/// off for public channels, where users must opt in through Settings > Scripting.
+/// off for public channels, where users must opt in through Settings > Galaxy Control.
 fn default_mode_for_channel(channel: Channel) -> LocalControlMode {
     if channel.is_dogfood() {
         LocalControlMode::Enabled

@@ -4,23 +4,78 @@ use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode};
 use ai::agent::action_result::StartAgentVersion;
 use ai::skills::SkillReference;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
-use galaxyui::{App, SingletonEntity};
+use galaxyui::{App, EntityId, SingletonEntity};
 use settings::Setting;
 
 use super::{
     default_collapsible_state_for_orchestration_action,
-    default_collapsible_state_for_orchestration_message, received_message_collapsible_id,
-    user_avatar_info_for_conversation_creator, CollapsibleElementState, CollapsibleExpansionState,
-    UserAvatarInfo,
+    default_collapsible_state_for_orchestration_message, history_event_affects_conversation,
+    received_message_collapsible_id, user_avatar_info_for_conversation_creator,
+    CollapsibleElementState, CollapsibleExpansionState, UserAvatarInfo,
 };
-use crate::ai::agent::{AIAgentActionType, StartAgentExecutionMode};
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+use crate::ai::agent::task::TaskId;
+use crate::ai::agent::{AIAgentActionType, AIAgentExchangeId, StartAgentExecutionMode};
 use crate::ai::blocklist::action_model::{
     compose_run_agents_child_prompt, run_agents_to_start_agent_mode,
 };
+use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, ConversationStatusUpdate};
 use crate::auth::UserUid;
 use crate::settings::{AISettings, OrchestrationMessageDisplayMode};
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
+
+#[test]
+fn child_panel_repaints_for_cross_surface_conversation_events() {
+    let child_conversation_id = AIConversationId::new();
+    let unrelated_conversation_id = AIConversationId::new();
+    let child_terminal_surface_id = EntityId::new();
+    let events = vec![
+        BlocklistAIHistoryEvent::AppendedExchange {
+            exchange_id: AIAgentExchangeId::new(),
+            task_id: TaskId::new("child-task".to_string()),
+            terminal_surface_id: child_terminal_surface_id,
+            conversation_id: child_conversation_id,
+            is_hidden: false,
+            response_stream_id: None,
+        },
+        BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            exchange_id: AIAgentExchangeId::new(),
+            terminal_surface_id: child_terminal_surface_id,
+            conversation_id: child_conversation_id,
+            is_hidden: false,
+        },
+        BlocklistAIHistoryEvent::UpdatedConversationStatus {
+            conversation_id: child_conversation_id,
+            terminal_surface_id: child_terminal_surface_id,
+            update: ConversationStatusUpdate::Changed {
+                prev_status: ConversationStatus::InProgress,
+            },
+            new_status: ConversationStatus::Success,
+        },
+        BlocklistAIHistoryEvent::UpdatedConversationTitle {
+            terminal_surface_id: Some(child_terminal_surface_id),
+            conversation_id: child_conversation_id,
+            title: "Child agent".to_string(),
+        },
+        BlocklistAIHistoryEvent::RemoveConversation {
+            terminal_surface_id: child_terminal_surface_id,
+            conversation_id: child_conversation_id,
+            run_id: None,
+        },
+    ];
+
+    for event in &events {
+        assert!(history_event_affects_conversation(
+            event,
+            child_conversation_id
+        ));
+        assert!(!history_event_affects_conversation(
+            event,
+            unrelated_conversation_id
+        ));
+    }
+}
 
 #[test]
 fn reasoning_auto_collapses_when_user_has_not_manually_toggled() {

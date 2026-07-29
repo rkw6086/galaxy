@@ -314,6 +314,20 @@ impl AIAgentActionType {
         matches!(self, Self::WriteToLongRunningShellCommand { .. })
     }
 
+    /// Returns whether this action represents an exact terminal interrupt (Ctrl+C).
+    ///
+    /// Direct AI providers expose a typed `interrupt_shell_command` tool, but encode it through
+    /// the existing write-to-PTY protobuf for backwards compatibility. Keeping this predicate on
+    /// the shared action type lets execution and UI code distinguish that typed operation from
+    /// ordinary process input without relying on printable escape spellings from the model.
+    pub fn is_shell_command_interrupt(&self) -> bool {
+        matches!(
+            self,
+            Self::WriteToLongRunningShellCommand { input, mode, .. }
+                if mode.is_shell_interrupt(input)
+        )
+    }
+
     pub fn cancelled_result(&self) -> AIAgentActionResultType {
         match self {
             Self::RequestCommandOutput { .. } => AIAgentActionResultType::RequestCommandOutput(
@@ -802,6 +816,12 @@ pub enum AIAgentPtyWriteMode {
 }
 
 impl AIAgentPtyWriteMode {
+    pub fn is_shell_interrupt(self, bytes: &[u8]) -> bool {
+        use galaxy_terminal::model::escape_sequences;
+
+        self == Self::Raw && bytes == [escape_sequences::C0::ETX]
+    }
+
     /// Decorates input bytes according to the write mode.
     pub fn decorate_bytes(
         self,
@@ -928,3 +948,7 @@ impl FileEdit {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

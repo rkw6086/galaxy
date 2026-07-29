@@ -39,6 +39,10 @@ pub enum MessageContent {
 #[derive(Clone, Debug)]
 pub enum ContentPart {
     Text(String),
+    Image {
+        data: Vec<u8>,
+        mime_type: String,
+    },
     ToolUse {
         tool_use_id: String,
         name: String,

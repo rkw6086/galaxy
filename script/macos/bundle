@@ -70,7 +70,7 @@ cleanup_dmg_files() {
         find "$target_dir" -name "rw.*.dmg" -type f -delete
     fi
     # Also check if any volumes are mounted and unmount them
-    hdiutil info | grep "/Volumes/Warp.*" | awk '{print $1}' | while read -r disk; do
+    hdiutil info | grep "/Volumes/Galaxy.*" | awk '{print $1}' | while read -r disk; do
         echo "Unmounting disk image: $disk"
         hdiutil detach "$disk" -force || true
     done
@@ -136,7 +136,7 @@ while (( "$#" )); do
       SELFSIGN=false
       shift
       ;;
-    # Sign with a local Apple Development cert instead of the official Warp cert.
+    # Sign with a local Apple Development cert instead of the official Galaxy cert.
     # Useful for local debug builds when you don't have access to the company signing key.
     # Falls back to ad-hoc signing if no Apple Development cert is found.
     --selfsign)
@@ -223,8 +223,8 @@ while (( "$#" )); do
       ;;
     --artifact)
       if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
-        if [[ "$2" != "app" && "$2" != "cli" && "$2" != "warpctrl" ]]; then
-          echo "Error: --artifact must be 'app', 'cli', or 'warpctrl', got '$2'" >&2
+        if [[ "$2" != "app" && "$2" != "cli" && "$2" != "galaxyctrl" ]]; then
+          echo "Error: --artifact must be 'app', 'cli', or 'galaxyctrl', got '$2'" >&2
           exit 1
         fi
         ARTIFACT="$2"
@@ -250,13 +250,13 @@ elif [[ $RELEASE_CHANNEL = "local" || $RELEASE_CHANNEL = "dev" ]]; then
   # For dev bundles, we want to enable debug assertions to
   # catch violations that would otherwise silently pass in
   # a normal release build (e.g. in stable).
-  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "warpctrl" ]]; then
+  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
     CARGO_PROFILE="release-cli-debug_assertions"
   else
     CARGO_PROFILE="release-lto-debug_assertions"
   fi
 else
-  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "warpctrl" ]]; then
+  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
     CARGO_PROFILE="release-cli"
   else
     CARGO_PROFILE="release-lto"
@@ -269,9 +269,9 @@ if [[ "$CARGO_PROFILE" == "dev" ]]; then
 fi
 
 if [[ $RELEASE_CHANNEL = "local" ]]; then
-    WARP_BIN="galaxy-ai"
+    WARP_BIN="galaxy-local"
     BUNDLE_ID="com.samsung.Galaxy-Local"
-    WARP_APP_NAME="Galaxy"
+    WARP_APP_NAME="Galaxy Local"
     WARP_SCHEME_NAME="galaxy"
     FEATURES="$FEATURES,agent_mode_debug"
     # For local builds, use different versions of our bundled frameworks (e.g.:
@@ -279,24 +279,22 @@ if [[ $RELEASE_CHANNEL = "local" ]]; then
     # app/build.rs later, while running `cargo bundle`.
     export FRAMEWORK_OVERRIDE="dev"
 elif [[ $RELEASE_CHANNEL = "dev" ]]; then
-    WARP_BIN="dev"
+    WARP_BIN="galaxy-dev"
     BUNDLE_ID="com.samsung.Galaxy-Dev"
-    WARP_APP_NAME="GalaxyDev"
+    WARP_APP_NAME="Galaxy Dev"
     WARP_SCHEME_NAME="galaxydev"
     FEATURES="$FEATURES,agent_mode_debug"
     # Enable heap usage tracking & profiling using jemalloc through pprof.
     FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
-    # Enable the Warp Control CLI wrapper for local scripting/automation.
-    FEATURES="$FEATURES,warp_control_cli"
     # For dev builds, use different versions of our bundled frameworks (e.g.:
     # Sentry).  This needs to be exported so it can be referenced by
     # app/build.rs later, while running `cargo bundle`.
     export FRAMEWORK_OVERRIDE="dev"
     export HANDLE_MARKDOWN=1
 elif [[ $RELEASE_CHANNEL = "preview" ]]; then
-    WARP_BIN="preview"
+    WARP_BIN="galaxy-preview"
     BUNDLE_ID="com.samsung.Galaxy-Preview"
-    WARP_APP_NAME="GalaxyPreview"
+    WARP_APP_NAME="Galaxy Preview"
     WARP_SCHEME_NAME="galaxypreview"
     FEATURES="$FEATURES,preview_channel"
     # Enable heap usage tracking & profiling using jemalloc through pprof.
@@ -309,7 +307,7 @@ elif [[ $RELEASE_CHANNEL = "stable" ]]; then
     # Enable heap usage tracking & profiling using jemalloc through pprof.
     FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
 elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-    WARP_BIN="galaxy-ai-oss"
+    WARP_BIN="galaxy-oss"
     BUNDLE_ID="com.samsung.Galaxy"
     WARP_APP_NAME="Galaxy"
     WARP_SCHEME_NAME="galaxy"
@@ -349,13 +347,17 @@ else
 fi
 
 # Set artifact-specific configuration.
-if [[ "$ARTIFACT" == cli || "$ARTIFACT" == warpctrl ]]; then
+if [[ "$ARTIFACT" == cli ]]; then
   UNIVERSAL_BINARY=false
   OPEN_AFTER_BUNDLE=false
   FEATURES="$FEATURES,standalone"
+elif [[ "$ARTIFACT" == galaxyctrl ]]; then
+  UNIVERSAL_BINARY=false
+  OPEN_AFTER_BUNDLE=false
+  FEATURES="$FEATURES,standalone,galaxy_control_cli"
 elif [[ "$ARTIFACT" == app ]]; then
   # All channels ship the v3 classifier and v2 heuristic.
-  FEATURES="$FEATURES,gui,nld_classifier_v3,nld_heuristic_v2"
+  FEATURES="$FEATURES,gui,nld_classifier_v3,nld_heuristic_v2,galaxy_control_cli"
 fi
 
 # If we're building a universal bundle for the app artifact, make sure the additional target is available.
@@ -368,7 +370,7 @@ fi
 # using the same feature flags and profile that we would be using in production.
 if [[ "$CHECK_ONLY" == "true" ]]; then
   cargo check --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --target "$DEFAULT_TARGET" --features "$FEATURES"
-  if [[ $UNIVERSAL_BINARY = true && "$ARTIFACT" != "cli" && "$ARTIFACT" != "warpctrl" ]]; then
+  if [[ $UNIVERSAL_BINARY = true && "$ARTIFACT" != "cli" && "$ARTIFACT" != "galaxyctrl" ]]; then
     cargo check --profile "$CARGO_PROFILE" --bin "$WARP_BIN" --target "$ADDITIONAL_TARGET" --features "$FEATURES"
   fi
   exit 0
@@ -453,7 +455,7 @@ if [[ "$ARTIFACT" == "app" ]]; then
     </array>" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
   fi
 
-  # Temporary key that ChatGPT Desktop can use to determine if the latest version of Warp supports the ChatGPT integration.
+  # Temporary key that ChatGPT Desktop can use to determine if the latest version of Galaxy supports the ChatGPT integration.
   # Once support has been rolled out for a sufficient amount of time we (and ChatGPT) can remove this.
   plutil -insert SUPPORTS_CHAT_GPT_WORK_WITH_APPS -bool true "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
 
@@ -534,11 +536,11 @@ if [[ "$ARTIFACT" == "app" ]]; then
   # Determine CLI wrapper script path based on release channel.  Each channel's
   # value here must match `Channel::cli_command_name` in the Rust source.
   if [[ $RELEASE_CHANNEL = "stable" ]]; then
-    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/oz"
+    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai"
   elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/warp-oss"
+    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai-oss"
   else
-    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/oz-$RELEASE_CHANNEL"
+    CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai-$RELEASE_CHANNEL"
   fi
 
   echo "Creating Resources/bin directory and CLI wrapper script..."
@@ -556,26 +558,26 @@ EOF
   # Make the script executable
   chmod +x "$CLI_SCRIPT_PATH"
 
-  if [[ ",$FEATURES," =~ ",warp_control_cli," ]]; then
-    # Each value must match `Channel::warpctrl_command_name` in the Rust source.
+  if [[ ",$FEATURES," =~ ",galaxy_control_cli," ]]; then
+    # Each value must match `Channel::galaxyctrl_command_name` in the Rust source.
     if [[ $RELEASE_CHANNEL = "stable" ]]; then
-      WARPCTRL_COMMAND_NAME="warpctrl"
+      GALAXYCTRL_COMMAND_NAME="galaxyctrl"
     elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-      WARPCTRL_COMMAND_NAME="warpctrl-oss"
+      GALAXYCTRL_COMMAND_NAME="galaxyctrl-oss"
     else
-      WARPCTRL_COMMAND_NAME="warpctrl-$RELEASE_CHANNEL"
+      GALAXYCTRL_COMMAND_NAME="galaxyctrl-$RELEASE_CHANNEL"
     fi
-    WARPCTRL_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/$WARPCTRL_COMMAND_NAME"
-    echo "Creating warpctrl wrapper script at $WARPCTRL_SCRIPT_PATH..."
-    "$WORKSPACE_ROOT_DIR/script/macos/create_warpctrl_wrapper" \
-      "$WARPCTRL_SCRIPT_PATH" \
+    GALAXYCTRL_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/$GALAXYCTRL_COMMAND_NAME"
+    echo "Creating galaxyctrl wrapper script at $GALAXYCTRL_SCRIPT_PATH..."
+    "$WORKSPACE_ROOT_DIR/script/macos/create_galaxyctrl_wrapper" \
+      "$GALAXYCTRL_SCRIPT_PATH" \
       "../../MacOS/$WARP_BIN"
   fi
 
   # Store the built artifact locations for GitHub Actions outputs.
   BINARY_PATH="target/$DEFAULT_TARGET/$TARGET_PROFILE_DIR/$WARP_BIN"
   DMG_PATH="$OUT_DIR/$FINAL_DMG_NAME"
-elif [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "warpctrl" ]]; then
+elif [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
   if [[ $BUILD_BINARY == true ]]; then
     # Create Info.plist before building the app, since it's embedded at build time.
     # Apple's codesigning tools will detect Info.plist files in the same directory as an executable.
@@ -602,15 +604,15 @@ elif [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "warpctrl" ]]; then
   echo "Copying binary into $OUT_DIR/$WARP_BIN"
   cp "target/$DEFAULT_TARGET/$TARGET_PROFILE_DIR/$WARP_BIN" "$OUT_DIR/$WARP_BIN"
 
-  if [[ "$ARTIFACT" == "warpctrl" ]]; then
-    if [[ ! ",$FEATURES," =~ ",warp_control_cli," ]]; then
-      echo "warpctrl artifact requires the warp_control_cli feature" >&2
+  if [[ "$ARTIFACT" == "galaxyctrl" ]]; then
+    if [[ ! ",$FEATURES," =~ ",galaxy_control_cli," ]]; then
+      echo "galaxyctrl artifact requires the galaxy_control_cli feature" >&2
       exit 1
     fi
-    WARPCTRL_SCRIPT_PATH="$OUT_DIR/warpctrl"
-    echo "Creating warpctrl wrapper script at $WARPCTRL_SCRIPT_PATH"
-    "$WORKSPACE_ROOT_DIR/script/macos/create_warpctrl_wrapper" \
-      "$WARPCTRL_SCRIPT_PATH" \
+    GALAXYCTRL_SCRIPT_PATH="$OUT_DIR/galaxyctrl"
+    echo "Creating galaxyctrl wrapper script at $GALAXYCTRL_SCRIPT_PATH"
+    "$WORKSPACE_ROOT_DIR/script/macos/create_galaxyctrl_wrapper" \
+      "$GALAXYCTRL_SCRIPT_PATH" \
       "$WARP_BIN"
   fi
 
@@ -625,8 +627,8 @@ elif [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "warpctrl" ]]; then
 
 
   # Set the primary binary path to output.
-  if [[ "$ARTIFACT" == "warpctrl" ]]; then
-    BINARY_PATH="$OUT_DIR/warpctrl"
+  if [[ "$ARTIFACT" == "galaxyctrl" ]]; then
+    BINARY_PATH="$OUT_DIR/galaxyctrl"
   else
     BINARY_PATH="$OUT_DIR/$WARP_BIN"
   fi
@@ -696,7 +698,7 @@ if [[ $SELFSIGN = true ]]; then
   if [[ "$ARTIFACT" == app ]]; then
     echo "Self-signing $BUNDLE_DIR/$WARP_APP_NAME.app with ${SIGNING_CERT}..."
     codesign --force --deep --options runtime --sign "$SIGNING_CERT" "$BUNDLE_DIR/$WARP_APP_NAME.app" --entitlements script/Debug-Entitlements.plist
-  elif [[ "$ARTIFACT" == cli || "$ARTIFACT" == warpctrl ]]; then
+  elif [[ "$ARTIFACT" == cli || "$ARTIFACT" == galaxyctrl ]]; then
     echo "Self-signing $OUT_DIR/$WARP_BIN with ${SIGNING_CERT}..."
     codesign --force --options runtime --sign "$SIGNING_CERT" "$OUT_DIR/$WARP_BIN" --entitlements script/Debug-Entitlements.plist
   fi
@@ -705,7 +707,7 @@ elif [[ $CODESIGN = true ]]; then
     echo "Codesigning $BUNDLE_DIR/$WARP_APP_NAME.app..."
     # Use --deep so we sign bundled frameworks as well
     codesign --deep -f -o runtime --timestamp -s "$APPLE_TEAM_ID" "$BUNDLE_DIR/$WARP_APP_NAME.app" --entitlements script/Entitlements.plist
-  elif [[ "$ARTIFACT" == cli || "$ARTIFACT" == warpctrl ]]; then
+  elif [[ "$ARTIFACT" == cli || "$ARTIFACT" == galaxyctrl ]]; then
     echo "Codesigning $OUT_DIR/$WARP_BIN..."
     codesign -f -o runtime --timestamp -s "$APPLE_TEAM_ID" "$OUT_DIR/$WARP_BIN" --entitlements script/Entitlements.plist
 
@@ -731,16 +733,16 @@ fi
 ########################
 
 if [[ "$ARTIFACT" = app ]]; then
-  function create_warp_dmg() {
+  function create_galaxy_dmg() {
     echo "Creating $DMG_DIR/$DMG_NAME..."
     rm "$DMG_DIR/$DMG_NAME" || true
     local source_folder="$1"
 
     local args=(
-      --volname Warp
+      --volname Galaxy
       # For --no-internet-enable, see https://github.com/create-dmg/create-dmg/issues/179
       --no-internet-enable
-      --background app/assets/resources/mac/warp_install_image.png
+      --background app/assets/resources/mac/galaxy_install_image.png
       --icon-size 128
       --window-size 700 500
       --format UDZO
@@ -776,7 +778,7 @@ if [[ "$ARTIFACT" = app ]]; then
     mkdir -p "$DMG_DIR"
     cp -R "$BUNDLE_DIR/$WARP_APP_NAME.app" "$DMG_DIR"
 
-    create_warp_dmg "$DMG_DIR"
+    create_galaxy_dmg "$DMG_DIR"
 
     echo "Codesigning $DMG_DIR/$DMG_NAME..."
     codesign -s "$APPLE_TEAM_ID" --timestamp "$DMG_DIR/$DMG_NAME"
@@ -790,7 +792,7 @@ if [[ "$ARTIFACT" = app ]]; then
     echo "Cleaning up any existing DMG files before creating new ones..."
     cleanup_dmg_files "$DMG_DIR"
 
-    create_warp_dmg "$BUNDLE_DIR"
+    create_galaxy_dmg "$BUNDLE_DIR"
   fi
 fi
 
@@ -816,7 +818,7 @@ if [[ $CODESIGN = true ]]; then
   echo "Verifying notarization ticket..."
   if [[ "$ARTIFACT" = app ]]; then
     xcrun stapler validate "$DMG_DIR/$DMG_NAME"
-  elif [[ "$ARTIFACT" = cli || "$ARTIFACT" = warpctrl ]]; then
+  elif [[ "$ARTIFACT" = cli || "$ARTIFACT" = galaxyctrl ]]; then
     spctl -a -t open --context context:primary-signature -vv "$OUT_DIR/$WARP_BIN"
   fi
 fi

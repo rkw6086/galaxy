@@ -101,7 +101,7 @@ fn tab_create_action(
 ) -> Result<WorkspaceAction, ControlError> {
     let params = decode_params::<TabCreateParams>(params)?;
     if let Some(shell_name) = params.shell.as_deref() {
-        if matches!(params.tab_type, Some(TabType::Agent | TabType::CloudAgent)) {
+        if matches!(params.tab_type, Some(TabType::Agent)) {
             return Err(ControlError::new(
                 ErrorCode::InvalidParams,
                 "tab.create cannot combine an agent tab type with a shell",
@@ -109,7 +109,7 @@ fn tab_create_action(
         }
         return Ok(WorkspaceAction::AddTabWithShell {
             shell: resolve_shell(shell_name, ctx)?,
-            source: AddTabWithShellSource::CommandPalette,
+            source: AddTabWithShellSource::LocalControl,
         });
     }
     match params.tab_type {
@@ -118,10 +118,6 @@ fn tab_create_action(
         }),
         Some(TabType::Agent) => Ok(WorkspaceAction::AddAgentTab),
         Some(TabType::Default) => Ok(WorkspaceAction::AddDefaultTab),
-        Some(TabType::CloudAgent) => Err(ControlError::new(
-            ErrorCode::UnsupportedAction,
-            "tab.create does not support cloud-agent tabs",
-        )),
     }
 }
 

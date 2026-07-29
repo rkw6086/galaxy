@@ -197,3 +197,29 @@ fn test_ensure_ends_with_user_message_empty_messages() {
     // Empty messages should stay empty
     assert!(messages.is_empty());
 }
+
+#[test]
+fn sanitizer_preserves_image_parts() {
+    let image_bytes = b"\x89PNG\r\n\x1a\nsanitizer".to_vec();
+    let mut messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::Text("Describe this".to_string()),
+            ContentPart::Image {
+                data: image_bytes.clone(),
+                mime_type: "image/png".to_string(),
+            },
+        ]),
+    }];
+
+    sanitize_messages_for_openai(&mut messages);
+
+    let MessageContent::MultiPart(parts) = &messages[0].content else {
+        panic!("expected multimodal message");
+    };
+    assert!(matches!(
+        &parts[1],
+        ContentPart::Image { data, mime_type }
+            if data == &image_bytes && mime_type == "image/png"
+    ));
+}

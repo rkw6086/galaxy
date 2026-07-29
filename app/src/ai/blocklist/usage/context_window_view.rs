@@ -45,6 +45,7 @@ impl View for ContextWindowView {
                     .iter()
                     .map(|p| match p {
                         ContentPart::Text(t) => t.len(),
+                        ContentPart::Image { .. } => 6_400,
                         ContentPart::ToolUse { input, .. } => input.to_string().len(),
                         ContentPart::ToolResult { content, .. } => content.len(),
                     })
@@ -110,6 +111,14 @@ impl View for ContextWindowView {
                         match p {
                             ContentPart::Text(t) => {
                                 out.push_str(&format!("[Part {} Text] {}\n", pi, t));
+                            }
+                            ContentPart::Image { data, mime_type } => {
+                                out.push_str(&format!(
+                                    "[Part {} Image] mime_type={}, bytes={}\n",
+                                    pi,
+                                    mime_type,
+                                    data.len()
+                                ));
                             }
                             ContentPart::ToolUse {
                                 name,

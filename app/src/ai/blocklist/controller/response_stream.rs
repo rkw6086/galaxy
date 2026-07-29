@@ -20,7 +20,7 @@ use crate::ai::llms::LLMPreferences;
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
 use crate::network::NetworkStatus;
-use crate::server::server_api::{AIApiError, ServerApiProvider};
+use crate::server::server_api::AIApiError;
 use crate::{report_error, send_telemetry_from_ctx, AISettings};
 
 /// Maximum number of times a single MAA request is re-sent before the failure is
@@ -159,6 +159,7 @@ impl ResponseStream {
             id,
             params: api::RequestParams::new_for_test(),
             retry_count: 0,
+            coding_model_fallback_attempted: false,
             start_time: Local::now(),
             time_to_latest_event: TimeDelta::seconds(0),
             cancellation_tx: Some(cancellation_tx),
@@ -233,17 +234,10 @@ impl ResponseStream {
 
         let request_id = Uuid::new_v4();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let server_api = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
         let params_clone = params.clone();
         let _ = ctx.spawn(
             async move {
-                generate_multi_agent_output(
-                    provider_config,
-                    server_api,
-                    params_clone,
-                    cancellation_rx,
-                )
-                .await
+                generate_multi_agent_output(provider_config, params_clone, cancellation_rx).await
             },
             move |me, stream, ctx| {
                 me.handle_response_stream_result(request_id, stream, ctx);
@@ -323,18 +317,17 @@ impl ResponseStream {
 
         let request_id = Uuid::new_v4();
         self.current_request_id = Some(request_id);
-        let mut params = self.params.clone();
+        let params = self.params.clone();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let server_api = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
-        let _ = ctx.spawn(
-            async move {
-                generate_multi_agent_output(provider_config, server_api, params, cancellation_rx)
-                    .await
-            },
-            move |me, stream, ctx| {
-                me.handle_response_stream_result(request_id, stream, ctx);
-            },
-        );
+        let _ =
+            ctx.spawn(
+                async move {
+                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
+                },
+                move |me, stream, ctx| {
+                    me.handle_response_stream_result(request_id, stream, ctx);
+                },
+            );
     }
 
     fn should_fallback_to_coding_model(
@@ -503,7 +496,7 @@ impl ResponseStream {
                     self.original_error = Some(format!("{e:?}"));
                 }
 
-                if self.should_fallback_to_coding_model(&e) {
+                if self.should_fallback_to_coding_model(e) {
                     log::warn!(
                         "Thinking model rate-limited; retrying with the profile coding model"
                     );

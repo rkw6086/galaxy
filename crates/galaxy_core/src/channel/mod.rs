@@ -18,7 +18,7 @@ pub enum Channel {
     /// The internal-only HEAD build.
     Local,
 
-    /// The open-source build of Warp.
+    /// The open-source build of Galaxy.
     Oss,
 
     /// The integration test build.
@@ -59,15 +59,30 @@ impl Channel {
         }
     }
 
-    /// Returns the Warp Control CLI command name corresponding to this channel.
-    pub fn warpctrl_command_name(&self) -> &'static str {
+    /// Returns the Galaxy Control CLI command name corresponding to this channel.
+    pub fn galaxyctrl_command_name(&self) -> &'static str {
         match self {
-            Channel::Stable => "warpctrl",
-            Channel::Dev => "warpctrl-dev",
-            Channel::Preview => "warpctrl-preview",
-            Channel::Local => "warpctrl-local",
-            Channel::Integration => "warpctrl-integration",
-            Channel::Oss => "warpctrl-oss",
+            Channel::Stable => "galaxyctrl",
+            Channel::Dev => "galaxyctrl-dev",
+            Channel::Preview => "galaxyctrl-preview",
+            Channel::Local => "galaxyctrl-local",
+            Channel::Integration => "galaxyctrl-integration",
+            Channel::Oss => "galaxyctrl-oss",
+        }
+    }
+
+    /// Returns the stable channel identifier exposed through Galaxy Control.
+    ///
+    /// This intentionally avoids the legacy `warp-oss` display value retained
+    /// for compatibility with existing on-disk paths and update infrastructure.
+    pub fn local_control_channel_name(&self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Preview => "preview",
+            Channel::Dev => "dev",
+            Channel::Local => "local",
+            Channel::Integration => "integration",
+            Channel::Oss => "oss",
         }
     }
 }
@@ -84,3 +99,7 @@ impl fmt::Display for Channel {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "channel_tests.rs"]
+mod tests;

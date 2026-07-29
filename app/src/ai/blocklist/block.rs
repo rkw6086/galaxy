@@ -72,7 +72,9 @@ use warpui::{
 #[cfg(feature = "agent_mode_debug")]
 use self::code_diff_view::FileDiff;
 use self::model::{AIBlockModel, AIBlockModelHelper};
-use super::action_model::{AIActionStatus, BlocklistAIActionEvent, RequestFileEditsFormatKind};
+use super::action_model::{
+    AIActionStatus, BlocklistAIActionEvent, RequestFileEditsFormatKind, StartAgentExecutorEvent,
+};
 use super::code_block::CodeSnippetButtonHandles;
 use super::controller::ClientIdentifiers;
 use super::inline_action::code_diff_view::{
@@ -897,6 +899,108 @@ fn default_orchestration_collapsible_state(expanded: bool) -> CollapsibleElement
     }
 }
 
+fn history_event_affects_conversation(
+    event: &BlocklistAIHistoryEvent,
+    conversation_id: AIConversationId,
+) -> bool {
+    match event {
+        BlocklistAIHistoryEvent::StartedNewConversation {
+            new_conversation_id,
+            ..
+        } => *new_conversation_id == conversation_id,
+        BlocklistAIHistoryEvent::CreatedSubtask {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::AppendedExchange {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedConversationStatus {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::SetActiveConversation {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::ClearedActiveConversation {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::RemoveConversation {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::DeletedConversation {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedConversationMetadata {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedConversationTitle {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::UpdatedConversationArtifacts {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::ConversationTransferredBetweenTerminalSurfaces {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::NewConversationRequestComplete {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::OrchestrationConfigUpdated {
+            conversation_id: event_conversation_id,
+            ..
+        }
+        | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated {
+            conversation_id: event_conversation_id,
+        }
+        | BlocklistAIHistoryEvent::LocalSharedSessionEstablished {
+            conversation_id: event_conversation_id,
+            ..
+        } => *event_conversation_id == conversation_id,
+        BlocklistAIHistoryEvent::ReassignedExchange {
+            new_conversation_id,
+            ..
+        } => *new_conversation_id == conversation_id,
+        BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface {
+            active_conversation_id,
+            cleared_conversation_ids,
+            ..
+        } => {
+            *active_conversation_id == Some(conversation_id)
+                || cleared_conversation_ids.contains(&conversation_id)
+        }
+        BlocklistAIHistoryEvent::SplitConversation {
+            old_conversation_id,
+            new_conversation_id,
+            ..
+        } => *old_conversation_id == conversation_id || *new_conversation_id == conversation_id,
+        BlocklistAIHistoryEvent::RestoredConversations {
+            conversation_ids, ..
+        } => conversation_ids.contains(&conversation_id),
+        BlocklistAIHistoryEvent::UpgradedTask { .. }
+        | BlocklistAIHistoryEvent::UpdatedTodoList { .. }
+        | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. } => false,
+    }
+}
+
 pub struct AIBlock {
     model: Rc<dyn AIBlockModel<View = AIBlock>>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -1222,6 +1326,7 @@ impl AIBlock {
         );
 
         Self::register_action_model_subscription(&action_model, ctx);
+        Self::register_start_agent_executor_subscription(&action_model, ctx);
 
         ctx.subscribe_to_model(&active_session, |me, _, event, ctx| match event {
             ActiveSessionEvent::UpdatedPwd => {
@@ -1275,6 +1380,18 @@ impl AIBlock {
         ctx.subscribe_to_model(
             &BlocklistAIHistoryModel::handle(ctx),
             |me, _, event, ctx| {
+                if me
+                    .state_handles
+                    .subagent_panel_states
+                    .values()
+                    .any(|state| history_event_affects_conversation(event, state.conversation_id))
+                {
+                    // Child conversations live on a different terminal
+                    // surface, so they bypass the parent block's normal
+                    // terminal-surface filter. Repaint the inline transcript
+                    // and status whenever one of those children changes.
+                    ctx.notify();
+                }
                 if event
                     .terminal_surface_id()
                     .is_none_or(|id| id == me.terminal_view_id)
@@ -4815,6 +4932,40 @@ impl AIBlock {
                 BlocklistAIActionEvent::InitProject(_)
                 | BlocklistAIActionEvent::ToggleCodeReview(_) => {}
             }
+        });
+    }
+
+    /// Registers the direct-provider child linkage needed to render a live
+    /// StartAgent panel while the action is still waiting for child output.
+    fn register_start_agent_executor_subscription(
+        action_model: &ModelHandle<BlocklistAIActionModel>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let start_agent_executor = action_model.as_ref(ctx).start_agent_executor(ctx);
+        ctx.subscribe_to_model(&start_agent_executor, |me, _, event, ctx| {
+            let StartAgentExecutorEvent::DirectProviderChildConversationCreated {
+                action_id,
+                parent_conversation_id,
+                child_conversation_id,
+            } = event
+            else {
+                return;
+            };
+            if me.client_ids.conversation_id != *parent_conversation_id
+                || !me.requested_action_ids.contains(action_id)
+            {
+                return;
+            }
+
+            me.state_handles
+                .subagent_panel_states
+                .entry(action_id.clone())
+                .or_insert_with(|| {
+                    super::agent_view::subagent_inline_panel::SubagentPanelState::new(
+                        *child_conversation_id,
+                    )
+                });
+            ctx.notify();
         });
     }
 

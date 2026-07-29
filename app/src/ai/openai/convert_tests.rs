@@ -24,6 +24,41 @@ fn test_simple_text_message_conversion() {
 }
 
 #[test]
+fn test_multimodal_user_message_uses_openai_image_url_content() {
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::MultiPart(vec![
+            ContentPart::Text("Describe this image".to_string()),
+            ContentPart::Image {
+                data: vec![1, 2, 3, 4],
+                mime_type: "image/png".to_string(),
+            },
+        ]),
+    }];
+
+    let request = build_openai_request(messages, None, vec![], 1024, None, "test-model");
+
+    let content = request["messages"][0]["content"]
+        .as_array()
+        .expect("expected multimodal content array");
+    assert_eq!(
+        content,
+        &vec![
+            json!({
+                "type": "text",
+                "text": "Describe this image",
+            }),
+            json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/png;base64,AQIDBA==",
+                },
+            }),
+        ]
+    );
+}
+
+#[test]
 fn test_system_prompt_placement() {
     let messages = vec![ConversationMessage {
         role: MessageRole::User,

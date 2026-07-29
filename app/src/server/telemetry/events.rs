@@ -432,7 +432,11 @@ pub enum CommandXRayTrigger {
 pub enum PaletteSource {
     PrefixChange,
     Keybinding,
-    CtrlTab { shift_pressed_initially: bool },
+    /// Local automation opens the UI without attributing it to a user interaction.
+    LocalControl,
+    CtrlTab {
+        shift_pressed_initially: bool,
+    },
     WarpDrive,
     QuitModal,
     LogOutModal,
@@ -965,6 +969,8 @@ pub enum AgentModeCodeFileNavigationSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum AddTabWithShellSource {
     CommandPalette,
+    /// Local automation creates the tab without emitting user-interaction analytics.
+    LocalControl,
     ShellSelectorMenu,
 }
 

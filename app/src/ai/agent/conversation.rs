@@ -1078,6 +1078,27 @@ impl AIConversation {
             .modify_root_task(|root_task| root_task.append_exchange(exchange));
     }
 
+    #[cfg(test)]
+    pub(crate) fn append_task_exchange_for_test(
+        &mut self,
+        task_id: &TaskId,
+        exchange: AIAgentExchange,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<(), UpdateConversationError> {
+        let exchange_id = exchange.id;
+        self.append_exchange_to_task(task_id, exchange)?;
+        ctx.emit(BlocklistAIHistoryEvent::AppendedExchange {
+            exchange_id,
+            task_id: task_id.clone(),
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden: false,
+            response_stream_id: None,
+        });
+        Ok(())
+    }
+
     /// The human-readable message for the current error status, derived from the
     /// structured `status_error`.
     pub fn status_error_message(&self) -> Option<String> {
@@ -3512,10 +3533,26 @@ impl AIConversation {
         terminal_surface_id: EntityId,
         ctx: &mut ModelContext<BlocklistAIHistoryModel>,
     ) -> TaskId {
-        if self.optimistic_cli_subagent_subtask_id.take().is_some() {
-            log::error!(
-                "Tried to optimistically create new subtask for CLI agent when one exists already."
+        if let Some(existing_task_id) = self.optimistic_cli_subagent_subtask_id.clone() {
+            let monitors_same_block = self
+                .task_store
+                .get(&existing_task_id)
+                .and_then(Task::cli_subagent_block_id)
+                .as_ref()
+                == Some(block_id);
+            if monitors_same_block {
+                log::debug!(
+                    "Reusing optimistic CLI subtask {existing_task_id} for running block \
+                     {block_id:?}"
+                );
+                return existing_task_id;
+            }
+
+            log::debug!(
+                "Switching active optimistic CLI subtask from {existing_task_id} to a different \
+                 block while retaining the previous task history"
             );
+            self.optimistic_cli_subagent_subtask_id = None;
         }
 
         let parent_task_id = Some(self.task_store.root_task_id().to_string());
@@ -3529,6 +3566,28 @@ impl AIConversation {
             task_id: new_task_id.clone(),
         });
         new_task_id
+    }
+
+    /// Deactivates the optimistic CLI subagent for `block_id` without deleting its task.
+    ///
+    /// Direct-provider CLI tasks contain the command monitor's exchanges, so they must remain in
+    /// the task store after the command finishes. Only the active pointer is cleared here.
+    pub fn deactivate_optimistic_cli_subagent_task(&mut self, block_id: &BlockId) -> bool {
+        let Some(task_id) = self.optimistic_cli_subagent_subtask_id.as_ref() else {
+            return false;
+        };
+        let monitors_block = self
+            .task_store
+            .get(task_id)
+            .and_then(Task::cli_subagent_block_id)
+            .as_ref()
+            == Some(block_id);
+        if !monitors_block {
+            return false;
+        }
+
+        self.optimistic_cli_subagent_subtask_id = None;
+        true
     }
 
     /// Marks an optimistic CLI subagent active without emitting UI events.
@@ -3564,6 +3623,12 @@ impl AIConversation {
         else {
             return Err(SubagentTaskNotFound);
         };
+
+        // Direct providers create a synthetic server-shaped CLI task locally. It has no parent
+        // tool-call ID to mark completion, so its active pointer is the lifecycle authority.
+        if subagent_task.is_cli_subagent() && subagent_params.tool_call_id.is_empty() {
+            return Ok(self.optimistic_cli_subagent_subtask_id.as_ref() != Some(subagent_task_id));
+        }
 
         let parent_task = self
             .task_store

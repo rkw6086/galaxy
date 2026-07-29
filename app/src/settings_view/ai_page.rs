@@ -7994,14 +7994,12 @@ impl SettingsWidget for ExperimentsWidget {
             app,
         );
 
-        let column = Flex::column()
+        Flex::column()
             .with_child(header)
             .with_child(crosscheck_toggle)
             .with_child(crosscheck_description)
             .with_child(model_description)
-            .finish();
-
-        column
+            .finish()
     }
 }
 
