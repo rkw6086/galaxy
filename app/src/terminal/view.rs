@@ -2825,6 +2825,9 @@ pub struct TerminalView {
     /// A list of callbacks to run on the next [`ModelEvent::AfterBlockCompleted`] received.
     block_completed_callbacks: Vec<TerminalViewCallback>,
 
+    /// Process conversation associated with the automatically monitored shell block.
+    active_process_monitor: Option<(BlockId, AIConversationId, AIConversationId)>,
+
     /// A list of callbacks to run on the next
     /// [`BlocklistAIControllerEvent::FinishedReceivingOutput`] received, regardless of the finish reason.
     conversation_completed_callbacks: Vec<ConversationFinishedCallback>,
@@ -4396,6 +4399,7 @@ impl TerminalView {
             github_repo_model: None,
             deferred_code_review_open: None,
             block_completed_callbacks: Default::default(),
+            active_process_monitor: None,
             conversation_completed_callbacks: Default::default(),
             current_repo_path: None,
             terminal_title: Default::default(),
@@ -7376,6 +7380,51 @@ impl TerminalView {
         }
     }
 
+    fn schedule_process_monitor_check(
+        &mut self,
+        block_id: BlockId,
+        process_conversation_id: AIConversationId,
+        parent_conversation_id: AIConversationId,
+        delay: Duration,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        ctx.spawn(Timer::after(delay), move |me, _, ctx| {
+            let snapshot = {
+                let model = me.model.lock();
+                model.block_list().block_with_id(&block_id).and_then(|block| {
+                    block.is_active_and_long_running().then(|| {
+                        crate::terminal::model::block::formatted_terminal_contents_for_input(
+                            block.output_grid().grid_handler(),
+                            Some(1000),
+                            crate::terminal::model::block::CURSOR_MARKER,
+                        )
+                    })
+                })
+            };
+            let Some(snapshot) = snapshot else {
+                return;
+            };
+
+            let prompt = format!(
+                "Review the latest process output and report progress, failure, or suspicious inactivity to the user. Continue actively monitoring and choose a short next interval; Galaxy will check again automatically.\n\nLatest output:\n```text\n{snapshot}\n```"
+            );
+            me.ai_controller.update(ctx, |controller, ctx| {
+                controller.send_agent_query_in_conversation(
+                    prompt,
+                    process_conversation_id,
+                    ctx,
+                );
+            });
+            me.schedule_process_monitor_check(
+                block_id,
+                process_conversation_id,
+                parent_conversation_id,
+                Duration::from_secs(5),
+                ctx,
+            );
+        });
+    }
+
     fn handle_shell_command_executor_event(
         &mut self,
         _: ModelHandle<ShellCommandExecutor>,
@@ -7389,9 +7438,13 @@ impl TerminalView {
                 };
 
                 let history_model = BlocklistAIHistoryModel::as_ref(ctx);
-                let Some(conversation) = history_model
+                let Some(parent_conversation_id) = history_model
                     .conversation_id_for_action(action_id, ctx.view_id())
-                    .and_then(|id| history_model.conversation(&id))
+                    .and_then(|id| {
+                        history_model
+                            .conversation(&id)
+                            .map(|conversation| conversation.id())
+                    })
                 else {
                     safe_error!(
                         safe: ("No conversation ID found for command with ID: {:?}", action_id),
@@ -7454,7 +7507,7 @@ impl TerminalView {
                 });
 
                 let agent_metadata =
-                    AgentInteractionMetadata::new_hidden(action_id.clone(), conversation.id());
+                    AgentInteractionMetadata::new_hidden(action_id.clone(), parent_conversation_id);
 
                 // We use the basic AI source when this is a non-shared
                 // command originating from the agent.
@@ -7516,20 +7569,55 @@ impl TerminalView {
                             return;
                         }
 
-                        me.agent_view_controller.update(ctx, |controller, ctx| {
-                            if !controller.is_active() {
-                                if let Err(error) = controller.try_enter_inline_agent_view(
-                                    None,
-                                    AgentViewEntryOrigin::LongRunningCommand,
-                                    ctx,
-                                ) {
-                                    log::error!(
-                                        "Failed to automatically open long-running command monitor: {error}"
-                                    );
+                        let process_conversation_id = me.agent_view_controller.update(
+                            ctx,
+                            |controller, ctx| {
+                                if controller.is_active() {
+                                    controller.agent_view_state().active_conversation_id()
+                                } else {
+                                    controller
+                                        .try_enter_inline_agent_view(
+                                            None,
+                                            AgentViewEntryOrigin::LongRunningCommand,
+                                            ctx,
+                                        )
+                                        .map(Some)
+                                        .unwrap_or_else(|error| {
+                                            log::error!(
+                                                "Failed to automatically open long-running command monitor: {error}"
+                                            );
+                                            None
+                                        })
                                 }
-                            }
-                        });
+                            },
+                        );
+                        let Some(process_conversation_id) = process_conversation_id else {
+                            return;
+                        };
+                        me.active_process_monitor = Some((
+                            block_id.clone(),
+                            process_conversation_id,
+                            parent_conversation_id,
+                        ));
                         me.tag_in_agent_for_user_long_running_command(ctx);
+
+                        let monitor_prompt = format!(
+                            "Actively monitor the running process below. Immediately review its current output and report progress to the user. Continue checking it proactively; short waits are required initially and may grow gradually only when steady progress is evident. Waiting indefinitely or awaiting further user instruction is unacceptable. Identify concrete success signals, failures, retries, lock waits, and suspicious inactivity. Do not interrupt the process unless the user's stated stop condition is met or the user authorizes it.\n\nCommand:\n```sh\n{command}\n```"
+                        );
+                        me.ai_controller.update(ctx, |controller, ctx| {
+                            controller.send_agent_query_in_conversation(
+                                monitor_prompt,
+                                process_conversation_id,
+                                ctx,
+                            );
+                        });
+                        me.schedule_process_monitor_check(
+                            block_id,
+                            process_conversation_id,
+                            parent_conversation_id,
+                            Duration::from_secs(3),
+                            ctx,
+                        );
 
                         let active_profile = AIExecutionProfilesModel::as_ref(ctx)
                             .active_profile(Some(me.view_id), ctx);
@@ -12061,7 +12149,45 @@ impl TerminalView {
                 cloud_workflow_id,
                 cloud_env_var_collection_id,
             }) => {
-                // To automatically warpify a subshell, we run the relevant command to open the
+                if let Some((block_id, process_conversation_id, parent_conversation_id)) =
+                    self.active_process_monitor.take()
+                {
+                    if let BlockType::User(completed) = block_type {
+                        if completed.serialized_block.id == block_id {
+                            let exit_code = completed.serialized_block.exit_code.value();
+                            let process_summary = format!(
+                                "The monitored process finished with exit code {exit_code}. Review the final output and give the user a concise final assessment. Do not schedule another check.\n\nFinal output:\n```text\n{}\n```",
+                                completed.output_truncated_with_obfuscated_secrets
+                            );
+                            self.ai_controller.update(ctx, |controller, ctx| {
+                                controller.send_agent_query_in_conversation(
+                                    process_summary,
+                                    process_conversation_id,
+                                    ctx,
+                                );
+                            });
+                            let main_summary = format!(
+                                "A monitored shell process finished with exit code {exit_code}. The process-monitor conversation contains the detailed observations. Final output:\n```text\n{}\n```",
+                                completed.output_truncated_with_obfuscated_secrets
+                            );
+                            self.ai_controller.update(ctx, |controller, ctx| {
+                                controller.send_agent_query_in_conversation(
+                                    main_summary,
+                                    parent_conversation_id,
+                                    ctx,
+                                );
+                            });
+                        } else {
+                            self.active_process_monitor =
+                                Some((block_id, process_conversation_id, parent_conversation_id));
+                        }
+                    } else {
+                        self.active_process_monitor =
+                            Some((block_id, process_conversation_id, parent_conversation_id));
+                    }
+                }
+
+                // To automatically warpify a subshell, we run the relevant command
                 // subshell and create a future to delay bootstrapping the subshell long enough for
                 // the command to complete. We receive AfterBlockCompleted if the subshell command
                 // returns an error or the user exits the subshell. Here we abort the future to
