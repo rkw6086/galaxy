@@ -306,6 +306,7 @@ app-installation-detection.workspace = true
 async-io.workspace = true
 axum.workspace = true
 cloud_object_persistence.workspace = true
+galaxy_acp.workspace = true
 comfy-table = "7.1.4"
 inquire = "0.9.1"
 diesel = { workspace = true, features = ["sqlite", "chrono"] }
@@ -464,6 +465,7 @@ bundled_skills = []
 supergrok = []
 gemini_enterprise = []
 agent_mode = []
+agent_client_protocol = []
 agent_mode_computer_use = []
 background_computer_use = []
 agent_mode_debug = []

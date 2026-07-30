@@ -133,3 +133,38 @@ fn ssh_interactive_shell_parsing() {
             == Some("localhost".to_string())
     );
 }
+
+#[test]
+fn ssh_interactive_shell_parsing_normalizes_safe_shell_prefixes() {
+    for command in [
+        "   ssh user@host",
+        "/usr/bin/ssh user@host",
+        "GALAXY_TEST=1 ssh user@host",
+        "env GALAXY_TEST=1 ssh user@host",
+        "command /usr/bin/ssh user@host",
+        "/usr/bin/env -i GALAXY_TEST=1 /usr/bin/ssh user@host",
+        "/usr/bin/env -- GALAXY_TEST=1 /usr/bin/ssh user@host",
+    ] {
+        assert_eq!(
+            parse_interactive_ssh_command(command).and_then(|parsed| parsed.host),
+            Some("user@host".to_owned()),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn ssh_interactive_shell_parsing_does_not_match_ssh_arguments_or_similar_names() {
+    for command in [
+        "echo /usr/bin/ssh user@host",
+        "GALAXY_TEST=/usr/bin/ssh cargo test",
+        "env GALAXY_TEST=1 cargo test",
+        "/usr/bin/ssh-add user@host",
+        "sh -c 'echo ssh user@host'",
+    ] {
+        assert!(
+            parse_interactive_ssh_command(command).is_none(),
+            "{command}"
+        );
+    }
+}

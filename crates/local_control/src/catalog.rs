@@ -51,6 +51,8 @@ pub enum ActionParameterSpec {
     TabActivate,
     TabClose,
     TabCreate,
+    TerminalExecute,
+    TerminalInterrupt,
     Text,
     ThemeName,
 }
@@ -73,6 +75,7 @@ pub enum ActionResultSpec {
     SurfaceList,
     TargetList,
     TargetMetadata,
+    TerminalStatus,
     ThemeList,
     ThemeState,
 }
@@ -229,6 +232,12 @@ define_action_catalog! {
     input {
         InputInsert => { name: "input.insert", status: Implemented, target: Input, params: Text, result: Acknowledgement },
         InputReplace => { name: "input.replace", status: Implemented, target: Input, params: Text, result: Acknowledgement },
+    }
+
+    terminal {
+        TerminalStatus => { name: "terminal.status", status: Implemented, target: Session, params: None, result: TerminalStatus },
+        TerminalExecute => { name: "terminal.execute", status: Implemented, target: Session, params: TerminalExecute, result: Acknowledgement },
+        TerminalInterrupt => { name: "terminal.interrupt", status: Implemented, target: Session, params: TerminalInterrupt, result: Acknowledgement },
     }
 
     theme {

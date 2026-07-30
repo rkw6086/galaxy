@@ -20,6 +20,13 @@ fn local_child_harnesses_are_local_only_by_default() {
 }
 
 #[test]
+fn acp_backend_is_enabled_for_dogfood() {
+    assert!(DOGFOOD_FLAGS.contains(&FeatureFlag::AgentClientProtocol));
+    assert!(!PREVIEW_FLAGS.contains(&FeatureFlag::AgentClientProtocol));
+    assert!(!RELEASE_FLAGS.contains(&FeatureFlag::AgentClientProtocol));
+}
+
+#[test]
 fn dogfood_flags_do_not_enable_upstream_hosted_services() {
     for flag in [
         FeatureFlag::CreatingSharedSessions,

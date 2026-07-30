@@ -1,6 +1,6 @@
 # Galaxy Control operator README
 `galaxyctrl` is the CLI entrypoint for controlling an already-running local Galaxy app instance. It is intended for scripts, demos, agent workflows, and developer automation that need to perform allowlisted Galaxy UI actions through the installed channel-specific Galaxy binary without launching the GUI.
-The implemented command surface contains exactly 77 typed, allowlisted actions. All 77 actions execute after exact-action credential validation. Close actions flow through normal Galaxy close behavior, so existing app warnings remain authoritative. The Block, Auth, Drive, and History families are absent, and `input.insert` plus `input.replace` stage text without submitting it.
+The implemented command surface contains exactly 80 typed, allowlisted actions. All 80 actions execute after exact-action credential validation. Close actions flow through normal Galaxy close behavior, so existing app warnings remain authoritative. The Block, Auth, Drive, and History families are absent; `input.insert` plus `input.replace` stage text without submitting it, while the separate Terminal family provides guarded control of commands in existing visible sessions.
 ## Packaging model
 `galaxyctrl` is packaged as a thin channel wrapper rather than a standalone Rust binary. The wrapper resolves the installed channel-specific Galaxy executable and invokes it with the hidden `--galaxyctrl` control-mode flag:
 - `crates/local_control` owns discovery records, local authentication material, client transport, protocol envelopes, action names, and error types.
@@ -10,6 +10,77 @@ The implemented command surface contains exactly 77 typed, allowlisted actions. 
 The control-mode path should initialize only the work needed for CLI parsing, instance discovery, local authentication loading, request serialization, HTTP transport, and output formatting. It should not initialize GUI state, terminal models, rendering, workspaces, or main-app startup paths.
 Release artifacts and helper names may be channelized, but operator docs and examples use `galaxyctrl` unless an integration branch explicitly documents a channel-specific alias.
 This branch wires the core hidden dispatch contract through the existing Galaxy binary. Platform packaging creates wrapper scripts that call the channel binary with `--galaxyctrl` instead of producing or selecting a separate `galaxyctrl` binary.
+
+## MCP stdio bridge
+
+`galaxyctrl mcp` exposes the current allowlisted Galaxy Control catalog to a
+local MCP client over newline-delimited JSON-RPC on stdin/stdout. The bridge
+does not implement app actions or hold a broad credential. Each tool call
+still resolves the pinned instance, requests a short-lived credential for the
+one requested action, and sends the normal authenticated `/v1/control`
+request.
+
+Launch the installed wrapper for a specific running Galaxy process:
+
+```bash
+galaxyctrl mcp --pid <Galaxy PID>
+```
+
+An in-process ACP runtime that launches the current Galaxy executable directly
+should use:
+
+```text
+<current_exe> --galaxyctrl mcp --pid <Galaxy PID>
+```
+
+`--instance <instance_id>` is also supported. The selector is resolved once to
+an opaque instance ID when the MCP server starts. Every later tool call
+re-discovers only that exact ID, and MCP tool arguments cannot override it. An
+unqualified launch succeeds only when exactly one compatible instance is
+discoverable; multiple instances fail with `ambiguous_instance` instead of
+silently choosing one. The remaining `galaxyctrl` target flags can provide
+default window, tab, pane, and session selectors for invoked actions.
+
+In normal catalog mode, the MCP server advertises two tools:
+
+- `galaxy_control_capabilities` invokes the authenticated `capability.list`
+  action and returns the exact actions advertised by the selected app.
+- `galaxy_control_invoke` accepts one implemented catalog action, an optional
+  in-app target, and action-specific parameters. Its JSON Schema is generated
+  from the shared action catalog and typed parameter contracts.
+
+The bridge adds no capabilities beyond the shared catalog. In particular,
+terminal command control is exposed only through the catalog's typed
+`terminal.status`, `terminal.execute`, and `terminal.interrupt` contracts and
+their app-side idle/race checks. Filesystem mutation, authentication, and cloud
+API surfaces remain absent unless deliberately added to the shared catalog.
+
+Galaxy's in-process ACP integration starts the bridge in a hidden
+`--agent-safe` mode. That mode requires opaque `--window` and `--tab`
+selectors plus exactly one opaque `--pane` or `--session` selector; it never
+falls back to whichever pane is focused later. It advertises
+`galaxy_terminal_status` for the delegated pane and only advertises
+`galaxy_terminal_execute`, `galaxy_terminal_interrupt`, and
+`galaxy_terminal_interrupt_at` when the user's ACP permission profile allows
+the corresponding mutations. `galaxy_terminal_interrupt_at` is an MCP
+composition over the existing status and interrupt actions: the bridge waits
+outside the model loop, verifies that the same block is still running, and
+then performs the exact-block interrupt. It is not an additional public
+Galaxy Control catalog action.
+
+The ACP host remains separate from Galaxy's LiteLLM and Bedrock provider
+dispatch. It launches a configured local adapter, negotiates a standard ACP
+authentication method, and gives that process only the agent-safe MCP bridge
+for the exact local pane. Galaxy scrubs inherited environment variables before
+launch, redacts secrets from outbound prompts, and binds persisted ACP session
+IDs to a fingerprint of the effective adapter launch. A restored session is
+not sent to an adapter whose launch identity no longer matches.
+
+ACP process management is currently enabled only on Unix platforms, where the
+pinned SDK terminates the adapter's complete process group. Galaxy fails closed
+before spawning an adapter on Windows until the SDK can retain a Job Object
+that kills launcher descendants as well as the direct child.
+
 ## Install and invocation guidance
 ### macOS
 For local development checks, build the local Galaxy binary and invoke it with the hidden control-mode flag:
@@ -61,6 +132,15 @@ Use matching app and CLI bits from the same branch or release artifact so the pr
    ```bash
    galaxyctrl tab list --instance <instance_id>
    ```
+9. To control a command in a specific visible terminal, discover the session and active block first, then use the returned IDs:
+   ```bash
+   galaxyctrl session list --instance <instance_id>
+   galaxyctrl terminal status --instance <instance_id> --session <session_id>
+   galaxyctrl terminal execute "sleep 30" --instance <instance_id> --session <session_id>
+   galaxyctrl terminal status --instance <instance_id> --session <session_id>
+   galaxyctrl terminal interrupt --block-id <active_block_id> --instance <instance_id> --session <session_id>
+   ```
+   `terminal.execute` refuses busy sessions, and `terminal.interrupt` refuses a stale block ID so a delayed request cannot stop a newer command.
 Expected failures:
 - `galaxyctrl instance list` with no running compatible app: exits zero with an empty list;
 - a command that needs a selected app when no compatible app is running: exits non-zero with a no-instance error;
@@ -107,6 +187,6 @@ sequenceDiagram
 - Same-user malicious software can still invoke trusted wrappers or automate the desktop, so brokered credentials are least-privilege guardrails rather than a complete hostile same-user sandbox.
 - Future catalog expansion should consider per-request nonces, stricter platform secure-storage constraints, and stronger approval or policy gates.
 ## Documentation review notes
-- Keep examples scoped to the authoritative 77-action catalog and explicitly call out that close actions use normal Galaxy close behavior.
+- Keep examples scoped to the authoritative 80-action catalog and explicitly call out that close actions use normal Galaxy close behavior.
 - Do not document excluded families or actions as usable just because internal app implementations exist.
 - Windows packaging may initially follow the existing helper-wrapper pattern. Update this README when that decision is final.

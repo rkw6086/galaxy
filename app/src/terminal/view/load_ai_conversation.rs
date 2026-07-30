@@ -936,6 +936,7 @@ impl TerminalView {
         let conversation_id = AIConversationId::new();
 
         let conversation_data = AgentConversationData {
+            agent_backend: Default::default(),
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids: None,

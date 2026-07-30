@@ -1,0 +1,17 @@
+[package]
+name = "galaxy_acp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+agent-client-protocol.workspace = true
+async-channel.workspace = true
+async-io.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

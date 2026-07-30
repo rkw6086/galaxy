@@ -71,6 +71,7 @@ pub fn convert_conversation_data_to_ai_conversation(
 
     let agent_conversation_data = match restoration_mode {
         RestorationMode::Fork => AgentConversationData {
+            agent_backend: Default::default(),
             server_conversation_token: None,
             conversation_usage_metadata: usage_metadata,
             reverted_action_ids: None,
@@ -93,6 +94,7 @@ pub fn convert_conversation_data_to_ai_conversation(
             messages_summarized_up_to: 0,
         },
         RestorationMode::Continue => AgentConversationData {
+            agent_backend: Default::default(),
             server_conversation_token: Some(
                 metadata.server_conversation_token.as_str().to_string(),
             ),

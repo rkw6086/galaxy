@@ -80,7 +80,7 @@ use crate::editor::{
 use crate::modal::{Modal, ModalEvent, ModalViewState};
 use crate::settings::ai::BedrockAuthMethod;
 use crate::settings::{
-    AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent,
+    AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent, AcpEnabled,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
     BedrockEnabled, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled, FileBasedMcpEnabled,
@@ -190,6 +190,18 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
+    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
+        vec![ToggleSettingActionPair::new(
+            "Agent Client Protocol",
+            builder(SettingsAction::AI(AISettingsPageAction::ToggleAcpEnabled)),
+            context,
+            flags::ACP_ENABLED_FLAG,
+        )
+        .with_group(bindings::BindingGroup::WarpAi)
+        .with_enabled(|| cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled())],
+        app,
+    );
+
     ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
         vec![ToggleSettingActionPair::new(
             "AI",
@@ -1867,6 +1879,9 @@ impl AISettingsPageView {
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
                 widgets.push(Box::new(CLIAgentWidget::default()));
+                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+                    widgets.push(Box::new(ACPSettingsWidget::new(ctx)));
+                }
                 widgets.push(Box::new(AgentAttributionWidget::default()));
                 widgets.push(Box::new(OtherAIWidget::default()));
             }
@@ -1903,6 +1918,9 @@ impl AISettingsPageView {
                     widgets.push(Box::new(VoiceWidget::default()));
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
+                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+                    widgets.push(Box::new(ACPSettingsWidget::new(ctx)));
+                }
                 if FeatureFlag::CustomModelRouters.is_enabled() {
                     widgets.push(Box::new(CustomModelRoutersWidget));
                 }
@@ -2697,6 +2715,7 @@ pub enum AISettingsPageAction {
     SetBedrockProfile(String),
     ToggleBedrockCrossRegionInference,
     ToggleOpenAIEnabled,
+    ToggleAcpEnabled,
     FetchOpenAIModels,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
@@ -3454,6 +3473,14 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings.openai_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
+            }
+            AISettingsPageAction::ToggleAcpEnabled => {
+                if cfg!(unix) {
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        report_if_error!(settings.acp_enabled.toggle_and_save_value(ctx));
+                    });
+                    ctx.notify();
+                }
             }
             AISettingsPageAction::FetchOpenAIModels => {
                 // Trigger a fetch of models from the LiteLLM endpoint
@@ -7556,6 +7583,247 @@ impl SettingsWidget for BedrockSettingsWidget {
             ));
         }
 
+        column.finish()
+    }
+}
+
+struct ACPSettingsWidget {
+    enabled_toggle: SwitchStateHandle,
+    agent_id_editor: ViewHandle<EditorView>,
+    command_editor: ViewHandle<EditorView>,
+    args_editor: ViewHandle<EditorView>,
+}
+
+impl ACPSettingsWidget {
+    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
+        let settings = AISettings::as_ref(ctx);
+        let is_enabled = *settings.acp_enabled.value();
+        let agent_id = settings.acp_agent_id.value().clone();
+        let command = settings.acp_agent_command.value().clone();
+        let args = serde_json::to_string(settings.acp_agent_args.value())
+            .unwrap_or_else(|_| "[]".to_owned());
+
+        let agent_id_editor = Self::editor(agent_id, "codex or opencode", false, ctx);
+        ctx.subscribe_to_view(&agent_id_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                if !value.trim().is_empty() {
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        report_if_error!(settings.acp_agent_id.set_value(value, ctx));
+                    });
+                }
+            }
+        });
+
+        let command_editor = Self::editor(
+            command,
+            "Leave empty to use the version-pinned preset",
+            false,
+            ctx,
+        );
+        ctx.subscribe_to_view(&command_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.acp_agent_command.set_value(value, ctx));
+                });
+            }
+        });
+
+        let args_editor = Self::editor(args, r#"["arg1", "arg2"]"#, false, ctx);
+        ctx.subscribe_to_view(&args_editor, |_, editor, event, ctx| {
+            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                let value = editor.as_ref(ctx).buffer_text(ctx);
+                match serde_json::from_str::<Vec<String>>(&value) {
+                    Ok(args) => {
+                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                            report_if_error!(settings.acp_agent_args.set_value(args, ctx));
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("ACP agent arguments must be a JSON string array: {error}");
+                        let saved_args =
+                            serde_json::to_string(AISettings::as_ref(ctx).acp_agent_args.value())
+                                .unwrap_or_else(|_| "[]".to_owned());
+                        editor.update(ctx, |editor, ctx| {
+                            editor.system_reset_buffer_text(&saved_args, ctx);
+                        });
+                    }
+                }
+            }
+        });
+
+        for editor in [
+            agent_id_editor.clone(),
+            command_editor.clone(),
+            args_editor.clone(),
+        ] {
+            AISettingsPageView::update_editor_interaction_state(editor, is_enabled, ctx);
+        }
+
+        let agent_id_editor_clone = agent_id_editor.clone();
+        let command_editor_clone = command_editor.clone();
+        let args_editor_clone = args_editor.clone();
+        ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
+            if matches!(event, AISettingsChangedEvent::AcpEnabled { .. }) {
+                let is_enabled = *AISettings::as_ref(ctx).acp_enabled.value();
+                for editor in [
+                    agent_id_editor_clone.clone(),
+                    command_editor_clone.clone(),
+                    args_editor_clone.clone(),
+                ] {
+                    AISettingsPageView::update_editor_interaction_state(editor, is_enabled, ctx);
+                }
+                ctx.notify();
+            }
+        });
+
+        Self {
+            enabled_toggle: SwitchStateHandle::default(),
+            agent_id_editor,
+            command_editor,
+            args_editor,
+        }
+    }
+
+    fn editor(
+        text: String,
+        placeholder: &'static str,
+        is_password: bool,
+        ctx: &mut ViewContext<AISettingsPageView>,
+    ) -> ViewHandle<EditorView> {
+        ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text(placeholder, ctx);
+            editor.set_buffer_text(&text, ctx);
+            editor
+        })
+    }
+
+    fn render_input(
+        appearance: &Appearance,
+        label: &'static str,
+        editor: ViewHandle<EditorView>,
+        is_enabled: bool,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let style = UiComponentStyles {
+            padding: Some(Coords {
+                top: 10.,
+                bottom: 10.,
+                left: 16.,
+                right: 16.,
+            }),
+            background: Some(appearance.theme().surface_2().into()),
+            ..Default::default()
+        };
+        Flex::column()
+            .with_spacing(8.)
+            .with_child(
+                Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                    .with_color(styles::header_font_color(is_enabled, app).into())
+                    .finish(),
+            )
+            .with_child(
+                appearance
+                    .ui_builder()
+                    .text_input(editor)
+                    .with_style(style)
+                    .build()
+                    .finish(),
+            )
+            .finish()
+    }
+}
+
+impl SettingsWidget for ACPSettingsWidget {
+    type View = AISettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "acp agent client protocol codex opencode subscription local agent"
+    }
+
+    fn should_render(&self, _app: &AppContext) -> bool {
+        cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled()
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let settings = AISettings::as_ref(app);
+        let is_enabled = *settings.acp_enabled.value();
+        let mut column = Flex::column().with_spacing(16.);
+
+        column.add_child(build_sub_header(appearance, "Agent Client Protocol", None).finish());
+        column.add_child(render_ai_setting_toggle::<AcpEnabled>(
+            "Use an ACP agent for new conversations",
+            AISettingsPageAction::ToggleAcpEnabled,
+            is_enabled,
+            true,
+            self.enabled_toggle.clone(),
+            &RefCell::new(HashMap::new()),
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "ACP agents own their model and login. The Codex preset prefers its advertised ChatGPT sign-in, while custom agents use their first advertised ACP authentication method; tokens remain owned by the agent. Galaxy keeps the native transcript, cancellation, image uploads, and pane-pinned Galaxy Control tools.",
+            true,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "The built-in Codex adapter starts in read-only mode. Galaxy currently denies adapter-native read, search, edit, delete, move, execute, fetch, and uncategorized permission requests because ACP’s broad categories do not carry enough command, path, or MCP identity to enforce detailed allowlists safely. Agent thinking remains available. Pane-pinned Galaxy tools are exposed only when the active execution profile permits them. Custom ACP agents must honor the protocol’s permission contract.",
+            true,
+            app,
+        ));
+        column.add_child(render_separator(appearance));
+        column.add_child(Self::render_input(
+            appearance,
+            "Agent preset",
+            self.agent_id_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "Use “codex” for the pinned Codex ACP adapter or “opencode” for OpenCode. Codex can launch through npx or Bun. Galaxy prefers an installed OpenCode binary; its package fallback requires npx/Node.js.",
+            is_enabled,
+            app,
+        ));
+        column.add_child(Self::render_input(
+            appearance,
+            "Custom executable (optional)",
+            self.command_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(Self::render_input(
+            appearance,
+            "Custom arguments (JSON array)",
+            self.args_editor.clone(),
+            is_enabled,
+            app,
+        ));
+        column.add_child(render_ai_setting_description(
+            "ACP agents are trusted local programs. Custom arguments apply only when a custom executable is set; built-in presets ignore them. Galaxy removes inherited environment values outside a small runtime allowlist, and custom arguments are stored as plain-text settings. Only configure executables you trust, and never place API keys or access tokens in their arguments. Existing ACP sessions refuse to run after the effective executable, preset version, arguments, environment, or authentication selection changes; restore that configuration or start a new conversation.",
+            is_enabled,
+            app,
+        ));
         column.finish()
     }
 }

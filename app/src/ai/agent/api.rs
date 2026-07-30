@@ -92,6 +92,9 @@ impl TryFrom<ServerConversationToken>
 
 #[derive(Debug, Clone)]
 pub struct RequestParams {
+    /// Galaxy terminal view that originated the request. This is retained
+    /// locally so ACP-provided Galaxy tools can be pinned to the exact pane.
+    pub terminal_view_id: Option<EntityId>,
     pub input: Vec<AIAgentInput>,
     pub conversation_token: Option<ServerConversationToken>,
     pub forked_from_conversation_token: Option<ServerConversationToken>,
@@ -182,6 +185,7 @@ impl RequestParams {
     #[cfg(test)]
     pub fn new_for_test() -> Self {
         Self {
+            terminal_view_id: None,
             input: vec![],
             conversation_token: None,
             forked_from_conversation_token: None,
@@ -220,6 +224,19 @@ impl RequestParams {
             bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             global_rules: vec![],
         }
+    }
+
+    /// Applies the request's configured secret-redaction policy to text immediately
+    /// before it is handed to an external model or agent.
+    pub(crate) fn redact_text_for_model(&self, text: &mut String) {
+        if self.should_redact_secrets {
+            super::redaction::redact_secrets(text);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn enable_secret_redaction_for_test(&mut self) {
+        self.should_redact_secrets = true;
     }
 
     pub fn new(
@@ -372,6 +389,7 @@ impl RequestParams {
             .context_window_limit_for_request(app);
 
         Self {
+            terminal_view_id,
             input: request_input.all_inputs().cloned().collect(),
             conversation_token: conversation.server_conversation_token,
             forked_from_conversation_token: conversation.forked_from_conversation_token,

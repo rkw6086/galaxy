@@ -1226,6 +1226,50 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: true,
     }
+    // Whether new local agent conversations should use an Agent Client Protocol backend.
+    acp_enabled: AcpEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.enabled",
+        description: "Whether new local agent conversations use an Agent Client Protocol backend.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
+    // Stable identifier for the selected ACP agent preset.
+    acp_agent_id: AcpAgentId {
+        type: String,
+        default: "codex".to_string(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.agent_id",
+        description: "Identifier for the local Agent Client Protocol agent preset.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
+    // Executable used to launch the configured local ACP agent.
+    acp_agent_command: AcpAgentCommand {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.agent_command",
+        description: "Executable used to launch the local Agent Client Protocol agent.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
+    // Arguments passed directly to the configured ACP agent executable.
+    acp_agent_args: AcpAgentArgs {
+        type: Vec<String>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.agent_args",
+        description: "Arguments passed to the local Agent Client Protocol agent executable.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
     // Whether to use locally loaded AWS credentials for Bedrock-enabled requests.
     bedrock_enabled: BedrockEnabled {
         type: bool,

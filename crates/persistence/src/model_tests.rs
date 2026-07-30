@@ -2,7 +2,28 @@ use std::collections::HashMap;
 
 use warp_multi_agent_api as api;
 
-use super::{AgentConversation, AgentConversationData, ModelTokenUsage};
+use super::{
+    AcpConversationData, AgentBackend, AgentConversation, AgentConversationData, ModelTokenUsage,
+};
+
+#[test]
+fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
+    let source = AgentBackend::Acp(AcpConversationData {
+        agent_id: "codex".to_owned(),
+        launch_fingerprint: "launch-123".to_owned(),
+        session_id: Some("shared-session".to_owned()),
+    });
+
+    assert_eq!(
+        source.for_fork(),
+        AgentBackend::Acp(AcpConversationData {
+            agent_id: "codex".to_owned(),
+            launch_fingerprint: "launch-123".to_owned(),
+            session_id: None,
+        })
+    );
+    assert_eq!(AgentBackend::Provider.for_fork(), AgentBackend::Provider);
+}
 
 fn parentless_task(id: &str, message_count: usize) -> api::Task {
     api::Task {
@@ -105,6 +126,7 @@ fn is_restorable_accepts_empty_and_single_task_conversations() {
 #[test]
 fn agent_conversation_data_roundtrips_last_event_sequence() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -142,8 +164,44 @@ fn agent_conversation_data_accepts_legacy_orchestration_avatar_id() {
 }
 
 #[test]
+fn agent_conversation_data_defaults_legacy_rows_to_provider_backend() {
+    let data: AgentConversationData = serde_json::from_str(r#"{"server_conversation_token":null}"#)
+        .expect("legacy rows must deserialize");
+
+    assert_eq!(data.agent_backend, AgentBackend::Provider);
+}
+
+#[test]
+fn agent_conversation_data_roundtrips_acp_backend() {
+    let data = AgentConversationData {
+        agent_backend: AgentBackend::Acp(AcpConversationData {
+            agent_id: "codex-acp".to_string(),
+            launch_fingerprint: "launch-123".to_string(),
+            session_id: Some("session-123".to_string()),
+        }),
+        ..Default::default()
+    };
+
+    let json = serde_json::to_string(&data).expect("serialize");
+    let roundtripped: AgentConversationData = serde_json::from_str(&json).expect("deserialize");
+
+    assert_eq!(roundtripped.agent_backend, data.agent_backend);
+}
+
+#[test]
+fn agent_conversation_data_omits_default_provider_backend() {
+    let json = serde_json::to_string(&AgentConversationData::default()).expect("serialize");
+
+    assert!(
+        !json.contains("agent_backend"),
+        "provider backend should retain the legacy serialized shape: {json}"
+    );
+}
+
+#[test]
 fn agent_conversation_data_roundtrips_remote_child_marker() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -170,6 +228,7 @@ fn agent_conversation_data_roundtrips_remote_child_marker() {
 #[test]
 fn agent_conversation_data_roundtrips_optimistic_root_marker() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -208,6 +267,7 @@ fn agent_conversation_data_deserializes_legacy_payload_without_last_event_sequen
 #[test]
 fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -236,6 +296,7 @@ fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
 #[test]
 fn agent_conversation_data_roundtrips_pinned() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -262,6 +323,7 @@ fn agent_conversation_data_roundtrips_pinned() {
 #[test]
 fn agent_conversation_data_skips_serializing_unpinned() {
     let data = AgentConversationData {
+        agent_backend: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,

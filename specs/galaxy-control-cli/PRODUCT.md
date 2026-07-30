@@ -1,6 +1,6 @@
 # Summary
 Galaxy ships a local control CLI named `galaxyctrl` that lets agents, developers, and scripts operate running Galaxy app processes through a typed, allowlisted command surface. `galaxyctrl` is a thin wrapper that invokes the existing channel-specific Galaxy binary in control mode rather than a separate standalone binary.
-The public catalog contains exactly **77 default-authorized actions** organized around stable user-facing nouns. Close actions flow through Galaxy's normal close behavior so existing app warnings remain authoritative. `block.list` is intentionally absent from the catalog. Input-staging commands place text in the input buffer but never submit it.
+The public catalog contains exactly **80 default-authorized actions** organized around stable user-facing nouns. Close actions flow through Galaxy's normal close behavior so existing app warnings remain authoritative. `block.list` is intentionally absent from the catalog. Input-staging commands place text in the input buffer but never submit it. The separate Terminal family can inspect, execute in an idle visible session, and race-safely interrupt an expected active block.
 All callers are external same-user processes. There is no inside-Galaxy/outside-Galaxy distinction, no verified-terminal invocation context, and no authenticated-user identity layer. Security relies on owner-only filesystem discovery, same-user Unix credential broker with kernel peer credentials, short-lived instance-bound exact-action credentials, loopback HTTP transport, and app-side enforcement.
 ## Problem
 Galaxy has rich interactive actions reachable through UI, keybindings, menus, and deeplinks. Agents can use native tools for files, code, shell commands, and MCP calls, but they cannot reliably operate Galaxy's own product surfaces: arranging workspaces, focusing panes, presenting settings, or recovering from ambiguous UI state. Developers cannot compose those actions into shell scripts, demos, or automation workflows, and there is no general local protocol for addressing a specific running Galaxy instance, window, tab, pane, or session.
@@ -8,26 +8,26 @@ Galaxy has rich interactive actions reachable through UI, keybindings, menus, an
 - Provide a first-class, scriptable `galaxyctrl` command for controlling running Galaxy app processes.
 - Make Galaxy's UI and app state available to agents through a typed, permissioned control plane instead of brittle screen automation.
 - Keep CLI startup lightweight by avoiding GUI-app startup for routine control commands.
-- Keep the surface allowlisted and finite: exactly 77 named actions, no arbitrary internal dispatch.
+- Keep the surface allowlisted and finite: exactly 80 named actions, no arbitrary internal dispatch.
 - Make targeting explicit and deterministic across multiple Galaxy processes, windows, tabs, panes, and sessions.
 - Use a simple enabled/disabled Galaxy Control setting rather than multi-mode invocation-context policies.
 ## Non-goals
 - Replacing the general Galaxy AI CLI or mixing cloud management into this CLI.
 - Exposing every internal app action, debug action, or privileged state mutation.
 - Treating the CLI as a general RPC escape hatch into Galaxy internals.
-- Replacing native agent tools for code editing, file operations, shell execution, or MCP calls.
+- Replacing native agent tools for code editing, file operations, isolated shell execution, or MCP calls.
 - Providing an authenticated-user identity layer, verified-terminal invocation proof, or invocation-context distinction.
-- Terminal command execution, accepted-command submission, or agent-prompt submission.
+- Terminal output reads, arbitrary force-kill primitives, or agent-prompt submission.
 - Galaxy Drive data mutations, cloud-backed state mutations, or sharing operations.
 - Local file content reads, writes, or filesystem-content mutations.
 ## Primary user stories
-1. **Agent workspace orchestration.** An agent inspects current Galaxy state, creates or reuses an appropriate window/tab layout, splits panes, names and focuses targets, and leaves the workspace in a readable task-shaped state. The agent continues to use native tools for code edits, file I/O, shell execution, and MCP calls.
+1. **Agent workspace orchestration.** An agent inspects current Galaxy state, creates or reuses an appropriate window/tab layout, splits panes, names and focuses targets, and leaves the workspace in a readable task-shaped state. The agent continues to use native tools for code edits, file I/O, isolated shell execution, and MCP calls, while the Terminal family is reserved for commands that must run in a specific visible Galaxy session such as Wormhole.
 2. **Existing-session debugging and repair.** An agent understands Galaxy-specific UI and session structure before acting: which instance/window/tab/pane/session is active, whether the relevant pane still exists, which surface is focused, and which selector to use for follow-up actions.
 3. **Deterministic demos and walkthroughs.** A script puts Galaxy into a known presentation state: theme, zoom, windows, tabs, panes, focused targets, panels, and surfaces. The walkthrough advances using structured target IDs and recovers from stale or missing targets.
 4. **Personalization and preference migration.** An agent inspects settings, proposes Galaxy equivalents from other tools, applies allowlisted changes, and reports unsupported mappings explicitly.
 ## Behavior
 1. The CLI operates only on running local Galaxy app processes from the same channel as the channel-specific CLI binary. If no compatible same-channel process is available, it exits non-zero with a structured error.
-2. The CLI exposes only the 77 explicitly allowlisted actions. Unknown, unsupported, or non-allowlisted requests fail with structured errors and are never forwarded to arbitrary internal dispatch.
+2. The CLI exposes only the 80 explicitly allowlisted actions. Unknown, unsupported, or non-allowlisted requests fail with structured errors and are never forwarded to arbitrary internal dispatch.
 3. Every successful mutating request identifies the Galaxy process instance, resolved target, and a success payload suitable for JSON output.
 4. Every failure identifies a stable machine-readable error code, a human-readable explanation, and any selector that was ambiguous, missing, stale, or invalid.
 5. The CLI supports human-readable output by default and JSON output for scripts with stable field names.
@@ -55,11 +55,11 @@ Galaxy adds a top-level Settings page named **Galaxy Control**. The page contain
 - **Disabled** (default on Stable, Preview, OSS, and Integration channels): no same-user process can receive local-control credentials. The control listener does not accept requests. Discovery records contain no actionable endpoint.
 The authoritative value is stored in protected local storage (macOS Keychain, or owner-only secure storage on Linux). It is never synced, never appears in `settings.toml` or generated schemas, and cannot be changed by `galaxyctrl`, config files, or direct protocol requests. Only the Galaxy app through Settings > Galaxy Control or the Enable/Disable Galaxy Control Command Palette actions can change it. The default is channel-based: enabled on internal dogfood builds, disabled on public channels until the user opts in. Disabling Galaxy Control immediately prevents new credential issuance and invalidates outstanding credentials.
 ## Close behavior
-`window.close`, `tab.close`, and `pane.close` execute after the same exact-action credential validation as the other 74 actions. They flow through Galaxy's normal close behavior, so existing warnings for unsaved files, running processes, shared sessions, and similar app state remain authoritative and may cancel the close.
+`window.close`, `tab.close`, and `pane.close` execute after the same exact-action credential validation as the other 77 actions. They flow through Galaxy's normal close behavior, so existing warnings for unsaved files, running processes, shared sessions, and similar app state remain authoritative and may cancel the close.
 ## Input staging
-The two input commands (`input.insert`, `input.replace`) only stage or edit text in the terminal input buffer. They never submit the buffer, press Enter, or execute a command. There is no `input.run`, `input.get`, `input.clear`, or `input.mode.set` action in the catalog. Terminal command execution is not part of this product surface.
+The two input commands (`input.insert`, `input.replace`) only stage or edit text in the terminal input buffer. They never submit the buffer, press Enter, or execute a command. There is no `input.run`, `input.get`, `input.clear`, or `input.mode.set` action in the catalog. Command submission is deliberately isolated in `terminal.execute`, which requires an existing terminal-session target, validates bounded command text, and refuses to run unless the active block is idle.
 ## Action catalog
-The public catalog contains exactly 77 actions. The Block, Auth, Drive, and History families are entirely absent. Input is limited to `input.insert` and `input.replace`. Actions are organized by noun and use the exact dotted names from the authoritative `ActionKind` catalog.
+The public catalog contains exactly 80 actions. The Block, Auth, Drive, and History families are entirely absent. Input is limited to `input.insert` and `input.replace`; command control lives in the three-action Terminal family. Actions are organized by noun and use the exact dotted names from the authoritative `ActionKind` catalog.
 ### Instance (2 actions)
 All default-authorized.
 - `instance.list` — list reachable Galaxy app processes from the CLI binary's channel.
@@ -118,6 +118,11 @@ All default-authorized.
 All default-authorized. **Input commands stage text only and never submit.**
 - `input.insert` — insert text into the input buffer without executing.
 - `input.replace` — replace the input buffer contents without executing.
+### Terminal (3 actions)
+All default-authorized. These actions operate only on an existing visible terminal session.
+- `terminal.status` — return the active block ID, executing/pending/long-running state, agent-control state, idle state, elapsed running time, and a bounded secret-obfuscated command summary when available.
+- `terminal.execute` — submit a validated command plus Enter only when the target terminal is idle. Empty, NUL-containing, and commands larger than 64 KiB are rejected.
+- `terminal.interrupt` — send ETX only when the caller supplies the exact active `block_id` returned by `terminal.status` and that block is still running.
 ### Theme (6 actions)
 All default-authorized.
 - `theme.list` — list available themes.
@@ -148,7 +153,7 @@ All default-authorized.
 - `keybinding.get` — get a specific keybinding.
 ### Action (2 actions)
 All default-authorized.
-- `action.list` — list all 77 catalog actions with implementation status.
+- `action.list` — list all 80 catalog actions with implementation status.
 - `action.inspect` — metadata for one action.
 ### Surface (13 actions)
 All default-authorized.
@@ -174,9 +179,10 @@ The following families and actions are entirely absent even when internal implem
 - The entire Auth family (`auth.status`, `auth.login`).
 - The entire Drive family (all `drive.*` actions).
 - The entire History family (`history.list`).
-- `input.get`, `input.clear`, `input.mode.set`, `input.run`, and any form of terminal command execution or submission.
+- `input.get`, `input.clear`, `input.mode.set`, and `input.run`.
+- Terminal output reads, execution while a terminal is busy, interruption without an exact active block ID, and arbitrary process-kill primitives.
 - `file.list` and any local file content reads, writes, or filesystem-content mutations.
-- Accepted-command submission and agent-prompt submission.
+- Agent-prompt submission.
 - Crash, panic, heap-dump, token-copying, debug-reset, and developer/debug helpers.
 - Arbitrary internal view dispatch by string.
 - Arbitrary settings outside the allowlist.
@@ -190,6 +196,9 @@ Command names are noun-oriented and discoverable. Examples:
 - `galaxyctrl window close --window <id>`
 - `galaxyctrl pane split --direction right`
 - `galaxyctrl input replace "cargo check"`
+- `galaxyctrl terminal status --session <id>`
+- `galaxyctrl terminal execute "cargo check" --session <id>`
+- `galaxyctrl terminal interrupt --block-id <active-block-id> --session <id>`
 - `galaxyctrl theme set "Galaxy Dark"`
 - `galaxyctrl setting set appearance.themes.system_theme true`
 - `galaxyctrl file open src/main.rs --line 42`

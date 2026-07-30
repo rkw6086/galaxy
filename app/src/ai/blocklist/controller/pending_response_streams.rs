@@ -7,6 +7,7 @@ use super::response_stream::{ResponseStream, ResponseStreamId};
 use super::BlocklistAIController;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::CancellationReason;
+use crate::ai::llms::LLMId;
 use crate::BlocklistAIHistoryModel;
 
 pub(super) struct PendingResponseStreams {
@@ -49,6 +50,29 @@ impl PendingResponseStreams {
             .filter(|stream_id| conversation.is_processing_response_stream(stream_id))
             .cloned()
             .collect()
+    }
+
+    /// Attempts to inject a plain-text follow-up into the active ACP turn.
+    ///
+    /// Returning `None` leaves the caller free to use the normal
+    /// cancel-and-queue path without dropping the user's message.
+    pub fn try_steer_acp_stream_for_conversation(
+        &self,
+        conversation_id: AIConversationId,
+        display_text: String,
+        app: &AppContext,
+    ) -> Option<(ResponseStreamId, LLMId)> {
+        let history_model = BlocklistAIHistoryModel::as_ref(app);
+        let conversation = history_model.conversation(&conversation_id)?;
+        let (stream_id, stream) = self
+            .streams
+            .iter()
+            .find(|(stream_id, _)| conversation.is_processing_response_stream(stream_id))?;
+        let model_id = stream.as_ref(app).llm_id().clone();
+        stream
+            .as_ref(app)
+            .try_steer_acp(display_text)
+            .then(|| (stream_id.clone(), model_id))
     }
 
     pub fn register_new_stream(

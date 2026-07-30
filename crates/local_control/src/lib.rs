@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod client;
 pub mod discovery;
 pub mod protocol;
+pub mod remote_command;
 pub mod selection;
 pub mod selectors;
 

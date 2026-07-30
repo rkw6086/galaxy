@@ -11,6 +11,7 @@ use diesel::SqliteConnection;
 use galaxy_core::features::FeatureFlag;
 use itertools::Itertools as _;
 use serde::{Deserialize, Serialize};
+use settings::Setting;
 use uuid::Uuid;
 use warp_cli::agent::Harness;
 use warp_multi_agent_api::client_action::{Action, StartNewConversation};
@@ -22,6 +23,8 @@ use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use super::controller::response_stream::ResponseStreamId;
 use super::persistence::{PersistedAIInput, PersistedAIInputType};
 use super::RequestInput;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::acp::acp_launch_fingerprint;
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{
     AIConversation, AIConversationId, ConversationStatus, ServerAIConversationMetadata,
@@ -37,11 +40,14 @@ use crate::ai::agent::{
 use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::input_suggestions::HistoryOrder;
-use crate::persistence::model::{AgentConversation, AgentConversationData};
+use crate::persistence::model::{
+    AcpConversationData, AgentBackend, AgentConversation, AgentConversationData,
+};
 use crate::persistence::ModelEvent;
 #[cfg(feature = "local_fs")]
 use crate::persistence::{database_file_path_for_scope, establish_ro_connection, PersistenceScope};
 use crate::server::server_api::ServerApiProvider;
+use crate::settings::AISettings;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::view::blocklist_filter;
 use crate::ui_components::icons::Icon;
@@ -279,6 +285,24 @@ pub struct BlocklistAIHistoryModel {
 }
 
 impl BlocklistAIHistoryModel {
+    /// Stores an agent-owned ACP session ID without reusing the cloud
+    /// conversation-token field.
+    pub(crate) fn set_acp_session_id(
+        &mut self,
+        conversation_id: AIConversationId,
+        session_id: String,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let updated = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .is_some_and(|conversation| conversation.set_acp_session_id(session_id));
+        if updated {
+            self.persist_conversation_state(conversation_id, ctx);
+        }
+        updated
+    }
+
     pub(crate) fn new(
         persisted_queries: Vec<PersistedAIInput>,
         multi_agent_conversations: &[AgentConversation],
@@ -1171,8 +1195,43 @@ impl BlocklistAIHistoryModel {
         is_cli_agent_transcript: bool,
         ctx: &mut ModelContext<Self>,
     ) -> AIConversationId {
-        let mut new_conversation =
-            AIConversation::new(is_viewing_shared_session, is_cli_agent_transcript);
+        let agent_backend = if !is_viewing_shared_session
+            && !is_cli_agent_transcript
+            && cfg!(unix)
+            && FeatureFlag::AgentClientProtocol.is_enabled()
+        {
+            let settings = AISettings::as_ref(ctx);
+            if *settings.acp_enabled.value() {
+                let configured_agent_id = settings.acp_agent_id.value().trim();
+                let agent_id = if configured_agent_id.is_empty() {
+                    "codex"
+                } else {
+                    configured_agent_id
+                };
+                #[cfg(not(target_family = "wasm"))]
+                let launch_fingerprint = acp_launch_fingerprint(
+                    agent_id,
+                    settings.acp_agent_command.value(),
+                    settings.acp_agent_args.value(),
+                );
+                #[cfg(target_family = "wasm")]
+                let launch_fingerprint = String::new();
+                AgentBackend::Acp(AcpConversationData {
+                    agent_id: agent_id.to_string(),
+                    launch_fingerprint,
+                    session_id: None,
+                })
+            } else {
+                AgentBackend::Provider
+            }
+        } else {
+            AgentBackend::Provider
+        };
+        let mut new_conversation = AIConversation::new_with_agent_backend(
+            is_viewing_shared_session,
+            is_cli_agent_transcript,
+            agent_backend,
+        );
         if is_autoexecute_override {
             new_conversation.toggle_autoexecute_override();
         }
@@ -1519,6 +1578,7 @@ impl BlocklistAIHistoryModel {
         };
 
         let conversation_data = AgentConversationData {
+            agent_backend: source_conversation.agent_backend().for_fork(),
             server_conversation_token: None,
             conversation_usage_metadata: Some(source_conversation.usage_metadata()),
             reverted_action_ids,
@@ -1682,6 +1742,7 @@ impl BlocklistAIHistoryModel {
         // Start forked conversations without usage metadata for now; this can
         // be recomputed based on the retained exchanges in a follow-up.
         let conversation_data = AgentConversationData {
+            agent_backend: conversation.agent_backend().for_fork(),
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids,
@@ -2652,7 +2713,7 @@ impl BlocklistAIHistoryModel {
 ///
 /// **Placeholder authoritative** (local orchestration linkage that the cloud
 /// transcript cannot reconstruct):
-/// - `parent_conversation_id`, `is_remote_child`, `pinned`
+/// - `agent_backend`, `parent_conversation_id`, `is_remote_child`, `pinned`
 ///
 /// **Placeholder-preferred, cloud fallback** (local value wins when present,
 /// cloud's value is used otherwise so we don't lose data on a stale
@@ -2672,6 +2733,9 @@ fn merged_remote_child_placeholder_conversation_data(
     cloud_conversation: &AIConversation,
 ) -> AgentConversationData {
     AgentConversationData {
+        // Placeholder authoritative.
+        agent_backend: placeholder.agent_backend().clone(),
+
         // Cloud authoritative.
         server_conversation_token: cloud_conversation
             .server_conversation_token()

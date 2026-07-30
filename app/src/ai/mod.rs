@@ -2,6 +2,8 @@
 //! Warp (including Agent Mode).
 //!
 //! The side panel Warp AI implementation lives in `super::ai_assistant`.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod acp;
 pub(crate) mod active_agent_views_model;
 pub(crate) mod agent;
 pub(crate) mod agent_conversations_model;
@@ -75,6 +77,8 @@ pub mod outline;
 pub(crate) use ai::paths;
 
 pub fn init(app: &mut AppContext) {
+    #[cfg(not(target_family = "wasm"))]
+    app.add_singleton_model(acp::AcpRuntimeModel::new);
     blocklist::keyboard_navigable_buttons::init(app);
     blocklist::block::number_shortcut_buttons::init(app);
     blocklist::toggleable_items::init(app);

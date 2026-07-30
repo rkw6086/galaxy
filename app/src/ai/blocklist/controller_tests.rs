@@ -10,7 +10,7 @@ use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentAttachment, AIAgentContext, AIAgentInput, CancellationReason, ImageContext,
-    PassiveSuggestionTrigger, UserQueryMode,
+    PassiveSuggestionTrigger, RunningCommand, UserQueryMode,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{
@@ -18,6 +18,8 @@ use crate::ai::blocklist::{
     ResponseStream, ResponseStreamId,
 };
 use crate::ai::llms::LLMId;
+use crate::persistence::model::{AcpConversationData, AgentBackend};
+use crate::terminal::model::block::BlockId;
 use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
 fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
@@ -39,6 +41,116 @@ fn file_attachment(file_name: &str) -> PendingAttachment {
         file_path: file_name.into(),
         mime_type: "text/plain".to_owned(),
     })
+}
+
+fn live_steering_eligibility() -> super::LiveSteeringEligibility {
+    super::LiveSteeringEligibility {
+        is_user_initiated: true,
+        has_shared_session_participant: false,
+        is_queued_prompt: false,
+        has_queued_query_id: false,
+        has_additional_attachments: false,
+        is_existing_task: true,
+        is_active_conversation: true,
+        has_plain_user_input: true,
+        has_pending_context: false,
+        has_action_context: false,
+        has_pending_passive_results: false,
+    }
+}
+
+#[test]
+fn acp_backend_model_identity_does_not_claim_a_provider_model() {
+    assert_eq!(super::acp_backend_model_id(&AgentBackend::Provider), None);
+    assert_eq!(
+        super::acp_backend_model_id(&AgentBackend::Acp(AcpConversationData {
+            agent_id: " Codex ".to_owned(),
+            launch_fingerprint: "launch-123".to_owned(),
+            session_id: None,
+        })),
+        Some(LLMId::from("acp:codex"))
+    );
+}
+
+#[test]
+fn live_steering_accepts_plain_input_for_the_existing_command_monitor() {
+    let input = super::InputQueryType::UserSubmittedQueryFromInput {
+        query: "Stop the command now.".to_owned(),
+        static_query_type: None,
+        running_command: Some(RunningCommand {
+            command: "script/soak-test".to_owned(),
+            block_id: BlockId::new(),
+            grid_contents: "elapsed: 75s".to_owned(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        }),
+    };
+
+    assert!(!super::is_plain_live_steering_input(&input, false));
+    assert!(super::is_plain_live_steering_input(&input, true));
+}
+
+#[test]
+fn running_command_monitor_identity_requires_the_same_conversation_and_block() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let conversation_id = AIConversationId::new();
+
+        terminal.update(&mut app, |terminal, _ctx| {
+            let mut terminal_model = terminal.model.lock();
+            terminal_model.simulate_long_running_block("sleep 100", "running");
+            let task_id = TaskId::new("monitor-task".to_owned());
+            let active_block = terminal_model.block_list_mut().active_block_mut();
+            active_block.set_is_agent_tagged_in(true);
+            active_block
+                .set_agent_interaction_mode_for_agent_monitored_command(&task_id, conversation_id)
+                .expect("tagged command should transition to agent monitoring");
+
+            let running_command = super::running_command_snapshot(&terminal_model);
+            assert!(super::running_command_belongs_to_monitor(
+                &terminal_model,
+                conversation_id,
+                &running_command,
+            ));
+            assert!(!super::running_command_belongs_to_monitor(
+                &terminal_model,
+                AIConversationId::new(),
+                &running_command,
+            ));
+
+            let mut other_block = running_command;
+            other_block.block_id = BlockId::new();
+            assert!(!super::running_command_belongs_to_monitor(
+                &terminal_model,
+                conversation_id,
+                &other_block,
+            ));
+        });
+    });
+}
+
+#[test]
+fn live_steering_retains_attachment_context_and_action_guards() {
+    let eligible = live_steering_eligibility();
+    assert!(eligible.can_attempt());
+
+    assert!(!super::LiveSteeringEligibility {
+        has_additional_attachments: true,
+        ..eligible
+    }
+    .can_attempt());
+    assert!(!super::LiveSteeringEligibility {
+        has_pending_context: true,
+        ..eligible
+    }
+    .can_attempt());
+    assert!(!super::LiveSteeringEligibility {
+        has_action_context: true,
+        ..eligible
+    }
+    .can_attempt());
 }
 
 #[test]

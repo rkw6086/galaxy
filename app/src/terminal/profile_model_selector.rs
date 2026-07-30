@@ -20,6 +20,7 @@ use instant::{Duration, Instant};
 use parking_lot::FairMutex;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
+use settings::Setting;
 
 const SIDECAR_POSITION_ID: &str = "model_sidecar_panel";
 
@@ -29,6 +30,7 @@ use galaxy_core::ui::color::{coloru_with_opacity, Opacity};
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
 
+use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::blocklist::prompt::PromptIconButtonTheme;
 use crate::ai::blocklist::{
     BlocklistAIController, BlocklistAIControllerEvent, BlocklistAIInputEvent, BlocklistAIInputModel,
@@ -53,6 +55,8 @@ use crate::cloud_object::model::generic_string_model::StringModel;
 use crate::context_chips::display_chip::{udi_font_size, udi_icon_size};
 use crate::context_chips::spacing;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
+use crate::persistence::model::AgentBackend;
+use crate::settings::AISettings;
 use crate::settings_view::SettingsSection;
 use crate::terminal::input::{MenuPositioning, MenuPositioningProvider};
 use crate::terminal::view::ambient_agent::AmbientAgentViewModel;
@@ -482,6 +486,24 @@ impl ProfileModelSelector {
                 }
             });
         }
+        ctx.subscribe_to_model(
+            &BlocklistAIHistoryModel::handle(ctx),
+            |me, _, event, ctx| {
+                let changes_active_conversation = matches!(
+                    event,
+                    BlocklistAIHistoryEvent::StartedNewConversation { .. }
+                        | BlocklistAIHistoryEvent::SetActiveConversation { .. }
+                        | BlocklistAIHistoryEvent::ClearedActiveConversation { .. }
+                        | BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface { .. }
+                );
+                if changes_active_conversation
+                    && event.terminal_surface_id() == Some(me.terminal_view_id)
+                {
+                    me.is_model_menu_open = false;
+                    ctx.notify();
+                }
+            },
+        );
         ctx.subscribe_to_model(&Appearance::handle(ctx), |me, _, _, ctx| {
             me.handle_appearance_change(ctx);
         });
@@ -653,6 +675,24 @@ impl ProfileModelSelector {
 
     fn is_model_locked(&self, app: &AppContext) -> bool {
         self.is_locked_for_cloud_followup(app) || self.is_locked_for_non_oz_run(app)
+    }
+
+    fn is_acp_model_managed(&self, app: &AppContext) -> bool {
+        if self.ambient_agent_view_model.is_some() {
+            return false;
+        }
+        let history = BlocklistAIHistoryModel::as_ref(app);
+        if let Some(conversation_id) = history.active_conversation_id(self.terminal_view_id) {
+            return history
+                .conversation(&conversation_id)
+                .is_some_and(|conversation| {
+                    matches!(conversation.agent_backend(), AgentBackend::Acp(_))
+                });
+        }
+
+        cfg!(unix)
+            && FeatureFlag::AgentClientProtocol.is_enabled()
+            && *AISettings::as_ref(app).acp_enabled.value()
     }
 
     /// True when a non-Oz harness is selected.
@@ -1595,6 +1635,7 @@ impl ProfileModelSelector {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
         let llm_preferences = LLMPreferences::as_ref(app);
+        let is_acp_model_managed = self.is_acp_model_managed(app);
 
         // Allow editing if composing an ambient agent query, or if the user has edit access
         // in a shared session (i.e., not a viewer, or is an executor).
@@ -1617,7 +1658,9 @@ impl ProfileModelSelector {
                 .is_agent_in_control_or_tagged_in();
         drop(terminal_model);
 
-        let model_display_name = if self.is_third_party_harness(app) {
+        let model_display_name = if is_acp_model_managed {
+            "Managed by ACP".to_owned()
+        } else if self.is_third_party_harness(app) {
             self.harness_model_display_name(app)
         } else if is_lrc {
             llm_preferences
@@ -1674,7 +1717,8 @@ impl ProfileModelSelector {
         // Only show chevron icon if the user can click to open the menu (i.e. has edit access)
         // and the InlineMenuHeaders feature flag is not enabled
         // (when enabled, clicking opens the inline model selector instead of a dropdown).
-        if has_edit_access && !FeatureFlag::InlineMenuHeaders.is_enabled() {
+        if has_edit_access && !is_acp_model_managed && !FeatureFlag::InlineMenuHeaders.is_enabled()
+        {
             let chevron_icon = Icon::ChevronDown
                 .to_galaxyui_icon(Fill::Solid(text_color))
                 .finish();
@@ -1702,7 +1746,7 @@ impl ProfileModelSelector {
         let is_locked_for_followup = self.is_locked_for_cloud_followup(app);
         let is_locked_for_non_oz = self.is_locked_for_non_oz_run(app);
         let is_locked = is_locked_for_followup || is_locked_for_non_oz;
-        let can_interact = has_edit_access && !is_locked;
+        let can_interact = has_edit_access && !is_locked && !is_acp_model_managed;
 
         let hoverable = Hoverable::new(self.model_mouse_state.clone(), move |state| {
             if state.is_hovered() && can_interact {
@@ -1730,7 +1774,9 @@ impl ProfileModelSelector {
                 stack.finish()
             } else if state.is_hovered() {
                 // Non-Oz runs lock silently — skip the tooltip entirely.
-                let tooltip_text: Option<&str> = if is_locked_for_followup {
+                let tooltip_text: Option<&str> = if is_acp_model_managed {
+                    Some("Model selection is managed by the ACP agent")
+                } else if is_locked_for_followup {
                     Some(MODEL_LOCKED_FOR_FOLLOWUP_TOOLTIP)
                 } else if is_locked_for_non_oz {
                     None
@@ -1803,6 +1849,19 @@ impl TypedActionView for ProfileModelSelector {
     type Action = ProfileModelSelectorAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        let is_model_action = matches!(
+            action,
+            ProfileModelSelectorAction::SelectModel(_)
+                | ProfileModelSelectorAction::SelectAutoModel
+                | ProfileModelSelectorAction::SelectReasoningModel(_)
+                | ProfileModelSelectorAction::SelectHarnessModel { .. }
+                | ProfileModelSelectorAction::ToggleModelMenu
+        );
+        if is_model_action && self.is_acp_model_managed(ctx) {
+            self.set_model_menu_visibility(false, ctx);
+            return;
+        }
+
         match action {
             ProfileModelSelectorAction::SelectProfile(profile_id) => {
                 AIExecutionProfilesModel::handle(ctx).update(ctx, |profiles_model, ctx| {
@@ -1891,6 +1950,7 @@ impl View for ProfileModelSelector {
         let theme = appearance.theme();
         let profiles_model = AIExecutionProfilesModel::as_ref(app);
         let has_multiple_profiles = profiles_model.has_multiple_profiles();
+        let is_acp_model_managed = self.is_acp_model_managed(app);
 
         // Check if user is a viewer in a shared session
         let is_viewer = self
@@ -1914,12 +1974,14 @@ impl View for ProfileModelSelector {
             compact_row.add_child(profile_button_with_save_position);
         }
 
-        let model_button_with_save_position = SavePosition::new(
-            ChildView::new(&self.model_compact_button).finish(),
-            "profile_model_selector_model_compact_button",
-        )
-        .finish();
-        compact_row.add_child(model_button_with_save_position);
+        if !is_acp_model_managed {
+            let model_button_with_save_position = SavePosition::new(
+                ChildView::new(&self.model_compact_button).finish(),
+                "profile_model_selector_model_compact_button",
+            )
+            .finish();
+            compact_row.add_child(model_button_with_save_position);
+        }
 
         let compact_layout = compact_row.finish();
 
@@ -1965,7 +2027,7 @@ impl View for ProfileModelSelector {
             stack.add_positioned_overlay_child(profile_menu, positioning);
         }
 
-        if self.is_model_menu_open {
+        if self.is_model_menu_open && !is_acp_model_managed {
             let model_menu = ChildView::new(&self.model_dropdown).finish();
             let positioning = self.get_menu_positioning(app, false);
             stack.add_positioned_overlay_child(model_menu, positioning);
@@ -1977,7 +2039,8 @@ impl View for ProfileModelSelector {
         // The popup overflows the viewport on wasm mobile.
         let is_wasm_mobile = warpui::platform::is_mobile_device();
 
-        if !is_wasm_mobile
+        if !is_acp_model_managed
+            && !is_wasm_mobile
             && (is_udi_enabled
                 || self
                     .input_model

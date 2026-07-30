@@ -1123,6 +1123,7 @@ fn test_find_by_token_after_insert_forked_conversation_from_tasks() {
 
         let forked_conversation_id = AIConversationId::new();
         let conversation_data = AgentConversationData {
+            agent_backend: Default::default(),
             server_conversation_token: Some("forked-token".to_string()),
             conversation_usage_metadata: None,
             reverted_action_ids: None,

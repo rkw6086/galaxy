@@ -37,6 +37,37 @@ fn parses_typed_create_and_setting_list_params() {
 }
 
 #[test]
+fn parses_race_safe_terminal_commands() {
+    let args = ControlArgs::try_parse_from([
+        "galaxyctrl",
+        "terminal",
+        "execute",
+        "sleep 10",
+        "--session",
+        "session_1",
+    ])
+    .expect("terminal execute parses");
+    let ControlCommand::Terminal(TerminalCommand::Execute(args)) = args.command else {
+        panic!("expected terminal execute command");
+    };
+    assert_eq!(args.command, "sleep 10");
+    assert_eq!(args.target.session.as_deref(), Some("session_1"));
+
+    let args = ControlArgs::try_parse_from([
+        "galaxyctrl",
+        "terminal",
+        "interrupt",
+        "--block-id",
+        "session_1-42",
+    ])
+    .expect("terminal interrupt parses");
+    let ControlCommand::Terminal(TerminalCommand::Interrupt(args)) = args.command else {
+        panic!("expected terminal interrupt command");
+    };
+    assert_eq!(args.block_id, "session_1-42");
+}
+
+#[test]
 fn rejects_conflicting_instance_selectors() {
     let err = ControlArgs::try_parse_from([
         "galaxyctrl",
@@ -240,8 +271,9 @@ fn generated_bash_completions_include_readonly_commands() {
     assert!(!completions.contains("stubs-only"));
     assert!(completions.contains("window"));
     assert!(completions.contains("input"));
+    assert!(completions.contains("terminal"));
+    assert!(completions.contains("block-id"));
     assert!(completions.contains("completions"));
-    assert!(!completions.contains("block"));
 }
 
 #[test]
@@ -479,6 +511,24 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
             ActionKind::InputReplace,
             vec!["galaxyctrl", "input", "replace", "hello"],
         ),
+        (
+            ActionKind::TerminalStatus,
+            vec!["galaxyctrl", "terminal", "status"],
+        ),
+        (
+            ActionKind::TerminalExecute,
+            vec!["galaxyctrl", "terminal", "execute", "cargo test"],
+        ),
+        (
+            ActionKind::TerminalInterrupt,
+            vec![
+                "galaxyctrl",
+                "terminal",
+                "interrupt",
+                "--block-id",
+                "session_1-42",
+            ],
+        ),
         (ActionKind::ThemeList, vec!["galaxyctrl", "theme", "list"]),
         (ActionKind::ThemeGet, vec!["galaxyctrl", "theme", "get"]),
         (
@@ -615,6 +665,7 @@ fn retained_action_examples() -> Vec<(ActionKind, Vec<&'static str>)> {
 
 fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
     match command {
+        ControlCommand::Mcp(_) => None,
         ControlCommand::Instance(command) => match command {
             InstanceCommand::List => Some(ActionKind::InstanceList),
             InstanceCommand::Inspect(_) => Some(ActionKind::InstanceInspect),
@@ -678,6 +729,11 @@ fn parsed_action_kind(command: &ControlCommand) -> Option<ActionKind> {
         ControlCommand::Input(command) => match command {
             InputCommand::Insert(_) => Some(ActionKind::InputInsert),
             InputCommand::Replace(_) => Some(ActionKind::InputReplace),
+        },
+        ControlCommand::Terminal(command) => match command {
+            TerminalCommand::Status(_) => Some(ActionKind::TerminalStatus),
+            TerminalCommand::Execute(_) => Some(ActionKind::TerminalExecute),
+            TerminalCommand::Interrupt(_) => Some(ActionKind::TerminalInterrupt),
         },
         ControlCommand::Theme(command) => match command {
             ThemeCommand::List(_) => Some(ActionKind::ThemeList),

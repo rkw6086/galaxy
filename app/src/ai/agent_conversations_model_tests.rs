@@ -222,6 +222,7 @@ fn test_title_update_refreshes_shadowing_task_title() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some(server_token.to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -329,6 +330,7 @@ fn test_display_status_uses_matching_conversation_for_in_progress_task() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -386,6 +388,7 @@ fn test_display_status_uses_active_execution_over_previous_conversation_status()
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -450,6 +453,7 @@ fn test_display_status_updates_when_blocked_conversation_resumes() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -530,6 +534,7 @@ fn test_display_status_terminal_task_state_overrides_matching_conversation() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -586,6 +591,7 @@ fn test_status_filter_uses_display_status_for_task_backed_conversations() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -919,6 +925,7 @@ fn test_get_entries_merges_task_and_local_conversation_by_run_id() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -975,6 +982,7 @@ fn test_get_entries_merges_task_and_local_conversation_by_server_token() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some(server_token.to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -1184,6 +1192,7 @@ fn test_resolve_open_action_returns_none_for_active_unattachable_session() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -1471,6 +1480,7 @@ fn test_server_token_assignment_updates_copy_link_resolution() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -1634,6 +1644,7 @@ fn test_resolve_copy_link_uses_attached_synced_conversation_for_task_without_tok
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some(token.to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -1962,6 +1973,7 @@ fn test_get_entries_prefers_task_when_task_id_matches_conversation_run_id() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -2024,6 +2036,7 @@ fn test_get_entries_prefers_task_when_server_token_matches() {
             conversation_id,
             "root-task",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some(server_token.to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

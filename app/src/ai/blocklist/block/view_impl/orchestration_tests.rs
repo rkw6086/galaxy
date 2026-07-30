@@ -318,6 +318,7 @@ fn participant_for_restored_child_run_id_resolves_to_agent_name() {
                 id: 1,
                 conversation_id: child_id.to_string(),
                 conversation_data: serde_json::to_string(&AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("child-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -372,6 +373,7 @@ fn participant_for_restored_child_run_id_resolves_to_agent_name() {
                 id: 2,
                 conversation_id: parent_id.to_string(),
                 conversation_data: serde_json::to_string(&AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("parent-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,

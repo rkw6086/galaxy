@@ -22868,6 +22868,9 @@ impl Workspace {
         if *ai_settings.file_based_mcp_enabled.value() {
             context.set.insert(flags::FILE_BASED_MCP_FLAG);
         }
+        if cfg!(unix) && *ai_settings.acp_enabled.value() {
+            context.set.insert(flags::ACP_ENABLED_FLAG);
+        }
         if *session_settings.show_model_selectors_in_prompt.value() {
             context
                 .set

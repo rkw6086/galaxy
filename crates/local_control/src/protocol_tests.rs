@@ -54,6 +54,12 @@ fn strict_params_deny_unknown_fields() {
         params: serde_json::json!({ "unexpected": true }),
     };
     assert!(action.params_as::<EmptyParams>().is_err());
+
+    let action = Action {
+        kind: ActionKind::TerminalInterrupt,
+        params: serde_json::json!({ "block_id": "block_1", "force": true }),
+    };
+    assert!(action.params_as::<TerminalInterruptParams>().is_err());
 }
 
 #[test]
@@ -169,8 +175,40 @@ fn removed_cloud_agent_tab_type_is_not_deserialized() {
 }
 
 #[test]
-fn catalog_has_exactly_77_retained_actions() {
-    assert_eq!(ActionKind::ALL.len(), 77);
+fn catalog_has_exactly_80_retained_actions() {
+    assert_eq!(ActionKind::ALL.len(), 80);
+}
+
+#[test]
+fn terminal_actions_have_race_safe_typed_contracts() {
+    let execute = Action::with_params(
+        ActionKind::TerminalExecute,
+        TerminalExecuteParams {
+            command: "cargo test".to_owned(),
+        },
+    )
+    .expect("terminal.execute params serialize");
+    assert_eq!(
+        execute.params,
+        serde_json::json!({ "command": "cargo test" })
+    );
+
+    let interrupt = Action::with_params(
+        ActionKind::TerminalInterrupt,
+        TerminalInterruptParams {
+            block_id: "session_1-42".to_owned(),
+        },
+    )
+    .expect("terminal.interrupt params serialize");
+    assert_eq!(
+        interrupt.params,
+        serde_json::json!({ "block_id": "session_1-42" })
+    );
+
+    assert_eq!(
+        ActionKind::TerminalStatus.metadata().result_spec,
+        ActionResultSpec::TerminalStatus
+    );
 }
 
 #[test]

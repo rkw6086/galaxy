@@ -173,6 +173,23 @@ pub struct TabCreateParams {
     pub shell: Option<String>,
 }
 
+/// Parameters for submitting a command to an idle terminal session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalExecuteParams {
+    pub command: String,
+}
+
+/// Parameters for interrupting the current command in a terminal session.
+///
+/// `block_id` is required as a compare-and-swap guard so a delayed request
+/// cannot interrupt a newer command.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalInterruptParams {
+    pub block_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextParams {
@@ -299,6 +316,24 @@ pub struct SurfaceSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SurfaceListResult {
     pub surfaces: Vec<SurfaceSummary>,
+}
+
+/// Snapshot of the active command block in a terminal session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalStatusResult {
+    pub action: ActionKind,
+    pub session_id: String,
+    pub active_block_id: String,
+    pub is_executing: bool,
+    pub is_command_pending: bool,
+    pub is_long_running: bool,
+    pub is_agent_in_control: bool,
+    pub is_idle: bool,
+    /// Elapsed wall-clock time for the active running command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running_for_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_summary: Option<String>,
 }
 
 /// Typed success payloads for catalog actions that need stable structured data.

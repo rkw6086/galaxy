@@ -1,5 +1,5 @@
 # Context
-`PRODUCT.md` defines Galaxy Control (`galaxyctrl`) with an allowlisted catalog of exactly 77 actions, deterministic addressing across multiple running Galaxy app processes, and a simple enabled/disabled Galaxy Control setting. `SECURITY.md` is the normative security architecture. If this technical plan and `SECURITY.md` disagree, update the plan before implementing.
+`PRODUCT.md` defines Galaxy Control (`galaxyctrl`) with an allowlisted catalog of exactly 80 actions, deterministic addressing across multiple running Galaxy app processes, and a simple enabled/disabled Galaxy Control setting. `SECURITY.md` is the normative security architecture. If this technical plan and `SECURITY.md` disagree, update the plan before implementing.
 The design is external-only: all callers are same-user processes. There is no inside-Galaxy/outside-Galaxy distinction, no verified-terminal invocation context, and no authenticated-user identity layer. Security relies on owner-only filesystem discovery, same-user Unix credential broker with kernel peer credentials, short-lived instance-bound exact-action credentials, loopback HTTP transport, and app-side enforcement.
 ## Existing building blocks
 - `crates/http_server/src/lib.rs` runs a native-only loopback Axum server on fixed port `9277`.
@@ -22,12 +22,13 @@ Before implementing any local-control listener, CLI command, credential path, or
 - The app bridge verifies the exact granted action before selector resolution or handler dispatch.
 - Close actions (`window.close`, `tab.close`, `pane.close`) flow through normal Galaxy close behavior so existing app warnings remain authoritative.
 - Input-staging commands never submit the buffer. There is no `input.run` action.
-- The Block, Auth, Drive, and History families are entirely absent from the 77-action catalog. Input is limited to `input.insert` and `input.replace`.
+- Terminal execution is idle-only, and interruption requires the exact active block ID immediately before ETX is emitted.
+- The Block, Auth, Drive, and History families are entirely absent from the 80-action catalog. Input is limited to `input.insert` and `input.replace`.
 ### 1. Protocol crate and stable envelope
 Create a shared protocol crate used by both the app server and the `galaxyctrl` client. It defines:
 - A request protocol version for defensive schema guarding.
 - Discovery/health response types.
-- The 77-action `ActionKind` enum with implementation status metadata. The Block, Auth, Drive, and History families are entirely absent; Input is limited to `input.insert` and `input.replace`.
+- The 80-action `ActionKind` enum with implementation status metadata. The Block, Auth, Drive, and History families are entirely absent; Input is limited to `input.insert` and `input.replace`, with command control isolated in the Terminal family.
 - Selector types:
   - `InstanceSelector`: `Active`, `Id(InstanceId)`, `Pid(u32)`.
   - `WindowSelector`: `Active`, `Id(WindowId)`, `Index(u32)`, `Title(String)`.
@@ -145,22 +146,36 @@ Selector behavior:
 - Title/name selectors are exact by default and return `ambiguous_target` on multiple matches.
 - Session-scoped requests against non-terminal panes return `target_state_conflict`.
 Target resolution happens after credential authentication and exact-action verification.
-### 7. Close behavior
+### 7. Terminal command handler
+The Terminal family resolves an existing pane/session through the shared target resolver and obtains the terminal view without changing focus.
+- `terminal.status` takes one short-lived `TerminalModel` lock, snapshots the active block ID, state, and elapsed running time, and produces a bounded command summary through the existing secret-obfuscating API.
+- `terminal.execute` validates the command before target resolution, then re-snapshots the active block and verifies that the staged input buffer is empty inside the terminal-view update. It drops the model lock before writing the command plus carriage return to `TerminalView::write_to_pty`; it never clears or overwrites staged input. Busy blocks and nonempty staged input return `target_state_conflict`.
+- `terminal.interrupt` re-snapshots immediately before the PTY write, compares the caller's expected block ID, verifies the block is still running, drops the model lock, and emits ETX. A different active block returns `stale_target`.
+
+The handler never holds `TerminalModel` across another view update or PTY event, and does not acquire nested terminal-model locks. Because it uses the existing terminal PTY event path, Wormhole and other remote sessions retain their normal transport routing.
+
+The hidden ACP `--agent-safe` MCP profile is pinned to opaque window, tab, and
+pane/session identifiers. It exposes concrete terminal tools instead of the
+generic catalog invoker and filters mutations according to the active ACP
+permission profile. Its deadline helper waits in the MCP subprocess, polls
+bounded status for the same block, and invokes the existing exact-block
+interrupt only if the deadline is reached while that block is still active.
+### 8. Close behavior
 The 3 close actions (`window.close`, `tab.close`, `pane.close`) flow through normal Galaxy close behavior after exact-action credential validation and deterministic target resolution. Existing warnings for unsaved files, running processes, shared sessions, and similar app state remain authoritative and may cancel the close.
-### 8. CLI parsing and output
+### 9. CLI parsing and output
 The CLI uses Galaxy's existing command-line libraries:
 - **clap** (derive) for argument parsing and subcommand trees.
 - **serde** / **serde_json** for JSON serialization.
 - **clap_complete** for shell completion generation.
 - `OutputFormat` enum (`Pretty`, `Json`, `Ndjson`, `Text`) shared from `galaxy_cli`.
 New subcommand types live in `galaxy_cli::local_control` and follow existing `#[derive(Parser)]` patterns.
-### 9. CLI packaging
+### 10. CLI packaging
 The shipped product is a bundled `galaxyctrl` wrapper script that calls the channel-specific Galaxy binary with a hidden `--galaxyctrl` flag:
 - **macOS:** A channel-specific wrapper in `Resources/bin` (`galaxyctrl` for Stable, otherwise `galaxyctrl-<channel>`).
 - **Linux:** Standalone release and validation archives include a `galaxyctrl` wrapper, and normal app packages install channel-specific Galaxy AI and Galaxy Control launchers.
 - **Windows:** Fails closed until authenticated broker transport is implemented.
 Startup: `app/src/lib.rs` recognizes `--galaxyctrl` before app launch and routes into `galaxy_cli::local_control`. The control-mode path initializes only command parsing, discovery, credential material, HTTP transport, and output formatting. It does not initialize GUI state, rendering, or terminal session models.
-### 10. Feature flag
+### 11. Feature flag
 Gate behind `FeatureFlag::GalaxyControlCli` with Cargo feature `galaxy_control_cli`.
 When disabled:
 - No Galaxy Control settings page.
@@ -171,7 +186,7 @@ When enabled:
 - All local-control infrastructure starts when Galaxy Control is enabled (the default on internal dogfood channels; public channels require explicit opt-in through Settings > Galaxy Control or the Enable Galaxy Control Command Palette action).
 - `resources/bundled/skills/galaxyctrl/SKILL.md` teaches the built-in agent and users how to discover and invoke the allowlisted CLI surface.
 - The skill manager maps `galaxyctrl` to `FeatureFlag::GalaxyControlCli` through `BundledSkillActivation`. Both skill listing and direct bundled-skill reads enforce the activation state.
-### 11. First slice: discovery + `tab.create`
+### 12. First slice: discovery + `tab.create`
 The first implementation slice proves the end-to-end architecture:
 - Shared protocol types and error envelopes.
 - `FeatureFlag::GalaxyControlCli` and Cargo feature.
@@ -185,12 +200,13 @@ The first implementation slice proves the end-to-end architecture:
 - Exact-action credential issuance and enforcement.
 - `app.ping`, `app.version`, `instance.list`, and `tab.create`.
 - Structured success/error output in pretty and JSON formats.
-### 12. Follow-up slices
+### 13. Follow-up slices
 After the first slice validates the architecture, add remaining catalog actions in family groups:
 - Window/tab mutations (including close through normal Galaxy close behavior).
 - Pane mutations (including close through normal Galaxy close behavior).
 - Session actions.
 - Input staging (insert and replace only, never submitting).
+- Terminal status, idle-only execution, and race-safe interruption.
 - Appearance/theme actions.
 - Settings reads and writes.
 - Surface availability, idempotent direct opens, and toggles.
@@ -232,13 +248,14 @@ sequenceDiagram
 - **Selector resolution:** Tests for active, explicit ID, index, stale target, ambiguous target, missing target, and target-state-conflict cases.
 - **Channel isolation:** Discovery tests prove that a CLI scan excludes records published by other Galaxy channels.
 - **Input staging:** Only `input.insert` and `input.replace` exist. No `input.run`, `input.get`, `input.clear`, or `input.mode.set`. Tests prove no buffer submission occurs.
+- **Terminal command control:** Empty/NUL/oversized commands and busy targets are rejected. Interrupt tests cover matching, stale, and idle block IDs. The model lock is released before PTY writes.
 - **Excluded families:** The Block, Auth, Drive, and History families are entirely absent. The CLI rejects their command routes at parse time, the protocol rejects their action names at deserialization (`invalid_request`), and `action.inspect`/`capability.inspect` report non-catalog names as `not_allowlisted`.
 - **Unsupported platforms:** Windows fails closed with no fallback.
-- **Action count:** Tests verify the catalog contains exactly 77 uniformly authorized actions.
+- **Action count:** Tests verify the catalog contains exactly 80 uniformly authorized actions.
 - **Bundled skill gate:** Tests verify the `galaxyctrl` bundled skill is discoverable and readable only while `FeatureFlag::GalaxyControlCli` is enabled, without affecting unrelated bundled skills.
 ## Risks and mitigations
 - **Same-user residual risk:** The broker authenticates the OS user, not the calling application. Any process running as the same user can request credentials. Mitigated by: protected enablement, short expiry, exact-action grants, app-side revalidation, normal Galaxy close warnings for close actions.
 - **Browser-to-localhost:** Mitigated by: no permissive CORS, Origin header rejection, Host header validation, credential requirement.
 - **Fixed-port contention:** Mitigated by: leaving `9277` undisturbed, using per-process ephemeral ports for control.
-- **Input execution risk:** Mitigated by: no `input.run` in the catalog, input commands stage text only, tests prove no submission.
+- **Terminal execution risk:** Mitigated by: public-channel opt-in, exact-action grants, deterministic session targets, idle-only execution, bounded validated commands, secret-obfuscated status, and compare-and-swap interruption.
 - **Heavyweight CLI startup:** Mitigated by: `--galaxyctrl` routes before GUI launch, control-mode path initializes only what's needed.

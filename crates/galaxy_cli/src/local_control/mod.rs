@@ -1,6 +1,7 @@
 //! Command-line interface for controlling a running local Galaxy app.
 mod commands;
 mod completions;
+mod mcp;
 mod output;
 mod selectors;
 use std::ffi::OsString;
@@ -12,9 +13,10 @@ use commands::{
     run_action_catalog_command, run_app_command, run_appearance_command, run_capability_command,
     run_file_command, run_input_command, run_instance_command, run_keybinding_command,
     run_pane_command, run_session_command, run_setting_command, run_surface_command,
-    run_tab_command, run_theme_command, run_window_command,
+    run_tab_command, run_terminal_command, run_theme_command, run_window_command,
 };
 use completions::generate_completions_to_stdout;
+use mcp::run_mcp_server;
 use output::write_control_error;
 
 use crate::agent::OutputFormat;
@@ -144,6 +146,9 @@ impl ControlArgs {
 /// Top-level `galaxyctrl` command groups.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ControlCommand {
+    /// Serve the allowlisted Galaxy Control catalog over MCP stdio.
+    Mcp(McpArgs),
+
     /// Inspect local Galaxy app instances.
     #[command(subcommand)]
     Instance(InstanceCommand),
@@ -175,6 +180,10 @@ pub enum ControlCommand {
     /// Edit terminal input without submitting it.
     #[command(subcommand)]
     Input(InputCommand),
+
+    /// Inspect, execute, and interrupt commands in existing terminal sessions.
+    #[command(subcommand)]
+    Terminal(TerminalCommand),
 
     /// Inspect and change Galaxy themes.
     #[command(subcommand)]
@@ -390,6 +399,19 @@ pub enum InputCommand {
     Replace(TextTargetArgs),
 }
 
+/// Commands that control the active command in an existing terminal session.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TerminalCommand {
+    /// Inspect the current active command block.
+    Status(TargetArgs),
+
+    /// Submit a command, but only when the target terminal is idle.
+    Execute(TerminalExecuteArgs),
+
+    /// Interrupt the expected active command block.
+    Interrupt(TerminalInterruptArgs),
+}
+
 #[derive(Debug, Clone, Subcommand)]
 pub enum SurfaceCommand {
     /// List available and unavailable Galaxy surfaces.
@@ -590,6 +612,29 @@ pub struct TargetArgs {
     pub session: Option<String>,
 }
 
+/// Options for serving Galaxy Control over MCP stdio.
+#[derive(Debug, Clone, Args)]
+pub struct McpArgs {
+    #[command(flatten)]
+    pub target: TargetArgs,
+
+    /// Expose only pane-pinned terminal tools suitable for an external agent.
+    #[arg(long = "agent-safe", hide = true)]
+    pub agent_safe: bool,
+
+    /// Permit an agent-safe MCP client to execute a command in the delegated terminal.
+    #[arg(long = "allow-terminal-execute", hide = true, requires = "agent_safe")]
+    pub allow_terminal_execute: bool,
+
+    /// Permit an agent-safe MCP client to interrupt the delegated terminal.
+    #[arg(
+        long = "allow-terminal-interrupt",
+        hide = true,
+        requires = "agent_safe"
+    )]
+    pub allow_terminal_interrupt: bool,
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct TabCreateArgs {
     #[arg(long = "type", value_enum)]
@@ -674,6 +719,25 @@ pub struct PaneResizeArgs {
 #[derive(Debug, Clone, Args)]
 pub struct TextTargetArgs {
     pub text: String,
+
+    #[command(flatten)]
+    pub target: TargetArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TerminalExecuteArgs {
+    /// Command text to submit to the target terminal.
+    pub command: String,
+
+    #[command(flatten)]
+    pub target: TargetArgs,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct TerminalInterruptArgs {
+    /// Exact active block ID returned by `terminal status`.
+    #[arg(long = "block-id")]
+    pub block_id: String,
 
     #[command(flatten)]
     pub target: TargetArgs,
@@ -900,6 +964,7 @@ fn run_exit_code(args: ControlArgs) -> u8 {
 fn run_inner(args: ControlArgs) -> Result<(), local_control::protocol::ControlError> {
     let output_format = args.output_format;
     match args.command {
+        ControlCommand::Mcp(args) => run_mcp_server(args),
         ControlCommand::Instance(command) => run_instance_command(command, output_format),
         ControlCommand::App(command) => run_app_command(command, output_format),
         ControlCommand::Capability(command) => run_capability_command(command, output_format),
@@ -909,6 +974,7 @@ fn run_inner(args: ControlArgs) -> Result<(), local_control::protocol::ControlEr
         ControlCommand::Pane(command) => run_pane_command(command, output_format),
         ControlCommand::Session(command) => run_session_command(command, output_format),
         ControlCommand::Input(command) => run_input_command(command, output_format),
+        ControlCommand::Terminal(command) => run_terminal_command(command, output_format),
         ControlCommand::Theme(command) => run_theme_command(command, output_format),
         ControlCommand::Appearance(command) => run_appearance_command(command, output_format),
         ControlCommand::Setting(command) => run_setting_command(command, output_format),

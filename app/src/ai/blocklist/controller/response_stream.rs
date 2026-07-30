@@ -3,25 +3,46 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
+#[cfg(not(target_family = "wasm"))]
+use std::sync::Mutex;
 
+#[cfg(not(target_family = "wasm"))]
+use ::local_control::remote_command::is_potential_remote_ssh_command;
 use anyhow::anyhow;
 use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
+#[cfg(not(target_family = "wasm"))]
+use galaxy_core::features::FeatureFlag;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 use settings::Setting;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
 
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::acp::{
+    acp_output_stream, acp_startup_error_stream, galaxy_mcp_server, resolve_acp_launch,
+    resolve_acp_permissions, validate_acp_dispatch, validate_acp_launch_identity, AcpRuntimeModel,
+    AcpSessionHandleSlot, AcpSessionMetadata, AcpSteeringRequest, GalaxyMcpTarget,
+};
 use crate::ai::agent::api::{self, generate_multi_agent_output, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::agent::AIAgentInput;
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
 use crate::ai::bedrock::client::BedrockClientConfig;
-use crate::ai::llms::LLMPreferences;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::blocklist::BlocklistAIPermissions;
+use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
 use crate::network::NetworkStatus;
+#[cfg(not(target_family = "wasm"))]
+use crate::pane_group::PaneGroup;
+use crate::persistence::model::AgentBackend;
 use crate::server::server_api::AIApiError;
-use crate::{report_error, send_telemetry_from_ctx, AISettings};
+#[cfg(not(target_family = "wasm"))]
+use crate::settings::LocalControlSettings;
+use crate::{report_error, send_telemetry_from_ctx, AISettings, BlocklistAIHistoryModel};
 
 /// Maximum number of times a single MAA request is re-sent before the failure is
 /// surfaced.
@@ -82,6 +103,14 @@ impl ResponseStreamId {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+struct AcpRequestControl {
+    cancellation_rx: oneshot::Receiver<()>,
+    session_metadata: Arc<Mutex<AcpSessionMetadata>>,
+    session_handle: AcpSessionHandleSlot,
+    steering_rx: async_channel::Receiver<AcpSteeringRequest>,
+}
+
 /// Model wrapping an agent API response stream.
 ///
 /// Emits events when the output corresponding to the stream is updated, typically after receiving
@@ -91,6 +120,13 @@ impl ResponseStreamId {
 /// received yet, ensuring we don't retry after the AI has started executing actions.
 pub struct ResponseStream {
     id: ResponseStreamId,
+    agent_backend: AgentBackend,
+    #[cfg(not(target_family = "wasm"))]
+    acp_session_metadata: Arc<Mutex<AcpSessionMetadata>>,
+    #[cfg(not(target_family = "wasm"))]
+    acp_session_handle: AcpSessionHandleSlot,
+    #[cfg(not(target_family = "wasm"))]
+    acp_steering_tx: async_channel::Sender<AcpSteeringRequest>,
     params: api::RequestParams,
     retry_count: usize,
     /// One-time fallback from the profile's thinking model to its coding model.
@@ -157,6 +193,13 @@ impl ResponseStream {
         let (cancellation_tx, _rx) = oneshot::channel();
         Self {
             id,
+            agent_backend: AgentBackend::Provider,
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_handle: Arc::new(Mutex::new(None)),
+            #[cfg(not(target_family = "wasm"))]
+            acp_steering_tx: async_channel::unbounded().0,
             params: api::RequestParams::new_for_test(),
             retry_count: 0,
             coding_model_fallback_attempted: false,
@@ -223,9 +266,155 @@ impl ResponseStream {
         ProviderConfig::None
     }
 
+    #[cfg(not(target_family = "wasm"))]
+    fn resolve_acp_manager(
+        backend: &crate::persistence::model::AcpConversationData,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<galaxy_acp::AcpSessionManager, String> {
+        use galaxy_acp::AcpManagerConfig;
+
+        let settings = AISettings::as_ref(ctx);
+        let configured_agent_id = settings.acp_agent_id.value().trim();
+        let configured_agent_id = if configured_agent_id.is_empty() {
+            "codex"
+        } else {
+            configured_agent_id
+        };
+        let launch = resolve_acp_launch(
+            configured_agent_id,
+            settings.acp_agent_command.value(),
+            settings.acp_agent_args.value(),
+        )?;
+        validate_acp_launch_identity(
+            backend,
+            configured_agent_id,
+            settings.acp_agent_command.value(),
+            &launch,
+        )?;
+        let config = AcpManagerConfig::new(launch);
+        AcpRuntimeModel::handle(ctx).update(ctx, |runtime, _| runtime.manager(config))
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn spawn_acp_request(
+        backend: crate::persistence::model::AcpConversationData,
+        params: api::RequestParams,
+        conversation_key: String,
+        request_id: Uuid,
+        control: AcpRequestControl,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let AcpRequestControl {
+            cancellation_rx,
+            session_metadata,
+            session_handle,
+            steering_rx,
+        } = control;
+        let profile = BlocklistAIPermissions::as_ref(ctx)
+            .active_permissions_profile(ctx, params.terminal_view_id);
+        let permissions = resolve_acp_permissions(&profile);
+        let targets_remote_terminal = params.session_context.is_remote()
+            || params.input.iter().any(|input| {
+                let AIAgentInput::UserQuery {
+                    running_command: Some(command),
+                    ..
+                } = input
+                else {
+                    return false;
+                };
+                is_interactive_remote_command(&command.command)
+            });
+        let manager = validate_acp_dispatch(
+            FeatureFlag::AgentClientProtocol.is_enabled(),
+            *AISettings::as_ref(ctx).acp_enabled.value(),
+            targets_remote_terminal,
+        )
+        .and_then(|()| Self::resolve_acp_manager(&backend, ctx));
+        let galaxy_mcp_server = if cfg!(unix)
+            && manager.is_ok()
+            && permissions.expose_galaxy_tools
+            && FeatureFlag::GalaxyControlCli.is_enabled()
+            && LocalControlSettings::as_ref(ctx).is_enabled()
+        {
+            match params
+                .terminal_view_id
+                .and_then(|terminal_view_id| terminal_pane_id(terminal_view_id, ctx))
+            {
+                Some(target) => match galaxy_mcp_server(
+                    &target,
+                    permissions.allow_terminal_execute,
+                    permissions.allow_terminal_interrupt,
+                ) {
+                    Ok(server) => Some(server),
+                    Err(error) => {
+                        log::warn!("Galaxy MCP tools are unavailable for ACP: {error}");
+                        None
+                    }
+                },
+                None => {
+                    log::warn!(
+                        "Galaxy MCP tools are unavailable for ACP because the originating terminal pane could not be resolved"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let galaxy_terminal_interrupt_available =
+            galaxy_mcp_server.is_some() && permissions.allow_terminal_interrupt;
+        let _ = ctx.spawn(
+            async move {
+                let stream = match manager {
+                    Ok(manager) => {
+                        acp_output_stream(
+                            manager,
+                            params,
+                            conversation_key,
+                            backend,
+                            galaxy_mcp_server,
+                            galaxy_terminal_interrupt_available,
+                            permissions.policy,
+                            permissions.auto_approve_protocol_requests,
+                            session_metadata,
+                            session_handle,
+                            steering_rx,
+                            cancellation_rx,
+                        )
+                        .await
+                    }
+                    Err(message) => acp_startup_error_stream(&params, &backend, &message),
+                };
+                Ok::<_, ConvertToAPITypeError>(stream)
+            },
+            move |me, stream, ctx| {
+                me.handle_response_stream_result(request_id, stream, ctx);
+            },
+        );
+    }
+
+    fn spawn_provider_request(
+        params: api::RequestParams,
+        provider_config: ProviderConfig,
+        request_id: Uuid,
+        cancellation_rx: oneshot::Receiver<()>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let _ =
+            ctx.spawn(
+                async move {
+                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
+                },
+                move |me, stream, ctx| {
+                    me.handle_response_stream_result(request_id, stream, ctx);
+                },
+            );
+    }
+
     pub fn new(
         params: api::RequestParams,
         ai_identifiers: AIIdentifiers,
+        agent_backend: AgentBackend,
         can_attempt_resume_on_error: bool,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -233,18 +422,66 @@ impl ResponseStream {
         let start_time = Local::now();
 
         let request_id = Uuid::new_v4();
-        let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let params_clone = params.clone();
-        let _ = ctx.spawn(
-            async move {
-                generate_multi_agent_output(provider_config, params_clone, cancellation_rx).await
-            },
-            move |me, stream, ctx| {
-                me.handle_response_stream_result(request_id, stream, ctx);
-            },
-        );
+        #[cfg(not(target_family = "wasm"))]
+        let acp_session_metadata = Arc::new(Mutex::new(AcpSessionMetadata::default()));
+        #[cfg(not(target_family = "wasm"))]
+        let acp_session_handle = Arc::new(Mutex::new(None));
+        #[cfg(not(target_family = "wasm"))]
+        let (acp_steering_tx, acp_steering_rx) = async_channel::unbounded();
+        match &agent_backend {
+            AgentBackend::Provider => {
+                let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
+                Self::spawn_provider_request(
+                    params.clone(),
+                    provider_config,
+                    request_id,
+                    cancellation_rx,
+                    ctx,
+                );
+            }
+            AgentBackend::Acp(backend) => {
+                #[cfg(not(target_family = "wasm"))]
+                Self::spawn_acp_request(
+                    backend.clone(),
+                    params.clone(),
+                    ai_identifiers
+                        .client_conversation_id
+                        .map(|id| format!("{id:?}"))
+                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                    request_id,
+                    AcpRequestControl {
+                        cancellation_rx,
+                        session_metadata: acp_session_metadata.clone(),
+                        session_handle: acp_session_handle.clone(),
+                        steering_rx: acp_steering_rx,
+                    },
+                    ctx,
+                );
+                #[cfg(target_family = "wasm")]
+                {
+                    let error = Arc::new(AIApiError::Stream {
+                        stream_type: "acp",
+                        source: anyhow!("ACP is unavailable in the web client"),
+                    });
+                    let stream = Box::pin(futures::stream::once(async move { Err(error) }));
+                    let _ = ctx.spawn(
+                        async move { Ok::<_, ConvertToAPITypeError>(stream) },
+                        move |me, stream, ctx| {
+                            me.handle_response_stream_result(request_id, stream, ctx);
+                        },
+                    );
+                }
+            }
+        }
         Self {
             id: ResponseStreamId(Uuid::new_v4().to_string()),
+            agent_backend,
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_metadata,
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_handle,
+            #[cfg(not(target_family = "wasm"))]
+            acp_steering_tx,
             params: params.clone(),
             start_time,
             time_to_latest_event: TimeDelta::seconds(0),
@@ -267,6 +504,50 @@ impl ResponseStream {
         &self.id
     }
 
+    pub fn is_acp(&self) -> bool {
+        matches!(self.agent_backend, AgentBackend::Acp(_))
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn acp_session_metadata(&self) -> Option<AcpSessionMetadata> {
+        self.is_acp()
+            .then(|| {
+                self.acp_session_metadata
+                    .lock()
+                    .ok()
+                    .map(|state| state.clone())
+            })
+            .flatten()
+    }
+
+    pub(super) fn try_steer_acp(&self, display_text: String) -> bool {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if !self.is_acp()
+                || self.current_request_id.is_none()
+                || !self
+                    .acp_session_metadata()
+                    .is_some_and(|metadata| metadata.can_steer)
+                || !self
+                    .acp_session_handle
+                    .lock()
+                    .is_ok_and(|session| session.is_some())
+            {
+                return false;
+            }
+            let mut model_text = display_text.clone();
+            self.params.redact_text_for_model(&mut model_text);
+            self.acp_steering_tx
+                .try_send(AcpSteeringRequest::text(display_text, model_text))
+                .is_ok()
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = display_text;
+            false
+        }
+    }
+
     pub fn bedrock_messages_sent(
         &self,
     ) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>
@@ -277,6 +558,10 @@ impl ResponseStream {
     /// Returns the model ID associated with this response stream's request.
     pub fn model_id(&self) -> &str {
         self.params.model.as_str()
+    }
+
+    pub(super) fn llm_id(&self) -> &LLMId {
+        &self.params.model
     }
 
     /// Returns true if we should attempt to resume the conversation after the stream finishes.
@@ -334,7 +619,8 @@ impl ResponseStream {
         &self,
         error: &Arc<crate::server::server_api::AIApiError>,
     ) -> bool {
-        if self.coding_model_fallback_attempted || self.has_received_client_actions {
+        if self.is_acp() || self.coding_model_fallback_attempted || self.has_received_client_actions
+        {
             return false;
         }
         let coding_model = self.params.coding_model.as_str();
@@ -507,7 +793,7 @@ impl ResponseStream {
                 let is_online = NetworkStatus::as_ref(ctx).is_online();
                 match recovery_action(
                     self.has_received_client_actions,
-                    e.is_recoverable(),
+                    e.is_recoverable() && !self.is_acp(),
                     self.retry_count < MAX_RETRIES,
                     self.can_attempt_resume_on_error,
                     is_online,
@@ -580,7 +866,7 @@ impl ResponseStream {
             let is_online = NetworkStatus::as_ref(ctx).is_online();
             match recovery_action(
                 self.has_received_client_actions,
-                unexpected_eof.is_recoverable(),
+                unexpected_eof.is_recoverable() && !self.is_acp(),
                 self.retry_count < MAX_RETRIES,
                 self.can_attempt_resume_on_error,
                 is_online,
@@ -692,6 +978,38 @@ impl ResponseStream {
             me.retry(ctx);
         });
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn is_interactive_remote_command(command: &str) -> bool {
+    is_potential_remote_ssh_command(command)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn terminal_pane_id(
+    terminal_view_id: galaxyui::EntityId,
+    ctx: &ModelContext<ResponseStream>,
+) -> Option<GalaxyMcpTarget> {
+    let window_ids = ctx.window_ids().collect::<Vec<_>>();
+    for window_id in window_ids {
+        let Some(pane_groups) = ctx.views_of_type::<PaneGroup>(window_id) else {
+            continue;
+        };
+        for pane_group in pane_groups {
+            let tab_id = pane_group.id().to_string();
+            if let Some(pane_id) = pane_group
+                .as_ref(ctx)
+                .find_pane_id_for_terminal_view(terminal_view_id, ctx)
+            {
+                return Some(GalaxyMcpTarget {
+                    window_id: window_id.to_string(),
+                    tab_id,
+                    pane_id: pane_id.to_string(),
+                });
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug)]

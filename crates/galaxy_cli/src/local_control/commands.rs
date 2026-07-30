@@ -6,7 +6,7 @@ use local_control::protocol::{
     ControlError, DirectionParams, EmptyParams, ErrorCode, FileOpenParams, KeyParams,
     KeyValueParams, PageQueryParams, QueryParams, RenameParams, RequestEnvelope, ResizeParams,
     SettingListParams, TabActivateParams, TabActivationMode, TabCloseMode, TabCloseParams,
-    TabCreateParams, TextParams, ThemeNameParams,
+    TabCreateParams, TerminalExecuteParams, TerminalInterruptParams, TextParams, ThemeNameParams,
 };
 use local_control::selection::select_instance;
 use serde::Serialize;
@@ -19,7 +19,7 @@ use crate::local_control::{
     InputCommand, InstanceCommand, KeybindingCommand, PaneCommand, SessionCommand, SettingCommand,
     SurfaceCommand, SurfaceOpenCommand, SurfaceOpenToggleCommand, SurfaceQueryCommand,
     SurfaceSettingsCommand, SurfaceToggleCommand, TabActivateArgs, TabCloseArgs, TabColorCommand,
-    TabCommand, TargetArgs, ThemeCommand, WindowCommand,
+    TabCommand, TargetArgs, TerminalCommand, ThemeCommand, WindowCommand,
 };
 
 pub(super) fn run_surface_command(
@@ -504,6 +504,36 @@ pub(super) fn run_input_command(
             args.target,
             ActionKind::InputReplace,
             TextParams { text: args.text },
+            output_format,
+        ),
+    }
+}
+
+pub(super) fn run_terminal_command(
+    command: TerminalCommand,
+    output_format: OutputFormat,
+) -> Result<(), ControlError> {
+    match command {
+        TerminalCommand::Status(args) => run_action_with_params(
+            args,
+            ActionKind::TerminalStatus,
+            EmptyParams {},
+            output_format,
+        ),
+        TerminalCommand::Execute(args) => run_action_with_params(
+            args.target,
+            ActionKind::TerminalExecute,
+            TerminalExecuteParams {
+                command: args.command,
+            },
+            output_format,
+        ),
+        TerminalCommand::Interrupt(args) => run_action_with_params(
+            args.target,
+            ActionKind::TerminalInterrupt,
+            TerminalInterruptParams {
+                block_id: args.block_id,
+            },
             output_format,
         ),
     }

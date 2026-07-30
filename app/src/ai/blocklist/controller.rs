@@ -67,6 +67,7 @@ use crate::features::FeatureFlag;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::model::FileLinkResolutionContext;
+use crate::persistence::model::AgentBackend;
 use crate::persistence::ModelEvent;
 use crate::send_telemetry_from_ctx;
 use crate::server::server_api::AIApiError;
@@ -267,6 +268,15 @@ pub struct RequestInput {
 enum RunningCommandDetection {
     Detect,
     Skip,
+}
+
+fn acp_backend_model_id(backend: &AgentBackend) -> Option<LLMId> {
+    match backend {
+        AgentBackend::Provider => None,
+        AgentBackend::Acp(acp) => {
+            Some(format!("acp:{}", acp.agent_id.trim().to_ascii_lowercase()).into())
+        }
+    }
 }
 
 impl RequestInput {
@@ -473,6 +483,58 @@ struct InputQuery {
     /// When `Some`, this submission is a fired queued-prompt row; the send path resolves the
     /// row's stored attachments by this id instead of the live input staging.
     queued_query_id: Option<QueuedQueryId>,
+}
+
+#[derive(Clone, Copy)]
+struct LiveSteeringEligibility {
+    is_user_initiated: bool,
+    has_shared_session_participant: bool,
+    is_queued_prompt: bool,
+    has_queued_query_id: bool,
+    has_additional_attachments: bool,
+    is_existing_task: bool,
+    is_active_conversation: bool,
+    has_plain_user_input: bool,
+    has_pending_context: bool,
+    has_action_context: bool,
+    has_pending_passive_results: bool,
+}
+
+impl LiveSteeringEligibility {
+    fn can_attempt(self) -> bool {
+        self.is_user_initiated
+            && !self.has_shared_session_participant
+            && !self.is_queued_prompt
+            && !self.has_queued_query_id
+            && !self.has_additional_attachments
+            && self.is_existing_task
+            && self.is_active_conversation
+            && self.has_plain_user_input
+            && !self.has_pending_context
+            && !self.has_action_context
+            && !self.has_pending_passive_results
+    }
+}
+
+fn is_plain_live_steering_input(
+    input_query: &InputQueryType,
+    is_same_conversation_running_command_monitor: bool,
+) -> bool {
+    let InputQueryType::UserSubmittedQueryFromInput {
+        query,
+        static_query_type,
+        running_command,
+    } = input_query
+    else {
+        return false;
+    };
+    let (_, user_query_mode) = extract_user_query_mode(query.clone());
+    !query.trim().is_empty()
+        && !query.trim_start().starts_with('/')
+        && SlashCommandRequest::from_query(query).is_none()
+        && static_query_type.is_none()
+        && (running_command.is_none() || is_same_conversation_running_command_monitor)
+        && matches!(user_query_mode, UserQueryMode::Normal)
 }
 
 impl InputQuery {
@@ -725,6 +787,7 @@ impl BlocklistAIController {
         is_queued_prompt: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        let has_shared_session_participant = shared_session_participant_id.is_some();
         // Store the participant who initiated this query before sending
         // so that send_query can use it when creating the exchange.
         if let Some(participant_id) = shared_session_participant_id {
@@ -732,6 +795,7 @@ impl BlocklistAIController {
         }
 
         let query = input_query.query().to_owned();
+        let is_existing_task = matches!(&input_query.which_task, WhichTask::Task { .. });
         let (conversation_id, task_id) = match input_query.which_task {
             WhichTask::NewConversation => {
                 let conversation = self.start_new_conversation_for_request(ctx);
@@ -743,6 +807,79 @@ impl BlocklistAIController {
             } => (conversation_id, task_id),
         };
 
+        let active_conversation_id =
+            BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_surface_id);
+        let is_same_conversation_running_command_monitor = match &input_query.input_query {
+            InputQueryType::UserSubmittedQueryFromInput {
+                running_command: Some(running_command),
+                ..
+            } => {
+                let terminal_model = self.terminal_model.lock();
+                running_command_belongs_to_monitor(
+                    &terminal_model,
+                    conversation_id,
+                    running_command,
+                )
+            }
+            InputQueryType::UserSubmittedQueryFromInput {
+                running_command: None,
+                ..
+            }
+            | InputQueryType::AIInputType { .. } => false,
+        };
+        let has_simple_user_input = is_plain_live_steering_input(
+            &input_query.input_query,
+            is_same_conversation_running_command_monitor,
+        );
+        let has_pending_context = {
+            let context_model = self.context_model.as_ref(ctx);
+            !context_model.pending_context_block_ids().is_empty()
+                || context_model.pending_context_selected_text().is_some()
+                || !context_model.pending_attachments().is_empty()
+                || context_model.pending_document_id().is_some()
+        };
+        let has_action_context = {
+            let action_model = self.action_model.as_ref(ctx);
+            action_model.has_unfinished_actions_for_conversation(conversation_id)
+                || action_model
+                    .get_finished_action_results(conversation_id)
+                    .is_some_and(|results| !results.is_empty())
+        };
+        let can_attempt_live_steering = LiveSteeringEligibility {
+            is_user_initiated: matches!(entrypoint_type, EntrypointType::UserInitiated),
+            has_shared_session_participant,
+            is_queued_prompt,
+            has_queued_query_id: input_query.queued_query_id.is_some(),
+            has_additional_attachments: !input_query.additional_attachments.is_empty(),
+            is_existing_task,
+            is_active_conversation: active_conversation_id
+                .as_ref()
+                .is_some_and(|id| *id == conversation_id),
+            has_plain_user_input: has_simple_user_input,
+            has_pending_context,
+            has_action_context,
+            has_pending_passive_results: self
+                .pending_passive_suggestion_results
+                .get(&conversation_id)
+                .is_some_and(|results| !results.is_empty()),
+        }
+        .can_attempt();
+        if can_attempt_live_steering {
+            if let Some((stream_id, model_id)) = self
+                .in_flight_response_streams
+                .try_steer_acp_stream_for_conversation(conversation_id, query.clone(), ctx)
+            {
+                ctx.emit(BlocklistAIControllerEvent::SentRequest {
+                    contains_user_query: true,
+                    is_queued_prompt: false,
+                    model_id,
+                    stream_id,
+                });
+                ctx.dispatch_global_action("workspace:save_app", ());
+                return;
+            }
+        }
+
         // Drain any queued passive suggestion results for this conversation
         // *before* cancelling progress, since cancel_conversation_progress
         // clears the pending map.
@@ -751,9 +888,6 @@ impl BlocklistAIController {
             .remove(&conversation_id)
             .unwrap_or_default();
 
-        let ai_history_model = BlocklistAIHistoryModel::as_ref(ctx);
-        let active_conversation_id =
-            ai_history_model.active_conversation_id(self.terminal_surface_id);
         let cancellation_reason = CancellationReason::FollowUpSubmitted {
             is_for_same_conversation: active_conversation_id
                 .is_some_and(|id| id == conversation_id),
@@ -2789,7 +2923,7 @@ impl BlocklistAIController {
     /// flow that handles existing conversations properly.
     fn send_request_input(
         &mut self,
-        request_input: RequestInput,
+        mut request_input: RequestInput,
         query_metadata: Option<RequestMetadata>,
         can_attempt_resume_on_error: bool,
         is_queued_prompt: bool,
@@ -2806,6 +2940,7 @@ impl BlocklistAIController {
             bedrock_history,
             bedrock_tool_result_archive,
             bedrock_progressive_summary,
+            agent_backend,
         ) = {
             let Some(conversation) = history_model
                 .as_ref(ctx)
@@ -2831,8 +2966,19 @@ impl BlocklistAIController {
                 conversation.bedrock_message_history().to_vec(),
                 conversation.tool_result_archive().to_vec(),
                 conversation.progressive_summary().map(str::to_string),
+                conversation.agent_backend().clone(),
             )
         };
+
+        if let Some(acp_model_id) = acp_backend_model_id(&agent_backend) {
+            // ACP agents own model selection. Keep every native exchange,
+            // identifier, and SentRequest event from attributing this turn to
+            // whichever LiteLLM/Bedrock model happens to be selected in Galaxy.
+            request_input.model_id = acp_model_id.clone();
+            request_input.coding_model_id = acp_model_id.clone();
+            request_input.cli_agent_model_id = acp_model_id.clone();
+            request_input.computer_use_model_id = acp_model_id;
+        }
 
         // Cancel any pending auto-resume for this conversation, since the user is sending a new
         // request.
@@ -2954,6 +3100,7 @@ impl BlocklistAIController {
             ResponseStream::new(
                 request_params.clone(),
                 ai_identifiers,
+                agent_backend.clone(),
                 can_attempt_resume_on_error,
                 ctx,
             )
@@ -3325,7 +3472,9 @@ impl BlocklistAIController {
                 match event {
                     Ok(event) => {
                         // If this controller is part of a shared session, forward the entire response event to viewers first.
-                        if FeatureFlag::AgentSharedSessions.is_enabled() {
+                        if FeatureFlag::AgentSharedSessions.is_enabled()
+                            && !response_stream.as_ref(ctx).is_acp()
+                        {
                             let mut model = self.terminal_model.lock();
                             if model.shared_session_status().is_sharer() {
                                 // Get the participant who initiated this response, falling back to the sharer if needed.
@@ -3360,6 +3509,18 @@ impl BlocklistAIController {
                         match event {
                             warp_multi_agent_api::response_event::Type::Init(init_event) => {
                                 history_model.update(ctx, |history_model, ctx| {
+                                    #[cfg(not(target_family = "wasm"))]
+                                    if let Some(session_id) = response_stream
+                                        .as_ref(ctx)
+                                        .acp_session_metadata()
+                                        .and_then(|metadata| metadata.session_id)
+                                    {
+                                        history_model.set_acp_session_id(
+                                            conversation_id,
+                                            session_id,
+                                            ctx,
+                                        );
+                                    }
                                     history_model.initialize_output_for_response_stream(
                                         &stream_id,
                                         conversation_id,
@@ -3393,15 +3554,19 @@ impl BlocklistAIController {
                                 // After the stream finishes, persist the full message
                                 // history (input + assistant response) from the Arc back
                                 // into the conversation for the next request cycle.
-                                let messages_sent_arc =
-                                    response_stream.as_ref(ctx).bedrock_messages_sent().clone();
-                                let new_history = messages_sent_arc.lock().ok().and_then(|sent| {
-                                    if sent.is_empty() {
-                                        None
-                                    } else {
-                                        Some(sent.clone())
-                                    }
-                                });
+                                let new_history = (!response_stream.as_ref(ctx).is_acp())
+                                    .then(|| {
+                                        response_stream.as_ref(ctx).bedrock_messages_sent().clone()
+                                    })
+                                    .and_then(|messages_sent| {
+                                        messages_sent.lock().ok().and_then(|sent| {
+                                            if sent.is_empty() {
+                                                None
+                                            } else {
+                                                Some(sent.clone())
+                                            }
+                                        })
+                                    });
                                 if let Some(mut new_history) = new_history {
                                     let history_model = BlocklistAIHistoryModel::handle(ctx);
                                     history_model.update(ctx, |history_model, _| {
@@ -3496,8 +3661,9 @@ impl BlocklistAIController {
                         const MAX_ERROR_RETRIES: usize = 2;
                         let retry_count =
                             self.error_retry_counts.entry(conversation_id).or_insert(0);
-                        let should_corrective_retry =
-                            is_corrective_retry_candidate && *retry_count < MAX_ERROR_RETRIES;
+                        let should_corrective_retry = !response_stream.as_ref(ctx).is_acp()
+                            && is_corrective_retry_candidate
+                            && *retry_count < MAX_ERROR_RETRIES;
 
                         if should_corrective_retry {
                             *retry_count += 1;
@@ -4604,6 +4770,19 @@ fn get_running_command_for_conversation(
         return None;
     }
     Some(running_command_snapshot(terminal_model))
+}
+
+fn running_command_belongs_to_monitor(
+    terminal_model: &TerminalModel,
+    conversation_id: AIConversationId,
+    running_command: &RunningCommand,
+) -> bool {
+    let active_block = terminal_model.block_list().active_block();
+    active_block.id() == &running_command.block_id
+        && active_block.is_agent_monitoring()
+        && active_block
+            .agent_interaction_metadata()
+            .is_some_and(|metadata| metadata.conversation_id() == &conversation_id)
 }
 
 fn running_command_snapshot(terminal_model: &TerminalModel) -> RunningCommand {

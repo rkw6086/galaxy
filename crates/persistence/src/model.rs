@@ -1020,9 +1020,57 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// Backend responsible for executing an agent conversation.
+///
+/// Existing persisted conversations predate this field and therefore default
+/// to Galaxy's native model-provider path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentBackend {
+    #[default]
+    Provider,
+    Acp(AcpConversationData),
+}
+
+impl AgentBackend {
+    pub fn is_provider(&self) -> bool {
+        matches!(self, Self::Provider)
+    }
+
+    /// Copies the backend identity for a locally forked conversation without
+    /// sharing an agent-owned session between two Galaxy conversations.
+    pub fn for_fork(&self) -> Self {
+        match self {
+            Self::Provider => Self::Provider,
+            Self::Acp(acp) => Self::Acp(AcpConversationData {
+                agent_id: acp.agent_id.clone(),
+                launch_fingerprint: acp.launch_fingerprint.clone(),
+                session_id: None,
+            }),
+        }
+    }
+}
+
+/// Persisted identity for a local Agent Client Protocol conversation.
+///
+/// Process launch details remain device-local settings. The non-secret launch
+/// fingerprint prevents an agent-owned session ID from being handed to a
+/// different executable after those settings change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AcpConversationData {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub launch_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
 // Serializes to `conversation_data` column in `agent_conversations`.
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentConversationData {
+    #[serde(default, skip_serializing_if = "AgentBackend::is_provider")]
+    pub agent_backend: AgentBackend,
     pub server_conversation_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_usage_metadata: Option<ConversationUsageMetadata>,

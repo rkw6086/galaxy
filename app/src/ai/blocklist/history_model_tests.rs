@@ -3,10 +3,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{DateTime, Local, Utc};
+use galaxy_core::features::FeatureFlag;
 use itertools::Itertools;
+use settings::Setting;
 use uuid::Uuid;
 use warp_cli::agent::Harness;
-use warpui::{App, EntityId};
+use warpui::{App, EntityId, SingletonEntity};
 
 use super::{
     convert_persisted_conversation_to_ai_conversation_with_metadata, AIConversationMetadata,
@@ -32,11 +34,13 @@ use crate::auth::AuthStateProvider;
 use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
 use crate::input_suggestions::HistoryInputSuggestion;
 use crate::persistence::model::{
-    AgentConversation, AgentConversationData, AgentConversationRecord, PersistedAutoexecuteMode,
+    AcpConversationData, AgentBackend, AgentConversation, AgentConversationData,
+    AgentConversationRecord, PersistedAutoexecuteMode,
 };
 use crate::persistence::ModelEvent;
 use crate::server::ids::ServerId;
 use crate::server::telemetry::context_provider::AppTelemetryContextProvider;
+use crate::settings::AISettings;
 use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::SessionId;
 use crate::test_util::ai_agent_tasks::{create_api_task, create_message};
@@ -44,6 +48,44 @@ use crate::test_util::settings::{
     initialize_history_persistence_for_tests, initialize_settings_for_tests,
 };
 use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
+
+#[test]
+fn acp_enabled_with_empty_command_selects_codex_backend() {
+    let _acp_flag = FeatureFlag::AgentClientProtocol.override_enabled(true);
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agent_command
+                .set_value(String::new(), ctx)
+                .expect("empty command should select the built-in preset");
+        });
+
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let conversation_id = history_model.update(&mut app, |model, ctx| {
+            model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+
+        history_model.read(&app, |model, _| {
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            assert_eq!(
+                conversation.agent_backend(),
+                &AgentBackend::Acp(AcpConversationData {
+                    agent_id: "codex".to_string(),
+                    launch_fingerprint: crate::ai::acp::acp_launch_fingerprint("codex", "", &[]),
+                    session_id: None,
+                })
+            );
+        });
+    });
+}
 
 /// Helper function to create a PersistedAIInput for testing
 fn create_persisted_query(
@@ -772,6 +814,7 @@ fn test_initialize_historical_conversations_resolves_parent_agent_id_children_vi
             persisted_agent_conversation(
                 child_id,
                 AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("child-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -795,6 +838,7 @@ fn test_initialize_historical_conversations_resolves_parent_agent_id_children_vi
             persisted_agent_conversation(
                 parent_id,
                 AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("parent-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -846,6 +890,7 @@ fn test_initialize_historical_conversations_uses_root_task_description_title() {
                 id: 0,
                 conversation_id: conversation_id.to_string(),
                 conversation_data: serde_json::to_string(&AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("renamed-title-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -911,6 +956,7 @@ fn test_initialize_historical_conversations_eagerly_hydrates_orchestration_child
             persisted_agent_conversation(
                 child_id,
                 AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("child-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -935,6 +981,7 @@ fn test_initialize_historical_conversations_eagerly_hydrates_orchestration_child
             persisted_agent_conversation(
                 parent_id,
                 AgentConversationData {
+                    agent_backend: Default::default(),
                     server_conversation_token: Some("parent-token".to_string()),
                     conversation_usage_metadata: None,
                     reverted_action_ids: None,
@@ -3069,6 +3116,7 @@ fn test_find_by_token_after_insert_forked_conversation_from_tasks() {
 
         let forked_conversation_id = AIConversationId::new();
         let conversation_data = AgentConversationData {
+            agent_backend: Default::default(),
             server_conversation_token: Some("forked-token".to_string()),
             conversation_usage_metadata: None,
             reverted_action_ids: None,
@@ -3261,6 +3309,7 @@ fn test_fork_then_bind_handoff_token_resolves_to_forked_conversation() {
             source_id,
             vec![root_task],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some("src-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3345,6 +3394,7 @@ fn test_fork_then_bind_handoff_token_persists_to_restored_conversation() {
             source_id,
             vec![root_task],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some("src-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3454,6 +3504,7 @@ fn test_fork_then_bind_handoff_token_updates_cached_metadata_and_emits_refresh_e
             source_id,
             vec![root_task],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some("src-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3581,6 +3632,7 @@ fn test_fork_conversation_preserves_task_ids_when_requested() {
             source_id,
             vec![root_task, subtask],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some("src-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3726,6 +3778,7 @@ fn test_fork_conversation_title_override_replaces_prefix() {
             source_id,
             vec![root_task],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3816,6 +3869,7 @@ fn hydrate_remote_child_placeholder_with_cloud_transcript_preserves_placeholder_
             placeholder_id,
             vec![placeholder_root],
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -3863,6 +3917,7 @@ fn hydrate_remote_child_placeholder_with_cloud_transcript_preserves_placeholder_
             cloud_id,
             cloud_tasks.clone(),
             Some(AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some("cloud-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

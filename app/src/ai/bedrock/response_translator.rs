@@ -579,7 +579,7 @@ pub fn build_create_task(task_id: &str) -> ResponseEvent {
     }
 }
 
-fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
+pub(crate) fn build_user_query_message(task_id: &str, query_text: &str) -> ResponseEvent {
     let message = api::Message {
         id: Uuid::new_v4().to_string(),
         task_id: task_id.to_string(),
@@ -745,7 +745,7 @@ pub fn estimate_cost_cents(
     (input_cost + output_cost + cache_read_cost + cache_write_cost) as f32
 }
 
-fn build_add_agent_output_message(
+pub(crate) fn build_add_agent_output_message(
     task_id: &str,
     message_id: &str,
     initial_text: &str,
@@ -783,7 +783,11 @@ fn build_add_agent_output_message(
     }
 }
 
-fn build_append_text(task_id: &str, message_id: &str, text_delta: &str) -> ResponseEvent {
+pub(crate) fn build_append_text(
+    task_id: &str,
+    message_id: &str,
+    text_delta: &str,
+) -> ResponseEvent {
     let message = api::Message {
         id: message_id.to_string(),
         task_id: task_id.to_string(),

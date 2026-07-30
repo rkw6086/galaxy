@@ -8,7 +8,7 @@ use super::{
     ConversationStatus, RestoreConversationError,
 };
 use crate::ai::artifacts::Artifact;
-use crate::persistence::model::AgentConversationData;
+use crate::persistence::model::{AcpConversationData, AgentBackend, AgentConversationData};
 
 fn restored_conversation(conversation_data: Option<AgentConversationData>) -> AIConversation {
     AIConversation::new_restored(
@@ -204,6 +204,57 @@ fn restored_conversation_uses_persisted_remote_child_marker() {
     let conversation = restored_conversation(Some(conversation_data));
 
     assert!(conversation.is_remote_child());
+}
+
+#[test]
+fn new_conversations_default_to_provider_backend() {
+    let conversation = AIConversation::new(false, false);
+
+    assert_eq!(conversation.agent_backend(), &AgentBackend::Provider);
+}
+
+#[test]
+fn acp_session_id_is_updated_only_for_acp_conversations() {
+    let mut acp_conversation = AIConversation::new_with_agent_backend(
+        false,
+        false,
+        AgentBackend::Acp(AcpConversationData {
+            agent_id: "codex-acp".to_string(),
+            launch_fingerprint: "launch-123".to_string(),
+            session_id: None,
+        }),
+    );
+    assert!(acp_conversation.set_acp_session_id("session-123"));
+    assert_eq!(
+        acp_conversation.agent_backend(),
+        &AgentBackend::Acp(AcpConversationData {
+            agent_id: "codex-acp".to_string(),
+            launch_fingerprint: "launch-123".to_string(),
+            session_id: Some("session-123".to_string()),
+        })
+    );
+
+    let mut provider_conversation = AIConversation::new(false, false);
+    assert!(!provider_conversation.set_acp_session_id("ignored"));
+    assert_eq!(
+        provider_conversation.agent_backend(),
+        &AgentBackend::Provider
+    );
+}
+
+#[test]
+fn restored_conversation_uses_persisted_acp_backend() {
+    let backend = AgentBackend::Acp(AcpConversationData {
+        agent_id: "codex-acp".to_string(),
+        launch_fingerprint: "launch-123".to_string(),
+        session_id: Some("session-123".to_string()),
+    });
+    let conversation = restored_conversation(Some(AgentConversationData {
+        agent_backend: backend.clone(),
+        ..Default::default()
+    }));
+
+    assert_eq!(conversation.agent_backend(), &backend);
 }
 
 #[test]

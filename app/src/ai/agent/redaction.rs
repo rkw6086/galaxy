@@ -33,6 +33,7 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                 query,
                 context,
                 referenced_attachments,
+                running_command,
                 ..
             } => {
                 redact_secrets(query);
@@ -40,6 +41,11 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                 referenced_attachments
                     .values_mut()
                     .for_each(redact_attachment);
+                if let Some(running_command) = running_command {
+                    redact_secrets(&mut running_command.command);
+                    redact_secrets(&mut running_command.grid_contents);
+                    redact_secrets(&mut running_command.cursor);
+                }
             }
             AIAgentInput::AutoCodeDiffQuery { query, context, .. } => {
                 redact_secrets(query);

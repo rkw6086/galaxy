@@ -163,38 +163,37 @@ impl SshWarpifyCommand {
     }
 }
 
-lazy_static! {
-    static ref INTERACTIVE_SSH: Regex = Regex::new(r"^ssh\s+").expect("interactive SSH regex invalid");
-
-    /// Matches "gcloud compute ssh" for connecting to GCP VMs.
-    static ref GCLOUD_REGEX: Regex = Regex::new(r"^gcloud\s+compute\s+ssh\s.+").expect("gcloud SSH regex invalid");
-
-    /// Matches "eb ssh" for connecting to AWS Elastic Beanstalk VMs.
-    static ref ELASTIC_BEANSTALK_REGEX: Regex = Regex::new(r"^eb\s+ssh\s.+").expect("elastic beanstalk SSH regex invalid");
-
-    /// Matches "doctl compute ssh" for connecting to a digital ocean droplet.
-    static ref DIGITAL_OCEAN_DROPLET_REGEX: Regex = Regex::new(r"^doctl\s+compute\s+ssh\s.+").expect("digital ocean SSH regex invalid");
-}
-
 impl SshWarpifyCommand {
     pub fn matches(command: &str) -> Option<SshWarpifyCommand> {
-        let command = if let Some(suffix) = command.strip_prefix("command ") {
-            suffix
-        } else {
-            command
-        };
-        if INTERACTIVE_SSH.is_match(command) {
-            Some(SshWarpifyCommand::Ssh)
-        } else if GCLOUD_REGEX.is_match(command) {
-            Some(SshWarpifyCommand::SshLike(SshLikeCommand::Gcloud))
-        } else if ELASTIC_BEANSTALK_REGEX.is_match(command) {
-            Some(SshWarpifyCommand::SshLike(SshLikeCommand::ElasticBeanstalk))
-        } else if DIGITAL_OCEAN_DROPLET_REGEX.is_match(command) {
-            Some(SshWarpifyCommand::SshLike(
-                SshLikeCommand::DigitalOceanDroplet,
-            ))
-        } else {
-            None
+        let tokens = normalized_command_tokens(command)?;
+        match tokens.as_slice() {
+            [command, arguments @ ..] if command == "ssh" && !arguments.is_empty() => {
+                Some(SshWarpifyCommand::Ssh)
+            }
+            [command, compute, ssh, arguments @ ..]
+                if command == "gcloud"
+                    && compute == "compute"
+                    && ssh == "ssh"
+                    && !arguments.is_empty() =>
+            {
+                Some(SshWarpifyCommand::SshLike(SshLikeCommand::Gcloud))
+            }
+            [command, ssh, arguments @ ..]
+                if command == "eb" && ssh == "ssh" && !arguments.is_empty() =>
+            {
+                Some(SshWarpifyCommand::SshLike(SshLikeCommand::ElasticBeanstalk))
+            }
+            [command, compute, ssh, arguments @ ..]
+                if command == "doctl"
+                    && compute == "compute"
+                    && ssh == "ssh"
+                    && !arguments.is_empty() =>
+            {
+                Some(SshWarpifyCommand::SshLike(
+                    SshLikeCommand::DigitalOceanDroplet,
+                ))
+            }
+            _ => None,
         }
     }
 }
@@ -216,15 +215,88 @@ pub fn parse_interactive_ssh_command(command: &str) -> Option<InteractiveSshComm
 }
 
 fn parse_ssh_command_tokens(command: &str) -> Option<Vec<String>> {
-    let Ok(tokens) = shell_words::split(command) else {
-        return None;
-    };
+    let tokens = normalized_command_tokens(command)?;
 
     // Cases: "", "ls", "ssh-add-key"
     if tokens.is_empty() || tokens[0] != "ssh" {
         return None;
     }
     Some(tokens)
+}
+
+/// Returns shell tokens with safe, non-executing prefixes removed and the
+/// executable reduced to its basename. This lets SSH detection recognize the
+/// command forms users commonly launch from a shell without treating an
+/// argument that merely contains "ssh" as an SSH process.
+fn normalized_command_tokens(command: &str) -> Option<Vec<String>> {
+    let tokens = shell_words::split(command.trim_start()).ok()?;
+    let mut command_index = 0;
+
+    while tokens
+        .get(command_index)
+        .is_some_and(|token| is_environment_assignment(token))
+    {
+        command_index += 1;
+    }
+
+    if tokens
+        .get(command_index)
+        .is_some_and(|token| executable_name(token) == "command")
+    {
+        command_index += 1;
+    }
+
+    if tokens
+        .get(command_index)
+        .is_some_and(|token| executable_name(token) == "env")
+    {
+        command_index += 1;
+        while let Some(token) = tokens.get(command_index) {
+            if is_environment_assignment(token)
+                || matches!(
+                    token.as_str(),
+                    "-i" | "--ignore-environment" | "-0" | "--null"
+                )
+            {
+                command_index += 1;
+            } else if token == "--" {
+                command_index += 1;
+                while tokens
+                    .get(command_index)
+                    .is_some_and(|token| is_environment_assignment(token))
+                {
+                    command_index += 1;
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let command_name = executable_name(tokens.get(command_index)?);
+    let mut normalized = tokens[command_index..].to_vec();
+    normalized[0] = command_name;
+    Some(normalized)
+}
+
+fn is_environment_assignment(token: &str) -> bool {
+    let Some((name, _)) = token.split_once('=') else {
+        return false;
+    };
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|character| character == '_' || character.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
+}
+
+fn executable_name(executable: &str) -> String {
+    let file_name = executable.rsplit(['/', '\\']).next().unwrap_or(executable);
+    file_name
+        .strip_suffix(".exe")
+        .unwrap_or(file_name)
+        .to_ascii_lowercase()
 }
 
 /// Creates an sftp command that copies a given local file into the pwd in the warpified ssh session.

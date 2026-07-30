@@ -62,8 +62,8 @@ use crate::ai::skills::SkillDescriptor;
 use crate::code_review::CodeReviewTelemetryEvent;
 use crate::notebooks::NotebookId;
 use crate::persistence::model::{
-    AgentConversationData, ContextWindowSegment, ConversationUsageMetadata, ModelTokenUsage,
-    PersistedAutoexecuteMode, ToolUsageMetadata,
+    AcpConversationData, AgentBackend, AgentConversationData, ContextWindowSegment,
+    ConversationUsageMetadata, ModelTokenUsage, PersistedAutoexecuteMode, ToolUsageMetadata,
 };
 use crate::persistence::ModelEvent;
 use crate::server::ids::ServerId;
@@ -226,6 +226,9 @@ pub struct AIConversation {
     /// credits spent, token usage, and tool usage.
     conversation_usage_metadata: ConversationUsageMetadata,
 
+    /// Runtime responsible for executing this conversation.
+    agent_backend: AgentBackend,
+
     /// The server-generated unique "token" for this conversation.
     ///
     /// This must be roundtripped to the server when sending follow-ups within a given conversation.
@@ -351,6 +354,18 @@ pub(crate) fn artifact_from_fork_proto(
 
 impl AIConversation {
     pub fn new(is_viewing_shared_session: bool, is_cli_agent_transcript: bool) -> Self {
+        Self::new_with_agent_backend(
+            is_viewing_shared_session,
+            is_cli_agent_transcript,
+            AgentBackend::default(),
+        )
+    }
+
+    pub fn new_with_agent_backend(
+        is_viewing_shared_session: bool,
+        is_cli_agent_transcript: bool,
+        agent_backend: AgentBackend,
+    ) -> Self {
         let root_task = Task::new_optimistic_root();
         Self {
             id: AIConversationId::new(),
@@ -364,6 +379,7 @@ impl AIConversation {
             status_error: None,
             has_opened_code_review: false,
             conversation_usage_metadata: ConversationUsageMetadata::default(),
+            agent_backend,
             server_conversation_token: None,
             task_id: None,
             forked_from_server_conversation_token: None,
@@ -522,6 +538,7 @@ impl AIConversation {
         };
 
         let (
+            agent_backend,
             server_conversation_token,
             forked_from_server_conversation_token,
             conversation_usage_metadata,
@@ -571,6 +588,7 @@ impl AIConversation {
                 AIConversationAutoexecuteMode::default()
             };
             (
+                data.agent_backend,
                 server_conversation_token,
                 forked_from_server_conversation_token,
                 conversation_usage_metadata,
@@ -590,6 +608,7 @@ impl AIConversation {
             )
         } else {
             (
+                AgentBackend::default(),
                 None,
                 None,
                 ConversationUsageMetadata::default(),
@@ -643,6 +662,7 @@ impl AIConversation {
             code_review: None,
             has_opened_code_review: false,
             conversation_usage_metadata,
+            agent_backend,
             server_conversation_token,
             task_id: run_id.as_deref().and_then(|id| id.parse().ok()),
             forked_from_server_conversation_token,
@@ -679,6 +699,25 @@ impl AIConversation {
 
     pub fn id(&self) -> AIConversationId {
         self.id
+    }
+
+    pub fn agent_backend(&self) -> &AgentBackend {
+        &self.agent_backend
+    }
+
+    /// Records a resumable ACP session ID.
+    ///
+    /// Returns `false` when called for a native provider conversation.
+    pub fn set_acp_session_id(&mut self, session_id: impl Into<String>) -> bool {
+        let AgentBackend::Acp(AcpConversationData {
+            session_id: current_session_id,
+            ..
+        }) = &mut self.agent_backend
+        else {
+            return false;
+        };
+        *current_session_id = Some(session_id.into());
+        true
     }
 
     pub fn current_context_tokens(&self) -> u32 {
@@ -2179,8 +2218,10 @@ impl AIConversation {
             });
         }
 
-        self.server_conversation_token =
-            Some(ServerConversationToken::new(init_event.conversation_id));
+        if matches!(self.agent_backend, AgentBackend::Provider) {
+            self.server_conversation_token =
+                Some(ServerConversationToken::new(init_event.conversation_id));
+        }
         let run_id = Some(init_event.run_id).filter(|s| !s.is_empty());
         self.task_id = run_id.as_deref().and_then(|id| id.parse().ok());
         Ok(())
@@ -3782,6 +3823,7 @@ impl AIConversation {
                 .filter_map(|task| task.source_for_persistence())
                 .collect(),
             conversation_data: AgentConversationData {
+                agent_backend: self.agent_backend.clone(),
                 server_conversation_token: self
                     .server_conversation_token
                     .clone()

@@ -79,6 +79,9 @@ pub enum FeatureFlag {
     /// Warp Agent Mode.
     AgentMode,
 
+    /// Enables local Agent Client Protocol (ACP) conversation backends.
+    AgentClientProtocol,
+
     /// Whether the user is part of the Warp Alpha Program (AI Trusted Testers).
     /// This is enabled automatically for local and dev builds.
     /// Collect conversation and input autodetection data for agent mode.
@@ -937,6 +940,7 @@ pub const LOCAL_FLAGS: &[FeatureFlag] = &[FeatureFlag::LocalClaudeCodexChildHarn
 /// Features enabled for the development team.  The expectation is that, over
 /// time, these will move on to PREVIEW_FLAGS before being launched.
 pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
+    FeatureFlag::AgentClientProtocol,
     FeatureFlag::ToggleBootstrapBlock,
     FeatureFlag::RemoveAutosuggestionDuringTabCompletions,
     FeatureFlag::ResizeFix,

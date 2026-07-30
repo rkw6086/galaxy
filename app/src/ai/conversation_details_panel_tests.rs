@@ -60,6 +60,7 @@ fn test_from_conversation_prefers_server_creator_profile() {
             "root-task",
             "/tmp/server-creator-profile",
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -224,6 +225,7 @@ fn test_from_task_includes_linked_directory_when_run_id_matches() {
             "root-task",
             directory,
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -368,6 +370,7 @@ fn test_from_conversation_populates_local_conversation_fields() {
             "root-task",
             directory,
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: None,
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,
@@ -440,6 +443,7 @@ fn test_from_task_includes_linked_directory_when_server_token_matches() {
             "root-task",
             directory,
             AgentConversationData {
+                agent_backend: Default::default(),
                 server_conversation_token: Some(server_token.to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

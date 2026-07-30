@@ -19,12 +19,13 @@ Exact-action credentials are safety and intent mechanisms. They let a script or 
 - Authorize every action by its exact typed identity in the app bridge.
 - Route close actions through normal Galaxy close behavior so existing app warnings for unsaved files, running processes, and shared sessions remain authoritative.
 - Ensure the two input-staging commands (`input.insert`, `input.replace`) never submit the buffer. No other input actions exist.
-- Keep the action surface at exactly 77 allowlisted actions. The Block, Auth, Drive, and History families are entirely absent.
+- Restrict terminal command control to existing visible sessions, idle-only execution, and compare-and-swap interruption using the exact active block ID.
+- Keep the action surface at exactly 80 allowlisted actions. The Block, Auth, Drive, and History families are entirely absent.
 - Fail closed on platforms without owner-only discovery and authenticated broker transport.
 - Preserve deterministic targeting so a request never silently mutates or reads the wrong target.
 ## Honest same-user limitations
 The broker authenticates the connecting process's OS user through kernel peer credentials. It does not prove that the caller is the official `galaxyctrl` binary, Galaxy-signed code, or a human-approved invocation. When Galaxy Control is enabled, any process running as the same OS user can:
-- Connect to the broker socket and request credentials for any of the 77 actions.
+- Connect to the broker socket and request credentials for any of the 80 actions, including terminal command execution and interruption.
 - Invoke `galaxyctrl` as a confused deputy.
 The architecture therefore provides a **meaningful hard boundary** against:
 - Other OS users.
@@ -98,7 +99,7 @@ Issuance flow:
 1. Client connects to the broker socket.
 2. Broker verifies peer UID.
 3. Client requests a credential naming one exact action.
-4. Broker checks Galaxy Control is enabled and the action is in the 77-action catalog.
+4. Broker checks Galaxy Control is enabled and the action is in the 80-action catalog.
 5. Broker mints a short-lived credential in memory.
 6. Client receives the credential.
 Constraints:
@@ -117,7 +118,7 @@ The broker authenticates the OS user, not the calling application. Any same-user
 - Exact-action credentials prevent accidental action overreach.
 - Short expiry limits the window for credential reuse.
 - Normal Galaxy close behavior preserves existing warnings for close actions.
-- No `input.run` action exists, so `galaxyctrl` cannot be used to execute terminal commands.
+- The Terminal family cannot read terminal output, execute over a busy active block, or interrupt a command without the exact current block ID.
 - Protected enablement prevents silent activation of the control surface.
 - App-side bridge enforcement re-checks every credential on every request.
 These mitigations route operations through intentional flows. They do not guarantee that arbitrary same-user software cannot cause Galaxy-visible actions.
@@ -151,16 +152,54 @@ Rules:
 - Index selectors resolve to concrete IDs before execution.
 - Session-scoped requests against non-terminal panes return `target_state_conflict`.
 ## Input staging safety
-The two input commands (`input.insert`, `input.replace`) only stage text in the terminal input buffer. They never submit the buffer, press Enter, or execute a command. No other input actions (`input.get`, `input.clear`, `input.mode.set`, `input.run`) exist in the 77-action catalog. Tests must prove no submission occurs.
+The two input commands (`input.insert`, `input.replace`) only stage text in the terminal input buffer. They never submit the buffer, press Enter, or execute a command. No other input actions (`input.get`, `input.clear`, `input.mode.set`, `input.run`) exist in the 80-action catalog. Tests must prove no submission occurs.
+## Terminal command control safety
+Terminal command control is a separate, explicit high-impact family:
+- `terminal.status` returns only active block identity and state, elapsed running time, and a bounded command summary produced by Galaxy's secret-obfuscating command path. It does not return terminal output, environment variables, or unredacted command text.
+- `terminal.execute` resolves an existing visible terminal-session target, rejects empty/NUL-containing/over-64-KiB commands, and submits only when the active block is idle and its staged input buffer is empty. It never clears or overwrites text the user has already typed, and it does not silently queue behind or append to a running command.
+- `terminal.interrupt` requires the caller to echo the exact current `block_id` from `terminal.status`. The app compares it against the active block immediately before emitting ETX and rejects stale IDs, preventing a delayed request from interrupting a newer command.
+- ACP's agent-safe MCP profile can provide `galaxy_terminal_interrupt_at`, which waits in the local bridge rather than relying on model polling. It repeatedly verifies the pinned target and expected block ID, exits harmlessly if that block stops or changes, and delegates the final mutation to the same exact-block `terminal.interrupt` contract.
+- ACP terminal tools reject panes already identified as remote or Wormhole targets, and the agent-safe execute surface rejects recognized SSH launches rather than deliberately extending delegated terminal control across another transport boundary.
+- The SSH detector covers direct, wrapped, and compound launch forms. It is a transport-boundary guard, not a general network sandbox: an otherwise authorized local command may still use other network clients or make its own network connections.
+
+Galaxy Control enablement is therefore authorization for same-user callers to execute commands in visible terminal sessions. Public channels keep the feature disabled until the user explicitly opts in. Exact-action credentials and the checks above reduce accidental overreach; they do not make a hostile same-user process safe.
+
+## ACP process boundary
+
+ACP adapters are trusted local programs, not a sandboxed extension:
+
+- Galaxy redacts known secrets from outbound ACP prompt text and image
+  attachment URIs while retaining the original local transcript.
+- The adapter starts with a small runtime environment allowlist plus only
+  explicitly configured variables; inherited provider keys, cloud credentials,
+  and proxy credentials are cleared.
+- Authentication uses methods advertised by the adapter. Galaxy does not
+  scrape or synthesize ChatGPT subscription tokens.
+- Persisted ACP session IDs are bound to the effective adapter launch identity
+  and are rejected when that identity changes.
+- Broad adapter-native permission requests are denied by default. Concrete
+  Galaxy terminal tools are separately gated, and command execution is not
+  advertised when the configured denylist cannot be enforced exactly.
+- ACP process startup is currently Unix-only. Non-Unix platforms fail before
+  spawning the adapter until the pinned SDK provides full process-tree
+  ownership, such as a Windows Job Object with kill-on-close behavior.
+
+These measures reduce accidental credential and authority leakage. They do not
+prevent a trusted adapter executable from reading files the current OS user can
+read. Allowing arbitrary terminal execution is also not a network-egress
+sandbox: a permitted local command can invoke scripts, interpreters, or other
+network clients that static SSH recognition cannot prove safe.
+
 ## Catalog boundary
-The catalog contains exactly 77 actions. The following families and actions are entirely absent:
+The catalog contains exactly 80 actions. The following families and actions are entirely absent:
 - The entire Block family (`block.list`, `block.inspect`, `block.output`).
 - The entire Auth family (`auth.status`, `auth.login`).
 - The entire Drive family (all `drive.*` actions).
 - The entire History family (`history.list`).
-- `input.get`, `input.clear`, `input.mode.set`, `input.run`, and any form of terminal command execution.
+- `input.get`, `input.clear`, `input.mode.set`, and `input.run`.
+- Terminal output reads, execution over a busy active block, interruption without an exact active block ID, and arbitrary process-kill primitives.
 - `file.list` and any local file content operations beyond the `file.open` app-state intent.
-- Accepted-command submission and agent-prompt submission.
+- Agent-prompt submission.
 - Debug, crash, heap-dump, token-copying, and developer-only helpers.
 - Arbitrary internal view dispatch by string.
 Adding a new action requires extending the catalog, implementing validation, adding a handler, and adding tests for credential denial and success behavior.
@@ -214,12 +253,13 @@ Avoid logging: bearer credentials, terminal output, command text, input buffer c
 ## Required controls before catalog expansion
 Before shipping each action family:
 - Galaxy Control must be enabled for any request to succeed.
-- The action has a documented entry in the 77-action catalog.
+- The action has a documented entry in the 80-action catalog.
 - The bridge verifies the credential grants that exact action.
 - Ambiguous, missing, and stale targets return structured errors.
 - Close actions flow through normal Galaxy close behavior.
 - Input actions never submit the buffer.
+- Terminal execution remains idle-only, and terminal interruption remains guarded by the exact active block ID.
 - Tests cover the allowed path and the wrong-action-credential denial path.
 - Logs and errors do not expose credentials, terminal contents, or sensitive settings.
 - The Block, Auth, Drive, and History families remain absent from the catalog.
-- The catalog contains exactly 77 default-authorized actions.
+- The catalog contains exactly 80 default-authorized actions.
