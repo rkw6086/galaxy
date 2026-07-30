@@ -7824,6 +7824,17 @@ impl SettingsWidget for ACPSettingsWidget {
             is_enabled,
             app,
         ));
+        let discovered = settings.acp_agents.value();
+        if let Some(agent) = discovered
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(settings.acp_agent_id.value()))
+        {
+            column.add_child(render_ai_setting_description(
+                &format!("Discovered {} ACP configuration option(s) for {}. Options are refreshed from the running agent and cached in settings.toml.", agent.config_options.len(), agent.name),
+                is_enabled,
+                app,
+            ));
+        }
         column.finish()
     }
 }

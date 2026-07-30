@@ -21,7 +21,7 @@ use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::server::server_api::ServerApiProvider;
-use crate::settings::{BedrockModelConfig, OpenAIModelConfig};
+use crate::settings::{AcpAgentSettings, BedrockModelConfig, OpenAIModelConfig};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
@@ -922,6 +922,7 @@ impl LLMPreferences {
         self.openai_provider_routing.clear();
 
         let settings = AISettings::as_ref(ctx);
+        self.inject_acp_models(ctx);
         if !*settings.openai_enabled.value() {
             return;
         }
@@ -1032,6 +1033,58 @@ impl LLMPreferences {
         }
 
         log::info!("[openai/litellm] Injected {total_injected} model(s) into available choices");
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn inject_acp_models(&mut self, ctx: &AppContext) {
+        let settings = AISettings::as_ref(ctx);
+        for agent in settings.acp_agents.value() {
+            let model_option = agent
+                .config_options
+                .iter()
+                .find(|option| option.category.as_deref() == Some("model"));
+            let Some(model_option) = model_option else { continue };
+            let secondary = agent.config_options.iter().filter(|option| {
+                matches!(option.category.as_deref(), Some("mode") | Some("thought_level"))
+            });
+            for value in &model_option.options {
+
+                let suffix = secondary
+                    .clone()
+                    .filter_map(|option| option.options.first().map(|v| v.name.clone()))
+                    .collect::<Vec<_>>();
+                let display_name = if suffix.is_empty() {
+                    value.name.clone()
+                } else {
+                    format!("{} ({})", value.name, suffix.join(", "))
+                };
+                let id = format!("acp:{}:{}={}", agent.id, model_option.id, value.value);
+                let info = LLMInfo {
+                    id: LLMId::from(id.as_str()),
+                    display_name,
+                    base_model_name: value.name.clone(),
+                        reasoning_level: None,
+                        usage_metadata: LLMUsageMetadata {
+                            request_multiplier: 1,
+                            credit_multiplier: None,
+                        },
+                        description: Some(agent.name.clone()),
+                        disable_reason: None,
+                        vision_supported: false,
+                        spec: None,
+                        provider: LLMProvider::Unknown,
+                        host_configs: HashMap::new(),
+                        discount_percentage: None,
+                        context_window: LLMContextWindow::default(),
+                    };
+                    self.models_by_feature.agent_mode.choices.push(info.clone());
+                    self.models_by_feature.coding.choices.push(info.clone());
+                    if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                        cli.choices.push(info);
+                    }
+                }
+            }
+        }
     }
 
     /// Ensures the default model ID in each feature's choices still points to

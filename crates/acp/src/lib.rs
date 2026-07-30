@@ -11,7 +11,8 @@ mod runtime;
 
 pub use agent_client_protocol::schema::v1::{
     ContentBlock, Cost, ImageContent, McpServer, McpServerHttp, McpServerStdio, PermissionOptionId,
-    SessionId, StopReason, TextContent, ToolCallId, ToolCallStatus,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue, SessionId,
+    StopReason, TextContent, ToolCallId, ToolCallStatus,
 };
 pub use config::{
     AcpAgentPreset, AcpLaunchConfig, AcpManagerConfig, CODEX_ACP_NPM_VERSION, OPENCODE_NPM_VERSION,

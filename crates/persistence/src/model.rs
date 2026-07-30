@@ -1,6 +1,6 @@
 //! These types are named after the database tables, and are used to represent specific queries.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
@@ -1046,6 +1046,7 @@ impl AgentBackend {
                 agent_id: acp.agent_id.clone(),
                 launch_fingerprint: acp.launch_fingerprint.clone(),
                 session_id: None,
+                config_values: acp.config_values.clone(),
             }),
         }
     }
@@ -1064,6 +1065,10 @@ pub struct AcpConversationData {
     pub launch_fingerprint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// ACP session configuration values selected for this conversation.
+    /// Values are opaque to Galaxy and are keyed by the agent-provided option ID.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub config_values: BTreeMap<String, serde_json::Value>,
 }
 
 // Serializes to `conversation_data` column in `agent_conversations`.

@@ -7,6 +7,22 @@ pub(crate) fn acp_model_id(agent_id: &str) -> String {
     format!("acp:{}", agent_id.trim().to_ascii_lowercase())
 }
 
+pub(crate) fn acp_selection_model_id(
+    agent_id: &str,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> String {
+    let suffix = values
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(";");
+    if suffix.is_empty() {
+        acp_model_id(agent_id)
+    } else {
+        format!("{}:{suffix}", acp_model_id(agent_id))
+    }
+}
+
 pub(crate) fn acp_launch_fingerprint(
     agent_id: &str,
     custom_command: &str,

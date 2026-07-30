@@ -1220,6 +1220,22 @@ impl BlocklistAIHistoryModel {
                     agent_id: agent_id.to_string(),
                     launch_fingerprint,
                     session_id: None,
+                    config_values: settings
+                        .acp_agents
+                        .value()
+                        .iter()
+                        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+                        .and_then(|agent| {
+                            agent
+                                .config_options
+                                .iter()
+                                .find(|option| option.category.as_deref() == Some("model"))
+                        })
+                        .map(|option| {
+                            std::iter::once((option.id.clone(), option.current_value.clone()))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 })
             } else {
                 AgentBackend::Provider

@@ -901,6 +901,50 @@ pub struct OpenAIProviderConfig {
 
 impl settings_value::SettingsValue for OpenAIProviderConfig {}
 
+/// Cached metadata and runtime session options for an ACP agent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+pub struct AcpAgentSettings {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub config_options: Vec<AcpConfigOptionSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+pub struct AcpConfigOptionSettings {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    pub kind: String,
+    #[serde(default)]
+    pub current_value: serde_json::Value,
+    #[serde(default)]
+    pub options: Vec<AcpConfigValueSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+pub struct AcpConfigValueSettings {
+    pub value: serde_json::Value,
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl settings_value::SettingsValue for AcpAgentSettings {}
+
+// Nested ACP discovery data is intentionally persisted as one setting so refreshes are atomic.
+
 define_settings_group!(AISettings, settings: [
     // If `false`, all AI features are disabled.
     is_any_ai_enabled: IsAnyAIEnabled {
@@ -1268,6 +1312,17 @@ define_settings_group!(AISettings, settings: [
         private: false,
         toml_path: "ai.acp.agent_args",
         description: "Arguments passed to the local Agent Client Protocol agent executable.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
+    // Cached ACP registry and runtime discovery data. Values are refreshed when the agent is queried.
+    acp_agents: AcpAgents {
+        type: Vec<AcpAgentSettings>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.agents",
+        description: "Cached ACP agent metadata, capabilities, and session configuration options.",
         feature_flag: FeatureFlag::AgentClientProtocol,
     }
     // Whether to use locally loaded AWS credentials for Bedrock-enabled requests.

@@ -8,11 +8,11 @@ use futures::stream::FusedStream as _;
 use futures::{FutureExt as _, StreamExt as _};
 use galaxy_acp::{
     AcpEvent, AcpPermissionPolicy, AcpRuntimeError, AcpSessionHandle, AcpSessionManager,
-    AcpSteeringOutcome, AcpTurnRequest, ContentBlock, McpServer, McpServerStdio, SessionId,
-    TextContent,
+    AcpSteeringOutcome, AcpTurnRequest, ContentBlock, McpServer, McpServerStdio,
+    SessionConfigOptionValue, SessionId, TextContent,
 };
 
-use super::launch::acp_model_id;
+use super::launch::acp_selection_model_id;
 use super::prompt::{prompt_content, GalaxyTerminalTools};
 use super::response_translator::AcpResponseTranslator;
 use crate::ai::agent::api::{self, RequestParams};
@@ -25,6 +25,7 @@ pub(crate) struct AcpSessionMetadata {
     pub(crate) session_id: Option<String>,
     pub(crate) can_load: bool,
     pub(crate) can_steer: bool,
+    pub(crate) config_options: Vec<galaxy_acp::SessionConfigOption>,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +122,15 @@ pub(crate) async fn acp_output_stream(
         mcp_servers.push(server);
     }
     let request = AcpTurnRequest {
+        config_values: backend
+            .config_values
+            .into_iter()
+            .filter_map(|(key, value)| {
+                serde_json::from_value::<SessionConfigOptionValue>(value)
+                    .ok()
+                    .map(|value| (key, value))
+            })
+            .collect(),
         conversation_key: conversation_id,
         session_id: backend.session_id.map(SessionId::from),
         cwd,
@@ -222,12 +232,18 @@ pub(crate) async fn acp_output_stream(
                         session_id,
                         can_load,
                         can_steer,
+                        ..
                     } = &event
                     {
                         if let Ok(mut metadata) = session_metadata.lock() {
                             metadata.session_id = Some(session_id.to_string());
                             metadata.can_load = *can_load;
                             metadata.can_steer = *can_steer;
+                        }
+                    }
+                    if let AcpEvent::ConfigOptions { options } = &event {
+                        if let Ok(mut metadata) = session_metadata.lock() {
+                            metadata.config_options = options.clone();
                         }
                     }
                     match translator.translate(event) {
@@ -272,7 +288,7 @@ fn response_translator(
         task_id,
         params.tasks.is_empty(),
         user_query,
-        acp_model_id(&backend.agent_id),
+        acp_selection_model_id(&backend.agent_id, &backend.config_values),
     )
 }
 

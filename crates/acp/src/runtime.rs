@@ -10,8 +10,9 @@ use agent_client_protocol::schema::v1::{
     AuthMethod, AuthMethodId, AuthenticateRequest, CancelNotification, ClientCapabilities,
     ContentBlock, Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest,
     McpServer, Meta, NewSessionRequest, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SessionId, SessionNotification,
-    SessionUpdate, StopReason, TextContent, ToolCallContent,
+    RequestPermissionRequest, RequestPermissionResponse, SessionConfigOption,
+    SessionConfigOptionValue, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, StopReason, TextContent, ToolCallContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -19,6 +20,7 @@ use agent_client_protocol::{
 };
 use async_channel::{Receiver, Sender};
 use futures::channel::oneshot;
+
 use futures::future::{self, Either, FutureExt as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -87,6 +89,8 @@ pub enum AcpSteeringOutcome {
 /// One prompt turn to run on an ACP session.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AcpTurnRequest {
+    /// Selected ACP session configuration values keyed by agent-provided option ID.
+    pub config_values: std::collections::BTreeMap<String, SessionConfigOptionValue>,
     /// Stable Galaxy-side key used to serialize turns for one conversation.
     pub conversation_key: String,
     /// Existing agent session to load. `None` creates a new session.
@@ -115,6 +119,7 @@ impl AcpTurnRequest {
         prompt: Vec<ContentBlock>,
     ) -> Self {
         Self {
+            config_values: std::collections::BTreeMap::new(),
             conversation_key: conversation_key.into(),
             session_id: None,
             cwd: cwd.into(),
@@ -302,6 +307,8 @@ impl std::fmt::Debug for AcpSessionManager {
 
 struct ManagerInner {
     command_tx: Sender<Command>,
+    agent_info: Mutex<Option<Implementation>>,
+    agent_capabilities: Mutex<Option<agent_client_protocol::schema::v1::AgentCapabilities>>,
     launch: AcpLaunchConfig,
     alive: AtomicBool,
     terminal_error: Mutex<Option<String>>,
@@ -323,12 +330,15 @@ impl AcpSessionManager {
         let (command_tx, command_rx) = async_channel::unbounded();
         let inner = Arc::new(ManagerInner {
             command_tx: command_tx.clone(),
+            agent_info: Mutex::new(None),
+            agent_capabilities: Mutex::new(None),
             launch: config.launch.clone(),
             alive: AtomicBool::new(true),
             terminal_error: Mutex::new(None),
         });
         let worker_state = Arc::downgrade(&inner);
 
+        let manager_for_worker = Arc::clone(&inner);
         thread::Builder::new()
             .name("galaxy-acp-runtime".to_owned())
             .spawn(move || {
@@ -336,6 +346,7 @@ impl AcpSessionManager {
                     config,
                     command_rx.clone(),
                     command_tx,
+                    manager_for_worker,
                 ));
                 let terminal_error = result
                     .err()
@@ -357,6 +368,48 @@ impl AcpSessionManager {
     #[must_use]
     pub fn launch_config(&self) -> &AcpLaunchConfig {
         &self.inner.launch
+    }
+
+    /// Returns the implementation metadata advertised during initialization.
+    #[must_use]
+    pub fn agent_info(&self) -> Option<Implementation> {
+        self.inner
+            .agent_info
+            .lock()
+            .ok()
+            .and_then(|info| info.clone())
+    }
+
+    /// Returns the capabilities advertised during initialization.
+    #[must_use]
+    pub fn agent_capabilities(
+        &self,
+    ) -> Option<agent_client_protocol::schema::v1::AgentCapabilities> {
+        self.inner
+            .agent_capabilities
+            .lock()
+            .ok()
+            .and_then(|capabilities| capabilities.clone())
+    }
+
+    /// Discovers the current configuration options by creating a temporary ACP session.
+    pub async fn discover_config_options(
+        &self,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServer>,
+    ) -> Result<Vec<SessionConfigOption>, AcpRuntimeError> {
+        self.ensure_alive()?;
+        let (result_tx, result_rx) = oneshot::channel();
+        self.inner
+            .command_tx
+            .send(Command::Discover {
+                cwd,
+                mcp_servers,
+                result: result_tx,
+            })
+            .await
+            .map_err(|_| self.closed_error())?;
+        result_rx.await.map_err(|_| self.closed_error())?
     }
 
     /// Whether the background worker and its ACP process are still available.
@@ -554,6 +607,7 @@ struct SessionSpec {
     cwd: PathBuf,
     additional_directories: Vec<PathBuf>,
     mcp_servers: Vec<McpServer>,
+    config_values: std::collections::BTreeMap<String, SessionConfigOptionValue>,
 }
 
 impl From<&AcpTurnRequest> for SessionSpec {
@@ -562,6 +616,7 @@ impl From<&AcpTurnRequest> for SessionSpec {
             cwd: request.cwd.clone(),
             additional_directories: request.additional_directories.clone(),
             mcp_servers: request.mcp_servers.clone(),
+            config_values: request.config_values.clone(),
         }
     }
 }
@@ -645,6 +700,11 @@ impl ConversationState {
 
 enum Command {
     RunTurn(PendingTurn),
+    Discover {
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServer>,
+        result: oneshot::Sender<Result<Vec<SessionConfigOption>, AcpRuntimeError>>,
+    },
     SessionOpened {
         conversation_key: String,
         turn_id: u64,
@@ -689,6 +749,8 @@ struct RuntimeActor {
     conversations: HashMap<String, ConversationState>,
     can_load: bool,
     can_steer: bool,
+    agent_info: Option<Implementation>,
+    agent_capabilities: agent_client_protocol::schema::v1::AgentCapabilities,
     cancellation_grace_period: std::time::Duration,
 }
 
@@ -717,6 +779,13 @@ impl RuntimeActor {
     fn handle_command(&mut self, command: Command) -> Result<ActorControl, AcpRuntimeError> {
         match command {
             Command::RunTurn(turn) => self.queue_turn(turn)?,
+            Command::Discover {
+                cwd,
+                mcp_servers,
+                result,
+            } => {
+                self.spawn_discovery(cwd, mcp_servers, result)?;
+            }
             Command::SessionOpened {
                 conversation_key,
                 turn_id,
@@ -798,6 +867,30 @@ impl RuntimeActor {
         self.start_active_turn(&key)
     }
 
+    fn spawn_discovery(
+        &self,
+        cwd: PathBuf,
+        mcp_servers: Vec<McpServer>,
+        result: oneshot::Sender<Result<Vec<SessionConfigOption>, AcpRuntimeError>>,
+    ) -> Result<(), AcpRuntimeError> {
+        let connection = self.connection.clone();
+        self.connection
+            .spawn(async move {
+                let response = connection
+                    .send_request(NewSessionRequest::new(cwd).mcp_servers(mcp_servers))
+                    .block_task()
+                    .await;
+                let result_value = match response {
+                    Ok(response) => Ok(response.config_options.unwrap_or_default()),
+                    Err(error) => Err(AcpRuntimeError::Protocol(error.to_string())),
+                };
+                let _ = result.send(result_value);
+                Ok(())
+            })
+            .map_err(|error| AcpRuntimeError::Protocol(error.to_string()))?;
+        Ok(())
+    }
+
     fn start_active_turn(&mut self, conversation_key: &str) -> Result<(), AcpRuntimeError> {
         let (ready, session_id, turn_id, request, events) = {
             let state = self
@@ -834,7 +927,14 @@ impl RuntimeActor {
                     permission_policy: request.permission_policy,
                 },
             );
-            emit_session_started(&events, session_id.clone(), self.can_load, self.can_steer);
+            emit_session_started(
+                &events,
+                session_id.clone(),
+                self.can_load,
+                self.can_steer,
+                self.agent_info.clone(),
+                self.agent_capabilities.clone(),
+            );
             self.spawn_prompt(
                 conversation_key.to_owned(),
                 turn_id,
@@ -883,6 +983,7 @@ impl RuntimeActor {
         let cwd = request.cwd.clone();
         let additional_directories = request.additional_directories.clone();
         let mcp_servers = request.mcp_servers.clone();
+        let config_values = request.config_values.clone();
         let suppressed_session_id = requested_session_id.clone();
         let replay_session_id = requested_session_id.clone();
         let spawn_result = self.connection.spawn(async move {
@@ -904,15 +1005,25 @@ impl RuntimeActor {
                         .map(|_| ())
                 },
                 move || async move {
-                    connection
+                    let response = connection
                         .send_request(
                             NewSessionRequest::new(cwd)
                                 .additional_directories(additional_directories)
                                 .mcp_servers(mcp_servers),
                         )
                         .block_task()
-                        .await
-                        .map(|response| response.session_id)
+                        .await?;
+                    for (config_id, value) in config_values {
+                        connection
+                            .send_request(SetSessionConfigOptionRequest::new(
+                                response.session_id.clone(),
+                                config_id,
+                                value,
+                            ))
+                            .block_task()
+                            .await?;
+                    }
+                    Ok(response.session_id)
                 },
             )
             .await;
@@ -989,7 +1100,14 @@ impl RuntimeActor {
                         permission_policy,
                     },
                 );
-                emit_session_started(&events, session_id.clone(), self.can_load, self.can_steer);
+                emit_session_started(
+                    &events,
+                    session_id.clone(),
+                    self.can_load,
+                    self.can_steer,
+                    self.agent_info.clone(),
+                    self.agent_capabilities.clone(),
+                );
                 if cancelled {
                     let _ = events.try_send(AcpEvent::Finished {
                         stop_reason: StopReason::Cancelled,
@@ -1331,6 +1449,7 @@ async fn run_connection_supervised(
     config: AcpManagerConfig,
     command_rx: Receiver<Command>,
     command_tx: Sender<Command>,
+    manager: Arc<ManagerInner>,
 ) -> Result<(), AcpRuntimeError> {
     let initialization_timeout = config.initialization_timeout;
     let authentication_timeout = config.authentication_timeout;
@@ -1343,6 +1462,7 @@ async fn run_connection_supervised(
             command_tx,
             initialized_tx,
             authenticated_tx,
+            manager,
         ),
         initialized_rx,
         authenticated_rx,
@@ -1410,6 +1530,7 @@ async fn run_connection(
     command_tx: Sender<Command>,
     initialized: oneshot::Sender<()>,
     authenticated: oneshot::Sender<()>,
+    manager: Arc<ManagerInner>,
 ) -> Result<(), AcpRuntimeError> {
     let router = Arc::new(EventRouter::default());
     let permission_handler = Arc::clone(&config.permission_handler);
@@ -1472,6 +1593,13 @@ async fn run_connection(
             }
 
             let _ = initialized.send(());
+            if let Ok(mut agent_info) = manager.agent_info.lock() {
+                *agent_info = response.agent_info.clone();
+            }
+            if let Ok(mut capabilities) = manager.agent_capabilities.lock() {
+                *capabilities = Some(response.agent_capabilities.clone());
+            }
+
             if let Some(request) = authentication_request(
                 &response.auth_methods,
                 config.launch.preferred_auth_method.as_ref(),
@@ -1481,6 +1609,7 @@ async fn run_connection(
                 connection.send_request(request).block_task().await?;
             }
             let _ = authenticated.send(());
+
             RuntimeActor {
                 connection,
                 command_rx,
@@ -1489,6 +1618,8 @@ async fn run_connection(
                 conversations: HashMap::new(),
                 can_load: response.agent_capabilities.load_session,
                 can_steer: supports_steering(&response),
+                agent_info: response.agent_info,
+                agent_capabilities: response.agent_capabilities,
                 cancellation_grace_period: config.cancellation_grace_period,
             }
             .run()
@@ -1604,6 +1735,9 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
                 output,
             })
         }
+        SessionUpdate::ConfigOptionUpdate(update) => Some(AcpEvent::ConfigOptions {
+            options: update.config_options,
+        }),
         SessionUpdate::UsageUpdate(usage) => Some(AcpEvent::Usage {
             used: usage.used,
             size: usage.size,
@@ -1615,7 +1749,6 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
         SessionUpdate::Plan(_)
         | SessionUpdate::AvailableCommandsUpdate(_)
         | SessionUpdate::CurrentModeUpdate(_)
-        | SessionUpdate::ConfigOptionUpdate(_)
         | SessionUpdate::SessionInfoUpdate(_) => None,
         // `SessionUpdate` is non-exhaustive so newer stable protocol updates
         // remain forward-compatible and can be added to the visible surface.
@@ -2084,9 +2217,13 @@ fn emit_session_started(
     session_id: SessionId,
     can_load: bool,
     can_steer: bool,
+    agent_info: Option<Implementation>,
+    capabilities: agent_client_protocol::schema::v1::AgentCapabilities,
 ) {
     let _ = events.try_send(AcpEvent::SessionStarted {
         session_id,
+        agent_info,
+        capabilities,
         can_load,
         can_steer,
     });
@@ -2115,7 +2252,8 @@ fn fail_queued_commands(command_rx: &Receiver<Command>, message: &str) {
             | Command::PromptFinished { .. }
             | Command::ForceTeardown { .. }
             | Command::ConnectionClosed
-            | Command::Shutdown => {}
+            | Command::Shutdown
+            | Command::Discover { .. } => {}
         }
     }
 }

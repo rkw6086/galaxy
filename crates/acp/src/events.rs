@@ -1,5 +1,6 @@
 use agent_client_protocol::schema::v1::{
-    ContentBlock, Cost, RequestPermissionRequest, SessionId, StopReason, ToolCallId, ToolCallStatus,
+    ContentBlock, Cost, RequestPermissionRequest, SessionConfigOption, SessionId, StopReason,
+    ToolCallId, ToolCallStatus,
 };
 
 use crate::PermissionDecision;
@@ -12,6 +13,10 @@ pub enum AcpEvent {
     SessionStarted {
         /// Agent-owned session identifier.
         session_id: SessionId,
+        /// Agent implementation metadata from initialization.
+        agent_info: Option<agent_client_protocol::schema::v1::Implementation>,
+        /// Agent capabilities from initialization.
+        capabilities: agent_client_protocol::schema::v1::AgentCapabilities,
         /// Whether this agent advertised `session/load`.
         can_load: bool,
         /// Whether this agent advertised the Codex `_session/steering`
@@ -65,6 +70,8 @@ pub enum AcpEvent {
         /// Bounded, control-sequence-free output supplied by this update.
         output: Option<String>,
     },
+    /// The agent advertised or changed the complete session configuration.
+    ConfigOptions { options: Vec<SessionConfigOption> },
     /// Context-window or cost information changed.
     Usage {
         /// Tokens currently in context.
