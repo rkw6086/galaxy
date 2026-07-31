@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use ai::api_keys::ApiKeyManager;
@@ -16,6 +16,7 @@ use warp_multi_agent_api as api;
 
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
+use crate::ai::acp::acp_selection_identity;
 use crate::ai::bedrock::models::get_effective_models;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
@@ -576,6 +577,8 @@ pub struct LLMPreferences {
     /// Used as a short-lived fallback while the fetched list is persisted to settings.
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
+    #[cfg(not(target_family = "wasm"))]
+    acp_selections: HashMap<LLMId, BTreeMap<String, serde_json::Value>>,
 }
 
 impl LLMPreferences {
@@ -640,6 +643,8 @@ impl LLMPreferences {
                     | AISettingsChangedEvent::OpenAIApiKey { .. }
                     | AISettingsChangedEvent::OpenAIModels { .. }
                     | AISettingsChangedEvent::OpenAIProviders { .. }
+                    | AISettingsChangedEvent::AcpAgents { .. }
+                    | AISettingsChangedEvent::AcpAgentId { .. }
             ) {
                 me.inject_bedrock_models(ctx);
                 me.inject_openai_models(ctx);
@@ -671,6 +676,8 @@ impl LLMPreferences {
             openai_provider_routing: HashMap::new(),
             #[cfg(not(target_family = "wasm"))]
             fetched_openai_models: Vec::new(),
+            #[cfg(not(target_family = "wasm"))]
+            acp_selections: HashMap::new(),
         };
 
         // Seed from any already-loaded local config (the async load emits
@@ -1037,54 +1044,95 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_acp_models(&mut self, ctx: &AppContext) {
+        self.acp_selections.clear();
         let settings = AISettings::as_ref(ctx);
         for agent in settings.acp_agents.value() {
             let model_option = agent
                 .config_options
                 .iter()
                 .find(|option| option.category.as_deref() == Some("model"));
-            let Some(model_option) = model_option else { continue };
+            let Some(model_option) = model_option else {
+                continue;
+            };
             let secondary = agent.config_options.iter().filter(|option| {
-                matches!(option.category.as_deref(), Some("mode") | Some("thought_level"))
+                matches!(
+                    option.category.as_deref(),
+                    Some("mode") | Some("thought_level")
+                )
             });
             for value in &model_option.options {
-
                 let suffix = secondary
                     .clone()
-                    .filter_map(|option| option.options.first().map(|v| v.name.clone()))
+                    .filter_map(|option| {
+                        option
+                            .options
+                            .iter()
+                            .find(|value| value.value == option.current_value)
+                            .or_else(|| option.options.first())
+                            .map(|value| value.name.clone())
+                    })
                     .collect::<Vec<_>>();
                 let display_name = if suffix.is_empty() {
                     value.name.clone()
                 } else {
                     format!("{} ({})", value.name, suffix.join(", "))
                 };
-                let id = format!("acp:{}:{}={}", agent.id, model_option.id, value.value);
+                let mut selection =
+                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options);
+                selection.insert(model_option.id.clone(), value.value.clone());
+                let id = acp_selection_identity(&agent.id, &selection);
+                let llm_id = LLMId::from(id.as_str());
+                self.acp_selections.insert(llm_id.clone(), selection);
                 let info = LLMInfo {
-                    id: LLMId::from(id.as_str()),
+                    id: llm_id,
                     display_name,
                     base_model_name: value.name.clone(),
-                        reasoning_level: None,
-                        usage_metadata: LLMUsageMetadata {
-                            request_multiplier: 1,
-                            credit_multiplier: None,
-                        },
-                        description: Some(agent.name.clone()),
-                        disable_reason: None,
-                        vision_supported: false,
-                        spec: None,
-                        provider: LLMProvider::Unknown,
-                        host_configs: HashMap::new(),
-                        discount_percentage: None,
-                        context_window: LLMContextWindow::default(),
-                    };
-                    self.models_by_feature.agent_mode.choices.push(info.clone());
-                    self.models_by_feature.coding.choices.push(info.clone());
-                    if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-                        cli.choices.push(info);
-                    }
+                    reasoning_level: None,
+                    usage_metadata: LLMUsageMetadata {
+                        request_multiplier: 1,
+                        credit_multiplier: None,
+                    },
+                    description: Some(agent.name.clone()),
+                    disable_reason: None,
+                    vision_supported: false,
+                    spec: None,
+                    provider: LLMProvider::Unknown,
+                    host_configs: HashMap::new(),
+                    discount_percentage: None,
+                    context_window: LLMContextWindow::default(),
+                };
+                self.models_by_feature.agent_mode.choices.push(info.clone());
+                self.models_by_feature.coding.choices.push(info.clone());
+                if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                    cli.choices.push(info);
                 }
             }
         }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub fn acp_selection_for_model(
+        &self,
+        model_id: &LLMId,
+    ) -> Option<&BTreeMap<String, serde_json::Value>> {
+        self.acp_selections.get(model_id)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub fn selected_acp_config_for_agent(
+        &self,
+        agent_name: &str,
+        ctx: &AppContext,
+    ) -> Option<BTreeMap<String, serde_json::Value>> {
+        let profile = AIExecutionProfilesModel::as_ref(ctx).active_profile(None, ctx);
+        let model_id = profile.data().base_model.as_ref()?;
+        let model = self.models_by_feature.agent_mode.info_for_id(model_id)?;
+        model
+            .description
+            .as_deref()
+            .is_some_and(|name| name.eq_ignore_ascii_case(agent_name))
+            .then(|| self.acp_selections.get(model_id).cloned())
+            .flatten()
     }
 
     /// Ensures the default model ID in each feature's choices still points to

@@ -28,6 +28,32 @@ fn acp_model_identity_names_the_agent_instead_of_a_provider_model() {
 }
 
 #[test]
+fn acp_selection_identity_uses_structured_values_in_key_order() {
+    let values = std::collections::BTreeMap::from([
+        ("mode".to_owned(), serde_json::json!("sol")),
+        ("model".to_owned(), serde_json::json!("gpt-5.4")),
+    ]);
+
+    assert_eq!(
+        acp_selection_identity("Codex", &values),
+        r#"acp:codex:mode="sol":model="gpt-5.4""#
+    );
+}
+
+#[test]
+fn acp_selection_identity_distinguishes_boolean_values() {
+    let enabled =
+        std::collections::BTreeMap::from([("thinking".to_owned(), serde_json::json!(true))]);
+    let disabled =
+        std::collections::BTreeMap::from([("thinking".to_owned(), serde_json::json!(false))]);
+
+    assert_ne!(
+        acp_selection_identity("Codex", &enabled),
+        acp_selection_identity("Codex", &disabled)
+    );
+}
+
+#[test]
 fn launch_fingerprint_is_stable_and_sensitive_to_the_full_configuration() {
     let executable = std::env::current_exe().unwrap();
     let command = executable.to_str().unwrap();
@@ -93,6 +119,7 @@ fn persisted_sessions_require_the_same_launch_identity() {
         agent_id: "custom".to_owned(),
         launch_fingerprint: acp_launch_fingerprint("custom", command, &args),
         session_id: Some("session-123".to_owned()),
+        config_values: Default::default(),
     };
 
     assert!(validate_acp_launch_identity(&backend, "custom", command, &launch).is_ok());
@@ -115,6 +142,7 @@ fn legacy_acp_sessions_fail_closed_without_a_launch_fingerprint() {
         agent_id: "codex".to_owned(),
         launch_fingerprint: String::new(),
         session_id: Some("legacy-session".to_owned()),
+        config_values: Default::default(),
     };
 
     let launch = AcpAgentPreset::Codex.launch_config();

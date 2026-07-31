@@ -54,6 +54,7 @@ use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
 };
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::execution_profiles::model_menu_items::available_model_menu_items;
+#[cfg(not(target_family = "wasm"))]
 use crate::ai::execution_profiles::profiles::{
     AIExecutionProfilesModel, AIExecutionProfilesModelEvent, ClientProfileId,
 };
@@ -689,6 +690,8 @@ pub struct AISettingsPageView {
     // Profile views
     profile_views: Vec<ViewHandle<ExecutionProfileView>>,
     add_profile_button: ViewHandle<ActionButton>,
+    #[cfg(not(target_family = "wasm"))]
+    refresh_acp_button: ViewHandle<ActionButton>,
 
     // Custom model router views (gated on FeatureFlag::CustomModelRouters)
     #[cfg(feature = "local_fs")]
@@ -698,6 +701,85 @@ pub struct AISettingsPageView {
 }
 
 impl AISettingsPageView {
+    #[cfg(not(target_family = "wasm"))]
+    fn refresh_acp_discovery(&mut self, ctx: &mut ViewContext<Self>) {
+        let (config, agent_id) = {
+            let settings = AISettings::as_ref(ctx);
+            let Ok(config) = crate::ai::acp::AcpRuntimeModel::discovery_config(settings) else {
+                log::warn!("Could not resolve ACP launch configuration for discovery");
+                return;
+            };
+            (config, settings.acp_agent_id.value().clone())
+        };
+        /*
+         * The settings borrow must end before updating the runtime singleton.
+         */
+        let manager =
+            match crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
+                runtime.begin_discovery(ctx);
+                runtime.manager(config)
+            }) {
+                Ok(manager) => manager,
+                Err(error) => {
+                    log::warn!("Could not start ACP discovery: {error}");
+                    return;
+                }
+            };
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"));
+        let _ = ctx.spawn(
+            async move { manager.discover_config_options(cwd, Vec::new()).await },
+            move |_me, result, ctx| {
+                match result {
+                    Ok(options) => {
+                        let option_count = options.len();
+                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                            if let Err(error) =
+                                crate::ai::acp::AcpRuntimeModel::upsert_agent_settings(
+                                    settings, &agent_id, options, ctx,
+                                )
+                            {
+                                log::warn!("Failed to persist ACP discovery: {error}");
+                            }
+                            if let Err(error) =
+                                crate::ai::acp::AcpRuntimeModel::mark_discovery_success(
+                                    settings,
+                                    &agent_id,
+                                    option_count,
+                                    ctx,
+                                )
+                            {
+                                log::warn!("Failed to persist ACP discovery metadata: {error}");
+                            }
+                        });
+                        crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
+                            runtime.finish_discovery_success(option_count, ctx);
+                        });
+                    }
+                    Err(error) => {
+                        log::warn!("ACP discovery failed: {error}");
+                        let error_text = error.to_string();
+                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                            if let Err(error) =
+                                crate::ai::acp::AcpRuntimeModel::mark_discovery_failure(
+                                    settings,
+                                    &agent_id,
+                                    error_text.clone(),
+                                    ctx,
+                                )
+                            {
+                                log::warn!("Failed to persist ACP discovery failure: {error}");
+                            }
+                        });
+                        crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
+                            runtime.finish_discovery_failure(error_text, ctx);
+                        });
+                    }
+                }
+                ctx.notify();
+            },
+        );
+    }
+
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
 
@@ -1673,6 +1755,15 @@ impl AISettingsPageView {
                 })
         });
 
+        #[cfg(not(target_family = "wasm"))]
+        let refresh_acp_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Discover ACP options", SecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAcpDiscovery)
+                })
+        });
+
         add_profile_button.update(ctx, |button, ctx| {
             button.set_disabled(!is_any_ai_enabled, ctx);
         });
@@ -1781,6 +1872,8 @@ impl AISettingsPageView {
             conversation_layout_dropdown,
             profile_views,
             add_profile_button,
+            #[cfg(not(target_family = "wasm"))]
+            refresh_acp_button,
             #[cfg(feature = "local_fs")]
             router_views,
             #[cfg(feature = "local_fs")]
@@ -2716,6 +2809,7 @@ pub enum AISettingsPageAction {
     ToggleBedrockCrossRegionInference,
     ToggleOpenAIEnabled,
     ToggleAcpEnabled,
+    RefreshAcpDiscovery,
     FetchOpenAIModels,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
@@ -3481,6 +3575,10 @@ impl TypedActionView for AISettingsPageView {
                     });
                     ctx.notify();
                 }
+            }
+            AISettingsPageAction::RefreshAcpDiscovery => {
+                #[cfg(not(target_family = "wasm"))]
+                self.refresh_acp_discovery(ctx);
             }
             AISettingsPageAction::FetchOpenAIModels => {
                 // Trigger a fetch of models from the LiteLLM endpoint
@@ -7592,6 +7690,8 @@ struct ACPSettingsWidget {
     agent_id_editor: ViewHandle<EditorView>,
     command_editor: ViewHandle<EditorView>,
     args_editor: ViewHandle<EditorView>,
+    #[cfg(not(target_family = "wasm"))]
+    refresh_button: ViewHandle<ActionButton>,
 }
 
 impl ACPSettingsWidget {
@@ -7653,6 +7753,15 @@ impl ACPSettingsWidget {
             }
         });
 
+        #[cfg(not(target_family = "wasm"))]
+        let refresh_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Discover ACP options", SecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAcpDiscovery);
+                })
+        });
+
         for editor in [
             agent_id_editor.clone(),
             command_editor.clone(),
@@ -7683,6 +7792,8 @@ impl ACPSettingsWidget {
             agent_id_editor,
             command_editor,
             args_editor,
+            #[cfg(not(target_family = "wasm"))]
+            refresh_button,
         }
     }
 
@@ -7772,6 +7883,11 @@ impl SettingsWidget for ACPSettingsWidget {
         let is_enabled = *settings.acp_enabled.value();
         let mut column = Flex::column().with_spacing(16.);
 
+        #[cfg(not(target_family = "wasm"))]
+        let discovery_state = crate::ai::acp::AcpRuntimeModel::as_ref(app)
+            .discovery_state()
+            .clone();
+
         column.add_child(build_sub_header(appearance, "Agent Client Protocol", None).finish());
         column.add_child(render_ai_setting_toggle::<AcpEnabled>(
             "Use an ACP agent for new conversations",
@@ -7824,13 +7940,61 @@ impl SettingsWidget for ACPSettingsWidget {
             is_enabled,
             app,
         ));
+        #[cfg(not(target_family = "wasm"))]
+        column.add_child(self.refresh_button.as_ref(app).render(app));
+        #[cfg(not(target_family = "wasm"))]
+        match discovery_state {
+            crate::ai::acp::AcpDiscoveryState::Idle => {}
+            crate::ai::acp::AcpDiscoveryState::Running => {
+                column.add_child(render_ai_setting_description(
+                    "Discovering ACP configuration options...",
+                    is_enabled,
+                    app,
+                ));
+            }
+            crate::ai::acp::AcpDiscoveryState::Succeeded { option_count } => {
+                column.add_child(render_ai_setting_description(
+                    format!("ACP discovery succeeded with {option_count} configuration option(s)."),
+                    is_enabled,
+                    app,
+                ));
+            }
+            crate::ai::acp::AcpDiscoveryState::Failed { message } => {
+                column.add_child(render_ai_setting_description(
+                    format!("ACP discovery failed: {message}. Cached options were retained."),
+                    is_enabled,
+                    app,
+                ));
+            }
+        }
         let discovered = settings.acp_agents.value();
         if let Some(agent) = discovered
             .iter()
             .find(|agent| agent.id.eq_ignore_ascii_case(settings.acp_agent_id.value()))
         {
+            if let Some(timestamp) = &agent.discovery_timestamp {
+                column.add_child(render_ai_setting_description(
+                    format!("Last ACP discovery attempt: {timestamp}"),
+                    is_enabled,
+                    app,
+                ));
+            }
+            if let Some(source) = &agent.discovery_source {
+                column.add_child(render_ai_setting_description(
+                    format!("Discovery source: {source}"),
+                    is_enabled,
+                    app,
+                ));
+            }
+            if let Some(error) = &agent.discovery_error {
+                column.add_child(render_ai_setting_description(
+                    format!("Last discovery error: {error}. Cached options are retained."),
+                    is_enabled,
+                    app,
+                ));
+            }
             column.add_child(render_ai_setting_description(
-                &format!("Discovered {} ACP configuration option(s) for {}. Options are refreshed from the running agent and cached in settings.toml.", agent.config_options.len(), agent.name),
+                format!("Discovered {} ACP configuration option(s) for {}. Options are refreshed from the running agent and cached in settings.toml.", agent.config_options.len(), agent.name),
                 is_enabled,
                 app,
             ));

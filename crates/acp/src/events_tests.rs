@@ -1,4 +1,6 @@
-use agent_client_protocol::schema::v1::{ContentBlock, SessionId, StopReason, TextContent};
+use agent_client_protocol::schema::v1::{
+    AgentCapabilities, ContentBlock, SessionId, StopReason, TextContent,
+};
 
 use super::*;
 
@@ -6,6 +8,8 @@ use super::*;
 fn session_started_exposes_agent_capabilities() {
     let event = AcpEvent::SessionStarted {
         session_id: SessionId::new("session-1"),
+        agent_info: None,
+        capabilities: AgentCapabilities::default(),
         can_load: true,
         can_steer: false,
     };
@@ -14,6 +18,8 @@ fn session_started_exposes_agent_capabilities() {
         event,
         AcpEvent::SessionStarted {
             session_id: SessionId::new("session-1"),
+            agent_info: None,
+            capabilities: AgentCapabilities::default(),
             can_load: true,
             can_steer: false,
         }

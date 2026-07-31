@@ -39,6 +39,8 @@ use crate::ai::agent::{
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::llms::LLMPreferences;
 use crate::input_suggestions::HistoryOrder;
 use crate::persistence::model::{
     AcpConversationData, AgentBackend, AgentConversation, AgentConversationData,
@@ -1225,15 +1227,16 @@ impl BlocklistAIHistoryModel {
                         .value()
                         .iter()
                         .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
-                        .and_then(|agent| {
-                            agent
-                                .config_options
-                                .iter()
-                                .find(|option| option.category.as_deref() == Some("model"))
-                        })
-                        .map(|option| {
-                            std::iter::once((option.id.clone(), option.current_value.clone()))
-                                .collect()
+                        .map(|agent| {
+                            #[cfg(not(target_family = "wasm"))]
+                            if let Some(selection) = LLMPreferences::as_ref(ctx)
+                                .selected_acp_config_for_agent(&agent.name, ctx)
+                            {
+                                return selection;
+                            }
+                            crate::ai::acp::AcpRuntimeModel::current_config_values(
+                                &agent.config_options,
+                            )
                         })
                         .unwrap_or_default(),
                 })

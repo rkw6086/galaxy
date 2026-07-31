@@ -10,9 +10,10 @@ mod permissions;
 mod runtime;
 
 pub use agent_client_protocol::schema::v1::{
-    ContentBlock, Cost, ImageContent, McpServer, McpServerHttp, McpServerStdio, PermissionOptionId,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue, SessionId,
-    StopReason, TextContent, ToolCallId, ToolCallStatus,
+    AgentCapabilities, ContentBlock, Cost, ImageContent, McpServer, McpServerHttp, McpServerStdio,
+    PermissionOptionId, SessionConfigKind as SessionConfigOptionType, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOption,
+    SessionConfigSelectOptions, SessionId, StopReason, TextContent, ToolCallId, ToolCallStatus,
 };
 pub use config::{
     AcpAgentPreset, AcpLaunchConfig, AcpManagerConfig, CODEX_ACP_NPM_VERSION, OPENCODE_NPM_VERSION,

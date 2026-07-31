@@ -12,7 +12,7 @@ use galaxy_acp::{
     SessionConfigOptionValue, SessionId, TextContent,
 };
 
-use super::launch::acp_selection_model_id;
+use super::launch::acp_selection_identity;
 use super::prompt::{prompt_content, GalaxyTerminalTools};
 use super::response_translator::AcpResponseTranslator;
 use crate::ai::agent::api::{self, RequestParams};
@@ -139,6 +139,7 @@ pub(crate) async fn acp_output_stream(
         mcp_servers,
         auto_approve_permissions,
         permission_policy,
+        prompt_capabilities: Default::default(),
     };
     let (session, events) = match manager.run_turn(request) {
         Ok(turn) => turn,
@@ -288,7 +289,7 @@ fn response_translator(
         task_id,
         params.tasks.is_empty(),
         user_query,
-        acp_selection_model_id(&backend.agent_id, &backend.config_values),
+        acp_selection_identity(&backend.agent_id, &backend.config_values),
     )
 }
 

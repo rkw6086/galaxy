@@ -274,7 +274,7 @@ fn acp_backend_model_id(backend: &AgentBackend) -> Option<LLMId> {
     match backend {
         AgentBackend::Provider => None,
         AgentBackend::Acp(acp) => {
-            Some(format!("acp:{}", acp.agent_id.trim().to_ascii_lowercase()).into())
+            Some(crate::ai::acp::acp_selection_identity(&acp.agent_id, &acp.config_values).into())
         }
     }
 }
@@ -3826,14 +3826,47 @@ impl BlocklistAIController {
                 };
 
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
-                let Some(conversation) = history_model.as_ref(ctx).conversation(&conversation_id)
+                let Some((agent_id, new_exchange_ids, exchanges)) = history_model
+                    .as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .map(|conversation| {
+                        (
+                            match conversation.agent_backend() {
+                                AgentBackend::Acp(acp) => Some(acp.agent_id.clone()),
+                                AgentBackend::Provider => None,
+                            },
+                            conversation
+                                .new_exchange_ids_for_response(&stream_id)
+                                .collect::<Vec<_>>(),
+                            conversation.clone(),
+                        )
+                    })
                 else {
                     log::warn!("Conversation not found.");
                     return;
                 };
-                let new_exchange_ids: Vec<_> = conversation
-                    .new_exchange_ids_for_response(&stream_id)
-                    .collect();
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(metadata) = response_stream.as_ref(ctx).acp_session_metadata() {
+                    if !metadata.config_options.is_empty() {
+                        if let Some(agent_id) = &agent_id {
+                            crate::settings::AISettings::handle(ctx).update(
+                                ctx,
+                                |settings, ctx| {
+                                    if let Err(error) =
+                                        crate::ai::acp::AcpRuntimeModel::persist_runtime_options(
+                                            settings,
+                                            agent_id,
+                                            &metadata.config_options,
+                                            ctx,
+                                        )
+                                    {
+                                        log::warn!("Failed to persist ACP runtime config: {error}");
+                                    }
+                                },
+                            );
+                        }
+                    }
+                }
                 log::info!(
                     "[bedrock-debug] AfterStreamFinished: stream_id={:?}, conversation_id={:?}, new_exchange_ids count={}",
                     stream_id, conversation_id, new_exchange_ids.len()
@@ -3843,7 +3876,7 @@ impl BlocklistAIController {
                 let mut actions_to_queue = vec![];
 
                 for new_exchange_id in new_exchange_ids {
-                    let Some(exchange) = conversation.exchange_with_id(new_exchange_id) else {
+                    let Some(exchange) = exchanges.exchange_with_id(new_exchange_id) else {
                         log::warn!("Exchange not found.");
                         return;
                     };

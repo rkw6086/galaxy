@@ -916,6 +916,15 @@ pub struct AcpAgentSettings {
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub config_options: Vec<AcpConfigOptionSettings>,
+    /// RFC 3339 timestamp for the last discovery attempt.
+    #[serde(default)]
+    pub discovery_timestamp: Option<String>,
+    /// Identifier for the source of the cached discovery data.
+    #[serde(default)]
+    pub discovery_source: Option<String>,
+    /// Actionable error from the last failed discovery attempt.
+    #[serde(default)]
+    pub discovery_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]

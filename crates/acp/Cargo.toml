@@ -9,6 +9,7 @@ agent-client-protocol.workspace = true
 async-channel.workspace = true
 async-io.workspace = true
 futures.workspace = true
+log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

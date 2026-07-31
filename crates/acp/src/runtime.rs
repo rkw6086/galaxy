@@ -8,11 +8,12 @@ use std::{io, thread};
 
 use agent_client_protocol::schema::v1::{
     AuthMethod, AuthMethodId, AuthenticateRequest, CancelNotification, ClientCapabilities,
-    ContentBlock, Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest,
-    McpServer, Meta, NewSessionRequest, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    ClientSessionCapabilities, CloseSessionRequest, ContentBlock, DeleteSessionRequest,
+    Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest, McpServer, Meta,
+    NewSessionRequest, PromptRequest, PromptResponse, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SessionConfigOption,
-    SessionConfigOptionValue, SessionId, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, StopReason, TextContent, ToolCallContent,
+    SessionConfigOptionValue, SessionConfigOptionsCapabilities, SessionId, SessionNotification,
+    SessionUpdate, SetSessionConfigOptionRequest, StopReason, TextContent, ToolCallContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -20,7 +21,6 @@ use agent_client_protocol::{
 };
 use async_channel::{Receiver, Sender};
 use futures::channel::oneshot;
-
 use futures::future::{self, Either, FutureExt as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -37,6 +37,7 @@ static NEXT_PERMISSION_ID: AtomicU64 = AtomicU64::new(1);
 const MAX_VISIBLE_TOOL_OUTPUT_BYTES: usize = 32 * 1024;
 const TOOL_OUTPUT_TRUNCATION_MARKER: &str = "\n… [tool output truncated by Galaxy]";
 const STEERING_TIMEOUT: Duration = Duration::from_secs(5);
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Errors returned by the ACP runtime's public control surface.
 #[derive(Debug, Error)]
@@ -73,6 +74,9 @@ pub enum AcpRuntimeError {
     /// Agent-owned authentication did not complete in time.
     #[error("ACP agent did not authenticate within {0:?}")]
     AuthenticationTimeout(Duration),
+    /// Temporary discovery did not complete in time.
+    #[error("ACP configuration discovery timed out after {0:?}")]
+    DiscoveryTimeout(Duration),
 }
 
 /// Result of the Codex `_session/steering` extension.
@@ -108,6 +112,8 @@ pub struct AcpTurnRequest {
     pub auto_approve_permissions: bool,
     /// Category permissions inherited from Galaxy's active execution profile.
     pub permission_policy: AcpPermissionPolicy,
+    /// Prompt capabilities advertised by the agent.
+    pub prompt_capabilities: agent_client_protocol::schema::v1::PromptCapabilities,
 }
 
 impl AcpTurnRequest {
@@ -128,6 +134,7 @@ impl AcpTurnRequest {
             mcp_servers: Vec::new(),
             auto_approve_permissions: false,
             permission_policy: AcpPermissionPolicy::default(),
+            prompt_capabilities: Default::default(),
         }
     }
 
@@ -214,6 +221,26 @@ impl AcpTurnRequest {
                         server.command.display()
                     )));
                 }
+            }
+        }
+        for content in &self.prompt {
+            match content {
+                ContentBlock::Image(_) if !self.prompt_capabilities.image => {
+                    return Err(AcpRuntimeError::InvalidTurn(
+                        "agent does not advertise image prompt support".to_owned(),
+                    ));
+                }
+                ContentBlock::Audio(_) if !self.prompt_capabilities.audio => {
+                    return Err(AcpRuntimeError::InvalidTurn(
+                        "agent does not advertise audio prompt support".to_owned(),
+                    ));
+                }
+                ContentBlock::Resource(_) if !self.prompt_capabilities.embedded_context => {
+                    return Err(AcpRuntimeError::InvalidTurn(
+                        "agent does not advertise embedded context support".to_owned(),
+                    ));
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -709,7 +736,7 @@ enum Command {
         conversation_key: String,
         turn_id: u64,
         requested_session_id: Option<SessionId>,
-        result: Result<SessionId, agent_client_protocol::Error>,
+        result: Result<(SessionId, Vec<SessionConfigOption>), agent_client_protocol::Error>,
     },
     PromptFinished {
         conversation_key: String,
@@ -874,14 +901,52 @@ impl RuntimeActor {
         result: oneshot::Sender<Result<Vec<SessionConfigOption>, AcpRuntimeError>>,
     ) -> Result<(), AcpRuntimeError> {
         let connection = self.connection.clone();
+        let can_delete = self
+            .agent_capabilities
+            .session_capabilities
+            .delete
+            .is_some();
+        let can_close = self.agent_capabilities.session_capabilities.close.is_some();
         self.connection
             .spawn(async move {
-                let response = connection
+                let request = connection
                     .send_request(NewSessionRequest::new(cwd).mcp_servers(mcp_servers))
-                    .block_task()
-                    .await;
+                    .block_task();
+                let response = match future::select(
+                    Box::pin(request),
+                    Box::pin(async_io::Timer::after(DISCOVERY_TIMEOUT)),
+                )
+                .await
+                {
+                    Either::Left((response, _)) => response,
+                    Either::Right((_, _)) => {
+                        let _ =
+                            result.send(Err(AcpRuntimeError::DiscoveryTimeout(DISCOVERY_TIMEOUT)));
+                        return Ok(());
+                    }
+                };
                 let result_value = match response {
-                    Ok(response) => Ok(response.config_options.unwrap_or_default()),
+                    Ok(response) => {
+                        let session_id = response.session_id;
+                        let options = response.config_options.unwrap_or_default();
+                        let cleanup = if can_delete {
+                            connection
+                                .send_request(DeleteSessionRequest::new(session_id.clone()))
+                                .block_task()
+                                .await
+                                .map(|_| ())
+                        } else if can_close {
+                            connection
+                                .send_request(CloseSessionRequest::new(session_id.clone()))
+                                .block_task()
+                                .await
+                                .map(|_| ())
+                        } else {
+                            Ok(())
+                        };
+                        let _ = cleanup;
+                        Ok(options)
+                    }
                     Err(error) => Err(AcpRuntimeError::Protocol(error.to_string())),
                 };
                 let _ = result.send(result_value);
@@ -984,6 +1049,11 @@ impl RuntimeActor {
         let additional_directories = request.additional_directories.clone();
         let mcp_servers = request.mcp_servers.clone();
         let config_values = request.config_values.clone();
+        let can_additional_directories = self
+            .agent_capabilities
+            .session_capabilities
+            .additional_directories
+            .is_some();
         let suppressed_session_id = requested_session_id.clone();
         let replay_session_id = requested_session_id.clone();
         let spawn_result = self.connection.spawn(async move {
@@ -991,39 +1061,57 @@ impl RuntimeActor {
             let load_cwd = cwd.clone();
             let load_additional_directories = additional_directories.clone();
             let load_mcp_servers = mcp_servers.clone();
-            let result = open_session(
+            let load_config_values = config_values.clone();
+            let result = open_session_with_options(
                 requested_session_id.clone(),
                 move |session_id| async move {
-                    load_connection
+                    let loaded_session_id = session_id.clone();
+                    let response = load_connection
                         .send_request(
-                            LoadSessionRequest::new(session_id, load_cwd)
-                                .additional_directories(load_additional_directories)
+                            LoadSessionRequest::new(session_id.clone(), load_cwd)
+                                .additional_directories(if can_additional_directories {
+                                    load_additional_directories
+                                } else {
+                                    Vec::new()
+                                })
                                 .mcp_servers(load_mcp_servers),
                         )
                         .block_task()
-                        .await
-                        .map(|_| ())
+                        .await?;
+                    let options = response.config_options.unwrap_or_default();
+                    let applied = valid_config_values(&options, &load_config_values);
+                    let options = apply_config_values(
+                        &load_connection,
+                        loaded_session_id.clone(),
+                        options,
+                        applied,
+                    )
+                    .await?;
+                    Ok((loaded_session_id, options))
                 },
                 move || async move {
                     let response = connection
                         .send_request(
                             NewSessionRequest::new(cwd)
-                                .additional_directories(additional_directories)
+                                .additional_directories(if can_additional_directories {
+                                    additional_directories
+                                } else {
+                                    Vec::new()
+                                })
                                 .mcp_servers(mcp_servers),
                         )
                         .block_task()
                         .await?;
-                    for (config_id, value) in config_values {
-                        connection
-                            .send_request(SetSessionConfigOptionRequest::new(
-                                response.session_id.clone(),
-                                config_id,
-                                value,
-                            ))
-                            .block_task()
-                            .await?;
-                    }
-                    Ok(response.session_id)
+                    let mut config_options = response.config_options.clone().unwrap_or_default();
+                    let applied = valid_config_values(&config_options, &config_values);
+                    config_options = apply_config_values(
+                        &connection,
+                        response.session_id.clone(),
+                        config_options,
+                        applied,
+                    )
+                    .await?;
+                    Ok((response.session_id, config_options))
                 },
             )
             .await;
@@ -1054,7 +1142,7 @@ impl RuntimeActor {
         conversation_key: &str,
         turn_id: u64,
         requested_session_id: Option<&SessionId>,
-        result: Result<SessionId, agent_client_protocol::Error>,
+        result: Result<(SessionId, Vec<SessionConfigOption>), agent_client_protocol::Error>,
     ) -> Result<(), AcpRuntimeError> {
         let is_current = self
             .conversations
@@ -1066,7 +1154,7 @@ impl RuntimeActor {
         }
 
         match result {
-            Ok(session_id) => {
+            Ok((session_id, config_options)) => {
                 if let Some(requested_session_id) = requested_session_id {
                     if requested_session_id != &session_id {
                         self.router.remove_route(requested_session_id, turn_id);
@@ -1108,6 +1196,9 @@ impl RuntimeActor {
                     self.agent_info.clone(),
                     self.agent_capabilities.clone(),
                 );
+                let _ = events.try_send(AcpEvent::ConfigOptions {
+                    options: config_options,
+                });
                 if cancelled {
                     let _ = events.try_send(AcpEvent::Finished {
                         stop_reason: StopReason::Cancelled,
@@ -1572,8 +1663,18 @@ async fn run_connection(
             meta.insert("terminal_output".to_owned(), serde_json::Value::Bool(true));
             let response = connection
                 .send_request(
-                    InitializeRequest::new(ProtocolVersion::V1)
-                        .client_capabilities(ClientCapabilities::new().meta(meta))
+                        InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(
+                            ClientCapabilities::new()
+                                .session(
+                                    ClientSessionCapabilities::new().config_options(
+                                        SessionConfigOptionsCapabilities::new().boolean(
+                                            agent_client_protocol::schema::v1::BooleanConfigOptionCapabilities::new(),
+                                        ),
+                                    ),
+                                )
+                                .meta(meta),
+                        )
                         .client_info(
                             Implementation::new(config.client_name, config.client_version)
                                 .title("Galaxy"),
@@ -2165,6 +2266,89 @@ fn event_from_content(content: ContentBlock, thought: bool) -> AcpEvent {
     }
 }
 
+fn valid_config_values(
+    options: &[SessionConfigOption],
+    values: &std::collections::BTreeMap<String, SessionConfigOptionValue>,
+) -> std::collections::BTreeMap<String, SessionConfigOptionValue> {
+    values
+        .iter()
+        .filter(|(id, value)| {
+            options.iter().any(|option| {
+                option.id.to_string() == **id && config_value_is_advertised(option, value)
+            })
+        })
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect()
+}
+
+fn config_value_is_advertised(
+    option: &SessionConfigOption,
+    value: &SessionConfigOptionValue,
+) -> bool {
+    match (&option.kind, value) {
+        (
+            agent_client_protocol::schema::v1::SessionConfigKind::Boolean(boolean),
+            SessionConfigOptionValue::Boolean { value },
+        ) => {
+            let _ = boolean;
+            let _ = value;
+            true
+        }
+        (agent_client_protocol::schema::v1::SessionConfigKind::Select(select), value) => {
+            let Some(value_id) = value.as_value_id() else {
+                return false;
+            };
+            match &select.options {
+                agent_client_protocol::schema::v1::SessionConfigSelectOptions::Ungrouped(
+                    values,
+                ) => values.iter().any(|candidate| candidate.value == *value_id),
+                agent_client_protocol::schema::v1::SessionConfigSelectOptions::Grouped(groups) => {
+                    groups
+                        .iter()
+                        .flat_map(|group| &group.options)
+                        .any(|candidate| candidate.value == *value_id)
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+async fn apply_config_values(
+    connection: &ConnectionTo<Agent>,
+    session_id: SessionId,
+    mut options: Vec<SessionConfigOption>,
+    values: std::collections::BTreeMap<String, SessionConfigOptionValue>,
+) -> Result<Vec<SessionConfigOption>, agent_client_protocol::Error> {
+    for (config_id, value) in values {
+        let Some(option) = options
+            .iter()
+            .find(|option| option.id.to_string() == config_id)
+        else {
+            continue;
+        };
+        if !config_value_is_advertised(option, &value) {
+            continue;
+        }
+        let response = connection
+            .send_request(SetSessionConfigOptionRequest::new(
+                session_id.clone(),
+                config_id,
+                value,
+            ))
+            .block_task()
+            .await;
+        match response {
+            Ok(response) => options = response.config_options,
+            Err(error) => {
+                log::warn!("ACP rejected persisted configuration option: {error}");
+            }
+        }
+    }
+    Ok(options)
+}
+
 fn supports_steering(response: &InitializeResponse) -> bool {
     response
         .meta
@@ -2194,6 +2378,7 @@ fn restorable_session_id(
     }
 }
 
+#[cfg(test)]
 async fn open_session<Load, LoadFuture, Create, CreateFuture>(
     requested_session_id: Option<SessionId>,
     load: Load,
@@ -2208,6 +2393,27 @@ where
     if let Some(session_id) = requested_session_id {
         load(session_id.clone()).await?;
         return Ok(session_id);
+    }
+    create().await
+}
+
+async fn open_session_with_options<Load, LoadFuture, Create, CreateFuture>(
+    requested_session_id: Option<SessionId>,
+    load: Load,
+    create: Create,
+) -> Result<(SessionId, Vec<SessionConfigOption>), agent_client_protocol::Error>
+where
+    Load: FnOnce(SessionId) -> LoadFuture,
+    LoadFuture: Future<
+        Output = Result<(SessionId, Vec<SessionConfigOption>), agent_client_protocol::Error>,
+    >,
+    Create: FnOnce() -> CreateFuture,
+    CreateFuture: Future<
+        Output = Result<(SessionId, Vec<SessionConfigOption>), agent_client_protocol::Error>,
+    >,
+{
+    if let Some(session_id) = requested_session_id {
+        return load(session_id.clone()).await;
     }
     create().await
 }

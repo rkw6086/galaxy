@@ -63,6 +63,13 @@ Required concepts:
 
 Use serde-compatible forms for settings and persistence. Keep protocol-native conversion code in the ACP crate or one app adapter module, not duplicated in multiple consumers.
 
+## Scope Note
+
+The current delivery scope prioritizes the ACP core runtime, live discovery, configuration
+persistence, restoration, and selector propagation. Registry browsing, agent installation, and
+credential migration remain deferred product work and are intentionally not completion blockers for
+this core scope.
+
 ## Task list
 
 ### Phase 1: Establish clean shared types

@@ -1,5 +1,6 @@
 use galaxy_acp::{
-    AcpEvent, ContentBlock, SessionId, StopReason, TextContent, ToolCallId, ToolCallStatus,
+    AcpEvent, AgentCapabilities, ContentBlock, SessionId, StopReason, TextContent, ToolCallId,
+    ToolCallStatus,
 };
 use warp_multi_agent_api::{client_action, message, response_event};
 
@@ -16,6 +17,8 @@ fn initializes_the_existing_chat_exchange_and_persists_user_text() {
     let events = translator
         .translate(AcpEvent::SessionStarted {
             session_id: SessionId::from("session"),
+            agent_info: None,
+            capabilities: AgentCapabilities::default(),
             can_load: true,
             can_steer: true,
         })
@@ -246,6 +249,8 @@ fn steering_failure_surfaces_an_indeterminate_delivery_warning() {
     translator
         .translate(AcpEvent::SessionStarted {
             session_id: SessionId::from("session"),
+            agent_info: None,
+            capabilities: AgentCapabilities::default(),
             can_load: true,
             can_steer: true,
         })

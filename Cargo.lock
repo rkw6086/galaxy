@@ -5856,6 +5856,7 @@ dependencies = [
  "async-channel",
  "async-io",
  "futures",
+ "log",
  "serde",
  "serde_json",
  "tempfile",

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use warp_multi_agent_api as api;
 
@@ -12,6 +12,10 @@ fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
         agent_id: "codex".to_owned(),
         launch_fingerprint: "launch-123".to_owned(),
         session_id: Some("shared-session".to_owned()),
+        config_values: BTreeMap::from([
+            ("model".to_owned(), serde_json::json!("fast")),
+            ("thinking".to_owned(), serde_json::json!(true)),
+        ]),
     });
 
     assert_eq!(
@@ -20,6 +24,10 @@ fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
             agent_id: "codex".to_owned(),
             launch_fingerprint: "launch-123".to_owned(),
             session_id: None,
+            config_values: BTreeMap::from([
+                ("model".to_owned(), serde_json::json!("fast")),
+                ("thinking".to_owned(), serde_json::json!(true)),
+            ]),
         })
     );
     assert_eq!(AgentBackend::Provider.for_fork(), AgentBackend::Provider);
@@ -178,6 +186,7 @@ fn agent_conversation_data_roundtrips_acp_backend() {
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),
+            config_values: BTreeMap::from([("model".to_owned(), serde_json::json!("fast"))]),
         }),
         ..Default::default()
     };

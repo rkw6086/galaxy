@@ -6,6 +6,7 @@ use agent_client_protocol::schema::v1::{
 use crate::PermissionDecision;
 
 /// Visible events produced while Galaxy drives an ACP turn.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum AcpEvent {

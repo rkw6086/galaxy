@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AuthMethod, AuthMethodAgent, AuthMethodId, ContentBlock, ContentChunk, InitializeResponse,
-    McpServer, McpServerStdio, SessionId, SessionUpdate, TextContent, ToolCall, ToolCallStatus,
+    McpServer, McpServerStdio, SessionConfigOption, SessionConfigOptionValue,
+    SessionConfigSelectOption, SessionId, SessionUpdate, TextContent, ToolCall, ToolCallStatus,
     ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
 };
 use agent_client_protocol::schema::ProtocolVersion;
@@ -137,6 +138,44 @@ fn successful_session_load_does_not_create_a_replacement() {
     assert_eq!(result, SessionId::new("persisted"));
     assert_eq!(load_calls.load(Ordering::Relaxed), 1);
     assert_eq!(create_calls.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn stale_config_values_are_dropped_before_session_application() {
+    let options = vec![SessionConfigOption::select(
+        "model",
+        "Model",
+        "fast",
+        vec![SessionConfigSelectOption::new("fast", "Fast")],
+    )];
+    let values = std::collections::BTreeMap::from([
+        (
+            "model".to_owned(),
+            SessionConfigOptionValue::value_id("missing"),
+        ),
+        (
+            "unknown".to_owned(),
+            SessionConfigOptionValue::value_id("value"),
+        ),
+    ]);
+
+    assert!(valid_config_values(&options, &values).is_empty());
+}
+
+#[test]
+fn advertised_config_values_are_retained() {
+    let options = vec![SessionConfigOption::select(
+        "model",
+        "Model",
+        "fast",
+        vec![SessionConfigSelectOption::new("fast", "Fast")],
+    )];
+    let values = std::collections::BTreeMap::from([(
+        "model".to_owned(),
+        SessionConfigOptionValue::value_id("fast"),
+    )]);
+
+    assert_eq!(valid_config_values(&options, &values), values);
 }
 
 #[test]
@@ -666,6 +705,8 @@ fn manager_liveness_is_observable() {
     let manager = AcpSessionManager {
         inner: Arc::new(ManagerInner {
             command_tx,
+            agent_info: Mutex::new(None),
+            agent_capabilities: Mutex::new(None),
             launch: AcpLaunchConfig::new("agent"),
             alive: AtomicBool::new(true),
             terminal_error: Mutex::new(None),
@@ -696,6 +737,8 @@ fn dropping_the_last_manager_requests_worker_shutdown() {
     let manager = AcpSessionManager {
         inner: Arc::new(ManagerInner {
             command_tx,
+            agent_info: Mutex::new(None),
+            agent_capabilities: Mutex::new(None),
             launch: AcpLaunchConfig::new("agent"),
             alive: AtomicBool::new(true),
             terminal_error: Mutex::new(None),
@@ -713,6 +756,8 @@ fn session_handle_cancel_targets_its_exact_turn_and_waits_for_ack() {
     let manager = AcpSessionManager {
         inner: Arc::new(ManagerInner {
             command_tx,
+            agent_info: Mutex::new(None),
+            agent_capabilities: Mutex::new(None),
             launch: AcpLaunchConfig::new("agent"),
             alive: AtomicBool::new(true),
             terminal_error: Mutex::new(None),
@@ -750,6 +795,8 @@ fn steering_uses_its_typed_command_and_preserves_unsupported_error() {
     let manager = AcpSessionManager {
         inner: Arc::new(ManagerInner {
             command_tx,
+            agent_info: Mutex::new(None),
+            agent_capabilities: Mutex::new(None),
             launch: AcpLaunchConfig::new("agent"),
             alive: AtomicBool::new(true),
             terminal_error: Mutex::new(None),

@@ -23,6 +23,53 @@ pub(crate) fn acp_selection_model_id(
     }
 }
 
+pub(crate) fn acp_selection_identity(
+    agent_id: &str,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> String {
+    let mut identity = acp_model_id(agent_id);
+    for (key, value) in values {
+        identity.push(':');
+        identity.push_str(key);
+        identity.push('=');
+        identity.push_str(&canonical_json_value(value));
+    }
+    identity
+}
+
+fn canonical_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_owned(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => serde_json::to_string(value).unwrap_or_default(),
+        serde_json::Value::Array(values) => format!(
+            "[{}]",
+            values
+                .iter()
+                .map(canonical_json_value)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        serde_json::Value::Object(values) => {
+            let mut entries = values.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            format!(
+                "{{{}}}",
+                entries
+                    .into_iter()
+                    .map(|(key, value)| format!(
+                        "{}:{}",
+                        serde_json::to_string(key).unwrap_or_default(),
+                        canonical_json_value(value)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        }
+    }
+}
+
 pub(crate) fn acp_launch_fingerprint(
     agent_id: &str,
     custom_command: &str,

@@ -1,12 +1,31 @@
+use std::collections::BTreeMap;
+
+use chrono::Utc;
+use galaxy_acp::{AcpLaunchConfig, AcpManagerConfig, AcpSessionManager};
+use galaxyui::{Entity, ModelContext, SingletonEntity};
+use settings::Setting;
+
 use crate::settings::{
     AISettings, AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings,
 };
-use galaxy_acp::{AcpLaunchConfig, AcpManagerConfig, AcpSessionManager};
-use galaxyui::{Entity, ModelContext, SingletonEntity};
 
 /// Long-lived ACP process/session owner shared by all agent response streams.
 pub(crate) struct AcpRuntimeModel {
     managed: Option<ManagedRuntime>,
+    discovery: AcpDiscoveryState,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum AcpDiscoveryState {
+    #[default]
+    Idle,
+    Running,
+    Succeeded {
+        option_count: usize,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 struct ManagedRuntime {
@@ -16,7 +35,37 @@ struct ManagedRuntime {
 
 impl AcpRuntimeModel {
     pub(crate) fn new(_ctx: &mut ModelContext<Self>) -> Self {
-        Self { managed: None }
+        Self {
+            managed: None,
+            discovery: AcpDiscoveryState::Idle,
+        }
+    }
+
+    pub(crate) fn discovery_state(&self) -> &AcpDiscoveryState {
+        &self.discovery
+    }
+
+    pub(crate) fn begin_discovery(&mut self, ctx: &mut ModelContext<Self>) {
+        self.discovery = AcpDiscoveryState::Running;
+        ctx.emit(AcpRuntimeModelEvent::DiscoveryChanged);
+    }
+
+    pub(crate) fn finish_discovery_success(
+        &mut self,
+        option_count: usize,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.discovery = AcpDiscoveryState::Succeeded { option_count };
+        ctx.emit(AcpRuntimeModelEvent::DiscoveryChanged);
+    }
+
+    pub(crate) fn finish_discovery_failure(
+        &mut self,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.discovery = AcpDiscoveryState::Failed { message };
+        ctx.emit(AcpRuntimeModelEvent::DiscoveryChanged);
     }
 
     pub(crate) fn manager(
@@ -37,35 +86,72 @@ impl AcpRuntimeModel {
         Ok(manager)
     }
 
+    pub(crate) fn discovery_config(settings: &AISettings) -> Result<AcpManagerConfig, String> {
+        let agent_id = if settings.acp_agent_id.value().trim().is_empty() {
+            "codex"
+        } else {
+            settings.acp_agent_id.value().trim()
+        };
+        let launch = crate::ai::acp::resolve_acp_launch(
+            agent_id,
+            settings.acp_agent_command.value(),
+            settings.acp_agent_args.value(),
+        )?;
+        Ok(AcpManagerConfig::new(launch))
+    }
+
     pub(crate) fn normalize_config_options(
         options: Vec<galaxy_acp::SessionConfigOption>,
     ) -> Vec<AcpConfigOptionSettings> {
         options
             .into_iter()
             .map(|option| {
-                let kind = match &option.kind {
-                    galaxy_acp::SessionConfigOptionType::Select => "select",
-                    galaxy_acp::SessionConfigOptionType::Boolean => "boolean",
-                }
-                .to_owned();
-                let current_value = serde_json::to_value(&option.current_value).unwrap_or_default();
-                let values = option
-                    .options
-                    .into_iter()
-                    .map(|value| AcpConfigValueSettings {
-                        value: serde_json::to_value(value.value).unwrap_or_default(),
-                        name: value.name,
-                        description: value.description,
-                    })
-                    .collect();
+                let (kind, current_value, values) = match option.kind {
+                    galaxy_acp::SessionConfigOptionType::Select(select) => {
+                        let values = match select.options {
+                            galaxy_acp::SessionConfigSelectOptions::Ungrouped(values) => values,
+                            galaxy_acp::SessionConfigSelectOptions::Grouped(groups) => {
+                                groups.into_iter().flat_map(|group| group.options).collect()
+                            }
+                            _ => Vec::new(),
+                        };
+                        (
+                            "select",
+                            serde_json::Value::String(select.current_value.to_string()),
+                            values
+                                .into_iter()
+                                .map(|value| AcpConfigValueSettings {
+                                    value: serde_json::Value::String(value.value.to_string()),
+                                    name: value.name,
+                                    description: value.description,
+                                })
+                                .collect(),
+                        )
+                    }
+                    galaxy_acp::SessionConfigOptionType::Boolean(boolean) => (
+                        "boolean",
+                        serde_json::Value::Bool(boolean.current_value),
+                        Vec::new(),
+                    ),
+                    _ => ("unknown", serde_json::Value::Null, Vec::new()),
+                };
                 AcpConfigOptionSettings {
-                    id: option.id,
+                    id: option.id.to_string(),
                     name: option.name,
                     description: option.description,
-                    category: option
-                        .category
-                        .map(|category| format!("{category:?}").to_lowercase()),
-                    kind,
+                    category: option.category.map(|category| match category {
+                        galaxy_acp::SessionConfigOptionCategory::Mode => "mode".to_owned(),
+                        galaxy_acp::SessionConfigOptionCategory::Model => "model".to_owned(),
+                        galaxy_acp::SessionConfigOptionCategory::ModelConfig => {
+                            "model_config".to_owned()
+                        }
+                        galaxy_acp::SessionConfigOptionCategory::ThoughtLevel => {
+                            "thought_level".to_owned()
+                        }
+                        galaxy_acp::SessionConfigOptionCategory::Other(value) => value,
+                        _ => "unknown".to_owned(),
+                    }),
+                    kind: kind.to_owned(),
                     current_value,
                     options: values,
                 }
@@ -73,10 +159,33 @@ impl AcpRuntimeModel {
             .collect()
     }
 
+    pub(crate) fn current_config_values(
+        options: &[AcpConfigOptionSettings],
+    ) -> BTreeMap<String, serde_json::Value> {
+        options
+            .iter()
+            .filter_map(|option| {
+                (!option.current_value.is_null())
+                    .then(|| (option.id.clone(), option.current_value.clone()))
+            })
+            .collect()
+    }
+
+    pub(crate) fn selection_values_for_model(
+        options: &[AcpConfigOptionSettings],
+        model_option_id: &str,
+        model_value: &serde_json::Value,
+    ) -> BTreeMap<String, serde_json::Value> {
+        let mut values = Self::current_config_values(options);
+        values.insert(model_option_id.to_owned(), model_value.clone());
+        values
+    }
+
     pub(crate) fn upsert_agent_settings(
         settings: &mut AISettings,
         agent_id: &str,
         options: Vec<galaxy_acp::SessionConfigOption>,
+        ctx: &mut ModelContext<AISettings>,
     ) -> Result<(), String> {
         let config_options = Self::normalize_config_options(options);
         let mut agents = settings.acp_agents.value().clone();
@@ -94,16 +203,195 @@ impl AcpRuntimeModel {
                 icon_url: None,
                 capabilities: Vec::new(),
                 config_options,
+                discovery_timestamp: None,
+                discovery_source: None,
+                discovery_error: None,
             });
         }
         settings
             .acp_agents
-            .set_value(agents, &mut settings.context())
+            .set_value(agents, ctx)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn persist_runtime_options(
+        settings: &mut AISettings,
+        agent_id: &str,
+        options: &[galaxy_acp::SessionConfigOption],
+        ctx: &mut ModelContext<AISettings>,
+    ) -> Result<(), String> {
+        Self::upsert_agent_settings(settings, agent_id, options.to_vec(), ctx)
+    }
+
+    pub(crate) fn mark_discovery_success(
+        settings: &mut AISettings,
+        agent_id: &str,
+        option_count: usize,
+        ctx: &mut ModelContext<AISettings>,
+    ) -> Result<(), String> {
+        let mut agents = settings.acp_agents.value().clone();
+        if let Some(agent) = agents
+            .iter_mut()
+            .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+        {
+            agent.discovery_timestamp = Some(Utc::now().to_rfc3339());
+            agent.discovery_source = Some(format!("runtime:{option_count}"));
+            agent.discovery_error = None;
+        }
+        settings
+            .acp_agents
+            .set_value(agents, ctx)
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn mark_discovery_failure(
+        settings: &mut AISettings,
+        agent_id: &str,
+        error: String,
+        ctx: &mut ModelContext<AISettings>,
+    ) -> Result<(), String> {
+        let mut agents = settings.acp_agents.value().clone();
+        if let Some(agent) = agents
+            .iter_mut()
+            .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+        {
+            agent.discovery_timestamp = Some(Utc::now().to_rfc3339());
+            agent.discovery_error = Some(error);
+        }
+        settings
+            .acp_agents
+            .set_value(agents, ctx)
+            .map_err(|error| error.to_string())
     }
 }
 
 impl Entity for AcpRuntimeModel {
-    type Event = ();
+    type Event = AcpRuntimeModelEvent;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AcpRuntimeModelEvent {
+    DiscoveryChanged,
 }
 
 impl SingletonEntity for AcpRuntimeModel {}
+
+#[cfg(test)]
+mod tests {
+    use galaxy_acp::{SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption};
+
+    use super::{AcpDiscoveryState, AcpRuntimeModel};
+    use crate::settings::{AcpAgentSettings, AcpConfigOptionSettings};
+
+    #[test]
+    fn normalize_config_options_preserves_values_and_order() {
+        let options = vec![
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                "fast",
+                vec![
+                    SessionConfigSelectOption::new("fast", "Fast"),
+                    SessionConfigSelectOption::new("accurate", "Accurate"),
+                ],
+            )
+            .category(SessionConfigOptionCategory::Model),
+            SessionConfigOption::boolean("thinking", "Thinking", true),
+        ];
+
+        let normalized = AcpRuntimeModel::normalize_config_options(options);
+
+        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized[0].kind, "select");
+        assert_eq!(normalized[0].current_value, serde_json::json!("fast"));
+        assert_eq!(normalized[0].options[0].value, serde_json::json!("fast"));
+        assert_eq!(
+            normalized[0].options[1].value,
+            serde_json::json!("accurate")
+        );
+        assert_eq!(normalized[1].kind, "boolean");
+        assert_eq!(normalized[1].current_value, serde_json::json!(true));
+    }
+
+    #[test]
+    fn normalize_config_options_preserves_unknown_categories() {
+        let option = SessionConfigOption::select(
+            "custom",
+            "Custom",
+            "one",
+            Vec::<SessionConfigSelectOption>::new(),
+        )
+        .category(SessionConfigOptionCategory::Other("_custom".to_owned()));
+
+        let normalized = AcpRuntimeModel::normalize_config_options(vec![option]);
+
+        assert_eq!(normalized[0].category.as_deref(), Some("_custom"));
+    }
+
+    #[test]
+    fn selection_replaces_model_and_preserves_other_current_values() {
+        let options = vec![
+            AcpConfigOptionSettings {
+                id: "model".to_owned(),
+                name: "Model".to_owned(),
+                description: None,
+                category: Some("model".to_owned()),
+                kind: "select".to_owned(),
+                current_value: serde_json::json!("fast"),
+                options: Vec::new(),
+            },
+            AcpConfigOptionSettings {
+                id: "thinking".to_owned(),
+                name: "Thinking".to_owned(),
+                description: None,
+                category: None,
+                kind: "boolean".to_owned(),
+                current_value: serde_json::json!(true),
+                options: Vec::new(),
+            },
+        ];
+
+        assert_eq!(
+            AcpRuntimeModel::selection_values_for_model(
+                &options,
+                "model",
+                &serde_json::json!("accurate")
+            ),
+            std::collections::BTreeMap::from([
+                ("model".to_owned(), serde_json::json!("accurate")),
+                ("thinking".to_owned(), serde_json::json!(true)),
+            ])
+        );
+    }
+
+    #[test]
+    fn discovery_state_has_explicit_running_success_and_failure_values() {
+        assert_eq!(AcpDiscoveryState::default(), AcpDiscoveryState::Idle);
+        assert_eq!(
+            AcpDiscoveryState::Succeeded { option_count: 2 },
+            AcpDiscoveryState::Succeeded { option_count: 2 }
+        );
+        assert_eq!(
+            AcpDiscoveryState::Failed {
+                message: "timeout".to_owned()
+            },
+            AcpDiscoveryState::Failed {
+                message: "timeout".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn discovery_metadata_fields_are_optional_for_legacy_settings() {
+        let json = serde_json::json!({
+            "id": "codex",
+            "name": "Codex",
+            "config_options": []
+        });
+        let agent: AcpAgentSettings = serde_json::from_value(json).unwrap();
+
+        assert!(agent.discovery_timestamp.is_none());
+        assert!(agent.discovery_source.is_none());
+        assert!(agent.discovery_error.is_none());
+    }
+}

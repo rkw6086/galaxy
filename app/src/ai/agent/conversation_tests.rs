@@ -222,6 +222,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: None,
+            config_values: Default::default(),
         }),
     );
     assert!(acp_conversation.set_acp_session_id("session-123"));
@@ -231,6 +232,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),
+            config_values: Default::default(),
         })
     );
 
@@ -248,6 +250,7 @@ fn restored_conversation_uses_persisted_acp_backend() {
         agent_id: "codex-acp".to_string(),
         launch_fingerprint: "launch-123".to_string(),
         session_id: Some("session-123".to_string()),
+        config_values: Default::default(),
     });
     let conversation = restored_conversation(Some(AgentConversationData {
         agent_backend: backend.clone(),

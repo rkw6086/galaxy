@@ -81,6 +81,7 @@ fn acp_enabled_with_empty_command_selects_codex_backend() {
                     agent_id: "codex".to_string(),
                     launch_fingerprint: crate::ai::acp::acp_launch_fingerprint("codex", "", &[]),
                     session_id: None,
+                    config_values: Default::default(),
                 })
             );
         });
