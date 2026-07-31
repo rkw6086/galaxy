@@ -879,7 +879,6 @@ impl View for AIBlock {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        log::info!("[bedrock-debug] AIBlock::render() called");
         // When the AI block is hidden, we don't need to render anything.
         if self.is_hidden(app) {
             return ConstrainedBox::new(Empty::new().finish())

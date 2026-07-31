@@ -3977,7 +3977,6 @@ impl BlocklistAIController {
                         "[bedrock-debug] AfterStreamFinished: NO actions to queue, was_passive={}, is_any_unfinished={}",
                         was_passive_request, is_any_exchange_unfinished
                     );
-
                     // If this is a child conversation (has a parent) and the
                     // stream ended with EndTurn and no actions, the child agent
                     // is done. Mark it as Success so the StartAgentExecutor
@@ -4002,17 +4001,34 @@ impl BlocklistAIController {
                         });
                     }
 
-                    // Crosscheck Work experiment: if the main agent finished
-                    // with no actions (i.e., it produced a final response), and
-                    // this is not a child or passive conversation, trigger a
-                    // reviewer sub-agent to critique the output.
-                    if !is_child && !was_passive_request {
+                    // Crosscheck Work experiment: remember that the main agent produced a final
+                    // response. Start the reviewer only after stream cleanup below so fast reviewer
+                    // feedback cannot race the stale in-flight response-stream entry.
+                    let should_trigger_crosscheck = !is_child && !was_passive_request;
+
+                    // Remove the completed stream before starting the reviewer. A fast reviewer can
+                    // otherwise return feedback while this stream is still considered in flight,
+                    // causing `send_request_input` to reject and silently drop the correction turn.
+                    if cancellation.is_none() {
+                        self.in_flight_response_streams.cleanup_stream(&stream_id);
+
+                        // Now that the stream is cleaned up, re-check for pending
+                        // orchestration events that couldn't be drained earlier.
+                        self.handle_pending_events_ready(conversation_id, ctx);
+                    }
+
+                    if should_trigger_crosscheck {
                         self.maybe_trigger_crosscheck(conversation_id, ctx);
                     }
                 }
 
-                // Cancelled streams will handle pending_response_stream updates synchronously.
-                if cancellation.is_none() {
+                // Cancelled streams handle pending-response-stream updates synchronously. The
+                // no-action crosscheck path above also cleans up early before starting its reviewer.
+                if cancellation.is_none()
+                    && self
+                        .in_flight_response_streams
+                        .has_active_stream_for_conversation(conversation_id, ctx)
+                {
                     self.in_flight_response_streams.cleanup_stream(&stream_id);
 
                     // Now that the stream is cleaned up, re-check for pending

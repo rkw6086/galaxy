@@ -6439,6 +6439,19 @@ impl TerminalView {
 
                 self.maybe_send_agent_mode_desktop_notification(conversation_id, ctx);
 
+                // Once the complete agent run is terminal (including all tool-call follow-ups),
+                // restore the input caret if focus is still within this terminal view. Do not steal
+                // focus from another pane or window if the user moved on while the agent was busy.
+                if matches!(
+                    new_status,
+                    ConversationStatus::Success
+                        | ConversationStatus::Error
+                        | ConversationStatus::Cancelled
+                ) && ctx.is_self_or_child_focused()
+                {
+                    self.redetermine_global_focus(ctx);
+                }
+
                 // Show AI credits modal for cloud-mode out-of-credits failures.
                 if FeatureFlag::CloudMode.is_enabled()
                     && self.is_ambient_agent_session(ctx)

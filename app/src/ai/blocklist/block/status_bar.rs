@@ -119,9 +119,11 @@ pub struct BlocklistAIStatusBar {
     /// the warping indicator while the active block has a recorded LRC snapshot.
     last_read_refresh_handle: Option<SpawnedFutureHandle>,
 
-    /// The time the warping indicator started showing for the current exchange.
+    /// The time the warping indicator started showing for the current conversation run.
+    /// Preserved across model follow-up exchanges triggered by tool calls.
     warping_start_time: Option<Instant>,
-    /// The random loading message chosen for the current exchange, stable across re-renders.
+    /// The random loading message chosen for the current conversation run, stable across
+    /// re-renders and tool-call follow-up exchanges.
     warping_message: Option<&'static str>,
     /// Handle for the periodic timer that updates the warping elapsed timer UI.
     warping_timer_handle: Option<SpawnedFutureHandle>,
@@ -197,7 +199,18 @@ impl BlocklistAIStatusBar {
                         ctx.notify();
                     }
                 }
-                BlocklistAIHistoryEvent::UpdatedConversationStatus { .. } => {
+                BlocklistAIHistoryEvent::UpdatedConversationStatus {
+                    conversation_id,
+                    new_status,
+                    ..
+                } => {
+                    let is_active_conversation = me
+                        .active_exchange_model
+                        .as_ref()
+                        .is_some_and(|model| model.conversation_id(ctx) == Some(*conversation_id));
+                    if is_active_conversation && !new_status.is_in_progress() {
+                        me.stop_warping_timer();
+                    }
                     ctx.notify();
                 }
                 BlocklistAIHistoryEvent::SetActiveConversation {
@@ -541,11 +554,20 @@ impl BlocklistAIStatusBar {
             AIBlockOutputStatus::Pending | AIBlockOutputStatus::Failed { .. } => (),
         }
 
-        // Stop the warping timer when the exchange is no longer streaming/pending.
-        // Placed after the match so `model` (which borrows self.active_exchange_model)
-        // is no longer used, avoiding borrow conflicts with &mut self.
+        // An exchange finishing does not necessarily mean the logical run is complete: tool calls
+        // can execute and append a follow-up exchange. Conversation status is the authoritative
+        // lifecycle signal, so preserve the timer and phrase while it remains in progress.
+        // Placed after the match so `model` (which borrows self.active_exchange_model) is no longer
+        // used, avoiding borrow conflicts with &mut self.
         if is_finished {
-            self.stop_warping_timer();
+            let conversation_is_in_progress = self
+                .active_exchange_model
+                .as_ref()
+                .and_then(|model| model.conversation(ctx))
+                .is_some_and(|conversation| conversation.status().is_in_progress());
+            if !conversation_is_in_progress {
+                self.stop_warping_timer();
+            }
         }
 
         ctx.notify();
@@ -692,9 +714,14 @@ impl BlocklistAIStatusBar {
     }
 
     /// Starts a 1-second periodic timer that keeps the warping elapsed-time indicator fresh.
+    ///
+    /// A tool call can append several exchanges during one logical agent run. Keep the original
+    /// phrase and start time across those exchanges so the status does not thrash and the elapsed
+    /// time represents the complete run.
     fn start_warping_timer(&mut self, ctx: &mut ViewContext<Self>) {
-        self.warping_start_time = Some(Instant::now());
-        self.warping_message = Some(random_load_output_message());
+        self.warping_start_time.get_or_insert_with(Instant::now);
+        self.warping_message
+            .get_or_insert_with(random_load_output_message);
         // Don't start a new timer if one is already running
         if self.warping_timer_handle.is_some() {
             return;

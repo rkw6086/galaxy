@@ -1317,23 +1317,26 @@ impl BlocklistAIActionModel {
             .or_default()
             .push(action_result);
 
-        ctx.emit(BlocklistAIActionEvent::FinishedAction {
-            action_id,
-            conversation_id,
-            cancellation_reason,
-        });
         if self
             .running_actions
             .get(&conversation_id)
             .is_some_and(|running| !running.is_empty())
         {
             // Wait until the entire phase drains before scheduling subsequent actions or deciding
-            // whether to send a follow-up request.
+            // whether to send a follow-up request. In particular, don't emit `FinishedAction` yet:
+            // the controller treats that event as the phase-complete signal and could otherwise
+            // drain only a prefix of parallel tool results into the next LLM request.
             return;
         }
 
-        // The phase is fully drained — sort results back into original tool-call order.
+        // The phase is fully drained — sort results back into original tool-call order before
+        // notifying the controller that it may send the follow-up request.
         self.sort_finished_results(conversation_id);
+        ctx.emit(BlocklistAIActionEvent::FinishedAction {
+            action_id,
+            conversation_id,
+            cancellation_reason,
+        });
 
         if self
             .pending_actions
