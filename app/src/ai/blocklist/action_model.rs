@@ -1329,8 +1329,20 @@ impl BlocklistAIActionModel {
             return;
         }
 
-        // The phase is fully drained — sort results back into original tool-call order before
-        // notifying the controller that it may send the follow-up request.
+        // A serial phase may have more queued actions. Start those before notifying the controller;
+        // otherwise the controller can drain this phase's result while the next action is still
+        // pending, and that later tool result will lose its follow-up trigger.
+        if self
+            .pending_actions
+            .get(&conversation_id)
+            .is_some_and(|actions| !actions.is_empty())
+        {
+            self.try_to_execute_available_actions(conversation_id, ctx);
+            return;
+        }
+
+        // The entire action batch is fully drained — sort results back into original tool-call
+        // order before notifying the controller that it may send one complete follow-up request.
         self.sort_finished_results(conversation_id);
         ctx.emit(BlocklistAIActionEvent::FinishedAction {
             action_id,
@@ -1374,8 +1386,6 @@ impl BlocklistAIActionModel {
                     );
                 });
             }
-        } else {
-            self.try_to_execute_available_actions(conversation_id, ctx);
         }
     }
 

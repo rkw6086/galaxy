@@ -2522,13 +2522,42 @@ impl BlocklistAIController {
             return;
         }
 
-        // Don't trigger crosscheck for child conversations
+        // Crosscheck is a terminal-turn activity. Do not start it until every source of work for
+        // this conversation has drained, or its feedback can race a tool result or another stream.
+        if self
+            .in_flight_response_streams
+            .has_active_stream_for_conversation(conversation_id, ctx)
+        {
+            return;
+        }
+
+        let action_model = self.action_model.as_ref(ctx);
+        if action_model.has_unfinished_actions_for_conversation(conversation_id)
+            || action_model
+                .get_finished_action_results(conversation_id)
+                .is_some_and(|results| !results.is_empty())
+        {
+            return;
+        }
+
+        if self
+            .crosscheck_reviewer
+            .as_ref(ctx)
+            .is_reviewing(conversation_id)
+        {
+            return;
+        }
+
+        // Don't trigger crosscheck for child conversations or a conversation that is no longer
+        // running under this controller.
         let Some(conversation) =
             BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
         else {
             return;
         };
-        if conversation.parent_conversation_id().is_some() {
+        if conversation.parent_conversation_id().is_some()
+            || !conversation.status().is_in_progress()
+        {
             return;
         }
 
