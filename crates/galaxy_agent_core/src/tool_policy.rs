@@ -250,7 +250,9 @@ fn collect_tool_entries(messages: &[ConversationMessage], entries: &mut Vec<Tool
                             content,
                             ..
                         } => pair_result(tool_use_id, content, &mut pending, entries),
-                        ContentPart::Text(_) | ContentPart::Image { .. } => {}
+                        ContentPart::Text(_)
+                        | ContentPart::Reasoning { .. }
+                        | ContentPart::Image { .. } => {}
                     }
                 }
             }

@@ -243,15 +243,33 @@ impl ResponseStream {
         // Fall back to Bedrock
         if *settings.bedrock_enabled.value() {
             let auth_method = *settings.bedrock_auth_method.value();
+            let region = settings.bedrock_region.value().clone();
+            let cross_region_inference = *settings.bedrock_cross_region_inference.value();
+            let mut use_rig = crate::ai::bedrock::models::configured_model_uses_rig(
+                model_id,
+                settings.bedrock_models.value(),
+                &region,
+                cross_region_inference,
+            );
+            if use_rig
+                && crate::ai::bedrock::external_config::ExternalBedrockConfig::load()
+                    .enable_prompt_caching_1h
+            {
+                log::warn!(
+                    "[rig/bedrock] Using the compatibility runtime because Rig does not yet expose Bedrock's one-hour cache TTL"
+                );
+                use_rig = false;
+            }
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
             let mut config = BedrockClientConfig {
                 auth_method,
                 profile: settings.bedrock_profile.value().clone(),
-                region: settings.bedrock_region.value().clone(),
+                region,
                 access_key_id: settings.bedrock_access_key_id.value().clone(),
                 secret_access_key: settings.bedrock_secret_access_key.value().clone(),
                 session_token: None,
-                cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+                cross_region_inference,
+                use_rig,
             };
 
             if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =

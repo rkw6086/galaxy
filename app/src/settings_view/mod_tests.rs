@@ -86,8 +86,7 @@ fn current_settings_display_names_round_trip() {
             SettingsSection::ThirdPartyCLIAgents,
             "Third party CLI agents",
         ),
-        (SettingsSection::Bedrock, "AWS Bedrock"),
-        (SettingsSection::OpenAI, "OpenAI / LiteLLM"),
+        (SettingsSection::Models, "Models"),
         (SettingsSection::Experiments, "Experiments"),
         (SettingsSection::CodeIndexing, "Indexing and projects"),
         (
@@ -111,8 +110,10 @@ fn legacy_settings_names_remain_parseable() {
         ("AgentProfiles", SettingsSection::AgentProfiles),
         ("AgentMCPServers", SettingsSection::AgentMCPServers),
         ("ThirdPartyCLIAgents", SettingsSection::ThirdPartyCLIAgents),
-        ("Bedrock", SettingsSection::Bedrock),
-        ("OpenAI", SettingsSection::OpenAI),
+        ("AWS Bedrock", SettingsSection::Models),
+        ("Bedrock", SettingsSection::Models),
+        ("OpenAI / LiteLLM", SettingsSection::Models),
+        ("OpenAI", SettingsSection::Models),
         ("CodeIndexing", SettingsSection::CodeIndexing),
         ("EditorAndCodeReview", SettingsSection::EditorAndCodeReview),
     ] {
@@ -215,7 +216,7 @@ fn collapsed_umbrella_uses_first_and_last_visible_subpages() {
     let stops = build_nav_stops(&nav_items, |section| {
         !matches!(
             section,
-            SettingsSection::WarpAgent | SettingsSection::OpenAI | SettingsSection::Experiments
+            SettingsSection::WarpAgent | SettingsSection::Models | SettingsSection::Experiments
         )
     });
 
@@ -224,7 +225,7 @@ fn collapsed_umbrella_uses_first_and_last_visible_subpages() {
         NavStop::CollapsedUmbrella {
             nav_index: 0,
             first_subpage: SettingsSection::AgentProfiles,
-            last_subpage: SettingsSection::Bedrock,
+            last_subpage: SettingsSection::ThirdPartyCLIAgents,
         }
     );
 }

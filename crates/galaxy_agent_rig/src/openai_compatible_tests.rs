@@ -1,8 +1,11 @@
 use futures::StreamExt;
 use galaxy_agent_core::{
-    AgentEvent, AgentRuntime, ConversationMessage, MessageContent, MessageRole, ToolEvent,
+    AgentEvent, AgentRuntime, ConversationMessage, MessageContent, MessageRole, StopReason,
+    ToolEvent, TurnCommand, Usage,
 };
 use rig_core::client::CompletionClient;
+use rig_core::completion::{AssistantContent, Message};
+use rig_core::message::{ToolResultContent, UserContent};
 use rig_core::providers::openai;
 use rig_core::test_utils::MockStreamingClient;
 

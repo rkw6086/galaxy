@@ -11,10 +11,12 @@ use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent, ToolType};
 
-use super::rig_request::{prepare_rig_turn, PreparedRigTurn};
+use super::rig_request::{prepare_bedrock_rig_turn, prepare_rig_turn, PreparedRigTurn};
 use super::rig_tool::action_from_tool_call;
 use crate::ai::agent::api::{Event, RequestParams, ResponseStream, StreamEvent};
 use crate::ai::agent::AIAgentAction;
+use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
+use crate::ai::bedrock::external_config::ExternalBedrockConfig;
 use crate::ai::bedrock::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
     build_user_query_message,
@@ -32,6 +34,75 @@ pub(crate) fn rig_openai_response_stream(
     cancellation_rx: oneshot::Receiver<()>,
 ) -> ResponseStream {
     let skill_path_origin = params.session_context.skill_path_origin();
+    let prepared = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
+    let model_id = prepared.request.model.as_str().to_string();
+    let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
+        base_url: config.base_url,
+        api_key: config.api_key,
+        model: model_id.clone(),
+        max_output_tokens: config.max_output_tokens.map(u64::from),
+        supports_system_messages: config.supports_system_messages,
+    });
+    rig_response_stream(
+        runtime,
+        prepared,
+        skill_path_origin,
+        config.max_input_tokens,
+        "rig_openai_compatible",
+        cancellation_rx,
+    )
+}
+
+pub(crate) async fn rig_bedrock_response_stream(
+    config: BedrockClientConfig,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+    cancellation_rx: oneshot::Receiver<()>,
+) -> anyhow::Result<ResponseStream> {
+    let skill_path_origin = params.session_context.skill_path_origin();
+    let max_context_tokens = params.context_window_limit;
+    let model = params.model.as_str().to_string();
+    let max_output_tokens = Some(64_000);
+    let cross_region_inference = config.cross_region_inference;
+    let external_config = ExternalBedrockConfig::load();
+    let prompt_caching = !external_config.disable_prompt_caching;
+    let client = BedrockClient::from_config(config).await?;
+    let runtime = client.rig_runtime(
+        model.clone(),
+        cross_region_inference,
+        prompt_caching,
+        max_output_tokens,
+    )?;
+    let prepared = prepare_bedrock_rig_turn(
+        model,
+        max_output_tokens,
+        params,
+        supported_tools,
+        supported_cli_agent_tools,
+    );
+
+    Ok(rig_response_stream(
+        runtime,
+        prepared,
+        skill_path_origin,
+        max_context_tokens,
+        "rig_bedrock",
+        cancellation_rx,
+    ))
+}
+
+fn rig_response_stream<R>(
+    runtime: R,
+    prepared: PreparedRigTurn,
+    skill_path_origin: ai::skills::SkillPathOrigin,
+    max_context_tokens: Option<u32>,
+    stream_type: &'static str,
+    cancellation_rx: oneshot::Receiver<()>,
+) -> ResponseStream
+where
+    R: AgentRuntime + Send + Sync + 'static,
+{
     let PreparedRigTurn {
         task_id,
         needs_create_task,
@@ -40,21 +111,12 @@ pub(crate) fn rig_openai_response_stream(
         persistent_messages,
         tool_result_archive,
         messages_sent,
-    } = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
+    } = prepared;
     store_messages_sent(&messages_sent, &persistent_messages);
 
     let conversation_id = turn_request.conversation_id.clone();
     let model_id = turn_request.model.as_str().to_string();
     let tool_policy = ToolPolicy::new(&turn_request.tools);
-
-    let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
-        base_url: config.base_url,
-        api_key: config.api_key,
-        model: model_id.clone(),
-        max_output_tokens: config.max_output_tokens.map(u64::from),
-        supports_system_messages: config.supports_system_messages,
-    });
-    let max_context_tokens = config.max_input_tokens;
     let stream = async_stream::stream! {
         let (control_sender, control) = turn_control();
         let start_future = runtime.start_turn(turn_request, control).fuse();
@@ -67,7 +129,7 @@ pub(crate) fn rig_openai_response_stream(
                 match start_future.await {
                     Ok(stream) => stream,
                     Err(error) => {
-                        yield Err(agent_error(error));
+                        yield Err(agent_error(error, stream_type));
                         return;
                     }
                 }
@@ -75,7 +137,7 @@ pub(crate) fn rig_openai_response_stream(
             result = start_future => match result {
                 Ok(stream) => stream,
                 Err(error) => {
-                    yield Err(agent_error(error));
+                    yield Err(agent_error(error, stream_type));
                     return;
                 }
             },
@@ -87,6 +149,8 @@ pub(crate) fn rig_openai_response_stream(
         let mut current_text_message_id: Option<String> = None;
         let mut current_reasoning_message_id: Option<String> = None;
         let mut full_text = String::new();
+        let mut full_reasoning = String::new();
+        let mut reasoning_signature = None;
         let mut proposed_tools = Vec::new();
         let mut assistant_history_index = None;
         let mut usage = Usage::default();
@@ -106,7 +170,7 @@ pub(crate) fn rig_openai_response_stream(
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
-                            yield Err(agent_error(error));
+                            yield Err(agent_error(error, stream_type));
                             return;
                         }
                     };
@@ -133,6 +197,7 @@ pub(crate) fn rig_openai_response_stream(
                             }
                         }
                         AgentEvent::ReasoningDelta { text } => {
+                            full_reasoning.push_str(&text);
                             if let Some(message_id) = &current_reasoning_message_id {
                                 yield Ok(StreamEvent::Response(build_append_reasoning(&task_id, message_id, &text)));
                             } else {
@@ -141,6 +206,17 @@ pub(crate) fn rig_openai_response_stream(
                                 current_reasoning_message_id = Some(message_id);
                             }
                         }
+                        AgentEvent::ReasoningCompleted { text, signature } => {
+                            if current_reasoning_message_id.is_none() && !text.is_empty() {
+                                let message_id = Uuid::new_v4().to_string();
+                                yield Ok(StreamEvent::Response(build_add_reasoning(&task_id, &message_id, &text)));
+                                current_reasoning_message_id = Some(message_id);
+                            }
+                            if !text.is_empty() {
+                                full_reasoning = text;
+                            }
+                            reasoning_signature = signature;
+                        }
                         AgentEvent::UsageUpdated { usage: updated } => usage = updated,
                         AgentEvent::Tool {
                             event: ToolEvent::Proposed { call },
@@ -148,6 +224,8 @@ pub(crate) fn rig_openai_response_stream(
                             proposed_tools.push(call.clone());
                             sync_assistant_turn(
                                 &messages_sent,
+                                &full_reasoning,
+                                reasoning_signature.as_deref(),
                                 &full_text,
                                 &proposed_tools,
                                 &mut assistant_history_index,
@@ -164,7 +242,7 @@ pub(crate) fn rig_openai_response_stream(
                                             yield Err(agent_error(AgentError::new(
                                                 galaxy_agent_core::AgentErrorKind::Protocol,
                                                 message,
-                                            )));
+                                            ), stream_type));
                                             return;
                                         }
                                     }
@@ -198,6 +276,8 @@ pub(crate) fn rig_openai_response_stream(
                             }
                             sync_assistant_turn(
                                 &messages_sent,
+                                &full_reasoning,
+                                reasoning_signature.as_deref(),
                                 &full_text,
                                 &proposed_tools,
                                 &mut assistant_history_index,
@@ -222,7 +302,7 @@ pub(crate) fn rig_openai_response_stream(
                             yield Err(agent_error(AgentError::new(
                                 galaxy_agent_core::AgentErrorKind::Protocol,
                                 "the provider runtime attempted to execute a tool outside Galaxy's permission boundary",
-                            )));
+                            ), stream_type));
                             return;
                         }
                     }
@@ -264,11 +344,22 @@ fn append_tool_result(
 
 fn sync_assistant_turn(
     messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+    reasoning_text: &str,
+    reasoning_signature: Option<&str>,
     text: &str,
     tool_calls: &[ToolCall],
     history_index: &mut Option<usize>,
 ) {
-    let mut parts = Vec::with_capacity(usize::from(!text.is_empty()) + tool_calls.len());
+    let has_reasoning = !reasoning_text.is_empty() || reasoning_signature.is_some();
+    let mut parts = Vec::with_capacity(
+        usize::from(has_reasoning) + usize::from(!text.is_empty()) + tool_calls.len(),
+    );
+    if has_reasoning {
+        parts.push(ContentPart::Reasoning {
+            text: reasoning_text.to_string(),
+            signature: reasoning_signature.map(str::to_string),
+        });
+    }
     if !text.is_empty() {
         parts.push(ContentPart::Text(text.to_string()));
     }
@@ -293,6 +384,7 @@ fn sync_assistant_turn(
                 name,
                 input,
             },
+            reasoning @ ContentPart::Reasoning { .. } => MessageContent::MultiPart(vec![reasoning]),
             ContentPart::Image { .. } | ContentPart::ToolResult { .. } => unreachable!(),
         }
     } else {
@@ -395,10 +487,10 @@ fn saturating_i32(value: u64) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
 }
 
-fn agent_error(error: AgentError) -> Arc<AIApiError> {
+fn agent_error(error: AgentError, stream_type: &'static str) -> Arc<AIApiError> {
     Arc::new(
         AIApiError::Stream {
-            stream_type: "rig_openai_compatible",
+            stream_type,
             source: anyhow::anyhow!(error),
         }
         .into_quota_limit_if_provider_budget_exhausted(),

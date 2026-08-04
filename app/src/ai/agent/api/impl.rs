@@ -28,8 +28,8 @@ pub async fn generate_multi_agent_output(
         redaction::redact_inputs(&mut params.input);
     }
 
-    if let ProviderConfig::OpenAI(config) = &provider_config {
-        if config.use_rig {
+    match &provider_config {
+        ProviderConfig::OpenAI(config) if config.use_rig => {
             return Ok(crate::ai::runtime::rig_openai_response_stream(
                 config.clone(),
                 params,
@@ -38,6 +38,30 @@ pub async fn generate_multi_agent_output(
                 cancellation_rx,
             ));
         }
+        ProviderConfig::Bedrock(config) if config.use_rig => {
+            return match crate::ai::runtime::rig_bedrock_response_stream(
+                config.clone(),
+                params,
+                supported_tools,
+                supported_cli_agent_tools,
+                cancellation_rx,
+            )
+            .await
+            {
+                Ok(stream) => Ok(stream),
+                Err(error) => {
+                    log::error!("[rig/bedrock] Runtime error: {error}");
+                    let error = Arc::new(crate::server::server_api::AIApiError::Stream {
+                        stream_type: "rig_bedrock",
+                        source: error,
+                    });
+                    let (sender, receiver) = async_channel::unbounded();
+                    let _ = sender.send(Err(error)).await;
+                    Ok(Box::pin(receiver))
+                }
+            };
+        }
+        ProviderConfig::OpenAI(_) | ProviderConfig::Bedrock(_) | ProviderConfig::None => {}
     }
 
     let mut logging_metadata = HashMap::new();

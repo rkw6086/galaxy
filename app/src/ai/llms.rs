@@ -721,6 +721,7 @@ impl LLMPreferences {
                     model_id: default.model_id.to_string(),
                     display_name: default.display_name.to_string(),
                     vision_supported: default.vision_supported,
+                    use_rig: false,
                 });
                 added = true;
             }
@@ -1230,6 +1231,80 @@ impl LLMPreferences {
                     me.inject_openai_models(ctx);
                     ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
                 }
+            },
+        );
+    }
+
+    /// Explicitly refreshes the models for one entry in the OpenAI-compatible
+    /// provider registry. Unlike the legacy endpoint refresh, this is only
+    /// called from a user action so configured remote endpoints are never
+    /// contacted merely because Galaxy started.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn fetch_openai_provider_models(
+        &mut self,
+        provider_index: usize,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.openai_enabled.value() {
+            return;
+        }
+
+        let Some(provider) = settings
+            .openai_providers
+            .value()
+            .get(provider_index)
+            .cloned()
+        else {
+            return;
+        };
+        if provider.base_url.trim().is_empty() {
+            return;
+        }
+
+        let requested_base_url = provider.base_url;
+        let api_key = provider.api_key.filter(|key| !key.is_empty());
+        let request_base_url = requested_base_url.clone();
+
+        let _ = ctx.spawn(
+            async move {
+                let base = request_base_url.trim_end_matches('/');
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap_or_default();
+
+                if let Some(models) =
+                    fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
+                {
+                    return models;
+                }
+
+                fetch_from_openai_models(base, api_key.as_deref(), &client).await
+            },
+            move |_, discovered_models, ctx| {
+                if discovered_models.is_empty() {
+                    return;
+                }
+
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    let Some(provider) = providers.get_mut(provider_index) else {
+                        return;
+                    };
+
+                    // Do not apply a response to an entry that was edited or
+                    // reordered while its discovery request was in flight.
+                    if provider.base_url != requested_base_url {
+                        return;
+                    }
+
+                    provider.models =
+                        merge_discovered_provider_models(&provider.models, discovered_models);
+                    if let Err(err) = settings.openai_providers.set_value(providers, ctx) {
+                        report_error!(err.context("Failed to persist discovered provider models"));
+                    }
+                });
             },
         );
     }
@@ -1994,6 +2069,52 @@ fn openai_model_context_size(model: &OpenAIModelConfig) -> u32 {
     model.max_input_tokens.unwrap_or(model.context_size)
 }
 
+/// Merges endpoint metadata into a provider's configured models without
+/// discarding local routing choices or manually configured models.
+#[cfg(not(target_family = "wasm"))]
+fn merge_discovered_provider_models(
+    existing_models: &[OpenAIModelConfig],
+    discovered_models: Vec<OpenAIModelConfig>,
+) -> Vec<OpenAIModelConfig> {
+    let mut merged = Vec::with_capacity(discovered_models.len() + existing_models.len());
+    let mut discovered_ids = HashSet::new();
+
+    for mut discovered in discovered_models {
+        if !discovered_ids.insert(discovered.model_id.clone()) {
+            continue;
+        }
+
+        if let Some(existing) = existing_models
+            .iter()
+            .find(|model| model.model_id == discovered.model_id)
+        {
+            discovered.display_name = existing.display_name.clone();
+            discovered.use_rig = existing.use_rig;
+            if existing.supports_system_messages.is_some() {
+                discovered.supports_system_messages = existing.supports_system_messages;
+            }
+            if discovered.provider.is_none() {
+                discovered.provider = existing.provider.clone();
+            }
+        } else {
+            discovered.use_rig = true;
+        }
+        if discovered.model_id.starts_with("codex-gpt-") {
+            discovered.supports_system_messages = Some(false);
+        }
+
+        merged.push(discovered);
+    }
+
+    merged.extend(
+        existing_models
+            .iter()
+            .filter(|model| !discovered_ids.contains(&model.model_id))
+            .cloned(),
+    );
+    merged
+}
+
 #[cfg(not(target_family = "wasm"))]
 fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
     let context_size = openai_model_context_size(model);
@@ -2118,7 +2239,11 @@ async fn fetch_from_litellm_model_info(
                 max_output_tokens,
                 provider,
                 use_rig: false,
-                supports_system_messages: model_info["supports_system_messages"].as_bool(),
+                supports_system_messages: if model_name.starts_with("codex-gpt-") {
+                    Some(false)
+                } else {
+                    model_info["supports_system_messages"].as_bool()
+                },
             })
         })
         .collect();
@@ -2241,7 +2366,11 @@ async fn fetch_from_openai_models(
                 max_output_tokens,
                 provider,
                 use_rig: false,
-                supports_system_messages: m["supports_system_messages"].as_bool(),
+                supports_system_messages: if id.starts_with("codex-gpt-") {
+                    Some(false)
+                } else {
+                    m["supports_system_messages"].as_bool()
+                },
             })
         })
         .collect();

@@ -42,6 +42,10 @@ pub enum MessageContent {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ContentPart {
     Text(String),
+    Reasoning {
+        text: String,
+        signature: Option<String>,
+    },
     Image {
         data: Vec<u8>,
         mime_type: String,
@@ -231,12 +235,28 @@ pub enum StopReason {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AgentEvent {
-    TurnStarted { runtime_request_id: String },
-    TextDelta { text: String },
-    ReasoningDelta { text: String },
-    Tool { event: ToolEvent },
-    UsageUpdated { usage: Usage },
-    TurnStopped { reason: StopReason },
+    TurnStarted {
+        runtime_request_id: String,
+    },
+    TextDelta {
+        text: String,
+    },
+    ReasoningDelta {
+        text: String,
+    },
+    ReasoningCompleted {
+        text: String,
+        signature: Option<String>,
+    },
+    Tool {
+        event: ToolEvent,
+    },
+    UsageUpdated {
+        usage: Usage,
+    },
+    TurnStopped {
+        reason: StopReason,
+    },
 }
 
 fn truncate_tool_results_in_content(content: &mut MessageContent) {
@@ -245,8 +265,14 @@ fn truncate_tool_results_in_content(content: &mut MessageContent) {
         MessageContent::ToolResult { content, .. } => truncate_tool_result_text(content),
         MessageContent::MultiPart(parts) => {
             for part in parts {
-                if let ContentPart::ToolResult { content, .. } = part {
-                    truncate_tool_result_text(content);
+                match part {
+                    ContentPart::ToolResult { content, .. } => {
+                        truncate_tool_result_text(content);
+                    }
+                    ContentPart::Text(_)
+                    | ContentPart::Reasoning { .. }
+                    | ContentPart::Image { .. }
+                    | ContentPart::ToolUse { .. } => {}
                 }
             }
         }

@@ -10,7 +10,7 @@ use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
-use crate::settings::{OpenAIModelConfig, OpenAIProviderConfig};
+use crate::settings::OpenAIModelConfig;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -137,4 +137,68 @@ fn llm_info_round_trip_serializes_and_deserializes() {
         serde_json::from_str(&serialized).expect("should deserialize after round trip");
 
     assert_eq!(info, round_tripped);
+}
+
+fn openai_model(model_id: &str) -> OpenAIModelConfig {
+    OpenAIModelConfig {
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        vision_supported: false,
+        context_size: 200_000,
+        max_input_tokens: None,
+        max_output_tokens: None,
+        provider: None,
+        use_rig: false,
+        supports_system_messages: None,
+    }
+}
+
+#[test]
+fn provider_discovery_preserves_local_model_overrides() {
+    let mut existing = openai_model("codex-gpt-5.6-sol-xhigh");
+    existing.display_name = "My Codex".to_string();
+    existing.context_size = 100_000;
+    existing.provider = Some("openai".to_string());
+    existing.use_rig = true;
+    // Even stale or incorrect endpoint metadata must not opt ChatGPT-backed
+    // Codex models back into the system role.
+    existing.supports_system_messages = Some(true);
+
+    let mut discovered = openai_model("codex-gpt-5.6-sol-xhigh");
+    discovered.display_name = "Codex from endpoint".to_string();
+    discovered.context_size = 400_000;
+    discovered.max_output_tokens = Some(32_000);
+    discovered.supports_system_messages = Some(true);
+
+    let merged = merge_discovered_provider_models(&[existing], vec![discovered]);
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].display_name, "My Codex");
+    assert_eq!(merged[0].context_size, 400_000);
+    assert_eq!(merged[0].max_output_tokens, Some(32_000));
+    assert!(merged[0].use_rig);
+    assert_eq!(merged[0].supports_system_messages, Some(false));
+    assert_eq!(merged[0].provider.as_deref(), Some("openai"));
+}
+
+#[test]
+fn codex_models_reject_system_messages_even_with_stale_true_metadata() {
+    let mut model = openai_model("codex-gpt-5.6-sol-xhigh");
+    model.supports_system_messages = Some(true);
+
+    assert!(!model.supports_system_messages());
+}
+
+#[test]
+fn provider_discovery_enables_rig_for_new_models_and_keeps_manual_models() {
+    let manual = openai_model("manual-model");
+    let discovered = openai_model("codex-gpt-new");
+
+    let merged = merge_discovered_provider_models(&[manual], vec![discovered]);
+
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0].model_id, "codex-gpt-new");
+    assert!(merged[0].use_rig);
+    assert_eq!(merged[0].supports_system_messages, Some(false));
+    assert_eq!(merged[1].model_id, "manual-model");
 }

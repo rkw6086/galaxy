@@ -13,7 +13,9 @@ use warp_multi_agent_api::ToolType;
 
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{AIAgentContext, AIAgentInput, MCPContext, UserQueryMode};
-use crate::ai::bedrock::request_translator::{default_tool_definitions, tool_name_is_supported};
+use crate::ai::bedrock::request_translator::{
+    default_tool_definitions, sanitize_messages_for_bedrock, tool_name_is_supported,
+};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::request_translator::sanitize_messages_for_openai;
 
@@ -29,6 +31,47 @@ pub(crate) struct PreparedRigTurn {
 
 pub(crate) fn prepare_rig_turn(
     config: &OpenAIClientConfig,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+) -> PreparedRigTurn {
+    prepare_rig_turn_for_provider(
+        config.model.clone(),
+        config.max_output_tokens.map(u64::from),
+        RigRequestSanitizer::OpenAICompatible,
+        params,
+        supported_tools,
+        supported_cli_agent_tools,
+    )
+}
+
+pub(crate) fn prepare_bedrock_rig_turn(
+    model: String,
+    max_output_tokens: Option<u64>,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+) -> PreparedRigTurn {
+    prepare_rig_turn_for_provider(
+        Some(model),
+        max_output_tokens,
+        RigRequestSanitizer::Bedrock,
+        params,
+        supported_tools,
+        supported_cli_agent_tools,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum RigRequestSanitizer {
+    OpenAICompatible,
+    Bedrock,
+}
+
+fn prepare_rig_turn_for_provider(
+    model_override: Option<String>,
+    max_output_tokens: Option<u64>,
+    sanitizer: RigRequestSanitizer,
     params: RequestParams,
     supported_tools: Vec<ToolType>,
     supported_cli_agent_tools: Vec<ToolType>,
@@ -70,7 +113,12 @@ pub(crate) fn prepare_rig_turn(
     for message in &mut persistent_messages {
         message.truncate_tool_results_for_provider_request();
     }
-    sanitize_messages_for_openai(&mut persistent_messages);
+    match sanitizer {
+        RigRequestSanitizer::OpenAICompatible => {
+            sanitize_messages_for_openai(&mut persistent_messages)
+        }
+        RigRequestSanitizer::Bedrock => sanitize_messages_for_bedrock(&mut persistent_messages),
+    }
 
     let mut turn_messages = Vec::new();
     if let Some(summary) = progressive_summary {
@@ -91,16 +139,14 @@ pub(crate) fn prepare_rig_turn(
     }
     turn_messages.extend(persistent_messages.clone());
 
-    let model_id = config
-        .model
-        .clone()
+    let model_id = model_override
         .filter(|model| !model.is_empty() && model != "auto")
         .unwrap_or_else(|| model.as_str().to_string());
     let mut request = TurnRequest::new(model_id, turn_messages);
     request.conversation_id = conversation_token.map(|token| token.as_str().to_string());
     request.system_prompt = Some(system_prompt);
     request.tools = tools;
-    request.max_output_tokens = config.max_output_tokens.map(u64::from);
+    request.max_output_tokens = max_output_tokens;
 
     PreparedRigTurn {
         task_id,

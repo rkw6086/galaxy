@@ -5,6 +5,8 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::config::Region;
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
+use galaxy_agent_core::AgentError;
+use galaxy_agent_rig::{BedrockRigConfig, BedrockRuntime};
 
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
@@ -38,6 +40,7 @@ pub struct BedrockClientConfig {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub cross_region_inference: bool,
+    pub use_rig: bool,
 }
 
 impl BedrockClientConfig {
@@ -141,8 +144,8 @@ impl BedrockClient {
             match provider.provide_credentials().await {
                 Ok(creds) => {
                     log::info!(
-                        "[bedrock] Resolved AWS credentials successfully: access_key_id={:?}, has_session_token={}, expiry={:?}",
-                        creds.access_key_id(),
+                        "[bedrock] Resolved AWS credentials successfully: has_access_key_id={}, has_session_token={}, expiry={:?}",
+                        !creds.access_key_id().is_empty(),
                         creds.session_token().is_some(),
                         creds.expiry(),
                     );
@@ -166,6 +169,28 @@ impl BedrockClient {
             runtime_client,
             region,
         })
+    }
+
+    /// Builds the Phase 4 Rig runtime from the AWS SDK client whose region and
+    /// credentials Galaxy already resolved. This does not change production
+    /// routing; callers opt in only after the Bedrock parity suite passes.
+    pub fn rig_runtime(
+        &self,
+        model: String,
+        cross_region_inference: bool,
+        prompt_caching: bool,
+        max_output_tokens: Option<u64>,
+    ) -> Result<BedrockRuntime, AgentError> {
+        BedrockRuntime::from_aws_client(
+            self.runtime_client.clone(),
+            BedrockRigConfig {
+                model,
+                region: self.region.clone(),
+                cross_region_inference,
+                prompt_caching,
+                max_output_tokens,
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

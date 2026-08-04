@@ -4346,6 +4346,7 @@ impl BlocklistAIController {
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             session_token: None,
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            use_rig: false,
         };
 
         if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
@@ -4431,6 +4432,9 @@ impl BlocklistAIController {
                         .iter()
                         .map(|p| match p {
                             ContentPart::Text(t) => t.clone(),
+                            ContentPart::Reasoning { text, .. } => {
+                                format!("[Reasoning] {text}")
+                            }
                             ContentPart::Image { .. } => "[Image attachment]".to_string(),
                             ContentPart::ToolUse { name, input, .. } => {
                                 format!("[Tool: {}] {}", name, input)
@@ -4540,6 +4544,9 @@ impl BlocklistAIController {
                                                 .iter()
                                                 .map(|p| match p {
                                                     ContentPart::Text(t) => (t.len() / 4) as u32,
+                                                    ContentPart::Reasoning { text, .. } => {
+                                                        (text.len() / 4) as u32
+                                                    }
                                                     ContentPart::Image { .. } => 1_600,
                                                     ContentPart::ToolUse { input, .. } => {
                                                         (input.to_string().len() / 4) as u32

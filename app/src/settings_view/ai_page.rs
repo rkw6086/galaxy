@@ -88,8 +88,8 @@ use crate::settings::{
     GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
     IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
     NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled,
-    OrchestrationMessageDisplayMode, PromptSubmissionMode, RuleSuggestionsEnabled,
-    SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
+    OpenAIProviderConfig, OrchestrationMessageDisplayMode, PromptSubmissionMode,
+    RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
     ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
     ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
 };
@@ -117,10 +117,8 @@ pub enum AISubpage {
     Knowledge,
     /// Third-party CLI agent settings.
     ThirdPartyCLIAgents,
-    /// AWS Bedrock direct provider configuration.
-    Bedrock,
-    /// OpenAI-compatible (LiteLLM) provider configuration.
-    OpenAI,
+    /// Unified model and provider configuration.
+    Models,
     /// Experimental features.
     Experiments,
 }
@@ -132,8 +130,7 @@ impl AISubpage {
             SettingsSection::AgentProfiles => Some(Self::Profiles),
             SettingsSection::Knowledge => Some(Self::Knowledge),
             SettingsSection::ThirdPartyCLIAgents => Some(Self::ThirdPartyCLIAgents),
-            SettingsSection::Bedrock => Some(Self::Bedrock),
-            SettingsSection::OpenAI => Some(Self::OpenAI),
+            SettingsSection::Models => Some(Self::Models),
             SettingsSection::Experiments => Some(Self::Experiments),
             // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
             _ => None,
@@ -1908,13 +1905,16 @@ impl AISettingsPageView {
         }
     }
 
-    /// Fetches models from the LiteLLM endpoint and stores them in memory via LLMPreferences.
-    fn fetch_litellm_models(&mut self, ctx: &mut ViewContext<Self>) {
-        use crate::ai::llms::LLMPreferences;
-
+    fn fetch_openai_provider_models(&mut self, provider_index: usize, ctx: &mut ViewContext<Self>) {
         LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
-            llm_prefs.fetch_openai_models_from_endpoint(ctx);
+            llm_prefs.fetch_openai_provider_models(provider_index, ctx);
         });
+    }
+
+    fn rebuild_active_subpage(&mut self, ctx: &mut ViewContext<Self>) {
+        let (page, _) = Self::build_page(self.active_subpage, ctx);
+        self.page = page;
+        ctx.notify();
     }
 
     fn build_page(
@@ -2034,15 +2034,10 @@ impl AISettingsPageView {
             Some(AISubpage::ThirdPartyCLIAgents) => {
                 widgets.push(Box::new(CLIAgentWidget::default()));
             }
-            Some(AISubpage::Bedrock) => {
-                let widget = BedrockSettingsWidget::new(ctx);
-                widgets.push(Box::new(widget));
-                let title: Option<&str> = None;
-                return (PageType::new_uncategorized(widgets, title), None);
-            }
-            Some(AISubpage::OpenAI) => {
-                let widget = OpenAISettingsWidget::new(ctx);
-                widgets.push(Box::new(widget));
+            Some(AISubpage::Models) => {
+                widgets.push(Box::new(ModelsOverviewWidget));
+                widgets.push(Box::new(OpenAISettingsWidget::new(ctx)));
+                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
                 let title: Option<&str> = None;
                 return (PageType::new_uncategorized(widgets, title), None);
             }
@@ -2807,10 +2802,13 @@ pub enum AISettingsPageAction {
     SetBedrockAuthMethod(BedrockAuthMethod),
     SetBedrockProfile(String),
     ToggleBedrockCrossRegionInference,
+    ToggleBedrockModelRig(usize),
     ToggleOpenAIEnabled,
     ToggleAcpEnabled,
     RefreshAcpDiscovery,
-    FetchOpenAIModels,
+    FetchOpenAIProviderModels(usize),
+    AddOpenAIProvider,
+    RemoveOpenAIProvider(usize),
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -3562,6 +3560,17 @@ impl TypedActionView for AISettingsPageView {
                 });
                 ctx.notify();
             }
+            AISettingsPageAction::ToggleBedrockModelRig(index) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut models = settings.bedrock_models.value().clone();
+                    let Some(model) = models.get_mut(*index) else {
+                        return;
+                    };
+                    model.use_rig = !model.use_rig;
+                    report_if_error!(settings.bedrock_models.set_value(models, ctx));
+                });
+                ctx.notify();
+            }
             AISettingsPageAction::ToggleOpenAIEnabled => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.openai_enabled.toggle_and_save_value(ctx));
@@ -3580,9 +3589,32 @@ impl TypedActionView for AISettingsPageView {
                 #[cfg(not(target_family = "wasm"))]
                 self.refresh_acp_discovery(ctx);
             }
-            AISettingsPageAction::FetchOpenAIModels => {
-                // Trigger a fetch of models from the LiteLLM endpoint
-                self.fetch_litellm_models(ctx);
+            AISettingsPageAction::FetchOpenAIProviderModels(provider_index) => {
+                self.fetch_openai_provider_models(*provider_index, ctx);
+            }
+            AISettingsPageAction::AddOpenAIProvider => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    let provider_number = providers.len() + 1;
+                    providers.push(OpenAIProviderConfig {
+                        name: format!("Provider {provider_number}"),
+                        base_url: "http://localhost:4000/v1".to_string(),
+                        api_key: None,
+                        models: Vec::new(),
+                    });
+                    report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                });
+                self.rebuild_active_subpage(ctx);
+            }
+            AISettingsPageAction::RemoveOpenAIProvider(provider_index) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    if *provider_index < providers.len() {
+                        providers.remove(*provider_index);
+                        report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                    }
+                });
+                self.rebuild_active_subpage(ctx);
             }
             AISettingsPageAction::ToggleFileBasedMcp => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -7230,6 +7262,50 @@ impl SettingsWidget for CloudHandoffWidget {
     }
 }
 
+struct ModelsOverviewWidget;
+
+impl SettingsWidget for ModelsOverviewWidget {
+    type View = AISettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "models providers rig litellm openai compatible ollama lm studio bedrock"
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let settings = AISettings::as_ref(app);
+        let endpoint_count = settings.openai_providers.value().len();
+        let endpoint_model_count = settings
+            .openai_providers
+            .value()
+            .iter()
+            .map(|provider| provider.models.len())
+            .sum::<usize>();
+        let bedrock_model_count = settings.bedrock_models.value().len();
+
+        Flex::column()
+            .with_spacing(8.)
+            .with_child(build_sub_header(appearance, "Models", None).finish())
+            .with_child(render_ai_setting_description(
+                "Configure the model providers available to Galaxy. OpenAI-compatible endpoints and opted-in Bedrock models share the same Rig conversation, tool, and UI runtime; Bedrock's compatibility path remains available during validation.",
+                true,
+                app,
+            ))
+            .with_child(render_ai_setting_description(
+                format!(
+                    "{endpoint_count} OpenAI-compatible provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s)."
+                ),
+                true,
+                app,
+            ))
+            .finish()
+    }
+}
+
 struct BedrockSettingsWidget {
     enabled_toggle: SwitchStateHandle,
     auto_login_toggle: SwitchStateHandle,
@@ -7239,6 +7315,7 @@ struct BedrockSettingsWidget {
     auth_refresh_command_editor: ViewHandle<EditorView>,
     access_key_editor: ViewHandle<EditorView>,
     secret_key_editor: ViewHandle<EditorView>,
+    model_rig_toggles: RefCell<Vec<SwitchStateHandle>>,
 }
 
 impl BedrockSettingsWidget {
@@ -7250,6 +7327,7 @@ impl BedrockSettingsWidget {
         let auth_cmd_val = ai_settings.bedrock_auth_refresh_command.value().clone();
         let access_key_val = ai_settings.bedrock_access_key_id.value().clone();
         let secret_key_val = ai_settings.bedrock_secret_access_key.value().clone();
+        let bedrock_model_count = ai_settings.bedrock_models.value().len();
 
         let auth_method_dropdown = ctx.add_typed_action_view(|ctx| {
             let mut dropdown = Dropdown::new(ctx);
@@ -7475,6 +7553,11 @@ impl BedrockSettingsWidget {
             auth_refresh_command_editor,
             access_key_editor,
             secret_key_editor,
+            model_rig_toggles: RefCell::new(
+                (0..bedrock_model_count)
+                    .map(|_| SwitchStateHandle::default())
+                    .collect(),
+            ),
         }
     }
 
@@ -7539,6 +7622,8 @@ impl SettingsWidget for BedrockSettingsWidget {
         let auto_login = *ai_settings.bedrock_auto_login.value();
 
         let mut column = Flex::column().with_spacing(16.);
+
+        column.add_child(build_sub_header(appearance, "AWS Bedrock", None).finish());
 
         let has_aws_env = std::env::vars_os().any(|(k, _)| k.to_string_lossy().starts_with("AWS_"));
 
@@ -7673,6 +7758,47 @@ impl SettingsWidget for BedrockSettingsWidget {
                 }
             );
             column.add_child(render_ai_setting_description(description, is_enabled, app));
+            column.add_child(build_sub_header(appearance, "Bedrock runtime", None).finish());
+            column.add_child(render_ai_setting_description(
+                "Opt individual Bedrock models into the shared Rig runtime. Models left off continue through the compatibility runtime; one-hour prompt-cache TTL requests always fall back automatically.",
+                is_enabled,
+                app,
+            ));
+
+            let toggle_handles = {
+                let mut toggles = self.model_rig_toggles.borrow_mut();
+                while toggles.len() < configured_models.len() {
+                    toggles.push(SwitchStateHandle::default());
+                }
+                toggles.clone()
+            };
+            for (index, model) in configured_models.iter().enumerate() {
+                let toggle = appearance
+                    .ui_builder()
+                    .switch(toggle_handles[index].clone())
+                    .check(model.use_rig)
+                    .with_disabled(!is_enabled)
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::ToggleBedrockModelRig(
+                            index,
+                        ));
+                    })
+                    .finish();
+                column.add_child(build_toggle_element(
+                    render_body_item_label::<AISettingsPageAction>(
+                        format!("{} — Rig", model.display_name),
+                        Some(styles::header_font_color(is_enabled, app)),
+                        None,
+                        LocalOnlyIconState::Hidden,
+                        ToggleState::Enabled,
+                        appearance,
+                    ),
+                    toggle,
+                    appearance,
+                    None,
+                ));
+            }
         } else {
             column.add_child(render_ai_setting_description(
                 "No models configured. Add models to ~/.galaxy/settings.toml under [ai.bedrock].",
@@ -8003,104 +8129,149 @@ impl SettingsWidget for ACPSettingsWidget {
     }
 }
 
-struct OpenAISettingsWidget {
-    enabled_toggle: SwitchStateHandle,
+struct OpenAIProviderEditor {
+    name_editor: ViewHandle<EditorView>,
     base_url_editor: ViewHandle<EditorView>,
     api_key_editor: ViewHandle<EditorView>,
     fetch_button: MouseStateHandle,
+    remove_button: MouseStateHandle,
+}
+
+struct OpenAISettingsWidget {
+    enabled_toggle: SwitchStateHandle,
+    provider_editors: Vec<OpenAIProviderEditor>,
+    add_provider_button: MouseStateHandle,
 }
 
 impl OpenAISettingsWidget {
+    fn create_editor(
+        value: String,
+        placeholder: &'static str,
+        is_password: bool,
+        ctx: &mut ViewContext<<Self as SettingsWidget>::View>,
+    ) -> ViewHandle<EditorView> {
+        ctx.add_typed_action_view(move |ctx| {
+            let appearance = Appearance::as_ref(ctx);
+            let options = SingleLineEditorOptions {
+                is_password,
+                text: TextOptions {
+                    font_size_override: Some(appearance.ui_font_size()),
+                    font_family_override: Some(appearance.monospace_font_family()),
+                    text_colors_override: Some(TextColors {
+                        default_color: appearance.theme().active_ui_text_color(),
+                        disabled_color: appearance.theme().disabled_ui_text_color(),
+                        hint_color: appearance.theme().disabled_ui_text_color(),
+                    }),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut editor = EditorView::single_line(options, ctx);
+            editor.set_placeholder_text(placeholder, ctx);
+            editor.set_buffer_text(&value, ctx);
+            editor
+        })
+    }
+
     fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
-        let ai_settings = AISettings::as_ref(ctx);
+        let providers = AISettings::as_ref(ctx).openai_providers.value().clone();
+        let is_enabled = *AISettings::as_ref(ctx).openai_enabled.value();
+        let mut provider_editors = Vec::with_capacity(providers.len());
 
-        let base_url_val = ai_settings.openai_base_url.value().clone();
-        let api_key_val = ai_settings.openai_api_key.value().clone();
+        for (provider_index, provider) in providers.into_iter().enumerate() {
+            let name_editor = Self::create_editor(provider.name, "Provider name", false, ctx);
+            ctx.subscribe_to_view(&name_editor, move |_, editor, event, ctx| {
+                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                    let value = editor.as_ref(ctx).buffer_text(ctx);
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        let mut providers = settings.openai_providers.value().clone();
+                        if let Some(provider) = providers.get_mut(provider_index) {
+                            provider.name = value;
+                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                        }
+                    });
+                }
+            });
 
-        let base_url_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: false,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("http://localhost:4000/v1", ctx);
-            editor.set_buffer_text(&base_url_val, ctx);
-            editor
-        });
-        ctx.subscribe_to_view(&base_url_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.openai_base_url.set_value(value, ctx);
-                });
+            let base_url_editor =
+                Self::create_editor(provider.base_url, "http://localhost:4000/v1", false, ctx);
+            ctx.subscribe_to_view(&base_url_editor, move |_, editor, event, ctx| {
+                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                    let value = editor.as_ref(ctx).buffer_text(ctx);
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        let mut providers = settings.openai_providers.value().clone();
+                        if let Some(provider) = providers.get_mut(provider_index) {
+                            provider.base_url = value;
+                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                        }
+                    });
+                }
+            });
+
+            let api_key_editor = Self::create_editor(
+                provider.api_key.unwrap_or_default(),
+                "sk-... (optional)",
+                true,
+                ctx,
+            );
+            ctx.subscribe_to_view(&api_key_editor, move |_, editor, event, ctx| {
+                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
+                    let value = editor.as_ref(ctx).buffer_text(ctx);
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        let mut providers = settings.openai_providers.value().clone();
+                        if let Some(provider) = providers.get_mut(provider_index) {
+                            provider.api_key = (!value.is_empty()).then_some(value);
+                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
+                        }
+                    });
+                }
+            });
+
+            for editor in [&name_editor, &base_url_editor, &api_key_editor] {
+                AISettingsPageView::update_editor_interaction_state(
+                    editor.clone(),
+                    is_enabled,
+                    ctx,
+                );
             }
-        });
 
-        let api_key_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: true,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("sk-... (optional)", ctx);
-            editor.set_buffer_text(&api_key_val, ctx);
-            editor
-        });
-        ctx.subscribe_to_view(&api_key_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.openai_api_key.set_value(value, ctx);
-                });
-            }
-        });
+            provider_editors.push(OpenAIProviderEditor {
+                name_editor,
+                base_url_editor,
+                api_key_editor,
+                fetch_button: MouseStateHandle::default(),
+                remove_button: MouseStateHandle::default(),
+            });
+        }
 
-        let base_url_editor_clone = base_url_editor.clone();
-        let api_key_editor_clone = api_key_editor.clone();
+        let editor_handles = provider_editors
+            .iter()
+            .flat_map(|provider| {
+                [
+                    provider.name_editor.clone(),
+                    provider.base_url_editor.clone(),
+                    provider.api_key_editor.clone(),
+                ]
+            })
+            .collect::<Vec<_>>();
         ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
             if matches!(event, AISettingsChangedEvent::OpenAIEnabled { .. }) {
                 let is_enabled = *AISettings::as_ref(ctx).openai_enabled.value();
-                AISettingsPageView::update_editor_interaction_state(
-                    base_url_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
-                AISettingsPageView::update_editor_interaction_state(
-                    api_key_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
+                for editor in &editor_handles {
+                    AISettingsPageView::update_editor_interaction_state(
+                        editor.clone(),
+                        is_enabled,
+                        ctx,
+                    );
+                }
                 ctx.notify();
             }
         });
 
         Self {
             enabled_toggle: SwitchStateHandle::default(),
-            base_url_editor,
-            api_key_editor,
-            fetch_button: MouseStateHandle::default(),
+            provider_editors,
+            add_provider_button: MouseStateHandle::default(),
         }
     }
 
@@ -8164,8 +8335,11 @@ impl SettingsWidget for OpenAISettingsWidget {
 
         let mut column = Flex::column().with_spacing(16.);
 
+        column
+            .add_child(build_sub_header(appearance, "OpenAI-compatible providers", None).finish());
+
         column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
-            "Enable OpenAI-Compatible Provider",
+            "Enable model providers",
             AISettingsPageAction::ToggleOpenAIEnabled,
             is_enabled,
             true,
@@ -8174,65 +8348,153 @@ impl SettingsWidget for OpenAISettingsWidget {
             app,
         ));
         column.add_child(render_ai_setting_description(
-            "Route AI requests through an OpenAI-compatible endpoint (e.g. LiteLLM proxy).",
+            "Route configured LiteLLM, Ollama, LM Studio, vLLM, and other OpenAI-compatible models through Galaxy's provider registry.",
             true,
             app,
         ));
 
+        if ai_settings.openai_providers.value().is_empty() {
+            column.add_child(render_ai_setting_description(
+                "No providers configured. Add a provider to connect a local or private OpenAI-compatible endpoint.",
+                is_enabled,
+                app,
+            ));
+        }
+
+        for (provider_index, provider) in ai_settings.openai_providers.value().iter().enumerate() {
+            let Some(editors) = self.provider_editors.get(provider_index) else {
+                continue;
+            };
+
+            column.add_child(render_separator(appearance));
+            column.add_child(
+                build_sub_header(
+                    appearance,
+                    format!("Provider {}: {}", provider_index + 1, provider.name),
+                    None,
+                )
+                .finish(),
+            );
+            column.add_child(Self::render_input(
+                appearance,
+                "Name",
+                editors.name_editor.clone(),
+                is_enabled,
+                app,
+            ));
+            column.add_child(Self::render_input(
+                appearance,
+                "Base URL",
+                editors.base_url_editor.clone(),
+                is_enabled,
+                app,
+            ));
+            column.add_child(Self::render_input(
+                appearance,
+                "API Key",
+                editors.api_key_editor.clone(),
+                is_enabled,
+                app,
+            ));
+            column.add_child(render_ai_setting_description(
+                "The API key is optional, stored only in ~/.galaxy/settings.toml, and never synced to the cloud.",
+                is_enabled,
+                app,
+            ));
+
+            let fetch_button = appearance
+                .ui_builder()
+                .button(ButtonVariant::Secondary, editors.fetch_button.clone())
+                .with_text_label("Discover Models".to_owned());
+            let fetch_button = if !is_enabled || provider.base_url.trim().is_empty() {
+                fetch_button.disabled().build().finish()
+            } else {
+                fetch_button
+                    .build()
+                    .on_click(move |ctx, _, _| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::FetchOpenAIProviderModels(
+                            provider_index,
+                        ));
+                    })
+                    .finish()
+            };
+
+            let remove_button = appearance
+                .ui_builder()
+                .button(ButtonVariant::Error, editors.remove_button.clone())
+                .with_text_label("Remove Provider".to_owned())
+                .build()
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::RemoveOpenAIProvider(
+                        provider_index,
+                    ));
+                })
+                .finish();
+            column.add_child(
+                Flex::row()
+                    .with_spacing(8.)
+                    .with_child(fetch_button)
+                    .with_child(remove_button)
+                    .finish(),
+            );
+
+            let model_names = provider
+                .models
+                .iter()
+                .take(5)
+                .map(|model| model.display_name.as_str())
+                .join(", ");
+            let overflow = provider.models.len().saturating_sub(5);
+            let overflow = if overflow > 0 {
+                format!(" (+{overflow} more)")
+            } else {
+                String::new()
+            };
+            let models_description = if provider.models.is_empty() {
+                "No models configured. Discover models from this endpoint.".to_string()
+            } else {
+                format!(
+                    "{} model{}: {model_names}{overflow}",
+                    provider.models.len(),
+                    if provider.models.len() == 1 { "" } else { "s" },
+                )
+            };
+            column.add_child(render_ai_setting_description(
+                models_description,
+                is_enabled,
+                app,
+            ));
+        }
+
         column.add_child(render_separator(appearance));
-
-        column.add_child(Self::render_input(
-            appearance,
-            "Base URL",
-            self.base_url_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "The OpenAI-compatible API base URL (e.g. http://localhost:4000/v1).",
-            is_enabled,
-            app,
-        ));
-
-        column.add_child(Self::render_input(
-            appearance,
-            "API Key",
-            self.api_key_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "Optional. Leave empty if the proxy handles authentication.",
-            is_enabled,
-            app,
-        ));
-
-        column.add_child(render_separator(appearance));
-
-        // Fetch models button
-        let fetch_button = appearance
+        let add_provider_button = appearance
             .ui_builder()
-            .button(ButtonVariant::Secondary, self.fetch_button.clone())
-            .with_text_label("Fetch Models from Endpoint".to_owned())
+            .button(ButtonVariant::Secondary, self.add_provider_button.clone())
+            .with_text_label("Add Provider".to_owned())
             .build()
             .on_click(move |ctx, _, _| {
-                ctx.dispatch_typed_action(AISettingsPageAction::FetchOpenAIModels);
+                ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider);
             })
             .finish();
-        column.add_child(fetch_button);
+        column.add_child(add_provider_button);
         column.add_child(render_ai_setting_description(
-            "Queries the /models endpoint and populates the model list with available models and their context window sizes.",
+            "Model discovery only contacts an endpoint when you click Discover Models.",
             is_enabled,
             app,
         ));
 
         column.add_child(render_separator(appearance));
 
-        // Show configured models count
-        let configured_models: Vec<_> = ai_settings.openai_models.value().clone();
+        let mut configured_models = ai_settings
+            .openai_providers
+            .value()
+            .iter()
+            .flat_map(|provider| provider.models.iter())
+            .collect::<Vec<_>>();
+        configured_models.extend(ai_settings.openai_models.value().iter());
         if !configured_models.is_empty() {
             let description = format!(
-                "{} model{} configured via settings.toml.",
+                "{} model{} configured across all OpenAI-compatible providers.",
                 configured_models.len(),
                 if configured_models.len() == 1 {
                     ""
@@ -8246,7 +8508,7 @@ impl SettingsWidget for OpenAISettingsWidget {
             let preview: String = configured_models
                 .iter()
                 .take(5)
-                .map(|m| m.display_name.as_str())
+                .map(|model| model.display_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
             let suffix = if configured_models.len() > 5 {
@@ -8261,7 +8523,7 @@ impl SettingsWidget for OpenAISettingsWidget {
             ));
         } else {
             column.add_child(render_ai_setting_description(
-                "No models configured. Use 'Fetch Models' or add them to ~/.galaxy/settings.toml under [ai.openai].",
+                "No models configured. Add a provider and discover its models, or configure [[ai.providers.models]] in ~/.galaxy/settings.toml.",
                 is_enabled,
                 app,
             ));

@@ -121,6 +121,9 @@ fn convert_user_message(content: MessageContent) -> ConvertedMessages {
                     ContentPart::Text(text) => {
                         user_content_parts.push(UserContentPart::Text(text));
                     }
+                    ContentPart::Reasoning { text, .. } => {
+                        user_content_parts.push(UserContentPart::Text(text));
+                    }
                     ContentPart::Image { data, mime_type } => {
                         user_content_parts.push(UserContentPart::Image { data, mime_type });
                     }
@@ -196,6 +199,12 @@ fn convert_assistant_message(content: MessageContent) -> ConvertedMessages {
             for part in parts {
                 match part {
                     ContentPart::Text(text) => {
+                        if !text_content.is_empty() {
+                            text_content.push('\n');
+                        }
+                        text_content.push_str(&text);
+                    }
+                    ContentPart::Reasoning { text, .. } => {
                         if !text_content.is_empty() {
                             text_content.push('\n');
                         }

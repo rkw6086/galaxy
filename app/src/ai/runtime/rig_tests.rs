@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use ai::skills::SkillPathOrigin;
 use galaxy_agent_core::{
-    MessageContent, MessageRole, StopReason, ToolCall, ToolResult, ToolResultStatus,
+    ContentPart, MessageContent, MessageRole, StopReason, ToolCall, ToolResult, ToolResultStatus,
 };
 use warp_multi_agent_api::response_event::stream_finished;
 
@@ -134,12 +134,16 @@ fn assistant_history_is_updated_before_fast_tool_execution_can_continue() {
 
     sync_assistant_turn(
         &messages,
+        "",
+        None,
         "I'll inspect both.",
         std::slice::from_ref(&first_call),
         &mut history_index,
     );
     sync_assistant_turn(
         &messages,
+        "",
+        None,
         "I'll inspect both.",
         &[first_call, second_call],
         &mut history_index,
@@ -163,6 +167,43 @@ fn assistant_history_is_updated_before_fast_tool_execution_can_continue() {
 }
 
 #[test]
+fn signed_reasoning_is_persisted_before_the_tool_call() {
+    let messages = Arc::new(Mutex::new(Vec::new()));
+    let mut history_index = None;
+    let call = ToolCall {
+        id: "call-1".to_string(),
+        name: "read_files".to_string(),
+        arguments: serde_json::json!({"files": ["Cargo.toml"]}),
+    };
+
+    sync_assistant_turn(
+        &messages,
+        "I should inspect the manifest.",
+        Some("signed-reasoning"),
+        "",
+        std::slice::from_ref(&call),
+        &mut history_index,
+    );
+
+    let messages = messages.lock().unwrap();
+    let MessageContent::MultiPart(parts) = &messages[0].content else {
+        panic!("expected reasoning and tool call parts");
+    };
+    assert!(matches!(
+        parts.as_slice(),
+        [
+            ContentPart::Reasoning {
+                text,
+                signature: Some(signature),
+            },
+            ContentPart::ToolUse { tool_use_id, .. },
+        ] if text == "I should inspect the manifest."
+            && signature == "signed-reasoning"
+            && tool_use_id == "call-1"
+    ));
+}
+
+#[test]
 fn rejected_tool_result_is_paired_with_the_assistant_call_in_history() {
     let messages = Arc::new(Mutex::new(Vec::new()));
     let mut history_index = None;
@@ -173,6 +214,8 @@ fn rejected_tool_result_is_paired_with_the_assistant_call_in_history() {
     };
     sync_assistant_turn(
         &messages,
+        "",
+        None,
         "",
         std::slice::from_ref(&call),
         &mut history_index,

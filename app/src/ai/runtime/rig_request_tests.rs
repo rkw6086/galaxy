@@ -4,7 +4,7 @@ use std::sync::Arc;
 use galaxy_agent_core::{ContentPart, MessageContent, MessageRole, ToolResult, ToolResultStatus};
 use warp_multi_agent_api::ToolType;
 
-use super::{input_messages, prepare_rig_turn, tool_definitions};
+use super::{input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, tool_definitions};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{
     AIAgentContext, AIAgentInput, AnyFileContent, FileContext, MCPContext, MCPServer, UserQueryMode,
@@ -112,6 +112,40 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
             content: MessageContent::Text(text),
         } if text == "Inspect this repository"
     ));
+}
+
+#[test]
+fn bedrock_rig_turn_uses_bedrock_history_invariants_without_a_proto_round_trip() {
+    let mut params = RequestParams::new_for_test();
+    params.message_history = vec![galaxy_agent_core::ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::Text("Prior assistant message".to_string()),
+    }];
+    params.input = vec![user_query("Continue safely")];
+
+    let prepared = prepare_bedrock_rig_turn(
+        "anthropic.claude-test".to_string(),
+        Some(64_000),
+        params,
+        Vec::new(),
+        Vec::new(),
+    );
+
+    assert_eq!(prepared.request.model.as_str(), "anthropic.claude-test");
+    assert_eq!(prepared.request.max_output_tokens, Some(64_000));
+    assert_eq!(
+        prepared
+            .request
+            .messages
+            .first()
+            .map(|message| message.role),
+        Some(MessageRole::User)
+    );
+    assert_eq!(
+        prepared.request.messages.last().map(|message| message.role),
+        Some(MessageRole::User)
+    );
+    assert_eq!(prepared.request.messages, prepared.persistent_messages);
 }
 
 #[test]

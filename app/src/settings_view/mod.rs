@@ -245,8 +245,7 @@ pub enum SettingsSection {
     AgentMCPServers,
     Knowledge,
     ThirdPartyCLIAgents,
-    Bedrock,
-    OpenAI,
+    Models,
     Experiments,
     /// Internal backing-page identifier for CodeSettingsPageView. Multiple subpages
     /// (CodeIndexing, EditorAndCodeReview) share this single backing page,
@@ -274,8 +273,7 @@ impl Display for SettingsSection {
             SettingsSection::AgentMCPServers => write!(f, "MCP servers"),
             SettingsSection::Knowledge => write!(f, "Knowledge"),
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
-            SettingsSection::Bedrock => write!(f, "AWS Bedrock"),
-            SettingsSection::OpenAI => write!(f, "OpenAI / LiteLLM"),
+            SettingsSection::Models => write!(f, "Models"),
             SettingsSection::Experiments => write!(f, "Experiments"),
             SettingsSection::Warpify => write!(f, "Wormhole"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
@@ -300,8 +298,7 @@ impl SettingsSection {
                 | Self::AgentMCPServers
                 | Self::Knowledge
                 | Self::ThirdPartyCLIAgents
-                | Self::Bedrock
-                | Self::OpenAI
+                | Self::Models
                 | Self::Experiments
         )
     }
@@ -329,12 +326,11 @@ impl SettingsSection {
     pub fn ai_subpages() -> &'static [Self] {
         &[
             Self::WarpAgent,
+            Self::Models,
             Self::AgentProfiles,
             Self::AgentMCPServers,
             Self::Knowledge,
             Self::ThirdPartyCLIAgents,
-            Self::Bedrock,
-            Self::OpenAI,
             Self::Experiments,
         ]
     }
@@ -367,8 +363,9 @@ impl FromStr for SettingsSection {
             "MCP servers" | "AgentMCPServers" => Ok(Self::AgentMCPServers),
             "Knowledge" => Ok(Self::Knowledge),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
-            "AWS Bedrock" | "Bedrock" => Ok(Self::Bedrock),
-            "OpenAI / LiteLLM" | "OpenAI" => Ok(Self::OpenAI),
+            "Models" | "AWS Bedrock" | "Bedrock" | "OpenAI / LiteLLM" | "OpenAI" => {
+                Ok(Self::Models)
+            }
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
             "Experiments" => Ok(Self::Experiments),

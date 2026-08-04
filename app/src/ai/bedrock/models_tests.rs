@@ -82,8 +82,8 @@ fn test_cross_region_prefix_unknown_region() {
 fn test_get_effective_models_empty_returns_defaults() {
     let models = get_effective_models(&[]);
     assert_eq!(models.len(), DEFAULT_BEDROCK_MODELS.len());
-    assert_eq!(models[0].model_id, "anthropic.claude-opus-4-6[1m]");
-    assert_eq!(models[0].display_name, "Claude Opus 4.6");
+    assert_eq!(models[0].model_id, "us.anthropic.claude-opus-4-6-v1[1m]");
+    assert_eq!(models[0].display_name, "Claude Opus 4.6 (1M)");
 }
 
 #[test]
@@ -92,6 +92,7 @@ fn test_get_effective_models_custom_overrides() {
         model_id: "custom.model-v1:0".to_string(),
         display_name: "Custom Model".to_string(),
         vision_supported: false,
+        use_rig: true,
     }];
     let models = get_effective_models(&custom);
     assert_eq!(models.len(), 1);
@@ -102,4 +103,33 @@ fn test_get_effective_models_custom_overrides() {
 fn test_cross_region_prefix_skips_arn() {
     let arn = "arn:aws:bedrock:us-east-1:156729649053:application-inference-profile/fma5bsw4oxhy";
     assert_eq!(apply_cross_region_prefix(arn, "us-east-1"), arn);
+}
+
+#[test]
+fn rig_opt_in_matches_context_markers_and_resolved_inference_profiles() {
+    let configured = vec![BedrockModelConfig {
+        model_id: "anthropic.claude-test[1m]".to_string(),
+        display_name: "Claude Test".to_string(),
+        vision_supported: false,
+        use_rig: true,
+    }];
+
+    assert!(configured_model_uses_rig(
+        "us.anthropic.claude-test",
+        &configured,
+        "us-east-1",
+        true,
+    ));
+    assert!(configured_model_uses_rig(
+        "anthropic.claude-test[1M]",
+        &configured,
+        "us-east-1",
+        false,
+    ));
+    assert!(!configured_model_uses_rig(
+        "anthropic.other-model",
+        &configured,
+        "us-east-1",
+        false,
+    ));
 }

@@ -750,6 +750,7 @@ fn persist_input_images_on_latest_user_message(
                 Some(api::input_context::Image { data, mime_type })
             }
             Some(ContentPart::Text(_))
+            | Some(ContentPart::Reasoning { .. })
             | Some(ContentPart::ToolUse { .. })
             | Some(ContentPart::ToolResult { .. })
             | None => None,
@@ -873,11 +874,17 @@ fn is_pure_tool_result(content: &MessageContent) -> bool {
 fn strip_tool_result_parts(content: &mut MessageContent) {
     if let MessageContent::MultiPart(parts) = content {
         parts.retain(|p| !matches!(p, ContentPart::ToolResult { .. }));
-        if parts.len() == 1 && !matches!(parts.first(), Some(ContentPart::Image { .. })) {
+        if parts.len() == 1
+            && !matches!(
+                parts.first(),
+                Some(ContentPart::Image { .. } | ContentPart::Reasoning { .. })
+            )
+        {
             let part = parts.remove(0);
             *content = match part {
                 ContentPart::Text(t) => MessageContent::Text(t),
                 ContentPart::Image { .. } => unreachable!(),
+                ContentPart::Reasoning { .. } => unreachable!(),
                 ContentPart::ToolUse {
                     tool_use_id,
                     name,
@@ -916,11 +923,17 @@ fn strip_orphaned_tool_result_parts(
                 ContentPart::ToolResult { tool_use_id, .. } => valid_ids.contains(tool_use_id),
                 _ => true,
             });
-            if parts.len() == 1 && !matches!(parts.first(), Some(ContentPart::Image { .. })) {
+            if parts.len() == 1
+                && !matches!(
+                    parts.first(),
+                    Some(ContentPart::Image { .. } | ContentPart::Reasoning { .. })
+                )
+            {
                 let part = parts.remove(0);
                 *content = match part {
                     ContentPart::Text(t) => MessageContent::Text(t),
                     ContentPart::Image { .. } => unreachable!(),
+                    ContentPart::Reasoning { .. } => unreachable!(),
                     ContentPart::ToolUse {
                         tool_use_id,
                         name,

@@ -180,6 +180,13 @@ fn describe_message_content(content: &crate::ai::bedrock::convert::MessageConten
                 .iter()
                 .map(|p| match p {
                     ContentPart::Text(t) => format!("Text({})", t.len()),
+                    ContentPart::Reasoning { text, signature } => {
+                        format!(
+                            "Reasoning({}chars,signed={})",
+                            text.len(),
+                            signature.is_some()
+                        )
+                    }
                     ContentPart::Image { data, mime_type } => {
                         format!("Image({mime_type},{}bytes)", data.len())
                     }

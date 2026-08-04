@@ -828,6 +828,11 @@ pub struct BedrockModelConfig {
     #[serde(default)]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
+    #[serde(default)]
+    #[schemars(
+        description = "Route this model through Galaxy's Rig Bedrock runtime. Disabled by default while compatibility validation is in progress."
+    )]
+    pub use_rig: bool,
 }
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
@@ -890,8 +895,10 @@ impl settings_value::SettingsValue for OpenAIModelConfig {}
 
 impl OpenAIModelConfig {
     pub fn supports_system_messages(&self) -> bool {
-        self.supports_system_messages
-            .unwrap_or_else(|| !self.model_id.starts_with("codex-gpt-"))
+        if self.model_id.starts_with("codex-gpt-") {
+            return false;
+        }
+        self.supports_system_messages.unwrap_or(true)
     }
 }
 

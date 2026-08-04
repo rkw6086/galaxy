@@ -336,9 +336,26 @@ rendering and non-Rig compatibility runtimes, not in Rig's executable tool path.
 
 ### Phase 4 — Bedrock through Rig
 
-- Implement Bedrock client construction and model resolution through `rig-bedrock`.
-- Compare request behavior for system prompts, images, tool schemas, cache controls, reasoning,
-  inference profiles, token usage, and context limits.
+- [x] Pin `rig-bedrock` 0.40.0 and construct it from Galaxy's already-resolved AWS SDK client so
+  profile, SSO, static-key, region, and egress ownership stay at Galaxy's explicit boundary.
+- [x] Resolve context markers, ARNs, existing inference profiles, and regional inference-profile
+  prefixes before passing a model ID to Rig.
+- [x] Reuse one Galaxy-to-Rig request adapter and one Rig-to-`AgentEvent` streaming lifecycle for
+  OpenAI-compatible and Bedrock providers; handle Bedrock's required base64 image representation at
+  that single request boundary.
+- [x] Add hermetic compatibility fixtures for system prompts, images, tool calls/results, cache
+  enablement, cancellation, inference profiles, token limits, usage/cache usage, and max-token stop
+  normalization without contacting AWS.
+- [x] Preserve signed Bedrock reasoning blocks in Galaxy conversation history so adaptive-thinking
+  tool-call turns can be replayed without losing their signatures.
+- [x] Define the Rig 0.40 parity policy: Galaxy retains structured tool-result error state locally
+  and sends an explicit `[ERROR]` result prefix because Rig core has no Bedrock status field;
+  Rig owns system/message cache checkpoints, tool-schema caching is treated as an optimization,
+  and one-hour cache-TTL requests stay on the compatibility runtime.
+- [x] Add a model-by-model Rig switch to the unified Models page and route opted-in Bedrock models
+  through the same request, event, permission, history, and UI adapter as OpenAI-compatible models.
+- [ ] Run opt-in live semantic comparisons for system prompts, images, tools, reasoning, usage, and
+  context limits before selecting the Rig runtime for any configured Bedrock model.
 - Keep a short-lived compatibility fallback for unsupported Bedrock behavior, measured by tests.
 - Delete custom Bedrock translation code only after parity is proven.
 
@@ -418,7 +435,7 @@ contract is what the UI and persistence observe.
 
 ## Immediate next vertical slice
 
-Begin Phase 4 with a focused `rig-bedrock` compatibility spike. Establish client construction and
-model/inference-profile resolution first, then add semantic parity fixtures for system prompts,
-images, tool schemas, cache controls, reasoning, usage, and context limits before routing any
-configured Bedrock model away from the existing compatibility implementation.
+Finish Phase 4 with opt-in live Bedrock semantic comparisons for system prompts, images, tools,
+signed reasoning, usage, cancellation, and context limits. Keep per-model Rig routing opt-in until
+those live fixtures pass, then make Rig the default for supported models and retain the compatibility
+runtime only for explicitly unsupported cache behavior.
