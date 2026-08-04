@@ -4,13 +4,14 @@ use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt};
 use galaxy_agent_core::{
     turn_control, AgentError, AgentEvent, AgentRuntime, MessageContent, MessageRole, StopReason,
-    TurnCommand, TurnRequest, Usage,
+    ToolCall, ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand, Usage,
 };
 use galaxy_agent_rig::{OpenAICompatibleRuntime, OpenAICompatibleRuntimeConfig};
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
-use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
+use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent, ToolType};
 
+use super::rig_request::{prepare_rig_turn, PreparedRigTurn};
 use crate::ai::agent::api::{Event, RequestParams, ResponseStream};
 use crate::ai::bedrock::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
@@ -18,56 +19,30 @@ use crate::ai::bedrock::response_translator::{
 };
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::response_translator::{build_stream_finished, StreamUsage};
-use crate::ai::openai::translator::{prepare_turn, PreparedTurn, TranslatorRequest};
-use crate::ai::provider::types::ConversationMessage;
+use crate::ai::provider::types::{ContentPart, ConversationMessage};
 use crate::server::server_api::AIApiError;
 
 pub(crate) fn rig_openai_response_stream(
     config: OpenAIClientConfig,
     params: RequestParams,
-    request: &mut api::Request,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
     cancellation_rx: oneshot::Receiver<()>,
 ) -> ResponseStream {
-    let translator_request = TranslatorRequest {
-        config: config.clone(),
-        model_id: params.model.as_str().to_string(),
-        root_task_id: params.root_task_id,
-        message_history: params.bedrock_message_history,
-        tool_result_archive: params.bedrock_tool_result_archive,
-        progressive_summary: params.bedrock_progressive_summary,
-        messages_sent: params.bedrock_messages_sent,
-        global_rules: params.global_rules,
-    };
-    let PreparedTurn {
+    let PreparedRigTurn {
         task_id,
         needs_create_task,
         user_query,
-        messages,
-        system_prompt,
-        tools: _,
-        model_id,
-        persistent_message_count,
-    } = prepare_turn(&translator_request, request);
+        request: turn_request,
+        persistent_messages,
+        tool_result_archive,
+        messages_sent,
+    } = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
+    store_messages_sent(&messages_sent, &persistent_messages);
 
-    store_messages_sent(
-        &translator_request.messages_sent,
-        &messages,
-        persistent_message_count,
-    );
-
-    let conversation_id = request
-        .metadata
-        .as_ref()
-        .map(|metadata| metadata.conversation_id.clone())
-        .filter(|id| !id.is_empty());
-    let mut turn_request = TurnRequest::new(model_id.clone(), messages);
-    turn_request.conversation_id = conversation_id.clone();
-    turn_request.system_prompt = system_prompt;
-    // Phase 2 deliberately validates the model streaming seam. Galaxy tool
-    // execution moves behind AgentRuntime in Phase 3; exposing the legacy tool
-    // list here would split ownership across both systems.
-    turn_request.tools = Vec::new();
-    turn_request.max_output_tokens = config.max_output_tokens.map(u64::from);
+    let conversation_id = turn_request.conversation_id.clone();
+    let model_id = turn_request.model.as_str().to_string();
+    let tool_policy = ToolPolicy::new(&turn_request.tools);
 
     let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
         base_url: config.base_url,
@@ -76,7 +51,6 @@ pub(crate) fn rig_openai_response_stream(
         max_output_tokens: config.max_output_tokens.map(u64::from),
         supports_system_messages: config.supports_system_messages,
     });
-    let messages_sent = translator_request.messages_sent;
     let max_context_tokens = config.max_input_tokens;
     let stream = async_stream::stream! {
         let (control_sender, control) = turn_control();
@@ -110,6 +84,8 @@ pub(crate) fn rig_openai_response_stream(
         let mut current_text_message_id: Option<String> = None;
         let mut current_reasoning_message_id: Option<String> = None;
         let mut full_text = String::new();
+        let mut proposed_tools = Vec::new();
+        let mut assistant_history_index = None;
         let mut usage = Usage::default();
 
         loop {
@@ -163,11 +139,57 @@ pub(crate) fn rig_openai_response_stream(
                             }
                         }
                         AgentEvent::UsageUpdated { usage: updated } => usage = updated,
+                        AgentEvent::Tool {
+                            event: ToolEvent::Proposed { call },
+                        } => {
+                            proposed_tools.push(call.clone());
+                            sync_assistant_turn(
+                                &messages_sent,
+                                &full_text,
+                                &proposed_tools,
+                                &mut assistant_history_index,
+                            );
+                            let history = messages_sent
+                                .lock()
+                                .map(|sent| sent.clone())
+                                .unwrap_or_default();
+                            match tool_policy.decide(&call, &history, &tool_result_archive) {
+                                ToolCallDecision::Execute => {
+                                    yield Ok(build_tool_proposed(&task_id, &call));
+                                }
+                                ToolCallDecision::Inline(result) => {
+                                    append_tool_result(&messages_sent, result);
+                                }
+                                ToolCallDecision::Reject(result) => {
+                                    log::warn!(
+                                        "Rig model called unavailable tool '{}' (id={})",
+                                        call.name,
+                                        call.id
+                                    );
+                                    let error_display = format!(
+                                        "Failed tool call: `{}`\n\n{}",
+                                        call.name, result.content
+                                    );
+                                    append_tool_result(&messages_sent, result);
+                                    let message_id = Uuid::new_v4().to_string();
+                                    yield Ok(build_add_agent_output_message(
+                                        &task_id,
+                                        &message_id,
+                                        &error_display,
+                                    ));
+                                }
+                            }
+                        }
                         AgentEvent::TurnStopped { reason } => {
                             if !initialized {
                                 yield Ok(build_stream_init(&request_id, &conversation_id));
                             }
-                            store_assistant_text(&messages_sent, full_text);
+                            sync_assistant_turn(
+                                &messages_sent,
+                                &full_text,
+                                &proposed_tools,
+                                &mut assistant_history_index,
+                            );
                             yield Ok(build_stream_finished(
                                 map_stop_reason(reason),
                                 StreamUsage {
@@ -184,13 +206,10 @@ pub(crate) fn rig_openai_response_stream(
                             ));
                             return;
                         }
-                        AgentEvent::ToolProposed { .. }
-                        | AgentEvent::PermissionRequested { .. }
-                        | AgentEvent::ToolStarted { .. }
-                        | AgentEvent::ToolCompleted { .. } => {
+                        AgentEvent::Tool { .. } => {
                             yield Err(agent_error(AgentError::new(
                                 galaxy_agent_core::AgentErrorKind::Protocol,
-                                "the Phase 2 Rig runtime emitted a tool event while tools are disabled",
+                                "the provider runtime attempted to execute a tool outside Galaxy's permission boundary",
                             )));
                             return;
                         }
@@ -206,31 +225,90 @@ pub(crate) fn rig_openai_response_stream(
 fn store_messages_sent(
     messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
     messages: &[ConversationMessage],
-    persistent_message_count: usize,
 ) {
     let Ok(mut sent) = messages_sent.lock() else {
         return;
     };
-    if persistent_message_count > 0 && messages.len() >= persistent_message_count {
-        *sent = messages[messages.len() - persistent_message_count..].to_vec();
-    } else {
-        *sent = messages.to_vec();
+    *sent = messages.to_vec();
+}
+
+fn append_tool_result(
+    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+    result: ToolResult,
+) {
+    let is_error = result.is_error();
+    let message = ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::ToolResult {
+            tool_use_id: result.call_id,
+            content: result.content,
+            is_error,
+        },
+    };
+    if let Ok(mut sent) = messages_sent.lock() {
+        sent.push(message);
     }
 }
 
-fn store_assistant_text(
+fn sync_assistant_turn(
     messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-    text: String,
+    text: &str,
+    tool_calls: &[ToolCall],
+    history_index: &mut Option<usize>,
 ) {
-    if text.is_empty() {
+    let mut parts = Vec::with_capacity(usize::from(!text.is_empty()) + tool_calls.len());
+    if !text.is_empty() {
+        parts.push(ContentPart::Text(text.to_string()));
+    }
+    parts.extend(tool_calls.iter().map(|call| ContentPart::ToolUse {
+        tool_use_id: call.id.clone(),
+        name: call.name.clone(),
+        input: call.arguments.clone(),
+    }));
+    if parts.is_empty() {
         return;
     }
-    if let Ok(mut sent) = messages_sent.lock() {
-        sent.push(ConversationMessage {
-            role: MessageRole::Assistant,
-            content: MessageContent::Text(text),
-        });
+
+    let content = if parts.len() == 1 {
+        match parts.pop().unwrap() {
+            ContentPart::Text(text) => MessageContent::Text(text),
+            ContentPart::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            } => MessageContent::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            },
+            ContentPart::Image { .. } | ContentPart::ToolResult { .. } => unreachable!(),
+        }
+    } else {
+        MessageContent::MultiPart(parts)
+    };
+    let message = ConversationMessage {
+        role: MessageRole::Assistant,
+        content,
+    };
+
+    let Ok(mut sent) = messages_sent.lock() else {
+        return;
+    };
+    if let Some(index) = *history_index {
+        if index < sent.len() {
+            sent[index] = message;
+            return;
+        }
     }
+    *history_index = Some(sent.len());
+    sent.push(message);
+}
+
+fn build_tool_proposed(task_id: &str, call: &ToolCall) -> ResponseEvent {
+    let arguments = serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".to_string());
+    crate::ai::bedrock::response_translator::build_tool_call_message(
+        task_id, &call.id, &call.name, &arguments,
+    )
 }
 
 fn build_add_reasoning(task_id: &str, message_id: &str, text: &str) -> ResponseEvent {

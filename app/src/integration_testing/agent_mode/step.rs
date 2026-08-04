@@ -25,8 +25,13 @@ use super::hydrate_ai_conversation_assertion;
 
 /// Assumes that the terminal input is currently not in AI input mode.
 pub fn enter_agent_view() -> TestStep {
+    let keystroke = if cfg!(target_os = "macos") {
+        "cmd-enter"
+    } else {
+        "ctrl-shift-enter"
+    };
     new_step_with_default_assertions("Enter Agent View")
-        .with_keystrokes(&["ctrl-shift-enter"])
+        .with_keystrokes(&[keystroke])
         .add_named_assertion(
             "Assert that we are in Agent View and AI input mode",
             move |app, window_id| {

@@ -135,6 +135,216 @@ impl AIAgentActionResultType {
             _ => None,
         }
     }
+
+    /// Returns the authoritative result content to send back to a model.
+    ///
+    /// `Display` is intentionally concise for UI summaries, so content-bearing
+    /// results must not use it directly when constructing the next model turn.
+    pub fn model_content(&self) -> String {
+        match self {
+            Self::RequestCommandOutput(result) => match result {
+                RequestCommandOutputResult::Completed {
+                    command,
+                    output,
+                    exit_code,
+                    ..
+                } => command_result_content(Some(command), output, exit_code.value()),
+                RequestCommandOutputResult::LongRunningCommandSnapshot {
+                    command,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    ..
+                } => shell_snapshot_content(
+                    Some(command),
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    None,
+                ),
+                RequestCommandOutputResult::CancelledBeforeExecution
+                | RequestCommandOutputResult::Denylisted { .. } => result.to_string(),
+            },
+            Self::WriteToLongRunningShellCommand(result) => match result {
+                WriteToLongRunningShellCommandResult::Snapshot {
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => shell_snapshot_content(
+                    None,
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    Some(*is_preempted),
+                ),
+                WriteToLongRunningShellCommandResult::CommandFinished {
+                    output, exit_code, ..
+                } => command_result_content(None, output, exit_code.value()),
+                WriteToLongRunningShellCommandResult::Cancelled
+                | WriteToLongRunningShellCommandResult::Error(_) => result.to_string(),
+            },
+            Self::ReadFiles(result) => match result {
+                ReadFilesResult::Success { files } => file_contexts_content(files),
+                ReadFilesResult::Error(_) | ReadFilesResult::Cancelled => result.to_string(),
+            },
+            Self::SearchCodebase(result) => match result {
+                SearchCodebaseResult::Success { files } => file_contexts_content(files),
+                SearchCodebaseResult::Failed { .. } | SearchCodebaseResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::ReadSkill(result) => match result {
+                ReadSkillResult::Success { content } => file_context_content(content),
+                ReadSkillResult::Error(_) | ReadSkillResult::Cancelled => result.to_string(),
+            },
+            Self::ReadDocuments(result) => match result {
+                ReadDocumentsResult::Success { documents } => document_contexts_content(documents),
+                ReadDocumentsResult::Error(_) | ReadDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::EditDocuments(result) => match result {
+                EditDocumentsResult::Success { updated_documents } => {
+                    document_contexts_content(updated_documents)
+                }
+                EditDocumentsResult::Error(_) | EditDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::CreateDocuments(result) => match result {
+                CreateDocumentsResult::Success { created_documents } => {
+                    document_contexts_content(created_documents)
+                }
+                CreateDocumentsResult::Error(_) | CreateDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::ReadShellCommandOutput(result) => match result {
+                ReadShellCommandOutputResult::CommandFinished {
+                    command,
+                    output,
+                    exit_code,
+                    ..
+                } => command_result_content(Some(command), output, exit_code.value()),
+                ReadShellCommandOutputResult::LongRunningCommandSnapshot {
+                    command,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => shell_snapshot_content(
+                    Some(command),
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    Some(*is_preempted),
+                ),
+                ReadShellCommandOutputResult::Cancelled
+                | ReadShellCommandOutputResult::Error(_) => result.to_string(),
+            },
+            Self::TransferShellCommandControlToUser(result) => match result {
+                TransferShellCommandControlToUserResult::Snapshot {
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => format!(
+                    "{}\nControl has been transferred to the user. Do not write to the command until control is returned.",
+                    shell_snapshot_content(
+                        None,
+                        grid_contents,
+                        cursor,
+                        *is_alt_screen_active,
+                        Some(*is_preempted),
+                    )
+                ),
+                TransferShellCommandControlToUserResult::CommandFinished {
+                    output, exit_code, ..
+                } => command_result_content(None, output, exit_code.value()),
+                TransferShellCommandControlToUserResult::Cancelled
+                | TransferShellCommandControlToUserResult::Error(_) => result.to_string(),
+            },
+            Self::RequestFileEdits(_)
+            | Self::UploadArtifact(_)
+            | Self::Grep(_)
+            | Self::FileGlob(_)
+            | Self::FileGlobV2(_)
+            | Self::ReadMCPResource(_)
+            | Self::CallMCPTool(_)
+            | Self::SuggestNewConversation(_)
+            | Self::SuggestPrompt(_)
+            | Self::OpenCodeReview
+            | Self::InitProject
+            | Self::UseComputer(_)
+            | Self::InsertReviewComments(_)
+            | Self::RequestComputerUse(_)
+            | Self::FetchConversation(_)
+            | Self::StartAgent(_)
+            | Self::SendMessageToAgent(_)
+            | Self::AskUserQuestion(_)
+            | Self::RunAgents(_)
+            | Self::WaitForEvents(_) => self.to_string(),
+        }
+    }
+}
+
+fn command_result_content(command: Option<&str>, output: &str, exit_code: i32) -> String {
+    let command = command
+        .map(|command| format!("Command: {command}\n"))
+        .unwrap_or_default();
+    let output = if output.is_empty() {
+        "(no output)"
+    } else {
+        output
+    };
+    format!("{command}Command finished with exit code {exit_code}.\nOutput:\n{output}")
+}
+
+fn shell_snapshot_content(
+    command: Option<&str>,
+    grid_contents: &str,
+    cursor: &str,
+    is_alt_screen_active: bool,
+    is_preempted: Option<bool>,
+) -> String {
+    let command = command
+        .map(|command| format!("Command: {command}\n"))
+        .unwrap_or_default();
+    let preempted = is_preempted
+        .map(|is_preempted| format!("\nPreempted: {is_preempted}"))
+        .unwrap_or_default();
+    format!(
+        "{command}Command is still running.\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}"
+    )
+}
+
+fn file_contexts_content(files: &[FileContext]) -> String {
+    files
+        .iter()
+        .map(file_context_content)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn file_context_content(file: &FileContext) -> String {
+    match &file.content {
+        AnyFileContent::StringContent(content) => format!("{file}:\n{content}"),
+        AnyFileContent::BinaryContent(content) => {
+            format!("{file}:\n[binary file, {} bytes]", content.len())
+        }
+    }
+}
+
+fn document_contexts_content(documents: &[DocumentContext]) -> String {
+    documents
+        .iter()
+        .map(|document| format!("{document}:\n{}", document.content))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(test)]

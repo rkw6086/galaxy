@@ -356,9 +356,9 @@ fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
     assert_eq!(provider.models.len(), 1);
     let model = &provider.models[0];
     assert_eq!(model.model_id, INITIAL_RIG_MODEL_ID);
-    assert_eq!(model.use_rig, true);
+    assert!(model.use_rig);
     assert_eq!(model.supports_system_messages, Some(false));
-    assert_eq!(model.supports_system_messages(), false);
+    assert!(!model.supports_system_messages());
 }
 
 #[test]
@@ -366,14 +366,14 @@ fn codex_litellm_model_infers_missing_system_message_capability() {
     let mut model = default_openai_providers().remove(0).models.remove(0);
     model.supports_system_messages = None;
 
-    assert_eq!(model.supports_system_messages(), false);
+    assert!(!model.supports_system_messages());
 
     model.model_id = "gpt-4o".to_string();
-    assert_eq!(model.supports_system_messages(), true);
+    assert!(model.supports_system_messages());
 
     model.model_id = INITIAL_RIG_MODEL_ID.to_string();
     model.supports_system_messages = Some(true);
-    assert_eq!(model.supports_system_messages(), true);
+    assert!(model.supports_system_messages());
 }
 
 #[test]

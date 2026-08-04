@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use futures::Stream;
+use galaxy_agent_core::{recall_tool_history, ToolHistoryQuery};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
@@ -10,7 +11,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use crate::ai::agent::api::Event;
 use crate::ai::bedrock::response_translator::{
-    build_create_task, build_stream_init, context_window_for_model, recall_from_history,
+    build_create_task, build_stream_init, context_window_for_model,
 };
 use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use crate::server::server_api::AIApiError;
@@ -276,13 +277,15 @@ pub fn openai_stream_to_response_events(
                     .and_then(|value| value.as_u64())
                     .unwrap_or(0) as usize;
                 let recall_result = match messages_sent.lock() {
-                    Ok(sent) => recall_from_history(
+                    Ok(sent) => recall_tool_history(
                         &sent,
                         &tool_result_archive,
-                        search_query,
-                        tool_name_filter,
-                        tool_use_id,
-                        offset,
+                        ToolHistoryQuery {
+                            search_query,
+                            tool_name: tool_name_filter,
+                            tool_use_id,
+                            offset_from_end: offset,
+                        },
                     ),
                     Err(_) => "Error: could not access conversation history.".to_string(),
                 };

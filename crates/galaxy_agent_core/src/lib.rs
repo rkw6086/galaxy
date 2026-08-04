@@ -5,7 +5,9 @@
 //! depend on GalaxyUI, provider SDKs, persistence, or Warp wire protocols.
 
 mod runtime;
+mod tool_policy;
 mod types;
 
 pub use runtime::*;
+pub use tool_policy::*;
 pub use types::*;

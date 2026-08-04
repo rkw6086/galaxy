@@ -164,10 +164,8 @@ impl AcpRuntimeModel {
     ) -> BTreeMap<String, serde_json::Value> {
         options
             .iter()
-            .filter_map(|option| {
-                (!option.current_value.is_null())
-                    .then(|| (option.id.clone(), option.current_value.clone()))
-            })
+            .filter(|option| !option.current_value.is_null())
+            .map(|option| (option.id.clone(), option.current_value.clone()))
             .collect()
     }
 

@@ -14,6 +14,7 @@ pub use convert_from::{
     MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError,
 };
 use futures_lite::Stream;
+use galaxy_agent_core::ToolResult;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
@@ -96,6 +97,8 @@ pub struct RequestParams {
     /// locally so ACP-provided Galaxy tools can be pinned to the exact pane.
     pub terminal_view_id: Option<EntityId>,
     pub input: Vec<AIAgentInput>,
+    /// Normalized results consumed directly by Rig-selected models.
+    pub tool_results: Vec<ToolResult>,
     pub conversation_token: Option<ServerConversationToken>,
     pub forked_from_conversation_token: Option<ServerConversationToken>,
     pub ambient_agent_task_id: Option<AmbientAgentTaskId>,
@@ -140,21 +143,20 @@ pub struct RequestParams {
     pub parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
     pub agent_name: Option<String>,
-    /// Full Bedrock conversation history for direct Bedrock calls.
-    /// When present, the Bedrock path uses this instead of extracting from task_context.
-    pub bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    /// Provider-neutral conversation history for direct model calls.
+    pub message_history: Vec<crate::ai::provider::types::ConversationMessage>,
     /// Progressive summary of older conversation history. Prepended as the first
-    /// message pair in the messages array sent to Bedrock.
-    pub bedrock_progressive_summary: Option<String>,
+    /// message pair in the messages array sent to the model.
+    pub progressive_summary: Option<String>,
     /// Archived tool_use/tool_result pairs from previous summarization drains.
-    /// Passed to the Bedrock translator so `recall_tool_history` can search archived
-    /// results even after they've been summarized away from live history.
-    pub bedrock_tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
-    /// Populated by the Bedrock path after building the message list.
+    /// Kept separately so `recall_tool_history` can search archived results even after
+    /// they've been summarized away from live history.
+    pub tool_result_archive: Vec<crate::ai::provider::types::ConversationMessage>,
+    /// Populated by direct-provider paths after building the message list.
     /// Contains the full messages sent (old history + new input) so the controller
     /// can store them back into the conversation for the next request cycle.
-    pub bedrock_messages_sent:
-        std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
+    pub messages_sent:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>,
     /// Global rules (name, content) from the local CloudModel (AIFact/AIMemory).
     /// Injected into the system prompt when `is_memory_enabled` is true.
     pub global_rules: Vec<(String, String)>,
@@ -187,6 +189,7 @@ impl RequestParams {
         Self {
             terminal_view_id: None,
             input: vec![],
+            tool_results: vec![],
             conversation_token: None,
             forked_from_conversation_token: None,
             ambient_agent_task_id: None,
@@ -218,10 +221,10 @@ impl RequestParams {
             parent_agent_id: None,
             agent_name: None,
             root_task_id: None,
-            bedrock_message_history: vec![],
-            bedrock_progressive_summary: None,
-            bedrock_tool_result_archive: vec![],
-            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+            message_history: vec![],
+            progressive_summary: None,
+            tool_result_archive: vec![],
+            messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             global_rules: vec![],
         }
     }
@@ -391,6 +394,7 @@ impl RequestParams {
         Self {
             terminal_view_id,
             input: request_input.all_inputs().cloned().collect(),
+            tool_results: Vec::new(),
             conversation_token: conversation.server_conversation_token,
             forked_from_conversation_token: conversation.forked_from_conversation_token,
             ambient_agent_task_id: conversation.ambient_agent_task_id,
@@ -426,10 +430,10 @@ impl RequestParams {
                 .map(|id| id.to_string()),
             parent_agent_id: None,
             agent_name: None,
-            bedrock_message_history: Vec::new(),
-            bedrock_progressive_summary: None,
-            bedrock_tool_result_archive: Vec::new(),
-            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            message_history: Vec::new(),
+            progressive_summary: None,
+            tool_result_archive: Vec::new(),
+            messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             global_rules: if is_memory_enabled {
                 Self::load_global_rules(app)
             } else {

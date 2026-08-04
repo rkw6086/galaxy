@@ -34,6 +34,9 @@ pub use execute::{
     StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
 };
 use futures::future::{join_all, BoxFuture};
+use galaxy_agent_core::{
+    PermissionDecision, PermissionKind, PermissionRequest, ToolEvent, ToolResult, ToolResultStatus,
+};
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 use parking_lot::FairMutex;
@@ -210,6 +213,67 @@ fn can_start_action_with_current_phase(
     }
 }
 
+fn permission_request_id(action_id: &AIAgentActionId) -> String {
+    format!("permission:{action_id}")
+}
+
+fn is_permission_denial(reason: CancellationReason, status: Option<&AIActionStatus>) -> bool {
+    matches!(reason, CancellationReason::ManuallyCancelled)
+        && matches!(status, Some(AIActionStatus::Blocked))
+}
+
+fn permission_kind_for_action(action: &AIAgentActionType) -> PermissionKind {
+    match action {
+        AIAgentActionType::ReadFiles(_)
+        | AIAgentActionType::SearchCodebase(_)
+        | AIAgentActionType::Grep { .. }
+        | AIAgentActionType::FileGlob { .. }
+        | AIAgentActionType::FileGlobV2 { .. }
+        | AIAgentActionType::ReadMCPResource { .. }
+        | AIAgentActionType::ReadDocuments(_)
+        | AIAgentActionType::ReadSkill(_)
+        | AIAgentActionType::FetchConversation { .. }
+        | AIAgentActionType::WaitForEvents { .. } => PermissionKind::Read,
+        AIAgentActionType::RequestFileEdits { .. }
+        | AIAgentActionType::EditDocuments(_)
+        | AIAgentActionType::CreateDocuments(_)
+        | AIAgentActionType::InitProject
+        | AIAgentActionType::InsertCodeReviewComments { .. } => PermissionKind::Write,
+        AIAgentActionType::RequestCommandOutput { .. }
+        | AIAgentActionType::WriteToLongRunningShellCommand { .. }
+        | AIAgentActionType::ReadShellCommandOutput { .. }
+        | AIAgentActionType::UseComputer(_)
+        | AIAgentActionType::RequestComputerUse(_)
+        | AIAgentActionType::TransferShellCommandControlToUser { .. }
+        | AIAgentActionType::OpenCodeReview => PermissionKind::Execute,
+        AIAgentActionType::UploadArtifact(_) => PermissionKind::Network,
+        AIAgentActionType::CallMCPTool { .. }
+        | AIAgentActionType::SuggestNewConversation { .. }
+        | AIAgentActionType::SuggestPrompt(_)
+        | AIAgentActionType::StartAgent { .. }
+        | AIAgentActionType::SendMessageToAgent { .. }
+        | AIAgentActionType::AskUserQuestion { .. }
+        | AIAgentActionType::RunAgents(_) => PermissionKind::ExternalTool,
+    }
+}
+
+fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bool) -> ToolResult {
+    let status = if permission_denied {
+        ToolResultStatus::Denied
+    } else if action_result.result.is_cancelled() {
+        ToolResultStatus::Cancelled
+    } else if action_result.result.is_failed() {
+        ToolResultStatus::Error
+    } else {
+        ToolResultStatus::Success
+    };
+    ToolResult {
+        call_id: action_result.id.to_string(),
+        content: action_result.result.model_content(),
+        status,
+    }
+}
+
 pub struct BlocklistAIActionModel {
     executor: ModelHandle<BlocklistAIActionExecutor>,
 
@@ -224,11 +288,18 @@ pub struct BlocklistAIActionModel {
     /// Map from conversation ID to actions received in the most recent AI output that are finished.
     finished_action_results: HashMap<AIConversationId, Vec<Arc<AIAgentActionResult>>>,
 
+    /// Provider-neutral results for the same finished actions. Rig consumes these directly rather
+    /// than reconstructing them from the legacy request protobuf.
+    finished_tool_results: HashMap<AIConversationId, Vec<ToolResult>>,
+
     /// Original order for the current batch of actions.
     ///
     /// We maintain this so that even though we might process actions in parallel,
     /// we can still order the results consistently.
     action_order: HashMap<AIConversationId, HashMap<AIAgentActionId, usize>>,
+
+    /// Permission-card rejections that still need a correlated completion event.
+    denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
 
     /// Past actions and their corresponding statuses from previous AI exchanges.
     past_action_results: HashMap<AIAgentActionId, Arc<AIAgentActionResult>>,
@@ -266,6 +337,12 @@ impl BlocklistAIActionModel {
         ctx.subscribe_to_model(&executor, move |me, _, event, ctx| match event {
             BlocklistAIActionExecutorEvent::ExecutingAction { action_id } => {
                 ctx.emit(BlocklistAIActionEvent::ExecutingAction(action_id.clone()));
+                ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                    action_id: action_id.clone(),
+                    event: ToolEvent::Started {
+                        call_id: action_id.to_string(),
+                    },
+                });
             }
             BlocklistAIActionExecutorEvent::FinishedAction {
                 result,
@@ -298,10 +375,12 @@ impl BlocklistAIActionModel {
         Self {
             pending_actions: Default::default(),
             finished_action_results: Default::default(),
+            finished_tool_results: Default::default(),
             executor,
             past_action_results: HashMap::new(),
             running_actions: Default::default(),
             action_order: Default::default(),
+            denied_permissions: Default::default(),
             terminal_view_id,
             pending_preprocessed_actions: Default::default(),
             is_view_only: false,
@@ -531,6 +610,18 @@ impl BlocklistAIActionModel {
             if let Some(finished_results) = self.finished_action_results.get_mut(&conversation_id) {
                 finished_results.sort_by_key(|result| {
                     action_order.get(&result.id).copied().unwrap_or(usize::MAX)
+                });
+            }
+            if let Some(tool_results) = self.finished_tool_results.get_mut(&conversation_id) {
+                let tool_order = action_order
+                    .iter()
+                    .map(|(id, index)| (id.to_string(), *index))
+                    .collect::<HashMap<_, _>>();
+                tool_results.sort_by_key(|result| {
+                    tool_order
+                        .get(&result.call_id)
+                        .copied()
+                        .unwrap_or(usize::MAX)
                 });
             }
         }
@@ -833,6 +924,17 @@ impl BlocklistAIActionModel {
             ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(
                 action.id.clone(),
             ));
+            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                action_id: action.id.clone(),
+                event: ToolEvent::PermissionRequested {
+                    request: PermissionRequest {
+                        id: permission_request_id(&action.id),
+                        call_id: action.id.to_string(),
+                        kind: permission_kind_for_action(&action.action),
+                        reason: Some(action.action.user_friendly_name()),
+                    },
+                },
+            });
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
                 let blocked_action_user_friendly_str = action.action.user_friendly_name();
                 history_model.update_conversation_status(
@@ -897,6 +999,16 @@ impl BlocklistAIActionModel {
 
         let action_id = action.id.clone();
         let phase = self.action_phase_for_action(&action, ctx);
+        if is_user_initiated {
+            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                action_id: action_id.clone(),
+                event: ToolEvent::PermissionResolved {
+                    request_id: permission_request_id(&action_id),
+                    call_id: action_id.to_string(),
+                    decision: PermissionDecision::AllowOnce,
+                },
+            });
+        }
         // WaitForEvents owns its own status transition; skip the default
         // in-progress update.
         let is_wait_for_events = matches!(action.action, AIAgentActionType::WaitForEvents { .. });
@@ -1073,6 +1185,8 @@ impl BlocklistAIActionModel {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) {
+        let status = self.get_action_status(action_id);
+        let permission_denied = is_permission_denial(reason, status.as_ref());
         if self
             .running_actions
             .get(&conversation_id)
@@ -1092,7 +1206,13 @@ impl BlocklistAIActionModel {
                 .find_position(|action| action.id == *action_id)
             {
                 if let Some(action) = pending_actions_for_conversation.remove(idx) {
-                    self.cancel_pending_action(conversation_id, action, Some(reason), ctx);
+                    self.cancel_pending_action(
+                        conversation_id,
+                        action,
+                        Some(reason),
+                        permission_denied,
+                        ctx,
+                    );
                 }
             }
         }
@@ -1140,7 +1260,7 @@ impl BlocklistAIActionModel {
                 reason,
                 std::backtrace::Backtrace::force_capture()
             );
-            self.cancel_pending_action(conversation_id, action, reason, ctx);
+            self.cancel_pending_action(conversation_id, action, reason, false, ctx);
         }
     }
 
@@ -1177,8 +1297,22 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         pending_action: AIAgentAction,
         reason: Option<CancellationReason>,
+        permission_denied: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        if permission_denied {
+            self.denied_permissions
+                .insert((conversation_id, pending_action.id.clone()));
+            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                action_id: pending_action.id.clone(),
+                event: ToolEvent::PermissionResolved {
+                    request_id: permission_request_id(&pending_action.id),
+                    call_id: pending_action.id.to_string(),
+                    decision: PermissionDecision::Denied { reason: None },
+                },
+            });
+        }
+
         if matches!(
             pending_action.action,
             AIAgentActionType::RequestComputerUse(_)
@@ -1227,10 +1361,20 @@ impl BlocklistAIActionModel {
             .collect_vec()
     }
 
+    pub(super) fn drain_finished_tool_results(
+        &mut self,
+        conversation_id: AIConversationId,
+    ) -> Vec<ToolResult> {
+        self.finished_tool_results
+            .remove(&conversation_id)
+            .unwrap_or_default()
+    }
+
     /// Clears finished action results for a conversation. Used when reverting.
     pub(super) fn clear_finished_action_results(&mut self, conversation_id: AIConversationId) {
         self.action_order.remove(&conversation_id);
         self.finished_action_results.remove(&conversation_id);
+        self.finished_tool_results.remove(&conversation_id);
     }
 
     /// The control flow for initiating cancellations across suggested plans, requested commands,
@@ -1308,9 +1452,30 @@ impl BlocklistAIActionModel {
             )
         ) {
             for action in self.drain_pending_request_command_actions(conversation_id) {
-                self.cancel_pending_action(conversation_id, action, cancellation_reason, ctx);
+                self.cancel_pending_action(
+                    conversation_id,
+                    action,
+                    cancellation_reason,
+                    false,
+                    ctx,
+                );
             }
         }
+
+        let permission_denied = self
+            .denied_permissions
+            .remove(&(conversation_id, action_result.id.clone()));
+        let tool_result = domain_tool_result(&action_result, permission_denied);
+        self.finished_tool_results
+            .entry(conversation_id)
+            .or_default()
+            .push(tool_result.clone());
+        ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+            action_id: action_result.id.clone(),
+            event: ToolEvent::Completed {
+                result: tool_result,
+            },
+        });
 
         self.finished_action_results
             .entry(conversation_id)
@@ -1474,6 +1639,11 @@ pub enum BlocklistAIActionEvent {
         conversation_id: AIConversationId,
         cancellation_reason: Option<CancellationReason>,
     },
+    /// Provider-neutral permission and execution lifecycle event for runtime consumers.
+    ToolLifecycle {
+        action_id: AIAgentActionId,
+        event: ToolEvent,
+    },
     InitProject(AIAgentActionId),
     ToggleCodeReview(AIAgentActionId),
     InsertCodeReviewComments {
@@ -1491,6 +1661,7 @@ impl BlocklistAIActionEvent {
             BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(action_id) => action_id,
             BlocklistAIActionEvent::ExecutingAction(action_id) => action_id,
             BlocklistAIActionEvent::FinishedAction { action_id, .. } => action_id,
+            BlocklistAIActionEvent::ToolLifecycle { action_id, .. } => action_id,
             BlocklistAIActionEvent::InitProject(action_id) => action_id,
             BlocklistAIActionEvent::ToggleCodeReview(action_id) => action_id,
             BlocklistAIActionEvent::InsertCodeReviewComments { action_id, .. } => action_id,

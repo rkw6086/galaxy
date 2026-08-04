@@ -4929,7 +4929,8 @@ impl AIBlock {
                     }
                 }
 
-                BlocklistAIActionEvent::InitProject(_)
+                BlocklistAIActionEvent::ToolLifecycle { .. }
+                | BlocklistAIActionEvent::InitProject(_)
                 | BlocklistAIActionEvent::ToggleCodeReview(_) => {}
             }
         });

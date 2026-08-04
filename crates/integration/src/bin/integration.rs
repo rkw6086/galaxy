@@ -428,6 +428,7 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_restored_ai_block_renders_mermaid_and_local_images);
 
     register_test!(test_agent_mode_pane_minimum_size);
+    register_test!(test_rig_read_tool_round_trip);
     register_test!(test_git_prompt_chips);
 
     // These tests are only invoked manually, and not included in the

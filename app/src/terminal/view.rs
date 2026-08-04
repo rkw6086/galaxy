@@ -7324,7 +7324,8 @@ impl TerminalView {
                     );
                 }
             }
-            BlocklistAIActionEvent::QueuedAction(_) => {}
+            BlocklistAIActionEvent::QueuedAction(_)
+            | BlocklistAIActionEvent::ToolLifecycle { .. } => {}
         }
     }
 

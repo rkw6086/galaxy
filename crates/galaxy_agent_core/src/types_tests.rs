@@ -36,3 +36,58 @@ fn usage_total_excludes_cached_breakdown_to_avoid_double_counting() {
 
     assert_eq!(usage.total_tokens(), 125);
 }
+
+#[test]
+fn tool_events_keep_one_call_id_across_permission_and_execution() {
+    let events = [
+        ToolEvent::Proposed {
+            call: ToolCall {
+                id: "call-1".to_string(),
+                name: "run_shell_command".to_string(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+            },
+        },
+        ToolEvent::PermissionRequested {
+            request: PermissionRequest {
+                id: "permission:call-1".to_string(),
+                call_id: "call-1".to_string(),
+                kind: PermissionKind::Execute,
+                reason: Some("Run a command".to_string()),
+            },
+        },
+        ToolEvent::PermissionResolved {
+            request_id: "permission:call-1".to_string(),
+            call_id: "call-1".to_string(),
+            decision: PermissionDecision::AllowOnce,
+        },
+        ToolEvent::Started {
+            call_id: "call-1".to_string(),
+        },
+        ToolEvent::Completed {
+            result: ToolResult {
+                call_id: "call-1".to_string(),
+                content: "ok".to_string(),
+                status: ToolResultStatus::Success,
+            },
+        },
+    ];
+
+    assert!(events.iter().all(|event| event.call_id() == "call-1"));
+}
+
+#[test]
+fn denied_results_are_errors_but_cancelled_results_are_distinct() {
+    let denied = ToolResult {
+        call_id: "denied".to_string(),
+        content: "permission denied".to_string(),
+        status: ToolResultStatus::Denied,
+    };
+    let cancelled = ToolResult {
+        call_id: "cancelled".to_string(),
+        content: "cancelled".to_string(),
+        status: ToolResultStatus::Cancelled,
+    };
+
+    assert!(denied.is_error());
+    assert!(!cancelled.is_error());
+}

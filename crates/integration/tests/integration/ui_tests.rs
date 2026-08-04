@@ -311,6 +311,7 @@ integration_tests! {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     test_middle_click_paste,
     test_agent_mode_pane_minimum_size,
+    test_rig_read_tool_round_trip,
 
     test_rule_creation,
     test_rule_update,

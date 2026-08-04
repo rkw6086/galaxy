@@ -286,19 +286,43 @@ use_rig = true
 supports_system_messages = false
 ```
 
-Phase 2 intentionally does not expose Galaxy's legacy tool list to Rig. That ownership moves as a
-unit in Phase 3; until then, the opt-in slice validates text conversation streaming without two
-competing tool executors.
+At Phase 2 completion, Galaxy intentionally did not expose its legacy tool list to Rig. Phase 3
+then moves that ownership behind the Galaxy safety boundary without introducing a second tool
+executor.
 
 Exit condition: a LiteLLM or local OpenAI-compatible conversation streams through Rig without
 `warp_multi_agent_api::Request` on the provider side.
 
 ### Phase 3 — Tools, permissions, MCP, and multi-turn behavior
 
-- Bridge the core Galaxy tools into Rig.
-- Preserve permission cards, denial, cancellation, parallel-call ordering, and error visibility.
-- Bridge current MCP tools through Rig's `rmcp` support or a single Galaxy tool-server adapter.
-- Port loop prevention and unknown-tool handling to domain-level policies.
+- [x] Advertise Galaxy's current core tool definitions to Rig and translate streamed
+  `ToolProposed` events into the existing permission/action UI contract.
+- [x] Keep Galaxy's action model as the sole execution authority; the provider runtime cannot
+  execute shell, file, or MCP tools itself.
+- [x] Persist assistant tool calls before exposing them to the executor, preserving parallel-call
+  order and preventing fast results from outrunning conversation history.
+- [x] Preserve denied and failed tool results as explicit errors when building the next Rig turn.
+- [x] Route current MCP tool proposals through Galaxy's existing MCP executor adapter.
+- [x] Define one provider-neutral `ToolEvent` lifecycle with stable call IDs, permission request and
+  resolution, execution start, and success/error/denied/cancelled completion states.
+- [x] Emit the normalized permission and execution lifecycle from Galaxy's existing action model
+  while keeping legacy UI events as a temporary compatibility layer.
+- [x] Build Rig `TurnRequest`s directly from Galaxy request state before the legacy
+  `warp_multi_agent_api::Request` boundary; Bedrock and legacy OpenAI alone retain that request
+  adapter.
+- [x] Feed normalized tool results directly into the next Rig turn, preserving success, failure,
+  denial, cancellation, call IDs, ordering, and persistent assistant tool-call history without a
+  protobuf round trip.
+- [x] Separate concise UI result summaries from authoritative model-facing result content so file,
+  code-search, document, skill, and shell results retain their payload without protobuf conversion.
+- [ ] Move permission decisions and tool start/result events fully onto the Galaxy domain contract,
+  removing the temporary Warp protobuf adapter.
+- [ ] Add end-to-end integration coverage for representative read, edit, shell, MCP, denial,
+  cancellation, and execution-failure flows.
+- [x] Add a hermetic real-app Rig read-tool round trip covering isolated provider configuration,
+  streamed tool proposal, Galaxy-owned execution, normalized tool result, and model follow-up.
+- [x] Port loop prevention, inline `recall_tool_history`, and unknown-tool handling to domain-level
+  policies.
 
 Exit condition: representative read, edit, shell, MCP, denial, and failure flows pass integration
 tests without provider-specific UI code.
@@ -387,7 +411,8 @@ contract is what the UI and persistence observe.
 
 ## Immediate next vertical slice
 
-After the Phase 0 egress guard and UI ledger are verified, the next implementation change is a small
-`galaxy_agent_core` crate plus a legacy adapter. It should move only provider-neutral message/event
-types and runtime selection. Adding Rig before this seam would couple the UI to a new framework and
-repeat the current mistake with a different name.
+Expand the hermetic Rig integration harness from its passing read-tool round trip to
+edit/shell/MCP/denial/cancellation/execution-failure cases. Then move permission decisions and tool
+start/result events fully onto the Galaxy domain contract, keeping the outgoing UI response adapter
+only until those flows prove that Galaxy-owned events can replace it without changing the
+permission UI.

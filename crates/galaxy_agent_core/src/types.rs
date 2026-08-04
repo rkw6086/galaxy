@@ -126,7 +126,24 @@ pub struct ToolCall {
 pub struct ToolResult {
     pub call_id: String,
     pub content: String,
-    pub is_error: bool,
+    pub status: ToolResultStatus,
+}
+
+impl ToolResult {
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self.status,
+            ToolResultStatus::Error | ToolResultStatus::Denied
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolResultStatus {
+    Success,
+    Error,
+    Denied,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,9 +158,50 @@ pub enum PermissionKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PermissionRequest {
     pub id: String,
-    pub tool_call: ToolCall,
+    pub call_id: String,
     pub kind: PermissionKind,
     pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionDecision {
+    AllowOnce,
+    AlwaysAllow,
+    Denied { reason: Option<String> },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ToolEvent {
+    Proposed {
+        call: ToolCall,
+    },
+    PermissionRequested {
+        request: PermissionRequest,
+    },
+    PermissionResolved {
+        request_id: String,
+        call_id: String,
+        decision: PermissionDecision,
+    },
+    Started {
+        call_id: String,
+    },
+    Completed {
+        result: ToolResult,
+    },
+}
+
+impl ToolEvent {
+    pub fn call_id(&self) -> &str {
+        match self {
+            ToolEvent::Proposed { call } => &call.id,
+            ToolEvent::PermissionRequested { request } => &request.call_id,
+            ToolEvent::PermissionResolved { call_id, .. } | ToolEvent::Started { call_id } => {
+                call_id
+            }
+            ToolEvent::Completed { result } => &result.call_id,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,10 +234,7 @@ pub enum AgentEvent {
     TurnStarted { runtime_request_id: String },
     TextDelta { text: String },
     ReasoningDelta { text: String },
-    ToolProposed { call: ToolCall },
-    PermissionRequested { request: PermissionRequest },
-    ToolStarted { call: ToolCall },
-    ToolCompleted { result: ToolResult },
+    Tool { event: ToolEvent },
     UsageUpdated { usage: Usage },
     TurnStopped { reason: StopReason },
 }

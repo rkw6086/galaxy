@@ -552,11 +552,11 @@ impl ResponseStream {
         }
     }
 
-    pub fn bedrock_messages_sent(
+    pub fn messages_sent(
         &self,
-    ) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>
+    ) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>
     {
-        &self.params.bedrock_messages_sent
+        &self.params.messages_sent
     }
 
     /// Returns the model ID associated with this response stream's request.

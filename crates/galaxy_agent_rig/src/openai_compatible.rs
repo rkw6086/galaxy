@@ -180,11 +180,13 @@ where
                             }
                         }
                         Ok(StreamedAssistantContent::ToolCall { tool_call, .. }) => {
-                            yield Ok(AgentEvent::ToolProposed {
-                                call: ToolCall {
+                            yield Ok(AgentEvent::Tool {
+                                event: galaxy_agent_core::ToolEvent::Proposed {
+                                    call: ToolCall {
                                     id: tool_call.id,
                                     name: tool_call.function.name,
                                     arguments: tool_call.function.arguments,
+                                },
                                 },
                             });
                         }
@@ -298,10 +300,10 @@ fn user_content(content: MessageContent) -> Result<OneOrMany<UserContent>, Agent
         MessageContent::ToolResult {
             tool_use_id,
             content,
-            ..
+            is_error,
         } => vec![UserContent::tool_result(
             tool_use_id,
-            OneOrMany::one(ToolResultContent::text(content)),
+            OneOrMany::one(ToolResultContent::text(tool_result_text(content, is_error))),
         )],
         MessageContent::MultiPart(parts) => parts
             .into_iter()
@@ -344,10 +346,10 @@ fn convert_user_part(part: ContentPart) -> Result<UserContent, AgentError> {
         ContentPart::ToolResult {
             tool_use_id,
             content,
-            ..
+            is_error,
         } => Ok(UserContent::tool_result(
             tool_use_id,
-            OneOrMany::one(ToolResultContent::text(content)),
+            OneOrMany::one(ToolResultContent::text(tool_result_text(content, is_error))),
         )),
         ContentPart::ToolUse { .. } => Err(invalid_role("tool use", "user")),
     }
@@ -368,6 +370,14 @@ fn convert_assistant_part(part: ContentPart) -> Result<AssistantContent, AgentEr
             input,
         } => Ok(AssistantContent::tool_call(tool_use_id, name, input)),
         ContentPart::ToolResult { .. } => Err(invalid_role("tool result", "assistant")),
+    }
+}
+
+fn tool_result_text(content: String, is_error: bool) -> String {
+    if is_error {
+        format!("[ERROR] {content}")
+    } else {
+        content
     }
 }
 

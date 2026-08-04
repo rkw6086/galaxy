@@ -10,7 +10,7 @@ mod pending_response_streams;
 pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,6 +19,7 @@ use std::time::Duration;
 use ai::skills::SkillPathOrigin;
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
+use galaxy_agent_core::ToolLoopGuard;
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
 use itertools::Itertools;
@@ -196,60 +197,6 @@ pub enum BlocklistAIControllerEvent {
     FreeTierLimitCheckTriggered,
 }
 
-/// Tracks recent failed action signatures for loop detection.
-/// When the same tool+input pattern fails repeatedly, we inject
-/// corrective instructions to break the cycle.
-#[derive(Debug, Clone)]
-struct LoopDetectionEntry {
-    /// Discriminant of the action result type (e.g. RequestCommandOutput, ApplyFileDiffs)
-    tool_discriminant: std::mem::Discriminant<AIAgentActionResultType>,
-    /// Hash of the action's identifying input (command string, file paths, etc.)
-    input_hash: u64,
-    /// Human-readable description of what failed
-    description: String,
-}
-
-#[derive(Debug, Default, Clone)]
-struct LoopDetectionState {
-    recent_failures: VecDeque<LoopDetectionEntry>,
-}
-
-const LOOP_DETECTION_WINDOW: usize = 10;
-const LOOP_DETECTION_THRESHOLD: usize = 3;
-
-impl LoopDetectionState {
-    fn record_failure(&mut self, entry: LoopDetectionEntry) {
-        self.recent_failures.push_back(entry);
-        if self.recent_failures.len() > LOOP_DETECTION_WINDOW {
-            self.recent_failures.pop_front();
-        }
-    }
-
-    fn detect_loop(&self) -> Option<&LoopDetectionEntry> {
-        use std::collections::HashMap as CountMap;
-        let mut counts: CountMap<
-            (std::mem::Discriminant<AIAgentActionResultType>, u64),
-            (usize, usize),
-        > = CountMap::new();
-        for (idx, entry) in self.recent_failures.iter().enumerate() {
-            let key = (entry.tool_discriminant, entry.input_hash);
-            let counter = counts.entry(key).or_insert((0, 0));
-            counter.0 += 1;
-            counter.1 = idx; // Track most recent occurrence
-        }
-        for ((_disc, _hash), (count, latest_idx)) in &counts {
-            if *count >= LOOP_DETECTION_THRESHOLD {
-                return self.recent_failures.get(*latest_idx);
-            }
-        }
-        None
-    }
-
-    fn clear(&mut self) {
-        self.recent_failures.clear();
-    }
-}
-
 #[derive(Debug)]
 pub struct RequestInput {
     pub conversation_id: AIConversationId,
@@ -419,7 +366,7 @@ pub struct BlocklistAIController {
     pending_passive_follow_ups: HashSet<AIConversationId>,
 
     /// Per-conversation loop detection state for preventing recursive tool failures.
-    loop_detection: HashMap<AIConversationId, LoopDetectionState>,
+    loop_detection: HashMap<AIConversationId, ToolLoopGuard>,
     /// Per-conversation error retry count for injecting corrective messages on failure.
     error_retry_counts: HashMap<AIConversationId, usize>,
     /// Passive suggestion results that should be included with the next request
@@ -1992,11 +1939,7 @@ impl BlocklistAIController {
                 description.hash(&mut hasher);
                 let input_hash = hasher.finish();
 
-                state.record_failure(LoopDetectionEntry {
-                    tool_discriminant: discriminant,
-                    input_hash,
-                    description: description.clone(),
-                });
+                state.record_failure(input_hash, description);
             } else if result.result.is_successful() {
                 has_success = true;
             }
@@ -2005,23 +1948,21 @@ impl BlocklistAIController {
         // If we had at least one success in this batch, clear loop state —
         // the agent is making progress.
         if has_success {
-            state.clear();
+            state.record_success();
             return None;
         }
 
         // Check for loops
-        if let Some(looping_entry) = state.detect_loop() {
+        if let Some(looping_entry) = state.detect_and_reset() {
             let warning = format!(
                 "[SYSTEM] Loop detected: the same action has failed {} or more times consecutively. \
                  Do NOT repeat this action or any similar approach.\n\n\
                  Failing action: {}\n\n\
                  Take a completely different approach to accomplish the goal. \
                  If you cannot find an alternative, explain to the user what is failing and why.",
-                LOOP_DETECTION_THRESHOLD,
+                looping_entry.threshold,
                 looping_entry.description
             );
-            // Clear the state so we don't keep injecting on every subsequent turn
-            state.clear();
             Some(warning)
         } else {
             None
@@ -3061,11 +3002,23 @@ impl BlocklistAIController {
             query_metadata,
             ctx,
         );
+        let action_result_ids = request_input
+            .all_inputs()
+            .filter_map(AIAgentInput::action_result)
+            .map(|result| result.id.to_string())
+            .collect::<HashSet<_>>();
+        request_params.tool_results = self.action_model.update(ctx, |action_model, _| {
+            action_model
+                .drain_finished_tool_results(conversation_id)
+                .into_iter()
+                .filter(|result| action_result_ids.contains(&result.call_id))
+                .collect()
+        });
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
-        request_params.bedrock_message_history = bedrock_history;
-        request_params.bedrock_tool_result_archive = bedrock_tool_result_archive;
-        request_params.bedrock_progressive_summary = bedrock_progressive_summary;
+        request_params.message_history = bedrock_history;
+        request_params.tool_result_archive = bedrock_tool_result_archive;
+        request_params.progressive_summary = bedrock_progressive_summary;
 
         // For the Bedrock path, when this is the first request in a new conversation
         // (no tasks established yet), use the conversation's root task ID so the
@@ -3555,9 +3508,7 @@ impl BlocklistAIController {
                                 // history (input + assistant response) from the Arc back
                                 // into the conversation for the next request cycle.
                                 let new_history = (!response_stream.as_ref(ctx).is_acp())
-                                    .then(|| {
-                                        response_stream.as_ref(ctx).bedrock_messages_sent().clone()
-                                    })
+                                    .then(|| response_stream.as_ref(ctx).messages_sent().clone())
                                     .and_then(|messages_sent| {
                                         messages_sent.lock().ok().and_then(|sent| {
                                             if sent.is_empty() {

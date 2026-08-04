@@ -14,6 +14,7 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
     RequestParams {
         terminal_view_id: None,
         input: vec![],
+        tool_results: vec![],
         conversation_token: None,
         forked_from_conversation_token: None,
         ambient_agent_task_id: None,
@@ -45,10 +46,10 @@ fn request_params_with_ask_user_question_enabled(ask_user_question_enabled: bool
         root_task_id: None,
         parent_agent_id: None,
         agent_name: None,
-        bedrock_message_history: Vec::new(),
-        bedrock_progressive_summary: None,
-        bedrock_tool_result_archive: Vec::new(),
-        bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        message_history: Vec::new(),
+        progressive_summary: None,
+        tool_result_archive: Vec::new(),
+        messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         global_rules: Vec::new(),
     }
 }

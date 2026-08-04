@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use super::*;
 use crate::ai::agent::task::TaskId;
-use crate::ai::agent::AIAgentActionResultType;
+use crate::ai::agent::{
+    AIAgentActionResultType, AnyFileContent, FileContext, GrepResult, ReadFilesResult,
+};
 
 fn make_action_result(id: &str) -> Arc<AIAgentActionResult> {
     Arc::new(AIAgentActionResult {
@@ -11,6 +13,14 @@ fn make_action_result(id: &str) -> Arc<AIAgentActionResult> {
         task_id: TaskId::new("task".to_owned()),
         result: AIAgentActionResultType::InitProject,
     })
+}
+
+fn action_result(id: &str, result: AIAgentActionResultType) -> AIAgentActionResult {
+    AIAgentActionResult {
+        id: AIAgentActionId::from(id.to_owned()),
+        task_id: TaskId::new("task".to_owned()),
+        result,
+    }
 }
 
 fn count_startable_actions_for_pass(phases: &[(RunningActionPhase, bool)]) -> usize {
@@ -99,4 +109,109 @@ fn finished_results_stay_in_original_action_order() {
         finished_results[2].id,
         AIAgentActionId::from("third".to_owned())
     );
+}
+
+#[test]
+fn domain_tool_results_preserve_success_failure_cancellation_and_denial() {
+    let success = domain_tool_result(
+        &action_result("success", AIAgentActionResultType::InitProject),
+        false,
+    );
+    let failure = domain_tool_result(
+        &action_result(
+            "failure",
+            AIAgentActionResultType::Grep(GrepResult::Error("boom".to_string())),
+        ),
+        false,
+    );
+    let cancelled_result = action_result(
+        "cancelled",
+        AIAgentActionResultType::Grep(GrepResult::Cancelled),
+    );
+    let cancelled = domain_tool_result(&cancelled_result, false);
+    let denied = domain_tool_result(&cancelled_result, true);
+
+    assert_eq!(success.status, ToolResultStatus::Success);
+    assert_eq!(failure.status, ToolResultStatus::Error);
+    assert_eq!(cancelled.status, ToolResultStatus::Cancelled);
+    assert_eq!(denied.status, ToolResultStatus::Denied);
+    assert_eq!(success.call_id, "success");
+    assert_eq!(failure.call_id, "failure");
+    assert_eq!(cancelled.call_id, "cancelled");
+    assert_eq!(denied.call_id, "cancelled");
+}
+
+#[test]
+fn domain_read_result_contains_the_file_contents_for_the_next_model_turn() {
+    let result = action_result(
+        "read-call",
+        AIAgentActionResultType::ReadFiles(ReadFilesResult::Success {
+            files: vec![FileContext::new(
+                "/workspace/src/lib.rs".to_string(),
+                AnyFileContent::StringContent("pub fn answer() -> u8 { 42 }".to_string()),
+                None,
+                None,
+            )],
+        }),
+    );
+
+    let result = domain_tool_result(&result, false);
+
+    assert_eq!(result.status, ToolResultStatus::Success);
+    assert_eq!(result.call_id, "read-call");
+    assert!(result.content.contains("/workspace/src/lib.rs"));
+    assert!(result.content.contains("pub fn answer() -> u8 { 42 }"));
+}
+
+#[test]
+fn action_permission_kinds_match_the_safety_boundary() {
+    assert_eq!(
+        permission_kind_for_action(&AIAgentActionType::Grep {
+            queries: vec!["needle".to_string()],
+            path: ".".to_string(),
+        }),
+        PermissionKind::Read
+    );
+    assert_eq!(
+        permission_kind_for_action(&AIAgentActionType::InitProject),
+        PermissionKind::Write
+    );
+    assert_eq!(
+        permission_kind_for_action(&AIAgentActionType::RequestCommandOutput {
+            command: "cargo test".to_string(),
+            is_read_only: Some(true),
+            is_risky: Some(false),
+            wait_until_completion: true,
+            uses_pager: Some(false),
+            rationale: None,
+            citations: Vec::new(),
+        }),
+        PermissionKind::Execute
+    );
+    assert_eq!(
+        permission_kind_for_action(&AIAgentActionType::CallMCPTool {
+            server_id: None,
+            name: "tool".to_string(),
+            input: serde_json::json!({}),
+        }),
+        PermissionKind::ExternalTool
+    );
+}
+
+#[test]
+fn only_rejecting_a_blocked_action_is_a_permission_denial() {
+    assert!(is_permission_denial(
+        CancellationReason::ManuallyCancelled,
+        Some(&AIActionStatus::Blocked),
+    ));
+    assert!(!is_permission_denial(
+        CancellationReason::ManuallyCancelled,
+        Some(&AIActionStatus::Queued),
+    ));
+    assert!(!is_permission_denial(
+        CancellationReason::FollowUpSubmitted {
+            is_for_same_conversation: true,
+        },
+        Some(&AIActionStatus::Blocked),
+    ));
 }

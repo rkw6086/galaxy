@@ -1617,7 +1617,7 @@ fn supported_tool_types(request: &api::Request) -> Option<HashSet<api::ToolType>
     )
 }
 
-fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> bool {
+pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> bool {
     use api::ToolType;
 
     let has = |tool| supported.contains(&tool);

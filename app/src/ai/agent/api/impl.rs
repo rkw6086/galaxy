@@ -24,6 +24,22 @@ pub async fn generate_multi_agent_output(
         .unwrap_or_else(|| get_supported_tools(&params));
     let supported_cli_agent_tools =
         supported_tools_override.unwrap_or_else(|| get_supported_cli_agent_tools(&params));
+    if params.should_redact_secrets {
+        redaction::redact_inputs(&mut params.input);
+    }
+
+    if let ProviderConfig::OpenAI(config) = &provider_config {
+        if config.use_rig {
+            return Ok(crate::ai::runtime::rig_openai_response_stream(
+                config.clone(),
+                params,
+                supported_tools,
+                supported_cli_agent_tools,
+                cancellation_rx,
+            ));
+        }
+    }
+
     let mut logging_metadata = HashMap::new();
     if let Some(ref metadata) = params.metadata {
         logging_metadata.insert(
@@ -51,16 +67,6 @@ pub async fn generate_multi_agent_output(
             },
         );
     }
-
-    if params.should_redact_secrets {
-        redaction::redact_inputs(&mut params.input);
-    }
-
-    let rig_params = matches!(
-        &provider_config,
-        ProviderConfig::OpenAI(config) if config.use_rig
-    )
-    .then(|| params.clone());
 
     let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
@@ -144,23 +150,15 @@ pub async fn generate_multi_agent_output(
     };
 
     match provider_config {
-        ProviderConfig::OpenAI(config) if config.use_rig => {
-            Ok(crate::ai::runtime::rig_openai_response_stream(
-                config,
-                rig_params.expect("Rig request parameters should be retained for a Rig model"),
-                &mut request,
-                cancellation_rx,
-            ))
-        }
         ProviderConfig::OpenAI(config) => {
             let translator_request = openai_translator::TranslatorRequest {
                 config,
                 model_id: params.model.as_str().to_string(),
                 root_task_id: params.root_task_id.clone(),
-                message_history: params.bedrock_message_history.clone(),
-                tool_result_archive: params.bedrock_tool_result_archive.clone(),
-                progressive_summary: params.bedrock_progressive_summary.clone(),
-                messages_sent: params.bedrock_messages_sent.clone(),
+                message_history: params.message_history.clone(),
+                tool_result_archive: params.tool_result_archive.clone(),
+                progressive_summary: params.progressive_summary.clone(),
+                messages_sent: params.messages_sent.clone(),
                 global_rules: params.global_rules.clone(),
             };
 
@@ -189,10 +187,10 @@ pub async fn generate_multi_agent_output(
                 config,
                 model_id: params.model.as_str().to_string(),
                 root_task_id: params.root_task_id.clone(),
-                bedrock_message_history: params.bedrock_message_history.clone(),
-                bedrock_tool_result_archive: params.bedrock_tool_result_archive.clone(),
-                bedrock_progressive_summary: params.bedrock_progressive_summary.clone(),
-                bedrock_messages_sent: params.bedrock_messages_sent.clone(),
+                bedrock_message_history: params.message_history.clone(),
+                bedrock_tool_result_archive: params.tool_result_archive.clone(),
+                bedrock_progressive_summary: params.progressive_summary.clone(),
+                bedrock_messages_sent: params.messages_sent.clone(),
                 global_rules: params.global_rules.clone(),
             };
 

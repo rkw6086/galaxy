@@ -8,6 +8,7 @@ use aws_sdk_bedrockruntime::types::{
     ReasoningContentBlockDelta, StopReason,
 };
 use futures::stream::BoxStream;
+use galaxy_agent_core::{recall_tool_history, ToolHistoryQuery};
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
@@ -231,13 +232,15 @@ pub fn bedrock_stream_to_response_events(
                                     .unwrap_or(0) as usize;
 
                                 let recall_result = match messages_sent.lock() {
-                                    Ok(sent) => recall_from_history(
+                                    Ok(sent) => recall_tool_history(
                                         &sent,
                                         &tool_result_archive,
-                                        search_query,
-                                        tool_name_filter,
-                                        tool_use_id,
-                                        offset,
+                                        ToolHistoryQuery {
+                                            search_query,
+                                            tool_name: tool_name_filter,
+                                            tool_use_id,
+                                            offset_from_end: offset,
+                                        },
                                     ),
                                     Err(_) => "Error: could not access conversation history.".to_string(),
                                 };
@@ -1503,138 +1506,4 @@ pub(super) fn is_known_tool(name: &str) -> bool {
 
 fn is_notebook_tool(name: &str) -> bool {
     matches!(name, "create_notebook" | "read_notebook" | "edit_notebook")
-}
-
-/// Searches conversation message history for tool call results matching the given criteria.
-pub(crate) fn recall_from_history(
-    messages: &[ConversationMessage],
-    archive: &[ConversationMessage],
-    search_query: &str,
-    tool_name_filter: &str,
-    tool_use_id: &str,
-    offset_from_end: usize,
-) -> String {
-    use super::convert::{ContentPart, MessageContent};
-
-    struct ToolEntry {
-        tool_use_id: String,
-        name: String,
-        input: String,
-        result: String,
-    }
-
-    let mut tool_entries: Vec<ToolEntry> = Vec::new();
-
-    let mut pending_tool_uses: Vec<(String, String, String)> = Vec::new(); // (id, name, input)
-
-    for msg in messages.iter().chain(archive.iter()) {
-        match &msg.content {
-            MessageContent::ToolUse {
-                tool_use_id,
-                name,
-                input,
-            } => {
-                pending_tool_uses.push((tool_use_id.clone(), name.clone(), input.to_string()));
-            }
-            MessageContent::ToolResult {
-                tool_use_id,
-                content,
-                ..
-            } => {
-                if let Some(pos) = pending_tool_uses
-                    .iter()
-                    .position(|(id, _, _)| id == tool_use_id)
-                {
-                    let (tuid, name, input) = pending_tool_uses.remove(pos);
-                    tool_entries.push(ToolEntry {
-                        tool_use_id: tuid,
-                        name,
-                        input,
-                        result: content.clone(),
-                    });
-                }
-            }
-            MessageContent::MultiPart(parts) => {
-                for part in parts {
-                    match part {
-                        ContentPart::ToolUse {
-                            tool_use_id,
-                            name,
-                            input,
-                        } => {
-                            pending_tool_uses.push((
-                                tool_use_id.clone(),
-                                name.clone(),
-                                input.to_string(),
-                            ));
-                        }
-                        ContentPart::ToolResult {
-                            tool_use_id,
-                            content,
-                            ..
-                        } => {
-                            if let Some(pos) = pending_tool_uses
-                                .iter()
-                                .position(|(id, _, _)| id == tool_use_id)
-                            {
-                                let (tuid, name, input) = pending_tool_uses.remove(pos);
-                                tool_entries.push(ToolEntry {
-                                    tool_use_id: tuid,
-                                    name,
-                                    input,
-                                    result: content.clone(),
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let filtered: Vec<&ToolEntry> = tool_entries
-        .iter()
-        .filter(|entry| {
-            if !tool_use_id.is_empty() && entry.tool_use_id != tool_use_id {
-                return false;
-            }
-            if !tool_name_filter.is_empty() && entry.name != tool_name_filter {
-                return false;
-            }
-            if !search_query.is_empty() {
-                let haystack = format!("{} {} {}", entry.name, entry.input, entry.result);
-                let query_lower = search_query.to_lowercase();
-                if !haystack.to_lowercase().contains(&query_lower) {
-                    return false;
-                }
-            }
-            true
-        })
-        .collect();
-
-    if filtered.is_empty() {
-        return "No matching tool calls found in conversation history.".to_string();
-    }
-
-    // Get the entry at offset_from_end (0 = most recent)
-    let idx = if offset_from_end >= filtered.len() {
-        0
-    } else {
-        filtered.len() - 1 - offset_from_end
-    };
-
-    let entry = &filtered[idx];
-    let result_display = if entry.result.len() > 50000 {
-        let trunc = entry.result.chars().take(50000).collect::<String>();
-        format!("{trunc}... [truncated, {} total chars]", entry.result.len())
-    } else {
-        entry.result.clone()
-    };
-
-    format!(
-        "Tool: {}\nTool Use ID: {}\nInput: {}\nResult:\n{}",
-        entry.name, entry.tool_use_id, entry.input, result_display
-    )
 }
