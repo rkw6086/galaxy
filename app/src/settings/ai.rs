@@ -874,9 +874,26 @@ pub struct OpenAIModelConfig {
         description = "Optional provider hint (e.g. anthropic, openai, google) for icon display."
     )]
     pub provider: Option<String>,
+    #[serde(default)]
+    #[schemars(
+        description = "Route this model through Galaxy's Rig runtime. This is an opt-in migration path."
+    )]
+    pub use_rig: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Whether this endpoint accepts system-role messages. Set false for ChatGPT-backed LiteLLM models that reject them."
+    )]
+    pub supports_system_messages: Option<bool>,
 }
 
 impl settings_value::SettingsValue for OpenAIModelConfig {}
+
+impl OpenAIModelConfig {
+    pub fn supports_system_messages(&self) -> bool {
+        self.supports_system_messages
+            .unwrap_or_else(|| !self.model_id.starts_with("codex-gpt-"))
+    }
+}
 
 /// Configuration for a single OpenAI-compatible provider endpoint.
 ///
@@ -900,6 +917,30 @@ pub struct OpenAIProviderConfig {
 }
 
 impl settings_value::SettingsValue for OpenAIProviderConfig {}
+
+const INITIAL_LITELLM_BASE_URL: &str = "https://ai.ryserve.net/v1";
+const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
+
+fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
+    vec![OpenAIProviderConfig {
+        name: "LiteLLM (ai.ryserve.net)".to_string(),
+        base_url: INITIAL_LITELLM_BASE_URL.to_string(),
+        // Credentials are deliberately never committed. Set this locally in
+        // ~/.galaxy/settings.toml before sending a request.
+        api_key: None,
+        models: vec![OpenAIModelConfig {
+            model_id: INITIAL_RIG_MODEL_ID.to_string(),
+            display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
+            vision_supported: false,
+            context_size: default_context_size(),
+            max_input_tokens: None,
+            max_output_tokens: None,
+            provider: Some("openai".to_string()),
+            use_rig: true,
+            supports_system_messages: Some(false),
+        }],
+    }]
+}
 
 /// Cached metadata and runtime session options for an ACP agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
@@ -1447,7 +1488,7 @@ define_settings_group!(AISettings, settings: [
     // Whether the OpenAI-compatible (LiteLLM) provider is enabled.
     openai_enabled: OpenAIEnabled {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
@@ -1498,9 +1539,11 @@ define_settings_group!(AISettings, settings: [
     // Each provider has its own name, base_url, api_key, and model list.
     openai_providers: OpenAIProviders {
         type: Vec<OpenAIProviderConfig>,
-        default: Vec::new(),
+        default: default_openai_providers(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        // Provider entries may contain API keys, so the complete setting must
+        // remain local even when preference sync is enabled.
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.providers",
         description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",

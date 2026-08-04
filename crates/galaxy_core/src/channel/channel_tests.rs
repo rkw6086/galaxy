@@ -12,3 +12,13 @@ fn local_control_channel_names_do_not_expose_legacy_branding() {
     );
     assert_eq!(Channel::Oss.local_control_channel_name(), "oss");
 }
+
+#[test]
+fn only_oss_disables_warp_service_egress() {
+    assert!(Channel::Stable.allows_warp_service_egress());
+    assert!(Channel::Preview.allows_warp_service_egress());
+    assert!(Channel::Dev.allows_warp_service_egress());
+    assert!(Channel::Local.allows_warp_service_egress());
+    assert!(Channel::Integration.allows_warp_service_egress());
+    assert!(!Channel::Oss.allows_warp_service_egress());
+}

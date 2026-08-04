@@ -11,6 +11,8 @@ pub struct OpenAIClientConfig {
     pub model: Option<String>,
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
+    pub use_rig: bool,
+    pub supports_system_messages: bool,
 }
 
 pub struct OpenAIClient {

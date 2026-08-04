@@ -33,14 +33,14 @@ pub struct OpenAIStreamContext {
     pub tool_result_archive: Vec<ConversationMessage>,
 }
 
-struct StreamUsage {
-    input_tokens: i32,
-    output_tokens: i32,
-    cache_read_tokens: i32,
-    cache_write_tokens: i32,
-    cost_in_cents: f32,
-    model_id: String,
-    max_context_tokens: Option<u32>,
+pub(crate) struct StreamUsage {
+    pub(crate) input_tokens: i32,
+    pub(crate) output_tokens: i32,
+    pub(crate) cache_read_tokens: i32,
+    pub(crate) cache_write_tokens: i32,
+    pub(crate) cost_in_cents: f32,
+    pub(crate) model_id: String,
+    pub(crate) max_context_tokens: Option<u32>,
 }
 
 pub fn openai_stream_to_response_events(
@@ -533,7 +533,10 @@ fn build_tool_call_message(
     )
 }
 
-fn build_stream_finished(reason: stream_finished::Reason, usage: StreamUsage) -> ResponseEvent {
+pub(crate) fn build_stream_finished(
+    reason: stream_finished::Reason,
+    usage: StreamUsage,
+) -> ResponseEvent {
     let StreamUsage {
         input_tokens,
         output_tokens,

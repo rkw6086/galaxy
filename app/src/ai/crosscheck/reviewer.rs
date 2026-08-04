@@ -168,6 +168,8 @@ impl CrosscheckReviewer {
                     model: Some(model_id.to_string()),
                     max_input_tokens: client_config.max_input_tokens,
                     max_output_tokens: Some(REVIEWER_MAX_OUTPUT_TOKENS),
+                    use_rig: client_config.use_rig,
+                    supports_system_messages: client_config.supports_system_messages,
                 });
             }
         }

@@ -25,7 +25,7 @@ pub async fn generate_multi_agent_output(
     let supported_cli_agent_tools =
         supported_tools_override.unwrap_or_else(|| get_supported_cli_agent_tools(&params));
     let mut logging_metadata = HashMap::new();
-    if let Some(metadata) = params.metadata {
+    if let Some(ref metadata) = params.metadata {
         logging_metadata.insert(
             "is_autodetected_user_query".to_owned(),
             prost_types::Value {
@@ -55,6 +55,12 @@ pub async fn generate_multi_agent_output(
     if params.should_redact_secrets {
         redaction::redact_inputs(&mut params.input);
     }
+
+    let rig_params = matches!(
+        &provider_config,
+        ProviderConfig::OpenAI(config) if config.use_rig
+    )
+    .then(|| params.clone());
 
     let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
@@ -138,6 +144,14 @@ pub async fn generate_multi_agent_output(
     };
 
     match provider_config {
+        ProviderConfig::OpenAI(config) if config.use_rig => {
+            Ok(crate::ai::runtime::rig_openai_response_stream(
+                config,
+                rig_params.expect("Rig request parameters should be retained for a Rig model"),
+                &mut request,
+                cancellation_rx,
+            ))
+        }
         ProviderConfig::OpenAI(config) => {
             let translator_request = openai_translator::TranslatorRequest {
                 config,

@@ -214,6 +214,14 @@ impl AuthSession {
         &self,
         token: FirebaseToken,
     ) -> BoxFuture<'static, StdResult<FirebaseAuthTokens, UserAuthenticationError>> {
+        if !ChannelState::channel().allows_warp_service_egress() {
+            return Box::pin(async {
+                Err(UserAuthenticationError::Unexpected(anyhow::anyhow!(
+                    "Warp authentication is disabled in this local-only build"
+                )))
+            });
+        }
+
         let client = self.client.clone();
         Box::pin(async move {
             let firebase_api_key = ChannelState::firebase_api_key();

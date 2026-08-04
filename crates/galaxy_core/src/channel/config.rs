@@ -52,6 +52,23 @@ pub struct WarpServerConfig {
 }
 
 impl WarpServerConfig {
+    /// Returns a loopback-only configuration for builds that must not communicate
+    /// with Warp-operated services.
+    ///
+    /// Loopback URLs keep legacy URL construction code valid while ensuring any
+    /// accidentally reachable request remains on the user's machine. Callers
+    /// must still fail closed before attempting authentication because Firebase
+    /// token exchange uses provider-owned URLs rather than `server_root_url`.
+    pub fn disabled() -> Self {
+        Self {
+            server_root_url: "http://127.0.0.1:9".into(),
+            rtc_server_url: "ws://127.0.0.1:9/graphql/v2".into(),
+            session_sharing_server_url: None,
+            firebase_auth_api_key: "".into(),
+            iap_config: None,
+        }
+    }
+
     pub fn production() -> Self {
         Self {
             server_root_url: "https://app.warp.dev".into(),
@@ -62,6 +79,10 @@ impl WarpServerConfig {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "config_tests.rs"]
+mod tests;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OzConfig {

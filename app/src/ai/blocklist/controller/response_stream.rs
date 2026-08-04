@@ -24,7 +24,7 @@ use crate::ai::acp::{
     resolve_acp_permissions, validate_acp_dispatch, validate_acp_launch_identity, AcpRuntimeModel,
     AcpSessionHandleSlot, AcpSessionMetadata, AcpSteeringRequest, GalaxyMcpTarget,
 };
-use crate::ai::agent::api::{self, generate_multi_agent_output, ConvertToAPITypeError};
+use crate::ai::agent::api::{self, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::AIAgentInput;
@@ -35,6 +35,7 @@ use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
+use crate::ai::runtime::ProviderRuntime;
 use crate::network::NetworkStatus;
 #[cfg(not(target_family = "wasm"))]
 use crate::pane_group::PaneGroup;
@@ -233,6 +234,8 @@ impl ResponseStream {
                     model: Some(model_id.to_string()),
                     max_input_tokens: client_config.max_input_tokens,
                     max_output_tokens: client_config.max_output_tokens,
+                    use_rig: client_config.use_rig,
+                    supports_system_messages: client_config.supports_system_messages,
                 });
             }
         }
@@ -400,15 +403,16 @@ impl ResponseStream {
         cancellation_rx: oneshot::Receiver<()>,
         ctx: &mut ModelContext<Self>,
     ) {
-        let _ =
-            ctx.spawn(
-                async move {
-                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
-                },
-                move |me, stream, ctx| {
-                    me.handle_response_stream_result(request_id, stream, ctx);
-                },
-            );
+        let _ = ctx.spawn(
+            async move {
+                ProviderRuntime::new(provider_config)
+                    .start_turn(params, cancellation_rx)
+                    .await
+            },
+            move |me, stream, ctx| {
+                me.handle_response_stream_result(request_id, stream, ctx);
+            },
+        );
     }
 
     pub fn new(
@@ -604,15 +608,16 @@ impl ResponseStream {
         self.current_request_id = Some(request_id);
         let params = self.params.clone();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let _ =
-            ctx.spawn(
-                async move {
-                    generate_multi_agent_output(provider_config, params, cancellation_rx).await
-                },
-                move |me, stream, ctx| {
-                    me.handle_response_stream_result(request_id, stream, ctx);
-                },
-            );
+        let _ = ctx.spawn(
+            async move {
+                ProviderRuntime::new(provider_config)
+                    .start_turn(params, cancellation_rx)
+                    .await
+            },
+            move |me, stream, ctx| {
+                me.handle_response_stream_result(request_id, stream, ctx);
+            },
+        );
     }
 
     fn should_fallback_to_coding_model(

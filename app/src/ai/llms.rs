@@ -999,6 +999,8 @@ impl LLMPreferences {
                     model: None, // filled per-request from model_id
                     max_input_tokens: Some(openai_model_context_size(model)),
                     max_output_tokens: model.max_output_tokens,
+                    use_rig: model.use_rig,
+                    supports_system_messages: model.supports_system_messages(),
                 };
                 self.openai_provider_routing
                     .insert(model.model_id.clone(), client_config);
@@ -2115,6 +2117,8 @@ async fn fetch_from_litellm_model_info(
                 max_input_tokens,
                 max_output_tokens,
                 provider,
+                use_rig: false,
+                supports_system_messages: model_info["supports_system_messages"].as_bool(),
             })
         })
         .collect();
@@ -2236,6 +2240,8 @@ async fn fetch_from_openai_models(
                 max_input_tokens,
                 max_output_tokens,
                 provider,
+                use_rig: false,
+                supports_system_messages: m["supports_system_messages"].as_bool(),
             })
         })
         .collect();

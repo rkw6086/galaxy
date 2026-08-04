@@ -44,7 +44,7 @@ impl ChannelState {
             config: ChannelConfig {
                 app_id,
                 logfile_name: "".into(),
-                server_config: WarpServerConfig::production(),
+                server_config: WarpServerConfig::disabled(),
                 oz_config: OzConfig::production(),
                 telemetry_config: None,
                 autoupdate_config: None,

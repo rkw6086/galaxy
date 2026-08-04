@@ -346,6 +346,37 @@ fn test_toolbar_command_map_roundtrip() {
 }
 
 #[test]
+fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
+    let providers = default_openai_providers();
+
+    assert_eq!(providers.len(), 1);
+    let provider = &providers[0];
+    assert_eq!(provider.base_url, INITIAL_LITELLM_BASE_URL);
+    assert_eq!(provider.api_key, None);
+    assert_eq!(provider.models.len(), 1);
+    let model = &provider.models[0];
+    assert_eq!(model.model_id, INITIAL_RIG_MODEL_ID);
+    assert_eq!(model.use_rig, true);
+    assert_eq!(model.supports_system_messages, Some(false));
+    assert_eq!(model.supports_system_messages(), false);
+}
+
+#[test]
+fn codex_litellm_model_infers_missing_system_message_capability() {
+    let mut model = default_openai_providers().remove(0).models.remove(0);
+    model.supports_system_messages = None;
+
+    assert_eq!(model.supports_system_messages(), false);
+
+    model.model_id = "gpt-4o".to_string();
+    assert_eq!(model.supports_system_messages(), true);
+
+    model.model_id = INITIAL_RIG_MODEL_ID.to_string();
+    model.supports_system_messages = Some(true);
+    assert_eq!(model.supports_system_messages(), true);
+}
+
+#[test]
 fn test_toolbar_command_map_matched_agent() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
