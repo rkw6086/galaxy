@@ -9,7 +9,7 @@ use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
-use crate::ai::agent::api::Event;
+use crate::ai::agent::api::LegacyEvent;
 use crate::ai::bedrock::response_translator::{
     build_create_task, build_stream_init, context_window_for_model,
 };
@@ -47,7 +47,7 @@ pub(crate) struct StreamUsage {
 pub fn openai_stream_to_response_events(
     byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
     context: OpenAIStreamContext,
-) -> BoxStream<'static, Event> {
+) -> BoxStream<'static, LegacyEvent> {
     use futures::StreamExt;
 
     let OpenAIStreamContext {

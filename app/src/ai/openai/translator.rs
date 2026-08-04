@@ -6,7 +6,7 @@ use super::client::{OpenAIClient, OpenAIClientConfig, OpenAIError};
 use super::convert::build_openai_request;
 use super::request_translator::sanitize_messages_for_openai;
 use super::response_translator::{openai_stream_to_response_events, OpenAIStreamContext};
-use crate::ai::agent::api::ResponseStream;
+use crate::ai::agent::api::LegacyResponseStream;
 use crate::ai::bedrock::request_translator;
 use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
 
@@ -108,7 +108,7 @@ pub(crate) fn prepare_turn(params: &TranslatorRequest, request: &mut api::Reques
 pub async fn execute(
     params: TranslatorRequest,
     request: &mut api::Request,
-) -> Result<ResponseStream, OpenAIError> {
+) -> Result<LegacyResponseStream, OpenAIError> {
     let client = OpenAIClient::from_config(params.config.clone());
     let PreparedTurn {
         task_id,

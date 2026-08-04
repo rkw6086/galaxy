@@ -24,7 +24,7 @@ use mcp::TemplatableMCPServerInfo;
 pub use r#impl::generate_multi_agent_output;
 use serde::Serialize;
 
-use super::{AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
+use super::{AIAgentAction, AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{BlocklistAIPermissions, RequestInput, SessionContext};
@@ -162,16 +162,34 @@ pub struct RequestParams {
     pub global_rules: Vec<(String, String)>,
 }
 
-pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
+/// Provider/runtime events consumed by the local conversation controller.
+///
+/// The legacy response envelope remains at the UI boundary while the local Rig runtime emits
+/// executable tool proposals directly as Galaxy domain actions. This avoids translating Rig tool
+/// calls into protobuf only to immediately translate them back before execution.
+#[derive(Debug)]
+pub enum StreamEvent {
+    Response(warp_multi_agent_api::ResponseEvent),
+    ToolProposed(AIAgentAction),
+}
+
+pub type Event = Result<StreamEvent, Arc<AIApiError>>;
+pub type LegacyEvent = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
 
 #[cfg(not(target_family = "wasm"))]
 pub type ResponseStream = Pin<Box<dyn Stream<Item = Event> + Send + 'static>>;
+
+#[cfg(not(target_family = "wasm"))]
+pub type LegacyResponseStream = Pin<Box<dyn Stream<Item = LegacyEvent> + Send + 'static>>;
 
 // The WASM version of this type has no bound on `Send`, which is an unnecessary bound when
 // targeting wasm because the browser is single-threaded (and we don't leverage WebWorkers for async
 // execution in WoW).
 #[cfg(target_family = "wasm")]
 pub type ResponseStream = Pin<Box<dyn Stream<Item = Event>>>;
+
+#[cfg(target_family = "wasm")]
+pub type LegacyResponseStream = Pin<Box<dyn Stream<Item = LegacyEvent>>>;
 
 #[derive(Debug, Clone)]
 pub struct ConversationData {

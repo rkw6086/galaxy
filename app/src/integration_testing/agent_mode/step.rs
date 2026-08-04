@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::read;
 use std::io::Cursor;
 use std::path::Path;
@@ -10,6 +11,10 @@ use prost::Message;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai::execution_profiles::ActionPermission;
 use crate::ai::llms::{LLMId, LLMPreferences};
+use crate::ai::mcp::{
+    JsonTemplate, TemplatableMCPServer, TemplatableMCPServerInstallation,
+    TemplatableMCPServerManager,
+};
 use crate::integration_testing::agent_mode::{
     assert_latest_task_succeeds_or_blocked, assert_task_is_blocked, ConversationTarget,
 };
@@ -259,4 +264,120 @@ pub fn set_execution_profile_no_auto_execute() -> TestStep {
             async_assert!(true, "Successfully updated execution profile")
         },
     )
+}
+
+/// Sets the execution profile to auto-execute commands.
+pub fn set_execution_profile_auto_execute() -> TestStep {
+    TestStep::new("Set execution profile to auto-execute commands").add_named_assertion(
+        "Update execution profile",
+        |app, _window_id| {
+            AIExecutionProfilesModel::handle(app).update(app, |profiles, ctx| {
+                let default_profile_id = *profiles.default_profile(ctx).id();
+                profiles.set_execute_commands(
+                    default_profile_id,
+                    &ActionPermission::AlwaysAllow,
+                    ctx,
+                );
+            });
+            async_assert!(true, "Successfully updated execution profile")
+        },
+    )
+}
+
+/// Sets the execution profile to auto-apply code diffs.
+pub fn set_execution_profile_auto_apply_code_diffs() -> TestStep {
+    TestStep::new("Set execution profile to auto-apply code diffs").add_named_assertion(
+        "Update execution profile",
+        |app, _window_id| {
+            AIExecutionProfilesModel::handle(app).update(app, |profiles, ctx| {
+                let default_profile_id = *profiles.default_profile(ctx).id();
+                profiles.set_apply_code_diffs(
+                    default_profile_id,
+                    &ActionPermission::AlwaysAllow,
+                    ctx,
+                );
+            });
+            async_assert!(true, "Successfully updated execution profile")
+        },
+    )
+}
+
+/// Sets the execution profile to auto-execute MCP tools.
+pub fn set_execution_profile_auto_execute_mcp_tools() -> TestStep {
+    TestStep::new("Set execution profile to auto-execute MCP tools").add_named_assertion(
+        "Update execution profile",
+        |app, _window_id| {
+            AIExecutionProfilesModel::handle(app).update(app, |profiles, ctx| {
+                let default_profile_id = *profiles.default_profile(ctx).id();
+                profiles.set_mcp_permissions(
+                    default_profile_id,
+                    &ActionPermission::AlwaysAllow,
+                    ctx,
+                );
+            });
+            async_assert!(true, "Successfully updated execution profile")
+        },
+    )
+}
+
+/// Starts an ephemeral MCP stdio server for an integration test.
+pub fn start_ephemeral_mcp_server_for_testing(
+    command: String,
+    argument: String,
+    installation_id: &str,
+    template_id: &str,
+    server_name: &str,
+) -> TestStep {
+    let installation_id =
+        uuid::Uuid::parse_str(installation_id).expect("valid MCP installation UUID");
+    let template_id = uuid::Uuid::parse_str(template_id).expect("valid MCP template UUID");
+    let server_name = server_name.to_string();
+    new_step_with_default_assertions("Start ephemeral integration MCP server").add_named_assertion(
+        "Spawn MCP server",
+        move |app, _window_id| {
+            let template_json = serde_json::json!({
+                (&server_name): {
+                    "command": command,
+                    "args": [argument],
+                },
+            })
+            .to_string();
+            let server = TemplatableMCPServer {
+                uuid: template_id,
+                name: server_name.clone(),
+                description: Some("Hermetic MCP server for integration testing".to_string()),
+                template: JsonTemplate {
+                    json: template_json,
+                    variables: Vec::new(),
+                },
+                version: 1,
+                gallery_data: None,
+            };
+            let installation =
+                TemplatableMCPServerInstallation::new(installation_id, server, HashMap::new());
+            TemplatableMCPServerManager::handle(app).update(app, |manager, ctx| {
+                manager.spawn_cli_ephemeral_server(installation, ctx);
+            });
+            async_assert!(true, "Ephemeral MCP server spawn requested")
+        },
+    )
+}
+
+/// Waits for an ephemeral MCP server to complete its protocol handshake.
+pub fn wait_until_mcp_server_is_active_for_testing(
+    installation_id: &str,
+    timeout: Duration,
+) -> TestStep {
+    let installation_id =
+        uuid::Uuid::parse_str(installation_id).expect("valid MCP installation UUID");
+    new_step_with_default_assertions("Wait for ephemeral integration MCP server")
+        .set_timeout(timeout)
+        .add_named_assertion("MCP server is active", move |app, _window_id| {
+            let is_active = TemplatableMCPServerManager::handle(app)
+                .read(app, |manager, _| manager.is_server_active(installation_id));
+            async_assert!(
+                is_active,
+                "Waiting for ephemeral MCP server to become active"
+            )
+        })
 }

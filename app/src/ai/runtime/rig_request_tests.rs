@@ -4,9 +4,11 @@ use std::sync::Arc;
 use galaxy_agent_core::{ContentPart, MessageContent, MessageRole, ToolResult, ToolResultStatus};
 use warp_multi_agent_api::ToolType;
 
-use super::{input_messages, prepare_rig_turn};
+use super::{input_messages, prepare_rig_turn, tool_definitions};
 use crate::ai::agent::api::RequestParams;
-use crate::ai::agent::{AIAgentContext, AIAgentInput, AnyFileContent, FileContext, UserQueryMode};
+use crate::ai::agent::{
+    AIAgentContext, AIAgentInput, AnyFileContent, FileContext, MCPContext, MCPServer, UserQueryMode,
+};
 use crate::ai::llms::LLMId;
 use crate::ai::openai::client::OpenAIClientConfig;
 
@@ -110,6 +112,40 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
             content: MessageContent::Text(text),
         } if text == "Inspect this repository"
     ));
+}
+
+#[test]
+#[allow(deprecated)]
+fn grouped_mcp_tool_names_use_the_installation_id_not_the_display_name() {
+    let tool = serde_json::from_value(serde_json::json!({
+        "name": "echo",
+        "description": "Echo input",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"message": {"type": "string"}}
+        }
+    }))
+    .unwrap();
+    let context = MCPContext {
+        resources: Vec::new(),
+        tools: Vec::new(),
+        servers: vec![MCPServer {
+            id: "11111111-1111-4111-8111-111111111111".to_string(),
+            name: "Friendly Server".to_string(),
+            description: String::new(),
+            resources: Vec::new(),
+            tools: vec![tool],
+        }],
+    };
+
+    let tools = tool_definitions(&[ToolType::CallMcpTool], Some(&context));
+
+    assert!(tools
+        .iter()
+        .any(|tool| { tool.name == "mcp__11111111-1111-4111-8111-111111111111__echo" }));
+    assert!(!tools
+        .iter()
+        .any(|tool| tool.name == "mcp__Friendly Server__echo"));
 }
 
 #[test]

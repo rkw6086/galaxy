@@ -315,17 +315,24 @@ Exit condition: a LiteLLM or local OpenAI-compatible conversation streams throug
   protobuf round trip.
 - [x] Separate concise UI result summaries from authoritative model-facing result content so file,
   code-search, document, skill, and shell results retain their payload without protobuf conversion.
-- [ ] Move permission decisions and tool start/result events fully onto the Galaxy domain contract,
+- [x] Move permission decisions and tool start/result events fully onto the Galaxy domain contract,
   removing the temporary Warp protobuf adapter.
-- [ ] Add end-to-end integration coverage for representative read, edit, shell, MCP, denial,
+- [x] Add end-to-end integration coverage for representative read, edit, shell, MCP, denial,
   cancellation, and execution-failure flows.
 - [x] Add a hermetic real-app Rig read-tool round trip covering isolated provider configuration,
   streamed tool proposal, Galaxy-owned execution, normalized tool result, and model follow-up.
+- [x] Add hermetic real-app shell coverage for successful execution, nonzero exit with preserved
+  stderr/error status, and an `AlwaysAsk` user denial that proves the command never executes.
 - [x] Port loop prevention, inline `recall_tool_history`, and unknown-tool handling to domain-level
   policies.
 
 Exit condition: representative read, edit, shell, MCP, denial, and failure flows pass integration
 tests without provider-specific UI code.
+
+Phase 3 is complete. Rig tool proposals now enter the controller as typed `AIAgentAction` values;
+Galaxy's action model owns permission and execution lifecycle events; normalized results return to
+Rig directly. The legacy Warp response envelope remains only around transcript/init/finished UI
+rendering and non-Rig compatibility runtimes, not in Rig's executable tool path.
 
 ### Phase 4 — Bedrock through Rig
 
@@ -411,8 +418,7 @@ contract is what the UI and persistence observe.
 
 ## Immediate next vertical slice
 
-Expand the hermetic Rig integration harness from its passing read-tool round trip to
-edit/shell/MCP/denial/cancellation/execution-failure cases. Then move permission decisions and tool
-start/result events fully onto the Galaxy domain contract, keeping the outgoing UI response adapter
-only until those flows prove that Galaxy-owned events can replace it without changing the
-permission UI.
+Begin Phase 4 with a focused `rig-bedrock` compatibility spike. Establish client construction and
+model/inference-profile resolution first, then add semantic parity fixtures for system prompts,
+images, tool schemas, cache controls, reasoning, usage, and context limits before routing any
+configured Bedrock model away from the existing compatibility implementation.

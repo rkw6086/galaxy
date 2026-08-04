@@ -612,6 +612,30 @@ pub fn assert_task_is_blocked(conversation_target: ConversationTarget) -> Assert
     })
 }
 
+/// Asserts that the conversation was explicitly cancelled by the user.
+pub fn assert_task_is_cancelled(conversation_target: ConversationTarget) -> AssertionCallback {
+    Box::new(move |app, window_id| {
+        let terminal_view = terminal_view(app, window_id, 0, 0);
+        BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
+            let conversation =
+                match get_conversation(conversation_target, terminal_view.id(), history_model) {
+                    Ok(conversation) => conversation,
+                    Err(assertion) => return assertion,
+                };
+
+            match conversation.status() {
+                ConversationStatus::Cancelled => AssertionOutcome::Success,
+                status if status.is_in_progress() => {
+                    AssertionOutcome::failure("Task is still in progress".to_owned())
+                }
+                status => AssertionOutcome::immediate_failure(format!(
+                    "Expected task to be cancelled, but status is {status:?}"
+                )),
+            }
+        })
+    })
+}
+
 /// Check if a conversation has ended with an API error in its latest exchange.
 fn check_for_api_error_in_latest_exchange(
     conversation: &AIConversation,

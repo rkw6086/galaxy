@@ -33,9 +33,9 @@ use crate::ai::agent::conversation::{
 use crate::ai::agent::task::helper::{MessageExt, ToolCallExt};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
-    CancellationReason, FinishedAIAgentOutput, MessageId, RenderableAIError, RequestCost,
-    Suggestions,
+    AIAgentAction, AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput,
+    AIAgentOutputStatus, CancellationReason, FinishedAIAgentOutput, MessageId, RenderableAIError,
+    RequestCost, Suggestions,
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
@@ -1849,6 +1849,21 @@ impl BlocklistAIHistoryModel {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub fn apply_domain_tool_proposal(
+        &mut self,
+        response_stream_id: &ResponseStreamId,
+        conversation_id: AIConversationId,
+        terminal_surface_id: EntityId,
+        action: AIAgentAction,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        self.conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?
+            .apply_domain_tool_proposal(response_stream_id, terminal_surface_id, action, ctx)?;
         Ok(())
     }
 

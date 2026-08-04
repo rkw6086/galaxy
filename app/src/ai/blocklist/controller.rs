@@ -3423,7 +3423,23 @@ impl BlocklistAIController {
                 };
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match event {
-                    Ok(event) => {
+                    Ok(api::StreamEvent::ToolProposed(action)) => {
+                        let apply_result = history_model.update(ctx, |history_model, ctx| {
+                            history_model.apply_domain_tool_proposal(
+                                &stream_id,
+                                conversation_id,
+                                self.terminal_surface_id,
+                                action,
+                                ctx,
+                            )
+                        });
+                        if let Err(error) = apply_result {
+                            log::error!(
+                                "Failed to apply Rig tool proposal to conversation: {error:?}"
+                            );
+                        }
+                    }
+                    Ok(api::StreamEvent::Response(event)) => {
                         // If this controller is part of a shared session, forward the entire response event to viewers first.
                         if FeatureFlag::AgentSharedSessions.is_enabled()
                             && !response_stream.as_ref(ctx).is_acp()

@@ -186,7 +186,7 @@ impl ResponseStream {
         ctx: &mut ModelContext<Self>,
     ) {
         ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Ok(
-            event,
+            api::StreamEvent::Response(event),
         ))));
     }
     #[cfg(test)]
@@ -718,7 +718,16 @@ impl ResponseStream {
         self.time_to_latest_event = Local::now().signed_duration_since(self.start_time);
 
         match &event {
-            Ok(response_event) => {
+            Ok(api::StreamEvent::ToolProposed(action)) => {
+                self.has_received_client_actions = true;
+                log::debug!(
+                    "Rig proposed domain tool action {} for task {}",
+                    action.id,
+                    action.task_id
+                );
+                ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
+            }
+            Ok(api::StreamEvent::Response(response_event)) => {
                 let event_type_name = match &response_event.r#type {
                     Some(warp_multi_agent_api::response_event::Type::Init(_)) => "Init",
                     Some(warp_multi_agent_api::response_event::Type::ClientActions(a)) => {

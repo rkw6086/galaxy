@@ -24,6 +24,10 @@ pub struct Args {
 }
 
 pub fn main() -> Result<()> {
+    if env::args().nth(1).as_deref() == Some(integration::rig_test_mcp_server::SERVER_ARGUMENT) {
+        return integration::rig_test_mcp_server::run();
+    }
+
     ChannelState::set(ChannelState::new(
         Channel::Integration,
         ChannelConfig {
@@ -429,6 +433,12 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
 
     register_test!(test_agent_mode_pane_minimum_size);
     register_test!(test_rig_read_tool_round_trip);
+    register_test!(test_rig_shell_tool_success_round_trip);
+    register_test!(test_rig_shell_tool_failure_round_trip);
+    register_test!(test_rig_shell_tool_permission_denial);
+    register_test!(test_rig_edit_tool_round_trip);
+    register_test!(test_rig_in_flight_cancellation);
+    register_test!(test_rig_mcp_tool_round_trip);
     register_test!(test_git_prompt_chips);
 
     // These tests are only invoked manually, and not included in the

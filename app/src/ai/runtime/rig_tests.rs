@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use ai::skills::SkillPathOrigin;
 use galaxy_agent_core::{
     MessageContent, MessageRole, StopReason, ToolCall, ToolResult, ToolResultStatus,
 };
@@ -66,8 +67,8 @@ fn reasoning_events_match_the_existing_ui_message_contract() {
 }
 
 #[test]
-fn tool_proposal_matches_the_existing_permission_ui_contract() {
-    let event = build_tool_proposed(
+fn tool_proposal_matches_the_domain_permission_contract() {
+    let action = build_tool_proposed(
         "task",
         &ToolCall {
             id: "call-1".to_string(),
@@ -77,67 +78,43 @@ fn tool_proposal_matches_the_existing_permission_ui_contract() {
                 "is_read_only": true
             }),
         },
-    );
+        &SkillPathOrigin::Local,
+    )
+    .unwrap();
 
-    let Some(warp_multi_agent_api::response_event::Type::ClientActions(actions)) = event.r#type
-    else {
-        panic!("expected client actions");
-    };
-    let Some(warp_multi_agent_api::client_action::Action::AddMessagesToTask(add)) =
-        &actions.actions[0].action
-    else {
-        panic!("expected add-message action");
-    };
-    let Some(warp_multi_agent_api::message::Message::ToolCall(tool_call)) =
-        &add.messages[0].message
-    else {
-        panic!("expected tool-call message");
-    };
-    let Some(warp_multi_agent_api::message::tool_call::Tool::RunShellCommand(command)) =
-        &tool_call.tool
-    else {
-        panic!("expected run-shell-command payload");
-    };
-
-    assert_eq!(tool_call.tool_call_id, "call-1");
-    assert_eq!(command.command, "cargo test");
-    assert!(command.is_read_only);
+    assert_eq!(action.id.to_string(), "call-1");
+    assert!(matches!(
+        action.action,
+        crate::ai::agent::AIAgentActionType::RequestCommandOutput {
+            command,
+            is_read_only: Some(true),
+            ..
+        } if command == "cargo test"
+    ));
 }
 
 #[test]
-fn mcp_tool_proposal_routes_through_the_existing_mcp_executor_contract() {
-    let event = build_tool_proposed(
+fn mcp_tool_proposal_routes_directly_to_the_mcp_executor_contract() {
+    let action = build_tool_proposed(
         "task",
         &ToolCall {
             id: "call-mcp".to_string(),
-            name: "mcp__filesystem__read_file".to_string(),
+            name: "mcp__11111111-1111-4111-8111-111111111111__read_file".to_string(),
             arguments: serde_json::json!({"path": "Cargo.toml"}),
         },
-    );
+        &SkillPathOrigin::Local,
+    )
+    .unwrap();
 
-    let Some(warp_multi_agent_api::response_event::Type::ClientActions(actions)) = event.r#type
-    else {
-        panic!("expected client actions");
-    };
-    let Some(warp_multi_agent_api::client_action::Action::AddMessagesToTask(add)) =
-        &actions.actions[0].action
-    else {
-        panic!("expected add-message action");
-    };
-    let Some(warp_multi_agent_api::message::Message::ToolCall(tool_call)) =
-        &add.messages[0].message
-    else {
-        panic!("expected tool-call message");
-    };
-    let Some(warp_multi_agent_api::message::tool_call::Tool::CallMcpTool(call)) = &tool_call.tool
-    else {
-        panic!("expected MCP tool payload");
-    };
-
-    assert_eq!(tool_call.tool_call_id, "call-mcp");
-    assert_eq!(call.server_id, "filesystem");
-    assert_eq!(call.name, "read_file");
-    assert!(call.args.is_some());
+    assert!(matches!(
+        action.action,
+        crate::ai::agent::AIAgentActionType::CallMCPTool {
+            server_id: Some(server_id),
+            name,
+            ..
+        } if server_id.to_string() == "11111111-1111-4111-8111-111111111111"
+            && name == "read_file"
+    ));
 }
 
 #[test]

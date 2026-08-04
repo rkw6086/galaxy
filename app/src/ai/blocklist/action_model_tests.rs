@@ -139,6 +139,8 @@ fn domain_tool_results_preserve_success_failure_cancellation_and_denial() {
     assert_eq!(failure.call_id, "failure");
     assert_eq!(cancelled.call_id, "cancelled");
     assert_eq!(denied.call_id, "cancelled");
+    assert!(!cancelled.content.contains("Permission denied"));
+    assert!(denied.content.contains("Permission denied by the user"));
 }
 
 #[test]

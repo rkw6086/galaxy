@@ -172,7 +172,7 @@ pub(crate) async fn acp_output_stream(
                     match translator.translate_steered_user_content(content) {
                         Ok(response_events) => {
                             for response_event in response_events {
-                                yield Ok(response_event);
+                                yield Ok(api::StreamEvent::Response(response_event));
                             }
                         }
                         Err(message) => {
@@ -198,20 +198,20 @@ pub(crate) async fn acp_output_stream(
                         }
                         Ok(AcpSteeringOutcome::StartedNewTurn) => {
                             for response_event in translator.steering_started_new_turn() {
-                                yield Ok(response_event);
+                                yield Ok(api::StreamEvent::Response(response_event));
                             }
                         }
                         Ok(AcpSteeringOutcome::Failed) => {
                             for response_event in translator.steering_failed(
                                 "the ACP agent could not inject it into the active turn",
                             ) {
-                                yield Ok(response_event);
+                                yield Ok(api::StreamEvent::Response(response_event));
                             }
                         }
                         Err(error) => {
                             log::warn!("ACP live steering failed: {error}");
                             for response_event in translator.steering_failed(&error.to_string()) {
-                                yield Ok(response_event);
+                                yield Ok(api::StreamEvent::Response(response_event));
                             }
                         }
                     }
@@ -250,7 +250,7 @@ pub(crate) async fn acp_output_stream(
                     match translator.translate(event) {
                         Ok(response_events) => {
                             for response_event in response_events {
-                                yield Ok(response_event);
+                                yield Ok(api::StreamEvent::Response(response_event));
                             }
                         }
                         Err(message) => {
@@ -363,7 +363,11 @@ fn translated_startup_error_stream(
     message: &str,
 ) -> api::ResponseStream {
     let events = translator.startup_error(message);
-    Box::pin(futures::stream::iter(events.into_iter().map(Ok)))
+    Box::pin(futures::stream::iter(
+        events
+            .into_iter()
+            .map(|event| Ok(api::StreamEvent::Response(event))),
+    ))
 }
 
 #[cfg(test)]

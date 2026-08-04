@@ -2227,6 +2227,47 @@ impl AIConversation {
         Ok(())
     }
 
+    pub fn apply_domain_tool_proposal(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        terminal_surface_id: EntityId,
+        action: AIAgentAction,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<(), UpdateConversationError> {
+        let added_exchanges = self
+            .added_exchanges_by_response
+            .get(stream_id)
+            .ok_or(UpdateConversationError::NoPendingRequest)?;
+        let exchange_id = added_exchanges
+            .iter()
+            .find(|added| added.task_id == action.task_id)
+            .map(|added| added.exchange_id)
+            .ok_or(UpdateConversationError::TaskNotFound)?;
+        let message_id = MessageId::new(action.id.to_string());
+        let exchange = self.get_exchange_to_update(exchange_id)?;
+        match &exchange.output_status {
+            AIAgentOutputStatus::Streaming {
+                output: Some(output),
+            } => output
+                .get_mut()
+                .messages
+                .push(AIAgentOutputMessage::action(message_id, action)),
+            AIAgentOutputStatus::Streaming { output: None } => {
+                return Err(UpdateConversationError::OutputNeverInitialized);
+            }
+            AIAgentOutputStatus::Finished { .. } => {
+                return Err(UpdateConversationError::OutputAlreadyFinished);
+            }
+        }
+        ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            exchange_id,
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden: self.hidden_exchanges.contains(&exchange_id),
+        });
+        Ok(())
+    }
+
     pub fn update_cost_and_usage_for_request(
         &mut self,
         request_cost: Option<RequestCost>,

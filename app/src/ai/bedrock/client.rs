@@ -11,7 +11,7 @@ use super::diagnostic::BedrockDiagnosticLogger;
 use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
-use crate::ai::agent::api::ResponseStream;
+use crate::ai::agent::api::LegacyResponseStream;
 use crate::settings::ai::BedrockAuthMethod;
 
 fn strip_context_marker(model_id: &str) -> String {
@@ -185,7 +185,7 @@ impl BedrockClient {
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
         messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
         tool_result_archive: Vec<ConversationMessage>,
-    ) -> Result<ResponseStream, BedrockError> {
+    ) -> Result<LegacyResponseStream, BedrockError> {
         let base_model_id = strip_context_marker(model_id);
         let effective_model_id = if cross_region_inference {
             apply_cross_region_prefix(&base_model_id, &self.region)

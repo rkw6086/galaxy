@@ -312,6 +312,12 @@ integration_tests! {
     test_middle_click_paste,
     test_agent_mode_pane_minimum_size,
     test_rig_read_tool_round_trip,
+    test_rig_shell_tool_success_round_trip,
+    test_rig_shell_tool_failure_round_trip,
+    test_rig_shell_tool_permission_denial,
+    test_rig_edit_tool_round_trip,
+    test_rig_in_flight_cancellation,
+    test_rig_mcp_tool_round_trip,
 
     test_rule_creation,
     test_rule_update,

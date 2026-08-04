@@ -12,7 +12,9 @@ use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent, ToolType};
 
 use super::rig_request::{prepare_rig_turn, PreparedRigTurn};
-use crate::ai::agent::api::{Event, RequestParams, ResponseStream};
+use super::rig_tool::action_from_tool_call;
+use crate::ai::agent::api::{Event, RequestParams, ResponseStream, StreamEvent};
+use crate::ai::agent::AIAgentAction;
 use crate::ai::bedrock::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
     build_user_query_message,
@@ -29,6 +31,7 @@ pub(crate) fn rig_openai_response_stream(
     supported_cli_agent_tools: Vec<ToolType>,
     cancellation_rx: oneshot::Receiver<()>,
 ) -> ResponseStream {
+    let skill_path_origin = params.session_context.skill_path_origin();
     let PreparedRigTurn {
         task_id,
         needs_create_task,
@@ -111,30 +114,30 @@ pub(crate) fn rig_openai_response_stream(
                     match event {
                         AgentEvent::TurnStarted { .. } => {
                             initialized = true;
-                            yield Ok(build_stream_init(&request_id, &conversation_id));
+                            yield Ok(StreamEvent::Response(build_stream_init(&request_id, &conversation_id)));
                             if needs_create_task {
-                                yield Ok(build_create_task(&task_id));
+                                yield Ok(StreamEvent::Response(build_create_task(&task_id)));
                             }
                             if let Some(user_query) = &user_query {
-                                yield Ok(build_user_query_message(&task_id, user_query));
+                                yield Ok(StreamEvent::Response(build_user_query_message(&task_id, user_query)));
                             }
                         }
                         AgentEvent::TextDelta { text } => {
                             full_text.push_str(&text);
                             if let Some(message_id) = &current_text_message_id {
-                                yield Ok(build_append_text(&task_id, message_id, &text));
+                                yield Ok(StreamEvent::Response(build_append_text(&task_id, message_id, &text)));
                             } else {
                                 let message_id = Uuid::new_v4().to_string();
-                                yield Ok(build_add_agent_output_message(&task_id, &message_id, &text));
+                                yield Ok(StreamEvent::Response(build_add_agent_output_message(&task_id, &message_id, &text)));
                                 current_text_message_id = Some(message_id);
                             }
                         }
                         AgentEvent::ReasoningDelta { text } => {
                             if let Some(message_id) = &current_reasoning_message_id {
-                                yield Ok(build_append_reasoning(&task_id, message_id, &text));
+                                yield Ok(StreamEvent::Response(build_append_reasoning(&task_id, message_id, &text)));
                             } else {
                                 let message_id = Uuid::new_v4().to_string();
-                                yield Ok(build_add_reasoning(&task_id, &message_id, &text));
+                                yield Ok(StreamEvent::Response(build_add_reasoning(&task_id, &message_id, &text)));
                                 current_reasoning_message_id = Some(message_id);
                             }
                         }
@@ -155,7 +158,16 @@ pub(crate) fn rig_openai_response_stream(
                                 .unwrap_or_default();
                             match tool_policy.decide(&call, &history, &tool_result_archive) {
                                 ToolCallDecision::Execute => {
-                                    yield Ok(build_tool_proposed(&task_id, &call));
+                                    match build_tool_proposed(&task_id, &call, &skill_path_origin) {
+                                        Ok(action) => yield Ok(StreamEvent::ToolProposed(action)),
+                                        Err(message) => {
+                                            yield Err(agent_error(AgentError::new(
+                                                galaxy_agent_core::AgentErrorKind::Protocol,
+                                                message,
+                                            )));
+                                            return;
+                                        }
+                                    }
                                 }
                                 ToolCallDecision::Inline(result) => {
                                     append_tool_result(&messages_sent, result);
@@ -172,17 +184,17 @@ pub(crate) fn rig_openai_response_stream(
                                     );
                                     append_tool_result(&messages_sent, result);
                                     let message_id = Uuid::new_v4().to_string();
-                                    yield Ok(build_add_agent_output_message(
+                                    yield Ok(StreamEvent::Response(build_add_agent_output_message(
                                         &task_id,
                                         &message_id,
                                         &error_display,
-                                    ));
+                                    )));
                                 }
                             }
                         }
                         AgentEvent::TurnStopped { reason } => {
                             if !initialized {
-                                yield Ok(build_stream_init(&request_id, &conversation_id));
+                                yield Ok(StreamEvent::Response(build_stream_init(&request_id, &conversation_id)));
                             }
                             sync_assistant_turn(
                                 &messages_sent,
@@ -190,7 +202,7 @@ pub(crate) fn rig_openai_response_stream(
                                 &proposed_tools,
                                 &mut assistant_history_index,
                             );
-                            yield Ok(build_stream_finished(
+                            yield Ok(StreamEvent::Response(build_stream_finished(
                                 map_stop_reason(reason),
                                 StreamUsage {
                                     input_tokens: saturating_i32(usage.input_tokens),
@@ -203,7 +215,7 @@ pub(crate) fn rig_openai_response_stream(
                                     model_id,
                                     max_context_tokens,
                                 },
-                            ));
+                            )));
                             return;
                         }
                         AgentEvent::Tool { .. } => {
@@ -304,11 +316,12 @@ fn sync_assistant_turn(
     sent.push(message);
 }
 
-fn build_tool_proposed(task_id: &str, call: &ToolCall) -> ResponseEvent {
-    let arguments = serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".to_string());
-    crate::ai::bedrock::response_translator::build_tool_call_message(
-        task_id, &call.id, &call.name, &arguments,
-    )
+fn build_tool_proposed(
+    task_id: &str,
+    call: &ToolCall,
+    skill_path_origin: &ai::skills::SkillPathOrigin,
+) -> Result<AIAgentAction, String> {
+    action_from_tool_call(task_id, call, skill_path_origin)
 }
 
 fn build_add_reasoning(task_id: &str, message_id: &str, text: &str) -> ResponseEvent {

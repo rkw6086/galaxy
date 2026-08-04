@@ -267,9 +267,15 @@ fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bo
     } else {
         ToolResultStatus::Success
     };
+    let content = action_result.result.model_content();
+    let content = if permission_denied {
+        format!("Permission denied by the user. {content}")
+    } else {
+        content
+    };
     ToolResult {
         call_id: action_result.id.to_string(),
-        content: action_result.result.model_content(),
+        content,
         status,
     }
 }

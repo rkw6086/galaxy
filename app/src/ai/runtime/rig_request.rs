@@ -395,7 +395,7 @@ fn tool_definitions(
         .collect::<HashSet<_>>();
     for server in &mcp_context.servers {
         for tool in &server.tools {
-            let name = format!("mcp__{}__{}", server.name, tool.name);
+            let name = format!("mcp__{}__{}", server.id, tool.name);
             if seen.insert(name.clone()) {
                 tools.push(ToolDefinition {
                     name,

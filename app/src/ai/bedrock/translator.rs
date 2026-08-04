@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use warp_multi_agent_api as api;
 
-use crate::ai::agent::api::ResponseStream;
+use crate::ai::agent::api::LegacyResponseStream;
 use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig, BedrockError};
 use crate::ai::bedrock::convert::ConversationMessage;
 use crate::ai::bedrock::diagnostic::BedrockDiagnosticLogger;
@@ -25,7 +25,7 @@ pub struct TranslatorRequest {
 pub async fn execute(
     params: TranslatorRequest,
     request: &mut api::Request,
-) -> Result<ResponseStream, BedrockError> {
+) -> Result<LegacyResponseStream, BedrockError> {
     let config = params.config.with_external_fallbacks();
     let cross_region_inference = config.cross_region_inference;
     let bedrock = BedrockClient::from_config(config).await?;

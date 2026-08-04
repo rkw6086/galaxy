@@ -6,7 +6,7 @@ use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
 use super::convert_to::convert_input;
-use super::{ConvertToAPITypeError, RequestParams, ResponseStream};
+use super::{ConvertToAPITypeError, RequestParams, ResponseStream, StreamEvent};
 use crate::ai::agent::redaction;
 use crate::ai::openai::translator as openai_translator;
 use crate::ai::provider::ProviderConfig;
@@ -164,7 +164,9 @@ pub async fn generate_multi_agent_output(
 
             match openai_translator::execute(translator_request, &mut request).await {
                 Ok(stream) => {
-                    let output_stream = stream.take_until(cancellation_rx);
+                    let output_stream = stream
+                        .map(|event| event.map(StreamEvent::Response))
+                        .take_until(cancellation_rx);
                     Ok(Box::pin(output_stream))
                 }
                 Err(e) => {
@@ -196,7 +198,9 @@ pub async fn generate_multi_agent_output(
 
             match crate::ai::bedrock::translator::execute(translator_request, &mut request).await {
                 Ok(stream) => {
-                    let output_stream = stream.take_until(cancellation_rx);
+                    let output_stream = stream
+                        .map(|event| event.map(StreamEvent::Response))
+                        .take_until(cancellation_rx);
                     Ok(Box::pin(output_stream))
                 }
                 Err(e) => {

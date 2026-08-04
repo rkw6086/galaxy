@@ -15,7 +15,7 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use super::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use super::diagnostic::BedrockDiagnosticLogger;
-use crate::ai::agent::api::Event;
+use crate::ai::agent::api::LegacyEvent;
 use crate::server::server_api::AIApiError;
 
 fn json_to_prost_struct(value: &serde_json::Value) -> prost_types::Struct {
@@ -69,7 +69,7 @@ pub fn bedrock_stream_to_response_events(
     messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     model_id: String,
     tool_result_archive: Vec<ConversationMessage>,
-) -> BoxStream<'static, Event> {
+) -> BoxStream<'static, LegacyEvent> {
     let request_id = Uuid::new_v4().to_string();
     let conversation_id = Uuid::new_v4().to_string();
 
