@@ -47,10 +47,12 @@ pub enum ThemeKind {
     ReceivedReferralReward,
     #[schemars(description = "Adeberry")]
     Adeberry,
-    #[schemars(description = "Samsung Dark")]
-    SamsungDark,
-    #[schemars(description = "Samsung Light")]
-    SamsungLight,
+    #[serde(alias = "SamsungDark")]
+    #[schemars(description = "Galaxy Dark")]
+    GalaxyDark,
+    #[serde(alias = "SamsungLight")]
+    #[schemars(description = "Galaxy Day")]
+    GalaxyDay,
     #[schemars(description = "Phenomenon")]
     Phenomenon,
     #[default]
@@ -135,8 +137,8 @@ impl std::fmt::Display for ThemeKind {
             ThemeKind::Phenomenon => "Phenomenon",
             ThemeKind::SolarFlare => "Solar Flare",
             ThemeKind::Adeberry => "Adeberry",
-            ThemeKind::SamsungDark => "Samsung Dark",
-            ThemeKind::SamsungLight => "Samsung Light",
+            ThemeKind::GalaxyDark => "Galaxy Dark",
+            ThemeKind::GalaxyDay => "Galaxy Day",
             ThemeKind::SentReferralReward => "Galaxy Referral",
             ThemeKind::ReceivedReferralReward => "Referred to Galaxy",
             ThemeKind::Custom(custom_theme) => custom_theme.name.as_str(),
@@ -500,8 +502,8 @@ impl GalaxyThemeConfig {
             (ThemeKind::Phenomenon, phenomenon()),
             (ThemeKind::SolarFlare, solar_flare()),
             (ThemeKind::Adeberry, adeberry()),
-            (ThemeKind::SamsungDark, samsung_dark()),
-            (ThemeKind::SamsungLight, samsung_light()),
+            (ThemeKind::GalaxyDark, galaxy_dark()),
+            (ThemeKind::GalaxyDay, galaxy_day()),
         ]);
         GalaxyThemeConfig { theme_map }
     }

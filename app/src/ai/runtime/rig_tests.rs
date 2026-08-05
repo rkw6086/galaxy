@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ai::skills::SkillPathOrigin;
@@ -20,6 +21,7 @@ fn tool_proposal_matches_the_domain_permission_contract() {
             }),
         },
         &SkillPathOrigin::Local,
+        &HashMap::new(),
     )
     .unwrap();
 
@@ -44,6 +46,7 @@ fn mcp_tool_proposal_routes_directly_to_the_mcp_executor_contract() {
             arguments: serde_json::json!({"path": "Cargo.toml"}),
         },
         &SkillPathOrigin::Local,
+        &HashMap::new(),
     )
     .unwrap();
 

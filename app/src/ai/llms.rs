@@ -2054,6 +2054,16 @@ impl LLMPreferences {
         log::debug!("[llm] Server model update ignored — using local providers only");
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_models_by_feature_for_test(
+        &mut self,
+        models_by_feature: ModelsByFeature,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.models_by_feature = models_by_feature;
+        ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+    }
+
     /// Disabled — Galaxy does not accept model updates from Warp's server.
     fn on_server_update(&mut self, _update: ModelsByFeature, _ctx: &mut ModelContext<Self>) {
         log::debug!("[llm] Server model update ignored — using local providers only");

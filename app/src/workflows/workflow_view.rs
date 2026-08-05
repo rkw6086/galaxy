@@ -43,11 +43,8 @@ use crate::auth::{AuthStateProvider, UserUid};
 use crate::cloud_object::breadcrumbs::ContainingObject;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::model::view::CloudViewModel;
-use crate::cloud_object::{
-    CloudObject, CloudObjectEventEntrypoint, ObjectType, Owner, Revision, Space,
-};
+use crate::cloud_object::{CloudObject, Owner, Revision};
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
-use crate::drive::drive_helpers::has_feature_gated_anonymous_user_reached_workflow_limit;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::sharing::{ContentEditability, ShareableObject, SharingAccessLevel};
 use crate::drive::workflows::ai_assist::GeneratedCommandMetadataError;
@@ -65,15 +62,11 @@ use crate::editor::{
     PlainTextEditorViewAction as EditorAction, PropagateAndNoOpNavigationKeys,
     SingleLineEditorOptions, TextOptions, TextStyleOperation,
 };
+use crate::local_object_repository::LocalObjectRepository;
 use crate::menu::{MenuItem, MenuItemFields};
-use crate::network::NetworkStatus;
 use crate::pane_group::focus_state::PaneFocusHandle;
 use crate::pane_group::pane::view;
 use crate::pane_group::{BackingView, PaneConfiguration, PaneEvent};
-use crate::server::cloud_objects::update_manager::{
-    FetchSingleObjectOption, ObjectOperation, OperationSuccessType, UpdateManager,
-    UpdateManagerEvent,
-};
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::server::server_api::ai::AIClient;
 use crate::server::server_api::ServerApiProvider;
@@ -521,11 +514,6 @@ impl WorkflowView {
         ctx.subscribe_to_model(&CloudModel::handle(ctx), move |workflow, _, event, ctx| {
             workflow.handle_cloud_model_event(event, ctx)
         });
-
-        let update_manager = UpdateManager::handle(ctx);
-        ctx.subscribe_to_model(&update_manager, |me, _, event, ctx| {
-            me.handle_update_manager_event(event, ctx);
-        });
     }
 
     fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ViewContext<Self>) {
@@ -545,66 +533,6 @@ impl WorkflowView {
         }
     }
 
-    fn handle_update_manager_event(
-        &mut self,
-        event: &UpdateManagerEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let UpdateManagerEvent::ObjectOperationComplete { result } = event else {
-            return;
-        };
-
-        if let (ObjectOperation::Create { .. }, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
-        {
-            if self.workflow_id.into_client() == result.client_id {
-                let server_id = result
-                    .server_id
-                    .expect("Expect server id on success creation");
-
-                // The aliases were created with the old client sync id.  Update them to the new server id.
-                WorkflowAliases::handle(ctx).update(ctx, |aliases, ctx| {
-                    if let Result::Err(e) =
-                        aliases.update_workflow_id(self.workflow_id, server_id.into(), ctx)
-                    {
-                        log::error!("Failed to update aliases after workflow creation: {e:?}");
-                    }
-                });
-
-                if let Some(workflow) =
-                    CloudModel::as_ref(ctx).get_workflow_by_uid(&server_id.uid())
-                {
-                    self.load(
-                        workflow.clone(),
-                        &OpenGalaxyDriveObjectSettings::default(),
-                        self.workflow_view_mode,
-                        ctx,
-                    );
-                }
-                ctx.notify();
-            }
-        }
-
-        if let (ObjectOperation::Update, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
-        {
-            if let Some(workflow) = self.get_cloud_workflow(ctx) {
-                // This makes sure we get the correct updated revision_ts. So our subsequent
-                // updates don't fail
-                if self.workflow_id.into_client() == result.client_id
-                    || self.workflow_id.uid() == result.server_id.unwrap_or_default().uid()
-                {
-                    self.load(
-                        workflow,
-                        &OpenGalaxyDriveObjectSettings::default(),
-                        self.workflow_view_mode,
-                        ctx,
-                    );
-                }
-            }
-        }
-    }
-
     fn should_show_unsaved_changes_dialog(&self, app: &AppContext) -> bool {
         self.is_dirty(app)
     }
@@ -621,7 +549,7 @@ impl WorkflowView {
         }
     }
 
-    pub fn wait_for_initial_load_then_load(
+    pub fn load_local_or_show_not_found(
         &mut self,
         workflow_id: SyncId,
         settings: &OpenGalaxyDriveObjectSettings,
@@ -629,75 +557,15 @@ impl WorkflowView {
         window_id: WindowId,
         ctx: &mut ViewContext<Self>,
     ) {
-        let initial_load_complete = UpdateManager::as_ref(ctx).initial_load_complete();
-        // TODO @ianhodge CLD-2002: it could be nice to have a loading screen here while we wait for the load
-        let settings = settings.clone();
-        ctx.spawn(initial_load_complete, move |me, _, ctx| {
-            let workflow = CloudModel::as_ref(ctx).get_workflow(&workflow_id).cloned();
-            // If either the focused folder or the workflow can't be found in cloudmodel, fetch the object from the server
-            let fetch_needed = workflow.is_none()
-                || settings
-                    .focused_folder_id
-                    .map(SyncId::ServerId)
-                    .map(|folder_id| CloudModel::as_ref(ctx).get_folder(&folder_id).is_none())
-                    .unwrap_or(false);
-            if fetch_needed {
-                if let Some(server_id) = workflow_id.into_server() {
-                    me.fetch_and_load_workflow(server_id, &settings, mode, window_id, ctx);
-                } else {
-                    log::warn!("Tried to load workflow without server id {workflow_id:?}");
-                }
-            } else if let Some(workflow) = workflow {
-                me.load(workflow, &settings, mode, ctx);
-            } else {
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast_by_type(
-                        ToastType::CloudObjectNotFound,
-                        window_id,
-                        ctx,
-                    );
-                });
-                log::warn!("Tried to open unknown workflow {workflow_id:?}");
-            }
-        });
-    }
+        if let Some(workflow) = CloudModel::as_ref(ctx).get_workflow(&workflow_id).cloned() {
+            self.load(workflow, settings, mode, ctx);
+            return;
+        }
 
-    fn fetch_and_load_workflow(
-        &mut self,
-        workflow_id: ServerId,
-        settings: &OpenGalaxyDriveObjectSettings,
-        mode: WorkflowViewMode,
-        window_id: WindowId,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // If we have a parent folder we are trying to load as a part of this workflow, fetch that instead
-        let id_to_fetch = settings.focused_folder_id.unwrap_or(workflow_id);
-        let fetch_cloud_object_rx =
-            UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                update_manager.fetch_single_cloud_object(
-                    &id_to_fetch,
-                    FetchSingleObjectOption::None,
-                    ctx,
-                )
-            });
-        let settings = settings.clone();
-        ctx.spawn(fetch_cloud_object_rx, move |me, _, ctx| {
-            if let Some(workflow) = CloudModel::as_ref(ctx)
-                .get_workflow(&SyncId::ServerId(workflow_id))
-                .cloned()
-            {
-                me.load(workflow, &settings, mode, ctx);
-            } else {
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast_by_type(
-                        ToastType::CloudObjectNotFound,
-                        window_id,
-                        ctx,
-                    );
-                });
-                log::warn!("Tried to open unknown workflow {workflow_id:?} after fetching");
-            }
+        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+            toast_stack.add_ephemeral_toast_by_type(ToastType::CloudObjectNotFound, window_id, ctx);
         });
+        log::warn!("Tried to open unknown local workflow {workflow_id:?}");
     }
 
     pub fn load(
@@ -718,14 +586,10 @@ impl WorkflowView {
 
         self.workflow_view_mode = match mode {
             // Force view mode if the user is not allowed to edit the workflow.
-            WorkflowViewMode::Edit => {
-                WorkflowViewMode::supported_edit_mode(Some(self.workflow_id), ctx)
-            }
+            WorkflowViewMode::Edit => WorkflowViewMode::supported_edit_mode(),
             // Force edit mode if we are in a context where we can run workflows and we try to use view
             // mode
-            WorkflowViewMode::View => {
-                WorkflowViewMode::supported_view_mode(Some(self.workflow_id), ctx)
-            }
+            WorkflowViewMode::View => WorkflowViewMode::supported_view_mode(),
             mode => mode,
         };
 
@@ -1407,8 +1271,7 @@ impl WorkflowView {
     }
 
     fn try_set_view_mode(&mut self, ctx: &mut ViewContext<Self>) {
-        self.workflow_view_mode =
-            WorkflowViewMode::supported_view_mode(Some(self.workflow_id), ctx);
+        self.workflow_view_mode = WorkflowViewMode::supported_view_mode();
         // always reset with the cloudmodel version whether or not we successfully
         // transition to the view mode. This reset doesn't always set the correct revision_ts
         // we rely on the load called when we handle the update_manager's change event.
@@ -1447,13 +1310,9 @@ impl WorkflowView {
         }
 
         self.workflow_view_mode = match self.workflow_view_mode {
-            WorkflowViewMode::View => {
-                WorkflowViewMode::supported_edit_mode(Some(self.workflow_id), ctx)
-            }
+            WorkflowViewMode::View => WorkflowViewMode::supported_edit_mode(),
             // Attempt to toggle to view mode only if it is allowed in this context
-            WorkflowViewMode::Edit => {
-                WorkflowViewMode::supported_view_mode(Some(self.workflow_id), ctx)
-            }
+            WorkflowViewMode::Edit => WorkflowViewMode::supported_view_mode(),
             // NOTE: prevent transition from create to any other mode
             // we also shouldn't be showing the toggle button in create view
             WorkflowViewMode::Create => WorkflowViewMode::Create,
@@ -1598,13 +1457,8 @@ impl WorkflowView {
 
         match self.workflow_view_mode {
             WorkflowViewMode::Edit => {
-                UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                    update_manager.update_workflow(
-                        workflow.clone(),
-                        self.workflow_id,
-                        self.revision_ts.clone(),
-                        ctx,
-                    );
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.update_workflow(self.workflow_id, workflow.clone(), ctx);
                 });
                 if let ContainerConfiguration::Pane(pane_config) = &mut self.container_configuration
                 {
@@ -1618,23 +1472,12 @@ impl WorkflowView {
                 self.try_set_view_mode(ctx);
             }
             WorkflowViewMode::Create => {
-                let client_id = if let Some(id) = self.workflow_id.into_client() {
-                    id
-                } else {
-                    log::error!("No client_id obtained for creating workflow");
-                    self.display_error_toast(String::from("Could not create workflow"), ctx);
-                    return;
-                };
-
-                if let Some(space) = self.owner {
-                    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                        update_manager.create_workflow(
-                            workflow.clone(),
-                            space,
+                if self.owner.is_some() {
+                    LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                        repository.create_workflow_with_id(
+                            self.workflow_id,
                             self.initial_folder_id,
-                            client_id,
-                            CloudObjectEventEntrypoint::Unknown,
-                            true,
+                            workflow.clone(),
                             ctx,
                         );
                     });
@@ -1654,7 +1497,9 @@ impl WorkflowView {
                     log::error!("Attempting to create workflow but now space found");
                 }
             }
-            _ => log::error!("Did not match conditions to either create or save the workflow"),
+            WorkflowViewMode::View => {
+                log::error!("Attempted to save a workflow while in view mode")
+            }
         }
     }
 
@@ -1827,10 +1672,6 @@ impl WorkflowView {
         ctx.emit(WorkflowViewEvent::Pane(PaneEvent::FocusSelf));
     }
 
-    fn is_online(&self, app: &AppContext) -> bool {
-        NetworkStatus::as_ref(app).is_online()
-    }
-
     /// Whether or not opening links in the desktop app is supported.
     fn can_open_on_desktop(&self, app: &AppContext) -> bool {
         !ContextFlag::HideOpenOnDesktopButton.is_enabled()
@@ -1991,11 +1832,8 @@ impl WorkflowView {
             return;
         }
 
-        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-            update_manager.duplicate_object(
-                &CloudObjectTypeAndId::from_id_and_type(self.workflow_id, ObjectType::Workflow),
-                ctx,
-            );
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.duplicate_workflow(self.workflow_id, ctx);
         });
         ctx.notify();
     }
@@ -2007,24 +1845,14 @@ impl WorkflowView {
 
         self.close(ctx);
 
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.trash_object(
-                CloudObjectTypeAndId::from_id_and_type(self.workflow_id, ObjectType::Workflow),
-                ctx,
-            );
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.set_workflow_trashed(self.workflow_id, true, ctx);
         });
     }
 
     fn untrash_object(&self, ctx: &mut ViewContext<Self>) {
-        if has_feature_gated_anonymous_user_reached_workflow_limit(ctx) {
-            return;
-        }
-
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.untrash_object(
-                CloudObjectTypeAndId::from_id_and_type(self.workflow_id, ObjectType::Workflow),
-                ctx,
-            );
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.set_workflow_trashed(self.workflow_id, false, ctx);
         });
     }
 
@@ -3206,30 +3034,19 @@ impl BackingView for WorkflowView {
             }
         }
 
-        let space = CloudViewModel::as_ref(ctx).object_space(&self.workflow_id.uid(), ctx);
+        menu_items.push(
+            MenuItemFields::new("Duplicate")
+                .with_on_select_action(WorkflowAction::Duplicate)
+                .with_icon(Icon::Duplicate)
+                .into_item(),
+        );
 
-        // Add "Duplicate" to menu
-        if space != Some(Space::Shared) {
-            menu_items.push(
-                MenuItemFields::new("Duplicate")
-                    .with_on_select_action(WorkflowAction::Duplicate)
-                    .with_icon(Icon::Duplicate)
-                    .into_item(),
-            );
-        }
-
-        // Add "Trash" to menu
-        let access_level = self.access_level(ctx);
-        if self.is_online(ctx)
-            && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash())
-        {
-            menu_items.push(
-                MenuItemFields::new("Trash")
-                    .with_on_select_action(WorkflowAction::Trash)
-                    .with_icon(Icon::Trash)
-                    .into_item(),
-            );
-        }
+        menu_items.push(
+            MenuItemFields::new("Trash")
+                .with_on_select_action(WorkflowAction::Trash)
+                .with_icon(Icon::Trash)
+                .into_item(),
+        );
 
         menu_items
     }

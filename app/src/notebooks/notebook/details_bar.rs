@@ -1,6 +1,5 @@
 //! Components for the notebook header.
 
-use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     Container, CrossAxisAlignment, Flex, Highlight, MainAxisAlignment, MainAxisSize,
     MouseStateHandle, ParentElement, Shrinkable,
@@ -77,27 +76,17 @@ impl DetailsBar {
         let mut editing_state_row = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::End)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
-        if let Some(editor) = notebook_data.current_editor(app) {
+        if let Some(editor) = notebook_data.current_editor() {
             editing_state_row.add_child(
                 Shrinkable::new(1., self.render_editor(&editor, appearance, app)).finish(),
             );
         }
 
-        let editability = if FeatureFlag::SharedWithMe.is_enabled() {
-            notebook_data.editability(app)
-        } else {
-            ContentEditability::Editable
-        };
-        if matches!(
-            editability,
-            ContentEditability::RequiresLogin | ContentEditability::Editable
-        ) {
-            editing_state_row.add_child(self.render_mode_toggle(
-                notebook_data.mode,
-                editability,
-                appearance,
-            ));
-        }
+        editing_state_row.add_child(self.render_mode_toggle(
+            notebook_data.mode,
+            ContentEditability::Editable,
+            appearance,
+        ));
 
         header_row.add_child(Shrinkable::new(1., editing_state_row.finish()).finish());
 

@@ -335,9 +335,9 @@ Behavior:
 
 ### Appearance Settings Notes
 
-- Samsung-inspired built-in themes are available as `SamsungDark` and `SamsungLight`.
+- Galaxy's built-in brand themes are available as `GalaxyDark` and `GalaxyDay`.
 - UI font selection is persisted in `appearance.text.ui_font_name` and uses an empty string as the system-default sentinel.
-- The one-click Samsung brand preset is implemented in `app/src/settings_view/appearance_page.rs` and applies:
-  - Samsung dark/light theme mapping
+- The one-click Galaxy brand preset is implemented in `app/src/settings_view/appearance_page.rs` and applies:
+  - Galaxy Dark/Day system theme mapping
   - terminal + AI font defaults
-  - a best-available Samsung-style UI font fallback
+  - the bundled, SIL Open Font License-licensed Roboto UI font

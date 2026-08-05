@@ -364,20 +364,31 @@ OpenAI-compatible models.
 
 ### Phase 5 — ACP convergence
 
-- Move ACP launch/session/transport control behind `galaxy_agent_acp`.
-- Translate ACP events directly to `AgentEvent`.
-- Remove ACP branching from the UI response stream model.
-- Keep ACP-specific settings and capability disclosure, but share transcript and permission UI.
+- [x] Move ACP launch/session/transport control behind `galaxy_agent_acp`.
+- [x] Translate ACP events directly to `AgentEvent`.
+- [x] Remove ACP branching from the UI response stream model.
+- [x] Keep ACP-specific settings and capability disclosure, but share transcript and permission UI.
 
 Exit condition: the controller cannot distinguish ACP from Rig except through backend capability
 metadata.
 
 ### Phase 6 — Local Galaxy Drive and identity removal
 
-- Introduce `LocalObjectRepository` over existing SQLite data.
-- Move rules, profiles, notebooks, workflows, env collections, and MCP configs to the local service.
-- Replace account/workspace ownership with local scopes.
-- Remove auth, teams, billing, referral, cloud sync, GraphQL, RTC, sharing, and remote-control UI.
+- [x] Introduce `LocalObjectRepository` over existing SQLite data, with restart-safe create, update,
+  and delete coverage.
+- [x] Move Rules list/edit/delete, predefined-rule seeding, and suggested-rule creation to the local
+  service; remove Rules UI dependence on network state, account ownership, `UpdateManager`, and
+  `SyncQueue`.
+- [x] Move execution profiles to the local service, including logged-out create/edit/delete,
+  restart-safe SQLite writes, and legacy-owner filtering so shared profiles cannot become local
+  permission policy.
+- [x] Move notebook and workflow create, edit, duplicate, trash, restore, delete, and pane
+  restoration to the local service without account or online-state requirements.
+- [x] Move environment-variable collection create, edit, duplicate, trash, restore, delete, and
+  local pane loading to the local service.
+- [ ] Move MCP configs to the local service.
+- [ ] Replace remaining account/workspace ownership with local scopes.
+- [ ] Remove auth, teams, billing, referral, cloud sync, GraphQL, RTC, sharing, and remote-control UI.
 
 Exit condition: none of the kept content flows require `AuthState`, `CloudModel`, `UpdateManager`,
 `SyncQueue`, or a server ID.
@@ -435,7 +446,7 @@ contract is what the UI and persistence observe.
 
 ## Immediate next vertical slice
 
-Finish Phase 4 with opt-in live Bedrock semantic comparisons for system prompts, images, tools,
-signed reasoning, usage, cancellation, and context limits. Keep per-model Rig routing opt-in until
-those live fixtures pass, then make Rig the default for supported models and retain the compatibility
-runtime only for explicitly unsupported cache behavior.
+Continue Phase 6 by moving MCP configs behind `LocalObjectRepository`, preserving existing SQLite
+rows and pane/session restore behavior while removing account ownership and online-state gates from
+their kept flows. Live Phase 4 Bedrock semantic comparisons remain an explicit opt-in validation task
+because they require configured AWS access.

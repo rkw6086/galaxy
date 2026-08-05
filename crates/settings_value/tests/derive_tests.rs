@@ -55,6 +55,60 @@ enum Mode {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, SettingsValue)]
+enum ModeWithAliases {
+    #[serde(alias = "LegacyOff")]
+    Off,
+    #[serde(alias = "LegacyLabel")]
+    Label(String),
+    #[serde(alias = "LegacyPair")]
+    Pair(String, u32),
+    #[serde(alias = "LegacyNamed")]
+    Named { label: String },
+}
+
+#[test]
+fn enum_aliases_deserialize_from_file_values() {
+    assert_eq!(
+        ModeWithAliases::from_file_value(&json!("legacy_off")),
+        Some(ModeWithAliases::Off)
+    );
+    assert_eq!(
+        ModeWithAliases::from_file_value(&json!({"legacy_label": "hello"})),
+        Some(ModeWithAliases::Label("hello".to_string()))
+    );
+    assert_eq!(
+        ModeWithAliases::from_file_value(&json!({"legacy_pair": ["hello", 42]})),
+        Some(ModeWithAliases::Pair("hello".to_string(), 42))
+    );
+    assert_eq!(
+        ModeWithAliases::from_file_value(&json!({"legacy_named": {"label": "hello"}})),
+        Some(ModeWithAliases::Named {
+            label: "hello".to_string()
+        })
+    );
+}
+
+#[test]
+fn enum_aliases_do_not_change_serialized_file_values() {
+    assert_eq!(ModeWithAliases::Off.to_file_value(), json!("off"));
+    assert_eq!(
+        ModeWithAliases::Label("hello".to_string()).to_file_value(),
+        json!({"label": "hello"})
+    );
+    assert_eq!(
+        ModeWithAliases::Pair("hello".to_string(), 42).to_file_value(),
+        json!({"pair": ["hello", 42]})
+    );
+    assert_eq!(
+        ModeWithAliases::Named {
+            label: "hello".to_string()
+        }
+        .to_file_value(),
+        json!({"named": {"label": "hello"}})
+    );
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize, SettingsValue)]
 #[serde(default)]
 struct StructWithNonDefaultField {
     mode: Mode,

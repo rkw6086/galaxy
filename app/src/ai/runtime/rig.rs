@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::channel::oneshot;
@@ -10,7 +11,9 @@ use galaxy_agent_rig::{OpenAICompatibleRuntime, OpenAICompatibleRuntimeConfig};
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
-use super::rig_request::{prepare_bedrock_rig_turn, prepare_rig_turn, PreparedRigTurn};
+use super::rig_request::{
+    prepare_bedrock_rig_turn, prepare_rig_turn, MCPToolTarget, PreparedRigTurn,
+};
 use super::rig_tool::action_from_tool_call;
 use crate::ai::agent::api::{Event, RequestParams, ResponseStream, StreamEvent};
 use crate::ai::agent::AIAgentAction;
@@ -108,6 +111,7 @@ where
         persistent_messages,
         tool_result_archive,
         messages_sent,
+        mcp_tool_aliases,
     } = prepared;
     store_messages_sent(&messages_sent, &persistent_messages);
 
@@ -196,7 +200,12 @@ where
                                 .unwrap_or_default();
                             match tool_policy.decide(&call, &history, &tool_result_archive) {
                                 ToolCallDecision::Execute => {
-                                    match build_tool_proposed(&task_id, &call, &skill_path_origin) {
+                                    match build_tool_proposed(
+                                        &task_id,
+                                        &call,
+                                        &skill_path_origin,
+                                        &mcp_tool_aliases,
+                                    ) {
                                         Ok(action) => yield Ok(StreamEvent::ToolProposed(action)),
                                         Err(message) => {
                                             yield Err(agent_error(AgentError::new(
@@ -398,8 +407,9 @@ fn build_tool_proposed(
     task_id: &str,
     call: &ToolCall,
     skill_path_origin: &ai::skills::SkillPathOrigin,
+    mcp_tool_aliases: &HashMap<String, MCPToolTarget>,
 ) -> Result<AIAgentAction, String> {
-    action_from_tool_call(task_id, call, skill_path_origin)
+    action_from_tool_call(task_id, call, skill_path_origin, mcp_tool_aliases)
 }
 
 fn agent_error(error: AgentError, stream_type: &'static str) -> Arc<AIApiError> {

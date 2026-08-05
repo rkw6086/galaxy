@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use ai::diff_validation::ParsedDiff;
@@ -5,6 +6,7 @@ use ai::skills::{SkillPathOrigin, SkillReference};
 use galaxy_agent_core::ToolCall;
 use uuid::Uuid;
 
+use super::rig_request::MCPToolTarget;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentPtyWriteMode, AskUserQuestionItem,
@@ -19,9 +21,17 @@ pub(super) fn action_from_tool_call(
     task_id: &str,
     call: &ToolCall,
     skill_path_origin: &SkillPathOrigin,
+    mcp_tool_aliases: &HashMap<String, MCPToolTarget>,
 ) -> Result<AIAgentAction, String> {
     let input = &call.arguments;
-    let action = match call.name.as_str() {
+    let action = if let Some(target) = mcp_tool_aliases.get(&call.name) {
+        AIAgentActionType::CallMCPTool {
+            server_id: target.server_id,
+            name: target.name.clone(),
+            input: input.clone(),
+        }
+    } else {
+        match call.name.as_str() {
         "run_shell_command" => AIAgentActionType::RequestCommandOutput {
             command: string(input, "command"),
             is_read_only: Some(boolean(input, "is_read_only")),
@@ -192,7 +202,8 @@ pub(super) fn action_from_tool_call(
                 input: input.clone(),
             }
         }
-        name => return Err(format!("unsupported Rig tool proposal: {name}")),
+            name => return Err(format!("unsupported Rig tool proposal: {name}")),
+        }
     };
 
     let tool_name = matches!(

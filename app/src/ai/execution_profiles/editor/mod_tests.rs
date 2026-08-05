@@ -69,6 +69,9 @@ fn assert_context_window_limit_for_request(
         app.add_singleton_model(|_| NetworkStatus::new());
         app.add_singleton_model(UserWorkspaces::default_mock);
         app.add_singleton_model(CloudModel::mock);
+        app.add_singleton_model(|ctx| {
+            crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+        });
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(SyncQueue::mock);
         app.add_singleton_model(UpdateManager::mock);
@@ -81,12 +84,12 @@ fn assert_context_window_limit_for_request(
         let profile_model_id = model.id.clone();
         let available_model_id = profile_model_id.clone();
         llm_preferences.update(&mut app, move |preferences, ctx| {
-            preferences.update_feature_model_choices(
-                Ok(ModelsByFeature {
+            preferences.set_models_by_feature_for_test(
+                ModelsByFeature {
                     agent_mode: AvailableLLMs::new(available_model_id, [model], None)
                         .expect("test model should create available LLMs"),
                     ..Default::default()
-                }),
+                },
                 ctx,
             );
         });

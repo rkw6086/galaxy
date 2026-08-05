@@ -84,20 +84,21 @@ fn install_singletons(app: &mut App, auth_state: AuthStateProvider) {
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(
+            None,
+            Some(Owner::mock_current_user()),
+            ctx,
+        )
+    });
     app.add_singleton_model(|_| TemplatableMCPServerManager::default());
     app.add_singleton_model(PrivacySettings::mock);
     app.add_singleton_model(UserWorkspaces::default_mock);
 }
 
-/// Regression test for the onboarding autonomy bug where
-/// `edit_profile_internal` would silently drop edits made to an `Unsynced`
-/// default profile whenever `personal_drive` returned `None` (logged-out
-/// users). `apply_agent_settings` calls `set_*` on the default profile the
-/// moment onboarding completes, which can happen before the user logs in
-/// (e.g. `LoginSlideEvent::LoginLaterConfirmed`), so those edits must
-/// persist on the local `Unsynced` state rather than being dropped.
+/// A fresh, logged-out install persists its default profile on first edit.
 #[test]
-fn edits_persist_on_unsynced_default_profile_when_logged_out() {
+fn edits_persist_default_profile_locally_when_logged_out() {
     App::test((), |mut app| async move {
         install_singletons(&mut app, AuthStateProvider::new_logged_out_for_test());
         let profile_model = app.add_singleton_model(|ctx| {
@@ -118,21 +119,50 @@ fn edits_persist_on_unsynced_default_profile_when_logged_out() {
             );
         });
 
-        // Apply the edit that onboarding would make for the Full autonomy
-        // preset. Before the fix, this call no-ops because
-        // `personal_drive` is `None` while the profile is `Unsynced` — the
-        // `set_apply_code_diffs` value was cloned, mutated, then dropped
-        // without being written back to `default_profile_state`.
         profile_model.update(&mut app, |model, ctx| {
             model.set_apply_code_diffs(default_profile_id, &ActionPermission::AlwaysAllow, ctx);
         });
 
         profile_model.read(&app, |model, ctx| {
+            let default_profile = model.default_profile(ctx);
             assert_eq!(
-                model.default_profile(ctx).data().apply_code_diffs,
+                default_profile.data().apply_code_diffs,
                 ActionPermission::AlwaysAllow,
-                "edit was dropped: default profile still has the baseline \
-                 apply_code_diffs value after an edit made while logged out",
+                "the local default profile should retain the edit",
+            );
+            let persisted_id = default_profile
+                .sync_id()
+                .expect("the first edit should persist the default profile");
+            assert!(
+                crate::local_object_repository::LocalObjectRepository::as_ref(ctx)
+                    .execution_profile(&persisted_id, ctx)
+                    .is_some()
+            );
+        });
+    })
+}
+
+#[test]
+fn creates_custom_profile_locally_when_logged_out() {
+    App::test((), |mut app| async move {
+        install_singletons(&mut app, AuthStateProvider::new_logged_out_for_test());
+        let profile_model = app.add_singleton_model(|ctx| {
+            AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)
+        });
+
+        let profile_id = profile_model
+            .update(&mut app, |model, ctx| model.create_profile(ctx))
+            .expect("custom profile should not require an account");
+
+        profile_model.read(&app, |model, ctx| {
+            let profile = model
+                .get_profile_by_id(profile_id, ctx)
+                .expect("created profile");
+            let persisted_id = profile.sync_id().expect("persisted profile ID");
+            assert!(
+                crate::local_object_repository::LocalObjectRepository::as_ref(ctx)
+                    .execution_profile(&persisted_id, ctx)
+                    .is_some()
             );
         });
     })

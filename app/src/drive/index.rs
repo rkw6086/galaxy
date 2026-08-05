@@ -68,6 +68,7 @@ use crate::drive::panel::DrivePanelAction;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
 use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
+use crate::local_object_repository::LocalObjectRepository;
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 use crate::network::NetworkStatus;
 use crate::notebooks::CloudNotebookModel;
@@ -3522,9 +3523,31 @@ impl DriveIndex {
         cloud_object_type_and_id: CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.trash_object(cloud_object_type_and_id, ctx);
-        });
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_notebook_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_workflow_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_env_var_collection_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {
+                UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                    update_manager.trash_object(cloud_object_type_and_id, ctx);
+                });
+            }
+        }
         self.reset_menus(ctx);
         ctx.notify();
     }
@@ -3534,6 +3557,37 @@ impl DriveIndex {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_notebook_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_workflow_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_env_var_collection_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {}
+        }
+
         // Check if object being untrashed is in team space, if it is, then check
         // corresponding object limits for that team.
         if let Some(space) =
@@ -3663,9 +3717,31 @@ impl DriveIndex {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.delete_object_by_user(*cloud_object_type_and_id, ctx);
-        });
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_notebook(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_workflow(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_env_var_collection(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {
+                UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                    update_manager.delete_object_by_user(*cloud_object_type_and_id, ctx);
+                });
+            }
+        }
         self.reset_menus(ctx);
         ctx.notify();
     }

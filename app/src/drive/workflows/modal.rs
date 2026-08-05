@@ -34,7 +34,7 @@ use crate::appearance::Appearance;
 use crate::auth::UserUid;
 use crate::cloud_object::breadcrumbs::{ContainingObject, ContainingObjectKind};
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::{CloudObject, CloudObjectEventEntrypoint, ObjectType, Owner, Revision};
+use crate::cloud_object::{CloudObject, ObjectType, Owner, Revision};
 use crate::drive::cloud_object_styling::warp_drive_icon_color;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::{CloudObjectTypeAndId, DriveObjectType};
@@ -43,9 +43,8 @@ use crate::editor::{
     PlainTextEditorViewAction as EditorAction, PropagateAndNoOpNavigationKeys, TextOptions,
     TextStyleOperation,
 };
+use crate::local_object_repository::LocalObjectRepository;
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
-use crate::network::NetworkStatus;
-use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ClientId, ServerId, SyncId};
 use crate::server::server_api::ai::AIClient;
 use crate::themes::theme::AnsiColorIdentifier;
@@ -661,37 +660,25 @@ impl WorkflowModal {
             // Close workflow editor
             self.close(true, ctx);
 
-            UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                update_manager.trash_object(
-                    CloudObjectTypeAndId::from_id_and_type(workflow_id, ObjectType::Workflow),
-                    ctx,
-                );
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.set_workflow_trashed(workflow_id, true, ctx);
             });
         }
     }
 
     fn menu_items(&self, app: &AppContext) -> Vec<MenuItem<WorkflowModalAction>> {
-        let mut menu_items = Vec::new();
-
-        // Add "Copy workflow text" to menu
-        menu_items.push(
+        vec![
+            // Add "Copy workflow text" to menu
             MenuItemFields::new("Copy workflow text")
                 .with_on_select_action(WorkflowModalAction::CopyObjectToClipboard)
                 .with_icon(Icon::CopyMenuItem)
                 .into_item(),
-        );
-
-        // Add "Trash" to menu
-        if self.is_online(app) {
-            menu_items.push(
-                MenuItemFields::new("Trash")
-                    .with_on_select_action(WorkflowModalAction::TrashObject)
-                    .with_icon(Icon::Trash)
-                    .into_item(),
-            );
-        }
-
-        menu_items
+            // Add "Trash" to menu
+            MenuItemFields::new("Trash")
+                .with_on_select_action(WorkflowModalAction::TrashObject)
+                .with_icon(Icon::Trash)
+                .into_item(),
+        ]
     }
 
     pub fn should_show_unsaved_changes_dialog(&self, app: &AppContext) -> bool {
@@ -731,20 +718,17 @@ impl WorkflowModal {
 
         match (self.workflow_id, self.owner) {
             (Some(workflow_id), None) => {
-                UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                    update_manager.update_workflow(workflow, workflow_id, self.revision_ts.clone(), ctx);
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.update_workflow(workflow_id, workflow, ctx);
                 });
                 ctx.emit(WorkflowModalEvent::UpdatedWorkflow(workflow_id));
             }
-            (None, Some(owner)) => {
-                UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                    update_manager.create_workflow(
-                        workflow,
-                        owner,
+            (None, Some(_)) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.create_workflow_with_id(
+                        SyncId::ClientId(ClientId::new()),
                         self.initial_folder_id,
-                        ClientId::default(),
-                        CloudObjectEventEntrypoint::Unknown,
-                        true,
+                        workflow,
                         ctx,
                     );
                 });
@@ -1346,10 +1330,6 @@ impl WorkflowModal {
                 self.ai_metadata_assist_state,
                 AiAssistState::RequestInFlight
             )
-    }
-
-    fn is_online(&self, app: &AppContext) -> bool {
-        NetworkStatus::as_ref(app).is_online()
     }
 
     fn render_header_menu_and_close(&self, appearance: &Appearance) -> Box<dyn Element> {

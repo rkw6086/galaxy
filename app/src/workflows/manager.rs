@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
+use galaxyui::{Entity, EntityId, ModelContext, SingletonEntity};
 
 use super::workflow::Workflow;
 use super::CloudWorkflowModel;
@@ -9,9 +9,6 @@ use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericCloudObject, Owner};
 use crate::drive::OpenGalaxyDriveObjectSettings;
 use crate::pane_group::{PaneContent, WorkflowPane};
-use crate::server::cloud_objects::update_manager::{
-    ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
-};
 use crate::server::ids::{ClientId, SyncId};
 use crate::workflows::workflow_view::WorkflowView;
 use crate::workflows::WorkflowViewMode;
@@ -44,12 +41,7 @@ pub enum WorkflowOpenSource {
 }
 
 impl WorkflowManager {
-    pub fn new(ctx: &mut ModelContext<Self>) -> Self {
-        ctx.subscribe_to_model(
-            &UpdateManager::handle(ctx),
-            Self::handle_update_manager_event,
-        );
-
+    pub fn new() -> Self {
         WorkflowManager {
             panes_by_hashed_id: HashMap::new(),
         }
@@ -81,9 +73,8 @@ impl WorkflowManager {
                 if let Some(workflow) = workflow {
                     view.update(ctx, |view, ctx| view.load(workflow, settings, mode, ctx));
                 } else {
-                    // If the workflow doesn't exist, try waiting for initial load and trying again
                     view.update(ctx, |view, ctx| {
-                        view.wait_for_initial_load_then_load(
+                        view.load_local_or_show_not_found(
                             *workflow_id,
                             settings,
                             mode,
@@ -177,41 +168,14 @@ impl WorkflowManager {
         }
     }
 
-    fn handle_update_manager_event(
-        &mut self,
-        _: ModelHandle<UpdateManager>,
-        event: &UpdateManagerEvent,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let UpdateManagerEvent::ObjectOperationComplete { result } = event else {
-            return;
-        };
-
-        if !matches!(&result.success_type, OperationSuccessType::Success) {
-            return;
-        }
-        if let ObjectOperation::Create { .. } = result.operation {
-            let server_id = result.server_id.expect("Expect server id on success");
-            let Some(server_id) = CloudModel::as_ref(ctx)
-                .get_workflow_by_uid(&server_id.uid())
-                .and_then(|workflow| workflow.id.into_server())
-            else {
-                return;
-            };
-            let Some(client_id) = result.client_id else {
-                return;
-            };
-
-            if let Some(mut pane) = self.panes_by_hashed_id.remove(&client_id.to_string()) {
-                pane.workflow_id = SyncId::ServerId(server_id);
-                self.panes_by_hashed_id
-                    .insert(server_id.uid().clone(), pane);
-            }
-        }
-    }
-
     pub fn reset(&mut self) {
         self.panes_by_hashed_id.clear();
+    }
+}
+
+impl Default for WorkflowManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

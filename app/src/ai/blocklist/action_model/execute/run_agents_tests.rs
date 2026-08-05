@@ -178,6 +178,9 @@ fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTe
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+    });
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(|_| AIDocumentModel::new_for_test());
     app.add_singleton_model(|_| TemplatableMCPServerManager::default());

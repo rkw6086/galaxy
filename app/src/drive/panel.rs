@@ -26,6 +26,7 @@ use crate::cloud_object::{
 };
 use crate::env_vars::manager::EnvVarCollectionSource;
 use crate::env_vars::CloudEnvVarCollection;
+use crate::local_object_repository::{local_owner, LocalObjectRepository};
 use crate::notebooks::manager::NotebookSource;
 use crate::notebooks::CloudNotebook;
 use crate::server::cloud_objects::update_manager::{InitiatedBy, UpdateManager};
@@ -130,7 +131,12 @@ impl DrivePanel {
             Some(folder_id) => CloudModel::as_ref(app)
                 .get_folder(folder_id)
                 .map(|folder| folder.permissions.owner),
-            None => UserWorkspaces::as_ref(app).space_to_owner(space, app),
+            None => match space {
+                Space::Personal => Some(local_owner()),
+                Space::Shared | Space::Team { .. } => {
+                    UserWorkspaces::as_ref(app).space_to_owner(space, app)
+                }
+            },
         }
     }
 
@@ -357,6 +363,37 @@ impl DrivePanel {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.duplicate_notebook(*id, ctx);
+                });
+                self.reset_all_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.duplicate_workflow(*id, ctx);
+                });
+                self.reset_all_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.duplicate_env_var_collection(*id, ctx);
+                });
+                self.reset_all_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {}
+        }
+
         // Check if object being duplicated is in team space, if it is, then check
         // corresponding object limits for that team.
         if let Some(space) =

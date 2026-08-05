@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use ai::skills::{SkillProvider, SkillReference, SkillScope};
 use galaxy_agent_core::{ContentPart, MessageContent, MessageRole, ToolResult, ToolResultStatus};
+use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use warp_multi_agent_api::ToolType;
 
 use super::{input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, tool_definitions};
@@ -11,6 +14,7 @@ use crate::ai::agent::{
 };
 use crate::ai::llms::LLMId;
 use crate::ai::openai::client::OpenAIClientConfig;
+use crate::ai::skills::SkillDescriptor;
 
 fn config() -> OpenAIClientConfig {
     OpenAIClientConfig {
@@ -115,6 +119,49 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
 }
 
 #[test]
+fn rig_prompt_requires_follow_through_without_manual_continue_prompts() {
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query("Analyze and fix the issue")];
+
+    let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prompt.contains("Continue until the user's requested outcome is complete"));
+    assert!(prompt.contains("do not ask the user to say \"continue\""));
+    assert!(prompt.contains("After each tool result, choose and perform the next necessary step"));
+}
+
+#[test]
+fn rig_prompt_requires_matching_project_skills_to_be_read_before_action() {
+    let skill_path = LocalOrRemotePath::Local(PathBuf::from(
+        "/repo/.agents/skills/galaxy-skill-probe/SKILL.md",
+    ));
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query_with_context(
+        "Run the Galaxy skill probe",
+        vec![AIAgentContext::Skills {
+            skills: vec![SkillDescriptor {
+                reference: SkillReference::Path(skill_path),
+                name: "galaxy-skill-probe".to_string(),
+                description: "Reports a deterministic project-skill probe token".to_string(),
+                scope: SkillScope::Project,
+                provider: SkillProvider::Agents,
+                icon_override: None,
+            }],
+        }],
+    )];
+
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadSkill], Vec::new());
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prompt.contains("name=\"galaxy-skill-probe\""));
+    assert!(prompt.contains("skill=\"/repo/.agents/skills/galaxy-skill-probe/SKILL.md\""));
+    assert!(prompt.contains(
+        "call `read_skill` once with the exact `skill` and `reference_type` values shown before acting on it"
+    ));
+}
+
+#[test]
 fn bedrock_rig_turn_uses_bedrock_history_invariants_without_a_proto_round_trip() {
     let mut params = RequestParams::new_for_test();
     params.message_history = vec![galaxy_agent_core::ConversationMessage {
@@ -172,7 +219,7 @@ fn grouped_mcp_tool_names_use_the_installation_id_not_the_display_name() {
         }],
     };
 
-    let tools = tool_definitions(&[ToolType::CallMcpTool], Some(&context));
+    let (tools, aliases) = tool_definitions(&[ToolType::CallMcpTool], Some(&context));
 
     assert!(tools
         .iter()
@@ -180,6 +227,72 @@ fn grouped_mcp_tool_names_use_the_installation_id_not_the_display_name() {
     assert!(!tools
         .iter()
         .any(|tool| tool.name == "mcp__Friendly Server__echo"));
+    assert_eq!(
+        aliases
+            .get("mcp__11111111-1111-4111-8111-111111111111__echo")
+            .map(|target| target.name.as_str()),
+        Some("echo")
+    );
+}
+
+#[test]
+#[allow(deprecated)]
+fn long_mcp_tool_names_are_provider_safe_and_reversible() {
+    let original_names = [
+        "performance_analyze_insight",
+        "performance_start_trace",
+        "performance_stop_trace",
+    ];
+    let context = MCPContext {
+        resources: Vec::new(),
+        tools: Vec::new(),
+        servers: vec![MCPServer {
+            id: "10804e3a-859e-4474-bf89-80e98d1dd086".to_string(),
+            name: "Performance".to_string(),
+            description: String::new(),
+            resources: Vec::new(),
+            tools: original_names
+                .iter()
+                .map(|name| {
+                    serde_json::from_value(serde_json::json!({
+                        "name": name,
+                        "description": "Performance tool",
+                        "inputSchema": {"type": "object"}
+                    }))
+                    .unwrap()
+                })
+                .collect(),
+        }],
+    };
+
+    let (tools, aliases) = tool_definitions(&[ToolType::CallMcpTool], Some(&context));
+
+    for original_name in original_names {
+        let (alias, target) = aliases
+            .iter()
+            .find(|(_, target)| target.name == original_name)
+            .expect("long MCP tool should have an execution alias");
+        assert!(
+            alias.len() <= 64,
+            "alias was {} bytes: {alias}",
+            alias.len()
+        );
+        assert!(
+            alias
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')),
+            "alias contains provider-unsafe characters: {alias}"
+        );
+        assert_ne!(
+            alias,
+            &format!("mcp__10804e3a-859e-4474-bf89-80e98d1dd086__{original_name}")
+        );
+        assert_eq!(
+            target.server_id.map(|id| id.to_string()).as_deref(),
+            Some("10804e3a-859e-4474-bf89-80e98d1dd086")
+        );
+        assert!(tools.iter().any(|tool| tool.name == *alias));
+    }
 }
 
 #[test]

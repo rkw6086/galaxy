@@ -1,16 +1,12 @@
 use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 
-use super::{CloudNotebookModel, NotebookId};
+use super::CloudNotebookModel;
 use crate::ai::document::ai_document_model::AIDocumentId;
 use crate::cloud_object::breadcrumbs::ContainingObject;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::model::view::{CloudViewModel, Editor, EditorState};
+use crate::cloud_object::model::view::Editor;
 use crate::cloud_object::{CloudObject, Owner, Space};
-use crate::drive::sharing::{ContentEditability, SharingAccessLevel};
 use crate::notebooks::CloudNotebook;
-use crate::server::cloud_objects::update_manager::{
-    ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
-};
 use crate::server::ids::{ClientId, SyncId};
 
 #[derive(Default, Clone)]
@@ -52,17 +48,10 @@ pub struct ActiveNotebookData {
     pub active_notebook: ActiveNotebook,
 
     pub show_grab_edit_access_modal: bool,
-    pub feature_not_available: bool,
 }
 
 impl ActiveNotebookData {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
-        let update_manager = UpdateManager::handle(ctx);
-
-        ctx.subscribe_to_model(&update_manager, |me, _, event, ctx| {
-            me.handle_update_manager_event(event, ctx);
-        });
-
         let cloud_model = CloudModel::handle(ctx);
         ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| {
             me.handle_cloud_model_event(event, ctx);
@@ -75,21 +64,6 @@ impl ActiveNotebookData {
 
     fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
-            CloudModelEvent::NotebookEditorChangedFromServer { notebook_id } => {
-                if self.is_active_notebook(*notebook_id) {
-                    if let Some(new_editor) =
-                        CloudViewModel::as_ref(ctx).object_current_editor(&notebook_id.uid(), ctx)
-                    {
-                        if self.mode == Mode::Editing
-                            && matches!(new_editor.state, EditorState::OtherUserActive)
-                        {
-                            self.mode = Mode::View;
-                            ctx.emit(ActiveNotebookDataEvent::ModeChangedFromServer);
-                        }
-                    }
-                    ctx.notify();
-                }
-            }
             CloudModelEvent::ObjectMoved { type_and_id, .. } => {
                 if let Some(notebook_id) = type_and_id.as_notebook_id() {
                     // Update breadcrumb when a notebook is moved, whether by the user or a
@@ -99,102 +73,16 @@ impl ActiveNotebookData {
                     }
                 }
             }
-            _ => (),
-        }
-    }
-
-    fn handle_update_manager_event(
-        &mut self,
-        event: &UpdateManagerEvent,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let UpdateManagerEvent::ObjectOperationComplete { result } = event else {
-            return;
-        };
-
-        match (&result.operation, &result.success_type) {
-            (ObjectOperation::Create { .. }, OperationSuccessType::Success) => {
-                if let Some(current_id) = self.id() {
-                    if current_id.into_client() == result.client_id {
-                        let server_id = result.server_id.expect("Expect server id on success");
-                        let notebook_id: NotebookId = server_id.into();
-                        self.feature_not_available = false;
-                        self.saving_status = SavingStatus::Saved;
-                        self.active_notebook =
-                            ActiveNotebook::CommittedNotebook(SyncId::ServerId(notebook_id.into()));
-                        ctx.emit(ActiveNotebookDataEvent::BreadcrumbsChanged);
-                        ctx.emit(ActiveNotebookDataEvent::CreatedOnServer);
-                        ctx.notify();
-                    }
-                }
-            }
-            (ObjectOperation::Update, OperationSuccessType::Success) => {
-                if let Some(current_id) = self.id() {
-                    let server_id = result.server_id.expect("Expect server id on success");
-                    if current_id.into_server() == Some(server_id) {
-                        self.feature_not_available = false;
-                        self.saving_status = SavingStatus::Saved;
-                        ctx.notify();
-                    }
-                }
-            }
-            (ObjectOperation::Update, OperationSuccessType::Rejection) => {
-                let current_id = self.id();
-                if let Some(id) = current_id {
-                    let server_id = result
-                        .server_id
-                        .expect("Expect server id on update rejection");
-                    if id.into_server() == Some(server_id) {
-                        self.feature_not_available = false;
-                        ctx.emit(ActiveNotebookDataEvent::EditRejected);
-                        ctx.notify();
-                    }
-                }
-            }
-            (ObjectOperation::Update, OperationSuccessType::FeatureNotAvailable) => {
-                let current_id = self.id();
-                if let Some(id) = current_id {
-                    let server_id = result
-                        .server_id
-                        .expect("Expect server id on update failure");
-                    if id.into_server() == Some(server_id) {
-                        self.feature_not_available = true;
-                        ctx.emit(ActiveNotebookDataEvent::EditRejected);
-                        ctx.notify();
-                    }
-                }
-            }
-            (ObjectOperation::TakeEditAccess, OperationSuccessType::Success) => {
-                let current_id = self.id();
-                let server_id = result.server_id.expect("Expect server id on success");
-                if let Some(id) = current_id {
-                    if id.into_server() == Some(server_id) {
-                        self.feature_not_available = false;
-                        self.mode = Mode::Editing;
-                        ctx.emit(ActiveNotebookDataEvent::SwitchedToEditMode);
-                    }
-                }
-            }
-            (ObjectOperation::Trash, OperationSuccessType::Success)
-            | (ObjectOperation::Untrash, OperationSuccessType::Success) => {
-                let current_id = self.id();
-                let server_id = result.server_id.expect("Expect server id on success");
-                if let Some(id) = current_id {
-                    if id.into_server() == Some(server_id) {
-                        ctx.emit(ActiveNotebookDataEvent::TrashStatusChanged);
-                    }
-                }
-            }
-            (ObjectOperation::MoveToDrive, OperationSuccessType::Success) => {
-                let current_id = self.id();
-                let server_id = result.server_id.expect("Expect server id on success");
-                if let Some(id) = current_id {
-                    if id.into_server() == Some(server_id) {
-                        ctx.emit(ActiveNotebookDataEvent::MovedToSpace);
-                    }
-                }
-            }
-            _ => {}
+            CloudModelEvent::NotebookEditorChangedFromServer { .. }
+            | CloudModelEvent::ObjectUpdated { .. }
+            | CloudModelEvent::ObjectTrashed { .. }
+            | CloudModelEvent::ObjectUntrashed { .. }
+            | CloudModelEvent::ObjectCreated { .. }
+            | CloudModelEvent::ObjectDeleted { .. }
+            | CloudModelEvent::ObjectPermissionsUpdated { .. }
+            | CloudModelEvent::ObjectSynced { .. }
+            | CloudModelEvent::ObjectForceExpanded { .. }
+            | CloudModelEvent::InitialLoadCompleted => {}
         }
     }
 
@@ -203,7 +91,6 @@ impl ActiveNotebookData {
         self.saving_status = SavingStatus::default();
         self.show_grab_edit_access_modal = false;
         self.active_notebook = ActiveNotebook::None;
-        self.feature_not_available = false;
     }
 
     pub fn open_new(
@@ -255,12 +142,9 @@ impl ActiveNotebookData {
         self.active_notebook.clone()
     }
 
-    /// Whether or not the notebook has been synced to the server.
-    pub fn is_on_server(&self) -> bool {
-        matches!(
-            &self.active_notebook,
-            ActiveNotebook::CommittedNotebook(SyncId::ServerId(_))
-        )
+    /// Whether the notebook has been committed to Galaxy's local repository.
+    pub fn is_persisted(&self) -> bool {
+        matches!(&self.active_notebook, ActiveNotebook::CommittedNotebook(_))
     }
 
     /// Calculate the breadcrumbs for this object.
@@ -309,23 +193,14 @@ impl ActiveNotebookData {
     /// echo'd back RTC messages can come in before a server response and incorrectly apply
     /// a conflict to the notebook. To ensure we don't incorrectly show the dialog, we wait until
     /// all pending requests have returned.
-    pub fn has_conflicts(&self, ctx: &AppContext) -> bool {
-        self.id()
-            .and_then(|id| CloudModel::as_ref(ctx).get_by_uid(&id.uid()))
-            .is_some_and(|object| {
-                object.has_conflicting_changes() && !object.metadata().has_pending_content_changes()
-            })
+    #[cfg(test)]
+    pub fn has_conflicts(&self) -> bool {
+        false
     }
 
-    pub fn feature_not_available(&self) -> bool {
-        self.feature_not_available
-    }
-
-    /// Returns the current editor of the active object. Returns None
-    /// if there is not currently an active notebook
-    pub fn current_editor(&self, ctx: &AppContext) -> Option<Editor> {
-        let id = self.id()?;
-        CloudViewModel::as_ref(ctx).object_current_editor(&id.uid(), ctx)
+    /// Local notebooks have no remote editing baton.
+    pub fn current_editor(&self) -> Option<Editor> {
+        None
     }
 
     /// Checks if this notebook is trashed or deleted.
@@ -347,43 +222,11 @@ impl ActiveNotebookData {
             }
         }
     }
-
-    /// The current user's access level on the notebook.
-    pub fn access_level(&self, app: &AppContext) -> SharingAccessLevel {
-        match &self.active_notebook {
-            ActiveNotebook::CommittedNotebook(object_id) => {
-                CloudViewModel::as_ref(app).access_level(&object_id.uid(), app)
-            }
-            ActiveNotebook::None | ActiveNotebook::NewNotebook(_) => SharingAccessLevel::Full,
-        }
-    }
-
-    /// Whether or not the current user can edit the notebook.
-    pub fn editability(&self, app: &AppContext) -> ContentEditability {
-        match &self.active_notebook {
-            ActiveNotebook::CommittedNotebook(object_id) => {
-                CloudViewModel::as_ref(app).object_editability(&object_id.uid(), app)
-            }
-            ActiveNotebook::None | ActiveNotebook::NewNotebook(_) => ContentEditability::Editable,
-        }
-    }
 }
 
 pub enum ActiveNotebookDataEvent {
-    /// Another user stole the baton for the current object.
-    ModeChangedFromServer,
-    /// The editing baton for the current object was successfully grabbed server-side.
-    SwitchedToEditMode,
-    /// An edit to the current object was rejected.
-    EditRejected,
     /// The notebook's breadcrumbs were updated.
     BreadcrumbsChanged,
-    /// This notebook was created on the server.
-    CreatedOnServer,
-    /// This notebook was trashed or untrashed (used for refreshing pane overflow items)
-    TrashStatusChanged,
-    // This notebook was moved to a shared space.
-    MovedToSpace,
 }
 
 /// Whether or not a notebook is trashed.
