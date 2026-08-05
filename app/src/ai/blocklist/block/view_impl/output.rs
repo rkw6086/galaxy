@@ -22,7 +22,7 @@ use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{
-    Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
+    Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Empty, Expanded, Fill, Flex, FormattedTextElement, Hoverable,
     MainAxisAlignment, MainAxisSize, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Radius, Shrinkable, Stack, Text, Wrap,
@@ -85,18 +85,22 @@ use crate::ai::blocklist::inline_action::ask_user_question_view::AskUserQuestion
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
 use crate::ai::blocklist::inline_action::create_or_edit_document::CreateOrEditDocumentAction;
 use crate::ai::blocklist::inline_action::inline_action_header::{
-    HeaderConfig, InteractionMode, INLINE_ACTION_HEADER_VERTICAL_PADDING,
+    ExpandedConfig, HeaderConfig, InteractionMode, INLINE_ACTION_HEADER_VERTICAL_PADDING,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
 use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::{
     render_requested_action_body_text, render_requested_action_row_for_text, RenderableAction,
 };
-use crate::ai::blocklist::inline_action::requested_command::RequestedCommand;
+use crate::ai::blocklist::inline_action::requested_command::{
+    format_command_text, RequestedCommand, REQUESTED_COMMAND_BODY_VERTICAL_PADDING,
+    VIEWING_COMMAND_DETAIL_MESSAGE,
+};
 use crate::ai::blocklist::inline_action::run_agents_card_view::RunAgentsCardView;
 use crate::ai::blocklist::inline_action::search_codebase::SearchCodebaseView;
 use crate::ai::blocklist::inline_action::suggested_unit_tests::SuggestedUnitTestsView;
 use crate::ai::blocklist::inline_action::summarization::SummarizationView;
+use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::keyboard_navigable_buttons::KeyboardNavigableButtons;
@@ -1287,7 +1291,6 @@ fn render_runtime_activity(
     let state = props.collapsible_block_states.get(&output_message.id)?;
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
-    let text_color = blended_colors::text_main(theme, theme.background());
     let output = activity
         .output
         .as_deref()
@@ -1296,55 +1299,50 @@ fn render_runtime_activity(
         state.expansion_state,
         CollapsibleExpansionState::Expanded { .. }
     );
-    let mut content = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
-
-    let title = Text::new(
-        activity.title.clone(),
-        appearance.monospace_font_family(),
-        appearance.monospace_font_size(),
-    )
-    .with_color(text_color)
-    .with_selectable(false)
-    .finish();
-    if output.is_some() {
-        let chevron = if is_expanded {
-            Icon::ChevronDown
-        } else {
-            Icon::ChevronRight
-        };
-        let icon_sz = icon_size(app);
-        let message_id = output_message.id.clone();
-        let mouse_state = state.expansion_toggle_mouse_state.clone();
-        let header = Hoverable::new(mouse_state, move |_| {
-            Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(Shrinkable::new(1., title).finish())
-                .with_child(
-                    Container::new(
-                        ConstrainedBox::new(chevron.to_galaxyui_icon(text_color.into()).finish())
-                            .with_width(icon_sz)
-                            .with_height(icon_sz)
-                            .finish(),
-                    )
-                    .with_margin_left(6.)
-                    .finish(),
-                )
-                .finish()
-        })
-        .with_cursor(Cursor::PointingHand)
-        .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(AIBlockAction::ToggleCollapsibleBlockExpanded(
-                message_id.clone(),
-            ));
-        });
-        content.add_child(
-            Flex::row()
-                .with_child(Shrinkable::new(1., header.finish()).finish())
-                .finish(),
-        );
+    let icon = match activity.status.as_ref() {
+        Some(RuntimeActivityStatus::Pending) => icons::pending_icon(appearance),
+        Some(RuntimeActivityStatus::InProgress) => icons::yellow_running_icon(appearance),
+        Some(RuntimeActivityStatus::Completed) => inline_action_icons::green_check_icon(appearance),
+        Some(RuntimeActivityStatus::Failed) => inline_action_icons::red_x_icon(appearance),
+        Some(RuntimeActivityStatus::Other(_)) | None => icons::gray_circle_icon(appearance),
+    };
+    let title = if is_expanded {
+        VIEWING_COMMAND_DETAIL_MESSAGE.to_owned()
     } else {
-        content.add_child(title);
+        format_command_text(&activity.title)
+    };
+    let mut header = HeaderConfig::new(title, app)
+        .with_selectable_text()
+        .with_icon(icon)
+        .with_corner_radius_override(if is_expanded && output.is_some() {
+            CornerRadius::with_top(Radius::Pixels(8.))
+        } else {
+            CornerRadius::with_all(Radius::Pixels(8.))
+        });
+    if !is_expanded {
+        header = header.with_font_family(appearance.monospace_font_family());
     }
+    if output.is_some() {
+        let message_id = output_message.id.clone();
+        let command = activity.title.clone();
+        let expansion =
+            ExpandedConfig::new(is_expanded, state.expansion_toggle_mouse_state.clone())
+                .with_toggle_callback(move |ctx| {
+                    ctx.dispatch_typed_action(AIBlockAction::ToggleCollapsibleBlockExpanded(
+                        message_id.clone(),
+                    ));
+                })
+                .with_right_click_callback(move |ctx| {
+                    ctx.dispatch_typed_action(AIBlockAction::StoreRightClickedCommand {
+                        command: command.clone(),
+                    });
+                });
+        header = header.with_interaction_mode(InteractionMode::ManuallyExpandable(expansion));
+    }
+
+    let mut content = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_child(Clipped::new(header.render(app)).finish());
 
     if let Some(output) = output {
         let body = render_requested_action_body_text(
@@ -1364,31 +1362,18 @@ fn render_runtime_activity(
             is_streaming,
             320.,
         ) {
-            content.add_child(Container::new(scrollable).with_margin_top(12.).finish());
+            content.add_child(
+                Container::new(scrollable)
+                    .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
+                    .with_vertical_padding(REQUESTED_COMMAND_BODY_VERTICAL_PADDING)
+                    .with_background(theme.background())
+                    .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
+                    .finish(),
+            );
         }
     }
 
-    let icon = match activity.status.as_ref() {
-        Some(RuntimeActivityStatus::Completed) => {
-            inline_action_icons::green_check_icon(appearance).finish()
-        }
-        Some(RuntimeActivityStatus::Failed) => inline_action_icons::red_x_icon(appearance).finish(),
-        Some(RuntimeActivityStatus::Pending)
-        | Some(RuntimeActivityStatus::InProgress)
-        | Some(RuntimeActivityStatus::Other(_))
-        | None => galaxyui::elements::Icon::new(
-            Icon::ClockRefresh.into(),
-            internal_colors::neutral_5(appearance.theme()),
-        )
-        .finish(),
-    };
-
-    Some(
-        RenderableAction::new_with_element(content.finish(), app)
-            .with_icon(icon)
-            .render(app)
-            .finish(),
-    )
+    Some(render_tool_pane_shell(content.finish(), false, false, app))
 }
 
 fn should_render_stopped_output(props: Props, app: &AppContext) -> bool {

@@ -16,5 +16,6 @@ pub(super) mod search_codebase;
 pub(crate) mod search_results_common;
 pub(crate) mod suggested_unit_tests;
 pub(super) mod summarization;
+pub(crate) mod tool_pane;
 pub(super) mod web_fetch;
 pub(super) mod web_search;

@@ -36,13 +36,13 @@ use crate::ai::blocklist::block::cli_controller::{
 use crate::ai::blocklist::block::view_impl::output::action_icon;
 use crate::ai::blocklist::block::view_impl::{
     render_autonomy_checkbox_setting_speedbump_footer, render_citation, render_citation_chips,
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
 };
 use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
 use crate::ai::blocklist::inline_action::inline_action_header::{
     ExpandedConfig, HeaderConfig, InteractionMode, RightClickConfig,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
+use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
     AIBlock, BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIHistoryModel,
@@ -1600,14 +1600,9 @@ impl View for RequestedCommandView {
             content.add_child(Clipped::new(footer).finish());
         }
 
-        let border_color = if action_status
+        let has_highlighted_border = action_status
             .as_ref()
-            .is_some_and(|status| status.is_blocked())
-        {
-            theme.accent()
-        } else {
-            theme.surface_2()
-        };
+            .is_some_and(|status| status.is_blocked());
 
         // If the requested command is expanded above a terminal block or
         // the next exchange flows directly after, remove bottom margin for
@@ -1637,21 +1632,12 @@ impl View for RequestedCommandView {
                     }))
                 && !is_input_pinned_to_top);
 
-        let container = Container::new(content.finish())
-            .with_margin_left(if action_status.is_some_and(|status| status.is_blocked()) {
-                CONTENT_HORIZONTAL_PADDING
-            } else {
-                CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
-            })
-            .with_margin_right(CONTENT_HORIZONTAL_PADDING)
-            .with_margin_bottom(if should_remove_bottom_margin {
-                0.
-            } else {
-                CONTENT_ITEM_VERTICAL_MARGIN
-            })
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
-            .with_border(Border::all(1.).with_border_fill(border_color))
-            .finish();
+        let container = render_tool_pane_shell(
+            content.finish(),
+            has_highlighted_border,
+            should_remove_bottom_margin,
+            app,
+        );
 
         let mut root_stack = Stack::new();
         root_stack.add_child(container);
