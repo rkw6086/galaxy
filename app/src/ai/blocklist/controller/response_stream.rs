@@ -12,6 +12,8 @@ use anyhow::anyhow;
 use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
 #[cfg(not(target_family = "wasm"))]
+use galaxy_agent_core::TurnCommand;
+#[cfg(not(target_family = "wasm"))]
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{Entity, ModelContext, SingletonEntity};
 use settings::Setting;
@@ -22,7 +24,7 @@ use warp_multi_agent_api::response_event;
 use crate::ai::acp::{
     acp_output_stream, acp_startup_error_stream, galaxy_mcp_server, resolve_acp_launch,
     resolve_acp_permissions, validate_acp_dispatch, validate_acp_launch_identity, AcpRuntimeModel,
-    AcpSessionHandleSlot, AcpSessionMetadata, AcpSteeringRequest, GalaxyMcpTarget,
+    AcpSessionMetadata, AcpTurnControlSlot, GalaxyMcpTarget,
 };
 use crate::ai::agent::api::{self, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
@@ -108,8 +110,7 @@ impl ResponseStreamId {
 struct AcpRequestControl {
     cancellation_rx: oneshot::Receiver<()>,
     session_metadata: Arc<Mutex<AcpSessionMetadata>>,
-    session_handle: AcpSessionHandleSlot,
-    steering_rx: async_channel::Receiver<AcpSteeringRequest>,
+    turn_control: AcpTurnControlSlot,
 }
 
 /// Model wrapping an agent API response stream.
@@ -125,9 +126,7 @@ pub struct ResponseStream {
     #[cfg(not(target_family = "wasm"))]
     acp_session_metadata: Arc<Mutex<AcpSessionMetadata>>,
     #[cfg(not(target_family = "wasm"))]
-    acp_session_handle: AcpSessionHandleSlot,
-    #[cfg(not(target_family = "wasm"))]
-    acp_steering_tx: async_channel::Sender<AcpSteeringRequest>,
+    acp_turn_control: AcpTurnControlSlot,
     params: api::RequestParams,
     retry_count: usize,
     /// One-time fallback from the profile's thinking model to its coding model.
@@ -198,9 +197,7 @@ impl ResponseStream {
             #[cfg(not(target_family = "wasm"))]
             acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
             #[cfg(not(target_family = "wasm"))]
-            acp_session_handle: Arc::new(Mutex::new(None)),
-            #[cfg(not(target_family = "wasm"))]
-            acp_steering_tx: async_channel::unbounded().0,
+            acp_turn_control: Arc::new(Mutex::new(None)),
             params: api::RequestParams::new_for_test(),
             retry_count: 0,
             coding_model_fallback_attempted: false,
@@ -328,8 +325,7 @@ impl ResponseStream {
         let AcpRequestControl {
             cancellation_rx,
             session_metadata,
-            session_handle,
-            steering_rx,
+            turn_control,
         } = control;
         let profile = BlocklistAIPermissions::as_ref(ctx)
             .active_permissions_profile(ctx, params.terminal_view_id);
@@ -398,8 +394,7 @@ impl ResponseStream {
                             permissions.policy,
                             permissions.auto_approve_protocol_requests,
                             session_metadata,
-                            session_handle,
-                            steering_rx,
+                            turn_control,
                             cancellation_rx,
                         )
                         .await
@@ -447,9 +442,7 @@ impl ResponseStream {
         #[cfg(not(target_family = "wasm"))]
         let acp_session_metadata = Arc::new(Mutex::new(AcpSessionMetadata::default()));
         #[cfg(not(target_family = "wasm"))]
-        let acp_session_handle = Arc::new(Mutex::new(None));
-        #[cfg(not(target_family = "wasm"))]
-        let (acp_steering_tx, acp_steering_rx) = async_channel::unbounded();
+        let acp_turn_control = Arc::new(Mutex::new(None));
         match &agent_backend {
             AgentBackend::Provider => {
                 let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
@@ -474,8 +467,7 @@ impl ResponseStream {
                     AcpRequestControl {
                         cancellation_rx,
                         session_metadata: acp_session_metadata.clone(),
-                        session_handle: acp_session_handle.clone(),
-                        steering_rx: acp_steering_rx,
+                        turn_control: acp_turn_control.clone(),
                     },
                     ctx,
                 );
@@ -501,9 +493,7 @@ impl ResponseStream {
             #[cfg(not(target_family = "wasm"))]
             acp_session_metadata,
             #[cfg(not(target_family = "wasm"))]
-            acp_session_handle,
-            #[cfg(not(target_family = "wasm"))]
-            acp_steering_tx,
+            acp_turn_control,
             params: params.clone(),
             start_time,
             time_to_latest_event: TimeDelta::seconds(0),
@@ -550,18 +540,23 @@ impl ResponseStream {
                 || !self
                     .acp_session_metadata()
                     .is_some_and(|metadata| metadata.can_steer)
-                || !self
-                    .acp_session_handle
-                    .lock()
-                    .is_ok_and(|session| session.is_some())
             {
                 return false;
             }
             let mut model_text = display_text.clone();
             self.params.redact_text_for_model(&mut model_text);
-            self.acp_steering_tx
-                .try_send(AcpSteeringRequest::text(display_text, model_text))
-                .is_ok()
+            self.acp_turn_control
+                .lock()
+                .ok()
+                .and_then(|control| control.clone())
+                .is_some_and(|control| {
+                    control
+                        .try_send(TurnCommand::Steer {
+                            display_text,
+                            model_text,
+                        })
+                        .is_ok()
+                })
         }
         #[cfg(target_family = "wasm")]
         {

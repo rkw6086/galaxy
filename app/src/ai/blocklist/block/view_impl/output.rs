@@ -16,6 +16,7 @@ use ai::agent::action::{
 };
 use ai::agent::file_locations::group_file_contexts_for_display;
 use ai::skills::{ParsedSkill, SkillReference};
+use galaxy_agent_core::{RuntimeActivity, RuntimeActivityStatus};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
@@ -399,6 +400,21 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             ..
                         } if !are_all_text_sections_empty(sections) => {
                             text_section_index += sections.len();
+                        }
+                        AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                            if !matches!(
+                                activity.status,
+                                Some(RuntimeActivityStatus::Completed)
+                                    | Some(RuntimeActivityStatus::Failed)
+                            ) {
+                                should_render_footer = false;
+                                should_render_suggestions = false;
+                            }
+                            if let Some(rendered_activity) =
+                                render_runtime_activity(output_message, activity, props, app)
+                            {
+                                output_items.add_child(rendered_activity);
+                            }
                         }
                         AIAgentOutputMessageType::Action(AIAgentAction {
                             action: AIAgentActionType::RequestCommandOutput { .. },
@@ -1260,6 +1276,119 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
     }
 
     output_items.finish()
+}
+
+fn render_runtime_activity(
+    output_message: &AIAgentOutputMessage,
+    activity: &RuntimeActivity,
+    props: Props,
+    app: &AppContext,
+) -> Option<Box<dyn Element>> {
+    let state = props.collapsible_block_states.get(&output_message.id)?;
+    let appearance = Appearance::as_ref(app);
+    let theme = appearance.theme();
+    let text_color = blended_colors::text_main(theme, theme.background());
+    let output = activity
+        .output
+        .as_deref()
+        .filter(|output| !output.is_empty());
+    let is_expanded = matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Expanded { .. }
+    );
+    let mut content = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
+
+    let title = Text::new(
+        activity.title.clone(),
+        appearance.monospace_font_family(),
+        appearance.monospace_font_size(),
+    )
+    .with_color(text_color)
+    .with_selectable(false)
+    .finish();
+    if output.is_some() {
+        let chevron = if is_expanded {
+            Icon::ChevronDown
+        } else {
+            Icon::ChevronRight
+        };
+        let icon_sz = icon_size(app);
+        let message_id = output_message.id.clone();
+        let mouse_state = state.expansion_toggle_mouse_state.clone();
+        let header = Hoverable::new(mouse_state, move |_| {
+            Flex::row()
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(Shrinkable::new(1., title).finish())
+                .with_child(
+                    Container::new(
+                        ConstrainedBox::new(chevron.to_galaxyui_icon(text_color.into()).finish())
+                            .with_width(icon_sz)
+                            .with_height(icon_sz)
+                            .finish(),
+                    )
+                    .with_margin_left(6.)
+                    .finish(),
+                )
+                .finish()
+        })
+        .with_cursor(Cursor::PointingHand)
+        .on_click(move |ctx, _, _| {
+            ctx.dispatch_typed_action(AIBlockAction::ToggleCollapsibleBlockExpanded(
+                message_id.clone(),
+            ));
+        });
+        content.add_child(
+            Flex::row()
+                .with_child(Shrinkable::new(1., header.finish()).finish())
+                .finish(),
+        );
+    } else {
+        content.add_child(title);
+    }
+
+    if let Some(output) = output {
+        let body = render_requested_action_body_text(
+            output.into(),
+            appearance.monospace_font_family(),
+            app,
+        )
+        .finish();
+        let is_streaming = matches!(
+            activity.status,
+            Some(RuntimeActivityStatus::Pending | RuntimeActivityStatus::InProgress)
+        );
+        if let Some(scrollable) = render_scrollable_collapsible_content(
+            &output_message.id,
+            state,
+            body,
+            is_streaming,
+            320.,
+        ) {
+            content.add_child(Container::new(scrollable).with_margin_top(12.).finish());
+        }
+    }
+
+    let icon = match activity.status.as_ref() {
+        Some(RuntimeActivityStatus::Completed) => {
+            inline_action_icons::green_check_icon(appearance).finish()
+        }
+        Some(RuntimeActivityStatus::Failed) => inline_action_icons::red_x_icon(appearance).finish(),
+        Some(RuntimeActivityStatus::Pending)
+        | Some(RuntimeActivityStatus::InProgress)
+        | Some(RuntimeActivityStatus::Other(_))
+        | None => galaxyui::elements::Icon::new(
+            Icon::ClockRefresh.into(),
+            internal_colors::neutral_5(appearance.theme()),
+        )
+        .finish(),
+    };
+
+    Some(
+        RenderableAction::new_with_element(content.finish(), app)
+            .with_icon(icon)
+            .render(app)
+            .finish(),
+    )
 }
 
 fn should_render_stopped_output(props: Props, app: &AppContext) -> bool {

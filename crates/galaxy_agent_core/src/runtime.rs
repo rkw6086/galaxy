@@ -34,7 +34,10 @@ pub struct RuntimeDescriptor {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnCommand {
     Cancel,
-    Steer { text: String },
+    Steer {
+        display_text: String,
+        model_text: String,
+    },
 }
 
 #[derive(Clone, Debug)]

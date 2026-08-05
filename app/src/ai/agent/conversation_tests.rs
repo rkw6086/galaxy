@@ -107,6 +107,15 @@ fn restored_conversation_with_queries(queries: &[&str]) -> AIConversation {
 }
 
 #[test]
+fn agent_backend_does_not_change_after_successful_output() {
+    let mut conversation = restored_conversation_with_queries(&["Review this repository"]);
+
+    assert!(!conversation
+        .set_agent_backend_if_no_output(AgentBackend::Acp(AcpConversationData::default())));
+    assert_eq!(conversation.agent_backend(), &AgentBackend::Provider);
+}
+
+#[test]
 fn latest_user_query_returns_latest_non_empty_user_query() {
     let conversation =
         restored_conversation_with_queries(&["write unit tests", "fix the failing test"]);

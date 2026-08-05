@@ -432,6 +432,12 @@ pub mod text {
                     AIAgentActionType::RunAgents(_) => (),
                     AIAgentActionType::WaitForEvents { .. } => (),
                 },
+                AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                    writeln!(w, "{}", activity.title)?;
+                    if let Some(output) = &activity.output {
+                        writeln!(w, "{output}")?;
+                    }
+                }
                 AIAgentOutputMessageType::TodoOperation(operation) => match operation {
                     TodoOperation::UpdateTodos { todos } => {
                         writeln!(w, "Updated TODO list:")?;
@@ -1144,7 +1150,8 @@ pub mod json {
                     })
                 }
                 AIAgentOutputMessageType::MessagesReceivedFromAgents { .. }
-                | AIAgentOutputMessageType::EventsFromAgents { .. } => None,
+                | AIAgentOutputMessageType::EventsFromAgents { .. }
+                | AIAgentOutputMessageType::RuntimeActivity(_) => None,
             }
         }
     }

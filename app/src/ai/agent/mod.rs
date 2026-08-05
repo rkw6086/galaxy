@@ -7,6 +7,7 @@ pub(crate) mod comment;
 pub(crate) mod icons;
 pub(crate) mod linearization;
 pub(crate) mod redaction;
+pub(crate) mod runtime_activity;
 pub(crate) mod task;
 mod task_store;
 pub(super) mod telemetry;
@@ -27,6 +28,7 @@ use ai::skills::ParsedSkill;
 use chrono::{DateTime, Local, TimeDelta};
 use comment::ReviewComment;
 use derivative::Derivative;
+use galaxy_agent_core::RuntimeActivity;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use markdown_parser::{parse_markdown, FormattedTable, FormattedText, FormattedTextInline};
@@ -618,6 +620,13 @@ impl AIAgentOutput {
                             last_was_action = true;
                         }
                     }
+                }
+                AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                    result.push(activity.title.clone());
+                    if let Some(output) = &activity.output {
+                        result.push(output.clone());
+                    }
+                    last_was_action = true;
                 }
                 AIAgentOutputMessageType::TodoOperation(operation) => {
                     result.push(format!("{operation}"));
@@ -1805,6 +1814,10 @@ pub enum AIAgentOutputMessageType {
         token_count: Option<u32>,
     },
     Subagent(SubagentCall),
+    /// Display-only activity executed and owned by an external agent runtime.
+    /// Unlike [`AIAgentOutputMessageType::Action`], Galaxy must never dispatch
+    /// this activity through its action executor.
+    RuntimeActivity(RuntimeActivity),
     Action(AIAgentAction),
     TodoOperation(TodoOperation),
     WebSearch(WebSearchStatus),
@@ -1972,6 +1985,12 @@ impl Display for AIAgentOutputMessage {
                 }
             }
             AIAgentOutputMessageType::Action(action) => write!(f, "Action: {action}")?,
+            AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                write!(f, "Runtime activity: {}", activity.title)?;
+                if let Some(output) = &activity.output {
+                    write!(f, "\n{output}")?;
+                }
+            }
             AIAgentOutputMessageType::TodoOperation(todo) => write!(f, "Todo: {todo}")?,
             AIAgentOutputMessageType::Subagent(subagent) => write!(f, "Subagent: {subagent}")?,
             AIAgentOutputMessageType::WebSearch(status) => match status {
@@ -2040,6 +2059,14 @@ impl AIAgentOutputMessage {
         Self {
             id,
             message: AIAgentOutputMessageType::Action(action),
+            citations: vec![],
+        }
+    }
+
+    pub fn runtime_activity(id: MessageId, activity: RuntimeActivity) -> Self {
+        Self {
+            id,
+            message: AIAgentOutputMessageType::RuntimeActivity(activity),
             citations: vec![],
         }
     }

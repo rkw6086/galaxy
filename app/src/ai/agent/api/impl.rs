@@ -244,7 +244,7 @@ pub async fn generate_multi_agent_output(
             let err = Arc::new(crate::server::server_api::AIApiError::Stream {
                 stream_type: "none",
                 source: anyhow::anyhow!(
-                    "No AI provider configured. Enable Bedrock or OpenAI/LiteLLM in settings."
+                    "No AI runtime configured. Enable an agent runtime or model provider in settings."
                 ),
             });
             let (tx, rx) = async_channel::unbounded();

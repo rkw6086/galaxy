@@ -113,6 +113,9 @@ impl SlashCommandDataSource {
             if matches!(
                 event,
                 AISettingsChangedEvent::IsAnyAIEnabled { .. }
+                    | AISettingsChangedEvent::BedrockEnabled { .. }
+                    | AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::AcpEnabled { .. }
                     | AISettingsChangedEvent::ShouldForceDisableCloudHandoff { .. }
             ) {
                 me.recompute_active_commands(ctx);

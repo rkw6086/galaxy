@@ -1182,6 +1182,86 @@ impl BlocklistAIHistoryModel {
         });
     }
 
+    fn configured_agent_backend(
+        is_viewing_shared_session: bool,
+        is_cli_agent_transcript: bool,
+        ctx: &AppContext,
+    ) -> AgentBackend {
+        if is_viewing_shared_session
+            || is_cli_agent_transcript
+            || !cfg!(unix)
+            || !FeatureFlag::AgentClientProtocol.is_enabled()
+        {
+            return AgentBackend::Provider;
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.acp_enabled.value() {
+            return AgentBackend::Provider;
+        }
+
+        let configured_agent_id = settings.acp_agent_id.value().trim();
+        let agent_id = if configured_agent_id.is_empty() {
+            "codex"
+        } else {
+            configured_agent_id
+        };
+        #[cfg(not(target_family = "wasm"))]
+        let launch_fingerprint = acp_launch_fingerprint(
+            agent_id,
+            settings.acp_agent_command.value(),
+            settings.acp_agent_args.value(),
+        );
+        #[cfg(target_family = "wasm")]
+        let launch_fingerprint = String::new();
+        AgentBackend::Acp(AcpConversationData {
+            agent_id: agent_id.to_string(),
+            launch_fingerprint,
+            session_id: None,
+            config_values: settings
+                .acp_agents
+                .value()
+                .iter()
+                .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+                .map(|agent| {
+                    #[cfg(not(target_family = "wasm"))]
+                    if let Some(selection) =
+                        LLMPreferences::as_ref(ctx).selected_acp_config_for_agent(&agent.name, ctx)
+                    {
+                        return selection;
+                    }
+                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options)
+                })
+                .unwrap_or_default(),
+        })
+    }
+
+    /// Reconciles a conversation without agent output with the currently enabled local runtime.
+    ///
+    /// Agent views can create their initial conversation before the user changes runtime settings,
+    /// and a provider-less attempt can leave behind an error-only exchange. Refreshing here lets
+    /// either case use ACP without mixing successful provider output into an ACP-owned history.
+    pub(crate) fn refresh_conversation_backend_without_output(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &AppContext,
+    ) {
+        let Some(conversation) = self.conversation(&conversation_id) else {
+            return;
+        };
+        let agent_backend = Self::configured_agent_backend(
+            conversation.is_viewing_shared_session(),
+            conversation.is_cli_agent_transcript(),
+            ctx,
+        );
+        if conversation.agent_backend() == &agent_backend {
+            return;
+        }
+        if let Some(conversation) = self.conversation_mut(&conversation_id) {
+            conversation.set_agent_backend_if_no_output(agent_backend);
+        }
+    }
+
     /// Starts a new conversation in the given terminal surface's history, effectively marking the
     /// existing conversation (if any) as completed.
     ///
@@ -1197,55 +1277,8 @@ impl BlocklistAIHistoryModel {
         is_cli_agent_transcript: bool,
         ctx: &mut ModelContext<Self>,
     ) -> AIConversationId {
-        let agent_backend = if !is_viewing_shared_session
-            && !is_cli_agent_transcript
-            && cfg!(unix)
-            && FeatureFlag::AgentClientProtocol.is_enabled()
-        {
-            let settings = AISettings::as_ref(ctx);
-            if *settings.acp_enabled.value() {
-                let configured_agent_id = settings.acp_agent_id.value().trim();
-                let agent_id = if configured_agent_id.is_empty() {
-                    "codex"
-                } else {
-                    configured_agent_id
-                };
-                #[cfg(not(target_family = "wasm"))]
-                let launch_fingerprint = acp_launch_fingerprint(
-                    agent_id,
-                    settings.acp_agent_command.value(),
-                    settings.acp_agent_args.value(),
-                );
-                #[cfg(target_family = "wasm")]
-                let launch_fingerprint = String::new();
-                AgentBackend::Acp(AcpConversationData {
-                    agent_id: agent_id.to_string(),
-                    launch_fingerprint,
-                    session_id: None,
-                    config_values: settings
-                        .acp_agents
-                        .value()
-                        .iter()
-                        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
-                        .map(|agent| {
-                            #[cfg(not(target_family = "wasm"))]
-                            if let Some(selection) = LLMPreferences::as_ref(ctx)
-                                .selected_acp_config_for_agent(&agent.name, ctx)
-                            {
-                                return selection;
-                            }
-                            crate::ai::acp::AcpRuntimeModel::current_config_values(
-                                &agent.config_options,
-                            )
-                        })
-                        .unwrap_or_default(),
-                })
-            } else {
-                AgentBackend::Provider
-            }
-        } else {
-            AgentBackend::Provider
-        };
+        let agent_backend =
+            Self::configured_agent_backend(is_viewing_shared_session, is_cli_agent_transcript, ctx);
         let mut new_conversation = AIConversation::new_with_agent_backend(
             is_viewing_shared_session,
             is_cli_agent_transcript,

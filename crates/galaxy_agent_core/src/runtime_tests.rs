@@ -103,7 +103,8 @@ fn turn_control_delivers_cancel_and_steering_in_order() {
 
         sender
             .send(TurnCommand::Steer {
-                text: "focus on tests".to_string(),
+                display_text: "focus on tests".to_string(),
+                model_text: "focus on tests".to_string(),
             })
             .await
             .unwrap();
@@ -112,7 +113,8 @@ fn turn_control_delivers_cancel_and_steering_in_order() {
         assert_eq!(
             control.receive().await.unwrap(),
             TurnCommand::Steer {
-                text: "focus on tests".to_string(),
+                display_text: "focus on tests".to_string(),
+                model_text: "focus on tests".to_string(),
             }
         );
         assert_eq!(control.receive().await.unwrap(), TurnCommand::Cancel);

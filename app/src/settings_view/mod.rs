@@ -363,9 +363,14 @@ impl FromStr for SettingsSection {
             "MCP servers" | "AgentMCPServers" => Ok(Self::AgentMCPServers),
             "Knowledge" => Ok(Self::Knowledge),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
-            "Models" | "AWS Bedrock" | "Bedrock" | "OpenAI / LiteLLM" | "OpenAI" => {
-                Ok(Self::Models)
-            }
+            "Models"
+            | "AWS Bedrock"
+            | "Bedrock"
+            | "OpenAI / LiteLLM"
+            | "OpenAI"
+            | "Agent runtimes"
+            | "Agent Client Protocol"
+            | "ACP" => Ok(Self::Models),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
             "Experiments" => Ok(Self::Experiments),

@@ -10,7 +10,9 @@ use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
-use crate::settings::OpenAIModelConfig;
+use crate::settings::{
+    AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings, OpenAIModelConfig,
+};
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -187,6 +189,90 @@ fn codex_models_reject_system_messages_even_with_stale_true_metadata() {
     model.supports_system_messages = Some(true);
 
     assert!(!model.supports_system_messages());
+}
+
+#[test]
+fn acp_models_are_injected_only_while_acp_is_enabled() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agents
+                .set_value(
+                    vec![AcpAgentSettings {
+                        id: "codex".to_owned(),
+                        name: "Codex".to_owned(),
+                        version: None,
+                        description: None,
+                        icon_url: None,
+                        capabilities: Vec::new(),
+                        config_options: vec![AcpConfigOptionSettings {
+                            id: "model".to_owned(),
+                            name: "Model".to_owned(),
+                            description: None,
+                            category: Some("model".to_owned()),
+                            kind: "select".to_owned(),
+                            current_value: serde_json::json!("gpt-test"),
+                            options: vec![AcpConfigValueSettings {
+                                value: serde_json::json!("gpt-test"),
+                                name: "GPT Test".to_owned(),
+                                description: None,
+                            }],
+                        }],
+                        discovery_timestamp: None,
+                        discovery_source: None,
+                        discovery_error: None,
+                    }],
+                    ctx,
+                )
+                .expect("ACP agents should update");
+        });
+
+        let mut preferences = LLMPreferences {
+            models_by_feature: ModelsByFeature::default(),
+            last_update: None,
+            base_llm_for_terminal_view: HashMap::new(),
+            custom_llms: Vec::new(),
+            custom_model_routers: Vec::new(),
+            openai_provider_routing: HashMap::new(),
+            fetched_openai_models: Vec::new(),
+            acp_selections: HashMap::new(),
+        };
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        assert_eq!(preferences.acp_selections.len(), 1);
+        assert_eq!(
+            preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .filter(|model| model.id.as_str().starts_with("acp:"))
+                .count(),
+            1
+        );
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        assert!(preferences.acp_selections.is_empty());
+        assert!(preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .all(|model| !model.id.as_str().starts_with("acp:")));
+    });
 }
 
 #[test]

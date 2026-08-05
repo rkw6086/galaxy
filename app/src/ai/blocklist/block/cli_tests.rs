@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use galaxy_agent_core::RuntimeActivity;
 use galaxy_terminal::model::escape_sequences;
 
 use super::{get_action_icon, get_action_loading_text, should_retain_task_output_message};
@@ -58,4 +59,13 @@ fn transcript_retains_prior_text_but_only_latest_tool_activity() {
     });
     assert!(!should_retain_task_output_message(&poll, false));
     assert!(should_retain_task_output_message(&poll, true));
+
+    let runtime_activity = AIAgentOutputMessageType::RuntimeActivity(RuntimeActivity {
+        id: "acp-tool".to_owned(),
+        title: "Inspect repository".to_owned(),
+        status: None,
+        output: None,
+    });
+    assert!(!should_retain_task_output_message(&runtime_activity, false));
+    assert!(should_retain_task_output_message(&runtime_activity, true));
 }

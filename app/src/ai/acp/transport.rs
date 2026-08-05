@@ -1,15 +1,15 @@
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures::channel::oneshot;
-use futures::future::{BoxFuture, Fuse, FusedFuture as _};
-use futures::stream::FusedStream as _;
 use futures::{FutureExt as _, StreamExt as _};
 use galaxy_acp::{
-    AcpEvent, AcpPermissionPolicy, AcpRuntimeError, AcpSessionHandle, AcpSessionManager,
-    AcpSteeringOutcome, AcpTurnRequest, ContentBlock, McpServer, McpServerStdio,
-    SessionConfigOptionValue, SessionId, TextContent,
+    AcpAgentRuntime, AcpAgentRuntimeConfig, AcpPermissionPolicy, AcpRuntimeState,
+    AcpRuntimeStateHandle, AcpSessionManager, McpServer, McpServerStdio, SessionConfigOptionValue,
+    SessionId,
+};
+use galaxy_agent_core::{
+    turn_control, AgentRuntime as _, TurnCommand, TurnCommandSender, TurnRequest,
 };
 
 use super::launch::acp_selection_identity;
@@ -20,19 +20,7 @@ use crate::ai::agent::EntrypointType;
 use crate::persistence::model::AcpConversationData;
 use crate::server::server_api::AIApiError;
 
-#[derive(Clone, Debug, Default)]
-pub(crate) struct AcpSessionMetadata {
-    pub(crate) session_id: Option<String>,
-    pub(crate) can_load: bool,
-    pub(crate) can_steer: bool,
-    pub(crate) config_options: Vec<galaxy_acp::SessionConfigOption>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct AcpSteeringRequest {
-    display_text: String,
-    model_text: String,
-}
+pub(crate) type AcpSessionMetadata = AcpRuntimeState;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GalaxyMcpTarget {
@@ -41,46 +29,25 @@ pub(crate) struct GalaxyMcpTarget {
     pub(crate) pane_id: String,
 }
 
-impl AcpSteeringRequest {
-    pub(crate) fn text(display_text: String, model_text: String) -> Self {
-        Self {
-            display_text,
-            model_text,
-        }
-    }
+pub(crate) type AcpTurnControlSlot = Arc<Mutex<Option<TurnCommandSender>>>;
+
+struct AcpTurnControlGuard {
+    slot: AcpTurnControlSlot,
 }
 
-type SteeringResult = Result<AcpSteeringOutcome, AcpRuntimeError>;
-type PendingSteering = Fuse<BoxFuture<'static, SteeringResult>>;
-
-fn pending_steering(session: AcpSessionHandle, steering: AcpSteeringRequest) -> PendingSteering {
-    async move {
-        let content = ContentBlock::Text(TextContent::new(steering.model_text));
-        session.steer(vec![content]).await
-    }
-    .boxed()
-    .fuse()
-}
-
-pub(crate) type AcpSessionHandleSlot = Arc<Mutex<Option<AcpSessionHandle>>>;
-
-struct AcpSessionHandleGuard {
-    slot: AcpSessionHandleSlot,
-}
-
-impl AcpSessionHandleGuard {
-    fn new(slot: AcpSessionHandleSlot, session: AcpSessionHandle) -> Self {
-        if let Ok(mut active_session) = slot.lock() {
-            *active_session = Some(session);
+impl AcpTurnControlGuard {
+    fn new(slot: AcpTurnControlSlot, control: TurnCommandSender) -> Self {
+        if let Ok(mut active_control) = slot.lock() {
+            *active_control = Some(control);
         }
         Self { slot }
     }
 }
 
-impl Drop for AcpSessionHandleGuard {
+impl Drop for AcpTurnControlGuard {
     fn drop(&mut self) {
-        if let Ok(mut active_session) = self.slot.lock() {
-            *active_session = None;
+        if let Ok(mut active_control) = self.slot.lock() {
+            *active_control = None;
         }
     }
 }
@@ -95,9 +62,8 @@ pub(crate) async fn acp_output_stream(
     galaxy_terminal_interrupt_available: bool,
     permission_policy: AcpPermissionPolicy,
     auto_approve_permissions: bool,
-    session_metadata: Arc<Mutex<AcpSessionMetadata>>,
-    session_handle: AcpSessionHandleSlot,
-    steering_rx: async_channel::Receiver<AcpSteeringRequest>,
+    session_metadata: AcpRuntimeStateHandle,
+    turn_control_slot: AcpTurnControlSlot,
     cancellation_rx: oneshot::Receiver<()>,
 ) -> api::ResponseStream {
     let mut translator = response_translator(&params, &backend);
@@ -121,132 +87,57 @@ pub(crate) async fn acp_output_stream(
     if let Some(server) = galaxy_mcp_server {
         mcp_servers.push(server);
     }
-    let request = AcpTurnRequest {
-        config_values: backend
-            .config_values
-            .into_iter()
-            .filter_map(|(key, value)| {
-                serde_json::from_value::<SessionConfigOptionValue>(value)
-                    .ok()
-                    .map(|value| (key, value))
-            })
-            .collect(),
-        conversation_key: conversation_id,
-        session_id: backend.session_id.map(SessionId::from),
-        cwd,
-        additional_directories: Vec::new(),
-        prompt,
-        mcp_servers,
-        auto_approve_permissions,
-        permission_policy,
-        prompt_capabilities: Default::default(),
-    };
-    let (session, events) = match manager.run_turn(request) {
-        Ok(turn) => turn,
+    let runtime_id = acp_selection_identity(&backend.agent_id, &backend.config_values);
+    let mut runtime_config =
+        AcpAgentRuntimeConfig::new(runtime_id.clone(), backend.agent_id.clone(), cwd);
+    runtime_config.config_values = backend
+        .config_values
+        .iter()
+        .filter_map(|(key, value)| {
+            serde_json::from_value::<SessionConfigOptionValue>(value.clone())
+                .ok()
+                .map(|value| (key.clone(), value))
+        })
+        .collect();
+    runtime_config.session_id = backend.session_id.clone().map(SessionId::from);
+    runtime_config.mcp_servers = mcp_servers;
+    runtime_config.auto_approve_permissions = auto_approve_permissions;
+    runtime_config.permission_policy = permission_policy;
+    let runtime = AcpAgentRuntime::new(manager, runtime_config).with_state(session_metadata);
+    let mut request = TurnRequest::new(runtime_id, Vec::new()).with_prompt(prompt);
+    request.conversation_id = Some(conversation_id);
+    let (control_sender, control) = turn_control();
+    let events = match runtime.start_turn(request, control).await {
+        Ok(events) => events,
         Err(error) => return translated_startup_error_stream(translator, &error.to_string()),
     };
-    let session_handle_guard = AcpSessionHandleGuard::new(session_handle, session.clone());
+    let turn_control_guard = AcpTurnControlGuard::new(turn_control_slot, control_sender.clone());
 
     let stream = async_stream::stream! {
-        let _session_handle_guard = session_handle_guard;
+        let _turn_control_guard = turn_control_guard;
         let mut cancellation_rx = cancellation_rx.fuse();
-        let mut events = Box::pin(events.fuse());
-        let mut steering_rx = Box::pin(steering_rx.fuse());
-        let mut steering_queue = VecDeque::new();
-        let mut steering_result: PendingSteering = Fuse::terminated();
+        let mut events = events.fuse();
         loop {
             futures::select_biased! {
                 _ = cancellation_rx => {
-                    if let Err(error) = session.cancel().await {
-                        log::warn!("Failed to cancel ACP turn cleanly: {error}");
-                    }
-                    break;
-                }
-                steering = steering_rx.next() => {
-                    let Some(steering) = steering else {
-                        continue;
-                    };
-                    let content = ContentBlock::Text(TextContent::new(
-                        steering.display_text.clone(),
-                    ));
-                    match translator.translate_steered_user_content(content) {
-                        Ok(response_events) => {
-                            for response_event in response_events {
-                                yield Ok(api::StreamEvent::Response(response_event));
-                            }
-                        }
-                        Err(message) => {
-                            yield Err(Arc::new(AIApiError::Stream {
-                                stream_type: "acp",
-                                source: anyhow::anyhow!(message),
-                            }));
-                            break;
-                        }
-                    }
-                    if steering_result.is_terminated() {
-                        steering_result = pending_steering(session.clone(), steering);
-                    } else {
-                        steering_queue.push_back(steering);
-                    }
-                }
-                steering = steering_result => {
-                    match steering {
-                        Ok(AcpSteeringOutcome::Injected) => {
-                            // The user message was rendered as soon as Galaxy
-                            // accepted it; keep consuming agent events without
-                            // holding the transcript behind the steering RPC.
-                        }
-                        Ok(AcpSteeringOutcome::StartedNewTurn) => {
-                            for response_event in translator.steering_started_new_turn() {
-                                yield Ok(api::StreamEvent::Response(response_event));
-                            }
-                        }
-                        Ok(AcpSteeringOutcome::Failed) => {
-                            for response_event in translator.steering_failed(
-                                "the ACP agent could not inject it into the active turn",
-                            ) {
-                                yield Ok(api::StreamEvent::Response(response_event));
-                            }
-                        }
-                        Err(error) => {
-                            log::warn!("ACP live steering failed: {error}");
-                            for response_event in translator.steering_failed(&error.to_string()) {
-                                yield Ok(api::StreamEvent::Response(response_event));
-                            }
-                        }
-                    }
-                    steering_result = Fuse::terminated();
-                    if let Some(steering) = steering_queue.pop_front() {
-                        steering_result = pending_steering(session.clone(), steering);
-                    } else if events.is_terminated() {
-                        break;
+                    if let Err(error) = control_sender.try_send(TurnCommand::Cancel) {
+                        log::warn!("Failed to queue ACP cancellation: {error}");
                     }
                 }
                 event = events.next() => {
                     let Some(event) = event else {
-                        if steering_result.is_terminated() && steering_queue.is_empty() {
+                        break;
+                    };
+                    let event = match event {
+                        Ok(event) => event,
+                        Err(error) => {
+                            yield Err(Arc::new(AIApiError::Stream {
+                                stream_type: "acp",
+                                source: anyhow::anyhow!(error),
+                            }));
                             break;
                         }
-                        continue;
                     };
-                    if let AcpEvent::SessionStarted {
-                        session_id,
-                        can_load,
-                        can_steer,
-                        ..
-                    } = &event
-                    {
-                        if let Ok(mut metadata) = session_metadata.lock() {
-                            metadata.session_id = Some(session_id.to_string());
-                            metadata.can_load = *can_load;
-                            metadata.can_steer = *can_steer;
-                        }
-                    }
-                    if let AcpEvent::ConfigOptions { options } = &event {
-                        if let Ok(mut metadata) = session_metadata.lock() {
-                            metadata.config_options = options.clone();
-                        }
-                    }
                     match translator.translate(event) {
                         Ok(response_events) => {
                             for response_event in response_events {

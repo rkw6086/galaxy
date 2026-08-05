@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
-use galaxy_acp::{AcpEvent, ContentBlock, StopReason, ToolCallId, ToolCallStatus};
+use galaxy_agent_core::{AgentEvent, RuntimeActivity, RuntimeActivityStatus, StopReason};
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
-use warp_multi_agent_api::{self as api, ResponseEvent};
+use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
+use crate::ai::agent::runtime_activity;
 use crate::ai::bedrock::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
     build_user_query_message,
@@ -20,10 +21,11 @@ pub(super) struct AcpResponseTranslator {
     model_id: String,
     initialized: bool,
     message_id: Option<String>,
-    tool_titles: HashMap<ToolCallId, String>,
+    activity_message_ids: HashMap<String, String>,
+    activities: HashMap<String, RuntimeActivity>,
+    has_visible_output: bool,
     used_tokens: u64,
     context_size: u64,
-    accept_next_user_content: bool,
 }
 
 impl AcpResponseTranslator {
@@ -41,167 +43,69 @@ impl AcpResponseTranslator {
             model_id,
             initialized: false,
             message_id: None,
-            tool_titles: HashMap::new(),
+            activity_message_ids: HashMap::new(),
+            activities: HashMap::new(),
+            has_visible_output: false,
             used_tokens: 0,
             context_size: 0,
-            accept_next_user_content: false,
         }
     }
 
-    pub(super) fn translate(&mut self, event: AcpEvent) -> Result<Vec<ResponseEvent>, String> {
+    pub(super) fn translate(&mut self, event: AgentEvent) -> Result<Vec<ResponseEvent>, String> {
         let mut events = Vec::new();
         match event {
-            AcpEvent::SessionStarted { .. } => self.initialize(&mut events),
-            AcpEvent::AgentText { text } => {
+            AgentEvent::TurnStarted { .. } => self.initialize(&mut events),
+            AgentEvent::TextDelta { text } => {
                 self.initialize(&mut events);
                 self.add_or_append(&text, &mut events);
             }
-            // Reasoning is deliberately not copied into the plain assistant
-            // transcript. ACP agents can still expose plans and tool progress.
-            AcpEvent::AgentThought { .. } => {}
-            AcpEvent::AgentContent { content, thought } => {
-                if !thought {
-                    self.initialize(&mut events);
-                    let description = match content {
-                        ContentBlock::Text(text) => text.text,
-                        ContentBlock::Image(_) => "[Agent returned an image.]".to_owned(),
-                        ContentBlock::Audio(_) => "[Agent returned audio.]".to_owned(),
-                        ContentBlock::ResourceLink(resource) => {
-                            format!("[Agent referenced {}.]", resource.name)
-                        }
-                        ContentBlock::Resource(_) => {
-                            "[Agent returned embedded resource content.]".to_owned()
-                        }
-                        _ => "[Agent returned unsupported content.]".to_owned(),
-                    };
-                    self.add_or_append(&description, &mut events);
-                }
+            // The legacy transcript has no dedicated reasoning surface on this
+            // path yet. The shared runtime event remains available for the UI
+            // convergence phase instead of being flattened into answer text.
+            AgentEvent::ReasoningDelta { .. } | AgentEvent::ReasoningCompleted { .. } => {}
+            AgentEvent::RuntimeActivityUpdated { activity } => {
+                self.initialize(&mut events);
+                self.message_id = None;
+                self.upsert_runtime_activity(activity, &mut events)?;
             }
-            AcpEvent::UserContent { content } => {
-                // Some ACP adapters replay user-message chunks while loading a
-                // session or echo Galaxy's initial prompt, which also contains
-                // hidden context. Only content explicitly authorized by the
-                // live-steering path may enter the visible transcript.
-                if self.accept_next_user_content {
-                    self.accept_next_user_content = false;
-                    self.initialize(&mut events);
-                    if let ContentBlock::Text(text) = content {
-                        events.push(build_user_query_message(&self.task_id, &text.text));
-                        // Assistant output after steering belongs in a new chat
-                        // bubble, not the message that preceded the follow-up.
-                        self.message_id = None;
-                    }
-                }
-            }
-            AcpEvent::ToolCall {
-                id,
-                title,
-                status,
-                output,
+            AgentEvent::ContextUsageUpdated {
+                used_tokens,
+                context_size,
             } => {
-                self.initialize(&mut events);
-                self.tool_titles.insert(id, title.clone());
-                self.add_or_append(&tool_status_line(&title, status), &mut events);
-                if let Some(output) = output {
-                    self.add_or_append(&tool_output_block(&output), &mut events);
-                }
+                self.used_tokens = used_tokens;
+                self.context_size = context_size;
             }
-            AcpEvent::ToolCallUpdate {
-                id,
-                title,
-                status,
-                output,
-            } => {
+            AgentEvent::UserInputAccepted { text } => {
                 self.initialize(&mut events);
-                let title = title
-                    .or_else(|| self.tool_titles.get(&id).cloned())
-                    .unwrap_or_else(|| "tool".to_owned());
-                self.tool_titles.insert(id, title.clone());
-                if let Some(status) = status {
-                    self.add_or_append(&tool_status_line(&title, status), &mut events);
-                }
-                if let Some(output) = output {
-                    self.add_or_append(&tool_output_block(&output), &mut events);
-                }
+                events.push(build_user_query_message(&self.task_id, &text));
+                self.message_id = None;
             }
-            AcpEvent::Usage { used, size, .. } => {
-                self.used_tokens = used;
-                self.context_size = size;
-            }
-            AcpEvent::PermissionRequested { request } => {
+            AgentEvent::RuntimeNotice { message } => {
                 self.initialize(&mut events);
-                self.add_or_append(
-                    &format!(
-                        "\n\n> Permission requested for: {}\n",
-                        request.tool_call.fields.title.as_deref().unwrap_or("tool")
-                    ),
-                    &mut events,
-                );
+                self.message_id = None;
+                self.add_or_append(&message, &mut events);
+                self.message_id = None;
             }
-            AcpEvent::PermissionResolved { decision, .. } => {
+            AgentEvent::TurnStopped { reason } => {
                 self.initialize(&mut events);
-                self.add_or_append(
-                    &format!("\n\n> Permission decision: {decision:?}\n"),
-                    &mut events,
-                );
-            }
-            AcpEvent::Finished { stop_reason } => {
-                self.initialize(&mut events);
-                if self.message_id.is_none() && stop_reason != StopReason::Cancelled {
+                if !self.has_visible_output && reason != StopReason::Cancelled {
                     self.add_or_append(
                         "> ACP agent completed without a text response.",
                         &mut events,
                     );
                 }
-                events.push(self.finished(stop_reason));
+                events.push(self.finished(reason));
             }
-            AcpEvent::Error { message } => return Err(message),
-            // ACP events are forward-compatible. Unknown events do not belong
-            // in the user-visible transcript until Galaxy knows their meaning.
-            _ => {}
+            AgentEvent::Tool { .. } => {
+                return Err(
+                    "ACP runtime attempted to hand agent-owned tool execution to Galaxy".to_owned(),
+                );
+            }
+            AgentEvent::UsageUpdated { .. } => {
+                return Err("ACP runtime reported provider-style request usage".to_owned());
+            }
         }
         Ok(events)
-    }
-
-    pub(super) fn translate_steered_user_content(
-        &mut self,
-        content: ContentBlock,
-    ) -> Result<Vec<ResponseEvent>, String> {
-        self.accept_next_user_content = true;
-        self.translate(AcpEvent::UserContent { content })
-    }
-
-    pub(super) fn steering_failed(&mut self, error: &str) -> Vec<ResponseEvent> {
-        let mut events = Vec::new();
-        self.initialize(&mut events);
-        self.message_id = None;
-        self.add_or_append(
-            &format!(
-                "Galaxy couldn't confirm that live steering message: {error}. \
-                 The agent may not have received it; check the current terminal and file state \
-                 before retrying."
-            ),
-            &mut events,
-        );
-        // Any output still arriving from the original turn should not be
-        // appended to Galaxy's steering-failure notice.
-        self.message_id = None;
-        events
-    }
-
-    pub(super) fn steering_started_new_turn(&mut self) -> Vec<ResponseEvent> {
-        let mut events = Vec::new();
-        self.initialize(&mut events);
-        self.message_id = None;
-        self.add_or_append(
-            "The ACP adapter started that steering message as a separate turn instead of \
-             injecting it into the active one. Galaxy terminated the adapter process immediately, \
-             but the turn may have begun acting; check the current terminal and file state before \
-             retrying.",
-            &mut events,
-        );
-        self.message_id = None;
-        events
     }
 
     pub(super) fn startup_error(&mut self, error: &str) -> Vec<ResponseEvent> {
@@ -236,6 +140,7 @@ impl AcpResponseTranslator {
         if text.is_empty() {
             return;
         }
+        self.has_visible_output = true;
         if let Some(message_id) = &self.message_id {
             events.push(build_append_text(&self.task_id, message_id, text));
         } else {
@@ -249,18 +154,64 @@ impl AcpResponseTranslator {
         }
     }
 
+    fn upsert_runtime_activity(
+        &mut self,
+        activity: RuntimeActivity,
+        events: &mut Vec<ResponseEvent>,
+    ) -> Result<(), String> {
+        let activity_id = activity.id.clone();
+        let merged_activity = self
+            .activities
+            .entry(activity_id.clone())
+            .or_insert_with(|| activity.clone());
+        if !activity.title.trim().is_empty() {
+            merged_activity.title = activity.title;
+        }
+        if activity.status.is_some() {
+            merged_activity.status = activity.status;
+        }
+        if activity.output.is_some() {
+            merged_activity.output = activity.output;
+        }
+
+        let server_message_data = runtime_activity::encode(merged_activity)
+            .map_err(|error| format!("failed to encode ACP runtime activity: {error}"))?;
+        let fallback_text = runtime_activity_fallback_text(merged_activity);
+        if let Some(message_id) = self.activity_message_ids.get(&activity_id) {
+            events.push(build_update_runtime_activity_message(
+                &self.task_id,
+                message_id,
+                &fallback_text,
+                &server_message_data,
+            ));
+        } else {
+            let message_id = Uuid::new_v4().to_string();
+            events.push(build_add_runtime_activity_message(
+                &self.task_id,
+                &message_id,
+                &fallback_text,
+                &server_message_data,
+            ));
+            self.activity_message_ids.insert(activity_id, message_id);
+        }
+        self.has_visible_output = true;
+        Ok(())
+    }
+
     fn finished(&self, stop_reason: StopReason) -> ResponseEvent {
         let reason = match stop_reason {
-            StopReason::EndTurn | StopReason::Cancelled => {
+            StopReason::Completed | StopReason::Cancelled => {
                 stream_finished::Reason::Done(stream_finished::Done {})
             }
-            StopReason::MaxTokens | StopReason::MaxTurnRequests => {
+            StopReason::MaxTokens => {
                 stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {})
             }
-            StopReason::Refusal => stream_finished::Reason::Other(stream_finished::Other {}),
-            // ACP marks this enum non-exhaustive so newer agents can add stop reasons
-            // without breaking older clients.
-            _ => stream_finished::Reason::Other(stream_finished::Other {}),
+            StopReason::ContextWindowExceeded => stream_finished::Reason::ContextWindowExceeded(
+                stream_finished::ContextWindowExceeded {},
+            ),
+            StopReason::Refusal | StopReason::ToolLoopLimit | StopReason::Other(_) => {
+                stream_finished::Reason::Other(stream_finished::Other {})
+            }
         };
         let used_tokens = u32::try_from(self.used_tokens).unwrap_or(u32::MAX);
         let context_usage = if self.context_size == 0 {
@@ -307,27 +258,98 @@ impl AcpResponseTranslator {
     }
 }
 
-fn tool_status_line(title: &str, status: ToolCallStatus) -> String {
-    let status = match status {
-        ToolCallStatus::Pending => "waiting",
-        ToolCallStatus::InProgress => "running",
-        ToolCallStatus::Completed => "completed",
-        ToolCallStatus::Failed => "failed",
-        // ACP marks this enum non-exhaustive. Preserve a useful transcript if a
-        // newer agent reports a status this client does not recognize yet.
-        _ => "updated",
+fn runtime_activity_fallback_text(activity: &RuntimeActivity) -> String {
+    let title = &activity.title;
+    let status = activity.status.as_ref().map(|status| match status {
+        RuntimeActivityStatus::Pending => "waiting",
+        RuntimeActivityStatus::InProgress => "running",
+        RuntimeActivityStatus::Completed => "completed",
+        RuntimeActivityStatus::Failed => "failed",
+        RuntimeActivityStatus::Other(_) => "updated",
+    });
+    let mut text = match status {
+        Some(status) => format!("> **{title}** — {status}"),
+        None => format!("> **{title}**"),
     };
-    format!("\n\n> **{title}** — {status}\n")
+    if let Some(output) = &activity.output {
+        text.push_str("\n\n");
+        for line in output.lines() {
+            text.push_str("    ");
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    text
 }
 
-fn tool_output_block(output: &str) -> String {
-    let mut block = String::from("\n");
-    for line in output.lines() {
-        block.push_str("    ");
-        block.push_str(line);
-        block.push('\n');
+fn build_add_runtime_activity_message(
+    task_id: &str,
+    message_id: &str,
+    fallback_text: &str,
+    server_message_data: &str,
+) -> ResponseEvent {
+    let message = runtime_activity_message(task_id, message_id, fallback_text, server_message_data);
+    runtime_activity_client_action(api::client_action::Action::AddMessagesToTask(
+        api::client_action::AddMessagesToTask {
+            task_id: task_id.to_owned(),
+            messages: vec![message],
+        },
+    ))
+}
+
+fn build_update_runtime_activity_message(
+    task_id: &str,
+    message_id: &str,
+    fallback_text: &str,
+    server_message_data: &str,
+) -> ResponseEvent {
+    let message = runtime_activity_message(task_id, message_id, fallback_text, server_message_data);
+    runtime_activity_client_action(api::client_action::Action::UpdateTaskMessage(
+        api::client_action::UpdateTaskMessage {
+            task_id: task_id.to_owned(),
+            message: Some(message),
+            mask: Some(prost_types::FieldMask {
+                paths: vec![
+                    "agent_output.text".to_owned(),
+                    "server_message_data".to_owned(),
+                ],
+            }),
+        },
+    ))
+}
+
+fn runtime_activity_message(
+    task_id: &str,
+    message_id: &str,
+    fallback_text: &str,
+    server_message_data: &str,
+) -> api::Message {
+    api::Message {
+        id: message_id.to_owned(),
+        task_id: task_id.to_owned(),
+        request_id: String::new(),
+        timestamp: None,
+        server_message_data: server_message_data.to_owned(),
+        citations: Vec::new(),
+        fetched_memories: Vec::new(),
+        message: Some(api::message::Message::AgentOutput(
+            api::message::AgentOutput {
+                text: fallback_text.to_owned(),
+            },
+        )),
     }
-    block
+}
+
+fn runtime_activity_client_action(action: api::client_action::Action) -> ResponseEvent {
+    ResponseEvent {
+        r#type: Some(api::response_event::Type::ClientActions(
+            api::response_event::ClientActions {
+                actions: vec![ClientAction {
+                    action: Some(action),
+                }],
+            },
+        )),
+    }
 }
 
 #[cfg(test)]

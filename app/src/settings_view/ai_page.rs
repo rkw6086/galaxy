@@ -1973,7 +1973,7 @@ impl AISettingsPageView {
                 widgets.push(Box::new(CloudHandoffWidget::default()));
                 widgets.push(Box::new(CLIAgentWidget::default()));
                 if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
-                    widgets.push(Box::new(ACPSettingsWidget::new(ctx)));
+                    widgets.push(Box::new(AgentRuntimeSettingsWidget::new(ctx)));
                 }
                 widgets.push(Box::new(AgentAttributionWidget::default()));
                 widgets.push(Box::new(OtherAIWidget::default()));
@@ -2011,9 +2011,6 @@ impl AISettingsPageView {
                     widgets.push(Box::new(VoiceWidget::default()));
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
-                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
-                    widgets.push(Box::new(ACPSettingsWidget::new(ctx)));
-                }
                 if FeatureFlag::CustomModelRouters.is_enabled() {
                     widgets.push(Box::new(CustomModelRoutersWidget));
                 }
@@ -2038,6 +2035,9 @@ impl AISettingsPageView {
                 widgets.push(Box::new(ModelsOverviewWidget));
                 widgets.push(Box::new(OpenAISettingsWidget::new(ctx)));
                 widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
+                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+                    widgets.push(Box::new(AgentRuntimeSettingsWidget::new(ctx)));
+                }
                 let title: Option<&str> = None;
                 return (PageType::new_uncategorized(widgets, title), None);
             }
@@ -7268,7 +7268,7 @@ impl SettingsWidget for ModelsOverviewWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "models providers rig litellm openai compatible ollama lm studio bedrock"
+        "models providers runtimes rig litellm openai compatible ollama lm studio bedrock acp agent client protocol"
     }
 
     fn render(
@@ -7286,18 +7286,19 @@ impl SettingsWidget for ModelsOverviewWidget {
             .map(|provider| provider.models.len())
             .sum::<usize>();
         let bedrock_model_count = settings.bedrock_models.value().len();
+        let agent_runtime_count = usize::from(*settings.acp_enabled.value());
 
         Flex::column()
             .with_spacing(8.)
             .with_child(build_sub_header(appearance, "Models", None).finish())
             .with_child(render_ai_setting_description(
-                "Configure the model providers available to Galaxy. OpenAI-compatible endpoints and opted-in Bedrock models share the same Rig conversation, tool, and UI runtime; Bedrock's compatibility path remains available during validation.",
+                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI-compatible endpoints and Bedrock models run through Rig. ACP coding agents use the same Galaxy runtime boundary while retaining their own model, login, session, and tool loop.",
                 true,
                 app,
             ))
             .with_child(render_ai_setting_description(
                 format!(
-                    "{endpoint_count} OpenAI-compatible provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s)."
+                    "{endpoint_count} OpenAI-compatible provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled agent runtime(s)."
                 ),
                 true,
                 app,
@@ -7811,7 +7812,7 @@ impl SettingsWidget for BedrockSettingsWidget {
     }
 }
 
-struct ACPSettingsWidget {
+struct AgentRuntimeSettingsWidget {
     enabled_toggle: SwitchStateHandle,
     agent_id_editor: ViewHandle<EditorView>,
     command_editor: ViewHandle<EditorView>,
@@ -7820,7 +7821,7 @@ struct ACPSettingsWidget {
     refresh_button: ViewHandle<ActionButton>,
 }
 
-impl ACPSettingsWidget {
+impl AgentRuntimeSettingsWidget {
     fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
         let settings = AISettings::as_ref(ctx);
         let is_enabled = *settings.acp_enabled.value();
@@ -7988,11 +7989,11 @@ impl ACPSettingsWidget {
     }
 }
 
-impl SettingsWidget for ACPSettingsWidget {
+impl SettingsWidget for AgentRuntimeSettingsWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "acp agent client protocol codex opencode subscription local agent"
+        "agent runtime acp agent client protocol codex opencode subscription local"
     }
 
     fn should_render(&self, _app: &AppContext) -> bool {
@@ -8014,9 +8015,14 @@ impl SettingsWidget for ACPSettingsWidget {
             .discovery_state()
             .clone();
 
-        column.add_child(build_sub_header(appearance, "Agent Client Protocol", None).finish());
+        column.add_child(build_sub_header(appearance, "Agent runtimes", None).finish());
+        column.add_child(render_ai_setting_description(
+            "Connect session-oriented coding agents through the Agent Client Protocol. Agent runtimes are not model providers: Galaxy supplies the workspace UI and safety boundary while the agent owns its model loop and session.",
+            true,
+            app,
+        ));
         column.add_child(render_ai_setting_toggle::<AcpEnabled>(
-            "Use an ACP agent for new conversations",
+            "Enable ACP agent runtime",
             AISettingsPageAction::ToggleAcpEnabled,
             is_enabled,
             true,

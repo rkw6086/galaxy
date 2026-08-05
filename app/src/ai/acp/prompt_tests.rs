@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use galaxy_acp::ContentBlock;
+use galaxy_agent_core::{ContentPart, MessageContent};
 use regex::Regex;
 use serial_test::serial;
 
@@ -42,6 +42,19 @@ fn user_query(query: &str, context: Vec<AIAgentContext>) -> AIAgentInput {
     }
 }
 
+fn prompt_text(prompt: &MessageContent) -> &str {
+    match prompt {
+        MessageContent::Text(text) => text,
+        MessageContent::MultiPart(parts) => match &parts[0] {
+            ContentPart::Text(text) => text,
+            _ => panic!("expected prompt text first"),
+        },
+        MessageContent::ToolUse { .. } | MessageContent::ToolResult { .. } => {
+            panic!("expected user prompt")
+        }
+    }
+}
+
 #[test]
 fn keeps_images_as_native_acp_content() {
     let mut params = RequestParams::new_for_test();
@@ -56,17 +69,19 @@ fn keeps_images_as_native_acp_content() {
     )];
 
     let prompt = prompt_content(&params, GalaxyTerminalTools::default()).expect("prompt");
-    assert_eq!(prompt.len(), 2);
+    let MessageContent::MultiPart(parts) = &prompt else {
+        panic!("expected multipart prompt");
+    };
+    assert_eq!(parts.len(), 2);
     assert!(matches!(
-        &prompt[0],
-        ContentBlock::Text(text) if text.text == "What is in this image?"
+        &parts[0],
+        ContentPart::Text(text) if text == "What is in this image?"
     ));
     assert!(matches!(
-        &prompt[1],
-        ContentBlock::Image(image)
-            if image.data == "aW1hZ2U="
-                && image.mime_type == "image/png"
-                && image.uri.as_deref() == Some("attachment://screen.png")
+        &parts[1],
+        ContentPart::Image { data, mime_type }
+            if data == b"image"
+                && mime_type == "image/png"
     ));
 }
 
@@ -80,13 +95,11 @@ fn sends_rules_and_selected_text_without_changing_visible_query() {
     params.global_rules = vec![("Safety".to_owned(), "Run tests first.".to_owned())];
 
     let prompt = prompt_content(&params, GalaxyTerminalTools::default()).expect("prompt");
-    let ContentBlock::Text(text) = &prompt[0] else {
-        panic!("expected text");
-    };
-    assert!(text.text.starts_with("Fix this"));
-    assert!(text.text.contains("hidden_from_transcript"));
-    assert!(text.text.contains("broken()"));
-    assert!(text.text.contains("Run tests first."));
+    let text = prompt_text(&prompt);
+    assert!(text.starts_with("Fix this"));
+    assert!(text.contains("hidden_from_transcript"));
+    assert!(text.contains("broken()"));
+    assert!(text.contains("Run tests first."));
 }
 
 #[test]
@@ -98,12 +111,10 @@ fn hidden_system_requests_still_reach_the_agent_without_a_user_bubble() {
     }];
 
     let prompt = prompt_content(&params, GalaxyTerminalTools::default()).expect("prompt");
-    let ContentBlock::Text(text) = &prompt[0] else {
-        panic!("expected text");
-    };
-    assert!(text.text.starts_with("Handle the Galaxy system request"));
-    assert!(text.text.contains("Repair the failing unit test."));
-    assert!(text.text.contains("hidden_from_transcript"));
+    let text = prompt_text(&prompt);
+    assert!(text.starts_with("Handle the Galaxy system request"));
+    assert!(text.contains("Repair the failing unit test."));
+    assert!(text.contains("hidden_from_transcript"));
 }
 
 #[test]
@@ -135,16 +146,14 @@ fn running_command_identity_and_output_are_sent_as_hidden_context() {
         },
     )
     .expect("prompt");
-    let ContentBlock::Text(text) = &prompt[0] else {
-        panic!("expected text");
-    };
-    assert!(text.text.starts_with("Stop this after 75 seconds."));
-    assert!(text.text.contains(block_id.as_str()));
-    assert!(text.text.contains("elapsed: 41s"));
-    assert!(text.text.contains("galaxy_terminal_status"));
-    assert!(text.text.contains("running_for_ms"));
-    assert!(text.text.contains("galaxy_terminal_interrupt_at"));
-    assert!(text.text.contains("outside the model loop"));
+    let text = prompt_text(&prompt);
+    assert!(text.starts_with("Stop this after 75 seconds."));
+    assert!(text.contains(block_id.as_str()));
+    assert!(text.contains("elapsed: 41s"));
+    assert!(text.contains("galaxy_terminal_status"));
+    assert!(text.contains("running_for_ms"));
+    assert!(text.contains("galaxy_terminal_interrupt_at"));
+    assert!(text.contains("outside the model loop"));
 }
 
 #[test]
@@ -176,12 +185,10 @@ fn running_command_prompt_does_not_advertise_unavailable_mutations() {
         },
     )
     .expect("prompt");
-    let ContentBlock::Text(text) = &prompt[0] else {
-        panic!("expected text");
-    };
-    assert!(text.text.contains("galaxy_terminal_status"));
-    assert!(text.text.contains("no Galaxy terminal mutation tool"));
-    assert!(!text.text.contains("galaxy_terminal_interrupt_at"));
+    let text = prompt_text(&prompt);
+    assert!(text.contains("galaxy_terminal_status"));
+    assert!(text.contains("no Galaxy terminal mutation tool"));
+    assert!(!text.contains("galaxy_terminal_interrupt_at"));
 }
 
 #[test]
@@ -224,20 +231,19 @@ fn redacts_request_text_before_creating_acp_content_blocks() {
     }];
 
     let prompt = prompt_content(&params, GalaxyTerminalTools::default()).expect("prompt");
-    let ContentBlock::Text(text) = &prompt[0] else {
-        panic!("expected text");
+    let MessageContent::MultiPart(parts) = &prompt else {
+        panic!("expected multipart prompt");
     };
-    assert!(!text.text.contains(SECRET));
-    assert!(text.text.contains("******************"));
-    assert!(text.text.contains("Selected text:"));
-    assert!(text.text.contains("Current output:"));
-    assert!(text.text.contains("Attachment notes.txt:"));
-    assert!(text.text.contains("Galaxy rules:"));
+    let text = prompt_text(&prompt);
+    assert!(!text.contains(SECRET));
+    assert!(text.contains("******************"));
+    assert!(text.contains("Selected text:"));
+    assert!(text.contains("Current output:"));
+    assert!(text.contains("Attachment notes.txt:"));
+    assert!(text.contains("Galaxy rules:"));
     assert!(matches!(
-        &prompt[1],
-        ContentBlock::Image(image)
-            if image.data == "aW1hZ2U="
-                && !image.uri.as_deref().unwrap_or_default().contains(SECRET)
+        &parts[1],
+        ContentPart::Image { data, .. } if data == b"image"
     ));
 
     // Prompt redaction must not mutate the local transcript copy.

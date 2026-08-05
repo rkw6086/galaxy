@@ -1,10 +1,8 @@
-use galaxy_acp::{
-    AcpEvent, AgentCapabilities, ContentBlock, SessionId, StopReason, TextContent, ToolCallId,
-    ToolCallStatus,
-};
+use galaxy_agent_core::{AgentEvent, RuntimeActivity, RuntimeActivityStatus, StopReason};
 use warp_multi_agent_api::{client_action, message, response_event};
 
 use super::AcpResponseTranslator;
+use crate::ai::agent::runtime_activity;
 
 #[test]
 fn initializes_the_existing_chat_exchange_and_persists_user_text() {
@@ -15,12 +13,8 @@ fn initializes_the_existing_chat_exchange_and_persists_user_text() {
         "acp:codex".to_owned(),
     );
     let events = translator
-        .translate(AcpEvent::SessionStarted {
-            session_id: SessionId::from("session"),
-            agent_info: None,
-            capabilities: AgentCapabilities::default(),
-            can_load: true,
-            can_steer: true,
+        .translate(AgentEvent::TurnStarted {
+            runtime_request_id: "session".to_owned(),
         })
         .expect("translate");
 
@@ -43,12 +37,12 @@ fn streams_agent_text_as_add_then_append() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     let first = translator
-        .translate(AcpEvent::AgentText {
+        .translate(AgentEvent::TextDelta {
             text: "one".to_owned(),
         })
         .expect("first");
     let second = translator
-        .translate(AcpEvent::AgentText {
+        .translate(AgentEvent::TextDelta {
             text: " two".to_owned(),
         })
         .expect("second");
@@ -70,15 +64,17 @@ fn streams_agent_text_as_add_then_append() {
 }
 
 #[test]
-fn renders_acp_tool_progress_as_text_not_an_executable_galaxy_action() {
+fn renders_acp_tool_progress_as_structured_non_executable_activity() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     let events = translator
-        .translate(AcpEvent::ToolCall {
-            id: ToolCallId::from("tool-1"),
-            title: "Read file".to_owned(),
-            status: ToolCallStatus::InProgress,
-            output: None,
+        .translate(AgentEvent::RuntimeActivityUpdated {
+            activity: RuntimeActivity {
+                id: "tool-1".to_owned(),
+                title: "Read file".to_owned(),
+                status: Some(RuntimeActivityStatus::InProgress),
+                output: None,
+            },
         })
         .expect("tool");
     let Some(response_event::Type::ClientActions(actions)) = &events[1].r#type else {
@@ -91,6 +87,15 @@ fn renders_acp_tool_progress_as_text_not_an_executable_galaxy_action() {
         add.messages[0].message,
         Some(message::Message::AgentOutput(_))
     ));
+    assert_eq!(
+        runtime_activity::decode(&add.messages[0].server_message_data),
+        Some(RuntimeActivity {
+            id: "tool-1".to_owned(),
+            title: "Read file".to_owned(),
+            status: Some(RuntimeActivityStatus::InProgress),
+            output: None,
+        })
+    );
 }
 
 #[test]
@@ -98,15 +103,14 @@ fn maps_usage_and_successful_completion() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     translator
-        .translate(AcpEvent::Usage {
-            used: 25,
-            size: 100,
-            cost: None,
+        .translate(AgentEvent::ContextUsageUpdated {
+            used_tokens: 25,
+            context_size: 100,
         })
         .expect("usage");
     let events = translator
-        .translate(AcpEvent::Finished {
-            stop_reason: StopReason::EndTurn,
+        .translate(AgentEvent::TurnStopped {
+            reason: StopReason::Completed,
         })
         .expect("finished");
     let Some(finished) = events.iter().find_map(|event| {
@@ -129,37 +133,84 @@ fn maps_usage_and_successful_completion() {
 }
 
 #[test]
-fn renders_bounded_tool_output_in_the_agent_transcript() {
+fn updates_the_existing_activity_card_with_bounded_tool_output() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
+    let started = translator
+        .translate(AgentEvent::RuntimeActivityUpdated {
+            activity: RuntimeActivity {
+                id: "tool-1".to_owned(),
+                title: "Run tests".to_owned(),
+                status: Some(RuntimeActivityStatus::InProgress),
+                output: None,
+            },
+        })
+        .expect("started");
+    let Some(response_event::Type::ClientActions(start_actions)) = &started[1].r#type else {
+        panic!("expected initial activity action");
+    };
+    let Some(client_action::Action::AddMessagesToTask(add)) = &start_actions.actions[0].action
+    else {
+        panic!("expected initial activity message");
+    };
+    let message_id = add.messages[0].id.clone();
+
     let events = translator
-        .translate(AcpEvent::ToolCall {
-            id: ToolCallId::from("tool-1"),
-            title: "Run tests".to_owned(),
-            status: ToolCallStatus::Completed,
-            output: Some("test one ... ok\ntest two ... ok".to_owned()),
+        .translate(AgentEvent::RuntimeActivityUpdated {
+            activity: RuntimeActivity {
+                id: "tool-1".to_owned(),
+                title: "Run tests".to_owned(),
+                status: Some(RuntimeActivityStatus::Completed),
+                output: Some("test one ... ok\ntest two ... ok".to_owned()),
+            },
         })
         .expect("tool");
 
-    let Some(response_event::Type::ClientActions(status_actions)) = &events[1].r#type else {
-        panic!("expected status action");
+    let Some(response_event::Type::ClientActions(update_actions)) = &events[0].r#type else {
+        panic!("expected update action");
     };
-    let Some(client_action::Action::AddMessagesToTask(add_status)) =
-        &status_actions.actions[0].action
+    let Some(client_action::Action::UpdateTaskMessage(update)) = &update_actions.actions[0].action
     else {
-        panic!("expected status message");
+        panic!("expected in-place activity update");
     };
-    let Some(message::Message::AgentOutput(status)) = &add_status.messages[0].message else {
-        panic!("expected agent output");
-    };
-    assert!(status.text.contains("Run tests"));
+    let updated_message = update.message.as_ref().expect("updated message");
+    assert_eq!(updated_message.id, message_id);
+    assert_eq!(
+        runtime_activity::decode(&updated_message.server_message_data),
+        Some(RuntimeActivity {
+            id: "tool-1".to_owned(),
+            title: "Run tests".to_owned(),
+            status: Some(RuntimeActivityStatus::Completed),
+            output: Some("test one ... ok\ntest two ... ok".to_owned()),
+        })
+    );
+}
 
-    let Some(response_event::Type::ClientActions(output_actions)) = &events[2].r#type else {
-        panic!("expected output action");
-    };
+#[test]
+fn activity_only_turn_does_not_claim_the_agent_returned_no_output() {
+    let mut translator =
+        AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
+    translator
+        .translate(AgentEvent::RuntimeActivityUpdated {
+            activity: RuntimeActivity {
+                id: "tool-1".to_owned(),
+                title: "Inspect repository".to_owned(),
+                status: Some(RuntimeActivityStatus::Completed),
+                output: Some("done".to_owned()),
+            },
+        })
+        .expect("activity");
+
+    let events = translator
+        .translate(AgentEvent::TurnStopped {
+            reason: StopReason::Completed,
+        })
+        .expect("finished");
+
+    assert_eq!(events.len(), 1);
     assert!(matches!(
-        output_actions.actions[0].action,
-        Some(client_action::Action::AppendToMessageContent(_))
+        events[0].r#type,
+        Some(response_event::Type::Finished(_))
     ));
 }
 
@@ -168,8 +219,8 @@ fn successful_turn_without_agent_output_is_still_visible() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     let events = translator
-        .translate(AcpEvent::Finished {
-            stop_reason: StopReason::EndTurn,
+        .translate(AgentEvent::TurnStopped {
+            reason: StopReason::Completed,
         })
         .expect("finished");
 
@@ -188,15 +239,13 @@ fn successful_turn_without_agent_output_is_still_visible() {
 }
 
 #[test]
-fn suppresses_unsolicited_user_content_so_initial_hidden_context_cannot_leak() {
+fn reasoning_is_not_flattened_into_the_plain_answer_transcript() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
 
     let events = translator
-        .translate(AcpEvent::UserContent {
-            content: ContentBlock::Text(TextContent::new(
-                "hidden initial prompt and system context",
-            )),
+        .translate(AgentEvent::ReasoningDelta {
+            text: "private chain of thought".to_owned(),
         })
         .expect("translate");
 
@@ -208,13 +257,15 @@ fn live_steering_adds_a_user_bubble_and_starts_a_new_assistant_bubble() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     translator
-        .translate(AcpEvent::AgentText {
+        .translate(AgentEvent::TextDelta {
             text: "original response".to_owned(),
         })
         .expect("initial output");
 
     let steered = translator
-        .translate_steered_user_content(ContentBlock::Text(TextContent::new("stop at 75s")))
+        .translate(AgentEvent::UserInputAccepted {
+            text: "stop at 75s".to_owned(),
+        })
         .expect("steering");
     let Some(response_event::Type::ClientActions(user_actions)) = &steered[0].r#type else {
         panic!("expected user client action");
@@ -229,7 +280,7 @@ fn live_steering_adds_a_user_bubble_and_starts_a_new_assistant_bubble() {
     ));
 
     let resumed = translator
-        .translate(AcpEvent::AgentText {
+        .translate(AgentEvent::TextDelta {
             text: "steered response".to_owned(),
         })
         .expect("resumed output");
@@ -247,16 +298,16 @@ fn steering_failure_surfaces_an_indeterminate_delivery_warning() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
     translator
-        .translate(AcpEvent::SessionStarted {
-            session_id: SessionId::from("session"),
-            agent_info: None,
-            capabilities: AgentCapabilities::default(),
-            can_load: true,
-            can_steer: true,
+        .translate(AgentEvent::TurnStarted {
+            runtime_request_id: "session".to_owned(),
         })
         .expect("initialize");
 
-    let events = translator.steering_failed("turn is no longer active");
+    let events = translator
+        .translate(AgentEvent::RuntimeNotice {
+            message: "Galaxy couldn't confirm that live steering message: turn is no longer active. The agent may not have received it; check the current terminal and file state before retrying.".to_owned(),
+        })
+        .expect("notice");
 
     assert_eq!(events.len(), 1);
     let Some(response_event::Type::ClientActions(error_actions)) = &events[0].r#type else {
@@ -279,7 +330,11 @@ fn implicit_steering_turn_warning_does_not_recommend_a_blind_retry() {
     let mut translator =
         AcpResponseTranslator::new("task".to_owned(), false, None, "acp:codex".to_owned());
 
-    let events = translator.steering_started_new_turn();
+    let events = translator
+        .translate(AgentEvent::RuntimeNotice {
+            message: "The ACP adapter started that steering message as a separate turn instead of injecting it into the active one. Galaxy terminated the adapter process immediately, but the turn may have begun acting; check the current terminal and file state before retrying.".to_owned(),
+        })
+        .expect("notice");
 
     let text =
         events

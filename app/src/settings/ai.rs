@@ -2091,9 +2091,20 @@ impl AISettings {
 
     pub fn is_any_ai_enabled(&self, app: &AppContext) -> bool {
         // Galaxy does not require Warp authentication for AI.
-        // AI is enabled as long as the user hasn't explicitly disabled it
-        // and there's no org policy blocking it.
-        *self.is_any_ai_enabled && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+        // AI is enabled only when the user hasn't explicitly disabled it, at least one local
+        // runtime is enabled, and there's no org policy blocking it.
+        *self.is_any_ai_enabled
+            && self.has_enabled_ai_runtime()
+            && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+    }
+
+    /// Returns whether Galaxy has a local model provider or agent runtime enabled.
+    pub fn has_enabled_ai_runtime(&self) -> bool {
+        *self.bedrock_enabled.value()
+            || *self.openai_enabled.value()
+            || (cfg!(unix)
+                && FeatureFlag::AgentClientProtocol.is_enabled()
+                && *self.acp_enabled.value())
     }
 
     pub fn default_session_mode(&self, app: &AppContext) -> DefaultSessionMode {

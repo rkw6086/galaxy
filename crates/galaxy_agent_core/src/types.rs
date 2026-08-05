@@ -99,6 +99,13 @@ pub struct TurnRequest {
     pub conversation_id: Option<String>,
     pub model: ModelId,
     pub system_prompt: Option<String>,
+    /// Current runtime input when the runtime owns conversation history.
+    ///
+    /// Provider runtimes normally consume `messages`, while session-oriented
+    /// runtimes such as ACP consume this single prompt and retain their own
+    /// history. Keeping the distinction explicit prevents applications from
+    /// serializing a prompt into provider history and translating it back.
+    pub prompt: Option<MessageContent>,
     pub messages: Vec<ConversationMessage>,
     pub tools: Vec<ToolDefinition>,
     pub max_output_tokens: Option<u64>,
@@ -111,11 +118,17 @@ impl TurnRequest {
             conversation_id: None,
             model: model.into(),
             system_prompt: None,
+            prompt: None,
             messages,
             tools: Vec::new(),
             max_output_tokens: None,
             metadata: BTreeMap::new(),
         }
+    }
+
+    pub fn with_prompt(mut self, prompt: MessageContent) -> Self {
+        self.prompt = Some(prompt);
+        self
     }
 }
 
@@ -233,6 +246,23 @@ pub enum StopReason {
     Other(String),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeActivityStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Failed,
+    Other(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeActivity {
+    pub id: String,
+    pub title: String,
+    pub status: Option<RuntimeActivityStatus>,
+    pub output: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AgentEvent {
     TurnStarted {
@@ -253,6 +283,23 @@ pub enum AgentEvent {
     },
     UsageUpdated {
         usage: Usage,
+    },
+    /// Progress owned by a session runtime rather than a Galaxy-executed tool.
+    RuntimeActivityUpdated {
+        activity: RuntimeActivity,
+    },
+    /// Current context occupancy reported by a session runtime.
+    ContextUsageUpdated {
+        used_tokens: u64,
+        context_size: u64,
+    },
+    /// Visible user input accepted while a turn was already running.
+    UserInputAccepted {
+        text: String,
+    },
+    /// A displayable runtime lifecycle or permission notice.
+    RuntimeNotice {
+        message: String,
     },
     TurnStopped {
         reason: StopReason,

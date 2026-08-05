@@ -305,6 +305,16 @@ where
                             ), stream_type));
                             return;
                         }
+                        AgentEvent::RuntimeActivityUpdated { .. }
+                        | AgentEvent::ContextUsageUpdated { .. }
+                        | AgentEvent::UserInputAccepted { .. }
+                        | AgentEvent::RuntimeNotice { .. } => {
+                            yield Err(agent_error(AgentError::new(
+                                galaxy_agent_core::AgentErrorKind::Protocol,
+                                "the provider runtime emitted a session-runtime event",
+                            ), stream_type));
+                            return;
+                        }
                     }
                 }
             }

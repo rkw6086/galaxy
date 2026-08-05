@@ -705,6 +705,27 @@ impl AIConversation {
         &self.agent_backend
     }
 
+    /// Updates the backend of a conversation that has not produced agent output.
+    ///
+    /// Provider failures without output are safe to retry through a newly enabled runtime. Once
+    /// any exchange has produced output, the backend remains stable so provider-native and
+    /// ACP-owned histories are never mixed.
+    pub(crate) fn set_agent_backend_if_no_output(&mut self, agent_backend: AgentBackend) -> bool {
+        let can_change_backend = self.all_exchanges().iter().all(|exchange| {
+            matches!(
+                &exchange.output_status,
+                AIAgentOutputStatus::Finished {
+                    finished_output: FinishedAIAgentOutput::Error { output: None, .. }
+                }
+            )
+        });
+        if !can_change_backend && self.agent_backend != agent_backend {
+            return false;
+        }
+        self.agent_backend = agent_backend;
+        true
+    }
+
     /// Records a resumable ACP session ID.
     ///
     /// Returns `false` when called for a native provider conversation.

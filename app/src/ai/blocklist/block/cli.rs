@@ -1641,7 +1641,9 @@ fn should_retain_task_output_message(
         || (is_latest_exchange
             && matches!(
                 message,
-                AIAgentOutputMessageType::Action(_) | AIAgentOutputMessageType::WebSearch(_)
+                AIAgentOutputMessageType::Action(_)
+                    | AIAgentOutputMessageType::RuntimeActivity(_)
+                    | AIAgentOutputMessageType::WebSearch(_)
             ))
 }
 

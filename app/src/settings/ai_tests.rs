@@ -423,6 +423,47 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
 }
 
 #[test]
+fn ai_is_disabled_without_an_enabled_runtime() {
+    let _acp_flag = FeatureFlag::AgentClientProtocol.override_enabled(true);
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        add_ai_enablement_dependencies_for_test(&mut app);
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .openai_enabled
+                .set_value(false, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(!settings.has_enabled_ai_runtime());
+            assert!(!settings.is_any_ai_enabled(ctx));
+        });
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+        });
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(settings.has_enabled_ai_runtime());
+            assert!(settings.is_any_ai_enabled(ctx));
+        });
+    });
+}
+
+#[test]
 fn test_should_display_quota_reset_banner_with_empty_history() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);

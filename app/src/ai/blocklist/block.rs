@@ -30,6 +30,7 @@ use base64::Engine as _;
 use chrono::Duration;
 use cli_controller::{CLISubagentController, CLISubagentEvent};
 use find::FindState;
+use galaxy_agent_core::RuntimeActivityStatus;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill;
@@ -815,6 +816,27 @@ impl CollapsibleElementState {
 
         if should_auto_collapse {
             self.expansion_state = CollapsibleExpansionState::Collapsed;
+        }
+    }
+
+    fn sync_runtime_activity(&mut self, is_streaming: bool, is_finished: bool, has_output: bool) {
+        if is_streaming
+            && has_output
+            && !self.user_toggled_while_streaming
+            && matches!(self.expansion_state, CollapsibleExpansionState::Collapsed)
+        {
+            self.expand();
+        }
+
+        self.sync_finished_state(is_finished);
+        if is_finished {
+            if let CollapsibleExpansionState::Expanded {
+                scroll_pinned_to_bottom,
+                ..
+            } = &mut self.expansion_state
+            {
+                *scroll_pinned_to_bottom = false;
+            }
         }
     }
 
@@ -2323,6 +2345,32 @@ impl AIBlock {
 
         // Register element state for reasoning messages and track summarization timing.
         for message in &output.messages {
+            if let AIAgentOutputMessageType::RuntimeActivity(activity) = &message.message {
+                let is_streaming = matches!(
+                    activity.status,
+                    Some(RuntimeActivityStatus::Pending | RuntimeActivityStatus::InProgress)
+                );
+                let is_finished = matches!(
+                    activity.status,
+                    Some(RuntimeActivityStatus::Completed | RuntimeActivityStatus::Failed)
+                );
+                let has_output = activity
+                    .output
+                    .as_deref()
+                    .is_some_and(|output| !output.is_empty());
+                let state = self
+                    .collapsible_block_states
+                    .entry(message.id.clone())
+                    .or_insert_with(|| {
+                        if is_streaming && has_output {
+                            CollapsibleElementState::default()
+                        } else {
+                            CollapsibleElementState::collapsed()
+                        }
+                    });
+                state.sync_runtime_activity(is_streaming, is_finished, has_output);
+            }
+
             if let AIAgentOutputMessageType::Reasoning {
                 finished_duration, ..
             } = &message.message
@@ -2608,6 +2656,7 @@ impl AIBlock {
                 | AIAgentOutputMessageType::Reasoning { .. }
                 | AIAgentOutputMessageType::Summarization { .. }
                 | AIAgentOutputMessageType::Subagent(_)
+                | AIAgentOutputMessageType::RuntimeActivity(_)
                 | AIAgentOutputMessageType::Action(_)
                 | AIAgentOutputMessageType::TodoOperation(_)
                 | AIAgentOutputMessageType::WebSearch(_)

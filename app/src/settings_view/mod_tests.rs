@@ -114,6 +114,9 @@ fn legacy_settings_names_remain_parseable() {
         ("Bedrock", SettingsSection::Models),
         ("OpenAI / LiteLLM", SettingsSection::Models),
         ("OpenAI", SettingsSection::Models),
+        ("Agent runtimes", SettingsSection::Models),
+        ("Agent Client Protocol", SettingsSection::Models),
+        ("ACP", SettingsSection::Models),
         ("CodeIndexing", SettingsSection::CodeIndexing),
         ("EditorAndCodeReview", SettingsSection::EditorAndCodeReview),
     ] {

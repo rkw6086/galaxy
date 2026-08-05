@@ -754,6 +754,10 @@ impl BlocklistAIController {
             } => (conversation_id, task_id),
         };
 
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+            history.refresh_conversation_backend_without_output(conversation_id, ctx);
+        });
+
         let active_conversation_id =
             BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_surface_id);
         let is_same_conversation_running_command_monitor = match &input_query.input_query {

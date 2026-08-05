@@ -91,3 +91,15 @@ fn denied_results_are_errors_but_cancelled_results_are_distinct() {
     assert!(denied.is_error());
     assert!(!cancelled.is_error());
 }
+
+#[test]
+fn session_runtime_prompt_is_distinct_from_provider_history() {
+    let request = TurnRequest::new("acp:codex", Vec::new())
+        .with_prompt(MessageContent::Text("inspect the workspace".to_owned()));
+
+    assert_eq!(
+        request.prompt,
+        Some(MessageContent::Text("inspect the workspace".to_owned()))
+    );
+    assert!(request.messages.is_empty());
+}

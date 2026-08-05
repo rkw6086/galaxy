@@ -88,6 +88,82 @@ fn acp_enabled_with_empty_command_selects_codex_backend() {
     });
 }
 
+#[test]
+fn enabling_acp_refreshes_a_provider_conversation_with_only_failed_output() {
+    let _acp_flag = FeatureFlag::AgentClientProtocol.override_enabled(true);
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let conversation_id = history_model.update(&mut app, |model, ctx| {
+            model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        history_model.read(&app, |model, _| {
+            assert_eq!(
+                model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .agent_backend(),
+                &AgentBackend::Provider
+            );
+        });
+        history_model.update(&mut app, |model, _| {
+            let now = Local::now();
+            model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .append_root_exchange_for_test(AIAgentExchange {
+                    id: AIAgentExchangeId::new(),
+                    input: Vec::new(),
+                    output_status: AIAgentOutputStatus::Finished {
+                        finished_output: FinishedAIAgentOutput::Error {
+                            output: None,
+                            error: RenderableAIError::other("No AI provider configured", true),
+                        },
+                    },
+                    added_message_ids: HashSet::new(),
+                    start_time: now,
+                    finish_time: Some(now),
+                    time_to_first_token_ms: None,
+                    working_directory: None,
+                    model_id: LLMId::from("none"),
+                    request_cost: None,
+                    coding_model_id: LLMId::from("none"),
+                    cli_agent_model_id: LLMId::from("none"),
+                    computer_use_model_id: LLMId::from("none"),
+                    response_initiator: None,
+                });
+        });
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.refresh_conversation_backend_without_output(conversation_id, ctx);
+        });
+
+        history_model.read(&app, |model, _| {
+            assert!(matches!(
+                model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .agent_backend(),
+                AgentBackend::Acp(_)
+            ));
+        });
+    });
+}
+
 /// Helper function to create a PersistedAIInput for testing
 fn create_persisted_query(
     query_text: &str,

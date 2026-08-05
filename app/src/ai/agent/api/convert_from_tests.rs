@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use ai::agent::action::AskUserQuestionType;
 use ai::skills::{SkillPathOrigin, SkillReference};
+use galaxy_agent_core::{RuntimeActivity, RuntimeActivityStatus};
 use warp_multi_agent_api as api;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 
@@ -11,7 +12,8 @@ use super::{
 };
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionType, AIAgentOutputMessageType, LifecycleEventType, StartAgentExecutionMode,
+    runtime_activity, AIAgentActionType, AIAgentOutputMessageType, LifecycleEventType,
+    StartAgentExecutionMode,
 };
 
 fn start_agent_tool_call_message(
@@ -664,4 +666,46 @@ fn transfer_control_tool_call_converts_to_action_message() {
             panic!("Expected transfer-control tool call to produce a client action")
         }
     }
+}
+
+#[test]
+fn structured_runtime_activity_converts_to_display_only_output() {
+    let activity = RuntimeActivity {
+        id: "tool-1".to_owned(),
+        title: "List directories".to_owned(),
+        status: Some(RuntimeActivityStatus::Completed),
+        output: Some("payments\nrecords_v2".to_owned()),
+    };
+    let task_id = TaskId::new("task".to_owned());
+    let message = api::Message {
+        fetched_memories: Vec::new(),
+        id: "message".to_owned(),
+        task_id: "task".to_owned(),
+        server_message_data: runtime_activity::encode(&activity).expect("metadata"),
+        citations: Vec::new(),
+        message: Some(api::message::Message::AgentOutput(
+            api::message::AgentOutput {
+                text: "fallback text".to_owned(),
+            },
+        )),
+        request_id: "request".to_owned(),
+        timestamp: None,
+    };
+
+    let converted = message
+        .to_client_output_message(ConversionParams {
+            task_id: &task_id,
+            current_todo_list: None,
+            active_code_review: None,
+            skill_path_origin: &SkillPathOrigin::Local,
+        })
+        .expect("conversion");
+
+    let MaybeAIAgentOutputMessage::Message(output) = converted else {
+        panic!("expected display output");
+    };
+    assert_eq!(
+        output.message,
+        AIAgentOutputMessageType::RuntimeActivity(activity)
+    );
 }

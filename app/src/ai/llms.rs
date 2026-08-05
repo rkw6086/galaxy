@@ -421,7 +421,7 @@ impl AvailableLLMs {
                     request_multiplier: 1,
                     credit_multiplier: None,
                 },
-                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
+                description: Some("Enable an AI runtime in Models settings".to_string()),
                 disable_reason: Some(DisableReason::Unavailable),
                 vision_supported: false,
                 spec: None,
@@ -524,7 +524,7 @@ impl Default for ModelsByFeature {
                     request_multiplier: 1,
                     credit_multiplier: None,
                 },
-                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
+                description: Some("Enable an AI runtime in Models settings".to_string()),
                 disable_reason: None,
                 vision_supported: false,
                 spec: None,
@@ -639,6 +639,7 @@ impl LLMPreferences {
                 event,
                 AISettingsChangedEvent::BedrockEnabled { .. }
                     | AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::AcpEnabled { .. }
                     | AISettingsChangedEvent::OpenAIBaseUrl { .. }
                     | AISettingsChangedEvent::OpenAIApiKey { .. }
                     | AISettingsChangedEvent::OpenAIModels { .. }
@@ -1047,8 +1048,20 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_acp_models(&mut self, ctx: &AppContext) {
+        let previous_acp_model_ids = self.acp_selections.keys().cloned().collect::<HashSet<_>>();
+        let remove_previous_acp_models = |choices: &mut Vec<LLMInfo>| {
+            choices.retain(|model| !previous_acp_model_ids.contains(&model.id));
+        };
+        remove_previous_acp_models(&mut self.models_by_feature.agent_mode.choices);
+        remove_previous_acp_models(&mut self.models_by_feature.coding.choices);
+        if let Some(cli) = &mut self.models_by_feature.cli_agent {
+            remove_previous_acp_models(&mut cli.choices);
+        }
         self.acp_selections.clear();
         let settings = AISettings::as_ref(ctx);
+        if !*settings.acp_enabled.value() {
+            return;
+        }
         for agent in settings.acp_agents.value() {
             let model_option = agent
                 .config_options
