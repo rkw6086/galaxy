@@ -4909,6 +4909,17 @@ impl GetSingletonModelHandle for AppContext {
 }
 
 impl AppContext {
+    /// Returns a singleton model when it has already been registered.
+    ///
+    /// This is useful for infrastructure models that can also be constructed
+    /// in isolation by tests before the full application singleton graph is
+    /// available.
+    pub fn try_get_singleton_model_as_ref<T: SingletonEntity>(&self) -> Option<&T> {
+        self.singleton_models
+            .get(&std::any::TypeId::of::<T>())?
+            .downcast_ref(self)
+    }
+
     pub(super) fn get_singleton_model_as_ref<T: SingletonEntity>(&self) -> &T {
         match self.singleton_models.get(&std::any::TypeId::of::<T>()) {
             Some(model_handle) => model_handle

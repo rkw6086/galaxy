@@ -11,6 +11,7 @@ use ::local_control::remote_command::is_potential_remote_ssh_command;
 use anyhow::anyhow;
 use chrono::{DateTime, Local, TimeDelta};
 use futures::channel::oneshot;
+use galaxy_agent_core::RuntimeCapabilities;
 #[cfg(not(target_family = "wasm"))]
 use galaxy_agent_core::TurnCommand;
 #[cfg(not(target_family = "wasm"))]
@@ -122,7 +123,7 @@ struct AcpRequestControl {
 /// received yet, ensuring we don't retry after the AI has started executing actions.
 pub struct ResponseStream {
     id: ResponseStreamId,
-    agent_backend: AgentBackend,
+    runtime_capabilities: RuntimeCapabilities,
     #[cfg(not(target_family = "wasm"))]
     acp_session_metadata: Arc<Mutex<AcpSessionMetadata>>,
     #[cfg(not(target_family = "wasm"))]
@@ -193,7 +194,7 @@ impl ResponseStream {
         let (cancellation_tx, _rx) = oneshot::channel();
         Self {
             id,
-            agent_backend: AgentBackend::Provider,
+            runtime_capabilities: RuntimeCapabilities::provider(),
             #[cfg(not(target_family = "wasm"))]
             acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
             #[cfg(not(target_family = "wasm"))]
@@ -439,6 +440,10 @@ impl ResponseStream {
         let start_time = Local::now();
 
         let request_id = Uuid::new_v4();
+        let runtime_capabilities = match &agent_backend {
+            AgentBackend::Provider => RuntimeCapabilities::provider(),
+            AgentBackend::Acp(_) => RuntimeCapabilities::session_runtime(),
+        };
         #[cfg(not(target_family = "wasm"))]
         let acp_session_metadata = Arc::new(Mutex::new(AcpSessionMetadata::default()));
         #[cfg(not(target_family = "wasm"))]
@@ -489,7 +494,7 @@ impl ResponseStream {
         }
         Self {
             id: ResponseStreamId(Uuid::new_v4().to_string()),
-            agent_backend,
+            runtime_capabilities,
             #[cfg(not(target_family = "wasm"))]
             acp_session_metadata,
             #[cfg(not(target_family = "wasm"))]
@@ -516,13 +521,22 @@ impl ResponseStream {
         &self.id
     }
 
-    pub fn is_acp(&self) -> bool {
-        matches!(self.agent_backend, AgentBackend::Acp(_))
+    pub fn supports_shared_session_sync(&self) -> bool {
+        self.runtime_capabilities.shared_session_sync
+    }
+
+    pub fn host_manages_history(&self) -> bool {
+        self.runtime_capabilities.host_managed_history
+    }
+
+    pub fn allows_corrective_retries(&self) -> bool {
+        self.runtime_capabilities.corrective_retries
     }
 
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn acp_session_metadata(&self) -> Option<AcpSessionMetadata> {
-        self.is_acp()
+        self.runtime_capabilities
+            .session_resume
             .then(|| {
                 self.acp_session_metadata
                     .lock()
@@ -532,10 +546,10 @@ impl ResponseStream {
             .flatten()
     }
 
-    pub(super) fn try_steer_acp(&self, display_text: String) -> bool {
+    pub(super) fn try_steer_runtime(&self, display_text: String) -> bool {
         #[cfg(not(target_family = "wasm"))]
         {
-            if !self.is_acp()
+            if !self.runtime_capabilities.steering
                 || self.current_request_id.is_none()
                 || !self
                     .acp_session_metadata()
@@ -637,7 +651,10 @@ impl ResponseStream {
         &self,
         error: &Arc<crate::server::server_api::AIApiError>,
     ) -> bool {
-        if self.is_acp() || self.coding_model_fallback_attempted || self.has_received_client_actions
+        if !self.runtime_capabilities.model_selection
+            || !self.runtime_capabilities.request_retries
+            || self.coding_model_fallback_attempted
+            || self.has_received_client_actions
         {
             return false;
         }
@@ -820,7 +837,7 @@ impl ResponseStream {
                 let is_online = NetworkStatus::as_ref(ctx).is_online();
                 match recovery_action(
                     self.has_received_client_actions,
-                    e.is_recoverable() && !self.is_acp(),
+                    e.is_recoverable() && self.runtime_capabilities.request_retries,
                     self.retry_count < MAX_RETRIES,
                     self.can_attempt_resume_on_error,
                     is_online,
@@ -893,7 +910,7 @@ impl ResponseStream {
             let is_online = NetworkStatus::as_ref(ctx).is_online();
             match recovery_action(
                 self.has_received_client_actions,
-                unexpected_eof.is_recoverable() && !self.is_acp(),
+                unexpected_eof.is_recoverable() && self.runtime_capabilities.request_retries,
                 self.retry_count < MAX_RETRIES,
                 self.can_attempt_resume_on_error,
                 is_online,

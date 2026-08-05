@@ -31,12 +31,7 @@ impl OpenAICompatibleRuntime {
             id: format!("rig-openai-compatible:{}", config.model),
             display_name: format!("Rig / {}", config.model),
             kind: RuntimeKind::Provider,
-            capabilities: RuntimeCapabilities {
-                model_selection: true,
-                session_resume: false,
-                steering: false,
-                tool_permissions: false,
-            },
+            capabilities: RuntimeCapabilities::provider(),
         };
         Self { config, descriptor }
     }

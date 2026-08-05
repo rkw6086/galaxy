@@ -1183,6 +1183,7 @@ impl BlocklistAIHistoryModel {
     }
 
     fn configured_agent_backend(
+        terminal_surface_id: EntityId,
         is_viewing_shared_session: bool,
         is_cli_agent_transcript: bool,
         ctx: &AppContext,
@@ -1198,6 +1199,11 @@ impl BlocklistAIHistoryModel {
         let settings = AISettings::as_ref(ctx);
         if !*settings.acp_enabled.value() {
             return AgentBackend::Provider;
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(llm_preferences) = ctx.try_get_singleton_model_as_ref::<LLMPreferences>() {
+            return llm_preferences.agent_backend_for_active_model(Some(terminal_surface_id), ctx);
         }
 
         let configured_agent_id = settings.acp_agent_id.value().trim();
@@ -1224,12 +1230,6 @@ impl BlocklistAIHistoryModel {
                 .iter()
                 .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
                 .map(|agent| {
-                    #[cfg(not(target_family = "wasm"))]
-                    if let Some(selection) =
-                        LLMPreferences::as_ref(ctx).selected_acp_config_for_agent(&agent.name, ctx)
-                    {
-                        return selection;
-                    }
                     crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options)
                 })
                 .unwrap_or_default(),
@@ -1249,7 +1249,12 @@ impl BlocklistAIHistoryModel {
         let Some(conversation) = self.conversation(&conversation_id) else {
             return;
         };
+        let Some(terminal_surface_id) = self.terminal_surface_id_for_conversation(&conversation_id)
+        else {
+            return;
+        };
         let agent_backend = Self::configured_agent_backend(
+            terminal_surface_id,
             conversation.is_viewing_shared_session(),
             conversation.is_cli_agent_transcript(),
             ctx,
@@ -1277,8 +1282,12 @@ impl BlocklistAIHistoryModel {
         is_cli_agent_transcript: bool,
         ctx: &mut ModelContext<Self>,
     ) -> AIConversationId {
-        let agent_backend =
-            Self::configured_agent_backend(is_viewing_shared_session, is_cli_agent_transcript, ctx);
+        let agent_backend = Self::configured_agent_backend(
+            terminal_surface_id,
+            is_viewing_shared_session,
+            is_cli_agent_transcript,
+            ctx,
+        );
         let mut new_conversation = AIConversation::new_with_agent_backend(
             is_viewing_shared_session,
             is_cli_agent_transcript,

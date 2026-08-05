@@ -7,7 +7,6 @@
 mod launch;
 mod permissions;
 mod prompt;
-mod response_translator;
 mod runtime_model;
 mod transport;
 

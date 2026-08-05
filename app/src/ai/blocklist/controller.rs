@@ -818,7 +818,7 @@ impl BlocklistAIController {
         if can_attempt_live_steering {
             if let Some((stream_id, model_id)) = self
                 .in_flight_response_streams
-                .try_steer_acp_stream_for_conversation(conversation_id, query.clone(), ctx)
+                .try_steer_runtime_for_conversation(conversation_id, query.clone(), ctx)
             {
                 ctx.emit(BlocklistAIControllerEvent::SentRequest {
                     contains_user_query: true,
@@ -3446,7 +3446,7 @@ impl BlocklistAIController {
                     Ok(api::StreamEvent::Response(event)) => {
                         // If this controller is part of a shared session, forward the entire response event to viewers first.
                         if FeatureFlag::AgentSharedSessions.is_enabled()
-                            && !response_stream.as_ref(ctx).is_acp()
+                            && response_stream.as_ref(ctx).supports_shared_session_sync()
                         {
                             let mut model = self.terminal_model.lock();
                             if model.shared_session_status().is_sharer() {
@@ -3527,7 +3527,9 @@ impl BlocklistAIController {
                                 // After the stream finishes, persist the full message
                                 // history (input + assistant response) from the Arc back
                                 // into the conversation for the next request cycle.
-                                let new_history = (!response_stream.as_ref(ctx).is_acp())
+                                let new_history = response_stream
+                                    .as_ref(ctx)
+                                    .host_manages_history()
                                     .then(|| response_stream.as_ref(ctx).messages_sent().clone())
                                     .and_then(|messages_sent| {
                                         messages_sent.lock().ok().and_then(|sent| {
@@ -3632,9 +3634,10 @@ impl BlocklistAIController {
                         const MAX_ERROR_RETRIES: usize = 2;
                         let retry_count =
                             self.error_retry_counts.entry(conversation_id).or_insert(0);
-                        let should_corrective_retry = !response_stream.as_ref(ctx).is_acp()
-                            && is_corrective_retry_candidate
-                            && *retry_count < MAX_ERROR_RETRIES;
+                        let should_corrective_retry =
+                            response_stream.as_ref(ctx).allows_corrective_retries()
+                                && is_corrective_retry_candidate
+                                && *retry_count < MAX_ERROR_RETRIES;
 
                         if should_corrective_retry {
                             *retry_count += 1;

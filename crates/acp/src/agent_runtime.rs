@@ -75,17 +75,17 @@ pub struct AcpAgentRuntime {
 
 impl AcpAgentRuntime {
     #[must_use]
+    pub const fn capabilities() -> RuntimeCapabilities {
+        RuntimeCapabilities::session_runtime()
+    }
+
+    #[must_use]
     pub fn new(manager: AcpSessionManager, config: AcpAgentRuntimeConfig) -> Self {
         let descriptor = RuntimeDescriptor {
             id: config.runtime_id.clone(),
             display_name: config.display_name.clone(),
             kind: RuntimeKind::Acp,
-            capabilities: RuntimeCapabilities {
-                model_selection: false,
-                session_resume: true,
-                steering: true,
-                tool_permissions: true,
-            },
+            capabilities: Self::capabilities(),
         };
         Self {
             manager,

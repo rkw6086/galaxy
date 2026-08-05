@@ -52,11 +52,11 @@ impl PendingResponseStreams {
             .collect()
     }
 
-    /// Attempts to inject a plain-text follow-up into the active ACP turn.
+    /// Attempts to inject a plain-text follow-up into an active steerable runtime.
     ///
     /// Returning `None` leaves the caller free to use the normal
     /// cancel-and-queue path without dropping the user's message.
-    pub fn try_steer_acp_stream_for_conversation(
+    pub fn try_steer_runtime_for_conversation(
         &self,
         conversation_id: AIConversationId,
         display_text: String,
@@ -71,7 +71,7 @@ impl PendingResponseStreams {
         let model_id = stream.as_ref(app).llm_id().clone();
         stream
             .as_ref(app)
-            .try_steer_acp(display_text)
+            .try_steer_runtime(display_text)
             .then(|| (stream_id.clone(), model_id))
     }
 

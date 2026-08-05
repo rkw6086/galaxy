@@ -16,13 +16,15 @@ use warp_multi_agent_api as api;
 
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::acp::acp_selection_identity;
+use crate::ai::acp::{acp_launch_fingerprint, acp_selection_identity};
 use crate::ai::bedrock::models::get_effective_models;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
+#[cfg(not(target_family = "wasm"))]
+use crate::persistence::model::{AcpConversationData, AgentBackend};
 use crate::server::server_api::ServerApiProvider;
-use crate::settings::{AcpAgentSettings, BedrockModelConfig, OpenAIModelConfig};
+use crate::settings::{AcpConfigValueSettings, BedrockModelConfig, OpenAIModelConfig};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
@@ -112,6 +114,8 @@ pub enum LLMProvider {
     Bedrock,
     /// Models served through an OpenAI-compatible proxy (e.g. LiteLLM).
     LiteLLM,
+    /// Models selected and executed by an Agent Client Protocol runtime.
+    Acp,
     Unknown,
 }
 
@@ -124,6 +128,7 @@ impl LLMProvider {
             LLMProvider::Google => Some(Icon::GeminiLogo),
             LLMProvider::Bedrock => Some(Icon::BedrockLogo),
             LLMProvider::LiteLLM => Some(Icon::OpenAILogo),
+            LLMProvider::Acp => Some(Icon::Terminal),
             LLMProvider::Xai => None,
             LLMProvider::Unknown => None,
         }
@@ -138,6 +143,7 @@ impl LLMProvider {
             LLMProvider::Xai => "xAI",
             LLMProvider::Bedrock => "AWS Bedrock",
             LLMProvider::LiteLLM => "LiteLLM",
+            LLMProvider::Acp => "ACP",
             LLMProvider::Unknown => "this provider",
         }
     }
@@ -578,7 +584,14 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
     #[cfg(not(target_family = "wasm"))]
-    acp_selections: HashMap<LLMId, BTreeMap<String, serde_json::Value>>,
+    acp_selections: HashMap<LLMId, AcpModelSelection>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AcpModelSelection {
+    pub(crate) agent_id: String,
+    pub(crate) config_values: BTreeMap<String, serde_json::Value>,
 }
 
 impl LLMPreferences {
@@ -699,6 +712,7 @@ impl LLMPreferences {
             Self::ensure_default_models_in_settings(ctx);
             me.inject_bedrock_models(ctx);
             me.inject_openai_models(ctx);
+            me.ensure_default_model_present();
             me.fetch_openai_models_from_endpoint(ctx);
         }
 
@@ -741,19 +755,12 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_bedrock_models(&mut self, ctx: &AppContext) {
-        // Strip both existing Bedrock models and placeholder Unknown models.
-        self.models_by_feature
-            .agent_mode
-            .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
-        self.models_by_feature
-            .coding
-            .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
+        // Galaxy's runtime inventory is rebuilt exclusively from enabled local
+        // providers. Never retain Warp-hosted or stale cached model entries.
+        self.models_by_feature.agent_mode.choices.clear();
+        self.models_by_feature.coding.choices.clear();
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| {
-                m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown
-            });
+            cli.choices.clear();
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -1062,93 +1069,202 @@ impl LLMPreferences {
         if !*settings.acp_enabled.value() {
             return;
         }
-        for agent in settings.acp_agents.value() {
-            let model_option = agent
-                .config_options
-                .iter()
-                .find(|option| option.category.as_deref() == Some("model"));
-            let Some(model_option) = model_option else {
-                continue;
-            };
-            let secondary = agent.config_options.iter().filter(|option| {
-                matches!(
-                    option.category.as_deref(),
-                    Some("mode") | Some("thought_level")
-                )
-            });
-            for value in &model_option.options {
-                let suffix = secondary
-                    .clone()
-                    .filter_map(|option| {
-                        option
-                            .options
-                            .iter()
-                            .find(|value| value.value == option.current_value)
-                            .or_else(|| option.options.first())
-                            .map(|value| value.name.clone())
-                    })
-                    .collect::<Vec<_>>();
-                let display_name = if suffix.is_empty() {
-                    value.name.clone()
-                } else {
-                    format!("{} ({})", value.name, suffix.join(", "))
-                };
-                let mut selection =
-                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options);
-                selection.insert(model_option.id.clone(), value.value.clone());
-                let id = acp_selection_identity(&agent.id, &selection);
-                let llm_id = LLMId::from(id.as_str());
-                self.acp_selections.insert(llm_id.clone(), selection);
-                let info = LLMInfo {
-                    id: llm_id,
-                    display_name,
-                    base_model_name: value.name.clone(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: Some(agent.name.clone()),
-                    disable_reason: None,
-                    vision_supported: false,
-                    spec: None,
-                    provider: LLMProvider::Unknown,
-                    host_configs: HashMap::new(),
-                    discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
-                };
-                self.models_by_feature.agent_mode.choices.push(info.clone());
-                self.models_by_feature.coding.choices.push(info.clone());
-                if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-                    cli.choices.push(info);
+        let configured_agent_id = settings.acp_agent_id.value().trim();
+        let configured_agent_id = if configured_agent_id.is_empty() {
+            "codex"
+        } else {
+            configured_agent_id
+        };
+        let bedrock_enabled = *settings.bedrock_enabled.value();
+        let configured_agent = settings
+            .acp_agents
+            .value()
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(configured_agent_id));
+        let Some(agent) = configured_agent else {
+            let display_name = acp_agent_display_name(configured_agent_id);
+            self.push_acp_model(
+                configured_agent_id,
+                &display_name,
+                &display_name,
+                BTreeMap::new(),
+                None,
+            );
+            return;
+        };
+        let model_option = agent
+            .config_options
+            .iter()
+            .find(|option| option.category.as_deref() == Some("model"));
+        let Some(model_option) = model_option else {
+            let selection =
+                crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options);
+            self.push_acp_model(&agent.id, &agent.name, &agent.name, selection, None);
+            return;
+        };
+        let reasoning_option = agent
+            .config_options
+            .iter()
+            .find(|option| option.category.as_deref() == Some("thought_level"));
+        for value in model_option
+            .options
+            .iter()
+            .filter(|value| acp_model_is_enabled(&value.value, bedrock_enabled))
+        {
+            let mut selection =
+                crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options);
+            selection.insert(model_option.id.clone(), value.value.clone());
+            if let Some(reasoning_option) =
+                reasoning_option.filter(|option| !option.options.is_empty())
+            {
+                for reasoning in &reasoning_option.options {
+                    let mut selection = selection.clone();
+                    selection.insert(reasoning_option.id.clone(), reasoning.value.clone());
+                    self.push_acp_model(
+                        &agent.id,
+                        &value.name,
+                        &value.name,
+                        selection,
+                        Some(reasoning),
+                    );
                 }
+            } else {
+                self.push_acp_model(&agent.id, &value.name, &value.name, selection, None);
             }
         }
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn acp_selection_for_model(
-        &self,
-        model_id: &LLMId,
-    ) -> Option<&BTreeMap<String, serde_json::Value>> {
-        self.acp_selections.get(model_id)
+    fn push_acp_model(
+        &mut self,
+        agent_id: &str,
+        display_name: &str,
+        base_model_name: &str,
+        selection: BTreeMap<String, serde_json::Value>,
+        reasoning: Option<&AcpConfigValueSettings>,
+    ) {
+        let display_name = reasoning.map_or_else(
+            || display_name.to_owned(),
+            |reasoning| format!("{display_name} ({})", reasoning.name),
+        );
+        let id = acp_selection_identity(agent_id, &selection);
+        let llm_id = LLMId::from(id.as_str());
+        self.acp_selections.insert(
+            llm_id.clone(),
+            AcpModelSelection {
+                agent_id: agent_id.to_owned(),
+                config_values: selection,
+            },
+        );
+        let info = LLMInfo {
+            id: llm_id,
+            display_name,
+            base_model_name: base_model_name.to_owned(),
+            reasoning_level: reasoning.map(|reasoning| reasoning.name.clone()),
+            usage_metadata: LLMUsageMetadata {
+                request_multiplier: 1,
+                credit_multiplier: None,
+            },
+            description: None,
+            disable_reason: None,
+            vision_supported: false,
+            spec: None,
+            provider: LLMProvider::Acp,
+            host_configs: HashMap::new(),
+            discount_percentage: None,
+            context_window: LLMContextWindow::default(),
+        };
+        self.models_by_feature.agent_mode.choices.push(info.clone());
+        self.models_by_feature.coding.choices.push(info.clone());
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            cli.choices.push(info);
+        }
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn selected_acp_config_for_agent(
+    pub(crate) fn acp_runtime_selection_for_model(
         &self,
-        agent_name: &str,
+        model_id: &LLMId,
+    ) -> Option<&AcpModelSelection> {
+        self.acp_selections.get(model_id)
+    }
+
+    /// Resolves the runtime that owns the active model for a terminal surface.
+    ///
+    /// ACP is an execution backend, not a global lock on Agent Mode. Selecting
+    /// an ACP-advertised model routes the conversation to that ACP agent, while
+    /// selecting a Rig/provider model routes it through Galaxy's provider path.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn agent_backend_for_active_model(
+        &self,
+        terminal_view_id: Option<EntityId>,
         ctx: &AppContext,
-    ) -> Option<BTreeMap<String, serde_json::Value>> {
-        let profile = AIExecutionProfilesModel::as_ref(ctx).active_profile(None, ctx);
-        let model_id = profile.data().base_model.as_ref()?;
-        let model = self.models_by_feature.agent_mode.info_for_id(model_id)?;
-        model
-            .description
-            .as_deref()
-            .is_some_and(|name| name.eq_ignore_ascii_case(agent_name))
-            .then(|| self.acp_selections.get(model_id).cloned())
-            .flatten()
+    ) -> AgentBackend {
+        if !cfg!(unix) || !FeatureFlag::AgentClientProtocol.is_enabled() {
+            return AgentBackend::Provider;
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.acp_enabled.value() {
+            return AgentBackend::Provider;
+        }
+
+        let active_model = self.get_active_base_model(ctx, terminal_view_id);
+        if let Some(selection) = self.acp_runtime_selection_for_model(&active_model.id) {
+            return AgentBackend::Acp(AcpConversationData {
+                agent_id: selection.agent_id.clone(),
+                launch_fingerprint: acp_launch_fingerprint(
+                    &selection.agent_id,
+                    settings.acp_agent_command.value(),
+                    settings.acp_agent_args.value(),
+                ),
+                session_id: None,
+                config_values: selection.config_values.clone(),
+            });
+        }
+
+        if active_model.id.as_str() != "none" {
+            return AgentBackend::Provider;
+        }
+
+        // ACP remains a valid runtime even before discovery has returned a
+        // model option (and for agents that do not expose model selection at
+        // all). A discovered model catalog with no enabled entries must not
+        // fall back to its disabled current model, though.
+        let configured_agent_id = settings.acp_agent_id.value().trim();
+        let agent_id = if configured_agent_id.is_empty() {
+            "codex"
+        } else {
+            configured_agent_id
+        };
+        let configured_agent = settings
+            .acp_agents
+            .value()
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(agent_id));
+        if configured_agent.is_some_and(|agent| {
+            agent
+                .config_options
+                .iter()
+                .any(|option| option.category.as_deref() == Some("model"))
+        }) {
+            return AgentBackend::Provider;
+        }
+
+        AgentBackend::Acp(AcpConversationData {
+            agent_id: agent_id.to_owned(),
+            launch_fingerprint: acp_launch_fingerprint(
+                agent_id,
+                settings.acp_agent_command.value(),
+                settings.acp_agent_args.value(),
+            ),
+            session_id: None,
+            config_values: configured_agent
+                .map(|agent| {
+                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options)
+                })
+                .unwrap_or_default(),
+        })
     }
 
     /// Ensures the default model ID in each feature's choices still points to
@@ -2063,6 +2179,23 @@ impl Entity for LLMPreferences {
 }
 
 impl SingletonEntity for LLMPreferences {}
+
+#[cfg(not(target_family = "wasm"))]
+fn acp_agent_display_name(agent_id: &str) -> String {
+    match agent_id.to_ascii_lowercase().as_str() {
+        "codex" => "Codex".to_owned(),
+        "opencode" => "OpenCode".to_owned(),
+        _ => agent_id.to_owned(),
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn acp_model_is_enabled(value: &serde_json::Value, bedrock_enabled: bool) -> bool {
+    bedrock_enabled
+        || !value
+            .as_str()
+            .is_some_and(|model_id| model_id.starts_with("amazon-bedrock/"))
+}
 
 fn get_new_agent_mode_choices(
     old_config: &AvailableLLMs,

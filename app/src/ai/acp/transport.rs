@@ -9,14 +9,15 @@ use galaxy_acp::{
     SessionId,
 };
 use galaxy_agent_core::{
-    turn_control, AgentRuntime as _, TurnCommand, TurnCommandSender, TurnRequest,
+    turn_control, AgentRuntime as _, RuntimeCapabilities, TurnCommand, TurnCommandSender,
+    TurnRequest,
 };
 
 use super::launch::acp_selection_identity;
 use super::prompt::{prompt_content, GalaxyTerminalTools};
-use super::response_translator::AcpResponseTranslator;
 use crate::ai::agent::api::{self, RequestParams};
 use crate::ai::agent::EntrypointType;
+use crate::ai::runtime::{RuntimeResponseConfig, RuntimeResponseTranslator};
 use crate::persistence::model::AcpConversationData;
 use crate::server::server_api::AIApiError;
 
@@ -170,18 +171,24 @@ pub(crate) fn acp_startup_error_stream(
 fn response_translator(
     params: &RequestParams,
     backend: &AcpConversationData,
-) -> AcpResponseTranslator {
+) -> RuntimeResponseTranslator {
     let task_id = params
         .root_task_id
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let user_query = request_user_query(params);
-    AcpResponseTranslator::new(
+    RuntimeResponseTranslator::new(RuntimeResponseConfig {
         task_id,
-        params.tasks.is_empty(),
+        // ACP owns its session identifier. Keeping this empty prevents the
+        // compatibility Init event from entering Galaxy cloud-token paths.
+        conversation_id: String::new(),
+        needs_create_task: params.tasks.is_empty(),
         user_query,
-        acp_selection_identity(&backend.agent_id, &backend.config_values),
-    )
+        model_id: acp_selection_identity(&backend.agent_id, &backend.config_values),
+        max_context_tokens: None,
+        capabilities: RuntimeCapabilities::session_runtime(),
+        empty_output_message: Some("> ACP agent completed without a text response.".to_owned()),
+    })
 }
 
 fn request_user_query(params: &RequestParams) -> Option<String> {
@@ -250,10 +257,11 @@ fn galaxy_mcp_args(
 }
 
 fn translated_startup_error_stream(
-    mut translator: AcpResponseTranslator,
+    mut translator: RuntimeResponseTranslator,
     message: &str,
 ) -> api::ResponseStream {
-    let events = translator.startup_error(message);
+    let events =
+        translator.startup_error(&format!("Galaxy couldn't start the ACP agent: {message}"));
     Box::pin(futures::stream::iter(
         events
             .into_iter()

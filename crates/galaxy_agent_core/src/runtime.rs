@@ -21,6 +21,48 @@ pub struct RuntimeCapabilities {
     pub session_resume: bool,
     pub steering: bool,
     pub tool_permissions: bool,
+    /// Galaxy owns and persists the message history supplied to each turn.
+    pub host_managed_history: bool,
+    /// Tool proposals cross the runtime boundary for Galaxy to approve and execute.
+    pub host_tool_execution: bool,
+    /// A failed turn can be safely replayed from the same request payload.
+    pub request_retries: bool,
+    /// Galaxy can append corrective instructions and start a follow-up turn.
+    pub corrective_retries: bool,
+    /// Transcript events can be forwarded through Galaxy shared sessions.
+    pub shared_session_sync: bool,
+}
+
+impl RuntimeCapabilities {
+    #[must_use]
+    pub const fn provider() -> Self {
+        Self {
+            model_selection: true,
+            session_resume: false,
+            steering: false,
+            tool_permissions: false,
+            host_managed_history: true,
+            host_tool_execution: true,
+            request_retries: true,
+            corrective_retries: true,
+            shared_session_sync: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn session_runtime() -> Self {
+        Self {
+            model_selection: false,
+            session_resume: true,
+            steering: true,
+            tool_permissions: true,
+            host_managed_history: false,
+            host_tool_execution: false,
+            request_retries: false,
+            corrective_retries: false,
+            shared_session_sync: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -47,12 +47,7 @@ impl BedrockRuntime {
             id: format!("rig-bedrock:{resolved_model}"),
             display_name: format!("Rig / Bedrock / {resolved_model}"),
             kind: RuntimeKind::Provider,
-            capabilities: RuntimeCapabilities {
-                model_selection: true,
-                session_resume: false,
-                steering: false,
-                tool_permissions: false,
-            },
+            capabilities: RuntimeCapabilities::provider(),
         };
 
         Ok(Self {

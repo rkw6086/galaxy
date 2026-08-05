@@ -120,3 +120,22 @@ fn turn_control_delivers_cancel_and_steering_in_order() {
         assert_eq!(control.receive().await.unwrap(), TurnCommand::Cancel);
     });
 }
+
+#[test]
+fn runtime_shapes_publish_controller_policy_as_capabilities() {
+    let provider = RuntimeCapabilities::provider();
+    assert!(provider.host_managed_history);
+    assert!(provider.host_tool_execution);
+    assert!(provider.request_retries);
+    assert!(provider.corrective_retries);
+    assert!(provider.shared_session_sync);
+    assert!(!provider.steering);
+
+    let session = RuntimeCapabilities::session_runtime();
+    assert!(!session.host_managed_history);
+    assert!(!session.host_tool_execution);
+    assert!(!session.request_retries);
+    assert!(!session.corrective_retries);
+    assert!(!session.shared_session_sync);
+    assert!(session.steering);
+}
