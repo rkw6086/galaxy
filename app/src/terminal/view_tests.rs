@@ -128,6 +128,26 @@ fn automatic_command_monitor_start_is_deduplicated_per_block() {
 }
 
 #[test]
+fn command_monitor_start_status_handles_timer_races() {
+    assert_eq!(
+        super::command_monitor_start_status(true, true, true, true),
+        super::CommandMonitorStartStatus::AlreadyMonitoring
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, false, true, false),
+        super::CommandMonitorStartStatus::WaitingForThreshold
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, true, false, false),
+        super::CommandMonitorStartStatus::Ready
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, false, false, false),
+        super::CommandMonitorStartStatus::NoLongerEligible
+    );
+}
+
+#[test]
 fn agent_view_lifecycle_updates_input_mode() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);

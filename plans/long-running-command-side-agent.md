@@ -172,7 +172,7 @@ Tasks:
 - Replace the current one-off delayed input-lock check with a monitor-start event or extend the existing event with a long-running transition.
 - Capture command metadata and snapshots without holding `TerminalModel` locks across async work.
 - [x] Add cancellation/completion cleanup paths.
-- [ ] Add focused unit tests for timer race cases.
+- [x] Add focused unit tests for timer race cases.
 - [x] Add deterministic unit coverage for duplicate monitor registration and cleanup.
 
 ### Phase 3: Side-agent conversation creation

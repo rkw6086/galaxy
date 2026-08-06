@@ -741,6 +741,31 @@ fn register_command_monitor_start(
     pending_starts.insert(block_id.clone())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandMonitorStartStatus {
+    AlreadyMonitoring,
+    Ready,
+    WaitingForThreshold,
+    NoLongerEligible,
+}
+
+fn command_monitor_start_status(
+    is_agent_monitoring: bool,
+    is_active_and_long_running: bool,
+    is_executing: bool,
+    is_command_grid_active: bool,
+) -> CommandMonitorStartStatus {
+    if is_agent_monitoring {
+        CommandMonitorStartStatus::AlreadyMonitoring
+    } else if is_active_and_long_running {
+        CommandMonitorStartStatus::Ready
+    } else if is_executing || is_command_grid_active {
+        CommandMonitorStartStatus::WaitingForThreshold
+    } else {
+        CommandMonitorStartStatus::NoLongerEligible
+    }
+}
+
 #[derive(Default)]
 pub struct ControlMasterErrorBannerState {
     /// Whether or not the control master error banner is currently visible to
@@ -7432,63 +7457,66 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         ctx.spawn(Timer::after(delay), move |me, _, ctx| {
-            let (needs_monitor, waiting_for_threshold) = {
+            let status = {
                 let model = me.model.lock();
                 let Some(block) = model.block_list().block_with_id(&block_id) else {
                     return;
                 };
-                if block.is_agent_monitoring() {
-                    (false, false)
-                } else if block.is_active_and_long_running() {
-                    (true, false)
-                } else {
-                    (
-                        false,
-                        block.is_executing() || block.is_command_grid_active(),
-                    )
-                }
+                command_monitor_start_status(
+                    block.is_agent_monitoring(),
+                    block.is_active_and_long_running(),
+                    block.is_executing(),
+                    block.is_command_grid_active(),
+                )
             };
-            if !needs_monitor {
-                if waiting_for_threshold && remaining_force_refresh_retries > 0 {
+
+            match status {
+                CommandMonitorStartStatus::WaitingForThreshold
+                    if remaining_force_refresh_retries > 0 =>
+                {
                     me.schedule_command_monitor_start_after(
                         block_id,
                         COMMAND_MONITOR_RETRY_INTERVAL,
                         remaining_force_refresh_retries - 1,
                         ctx,
                     );
-                } else if waiting_for_threshold {
+                }
+                CommandMonitorStartStatus::WaitingForThreshold => {
                     me.pending_command_monitor_starts.remove(&block_id);
                     log::warn!(
                         "Command block {block_id:?} never reached the long-running threshold; \
                              automatic command monitoring was not started"
                     );
-                } else {
+                }
+                CommandMonitorStartStatus::AlreadyMonitoring
+                | CommandMonitorStartStatus::NoLongerEligible => {
                     me.pending_command_monitor_starts.remove(&block_id);
                 }
-                return;
-            }
-
-            let refresh_requested = me.cli_subagent_controller.update(ctx, |controller, ctx| {
-                controller.request_force_refresh(&block_id, ctx)
-            });
-            if refresh_requested {
-                log::info!(
-                    "Requested an immediate command snapshot to start monitoring block \
-                         {block_id:?}"
-                );
-            } else if remaining_force_refresh_retries > 0 {
-                me.schedule_command_monitor_start_after(
-                    block_id,
-                    COMMAND_MONITOR_RETRY_INTERVAL,
-                    remaining_force_refresh_retries - 1,
-                    ctx,
-                );
-            } else {
-                me.pending_command_monitor_starts.remove(&block_id);
-                log::warn!(
-                    "Could not find the pending shell action for long-running block \
-                         {block_id:?}; automatic command monitoring was not started"
-                );
+                CommandMonitorStartStatus::Ready => {
+                    let refresh_requested =
+                        me.cli_subagent_controller.update(ctx, |controller, ctx| {
+                            controller.request_force_refresh(&block_id, ctx)
+                        });
+                    if refresh_requested {
+                        log::info!(
+                            "Requested an immediate command snapshot to start monitoring block \
+                             {block_id:?}"
+                        );
+                    } else if remaining_force_refresh_retries > 0 {
+                        me.schedule_command_monitor_start_after(
+                            block_id,
+                            COMMAND_MONITOR_RETRY_INTERVAL,
+                            remaining_force_refresh_retries - 1,
+                            ctx,
+                        );
+                    } else {
+                        me.pending_command_monitor_starts.remove(&block_id);
+                        log::warn!(
+                            "Could not find the pending shell action for long-running block \
+                             {block_id:?}; automatic command monitoring was not started"
+                        );
+                    }
+                }
             }
         });
     }
