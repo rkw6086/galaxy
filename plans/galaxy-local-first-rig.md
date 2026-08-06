@@ -407,6 +407,8 @@ metadata.
   Drive remains usable while logged out; team-only actions retain their separate restrictions.
 - [x] Remove the stale account/signup gate from the Global Agent control so configured local
   providers and runtimes remain usable while logged out.
+- [x] Remove the inherited account-credit, billing-status, and upgrade CTA widget from AI
+  settings; configured local providers own their credentials and usage limits.
 - [x] Move the retained Drive import flow onto local persistence for personal targets, including
   local folder/notebook/workflow creation and progress reporting without remote `UpdateManager`
   or `SyncQueue` dependencies; shared/team imports retain their remote path.
