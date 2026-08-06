@@ -107,6 +107,27 @@ fn has_pending_user_query_block(view: &TerminalView) -> bool {
 }
 
 #[test]
+fn automatic_command_monitor_start_is_deduplicated_per_block() {
+    let mut pending_starts = HashSet::new();
+    let block_id = BlockId::new();
+
+    assert!(super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+    assert!(!super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+
+    pending_starts.remove(&block_id);
+    assert!(super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+}
+
+#[test]
 fn agent_view_lifecycle_updates_input_mode() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);

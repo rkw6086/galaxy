@@ -168,11 +168,12 @@ Files:
 
 Tasks:
 
-- Add a terminal-view-scoped monitor registry keyed by command/block ID.
+- [x] Add a terminal-view-scoped monitor registry keyed by command/block ID.
 - Replace the current one-off delayed input-lock check with a monitor-start event or extend the existing event with a long-running transition.
 - Capture command metadata and snapshots without holding `TerminalModel` locks across async work.
-- Add cancellation/completion cleanup paths.
-- Add focused unit tests for timer race cases and duplicate monitor prevention.
+- [x] Add cancellation/completion cleanup paths.
+- [ ] Add focused unit tests for timer race cases.
+- [x] Add deterministic unit coverage for duplicate monitor registration and cleanup.
 
 ### Phase 3: Side-agent conversation creation
 
