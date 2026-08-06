@@ -41,6 +41,7 @@ use crate::cloud_object::{
     CloudObjectUuidLookup as _, GenericStringObjectFormat, JsonObjectType, Space,
 };
 use crate::drive::CloudObjectTypeAndId;
+use crate::local_object_repository::{local_owner, LocalObjectRepository};
 use crate::persistence::{
     database_file_path_for_scope, establish_ro_connection, ModelEvent, PersistenceScope,
 };
@@ -499,6 +500,19 @@ impl TemplatableMCPServerManager {
         initiated_by: InitiatedBy,
         ctx: &mut ModelContext<Self>,
     ) {
+        if matches!(space, Space::Personal) {
+            let client_id = ClientId::default();
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.create_templatable_mcp_server_with_id(
+                    SyncId::ClientId(client_id),
+                    templatable_mcp_server,
+                    ctx,
+                );
+            });
+            self.fetch_cloud_servers(ctx);
+            return;
+        }
+
         let owner = UserWorkspaces::as_ref(ctx).space_to_owner(space, ctx);
         if let Some(owner) = owner {
             let update_manager = UpdateManager::handle(ctx);
@@ -527,9 +541,24 @@ impl TemplatableMCPServerManager {
         template_server: TemplatableMCPServer,
         ctx: &mut ModelContext<Self>,
     ) {
-        let cloud_templatable_mcp_server =
-            self.get_cloud_templatable_mcp_server(template_server.uuid);
+        let cloud_templatable_mcp_server = self
+            .get_cloud_templatable_mcp_server(template_server.uuid)
+            .cloned();
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {
+            if cloud_templatable_mcp_server.permissions.owner == local_owner()
+                && cloud_templatable_mcp_server.id.into_client().is_some()
+            {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.update_templatable_mcp_server(
+                        template_server.uuid,
+                        template_server,
+                        ctx,
+                    );
+                });
+                self.fetch_cloud_servers(ctx);
+                return;
+            }
+
             let update_manager = UpdateManager::handle(ctx);
             update_manager.update(ctx, |update_manager, ctx| {
                 update_manager.update_templatable_mcp_server(
@@ -553,6 +582,16 @@ impl TemplatableMCPServerManager {
 
         let cloud_templatable_mcp_server = self.get_cloud_templatable_mcp_server(uuid);
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {
+            if cloud_templatable_mcp_server.permissions.owner == local_owner()
+                && cloud_templatable_mcp_server.id.into_client().is_some()
+            {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_templatable_mcp_server(uuid, ctx);
+                });
+                self.fetch_cloud_servers(ctx);
+                return;
+            }
+
             let cloud_object_type_and_id = CloudObjectTypeAndId::GenericStringObject {
                 object_type: GenericStringObjectFormat::Json(JsonObjectType::TemplatableMCPServer),
                 id: cloud_templatable_mcp_server.id,
@@ -1425,6 +1464,11 @@ impl TemplatableMCPServerManager {
         let cloud_templatable_mcp_server = self.get_cloud_templatable_mcp_server(template_uuid);
 
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {
+            if cloud_templatable_mcp_server.permissions.owner == local_owner()
+                && cloud_templatable_mcp_server.id.into_client().is_some()
+            {
+                return true;
+            }
             let auth_state = AuthStateProvider::as_ref(ctx).get();
             let current_team = UserWorkspaces::as_ref(ctx).current_team();
 
@@ -1443,6 +1487,11 @@ impl TemplatableMCPServerManager {
     pub fn is_author(&self, template_uuid: Uuid, ctx: &AppContext) -> bool {
         let cloud_templatable_mcp_server = self.get_cloud_templatable_mcp_server(template_uuid);
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {
+            if cloud_templatable_mcp_server.permissions.owner == local_owner()
+                && cloud_templatable_mcp_server.id.into_client().is_some()
+            {
+                return true;
+            }
             let auth_state = AuthStateProvider::as_ref(ctx).get();
             cloud_templatable_mcp_server.metadata().creator_uid
                 == auth_state.user_id().map(|user_id| user_id.as_string())

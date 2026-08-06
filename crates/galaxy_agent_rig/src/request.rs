@@ -59,6 +59,7 @@ pub(crate) fn build_completion_request(
         tool_choice: None,
         additional_params,
         output_schema: None,
+        record_telemetry_content: false,
     })
 }
 
@@ -87,7 +88,8 @@ fn user_content(
             tool_use_id,
             content,
             is_error,
-        } => vec![UserContent::tool_result(
+        } => vec![UserContent::tool_result_with_call_id(
+            tool_use_id.clone(),
             tool_use_id,
             OneOrMany::one(ToolResultContent::text(tool_result_text(content, is_error))),
         )],
@@ -112,7 +114,12 @@ fn assistant_content(
             tool_use_id,
             name,
             input,
-        } => vec![AssistantContent::tool_call(tool_use_id, name, input)],
+        } => vec![AssistantContent::tool_call_with_call_id(
+            tool_use_id.clone(),
+            tool_use_id,
+            name,
+            input,
+        )],
         MessageContent::MultiPart(parts) => parts
             .into_iter()
             .map(|part| convert_assistant_part(part, encode_images_as_base64))
@@ -147,7 +154,8 @@ fn convert_user_part(
             tool_use_id,
             content,
             is_error,
-        } => Ok(UserContent::tool_result(
+        } => Ok(UserContent::tool_result_with_call_id(
+            tool_use_id.clone(),
             tool_use_id,
             OneOrMany::one(ToolResultContent::text(tool_result_text(content, is_error))),
         )),
@@ -178,7 +186,12 @@ fn convert_assistant_part(
             tool_use_id,
             name,
             input,
-        } => Ok(AssistantContent::tool_call(tool_use_id, name, input)),
+        } => Ok(AssistantContent::tool_call_with_call_id(
+            tool_use_id.clone(),
+            tool_use_id,
+            name,
+            input,
+        )),
         ContentPart::ToolResult { .. } => Err(invalid_role("tool result", "assistant")),
     }
 }

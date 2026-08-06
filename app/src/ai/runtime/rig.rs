@@ -7,7 +7,10 @@ use galaxy_agent_core::{
     turn_control, AgentError, AgentEvent, AgentRuntime, MessageContent, MessageRole, ToolCall,
     ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand,
 };
-use galaxy_agent_rig::{OpenAICompatibleRuntime, OpenAICompatibleRuntimeConfig};
+use galaxy_agent_rig::{
+    ChatGPTSubscriptionRuntime, ChatGPTSubscriptionRuntimeConfig, OpenAICompatibleRuntime,
+    OpenAICompatibleRuntimeConfig,
+};
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
@@ -24,6 +27,7 @@ use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::types::{ContentPart, ConversationMessage};
 use crate::ai::runtime::{RuntimeResponseConfig, RuntimeResponseTranslator};
 use crate::server::server_api::AIApiError;
+use crate::settings::OpenAIProviderKind;
 
 pub(crate) fn rig_openai_response_stream(
     config: OpenAIClientConfig,
@@ -35,21 +39,41 @@ pub(crate) fn rig_openai_response_stream(
     let skill_path_origin = params.session_context.skill_path_origin();
     let prepared = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
     let model_id = prepared.request.model.as_str().to_string();
-    let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
-        base_url: config.base_url,
-        api_key: config.api_key,
-        model: model_id.clone(),
-        max_output_tokens: config.max_output_tokens.map(u64::from),
-        supports_system_messages: config.supports_system_messages,
-    });
-    rig_response_stream(
-        runtime,
-        prepared,
-        skill_path_origin,
-        config.max_input_tokens,
-        "rig_openai_compatible",
-        cancellation_rx,
-    )
+    match config.kind {
+        OpenAIProviderKind::OpenAICompatible => {
+            let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
+                base_url: config.base_url,
+                api_key: config.api_key,
+                model: model_id.clone(),
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+                supports_system_messages: config.supports_system_messages,
+            });
+            rig_response_stream(
+                runtime,
+                prepared,
+                skill_path_origin,
+                config.max_input_tokens,
+                "rig_openai_compatible",
+                cancellation_rx,
+            )
+        }
+        OpenAIProviderKind::ChatGPTSubscription => {
+            let runtime = ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
+                model: model_id,
+                reasoning_effort: config.reasoning_effort,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+                auth_file: None,
+            });
+            rig_response_stream(
+                runtime,
+                prepared,
+                skill_path_origin,
+                config.max_input_tokens,
+                "rig_chatgpt_subscription",
+                cancellation_rx,
+            )
+        }
+    }
 }
 
 pub(crate) async fn rig_bedrock_response_stream(

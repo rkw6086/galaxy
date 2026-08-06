@@ -9,12 +9,13 @@ use galaxy_core::ui::color::ContrastingColor;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::Fill as ThemeFill;
 use galaxy_editor::editor::NavigationKey;
+use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     Dismiss, Empty, Expanded, Fill, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
     HyperlinkLens, HyperlinkUrl, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack,
-    Text,
+    OffsetPositioning, Padding, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
+    Shrinkable, Stack, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::keymap::{ContextPredicate, FixedBinding, Keystroke};
@@ -34,6 +35,10 @@ use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
 
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
+use super::provider_setup_modal::{
+    AcpProviderDraft, BedrockProviderDraft, ProviderSetupModalBody, ProviderSetupModalBodyEvent,
+    ProviderSetupModalState,
+};
 use super::set_default_model_modal::{SetDefaultModelModalBody, SetDefaultModelModalBodyEvent};
 use super::settings_page::{
     build_sub_header, build_toggle_element, render_body_item_label,
@@ -53,6 +58,8 @@ use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
     AgentToolbarEditorMode, AgentToolbarInlineEditor,
 };
 use crate::ai::blocklist::BlocklistAIPermissions;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent, ChatGPTAuthState};
 use crate::ai::execution_profiles::model_menu_items::available_model_menu_items;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::execution_profiles::profiles::{
@@ -79,7 +86,7 @@ use crate::editor::{
     TextColors,
 };
 use crate::modal::{Modal, ModalEvent, ModalViewState};
-use crate::settings::ai::BedrockAuthMethod;
+use crate::settings::ai::OpenAIProviderKind;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent, AcpEnabled,
     AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
@@ -687,8 +694,9 @@ pub struct AISettingsPageView {
     // Profile views
     profile_views: Vec<ViewHandle<ExecutionProfileView>>,
     add_profile_button: ViewHandle<ActionButton>,
+    provider_setup_modal_state: ProviderSetupModalState,
     #[cfg(not(target_family = "wasm"))]
-    refresh_acp_button: ViewHandle<ActionButton>,
+    provider_setup_modal_body: ViewHandle<ProviderSetupModalBody>,
 
     // Custom model router views (gated on FeatureFlag::CustomModelRouters)
     #[cfg(feature = "local_fs")]
@@ -699,15 +707,30 @@ pub struct AISettingsPageView {
 
 impl AISettingsPageView {
     #[cfg(not(target_family = "wasm"))]
-    fn refresh_acp_discovery(&mut self, ctx: &mut ViewContext<Self>) {
-        let (config, agent_id) = {
-            let settings = AISettings::as_ref(ctx);
-            let Ok(config) = crate::ai::acp::AcpRuntimeModel::discovery_config(settings) else {
-                log::warn!("Could not resolve ACP launch configuration for discovery");
-                return;
-            };
-            (config, settings.acp_agent_id.value().clone())
+    fn refresh_acp_discovery_for_draft(
+        &mut self,
+        draft: &AcpProviderDraft,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Ok(config) = crate::ai::acp::AcpRuntimeModel::discovery_config_for_values(
+            &draft.agent_id,
+            &draft.command,
+            &draft.args,
+        ) else {
+            log::warn!("Could not resolve ACP launch configuration for discovery");
+            return;
         };
+        self.start_acp_discovery(config, draft.agent_id.clone(), ctx);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn start_acp_discovery(
+        &mut self,
+        config: galaxy_acp::AcpManagerConfig,
+        agent_id: String,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let provider_setup_modal_body = self.provider_setup_modal_body.clone();
         /*
          * The settings borrow must end before updating the runtime singleton.
          */
@@ -719,6 +742,10 @@ impl AISettingsPageView {
                 Ok(manager) => manager,
                 Err(error) => {
                     log::warn!("Could not start ACP discovery: {error}");
+                    let error_text = error.to_string();
+                    provider_setup_modal_body.update(ctx, |body, ctx| {
+                        body.finish_acp_discovery(Err(error_text), ctx);
+                    });
                     return;
                 }
             };
@@ -751,6 +778,9 @@ impl AISettingsPageView {
                         crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
                             runtime.finish_discovery_success(option_count, ctx);
                         });
+                        provider_setup_modal_body.update(ctx, |body, ctx| {
+                            body.finish_acp_discovery(Ok(()), ctx);
+                        });
                     }
                     Err(error) => {
                         log::warn!("ACP discovery failed: {error}");
@@ -768,7 +798,10 @@ impl AISettingsPageView {
                             }
                         });
                         crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
-                            runtime.finish_discovery_failure(error_text, ctx);
+                            runtime.finish_discovery_failure(error_text.clone(), ctx);
+                        });
+                        provider_setup_modal_body.update(ctx, |body, ctx| {
+                            body.finish_acp_discovery(Err(error_text), ctx);
                         });
                     }
                 }
@@ -1752,17 +1785,47 @@ impl AISettingsPageView {
                 })
         });
 
-        #[cfg(not(target_family = "wasm"))]
-        let refresh_acp_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Discover ACP options", SecondaryTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAcpDiscovery)
-                })
-        });
-
         add_profile_button.update(ctx, |button, ctx| {
             button.set_disabled(!is_any_ai_enabled, ctx);
+        });
+
+        let provider_setup_body = ctx.add_typed_action_view(ProviderSetupModalBody::new);
+        ctx.subscribe_to_view(&provider_setup_body, |me, _, event, ctx| match event {
+            ProviderSetupModalBodyEvent::Close => me.close_provider_setup_modal(ctx),
+            ProviderSetupModalBodyEvent::RequestAcpDiscovery(draft) => {
+                #[cfg(not(target_family = "wasm"))]
+                me.refresh_acp_discovery_for_draft(draft, ctx);
+            }
+            ProviderSetupModalBodyEvent::SaveOpenAI {
+                editing_index,
+                provider,
+            } => me.save_provider_setup(*editing_index, provider.clone(), ctx),
+            ProviderSetupModalBodyEvent::SaveBedrock(draft) => {
+                me.save_bedrock_provider(draft.clone(), ctx)
+            }
+            ProviderSetupModalBodyEvent::SaveAcp(draft) => me.save_acp_provider(draft.clone(), ctx),
+        });
+        let provider_setup_modal_view = ctx.add_typed_action_view(|ctx| {
+            Modal::new(
+                Some("Add model provider".to_string()),
+                provider_setup_body.clone(),
+                ctx,
+            )
+            .with_modal_style(UiComponentStyles {
+                width: Some(640.),
+                height: Some(600.),
+                ..Default::default()
+            })
+            .with_body_style(UiComponentStyles {
+                height: Some(530.),
+                ..Default::default()
+            })
+            .with_dismiss_on_click()
+        });
+        ctx.subscribe_to_view(&provider_setup_modal_view, |me, _, event, ctx| {
+            if matches!(event, ModalEvent::Close) {
+                me.close_provider_setup_modal(ctx);
+            }
         });
 
         let agent_toolbar_inline_editor = ctx.add_typed_action_view(|ctx| {
@@ -1869,8 +1932,9 @@ impl AISettingsPageView {
             conversation_layout_dropdown,
             profile_views,
             add_profile_button,
+            provider_setup_modal_state: ModalViewState::new(provider_setup_modal_view),
             #[cfg(not(target_family = "wasm"))]
-            refresh_acp_button,
+            provider_setup_modal_body: provider_setup_body,
             #[cfg(feature = "local_fs")]
             router_views,
             #[cfg(feature = "local_fs")]
@@ -1892,7 +1956,172 @@ impl AISettingsPageView {
     }
 
     pub fn get_modal_content(&self, _app: &AppContext) -> Option<Box<dyn Element>> {
-        None
+        self.provider_setup_modal_state
+            .is_open()
+            .then(|| self.provider_setup_modal_state.render())
+    }
+
+    fn open_provider_setup_modal(
+        &mut self,
+        editing_index: Option<usize>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let body = self
+            .provider_setup_modal_state
+            .view
+            .as_ref(ctx)
+            .body()
+            .clone();
+        body.update(ctx, |body, ctx| match editing_index {
+            Some(index) => {
+                let Some(provider) = AISettings::as_ref(ctx)
+                    .openai_providers
+                    .value()
+                    .get(index)
+                    .cloned()
+                else {
+                    return;
+                };
+                body.begin_edit(index, provider, ctx);
+            }
+            None => body.begin_create(ctx),
+        });
+        self.provider_setup_modal_state.open();
+        self.provider_setup_modal_state
+            .view
+            .update(ctx, |modal, ctx| {
+                modal.set_title(Some(if editing_index.is_some() {
+                    "Edit model provider".to_string()
+                } else {
+                    "Add model provider".to_string()
+                }));
+                ctx.notify();
+            });
+        ctx.emit(AISettingsPageEvent::ShowModal);
+    }
+
+    fn open_bedrock_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        let draft = BedrockProviderDraft {
+            name: settings.bedrock_connection_name.value().clone(),
+            auth_method: *settings.bedrock_auth_method.value(),
+            profile: settings.bedrock_profile.value().clone(),
+            region: settings.bedrock_region.value().clone(),
+            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            auto_login: *settings.bedrock_auto_login.value(),
+            auth_refresh_command: settings.bedrock_auth_refresh_command.value().clone(),
+            access_key_id: settings.bedrock_access_key_id.value().clone(),
+            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            models: settings.bedrock_models.value().clone(),
+        };
+        let body = self
+            .provider_setup_modal_state
+            .view
+            .as_ref(ctx)
+            .body()
+            .clone();
+        body.update(ctx, |body, ctx| body.begin_edit_bedrock(draft.clone(), ctx));
+        self.provider_setup_modal_state.open();
+        self.provider_setup_modal_state
+            .view
+            .update(ctx, |modal, ctx| {
+                modal.set_title(Some("Edit AWS Bedrock provider".to_string()));
+                ctx.notify();
+            });
+        ctx.emit(AISettingsPageEvent::ShowModal);
+    }
+
+    fn open_acp_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        let draft = AcpProviderDraft {
+            name: settings.acp_connection_name.value().clone(),
+            agent_id: settings.acp_agent_id.value().clone(),
+            command: settings.acp_agent_command.value().clone(),
+            args: settings.acp_agent_args.value().clone(),
+        };
+        let body = self
+            .provider_setup_modal_state
+            .view
+            .as_ref(ctx)
+            .body()
+            .clone();
+        body.update(ctx, |body, ctx| body.begin_edit_acp(draft.clone(), ctx));
+        self.provider_setup_modal_state.open();
+        self.provider_setup_modal_state
+            .view
+            .update(ctx, |modal, ctx| {
+                modal.set_title(Some("Edit ACP provider".to_string()));
+                ctx.notify();
+            });
+        ctx.emit(AISettingsPageEvent::ShowModal);
+    }
+
+    fn close_provider_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
+        self.provider_setup_modal_state.close();
+        ctx.emit(AISettingsPageEvent::HideModal);
+    }
+
+    fn save_provider_setup(
+        &mut self,
+        editing_index: Option<usize>,
+        mut provider: OpenAIProviderConfig,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+            let mut providers = settings.openai_providers.value().clone();
+            match editing_index {
+                Some(index) => {
+                    if let Some(existing) = providers.get_mut(index) {
+                        provider.enabled = existing.enabled;
+                        *existing = provider.clone();
+                    }
+                }
+                None => providers.push(provider.clone()),
+            }
+            report_if_error!(settings.openai_providers.set_value(providers, ctx));
+        });
+        self.close_provider_setup_modal(ctx);
+        self.rebuild_active_subpage(ctx);
+    }
+
+    fn save_bedrock_provider(&mut self, draft: BedrockProviderDraft, ctx: &mut ViewContext<Self>) {
+        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+            report_if_error!(settings.bedrock_enabled.set_value(true, ctx));
+            report_if_error!(settings
+                .bedrock_auth_method
+                .set_value(draft.auth_method, ctx));
+            report_if_error!(settings.bedrock_profile.set_value(draft.profile, ctx));
+            report_if_error!(settings.bedrock_region.set_value(draft.region, ctx));
+            report_if_error!(settings
+                .bedrock_cross_region_inference
+                .set_value(draft.cross_region_inference, ctx));
+            report_if_error!(settings.bedrock_auto_login.set_value(draft.auto_login, ctx));
+            report_if_error!(settings
+                .bedrock_auth_refresh_command
+                .set_value(draft.auth_refresh_command, ctx));
+            report_if_error!(settings
+                .bedrock_access_key_id
+                .set_value(draft.access_key_id, ctx));
+            report_if_error!(settings
+                .bedrock_secret_access_key
+                .set_value(draft.secret_access_key, ctx));
+            report_if_error!(settings.bedrock_connection_name.set_value(draft.name, ctx));
+            report_if_error!(settings.bedrock_models.set_value(draft.models, ctx));
+        });
+        self.close_provider_setup_modal(ctx);
+        self.rebuild_active_subpage(ctx);
+    }
+
+    fn save_acp_provider(&mut self, draft: AcpProviderDraft, ctx: &mut ViewContext<Self>) {
+        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+            report_if_error!(settings.acp_enabled.set_value(true, ctx));
+            report_if_error!(settings.acp_agent_id.set_value(draft.agent_id, ctx));
+            report_if_error!(settings.acp_agent_command.set_value(draft.command, ctx));
+            report_if_error!(settings.acp_agent_args.set_value(draft.args, ctx));
+            report_if_error!(settings.acp_connection_name.set_value(draft.name, ctx));
+        });
+        self.close_provider_setup_modal(ctx);
+        self.rebuild_active_subpage(ctx);
     }
 
     /// Set the active subpage and rebuild the widget list to show only relevant widgets.
@@ -1972,9 +2201,6 @@ impl AISettingsPageView {
                 }
                 widgets.push(Box::new(CloudHandoffWidget::default()));
                 widgets.push(Box::new(CLIAgentWidget::default()));
-                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
-                    widgets.push(Box::new(AgentRuntimeSettingsWidget::new(ctx)));
-                }
                 widgets.push(Box::new(AgentAttributionWidget::default()));
                 widgets.push(Box::new(OtherAIWidget::default()));
             }
@@ -2033,11 +2259,7 @@ impl AISettingsPageView {
             }
             Some(AISubpage::Models) => {
                 widgets.push(Box::new(ModelsOverviewWidget));
-                widgets.push(Box::new(OpenAISettingsWidget::new(ctx)));
-                widgets.push(Box::new(BedrockSettingsWidget::new(ctx)));
-                if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
-                    widgets.push(Box::new(AgentRuntimeSettingsWidget::new(ctx)));
-                }
+                widgets.push(Box::new(OpenAIProviderSettingsWidget::new(ctx)));
                 let title: Option<&str> = None;
                 return (PageType::new_uncategorized(widgets, title), None);
             }
@@ -2796,19 +3018,21 @@ pub enum AISettingsPageAction {
     RemoveFromMCPDenylist(uuid::Uuid),
     CreateProfile,
     SignupAnonymousUser,
-    ToggleBedrockAutoLogin,
     ToggleBedrockEnabled,
-    RefreshAwsBedrock,
-    SetBedrockAuthMethod(BedrockAuthMethod),
-    SetBedrockProfile(String),
-    ToggleBedrockCrossRegionInference,
-    ToggleBedrockModelRig(usize),
     ToggleOpenAIEnabled,
+    ConnectChatGPTSubscription,
+    OpenChatGPTDevicePage,
+    CopyChatGPTDeviceCode,
     ToggleAcpEnabled,
-    RefreshAcpDiscovery,
     FetchOpenAIProviderModels(usize),
     AddOpenAIProvider,
+    EditOpenAIProvider(usize),
+    ToggleOpenAIProviderEnabled(usize),
     RemoveOpenAIProvider(usize),
+    EditBedrockProvider,
+    RemoveBedrockProvider,
+    EditAcpProvider,
+    RemoveAcpProvider,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -3511,12 +3735,6 @@ impl TypedActionView for AISettingsPageView {
             AISettingsPageAction::SignupAnonymousUser => {
                 ctx.emit(AISettingsPageEvent::SignupAnonymousUser);
             }
-            AISettingsPageAction::ToggleBedrockAutoLogin => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.bedrock_auto_login.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
             AISettingsPageAction::ToggleCloudAgentComputerUse => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings
@@ -3533,41 +3751,10 @@ impl TypedActionView for AISettingsPageView {
             }
             AISettingsPageAction::ToggleBedrockEnabled => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    if !*settings.bedrock_enabled.value() {
+                        report_if_error!(settings.bedrock_models.set_value(Vec::new(), ctx));
+                    }
                     report_if_error!(settings.bedrock_enabled.toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::RefreshAwsBedrock => {
-                // Discovery removed — models are configured via settings.toml
-            }
-            AISettingsPageAction::SetBedrockAuthMethod(method) => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.bedrock_auth_method.set_value(*method, ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::SetBedrockProfile(profile) => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.bedrock_profile.set_value(profile.clone(), ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::ToggleBedrockCrossRegionInference => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings
-                        .bedrock_cross_region_inference
-                        .toggle_and_save_value(ctx));
-                });
-                ctx.notify();
-            }
-            AISettingsPageAction::ToggleBedrockModelRig(index) => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let mut models = settings.bedrock_models.value().clone();
-                    let Some(model) = models.get_mut(*index) else {
-                        return;
-                    };
-                    model.use_rig = !model.use_rig;
-                    report_if_error!(settings.bedrock_models.set_value(models, ctx));
                 });
                 ctx.notify();
             }
@@ -3577,6 +3764,49 @@ impl TypedActionView for AISettingsPageView {
                 });
                 ctx.notify();
             }
+            AISettingsPageAction::ConnectChatGPTSubscription => {
+                #[cfg(not(target_family = "wasm"))]
+                ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
+                ctx.notify();
+            }
+            AISettingsPageAction::OpenChatGPTDevicePage =>
+            {
+                #[cfg(not(target_family = "wasm"))]
+                if let ChatGPTAuthState::AwaitingDeviceCode {
+                    verification_uri, ..
+                } = ChatGPTAuthModel::as_ref(ctx).state()
+                {
+                    ctx.open_url(verification_uri);
+                }
+            }
+            AISettingsPageAction::CopyChatGPTDeviceCode => {
+                #[cfg(not(target_family = "wasm"))]
+                let user_code = match ChatGPTAuthModel::as_ref(ctx).state() {
+                    ChatGPTAuthState::AwaitingDeviceCode { user_code, .. } => {
+                        Some(user_code.clone())
+                    }
+                    ChatGPTAuthState::NotConnected
+                    | ChatGPTAuthState::Connecting
+                    | ChatGPTAuthState::Connected
+                    | ChatGPTAuthState::Failed(_) => None,
+                };
+                #[cfg(target_family = "wasm")]
+                let user_code: Option<String> = None;
+                if let Some(user_code) = user_code {
+                    ctx.clipboard()
+                        .write(ClipboardContent::plain_text(user_code));
+                    let window_id = ctx.window_id();
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_ephemeral_toast(
+                            crate::view_components::DismissibleToast::success(
+                                "ChatGPT device code copied.".to_string(),
+                            ),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                }
+            }
             AISettingsPageAction::ToggleAcpEnabled => {
                 if cfg!(unix) {
                     AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3585,26 +3815,23 @@ impl TypedActionView for AISettingsPageView {
                     ctx.notify();
                 }
             }
-            AISettingsPageAction::RefreshAcpDiscovery => {
-                #[cfg(not(target_family = "wasm"))]
-                self.refresh_acp_discovery(ctx);
-            }
             AISettingsPageAction::FetchOpenAIProviderModels(provider_index) => {
                 self.fetch_openai_provider_models(*provider_index, ctx);
             }
             AISettingsPageAction::AddOpenAIProvider => {
+                self.open_provider_setup_modal(None, ctx);
+            }
+            AISettingsPageAction::EditOpenAIProvider(provider_index) => {
+                self.open_provider_setup_modal(Some(*provider_index), ctx);
+            }
+            AISettingsPageAction::ToggleOpenAIProviderEnabled(provider_index) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     let mut providers = settings.openai_providers.value().clone();
-                    let provider_number = providers.len() + 1;
-                    providers.push(OpenAIProviderConfig {
-                        name: format!("Provider {provider_number}"),
-                        base_url: "http://localhost:4000/v1".to_string(),
-                        api_key: None,
-                        models: Vec::new(),
-                    });
+                    if let Some(provider) = providers.get_mut(*provider_index) {
+                        provider.enabled = !provider.enabled;
+                    }
                     report_if_error!(settings.openai_providers.set_value(providers, ctx));
                 });
-                self.rebuild_active_subpage(ctx);
             }
             AISettingsPageAction::RemoveOpenAIProvider(provider_index) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3613,6 +3840,51 @@ impl TypedActionView for AISettingsPageView {
                         providers.remove(*provider_index);
                         report_if_error!(settings.openai_providers.set_value(providers, ctx));
                     }
+                });
+                self.rebuild_active_subpage(ctx);
+            }
+            AISettingsPageAction::EditBedrockProvider => {
+                self.open_bedrock_setup_modal(ctx);
+            }
+            AISettingsPageAction::RemoveBedrockProvider => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.bedrock_enabled.set_value(false, ctx));
+                    report_if_error!(settings
+                        .bedrock_auth_method
+                        .set_value(crate::settings::ai::BedrockAuthMethod::default(), ctx));
+                    report_if_error!(settings
+                        .bedrock_profile
+                        .set_value("default".to_string(), ctx));
+                    report_if_error!(settings.bedrock_region.set_value(String::new(), ctx));
+                    report_if_error!(settings.bedrock_cross_region_inference.set_value(true, ctx));
+                    report_if_error!(settings.bedrock_auto_login.set_value(true, ctx));
+                    report_if_error!(settings
+                        .bedrock_auth_refresh_command
+                        .set_value("aws sso login".to_string(), ctx));
+                    report_if_error!(settings.bedrock_access_key_id.set_value(String::new(), ctx));
+                    report_if_error!(settings
+                        .bedrock_secret_access_key
+                        .set_value(String::new(), ctx));
+                    report_if_error!(settings.bedrock_models.set_value(Vec::new(), ctx));
+                    report_if_error!(settings
+                        .bedrock_connection_name
+                        .set_value("AWS Bedrock".to_string(), ctx,));
+                });
+                self.rebuild_active_subpage(ctx);
+            }
+            AISettingsPageAction::EditAcpProvider => {
+                self.open_acp_setup_modal(ctx);
+            }
+            AISettingsPageAction::RemoveAcpProvider => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.acp_enabled.set_value(false, ctx));
+                    report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
+                    report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
+                    report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
+                    report_if_error!(settings
+                        .acp_connection_name
+                        .set_value("ACP agent runtime".to_string(), ctx,));
+                    report_if_error!(settings.acp_agents.set_value(Vec::new(), ctx));
                 });
                 self.rebuild_active_subpage(ctx);
             }
@@ -7307,697 +7579,300 @@ impl SettingsWidget for ModelsOverviewWidget {
     }
 }
 
-struct BedrockSettingsWidget {
-    enabled_toggle: SwitchStateHandle,
-    auto_login_toggle: SwitchStateHandle,
-    auth_method_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
-    profile_dropdown: ViewHandle<Dropdown<AISettingsPageAction>>,
-    region_editor: ViewHandle<EditorView>,
-    auth_refresh_command_editor: ViewHandle<EditorView>,
-    access_key_editor: ViewHandle<EditorView>,
-    secret_key_editor: ViewHandle<EditorView>,
-    model_rig_toggles: RefCell<Vec<SwitchStateHandle>>,
+struct OpenAIProviderCardState {
+    enabled_switch: SwitchStateHandle,
+    edit_button: ViewHandle<ActionButton>,
+    remove_button: ViewHandle<ActionButton>,
 }
 
-impl BedrockSettingsWidget {
+struct OpenAIProviderSettingsWidget {
+    enabled_toggle: SwitchStateHandle,
+    bedrock_enabled_toggle: SwitchStateHandle,
+    acp_enabled_toggle: SwitchStateHandle,
+    bedrock_edit_button: ViewHandle<ActionButton>,
+    bedrock_remove_button: ViewHandle<ActionButton>,
+    acp_edit_button: ViewHandle<ActionButton>,
+    acp_remove_button: ViewHandle<ActionButton>,
+    add_provider_button: ViewHandle<ActionButton>,
+    provider_cards: Vec<OpenAIProviderCardState>,
+}
+
+impl OpenAIProviderSettingsWidget {
     fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
-        let ai_settings = AISettings::as_ref(ctx);
-        let _is_enabled = *ai_settings.bedrock_enabled.value();
-
-        let region_val = ai_settings.bedrock_region.value().clone();
-        let auth_cmd_val = ai_settings.bedrock_auth_refresh_command.value().clone();
-        let access_key_val = ai_settings.bedrock_access_key_id.value().clone();
-        let secret_key_val = ai_settings.bedrock_secret_access_key.value().clone();
-        let bedrock_model_count = ai_settings.bedrock_models.value().len();
-
-        let auth_method_dropdown = ctx.add_typed_action_view(|ctx| {
-            let mut dropdown = Dropdown::new(ctx);
-            let methods = [
-                BedrockAuthMethod::Profile,
-                BedrockAuthMethod::StaticKeys,
-                BedrockAuthMethod::Sso,
-            ];
-            let current = *AISettings::as_ref(ctx).bedrock_auth_method.value();
-            let selected_index = methods.iter().position(|m| *m == current).unwrap_or(0);
-            dropdown.add_items(
-                methods
-                    .into_iter()
-                    .map(|m| {
-                        DropdownItem::new(
-                            m.display_name(),
-                            AISettingsPageAction::SetBedrockAuthMethod(m),
-                        )
+        let providers = AISettings::as_ref(ctx).openai_providers.value().clone();
+        let provider_cards = providers
+            .iter()
+            .enumerate()
+            .map(|(index, _)| OpenAIProviderCardState {
+                enabled_switch: SwitchStateHandle::default(),
+                edit_button: ctx.add_typed_action_view(move |_| {
+                    ActionButton::new("Edit", SecondaryTheme).on_click(move |ctx| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::EditOpenAIProvider(index));
                     })
-                    .collect(),
-                ctx,
-            );
-            dropdown.set_selected_by_index(selected_index, ctx);
-            dropdown
-        });
-
-        let profile_dropdown = ctx.add_typed_action_view(|ctx| {
-            use crate::ai::bedrock::external_config::list_aws_profiles;
-
-            let mut dropdown = Dropdown::new(ctx);
-            let profiles = list_aws_profiles();
-            let current_profile = AISettings::as_ref(ctx).bedrock_profile.value().clone();
-            let items: Vec<_> = profiles
-                .iter()
-                .map(|p| {
-                    DropdownItem::new(
-                        p.as_str(),
-                        AISettingsPageAction::SetBedrockProfile(p.clone()),
-                    )
+                }),
+                remove_button: ctx.add_typed_action_view(move |_| {
+                    ActionButton::new("Delete", DangerSecondaryTheme).on_click(move |ctx| {
+                        ctx.dispatch_typed_action(AISettingsPageAction::RemoveOpenAIProvider(
+                            index,
+                        ));
+                    })
+                }),
+            })
+            .collect();
+        let add_provider_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider);
                 })
-                .collect();
-            let selected_index = profiles
-                .iter()
-                .position(|p| *p == current_profile)
-                .unwrap_or(0);
-            dropdown.add_items(items, ctx);
-            if !profiles.is_empty() {
-                dropdown.set_selected_by_index(selected_index, ctx);
-            }
-            dropdown
         });
-
-        let region_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: false,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("auto-detect from profile", ctx);
-            editor.set_buffer_text(&region_val, ctx);
-            editor
+        let bedrock_edit_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Edit", SecondaryTheme).on_click(|ctx| {
+                ctx.dispatch_typed_action(AISettingsPageAction::EditBedrockProvider);
+            })
         });
-        ctx.subscribe_to_view(&region_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.bedrock_region.set_value(value, ctx);
-                });
-            }
+        let bedrock_remove_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Delete", DangerSecondaryTheme).on_click(|ctx| {
+                ctx.dispatch_typed_action(AISettingsPageAction::RemoveBedrockProvider);
+            })
         });
-
-        let auth_refresh_command_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: false,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("aws sso login", ctx);
-            editor.set_buffer_text(&auth_cmd_val, ctx);
-            editor
+        let acp_edit_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Edit", SecondaryTheme).on_click(|ctx| {
+                ctx.dispatch_typed_action(AISettingsPageAction::EditAcpProvider);
+            })
         });
-        ctx.subscribe_to_view(&auth_refresh_command_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let buffer_text = editor.as_ref(ctx).buffer_text(ctx);
-                let value = if buffer_text.trim().is_empty() {
-                    "aws sso login".to_string()
-                } else {
-                    buffer_text
-                };
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.bedrock_auth_refresh_command.set_value(value, ctx);
-                });
-            }
-        });
-
-        let access_key_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: false,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("AKIA...", ctx);
-            editor.set_buffer_text(&access_key_val, ctx);
-            editor
-        });
-        ctx.subscribe_to_view(&access_key_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.bedrock_access_key_id.set_value(value, ctx);
-                });
-            }
-        });
-
-        let secret_key_editor = ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password: true,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text("wJalr...", ctx);
-            editor.set_buffer_text(&secret_key_val, ctx);
-            editor
-        });
-        ctx.subscribe_to_view(&secret_key_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    let _ = settings.bedrock_secret_access_key.set_value(value, ctx);
-                });
-            }
-        });
-
-        let profile_dropdown_clone = profile_dropdown.clone();
-        let region_editor_clone = region_editor.clone();
-        let auth_refresh_command_editor_clone = auth_refresh_command_editor.clone();
-        let access_key_editor_clone = access_key_editor.clone();
-        let secret_key_editor_clone = secret_key_editor.clone();
-        ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
-            if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. }) {
-                let is_enabled = *AISettings::as_ref(ctx).bedrock_enabled.value();
-                profile_dropdown_clone.update(ctx, |dropdown, ctx| {
-                    if is_enabled {
-                        dropdown.set_enabled(ctx);
-                    } else {
-                        dropdown.set_disabled(ctx);
-                    }
-                });
-                AISettingsPageView::update_editor_interaction_state(
-                    region_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
-                AISettingsPageView::update_editor_interaction_state(
-                    auth_refresh_command_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
-                AISettingsPageView::update_editor_interaction_state(
-                    access_key_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
-                AISettingsPageView::update_editor_interaction_state(
-                    secret_key_editor_clone.clone(),
-                    is_enabled,
-                    ctx,
-                );
-                ctx.notify();
-            }
+        let acp_remove_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Delete", DangerSecondaryTheme).on_click(|ctx| {
+                ctx.dispatch_typed_action(AISettingsPageAction::RemoveAcpProvider);
+            })
         });
 
         Self {
             enabled_toggle: SwitchStateHandle::default(),
-            auto_login_toggle: SwitchStateHandle::default(),
-            auth_method_dropdown,
-            profile_dropdown,
-            region_editor,
-            auth_refresh_command_editor,
-            access_key_editor,
-            secret_key_editor,
-            model_rig_toggles: RefCell::new(
-                (0..bedrock_model_count)
-                    .map(|_| SwitchStateHandle::default())
-                    .collect(),
-            ),
+            bedrock_enabled_toggle: SwitchStateHandle::default(),
+            acp_enabled_toggle: SwitchStateHandle::default(),
+            bedrock_edit_button,
+            bedrock_remove_button,
+            acp_edit_button,
+            acp_remove_button,
+            add_provider_button,
+            provider_cards,
         }
     }
 
-    fn render_input(
+    fn provider_status(provider: &OpenAIProviderConfig) -> String {
+        if !provider.enabled {
+            return "Disabled".to_string();
+        }
+
+        let enabled_models = provider.models.iter().filter(|model| model.enabled).count();
+        if enabled_models == 0 {
+            "No models enabled".to_string()
+        } else {
+            format!(
+                "{enabled_models} enabled model{}",
+                if enabled_models == 1 { "" } else { "s" }
+            )
+        }
+    }
+
+    fn provider_type(provider: &OpenAIProviderConfig) -> &'static str {
+        match provider.kind {
+            OpenAIProviderKind::OpenAICompatible => "OpenAI-compatible API",
+            OpenAIProviderKind::ChatGPTSubscription => "ChatGPT subscription",
+        }
+    }
+
+    fn render_provider_card(
+        &self,
+        provider_index: usize,
+        provider: &OpenAIProviderConfig,
         appearance: &Appearance,
-        label: &'static str,
-        editor: ViewHandle<EditorView>,
-        is_enabled: bool,
-        app: &AppContext,
     ) -> Box<dyn Element> {
-        let padding = Some(Coords {
-            top: 10.,
-            bottom: 10.,
-            left: 16.,
-            right: 16.,
-        });
-        let editor_style = UiComponentStyles {
-            padding,
-            background: Some(appearance.theme().surface_2().into()),
-            ..Default::default()
+        let Some(card_state) = self.provider_cards.get(provider_index) else {
+            return Empty::new().finish();
         };
+        let summary = format!(
+            "{} model{} available · {}",
+            provider.models.len(),
+            if provider.models.len() == 1 { "" } else { "s" },
+            Self::provider_status(provider),
+        );
 
-        let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-            .with_color(styles::header_font_color(is_enabled, app).into())
+        let title = Text::new(
+            provider.name.clone(),
+            appearance.ui_font_family(),
+            appearance.header_font_size(),
+        )
+        .with_color(appearance.theme().active_ui_text_color().into())
+        .with_style(Properties::default().weight(Weight::Bold))
+        .finish();
+        let provider_type = Text::new(
+            Self::provider_type(provider),
+            appearance.ui_font_family(),
+            CONTENT_FONT_SIZE,
+        )
+        .with_color(appearance.theme().nonactive_ui_text_color().into())
+        .finish();
+        let summary = Text::new(summary, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+            .with_color(appearance.theme().nonactive_ui_text_color().into())
+            .soft_wrap(true)
             .finish();
 
-        let input = appearance
-            .ui_builder()
-            .text_input(editor)
-            .with_style(editor_style)
-            .build()
-            .finish();
-
-        Flex::column()
+        let actions = Flex::row()
             .with_spacing(8.)
-            .with_child(label)
-            .with_child(input)
-            .finish()
+            .with_child(ChildView::new(&card_state.edit_button).finish())
+            .with_child(ChildView::new(&card_state.remove_button).finish())
+            .finish();
+        let header = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Flex::column()
+                    .with_spacing(4.)
+                    .with_child(title)
+                    .with_child(provider_type)
+                    .finish(),
+            )
+            .with_child(actions)
+            .finish();
+        let toggle = appearance
+            .ui_builder()
+            .switch(card_state.enabled_switch.clone())
+            .check(provider.enabled)
+            .build()
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(AISettingsPageAction::ToggleOpenAIProviderEnabled(
+                    provider_index,
+                ));
+            })
+            .finish();
+        let enablement = Flex::row()
+            .with_spacing(8.)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(toggle)
+            .with_child(
+                Text::new(
+                    if provider.enabled {
+                        "Enabled"
+                    } else {
+                        "Disabled"
+                    },
+                    appearance.ui_font_family(),
+                    CONTENT_FONT_SIZE,
+                )
+                .with_color(appearance.theme().active_ui_text_color().into())
+                .finish(),
+            )
+            .finish();
+
+        Container::new(
+            Flex::column()
+                .with_spacing(12.)
+                .with_child(header)
+                .with_child(summary)
+                .with_child(enablement)
+                .finish(),
+        )
+        .with_padding(Padding::uniform(16.))
+        .with_background(appearance.theme().surface_1())
+        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
+        .finish()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_builtin_provider_card(
+        &self,
+        title: &str,
+        description: &'static str,
+        enabled: bool,
+        toggle: SwitchStateHandle,
+        action: AISettingsPageAction,
+        edit_button: &ViewHandle<ActionButton>,
+        remove_button: &ViewHandle<ActionButton>,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        let toggle = appearance
+            .ui_builder()
+            .switch(toggle)
+            .check(enabled)
+            .build()
+            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(action.clone()))
+            .finish();
+        let header = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Flex::column()
+                    .with_spacing(4.)
+                    .with_child(
+                        Text::new(
+                            title.to_string(),
+                            appearance.ui_font_family(),
+                            appearance.header_font_size(),
+                        )
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Bold))
+                        .finish(),
+                    )
+                    .with_child(
+                        Text::new(description, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                            .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .soft_wrap(true)
+                            .finish(),
+                    )
+                    .finish(),
+            )
+            .with_child(
+                Flex::row()
+                    .with_spacing(8.)
+                    .with_child(ChildView::new(edit_button).finish())
+                    .with_child(ChildView::new(remove_button).finish())
+                    .finish(),
+            )
+            .finish();
+        Container::new(
+            Flex::column()
+                .with_spacing(12.)
+                .with_child(header)
+                .with_child(
+                    Flex::row()
+                        .with_spacing(8.)
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(toggle)
+                        .with_child(
+                            Text::new(
+                                if enabled { "Enabled" } else { "Disabled" },
+                                appearance.ui_font_family(),
+                                CONTENT_FONT_SIZE,
+                            )
+                            .with_color(appearance.theme().active_ui_text_color().into())
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .finish(),
+        )
+        .with_padding(Padding::uniform(16.))
+        .with_background(appearance.theme().surface_1())
+        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
+        .finish()
     }
 }
 
-impl SettingsWidget for BedrockSettingsWidget {
+impl SettingsWidget for OpenAIProviderSettingsWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "aws bedrock amazon credentials login profile region sso static keys"
+        "openai chatgpt pro subscription litellm custom provider endpoint api key models"
     }
 
     fn should_render(&self, _app: &AppContext) -> bool {
         true
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_enabled = *ai_settings.bedrock_enabled.value();
-        let auth_method = *ai_settings.bedrock_auth_method.value();
-        let auto_login = *ai_settings.bedrock_auto_login.value();
-
-        let mut column = Flex::column().with_spacing(16.);
-
-        column.add_child(build_sub_header(appearance, "AWS Bedrock", None).finish());
-
-        let has_aws_env = std::env::vars_os().any(|(k, _)| k.to_string_lossy().starts_with("AWS_"));
-
-        if has_aws_env {
-            column.add_child(render_warning_box(
-                WarningBoxConfig::new("You have AWS environment variables defined, which may override these settings."),
-                appearance,
-            ));
-        }
-
-        column.add_child(render_ai_setting_toggle::<BedrockEnabled>(
-            "Enable AWS Bedrock",
-            AISettingsPageAction::ToggleBedrockEnabled,
-            is_enabled,
-            true,
-            self.enabled_toggle.clone(),
-            &RefCell::new(HashMap::new()),
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "Route AI requests directly through AWS Bedrock using your own credentials.",
-            true,
-            app,
-        ));
-
-        column.add_child(render_separator(appearance));
-
-        let auth_label = Text::new_inline(
-            "Authentication Method",
-            appearance.ui_font_family(),
-            CONTENT_FONT_SIZE,
-        )
-        .with_color(styles::header_font_color(is_enabled, app).into())
-        .finish();
-        column.add_child(
-            Flex::column()
-                .with_spacing(8.)
-                .with_child(auth_label)
-                .with_child(ChildView::new(&self.auth_method_dropdown).finish())
-                .finish(),
-        );
-
-        match auth_method {
-            BedrockAuthMethod::Profile | BedrockAuthMethod::Sso => {
-                let profile_label = Text::new_inline(
-                    "AWS Profile",
-                    appearance.ui_font_family(),
-                    CONTENT_FONT_SIZE,
-                )
-                .with_color(styles::header_font_color(is_enabled, app).into())
-                .finish();
-                column.add_child(
-                    Flex::column()
-                        .with_spacing(8.)
-                        .with_child(profile_label)
-                        .with_child(ChildView::new(&self.profile_dropdown).finish())
-                        .finish(),
-                );
-                if auth_method == BedrockAuthMethod::Sso {
-                    column.add_child(Self::render_input(
-                        appearance,
-                        "Login Command",
-                        self.auth_refresh_command_editor.clone(),
-                        is_enabled,
-                        app,
-                    ));
-
-                    column.add_child(
-                        Flex::column()
-                            .with_child(render_ai_setting_toggle::<BedrockAutoLogin>(
-                                "Auto-run login on expiry",
-                                AISettingsPageAction::ToggleBedrockAutoLogin,
-                                auto_login,
-                                is_enabled,
-                                self.auto_login_toggle.clone(),
-                                &RefCell::new(HashMap::new()),
-                                app,
-                            ))
-                            .with_child(render_ai_setting_description(
-                                "Automatically run the login command when credentials expire.",
-                                is_enabled,
-                                app,
-                            ))
-                            .finish(),
-                    );
-                }
-            }
-            BedrockAuthMethod::StaticKeys => {
-                column.add_child(Self::render_input(
-                    appearance,
-                    "Access Key ID",
-                    self.access_key_editor.clone(),
-                    is_enabled,
-                    app,
-                ));
-                column.add_child(Self::render_input(
-                    appearance,
-                    "Secret Access Key",
-                    self.secret_key_editor.clone(),
-                    is_enabled,
-                    app,
-                ));
-            }
-        }
-
-        column.add_child(render_separator(appearance));
-
-        column.add_child(Self::render_input(
-            appearance,
-            "Region",
-            self.region_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "Leave empty to auto-detect from your AWS profile/config.",
-            is_enabled,
-            app,
-        ));
-
-        column.add_child(render_separator(appearance));
-
-        let configured_models: Vec<_> = ai_settings.bedrock_models.value().clone();
-        if !configured_models.is_empty() {
-            let description = format!(
-                "{} model{} configured via settings.toml.",
-                configured_models.len(),
-                if configured_models.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            );
-            column.add_child(render_ai_setting_description(description, is_enabled, app));
-            column.add_child(build_sub_header(appearance, "Bedrock runtime", None).finish());
-            column.add_child(render_ai_setting_description(
-                "Opt individual Bedrock models into the shared Rig runtime. Models left off continue through the compatibility runtime; one-hour prompt-cache TTL requests always fall back automatically.",
-                is_enabled,
-                app,
-            ));
-
-            let toggle_handles = {
-                let mut toggles = self.model_rig_toggles.borrow_mut();
-                while toggles.len() < configured_models.len() {
-                    toggles.push(SwitchStateHandle::default());
-                }
-                toggles.clone()
-            };
-            for (index, model) in configured_models.iter().enumerate() {
-                let toggle = appearance
-                    .ui_builder()
-                    .switch(toggle_handles[index].clone())
-                    .check(model.use_rig)
-                    .with_disabled(!is_enabled)
-                    .build()
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(AISettingsPageAction::ToggleBedrockModelRig(
-                            index,
-                        ));
-                    })
-                    .finish();
-                column.add_child(build_toggle_element(
-                    render_body_item_label::<AISettingsPageAction>(
-                        format!("{} — Rig", model.display_name),
-                        Some(styles::header_font_color(is_enabled, app)),
-                        None,
-                        LocalOnlyIconState::Hidden,
-                        ToggleState::Enabled,
-                        appearance,
-                    ),
-                    toggle,
-                    appearance,
-                    None,
-                ));
-            }
-        } else {
-            column.add_child(render_ai_setting_description(
-                "No models configured. Add models to ~/.galaxy/settings.toml under [ai.bedrock].",
-                is_enabled,
-                app,
-            ));
-        }
-
-        column.finish()
-    }
-}
-
-struct AgentRuntimeSettingsWidget {
-    enabled_toggle: SwitchStateHandle,
-    agent_id_editor: ViewHandle<EditorView>,
-    command_editor: ViewHandle<EditorView>,
-    args_editor: ViewHandle<EditorView>,
-    #[cfg(not(target_family = "wasm"))]
-    refresh_button: ViewHandle<ActionButton>,
-}
-
-impl AgentRuntimeSettingsWidget {
-    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
-        let settings = AISettings::as_ref(ctx);
-        let is_enabled = *settings.acp_enabled.value();
-        let agent_id = settings.acp_agent_id.value().clone();
-        let command = settings.acp_agent_command.value().clone();
-        let args = serde_json::to_string(settings.acp_agent_args.value())
-            .unwrap_or_else(|_| "[]".to_owned());
-
-        let agent_id_editor = Self::editor(agent_id, "codex or opencode", false, ctx);
-        ctx.subscribe_to_view(&agent_id_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                if !value.trim().is_empty() {
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        report_if_error!(settings.acp_agent_id.set_value(value, ctx));
-                    });
-                }
-            }
-        });
-
-        let command_editor = Self::editor(
-            command,
-            "Leave empty to use the version-pinned preset",
-            false,
-            ctx,
-        );
-        ctx.subscribe_to_view(&command_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.acp_agent_command.set_value(value, ctx));
-                });
-            }
-        });
-
-        let args_editor = Self::editor(args, r#"["arg1", "arg2"]"#, false, ctx);
-        ctx.subscribe_to_view(&args_editor, |_, editor, event, ctx| {
-            if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                let value = editor.as_ref(ctx).buffer_text(ctx);
-                match serde_json::from_str::<Vec<String>>(&value) {
-                    Ok(args) => {
-                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                            report_if_error!(settings.acp_agent_args.set_value(args, ctx));
-                        });
-                    }
-                    Err(error) => {
-                        log::warn!("ACP agent arguments must be a JSON string array: {error}");
-                        let saved_args =
-                            serde_json::to_string(AISettings::as_ref(ctx).acp_agent_args.value())
-                                .unwrap_or_else(|_| "[]".to_owned());
-                        editor.update(ctx, |editor, ctx| {
-                            editor.system_reset_buffer_text(&saved_args, ctx);
-                        });
-                    }
-                }
-            }
-        });
-
-        #[cfg(not(target_family = "wasm"))]
-        let refresh_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Discover ACP options", SecondaryTheme)
-                .with_size(ButtonSize::Small)
-                .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::RefreshAcpDiscovery);
-                })
-        });
-
-        for editor in [
-            agent_id_editor.clone(),
-            command_editor.clone(),
-            args_editor.clone(),
-        ] {
-            AISettingsPageView::update_editor_interaction_state(editor, is_enabled, ctx);
-        }
-
-        let agent_id_editor_clone = agent_id_editor.clone();
-        let command_editor_clone = command_editor.clone();
-        let args_editor_clone = args_editor.clone();
-        ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
-            if matches!(event, AISettingsChangedEvent::AcpEnabled { .. }) {
-                let is_enabled = *AISettings::as_ref(ctx).acp_enabled.value();
-                for editor in [
-                    agent_id_editor_clone.clone(),
-                    command_editor_clone.clone(),
-                    args_editor_clone.clone(),
-                ] {
-                    AISettingsPageView::update_editor_interaction_state(editor, is_enabled, ctx);
-                }
-                ctx.notify();
-            }
-        });
-
-        Self {
-            enabled_toggle: SwitchStateHandle::default(),
-            agent_id_editor,
-            command_editor,
-            args_editor,
-            #[cfg(not(target_family = "wasm"))]
-            refresh_button,
-        }
-    }
-
-    fn editor(
-        text: String,
-        placeholder: &'static str,
-        is_password: bool,
-        ctx: &mut ViewContext<AISettingsPageView>,
-    ) -> ViewHandle<EditorView> {
-        ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text(placeholder, ctx);
-            editor.set_buffer_text(&text, ctx);
-            editor
-        })
-    }
-
-    fn render_input(
-        appearance: &Appearance,
-        label: &'static str,
-        editor: ViewHandle<EditorView>,
-        is_enabled: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let style = UiComponentStyles {
-            padding: Some(Coords {
-                top: 10.,
-                bottom: 10.,
-                left: 16.,
-                right: 16.,
-            }),
-            background: Some(appearance.theme().surface_2().into()),
-            ..Default::default()
-        };
-        Flex::column()
-            .with_spacing(8.)
-            .with_child(
-                Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                    .with_color(styles::header_font_color(is_enabled, app).into())
-                    .finish(),
-            )
-            .with_child(
-                appearance
-                    .ui_builder()
-                    .text_input(editor)
-                    .with_style(style)
-                    .build()
-                    .finish(),
-            )
-            .finish()
-    }
-}
-
-impl SettingsWidget for AgentRuntimeSettingsWidget {
-    type View = AISettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "agent runtime acp agent client protocol codex opencode subscription local"
-    }
-
-    fn should_render(&self, _app: &AppContext) -> bool {
-        cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled()
     }
 
     fn render(
@@ -8007,343 +7882,19 @@ impl SettingsWidget for AgentRuntimeSettingsWidget {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let settings = AISettings::as_ref(app);
-        let is_enabled = *settings.acp_enabled.value();
-        let mut column = Flex::column().with_spacing(16.);
-
-        #[cfg(not(target_family = "wasm"))]
-        let discovery_state = crate::ai::acp::AcpRuntimeModel::as_ref(app)
-            .discovery_state()
-            .clone();
-
-        column.add_child(build_sub_header(appearance, "Agent runtimes", None).finish());
-        column.add_child(render_ai_setting_description(
-            "Connect session-oriented coding agents through the Agent Client Protocol. Agent runtimes are not model providers: Galaxy supplies the workspace UI and safety boundary while the agent owns its model loop and session.",
-            true,
-            app,
-        ));
-        column.add_child(render_ai_setting_toggle::<AcpEnabled>(
-            "Enable ACP agent runtime",
-            AISettingsPageAction::ToggleAcpEnabled,
-            is_enabled,
-            true,
-            self.enabled_toggle.clone(),
-            &RefCell::new(HashMap::new()),
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "ACP agents own their model and login. The Codex preset prefers its advertised ChatGPT sign-in, while custom agents use their first advertised ACP authentication method; tokens remain owned by the agent. Galaxy keeps the native transcript, cancellation, image uploads, and pane-pinned Galaxy Control tools.",
-            true,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "The built-in Codex adapter starts in read-only mode. Galaxy currently denies adapter-native read, search, edit, delete, move, execute, fetch, and uncategorized permission requests because ACP’s broad categories do not carry enough command, path, or MCP identity to enforce detailed allowlists safely. Agent thinking remains available. Pane-pinned Galaxy tools are exposed only when the active execution profile permits them. Custom ACP agents must honor the protocol’s permission contract.",
-            true,
-            app,
-        ));
-        column.add_child(render_separator(appearance));
-        column.add_child(Self::render_input(
-            appearance,
-            "Agent preset",
-            self.agent_id_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "Use “codex” for the pinned Codex ACP adapter or “opencode” for OpenCode. Codex can launch through npx or Bun. Galaxy prefers an installed OpenCode binary; its package fallback requires npx/Node.js.",
-            is_enabled,
-            app,
-        ));
-        column.add_child(Self::render_input(
-            appearance,
-            "Custom executable (optional)",
-            self.command_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(Self::render_input(
-            appearance,
-            "Custom arguments (JSON array)",
-            self.args_editor.clone(),
-            is_enabled,
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "ACP agents are trusted local programs. Custom arguments apply only when a custom executable is set; built-in presets ignore them. Galaxy removes inherited environment values outside a small runtime allowlist, and custom arguments are stored as plain-text settings. Only configure executables you trust, and never place API keys or access tokens in their arguments. Existing ACP sessions refuse to run after the effective executable, preset version, arguments, environment, or authentication selection changes; restore that configuration or start a new conversation.",
-            is_enabled,
-            app,
-        ));
-        #[cfg(not(target_family = "wasm"))]
-        column.add_child(self.refresh_button.as_ref(app).render(app));
-        #[cfg(not(target_family = "wasm"))]
-        match discovery_state {
-            crate::ai::acp::AcpDiscoveryState::Idle => {}
-            crate::ai::acp::AcpDiscoveryState::Running => {
-                column.add_child(render_ai_setting_description(
-                    "Discovering ACP configuration options...",
-                    is_enabled,
-                    app,
-                ));
-            }
-            crate::ai::acp::AcpDiscoveryState::Succeeded { option_count } => {
-                column.add_child(render_ai_setting_description(
-                    format!("ACP discovery succeeded with {option_count} configuration option(s)."),
-                    is_enabled,
-                    app,
-                ));
-            }
-            crate::ai::acp::AcpDiscoveryState::Failed { message } => {
-                column.add_child(render_ai_setting_description(
-                    format!("ACP discovery failed: {message}. Cached options were retained."),
-                    is_enabled,
-                    app,
-                ));
-            }
-        }
-        let discovered = settings.acp_agents.value();
-        if let Some(agent) = discovered
-            .iter()
-            .find(|agent| agent.id.eq_ignore_ascii_case(settings.acp_agent_id.value()))
-        {
-            if let Some(timestamp) = &agent.discovery_timestamp {
-                column.add_child(render_ai_setting_description(
-                    format!("Last ACP discovery attempt: {timestamp}"),
-                    is_enabled,
-                    app,
-                ));
-            }
-            if let Some(source) = &agent.discovery_source {
-                column.add_child(render_ai_setting_description(
-                    format!("Discovery source: {source}"),
-                    is_enabled,
-                    app,
-                ));
-            }
-            if let Some(error) = &agent.discovery_error {
-                column.add_child(render_ai_setting_description(
-                    format!("Last discovery error: {error}. Cached options are retained."),
-                    is_enabled,
-                    app,
-                ));
-            }
-            column.add_child(render_ai_setting_description(
-                format!("Discovered {} ACP configuration option(s) for {}. Options are refreshed from the running agent and cached in settings.toml.", agent.config_options.len(), agent.name),
-                is_enabled,
-                app,
-            ));
-        }
-        column.finish()
-    }
-}
-
-struct OpenAIProviderEditor {
-    name_editor: ViewHandle<EditorView>,
-    base_url_editor: ViewHandle<EditorView>,
-    api_key_editor: ViewHandle<EditorView>,
-    fetch_button: MouseStateHandle,
-    remove_button: MouseStateHandle,
-}
-
-struct OpenAISettingsWidget {
-    enabled_toggle: SwitchStateHandle,
-    provider_editors: Vec<OpenAIProviderEditor>,
-    add_provider_button: MouseStateHandle,
-}
-
-impl OpenAISettingsWidget {
-    fn create_editor(
-        value: String,
-        placeholder: &'static str,
-        is_password: bool,
-        ctx: &mut ViewContext<<Self as SettingsWidget>::View>,
-    ) -> ViewHandle<EditorView> {
-        ctx.add_typed_action_view(move |ctx| {
-            let appearance = Appearance::as_ref(ctx);
-            let options = SingleLineEditorOptions {
-                is_password,
-                text: TextOptions {
-                    font_size_override: Some(appearance.ui_font_size()),
-                    font_family_override: Some(appearance.monospace_font_family()),
-                    text_colors_override: Some(TextColors {
-                        default_color: appearance.theme().active_ui_text_color(),
-                        disabled_color: appearance.theme().disabled_ui_text_color(),
-                        hint_color: appearance.theme().disabled_ui_text_color(),
-                    }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let mut editor = EditorView::single_line(options, ctx);
-            editor.set_placeholder_text(placeholder, ctx);
-            editor.set_buffer_text(&value, ctx);
-            editor
-        })
-    }
-
-    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
-        let providers = AISettings::as_ref(ctx).openai_providers.value().clone();
-        let is_enabled = *AISettings::as_ref(ctx).openai_enabled.value();
-        let mut provider_editors = Vec::with_capacity(providers.len());
-
-        for (provider_index, provider) in providers.into_iter().enumerate() {
-            let name_editor = Self::create_editor(provider.name, "Provider name", false, ctx);
-            ctx.subscribe_to_view(&name_editor, move |_, editor, event, ctx| {
-                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                    let value = editor.as_ref(ctx).buffer_text(ctx);
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let mut providers = settings.openai_providers.value().clone();
-                        if let Some(provider) = providers.get_mut(provider_index) {
-                            provider.name = value;
-                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
-                        }
-                    });
-                }
-            });
-
-            let base_url_editor =
-                Self::create_editor(provider.base_url, "http://localhost:4000/v1", false, ctx);
-            ctx.subscribe_to_view(&base_url_editor, move |_, editor, event, ctx| {
-                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                    let value = editor.as_ref(ctx).buffer_text(ctx);
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let mut providers = settings.openai_providers.value().clone();
-                        if let Some(provider) = providers.get_mut(provider_index) {
-                            provider.base_url = value;
-                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
-                        }
-                    });
-                }
-            });
-
-            let api_key_editor = Self::create_editor(
-                provider.api_key.unwrap_or_default(),
-                "sk-... (optional)",
-                true,
-                ctx,
-            );
-            ctx.subscribe_to_view(&api_key_editor, move |_, editor, event, ctx| {
-                if matches!(event, EditorEvent::Blurred | EditorEvent::Enter) {
-                    let value = editor.as_ref(ctx).buffer_text(ctx);
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        let mut providers = settings.openai_providers.value().clone();
-                        if let Some(provider) = providers.get_mut(provider_index) {
-                            provider.api_key = (!value.is_empty()).then_some(value);
-                            report_if_error!(settings.openai_providers.set_value(providers, ctx));
-                        }
-                    });
-                }
-            });
-
-            for editor in [&name_editor, &base_url_editor, &api_key_editor] {
-                AISettingsPageView::update_editor_interaction_state(
-                    editor.clone(),
-                    is_enabled,
-                    ctx,
-                );
-            }
-
-            provider_editors.push(OpenAIProviderEditor {
-                name_editor,
-                base_url_editor,
-                api_key_editor,
-                fetch_button: MouseStateHandle::default(),
-                remove_button: MouseStateHandle::default(),
-            });
-        }
-
-        let editor_handles = provider_editors
-            .iter()
-            .flat_map(|provider| {
-                [
-                    provider.name_editor.clone(),
-                    provider.base_url_editor.clone(),
-                    provider.api_key_editor.clone(),
-                ]
-            })
-            .collect::<Vec<_>>();
-        ctx.subscribe_to_model(&AISettings::handle(ctx), move |_, _, event, ctx| {
-            if matches!(event, AISettingsChangedEvent::OpenAIEnabled { .. }) {
-                let is_enabled = *AISettings::as_ref(ctx).openai_enabled.value();
-                for editor in &editor_handles {
-                    AISettingsPageView::update_editor_interaction_state(
-                        editor.clone(),
-                        is_enabled,
-                        ctx,
-                    );
-                }
-                ctx.notify();
-            }
-        });
-
-        Self {
-            enabled_toggle: SwitchStateHandle::default(),
-            provider_editors,
-            add_provider_button: MouseStateHandle::default(),
-        }
-    }
-
-    fn render_input(
-        appearance: &Appearance,
-        label: &'static str,
-        editor: ViewHandle<EditorView>,
-        is_enabled: bool,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let padding = Some(Coords {
-            top: 10.,
-            bottom: 10.,
-            left: 16.,
-            right: 16.,
-        });
-        let editor_style = UiComponentStyles {
-            padding,
-            background: Some(appearance.theme().surface_2().into()),
-            ..Default::default()
-        };
-
-        let label = Text::new_inline(label, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-            .with_color(styles::header_font_color(is_enabled, app).into())
-            .finish();
-
-        let input = appearance
-            .ui_builder()
-            .text_input(editor)
-            .with_style(editor_style)
-            .build()
-            .finish();
-
-        Flex::column()
-            .with_spacing(8.)
-            .with_child(label)
-            .with_child(input)
-            .finish()
-    }
-}
-
-impl SettingsWidget for OpenAISettingsWidget {
-    type View = AISettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "openai litellm custom provider endpoint api key models"
-    }
-
-    fn should_render(&self, _app: &AppContext) -> bool {
-        true
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_enabled = *ai_settings.openai_enabled.value();
+        let is_enabled = *settings.openai_enabled.value();
+        let providers = settings.openai_providers.value();
 
         let mut column = Flex::column().with_spacing(16.);
-
-        column
-            .add_child(build_sub_header(appearance, "OpenAI-compatible providers", None).finish());
-
+        column.add_child(
+            Flex::row()
+                .with_main_axis_size(MainAxisSize::Max)
+                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(build_sub_header(appearance, "Model providers", None).finish())
+                .with_child(ChildView::new(&self.add_provider_button).finish())
+                .finish(),
+        );
         column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
             "Enable model providers",
             AISettingsPageAction::ToggleOpenAIEnabled,
@@ -8354,185 +7905,46 @@ impl SettingsWidget for OpenAISettingsWidget {
             app,
         ));
         column.add_child(render_ai_setting_description(
-            "Route configured LiteLLM, Ollama, LM Studio, vLLM, and other OpenAI-compatible models through Galaxy's provider registry.",
+            "Connect a ChatGPT subscription, OpenAI-compatible endpoint, AWS Bedrock account, or ACP agent runtime. Each provider can be enabled independently.",
             true,
             app,
         ));
 
-        if ai_settings.openai_providers.value().is_empty() {
-            column.add_child(render_ai_setting_description(
-                "No providers configured. Add a provider to connect a local or private OpenAI-compatible endpoint.",
-                is_enabled,
-                app,
-            ));
-        }
-
-        for (provider_index, provider) in ai_settings.openai_providers.value().iter().enumerate() {
-            let Some(editors) = self.provider_editors.get(provider_index) else {
-                continue;
-            };
-
-            column.add_child(render_separator(appearance));
-            column.add_child(
-                build_sub_header(
-                    appearance,
-                    format!("Provider {}: {}", provider_index + 1, provider.name),
-                    None,
-                )
-                .finish(),
-            );
-            column.add_child(Self::render_input(
-                appearance,
-                "Name",
-                editors.name_editor.clone(),
-                is_enabled,
-                app,
-            ));
-            column.add_child(Self::render_input(
-                appearance,
-                "Base URL",
-                editors.base_url_editor.clone(),
-                is_enabled,
-                app,
-            ));
-            column.add_child(Self::render_input(
-                appearance,
-                "API Key",
-                editors.api_key_editor.clone(),
-                is_enabled,
-                app,
-            ));
-            column.add_child(render_ai_setting_description(
-                "The API key is optional, stored only in ~/.galaxy/settings.toml, and never synced to the cloud.",
-                is_enabled,
-                app,
-            ));
-
-            let fetch_button = appearance
-                .ui_builder()
-                .button(ButtonVariant::Secondary, editors.fetch_button.clone())
-                .with_text_label("Discover Models".to_owned());
-            let fetch_button = if !is_enabled || provider.base_url.trim().is_empty() {
-                fetch_button.disabled().build().finish()
-            } else {
-                fetch_button
-                    .build()
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(AISettingsPageAction::FetchOpenAIProviderModels(
-                            provider_index,
-                        ));
-                    })
-                    .finish()
-            };
-
-            let remove_button = appearance
-                .ui_builder()
-                .button(ButtonVariant::Error, editors.remove_button.clone())
-                .with_text_label("Remove Provider".to_owned())
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::RemoveOpenAIProvider(
-                        provider_index,
-                    ));
-                })
-                .finish();
-            column.add_child(
-                Flex::row()
-                    .with_spacing(8.)
-                    .with_child(fetch_button)
-                    .with_child(remove_button)
-                    .finish(),
-            );
-
-            let model_names = provider
-                .models
-                .iter()
-                .take(5)
-                .map(|model| model.display_name.as_str())
-                .join(", ");
-            let overflow = provider.models.len().saturating_sub(5);
-            let overflow = if overflow > 0 {
-                format!(" (+{overflow} more)")
-            } else {
-                String::new()
-            };
-            let models_description = if provider.models.is_empty() {
-                "No models configured. Discover models from this endpoint.".to_string()
-            } else {
-                format!(
-                    "{} model{}: {model_names}{overflow}",
-                    provider.models.len(),
-                    if provider.models.len() == 1 { "" } else { "s" },
-                )
-            };
-            column.add_child(render_ai_setting_description(
-                models_description,
-                is_enabled,
-                app,
-            ));
-        }
-
-        column.add_child(render_separator(appearance));
-        let add_provider_button = appearance
-            .ui_builder()
-            .button(ButtonVariant::Secondary, self.add_provider_button.clone())
-            .with_text_label("Add Provider".to_owned())
-            .build()
-            .on_click(move |ctx, _, _| {
-                ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider);
-            })
-            .finish();
-        column.add_child(add_provider_button);
-        column.add_child(render_ai_setting_description(
-            "Model discovery only contacts an endpoint when you click Discover Models.",
-            is_enabled,
-            app,
+        column.add_child(self.render_builtin_provider_card(
+            settings.bedrock_connection_name.value().as_str(),
+            "Use AWS credentials to access Bedrock foundation models directly.",
+            *settings.bedrock_enabled.value(),
+            self.bedrock_enabled_toggle.clone(),
+            AISettingsPageAction::ToggleBedrockEnabled,
+            &self.bedrock_edit_button,
+            &self.bedrock_remove_button,
+            appearance,
         ));
+        if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+            column.add_child(self.render_builtin_provider_card(
+                settings.acp_connection_name.value().as_str(),
+                "Use a local session-oriented agent that owns its model and authentication.",
+                *settings.acp_enabled.value(),
+                self.acp_enabled_toggle.clone(),
+                AISettingsPageAction::ToggleAcpEnabled,
+                &self.acp_edit_button,
+                &self.acp_remove_button,
+                appearance,
+            ));
+        }
 
-        column.add_child(render_separator(appearance));
-
-        let mut configured_models = ai_settings
-            .openai_providers
-            .value()
-            .iter()
-            .flat_map(|provider| provider.models.iter())
-            .collect::<Vec<_>>();
-        configured_models.extend(ai_settings.openai_models.value().iter());
-        if !configured_models.is_empty() {
-            let description = format!(
-                "{} model{} configured across all OpenAI-compatible providers.",
-                configured_models.len(),
-                if configured_models.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            );
-            column.add_child(render_ai_setting_description(description, is_enabled, app));
-
-            // Show first few model names
-            let preview: String = configured_models
-                .iter()
-                .take(5)
-                .map(|model| model.display_name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let suffix = if configured_models.len() > 5 {
-                format!(" (+{} more)", configured_models.len() - 5)
-            } else {
-                String::new()
-            };
+        if providers.is_empty() {
             column.add_child(render_ai_setting_description(
-                format!("Models: {preview}{suffix}"),
+                "No providers configured. Select Add provider to get started.",
                 is_enabled,
                 app,
             ));
         } else {
-            column.add_child(render_ai_setting_description(
-                "No models configured. Add a provider and discover its models, or configure [[ai.providers.models]] in ~/.galaxy/settings.toml.",
-                is_enabled,
-                app,
-            ));
+            for (index, provider) in providers.iter().enumerate() {
+                column.add_child(Self::render_provider_card(
+                    self, index, provider, appearance,
+                ));
+            }
         }
 
         column.finish()

@@ -227,9 +227,14 @@ impl ResponseStream {
             let llm_prefs = LLMPreferences::as_ref(ctx);
             if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
                 return ProviderConfig::OpenAI(OpenAIClientConfig {
+                    kind: client_config.kind,
                     base_url: client_config.base_url.clone(),
                     api_key: client_config.api_key.clone(),
-                    model: Some(model_id.to_string()),
+                    model: client_config
+                        .model
+                        .clone()
+                        .or_else(|| Some(model_id.to_string())),
+                    reasoning_effort: client_config.reasoning_effort.clone(),
                     max_input_tokens: client_config.max_input_tokens,
                     max_output_tokens: client_config.max_output_tokens,
                     use_rig: client_config.use_rig,

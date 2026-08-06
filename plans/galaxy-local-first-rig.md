@@ -386,12 +386,30 @@ metadata.
   restoration to the local service without account or online-state requirements.
 - [x] Move environment-variable collection create, edit, duplicate, trash, restore, delete, and
   local pane loading to the local service.
-- [ ] Move MCP configs to the local service.
-- [ ] Replace remaining account/workspace ownership with local scopes.
+- [x] Move templatable MCP config create, edit, delete, local ownership checks, and SQLite-backed
+  persistence to the local service while keeping process lifecycle and credentials separate.
+- [x] Make the OSS channel expose only the local Personal scope and resolve it to the stable local
+  owner; remote-capable channels retain their existing workspace/shared-space behavior.
+- [ ] Replace remaining account/workspace ownership in kept content flows with local scopes.
 - [ ] Remove auth, teams, billing, referral, cloud sync, GraphQL, RTC, sharing, and remote-control UI.
 
 Exit condition: none of the kept content flows require `AuthState`, `CloudModel`, `UpdateManager`,
 `SyncQueue`, or a server ID.
+
+## Noticed bugs and TLC backlog
+
+This list tracks bugs and rough edges noticed while completing the migration phases. Items should be
+assigned to the phase that owns the affected flow before the related work is considered finished.
+
+- [ ] Long-Running command monitor: give the monitor state machine and UI a focused pass. Audit
+  command start/stop/completion transitions, stale monitor state after cancellation or restart,
+  output refresh and scrolling, failure/timeout handling, and restore behavior. Add deterministic
+  unit coverage and a hermetic integration flow for a command that remains active while the agent
+  continues running.
+- [ ] Open-source project presentation: structure the About page around Galaxy’s local-first
+  identity, audit the repository’s license and third-party notices, and make the root metadata,
+  contribution guidance, and license files agree on the final permissive license (currently the
+  repository contains both MIT and AGPL materials and needs an explicit policy).
 
 ### Phase 7 — UI untangling
 
@@ -446,7 +464,8 @@ contract is what the UI and persistence observe.
 
 ## Immediate next vertical slice
 
-Continue Phase 6 by moving MCP configs behind `LocalObjectRepository`, preserving existing SQLite
-rows and pane/session restore behavior while removing account ownership and online-state gates from
-their kept flows. Live Phase 4 Bedrock semantic comparisons remain an explicit opt-in validation task
-because they require configured AWS access.
+Continue Phase 6 by replacing remaining account/workspace ownership with local scopes and removing
+cloud identity UI from kept flows. The next bounded implementation is to move the remaining Galaxy
+Drive folder mutations (create, rename, trash, and open-state persistence) behind
+`LocalObjectRepository` for OSS. Live Phase 4 Bedrock semantic comparisons remain an explicit
+opt-in validation task because they require configured AWS access.

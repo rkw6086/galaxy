@@ -349,8 +349,9 @@ fn test_toolbar_command_map_roundtrip() {
 fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
     let providers = default_openai_providers();
 
-    assert_eq!(providers.len(), 1);
+    assert_eq!(providers.len(), 2);
     let provider = &providers[0];
+    assert_eq!(provider.kind, OpenAIProviderKind::OpenAICompatible);
     assert_eq!(provider.base_url, INITIAL_LITELLM_BASE_URL);
     assert_eq!(provider.api_key, None);
     assert_eq!(provider.models.len(), 1);
@@ -359,6 +360,67 @@ fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
     assert!(model.use_rig);
     assert_eq!(model.supports_system_messages, Some(false));
     assert!(!model.supports_system_messages());
+
+    let chatgpt = &providers[1];
+    assert_eq!(chatgpt.kind, OpenAIProviderKind::ChatGPTSubscription);
+    assert_eq!(chatgpt.name, "ChatGPT Subscription");
+    assert!(chatgpt.base_url.is_empty());
+    assert!(chatgpt.api_key.is_none());
+    assert!(chatgpt
+        .models
+        .iter()
+        .any(|model| model.model_id == "gpt-5.4-pro"));
+
+    let sol = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-sol")
+        .expect("GPT-5.6 Sol should be in the ChatGPT catalog");
+    assert_eq!(sol.reasoning_efforts.len(), 6);
+    assert!(sol.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(sol.reasoning_efforts.iter().any(|effort| effort == "ultra"));
+
+    let luna = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-luna")
+        .expect("GPT-5.6 Luna should be in the ChatGPT catalog");
+    assert!(luna.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(luna
+        .reasoning_efforts
+        .iter()
+        .any(|effort| effort == "ultra"));
+
+    let terra = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-terra")
+        .expect("GPT-5.6 Terra should be in the ChatGPT catalog");
+    assert!(terra.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(terra
+        .reasoning_efforts
+        .iter()
+        .any(|effort| effort == "ultra"));
+
+    let gpt_54 = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.4")
+        .expect("GPT-5.4 should be in the ChatGPT catalog");
+    assert_eq!(
+        gpt_54.reasoning_efforts,
+        vec!["low", "medium", "high", "xhigh"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    );
+
+    let instant = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.3-instant")
+        .expect("GPT-5.3 Instant should be in the ChatGPT catalog");
+    assert!(instant.reasoning_efforts.is_empty());
 }
 
 #[test]

@@ -1538,6 +1538,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-bedrock"
+version = "1.150.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81186bb96a4e98ff93f7b4336deec0afc1f90ca282099fc5395fcf5de6c0389d"
+dependencies = [
+ "arc-swap",
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-schema",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand 2.5.0",
+ "http 0.2.12",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-bedrockruntime"
 version = "1.138.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5647,6 +5673,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-credential-types",
+ "aws-sdk-bedrock",
  "aws-sdk-bedrockruntime",
  "aws-sdk-sts",
  "aws-smithy-types",
@@ -12848,9 +12875,9 @@ dependencies = [
 
 [[package]]
 name = "rig-bedrock"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10e8ee8d206e78398eca2db97cb0cf27f43c903a99c60a730bc7a0cfeaf3ee83"
+checksum = "9a40dec6d2833da0f482f97f105b846b46b82b8ab904b78f2365e263e016f09d"
 dependencies = [
  "async-stream",
  "aws-config",
@@ -12864,14 +12891,15 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "tracing-futures",
  "uuid",
 ]
 
 [[package]]
 name = "rig-core"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8731dd5532b3a12ce1613af73073fb2051ef750f50c504778c21d55ae933cac"
+checksum = "35f5520515ae8f6851adcbc6fde9eea8e96f657418c062e16c82cd81cce44e8e"
 dependencies = [
  "as-any",
  "async-stream",
@@ -12903,16 +12931,14 @@ dependencies = [
 
 [[package]]
 name = "rig-derive"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e98dde7a4e59e083e7396126ee4c83498c5bff605d126654e67815fa230a78"
+checksum = "eb868fcebdf3ba425e3afad2e4926bb6d9e1188a856843b00bcee2e15c07424f"
 dependencies = [
  "convert_case 0.11.0",
- "indoc",
  "proc-macro-crate 3.5.0",
  "proc-macro2",
  "quote",
- "serde_json",
  "syn 2.0.119",
 ]
 

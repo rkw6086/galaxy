@@ -5,6 +5,7 @@ use galaxyui::App;
 use super::*;
 use crate::ai::execution_profiles::{AIExecutionProfile, ActionPermission};
 use crate::ai::facts::AIMemory;
+use crate::ai::mcp::templatable::TemplatableMCPServer;
 use crate::cloud_object::model::generic_string_model::CloudStringObject;
 use crate::env_vars::{EnvVar, EnvVarCollection, EnvVarValue};
 use crate::notebooks::CloudNotebookModel;
@@ -271,6 +272,63 @@ fn create_update_duplicate_trash_and_delete_env_var_collection_are_local() {
 
         let deleted = repository.update(&mut app, |repository, ctx| {
             repository.delete_env_var_collection(id, ctx)
+        });
+        assert!(deleted);
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::DeleteObjects { ids }
+                if ids == vec![(id, ObjectIdType::GenericStringObject)]
+        ));
+    });
+}
+
+#[test]
+fn create_update_and_delete_mcp_config_are_local_and_persisted() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let id = SyncId::ClientId(ClientId::new());
+        let uuid = uuid::Uuid::new_v4();
+        let server = TemplatableMCPServer {
+            uuid,
+            name: "Local MCP".to_string(),
+            ..Default::default()
+        };
+
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_templatable_mcp_server_with_id(id, server, ctx);
+        });
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::UpsertGenericStringObject { .. }
+        ));
+        repository.read(&app, |repository, app| {
+            let server = repository
+                .templatable_mcp_server(uuid, app)
+                .expect("created MCP config");
+            assert_eq!(server.id, id);
+            assert_eq!(server.model().string_model.name, "Local MCP");
+        });
+
+        let updated = repository.update(&mut app, |repository, ctx| {
+            repository.update_templatable_mcp_server(
+                uuid,
+                TemplatableMCPServer {
+                    uuid,
+                    name: "Updated MCP".to_string(),
+                    ..Default::default()
+                },
+                ctx,
+            )
+        });
+        assert!(updated);
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::UpsertGenericStringObject { .. }
+        ));
+
+        let deleted = repository.update(&mut app, |repository, ctx| {
+            repository.delete_templatable_mcp_server(uuid, ctx)
         });
         assert!(deleted);
         assert!(matches!(

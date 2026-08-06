@@ -4,11 +4,15 @@ use bytes::Bytes;
 use futures::Stream;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 
+use crate::settings::OpenAIProviderKind;
+
 #[derive(Clone, Debug)]
 pub struct OpenAIClientConfig {
+    pub kind: OpenAIProviderKind,
     pub base_url: String,
     pub api_key: Option<String>,
     pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
     pub use_rig: bool,

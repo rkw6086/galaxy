@@ -150,12 +150,14 @@ impl AIAgentActionResultType {
                     ..
                 } => command_result_content(Some(command), output, exit_code.value()),
                 RequestCommandOutputResult::LongRunningCommandSnapshot {
+                    block_id,
                     command,
                     grid_contents,
                     cursor,
                     is_alt_screen_active,
                     ..
                 } => shell_snapshot_content(
+                    block_id,
                     Some(command),
                     grid_contents,
                     cursor,
@@ -167,12 +169,14 @@ impl AIAgentActionResultType {
             },
             Self::WriteToLongRunningShellCommand(result) => match result {
                 WriteToLongRunningShellCommandResult::Snapshot {
+                    block_id,
                     grid_contents,
                     cursor,
                     is_alt_screen_active,
                     is_preempted,
                     ..
                 } => shell_snapshot_content(
+                    block_id,
                     None,
                     grid_contents,
                     cursor,
@@ -229,6 +233,7 @@ impl AIAgentActionResultType {
                     ..
                 } => command_result_content(Some(command), output, exit_code.value()),
                 ReadShellCommandOutputResult::LongRunningCommandSnapshot {
+                    block_id,
                     command,
                     grid_contents,
                     cursor,
@@ -236,6 +241,7 @@ impl AIAgentActionResultType {
                     is_preempted,
                     ..
                 } => shell_snapshot_content(
+                    block_id,
                     Some(command),
                     grid_contents,
                     cursor,
@@ -247,6 +253,7 @@ impl AIAgentActionResultType {
             },
             Self::TransferShellCommandControlToUser(result) => match result {
                 TransferShellCommandControlToUserResult::Snapshot {
+                    block_id,
                     grid_contents,
                     cursor,
                     is_alt_screen_active,
@@ -255,6 +262,7 @@ impl AIAgentActionResultType {
                 } => format!(
                     "{}\nControl has been transferred to the user. Do not write to the command until control is returned.",
                     shell_snapshot_content(
+                        block_id,
                         None,
                         grid_contents,
                         cursor,
@@ -305,6 +313,7 @@ fn command_result_content(command: Option<&str>, output: &str, exit_code: i32) -
 }
 
 fn shell_snapshot_content(
+    block_id: &BlockId,
     command: Option<&str>,
     grid_contents: &str,
     cursor: &str,
@@ -318,7 +327,7 @@ fn shell_snapshot_content(
         .map(|is_preempted| format!("\nPreempted: {is_preempted}"))
         .unwrap_or_default();
     format!(
-        "{command}Command is still running.\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}"
+        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nContinue monitoring with `read_shell_command_output` using command_id `{block_id}` and a short wait. Do not report completion while the command is still running."
     )
 }
 

@@ -113,7 +113,15 @@ fn prepare_rig_turn_for_provider(
             supported_tools
         }
     };
-    let (tools, mcp_tool_aliases) = tool_definitions(&available_tools, mcp_context.as_ref());
+    let (mut tools, mcp_tool_aliases) = tool_definitions(&available_tools, mcp_context.as_ref());
+    if matches!(mode, RigRequestMode::Cli) {
+        // History recall cannot advance a running command and is handled inline by the Rig
+        // adapter (without producing a client action that can trigger another turn). Keeping it
+        // in the CLI tool list lets the model spend its entire monitor turn recalling the prior
+        // snapshot instead of scheduling `read_shell_command_output`, so make polling the only
+        // way to inspect the active command here.
+        tools.retain(|tool| tool.name != "recall_tool_history");
+    }
     let system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
 
     let mut new_messages = input_messages(input, tool_results);
@@ -406,6 +414,16 @@ enum RigRequestMode {
 
 fn request_mode(inputs: &[AIAgentInput]) -> RigRequestMode {
     for input in inputs {
+        // A direct-provider follow-up carries an LRC snapshot as an action result rather than
+        // as a user query with `running_command`. Treat that result as a CLI-monitor turn so the
+        // request receives the dedicated polling instructions and CLI tool set. Without this,
+        // the model sees a generic tool-result turn and may stop after inspecting the snapshot
+        // (or call history recall) instead of scheduling the next output read.
+        if let AIAgentInput::ActionResult { result, .. } = input {
+            if result.result.triggers_server_subagent() {
+                return RigRequestMode::Cli;
+            }
+        }
         if matches!(
             input,
             AIAgentInput::UserQuery {
@@ -719,7 +737,7 @@ fn build_system_prompt(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",
         ),
         RigRequestMode::Cli => prompt.push_str(
-            "## Running Command Monitor\nMonitor the existing command by its command ID. Never start a duplicate command. Poll briefly, respect stop conditions, and report only verified outcomes.\n\n",
+            "## Running Command Monitor\nThis turn concerns a running or just-finished shell command. Act as its dedicated monitor while still following the user's steering messages. Use the command ID from the tool result for every read/write operation. If the result says the command finished, report its outcome and stop polling. Otherwise, poll with `read_shell_command_output` and use short delays. Never choose a poll interval that crosses a user-specified deadline or stop condition. When an explicit stop condition is met, call `interrupt_shell_command` immediately, then poll briefly to verify the outcome. Never start a duplicate command merely to check its state, and never report completion while a result says it is still running.\n\n",
         ),
     }
     prompt.push_str("## Available Tools\n");

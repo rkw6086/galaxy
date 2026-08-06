@@ -9,8 +9,10 @@ use warp_multi_agent_api::ToolType;
 
 use super::{input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, tool_definitions};
 use crate::ai::agent::api::RequestParams;
+use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentContext, AIAgentInput, AnyFileContent, FileContext, MCPContext, MCPServer, UserQueryMode,
+    AIAgentActionId, AIAgentActionResult, AIAgentActionResultType, AIAgentContext, AIAgentInput,
+    AnyFileContent, FileContext, MCPContext, MCPServer, RequestCommandOutputResult, UserQueryMode,
 };
 use crate::ai::llms::LLMId;
 use crate::ai::openai::client::OpenAIClientConfig;
@@ -18,9 +20,11 @@ use crate::ai::skills::SkillDescriptor;
 
 fn config() -> OpenAIClientConfig {
     OpenAIClientConfig {
+        kind: crate::settings::OpenAIProviderKind::OpenAICompatible,
         base_url: "http://localhost:4000/v1".to_string(),
         api_key: None,
         model: Some("provider-model".to_string()),
+        reasoning_effort: None,
         max_input_tokens: Some(128_000),
         max_output_tokens: Some(8_192),
         use_rig: true,
@@ -129,6 +133,85 @@ fn rig_prompt_requires_follow_through_without_manual_continue_prompts() {
     assert!(prompt.contains("Continue until the user's requested outcome is complete"));
     assert!(prompt.contains("do not ask the user to say \"continue\""));
     assert!(prompt.contains("After each tool result, choose and perform the next necessary step"));
+}
+
+#[test]
+fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
+    let block_id: galaxy_terminal::model::BlockId = "precmd-lrc-test".to_string().into();
+    let result = AIAgentActionResult {
+        id: AIAgentActionId::from("run-call".to_owned()),
+        task_id: TaskId::new("task".to_owned()),
+        result: AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::LongRunningCommandSnapshot {
+                block_id: block_id.clone(),
+                command: "bash loop.sh".to_string(),
+                grid_contents: "Running for 2 seconds...".to_string(),
+                cursor: String::new(),
+                is_alt_screen_active: false,
+            },
+        ),
+    };
+    let snapshot_tool_result = ToolResult {
+        call_id: "run-call".to_string(),
+        content: result.result.model_content(),
+        status: ToolResultStatus::Success,
+    };
+    let mut params = RequestParams::new_for_test();
+    params.message_history = vec![galaxy_agent_core::ConversationMessage {
+        role: MessageRole::Assistant,
+        content: MessageContent::ToolUse {
+            tool_use_id: "run-call".to_string(),
+            name: "run_shell_command".to_string(),
+            input: serde_json::json!({
+                "command": "bash loop.sh",
+                "wait_until_complete": false,
+            }),
+        },
+    }];
+    params.input = vec![AIAgentInput::ActionResult {
+        result,
+        context: Arc::from([]),
+    }];
+    params.tool_results = vec![snapshot_tool_result];
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![ToolType::RunShellCommand],
+        vec![ToolType::ReadShellCommandOutput],
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prompt.contains("## Running Command Monitor"));
+    assert!(prompt.contains("poll with `read_shell_command_output`"));
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "read_shell_command_output"));
+    assert!(!prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "recall_tool_history"));
+    assert!(prepared
+        .request
+        .messages
+        .iter()
+        .any(|message| match &message.content {
+            MessageContent::ToolResult { content, .. } => {
+                content.contains("Command ID: precmd-lrc-test")
+                    && content.contains("Continue monitoring with `read_shell_command_output`")
+            }
+            MessageContent::MultiPart(parts) => parts.iter().any(|part| {
+                matches!(
+                    part,
+                    ContentPart::ToolResult { content, .. }
+                        if content.contains("Command ID: precmd-lrc-test")
+                )
+            }),
+            _ => false,
+        }));
 }
 
 #[test]

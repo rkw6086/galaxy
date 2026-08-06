@@ -841,6 +841,10 @@ fn default_context_size() -> u32 {
     200_000
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 /// Configuration for a single OpenAI-compatible (LiteLLM) model.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[schemars(description = "Configuration for a single OpenAI-compatible model (e.g. via LiteLLM).")]
@@ -889,6 +893,14 @@ pub struct OpenAIModelConfig {
         description = "Whether this endpoint accepts system-role messages. Set false for ChatGPT-backed LiteLLM models that reject them."
     )]
     pub supports_system_messages: Option<bool>,
+    #[serde(default)]
+    #[schemars(
+        description = "Reasoning effort modes supported by this model when using the ChatGPT subscription provider."
+    )]
+    pub reasoning_efforts: Vec<String>,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this model is enabled for the model picker.")]
+    pub enabled: bool,
 }
 
 impl settings_value::SettingsValue for OpenAIModelConfig {}
@@ -902,6 +914,20 @@ impl OpenAIModelConfig {
     }
 }
 
+/// The protocol and authentication used by an OpenAI model provider.
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAIProviderKind {
+    /// A regular OpenAI-compatible `/chat/completions` endpoint.
+    #[serde(alias = "openai")]
+    #[default]
+    OpenAICompatible,
+    /// The ChatGPT subscription backend, authenticated with ChatGPT OAuth.
+    ChatGPTSubscription,
+}
+
 /// Configuration for a single OpenAI-compatible provider endpoint.
 ///
 /// Multiple providers can be configured simultaneously (e.g. LiteLLM for cloud models,
@@ -911,6 +937,12 @@ impl OpenAIModelConfig {
     description = "Configuration for an OpenAI-compatible provider endpoint (e.g. LiteLLM, Ollama, vLLM)."
 )]
 pub struct OpenAIProviderConfig {
+    #[serde(default)]
+    #[schemars(description = "Provider protocol and authentication kind.")]
+    pub kind: OpenAIProviderKind,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this provider is enabled for AI requests.")]
+    pub enabled: bool,
     #[schemars(description = "Display name for this provider (shown in model picker).")]
     pub name: String,
     #[schemars(description = "Base URL for the OpenAI-compatible API endpoint.")]
@@ -928,25 +960,97 @@ impl settings_value::SettingsValue for OpenAIProviderConfig {}
 const INITIAL_LITELLM_BASE_URL: &str = "https://ai.ryserve.net/v1";
 const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
 
-fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
-    vec![OpenAIProviderConfig {
-        name: "LiteLLM (ai.ryserve.net)".to_string(),
-        base_url: INITIAL_LITELLM_BASE_URL.to_string(),
-        // Credentials are deliberately never committed. Set this locally in
-        // ~/.galaxy/settings.toml before sending a request.
-        api_key: None,
-        models: vec![OpenAIModelConfig {
-            model_id: INITIAL_RIG_MODEL_ID.to_string(),
-            display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
+fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
+    // The ChatGPT OAuth backend does not expose a model-listing capability through Rig,
+    // so keep this catalog small and explicit. Reasoning variants are expanded into
+    // selectable LLM entries when the provider is injected into the runtime inventory.
+    [
+        (
+            "gpt-5.6-sol",
+            "GPT-5.6 Sol",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+        ),
+        (
+            "gpt-5.6-terra",
+            "GPT-5.6 Terra",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+        ),
+        (
+            "gpt-5.6-luna",
+            "GPT-5.6 Luna",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+        ),
+        ("gpt-5.4", "GPT-5.4", vec!["low", "medium", "high", "xhigh"]),
+        (
+            "gpt-5.4-pro",
+            "GPT-5.4 Pro",
+            vec!["medium", "high", "xhigh"],
+        ),
+        (
+            "gpt-5.3-codex",
+            "GPT-5.3 Codex",
+            vec!["low", "medium", "high", "xhigh"],
+        ),
+        ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", vec![]),
+        ("gpt-5.3-instant", "GPT-5.3 Instant", vec![]),
+        ("gpt-5.3-chat-latest", "GPT-5.3 Chat Latest", vec![]),
+    ]
+    .into_iter()
+    .map(
+        |(model_id, display_name, reasoning_efforts)| OpenAIModelConfig {
+            model_id: model_id.to_string(),
+            display_name: display_name.to_string(),
             vision_supported: false,
             context_size: default_context_size(),
             max_input_tokens: None,
             max_output_tokens: None,
             provider: Some("openai".to_string()),
             use_rig: true,
-            supports_system_messages: Some(false),
-        }],
-    }]
+            supports_system_messages: Some(true),
+            reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
+            enabled: true,
+        },
+    )
+    .collect()
+}
+
+pub(crate) fn default_chatgpt_provider() -> OpenAIProviderConfig {
+    OpenAIProviderConfig {
+        kind: OpenAIProviderKind::ChatGPTSubscription,
+        enabled: true,
+        name: "ChatGPT Subscription".to_string(),
+        base_url: String::new(),
+        api_key: None,
+        models: default_chatgpt_models(),
+    }
+}
+
+fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
+    vec![
+        OpenAIProviderConfig {
+            kind: OpenAIProviderKind::OpenAICompatible,
+            enabled: true,
+            name: "LiteLLM (ai.ryserve.net)".to_string(),
+            base_url: INITIAL_LITELLM_BASE_URL.to_string(),
+            // Credentials are deliberately never committed. Set this locally in
+            // ~/.galaxy/settings.toml before sending a request.
+            api_key: None,
+            models: vec![OpenAIModelConfig {
+                model_id: INITIAL_RIG_MODEL_ID.to_string(),
+                display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
+                vision_supported: false,
+                context_size: default_context_size(),
+                max_input_tokens: None,
+                max_output_tokens: None,
+                provider: Some("openai".to_string()),
+                use_rig: true,
+                supports_system_messages: Some(false),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
+            }],
+        },
+        default_chatgpt_provider(),
+    ]
 }
 
 /// Cached metadata and runtime session options for an ACP agent.
@@ -1349,6 +1453,17 @@ define_settings_group!(AISettings, settings: [
         description: "Identifier for the local Agent Client Protocol agent preset.",
         feature_flag: FeatureFlag::AgentClientProtocol,
     }
+    // Friendly name shown for the configured ACP provider card.
+    acp_connection_name: AcpConnectionName {
+        type: String,
+        default: "ACP agent runtime".to_string(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.connection_name",
+        description: "Friendly name for the configured ACP agent runtime.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
     // Executable used to launch the configured local ACP agent.
     acp_agent_command: AcpAgentCommand {
         type: String,
@@ -1394,6 +1509,16 @@ define_settings_group!(AISettings, settings: [
     }
     // Authentication method for Bedrock: "profile", "static_keys", or "sso".
     bedrock_auth_method: BedrockAuthMethod,
+    // Friendly name shown for the configured Bedrock provider card.
+    bedrock_connection_name: BedrockConnectionName {
+        type: String,
+        default: "AWS Bedrock".to_string(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.bedrock.connection_name",
+        description: "Friendly name for the configured AWS Bedrock connection.",
+    }
     // AWS profile name to use when auth_method is Profile or SSO.
     bedrock_profile: BedrockProfile {
         type: String,
@@ -1424,7 +1549,7 @@ define_settings_group!(AISettings, settings: [
         toml_path: "ai.bedrock.cross_region_inference",
         description: "Whether to automatically add cross-region inference prefixes to model IDs.",
     }
-    // Custom Bedrock model configurations.
+    // Cached Bedrock models that passed foundation-model availability checks.
     bedrock_models: BedrockModels {
         type: Vec<BedrockModelConfig>,
         default: Vec::new(),
@@ -1432,7 +1557,7 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.models",
-        description: "Custom AWS Bedrock model configurations.",
+        description: "AWS Bedrock models discovered as authorized and available in the configured region.",
     }
     // Whether to automatically run the login command when Bedrock credentials expire.
     bedrock_auto_login: BedrockAutoLogin {

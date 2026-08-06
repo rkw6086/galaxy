@@ -63,6 +63,12 @@ impl Channel {
         }
     }
 
+    /// Whether the channel is local-first and must not expose Warp-owned
+    /// identity, sharing, or workspace state to the product surface.
+    pub fn is_local_first(&self) -> bool {
+        !self.allows_warp_service_egress()
+    }
+
     /// Returns the CLI command name corresponding to this channel.
     pub fn cli_command_name(&self) -> &'static str {
         match self {

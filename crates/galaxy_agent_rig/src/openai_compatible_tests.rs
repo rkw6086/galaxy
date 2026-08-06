@@ -276,6 +276,7 @@ fn request_conversion_preserves_tool_call_and_denied_result_for_the_next_turn() 
         panic!("expected assistant tool call content");
     };
     assert_eq!(call.id, "call-1");
+    assert_eq!(call.call_id.as_deref(), Some("call-1"));
     assert_eq!(call.function.name, "run_shell_command");
 
     let Message::User { content } = messages[1] else {
@@ -285,6 +286,7 @@ fn request_conversion_preserves_tool_call_and_denied_result_for_the_next_turn() 
         panic!("expected user tool result content");
     };
     assert_eq!(result.id, "call-1");
+    assert_eq!(result.call_id.as_deref(), Some("call-1"));
     let Some(ToolResultContent::Text(text)) = result.content.iter().next() else {
         panic!("expected text tool result");
     };

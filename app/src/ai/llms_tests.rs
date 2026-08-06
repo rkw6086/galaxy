@@ -152,6 +152,8 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
         provider: None,
         use_rig: false,
         supports_system_messages: None,
+        reasoning_efforts: Vec::new(),
+        enabled: true,
     }
 }
 
@@ -553,6 +555,60 @@ fn disabled_providers_do_not_leave_models_in_the_runtime_inventory() {
             .cli_agent
             .as_ref()
             .is_none_or(|models| models.choices.is_empty()));
+    });
+}
+
+#[test]
+fn chatgpt_reasoning_modes_route_to_the_base_model_with_effort_metadata() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+            settings
+                .openai_enabled
+                .set_value(true, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .openai_models
+                .set_value(Vec::new(), ctx)
+                .expect("OpenAI model setting should update");
+            settings
+                .openai_providers
+                .set_value(vec![crate::settings::ai::default_chatgpt_provider()], ctx)
+                .expect("OpenAI provider setting should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+
+        let mode_id = "gpt-5.4::reasoning::high";
+        let mode = preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .find(|model| model.id.as_str() == mode_id)
+            .expect("GPT-5.4 high mode should be available");
+        assert_eq!(mode.reasoning_level.as_deref(), Some("high"));
+        let routing = preferences
+            .openai_client_config_for_model(mode_id)
+            .expect("reasoning mode should have a routing entry");
+        assert_eq!(routing.model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(routing.reasoning_effort.as_deref(), Some("high"));
+
+        let ultra_id = "gpt-5.6-sol::reasoning::ultra";
+        let ultra_routing = preferences
+            .openai_client_config_for_model(ultra_id)
+            .expect("GPT-5.6 Sol ultra mode should have a routing entry");
+        assert_eq!(ultra_routing.model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(ultra_routing.reasoning_effort.as_deref(), Some("ultra"));
     });
 }
 

@@ -328,6 +328,7 @@ tracing-subscriber.workspace = true
 # AWS SDK (loading credentials for BYO LLM)
 aws-config = { version = "1.8.16", features = ["credentials-login"] }
 aws-credential-types = "1"
+aws-sdk-bedrock.workspace = true
 aws-sdk-bedrockruntime.workspace = true
 aws-sdk-sts = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-smithy-types = "1"

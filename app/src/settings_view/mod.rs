@@ -86,6 +86,7 @@ mod platform;
 mod platform_page;
 mod privacy;
 mod privacy_page;
+mod provider_setup_modal;
 mod scripting_page;
 mod set_default_model_modal;
 mod settings_file_footer;

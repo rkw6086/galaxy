@@ -8,6 +8,9 @@ use crate::ai::execution_profiles::{
     AIExecutionProfile, CloudAIExecutionProfile, CloudAIExecutionProfileModel,
 };
 use crate::ai::facts::{AIFact, CloudAIFact, CloudAIFactModel};
+use crate::ai::mcp::templatable::{
+    CloudTemplatableMCPServer, CloudTemplatableMCPServerModel, TemplatableMCPServer,
+};
 use crate::auth::UserUid;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
@@ -413,6 +416,60 @@ impl LocalObjectRepository {
         Some(duplicate_id)
     }
 
+    pub fn templatable_mcp_server(
+        &self,
+        uuid: uuid::Uuid,
+        app: &AppContext,
+    ) -> Option<CloudTemplatableMCPServer> {
+        CloudModel::as_ref(app)
+            .get_all_objects_of_type::<GenericStringObjectId, CloudTemplatableMCPServerModel>()
+            .find(|server| server.model().string_model.uuid == uuid)
+            .cloned()
+    }
+
+    pub fn create_templatable_mcp_server_with_id(
+        &mut self,
+        id: SyncId,
+        server: TemplatableMCPServer,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.upsert_templatable_mcp_server(
+            GenericCloudObject::new(
+                id,
+                CloudTemplatableMCPServerModel::new(server),
+                locally_saved_metadata(None),
+                local_permissions(),
+            ),
+            ctx,
+        );
+    }
+
+    pub fn update_templatable_mcp_server(
+        &mut self,
+        uuid: uuid::Uuid,
+        server: TemplatableMCPServer,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let Some(mut object) = self.templatable_mcp_server(uuid, ctx) else {
+            return false;
+        };
+        object.set_model(CloudTemplatableMCPServerModel::new(server));
+        set_locally_saved_metadata(&mut object.metadata);
+        self.upsert_templatable_mcp_server(object, ctx);
+        true
+    }
+
+    pub fn delete_templatable_mcp_server(
+        &mut self,
+        uuid: uuid::Uuid,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let Some(object) = self.templatable_mcp_server(uuid, ctx) else {
+            return false;
+        };
+        self.delete_local_object(object.id, ObjectIdType::GenericStringObject, ctx)
+    }
+
     pub fn create_workflow_with_id(
         &mut self,
         id: SyncId,
@@ -504,6 +561,19 @@ impl LocalObjectRepository {
     fn upsert_generic_string_object(
         &self,
         object: GenericCloudObject<GenericStringObjectId, CloudEnvVarCollectionModel>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+            cloud_model.upsert_local_object(object.clone(), ctx);
+        });
+        self.save(ModelEvent::UpsertGenericStringObject {
+            object: Box::new(object),
+        });
+    }
+
+    fn upsert_templatable_mcp_server(
+        &self,
+        object: CloudTemplatableMCPServer,
         ctx: &mut ModelContext<Self>,
     ) {
         CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {

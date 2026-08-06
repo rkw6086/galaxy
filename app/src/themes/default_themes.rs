@@ -113,45 +113,45 @@ const DRACULA_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
     AnsiColor::from_u32(0xFFFFFFFF),
 );
 const GALAXY_DARK_NORMAL_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x3A4050FF),
-    AnsiColor::from_u32(0xF07178FF),
-    AnsiColor::from_u32(0x65B88AFF),
-    AnsiColor::from_u32(0xDAB965FF),
-    AnsiColor::from_u32(0x6F8EFFFF),
-    AnsiColor::from_u32(0xB38CF3FF),
-    AnsiColor::from_u32(0x62B8C8FF),
-    AnsiColor::from_u32(0xD9DCE8FF),
+    AnsiColor::from_u32(0x444B61FF),
+    AnsiColor::from_u32(0xF27A86FF),
+    AnsiColor::from_u32(0x68C093FF),
+    AnsiColor::from_u32(0xDFB968FF),
+    AnsiColor::from_u32(0x7396FFFF),
+    AnsiColor::from_u32(0xC184F4FF),
+    AnsiColor::from_u32(0x62C2D1FF),
+    AnsiColor::from_u32(0xDDE1EDFF),
 );
 const GALAXY_DARK_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x60687AFF),
-    AnsiColor::from_u32(0xFF8B91FF),
-    AnsiColor::from_u32(0x7DCB9FFF),
-    AnsiColor::from_u32(0xE8CC7EFF),
-    AnsiColor::from_u32(0x91A6FFFF),
-    AnsiColor::from_u32(0xC9A9FFFF),
-    AnsiColor::from_u32(0x7CCDDDFF),
-    AnsiColor::from_u32(0xFAFAFDFF),
+    AnsiColor::from_u32(0x707A93FF),
+    AnsiColor::from_u32(0xFF99A3FF),
+    AnsiColor::from_u32(0x86D6ADFF),
+    AnsiColor::from_u32(0xF0D184FF),
+    AnsiColor::from_u32(0x9EB7FFFF),
+    AnsiColor::from_u32(0xD8A8FFFF),
+    AnsiColor::from_u32(0x83D8E4FF),
+    AnsiColor::from_u32(0xFCFBFFFF),
 );
 
 const GALAXY_DAY_NORMAL_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x4D5363FF),
-    AnsiColor::from_u32(0xB64B59FF),
-    AnsiColor::from_u32(0x317C5AFF),
-    AnsiColor::from_u32(0x886B2EFF),
-    AnsiColor::from_u32(0x435FC7FF),
-    AnsiColor::from_u32(0x7653A8FF),
-    AnsiColor::from_u32(0x347789FF),
-    AnsiColor::from_u32(0xD3D6DFFF),
+    AnsiColor::from_u32(0x50566BFF),
+    AnsiColor::from_u32(0xB94E64FF),
+    AnsiColor::from_u32(0x2F8060FF),
+    AnsiColor::from_u32(0x89682AFF),
+    AnsiColor::from_u32(0x435FC8FF),
+    AnsiColor::from_u32(0x8154A8FF),
+    AnsiColor::from_u32(0x2F7D8BFF),
+    AnsiColor::from_u32(0xD0D5E2FF),
 );
 const GALAXY_DAY_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x697080FF),
-    AnsiColor::from_u32(0xCB606BFF),
-    AnsiColor::from_u32(0x3E9169FF),
-    AnsiColor::from_u32(0xA07D37FF),
-    AnsiColor::from_u32(0x5D76DBFF),
-    AnsiColor::from_u32(0x8C6CBCFF),
-    AnsiColor::from_u32(0x468C9EFF),
-    AnsiColor::from_u32(0xF6F7FAFF),
+    AnsiColor::from_u32(0x6F778EFF),
+    AnsiColor::from_u32(0xD06374FF),
+    AnsiColor::from_u32(0x43966FFF),
+    AnsiColor::from_u32(0xA17C35FF),
+    AnsiColor::from_u32(0x607ADEFF),
+    AnsiColor::from_u32(0x9B6EBFFF),
+    AnsiColor::from_u32(0x4693A1FF),
+    AnsiColor::from_u32(0xF7F7FBFF),
 );
 
 const PHENOMENON_NORMAL_COLORS: AnsiColors = AnsiColors::new(
@@ -665,9 +665,15 @@ pub(super) fn adeberry() -> GalaxyTheme {
 
 pub(super) fn galaxy_dark() -> GalaxyTheme {
     GalaxyTheme::new(
-        Fill::Solid(ColorU::from_u32(0x1B1E2BFF)),
-        ColorU::from_u32(0xF2F3FAFF),
-        Fill::Solid(ColorU::from_u32(0x7C83FFFF)),
+        Fill::VerticalGradient(VerticalGradient::new(
+            ColorU::from_u32(0x252A46FF),
+            ColorU::from_u32(0x171925FF),
+        )),
+        ColorU::from_u32(0xF4F3FBFF),
+        Fill::HorizontalGradient(HorizontalGradient::new(
+            ColorU::from_u32(0x6F8BFFFF),
+            ColorU::from_u32(0xAE74E6FF),
+        )),
         None,
         Some(Details::Darker),
         galaxy_dark_colors(),
@@ -678,9 +684,15 @@ pub(super) fn galaxy_dark() -> GalaxyTheme {
 
 pub(super) fn galaxy_day() -> GalaxyTheme {
     GalaxyTheme::new(
-        Fill::Solid(ColorU::from_u32(0xE1E4EBFF)),
-        ColorU::from_u32(0x242735FF),
-        Fill::Solid(ColorU::from_u32(0x5765D8FF)),
+        Fill::VerticalGradient(VerticalGradient::new(
+            ColorU::from_u32(0xECECF4FF),
+            ColorU::from_u32(0xD6DCE8FF),
+        )),
+        ColorU::from_u32(0x29283AFF),
+        Fill::HorizontalGradient(HorizontalGradient::new(
+            ColorU::from_u32(0x5168D6FF),
+            ColorU::from_u32(0x8C64B8FF),
+        )),
         None,
         Some(Details::Lighter),
         galaxy_day_colors(),

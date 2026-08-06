@@ -103,11 +103,7 @@ where
                         Ok(StreamedAssistantContent::ToolCall { tool_call, .. }) => {
                             yield Ok(AgentEvent::Tool {
                                 event: galaxy_agent_core::ToolEvent::Proposed {
-                                    call: ToolCall {
-                                        id: tool_call.id,
-                                        name: tool_call.function.name,
-                                        arguments: tool_call.function.arguments,
-                                    },
+                                    call: domain_tool_call(tool_call),
                                 },
                             });
                         }
@@ -144,6 +140,18 @@ where
     };
 
     Ok(Box::pin(events))
+}
+
+fn domain_tool_call(tool_call: rig_core::message::ToolCall) -> ToolCall {
+    ToolCall {
+        // OpenAI Responses uses a separate `call_id` for function-call output
+        // correlation. The domain model has one ID, so preserve that value when
+        // it is available and fall back to the standard tool-call ID for other
+        // OpenAI-compatible providers.
+        id: tool_call.call_id.unwrap_or(tool_call.id),
+        name: tool_call.function.name,
+        arguments: tool_call.function.arguments,
+    }
 }
 
 fn stopped_before_stream(runtime_request_id: String) -> AgentEventStream {
@@ -205,4 +213,26 @@ fn map_completion_error(error: CompletionError) -> AgentError {
         AgentErrorKind::RateLimited | AgentErrorKind::Transport
     );
     mapped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::domain_tool_call;
+
+    #[test]
+    fn domain_tool_call_prefers_responses_call_id() {
+        let tool_call = rig_core::message::ToolCall::new(
+            "fc_item_123".to_string(),
+            rig_core::message::ToolFunction {
+                name: "read_files".to_string(),
+                arguments: serde_json::json!({"files": ["Cargo.toml"]}),
+            },
+        )
+        .with_call_id("call_123".to_string());
+
+        let call = domain_tool_call(tool_call);
+
+        assert_eq!(call.id, "call_123");
+        assert_eq!(call.name, "read_files");
+    }
 }
