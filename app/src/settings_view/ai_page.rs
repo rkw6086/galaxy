@@ -7913,6 +7913,11 @@ impl SettingsWidget for OpenAIProviderSettingsWidget {
             app,
         ));
 
+        let has_configured_builtin_provider = !settings.bedrock_models.value().is_empty()
+            || (cfg!(unix)
+                && FeatureFlag::AgentClientProtocol.is_enabled()
+                && *settings.acp_enabled.value());
+
         if !settings.bedrock_models.value().is_empty() {
             column.add_child(self.render_builtin_provider_card(
                 settings.bedrock_connection_name.value().as_str(),
@@ -7925,22 +7930,23 @@ impl SettingsWidget for OpenAIProviderSettingsWidget {
                 appearance,
             ));
         }
-        if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
-            if *settings.acp_enabled.value() {
-                column.add_child(self.render_builtin_provider_card(
-                    settings.acp_connection_name.value().as_str(),
-                    "Use a local session-oriented agent that owns its model and authentication.",
-                    *settings.acp_enabled.value(),
-                    self.acp_enabled_toggle.clone(),
-                    AISettingsPageAction::ToggleAcpEnabled,
-                    &self.acp_edit_button,
-                    &self.acp_remove_button,
-                    appearance,
-                ));
-            }
+        if cfg!(unix)
+            && FeatureFlag::AgentClientProtocol.is_enabled()
+            && *settings.acp_enabled.value()
+        {
+            column.add_child(self.render_builtin_provider_card(
+                settings.acp_connection_name.value().as_str(),
+                "Use a local session-oriented agent that owns its model and authentication.",
+                *settings.acp_enabled.value(),
+                self.acp_enabled_toggle.clone(),
+                AISettingsPageAction::ToggleAcpEnabled,
+                &self.acp_edit_button,
+                &self.acp_remove_button,
+                appearance,
+            ));
         }
 
-        if providers.is_empty() {
+        if providers.is_empty() && !has_configured_builtin_provider {
             column.add_child(render_ai_setting_description(
                 "No providers configured. Select Add provider to get started.",
                 is_enabled,
