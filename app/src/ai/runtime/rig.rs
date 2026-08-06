@@ -8,8 +8,9 @@ use galaxy_agent_core::{
     ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand,
 };
 use galaxy_agent_rig::{
-    ChatGPTSubscriptionRuntime, ChatGPTSubscriptionRuntimeConfig, OpenAICompatibleRuntime,
-    OpenAICompatibleRuntimeConfig,
+    AnthropicRuntime, AnthropicRuntimeConfig, ChatGPTSubscriptionRuntime,
+    ChatGPTSubscriptionRuntimeConfig, GeminiRuntime, GeminiRuntimeConfig, OpenAICompatibleRuntime,
+    OpenAICompatibleRuntimeConfig, VertexAiRuntime, VertexAiRuntimeConfig,
 };
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
@@ -70,6 +71,52 @@ pub(crate) fn rig_openai_response_stream(
                 skill_path_origin,
                 config.max_input_tokens,
                 "rig_chatgpt_subscription",
+                cancellation_rx,
+            )
+        }
+        OpenAIProviderKind::Anthropic => {
+            let runtime = AnthropicRuntime::new(AnthropicRuntimeConfig {
+                api_key: config.api_key.unwrap_or_default(),
+                model: model_id,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+            });
+            rig_response_stream(
+                runtime,
+                prepared,
+                skill_path_origin,
+                config.max_input_tokens,
+                "rig_anthropic",
+                cancellation_rx,
+            )
+        }
+        OpenAIProviderKind::Gemini => {
+            let runtime = GeminiRuntime::new(GeminiRuntimeConfig {
+                api_key: config.api_key.unwrap_or_default(),
+                model: model_id,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+            });
+            rig_response_stream(
+                runtime,
+                prepared,
+                skill_path_origin,
+                config.max_input_tokens,
+                "rig_gemini",
+                cancellation_rx,
+            )
+        }
+        OpenAIProviderKind::VertexAI => {
+            let runtime = VertexAiRuntime::new(VertexAiRuntimeConfig {
+                project_id: config.project_id.unwrap_or_default(),
+                location: config.location.unwrap_or_else(|| "global".to_string()),
+                model: model_id,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+            });
+            rig_response_stream(
+                runtime,
+                prepared,
+                skill_path_origin,
+                config.max_input_tokens,
+                "rig_vertex_ai",
                 cancellation_rx,
             )
         }

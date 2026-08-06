@@ -103,11 +103,14 @@ fn force_refresh_block_reports_and_resolves_matching_poll() {
             ActiveSession::new(sessions.clone(), model_event_dispatcher.clone(), ctx)
         });
         let terminal_model = Arc::new(FairMutex::new(TerminalModel::mock(None, None)));
+        terminal_model
+            .lock()
+            .simulate_long_running_block("sleep 120", "still running");
         let block_id = terminal_model.lock().active_block_id().clone();
         let executor = app.add_model(|ctx| {
             ShellCommandExecutor::new(
                 active_session,
-                terminal_model,
+                terminal_model.clone(),
                 &model_event_dispatcher,
                 terminal_view_id,
                 ctx,
@@ -124,6 +127,17 @@ fn force_refresh_block_reports_and_resolves_matching_poll() {
         });
 
         assert!(matches!(rx.try_recv(), Ok(Some(()))));
+
+        let (tx, _rx) = oneshot::channel();
+        executor.update(&mut app, |executor, _| {
+            executor
+                .force_refresh_senders
+                .insert(BlockSelector::Id(block_id.clone()), tx);
+        });
+        terminal_model.lock().finish_block();
+        assert!(executor.update(&mut app, |executor, _| {
+            !executor.force_refresh_block(&block_id)
+        }));
     });
 }
 

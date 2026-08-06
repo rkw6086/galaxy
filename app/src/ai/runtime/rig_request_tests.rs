@@ -23,6 +23,8 @@ fn config() -> OpenAIClientConfig {
         kind: crate::settings::OpenAIProviderKind::OpenAICompatible,
         base_url: "http://localhost:4000/v1".to_string(),
         api_key: None,
+        project_id: None,
+        location: None,
         model: Some("provider-model".to_string()),
         reasoning_effort: None,
         max_input_tokens: Some(128_000),

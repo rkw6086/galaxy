@@ -6,7 +6,7 @@ use galaxy_agent_core::{
     StopReason, ToolDefinition, TurnCommand, TurnRequest, Usage,
 };
 use rig_bedrock::streaming::{BedrockStreamingResponse, BedrockUsage};
-use rig_core::completion::{AssistantContent, CompletionError, GetTokenUsage, Message};
+use rig_core::completion::{AssistantContent, CompletionError, Message};
 use rig_core::message::{DocumentSourceKind, ToolResultContent, UserContent};
 
 use super::*;
@@ -78,9 +78,10 @@ fn normalizes_bedrock_usage_and_max_token_stop() {
             cache_read_input_tokens: Some(40),
             cache_write_input_tokens: Some(10),
         }),
+        stop_reason: None,
     };
     assert_eq!(
-        map_usage(response.token_usage()),
+        map_usage((&response).into()),
         Usage {
             input_tokens: 100,
             output_tokens: 25,

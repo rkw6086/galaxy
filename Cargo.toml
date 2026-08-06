@@ -262,8 +262,9 @@ reqwest = { version = "0.13", features = [
   "stream",
 ] }
 reqwest-eventsource = { package = "aha-reqwest-eventsource", version = "0.1" }
-rig-core = "=0.41.0"
-rig-bedrock = "=0.41.0"
+rig-core = { git = "https://github.com/0xPlaygrounds/rig.git", rev = "1f9547774edb4c269be991ac42eb043fd7b6e87f", package = "rig-core" }
+rig-bedrock = { git = "https://github.com/0xPlaygrounds/rig.git", rev = "1f9547774edb4c269be991ac42eb043fd7b6e87f", package = "rig-bedrock" }
+rig-vertexai = { git = "https://github.com/0xPlaygrounds/rig.git", rev = "1f9547774edb4c269be991ac42eb043fd7b6e87f", package = "rig-vertexai" }
 resvg = "0.47.0"
 rust-embed = { version = "8.7.0", features = ["include-exclude"] }
 rustc-hash = "2.1.1"

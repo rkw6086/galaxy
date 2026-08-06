@@ -21,6 +21,7 @@ use super::nodes::{
 use super::queue::{ImportQueue, ImportQueueArgs, ImportQueueEvent, ParentId, RequestContent};
 use crate::appearance::Appearance;
 use crate::cloud_object::Owner;
+use crate::local_object_repository::local_owner;
 use crate::server::ids::{ClientId, SyncId};
 use crate::server::sync_queue::SyncQueue;
 use crate::ui_components::icons::Icon;
@@ -96,7 +97,7 @@ pub struct ImportModalBody {
 
 impl ImportModalBody {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let import_queue = ctx.add_model(ImportQueue::new);
+        let import_queue = ctx.add_model(|_| ImportQueue::new());
         ctx.subscribe_to_model(&import_queue, |me, _, event, ctx| {
             me.handle_import_queue_event(event, ctx)
         });
@@ -152,7 +153,8 @@ impl ImportModalBody {
                 }
             }
 
-            let sync_queue_dequeueing = SyncQueue::as_ref(ctx).is_dequeueing();
+            let sync_queue_dequeueing =
+                self.owner != Some(local_owner()) && SyncQueue::as_ref(ctx).is_dequeueing();
 
             if !sync_queue_dequeueing && state.all_files_saved_locally() {
                 ctx.emit(ImportModalBodyEvent::AllFileSavedLocally);
@@ -177,7 +179,8 @@ impl ImportModalBody {
     // Whether there is an active upload in progress (If all uploads are completed,
     // we don't consider the import modal upload to be in progress).
     pub fn upload_in_progress(&self, app: &AppContext) -> bool {
-        let sync_queue_dequeueing = SyncQueue::as_ref(app).is_dequeueing();
+        let sync_queue_dequeueing =
+            self.owner != Some(local_owner()) && SyncQueue::as_ref(app).is_dequeueing();
 
         match &self.state {
             ImportState::Upload => false,
@@ -498,7 +501,8 @@ impl View for ImportModalBody {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        let sync_queue_dequeueing = SyncQueue::as_ref(app).is_dequeueing();
+        let sync_queue_dequeueing =
+            self.owner != Some(local_owner()) && SyncQueue::as_ref(app).is_dequeueing();
         let appearance = Appearance::as_ref(app);
 
         match &self.state {

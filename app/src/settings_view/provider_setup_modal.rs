@@ -46,9 +46,50 @@ enum ProviderSetupStep {
 pub enum ProviderSetupProviderType {
     ChatGPTSubscription,
     OpenAICompatible,
+    Anthropic,
+    Gemini,
+    VertexAI,
     Bedrock,
     Acp,
 }
+
+const PROVIDER_TYPE_OPTIONS: &[(ProviderSetupProviderType, &str, &str)] = &[
+    (
+        ProviderSetupProviderType::ChatGPTSubscription,
+        "ChatGPT subscription",
+        "Use your ChatGPT Plus or Pro subscription with native OAuth.",
+    ),
+    (
+        ProviderSetupProviderType::OpenAICompatible,
+        "OpenAI-compatible API",
+        "Connect LiteLLM, Ollama, vLLM, or another compatible endpoint.",
+    ),
+    (
+        ProviderSetupProviderType::Anthropic,
+        "Anthropic",
+        "Connect directly to Anthropic's native Messages API with an API key.",
+    ),
+    (
+        ProviderSetupProviderType::Gemini,
+        "Google Gemini",
+        "Connect directly to Google's Gemini API with an API key.",
+    ),
+    (
+        ProviderSetupProviderType::VertexAI,
+        "Google Vertex AI",
+        "Use Google Cloud Application Default Credentials for Vertex-hosted Gemini models.",
+    ),
+    (
+        ProviderSetupProviderType::Bedrock,
+        "AWS Bedrock",
+        "Use the AWS Bedrock credentials and model configuration already managed by Galaxy.",
+    ),
+    (
+        ProviderSetupProviderType::Acp,
+        "ACP agent runtime",
+        "Use a session-oriented ACP agent that owns its model and authentication.",
+    ),
+];
 
 #[derive(Clone, Debug)]
 pub struct BedrockProviderDraft {
@@ -114,6 +155,8 @@ pub struct ProviderSetupModalBody {
     draft_name: String,
     draft_base_url: String,
     draft_api_key: Option<String>,
+    draft_project_id: String,
+    draft_location: String,
     draft_models: Vec<OpenAIModelConfig>,
     draft_bedrock: BedrockProviderDraft,
     draft_acp: AcpProviderDraft,
@@ -122,6 +165,8 @@ pub struct ProviderSetupModalBody {
     name_editor: ViewHandle<EditorView>,
     base_url_editor: ViewHandle<EditorView>,
     api_key_editor: ViewHandle<EditorView>,
+    project_id_editor: ViewHandle<EditorView>,
+    location_editor: ViewHandle<EditorView>,
     bedrock_profile_editor: ViewHandle<EditorView>,
     bedrock_region_editor: ViewHandle<EditorView>,
     bedrock_refresh_command_editor: ViewHandle<EditorView>,
@@ -134,6 +179,7 @@ pub struct ProviderSetupModalBody {
     bedrock_cross_region_toggle: SwitchStateHandle,
     bedrock_auto_login_toggle: SwitchStateHandle,
     model_switches: Vec<SwitchStateHandle>,
+    provider_type_scroll_state: ClippedScrollStateHandle,
     models_scroll_state: ClippedScrollStateHandle,
     back_button: ViewHandle<ActionButton>,
     cancel_button: ViewHandle<ActionButton>,
@@ -142,35 +188,28 @@ pub struct ProviderSetupModalBody {
 
 impl ProviderSetupModalBody {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let provider_type_buttons = [
-            (
-                ProviderSetupProviderType::ChatGPTSubscription,
-                "ChatGPT subscription",
-            ),
-            (
-                ProviderSetupProviderType::OpenAICompatible,
-                "OpenAI-compatible API",
-            ),
-            (ProviderSetupProviderType::Bedrock, "AWS Bedrock"),
-            (ProviderSetupProviderType::Acp, "ACP agent runtime"),
-        ]
-        .into_iter()
-        .map(|(kind, label)| {
-            ctx.add_typed_action_view(move |_| {
-                ActionButton::new(label, NakedTheme)
-                    .with_full_width(true)
-                    .on_click(move |ctx| {
-                        ctx.dispatch_typed_action(ProviderSetupModalBodyAction::SelectProvider(
-                            kind,
-                        ));
-                    })
+        let provider_type_buttons = PROVIDER_TYPE_OPTIONS
+            .iter()
+            .map(|(kind, label, _)| {
+                let kind = *kind;
+                let label = *label;
+                ctx.add_typed_action_view(move |_| {
+                    ActionButton::new(label, NakedTheme)
+                        .with_full_width(true)
+                        .on_click(move |ctx| {
+                            ctx.dispatch_typed_action(
+                                ProviderSetupModalBodyAction::SelectProvider(kind),
+                            );
+                        })
+                })
             })
-        })
-        .collect();
+            .collect();
 
         let name_editor = Self::create_editor("Connection name", false, ctx);
         let base_url_editor = Self::create_editor("https://api.example.com/v1", false, ctx);
         let api_key_editor = Self::create_editor("sk-... (optional)", true, ctx);
+        let project_id_editor = Self::create_editor("my-google-cloud-project", false, ctx);
+        let location_editor = Self::create_editor("global", false, ctx);
         let bedrock_profile_editor = Self::create_editor("default", false, ctx);
         let bedrock_region_editor = Self::create_editor("us-east-1", false, ctx);
         let bedrock_refresh_command_editor = Self::create_editor("aws sso login", false, ctx);
@@ -215,6 +254,19 @@ impl ProviderSetupModalBody {
             if matches!(event, EditorEvent::Edited(_)) {
                 let value = editor.as_ref(ctx).buffer_text(ctx);
                 me.draft_api_key = (!value.trim().is_empty()).then_some(value);
+                ctx.notify();
+            }
+        });
+        ctx.subscribe_to_view(&project_id_editor, |me, editor, event, ctx| {
+            if matches!(event, EditorEvent::Edited(_)) {
+                me.draft_project_id = editor.as_ref(ctx).buffer_text(ctx);
+                me.update_next_button(ctx);
+                ctx.notify();
+            }
+        });
+        ctx.subscribe_to_view(&location_editor, |me, editor, event, ctx| {
+            if matches!(event, EditorEvent::Edited(_)) {
+                me.draft_location = editor.as_ref(ctx).buffer_text(ctx);
                 ctx.notify();
             }
         });
@@ -286,6 +338,8 @@ impl ProviderSetupModalBody {
             draft_name: String::new(),
             draft_base_url: String::new(),
             draft_api_key: None,
+            draft_project_id: String::new(),
+            draft_location: "global".to_string(),
             draft_models: Vec::new(),
             draft_bedrock: BedrockProviderDraft {
                 name: String::new(),
@@ -310,6 +364,8 @@ impl ProviderSetupModalBody {
             name_editor,
             base_url_editor,
             api_key_editor,
+            project_id_editor,
+            location_editor,
             bedrock_profile_editor,
             bedrock_region_editor,
             bedrock_refresh_command_editor,
@@ -322,6 +378,7 @@ impl ProviderSetupModalBody {
             bedrock_cross_region_toggle: SwitchStateHandle::default(),
             bedrock_auto_login_toggle: SwitchStateHandle::default(),
             model_switches: Vec::new(),
+            provider_type_scroll_state: ClippedScrollStateHandle::default(),
             models_scroll_state: ClippedScrollStateHandle::default(),
             back_button,
             cancel_button,
@@ -363,6 +420,8 @@ impl ProviderSetupModalBody {
         self.draft_name.clear();
         self.draft_base_url.clear();
         self.draft_api_key = None;
+        self.draft_project_id.clear();
+        self.draft_location = "global".to_string();
         self.draft_models.clear();
         self.draft_bedrock = BedrockProviderDraft {
             name: String::new(),
@@ -405,10 +464,15 @@ impl ProviderSetupModalBody {
                 ProviderSetupProviderType::ChatGPTSubscription
             }
             OpenAIProviderKind::OpenAICompatible => ProviderSetupProviderType::OpenAICompatible,
+            OpenAIProviderKind::Anthropic => ProviderSetupProviderType::Anthropic,
+            OpenAIProviderKind::Gemini => ProviderSetupProviderType::Gemini,
+            OpenAIProviderKind::VertexAI => ProviderSetupProviderType::VertexAI,
         };
         self.draft_name = provider.name;
         self.draft_base_url = provider.base_url;
         self.draft_api_key = provider.api_key;
+        self.draft_project_id = provider.project_id.unwrap_or_default();
+        self.draft_location = provider.location.unwrap_or_else(|| "global".to_string());
         self.draft_models = provider.models;
         self.discovery_state = DiscoveryState::Idle;
         self.sync_editors(ctx);
@@ -483,6 +547,12 @@ impl ProviderSetupModalBody {
         self.api_key_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(self.draft_api_key.as_deref().unwrap_or_default(), ctx);
         });
+        self.project_id_editor.update(ctx, |editor, ctx| {
+            editor.system_reset_buffer_text(&self.draft_project_id, ctx);
+        });
+        self.location_editor.update(ctx, |editor, ctx| {
+            editor.system_reset_buffer_text(&self.draft_location, ctx);
+        });
         self.bedrock_profile_editor.update(ctx, |editor, ctx| {
             editor.system_reset_buffer_text(&self.draft_bedrock.profile, ctx);
         });
@@ -513,15 +583,12 @@ impl ProviderSetupModalBody {
     }
 
     fn sync_provider_type_buttons(&self, ctx: &mut ViewContext<Self>) {
-        for (index, button) in self.provider_type_buttons.iter().enumerate() {
-            let button_kind = match index {
-                0 => ProviderSetupProviderType::ChatGPTSubscription,
-                1 => ProviderSetupProviderType::OpenAICompatible,
-                2 => ProviderSetupProviderType::Bedrock,
-                _ => ProviderSetupProviderType::Acp,
-            };
+        for ((button_kind, _, _), button) in PROVIDER_TYPE_OPTIONS
+            .iter()
+            .zip(self.provider_type_buttons.iter())
+        {
             button.update(ctx, |button, ctx| {
-                button.set_active(button_kind == self.provider_type, ctx);
+                button.set_active(*button_kind == self.provider_type, ctx);
             });
         }
     }
@@ -555,6 +622,12 @@ impl ProviderSetupModalBody {
                     ProviderSetupProviderType::OpenAICompatible => {
                         self.draft_base_url.trim().is_empty()
                     }
+                    ProviderSetupProviderType::Anthropic | ProviderSetupProviderType::Gemini => {
+                        self.draft_api_key
+                            .as_deref()
+                            .is_none_or(|key| key.trim().is_empty())
+                    }
+                    ProviderSetupProviderType::VertexAI => self.draft_project_id.trim().is_empty(),
                     ProviderSetupProviderType::Acp => self.draft_acp.agent_id.trim().is_empty(),
                     ProviderSetupProviderType::ChatGPTSubscription
                     | ProviderSetupProviderType::Bedrock => false,
@@ -571,7 +644,10 @@ impl ProviderSetupModalBody {
             ),
             ProviderSetupStep::Models => match self.provider_type {
                 ProviderSetupProviderType::OpenAICompatible
-                | ProviderSetupProviderType::ChatGPTSubscription => (
+                | ProviderSetupProviderType::ChatGPTSubscription
+                | ProviderSetupProviderType::Anthropic
+                | ProviderSetupProviderType::Gemini
+                | ProviderSetupProviderType::VertexAI => (
                     "Save",
                     self.draft_name.trim().is_empty()
                         || !self.draft_models.iter().any(|model| model.enabled),
@@ -601,19 +677,48 @@ impl ProviderSetupModalBody {
                 ProviderSetupProviderType::OpenAICompatible
                 | ProviderSetupProviderType::Bedrock
                 | ProviderSetupProviderType::Acp => OpenAIProviderKind::OpenAICompatible,
+                ProviderSetupProviderType::Anthropic => OpenAIProviderKind::Anthropic,
+                ProviderSetupProviderType::Gemini => OpenAIProviderKind::Gemini,
+                ProviderSetupProviderType::VertexAI => OpenAIProviderKind::VertexAI,
             },
             enabled: true,
             name: self.draft_name.trim().to_string(),
-            base_url: if self.provider_type == ProviderSetupProviderType::ChatGPTSubscription {
+            base_url: if matches!(
+                self.provider_type,
+                ProviderSetupProviderType::ChatGPTSubscription
+                    | ProviderSetupProviderType::Anthropic
+                    | ProviderSetupProviderType::Gemini
+                    | ProviderSetupProviderType::VertexAI
+            ) {
                 String::new()
             } else {
                 self.draft_base_url.trim().trim_end_matches('/').to_string()
             },
-            api_key: self
-                .draft_api_key
-                .as_deref()
-                .filter(|key| !key.trim().is_empty())
-                .map(str::to_string),
+            api_key: matches!(
+                self.provider_type,
+                ProviderSetupProviderType::OpenAICompatible
+                    | ProviderSetupProviderType::Anthropic
+                    | ProviderSetupProviderType::Gemini
+            )
+            .then(|| {
+                self.draft_api_key
+                    .as_deref()
+                    .filter(|key| !key.trim().is_empty())
+                    .map(str::to_string)
+            })
+            .flatten(),
+            project_id: matches!(self.provider_type, ProviderSetupProviderType::VertexAI)
+                .then(|| self.draft_project_id.trim().to_string()),
+            location: matches!(self.provider_type, ProviderSetupProviderType::VertexAI).then(
+                || {
+                    let location = self.draft_location.trim();
+                    if location.is_empty() {
+                        "global".to_string()
+                    } else {
+                        location.to_string()
+                    }
+                },
+            ),
             models: self.draft_models.clone(),
         }
     }
@@ -668,7 +773,10 @@ impl ProviderSetupModalBody {
                 ));
                 return;
             }
-            ProviderSetupProviderType::OpenAICompatible => {}
+            ProviderSetupProviderType::OpenAICompatible
+            | ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI => {}
         }
 
         let provider = self.draft_provider();
@@ -776,51 +884,53 @@ impl ProviderSetupModalBody {
         .with_color(appearance.theme().nonactive_ui_text_color().into())
         .finish();
 
-        let cards = [
-            (
-                "ChatGPT subscription",
-                "Use your ChatGPT Plus or Pro subscription with native OAuth.",
-            ),
-            (
-                "OpenAI-compatible API",
-                "Connect LiteLLM, Ollama, vLLM, or another compatible endpoint.",
-            ),
-            (
-                "AWS Bedrock",
-                "Use the AWS Bedrock credentials and model configuration already managed by Galaxy.",
-            ),
-            (
-                "ACP agent runtime",
-                "Use a session-oriented ACP agent that owns its model and authentication.",
-            ),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, (label, description))| {
-            let button = ChildView::new(&self.provider_type_buttons[index]).finish();
-            Container::new(
-                Flex::column()
-                    .with_spacing(8.)
-                    .with_child(button)
-                    .with_child(
-                        Text::new(description, appearance.ui_font_family(), INPUT_FONT_SIZE)
-                            .with_color(appearance.theme().nonactive_ui_text_color().into())
-                            .soft_wrap(true)
-                            .finish(),
-                    )
-                    .finish(),
-            )
-            .with_padding(Padding::uniform(12.))
-            .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
-            .finish()
-        })
-        .collect::<Vec<_>>();
+        let cards = PROVIDER_TYPE_OPTIONS
+            .iter()
+            .enumerate()
+            .map(|(index, (_, _, description))| {
+                let button = ChildView::new(&self.provider_type_buttons[index]).finish();
+                Container::new(
+                    Flex::column()
+                        .with_spacing(8.)
+                        .with_child(button)
+                        .with_child(
+                            Text::new(*description, appearance.ui_font_family(), INPUT_FONT_SIZE)
+                                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                                .soft_wrap(true)
+                                .finish(),
+                        )
+                        .finish(),
+                )
+                .with_padding(Padding::uniform(12.))
+                .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+                .finish()
+            })
+            .collect::<Vec<_>>();
+
+        let list = Flex::column()
+            .with_spacing(10.)
+            .with_children(cards)
+            .finish();
+        let scrollable = ClippedScrollable::vertical(
+            self.provider_type_scroll_state.clone(),
+            list,
+            ScrollbarWidth::Auto,
+            appearance.theme().nonactive_ui_detail().into(),
+            appearance.theme().active_ui_detail().into(),
+            appearance.theme().surface_1().into(),
+        )
+        .with_overlayed_scrollbar()
+        .finish();
 
         Flex::column()
             .with_spacing(16.)
             .with_child(description)
-            .with_children(cards)
+            .with_child(
+                ConstrainedBox::new(scrollable)
+                    .with_max_height(360.)
+                    .finish(),
+            )
             .finish()
     }
 
@@ -981,6 +1091,50 @@ impl ProviderSetupModalBody {
                 children.push(
                     Text::new(
                         "The API key is stored locally and is never synced to the cloud.",
+                        appearance.ui_font_family(),
+                        INPUT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+                );
+            }
+            ProviderSetupProviderType::Anthropic => {
+                children.push(self.render_input(appearance, "API key", &self.api_key_editor));
+                children.push(
+                    Text::new(
+                        "The key is stored locally and is never synced to the cloud. Models will be discovered from Anthropic after the connection test.",
+                        appearance.ui_font_family(),
+                        INPUT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+                );
+            }
+            ProviderSetupProviderType::Gemini => {
+                children.push(self.render_input(appearance, "API key", &self.api_key_editor));
+                children.push(
+                    Text::new(
+                        "The key is stored locally and is never synced to the cloud. Models will be discovered from Google's Gemini API after the connection test.",
+                        appearance.ui_font_family(),
+                        INPUT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+                );
+            }
+            ProviderSetupProviderType::VertexAI => {
+                children.push(self.render_input(
+                    appearance,
+                    "Google Cloud project ID",
+                    &self.project_id_editor,
+                ));
+                children.push(self.render_input(appearance, "Location", &self.location_editor));
+                children.push(
+                    Text::new(
+                        "Vertex AI uses Google Application Default Credentials. Run `gcloud auth application-default login` before testing the connection.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
@@ -1422,7 +1576,10 @@ impl TypedActionView for ProviderSetupModalBody {
                 }
                 ProviderSetupStep::Models => match self.provider_type {
                     ProviderSetupProviderType::OpenAICompatible
-                    | ProviderSetupProviderType::ChatGPTSubscription => {
+                    | ProviderSetupProviderType::ChatGPTSubscription
+                    | ProviderSetupProviderType::Anthropic
+                    | ProviderSetupProviderType::Gemini
+                    | ProviderSetupProviderType::VertexAI => {
                         if self.draft_name.trim().is_empty()
                             || !self.draft_models.iter().any(|model| model.enabled)
                         {
@@ -1529,6 +1686,9 @@ fn provider_type_label(kind: ProviderSetupProviderType) -> &'static str {
     match kind {
         ProviderSetupProviderType::OpenAICompatible => "OpenAI-compatible API",
         ProviderSetupProviderType::ChatGPTSubscription => "ChatGPT subscription",
+        ProviderSetupProviderType::Anthropic => "Anthropic",
+        ProviderSetupProviderType::Gemini => "Google Gemini",
+        ProviderSetupProviderType::VertexAI => "Google Vertex AI",
         ProviderSetupProviderType::Bedrock => "AWS Bedrock",
         ProviderSetupProviderType::Acp => "ACP agent runtime",
     }

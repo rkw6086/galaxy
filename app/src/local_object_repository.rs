@@ -15,16 +15,18 @@ use crate::auth::UserUid;
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::{
-    CloudObject, CloudObjectMetadata, CloudObjectPermissions, CloudObjectStatuses,
-    CloudObjectSyncStatus, GenericCloudObject, GenericStringObjectFormat, JsonObjectType,
-    ObjectIdType, Owner, Revision,
+    CloudObject, CloudObjectLocation, CloudObjectMetadata, CloudObjectPermissions,
+    CloudObjectStatuses, CloudObjectSyncStatus, GenericCloudObject, GenericStringObjectFormat,
+    JsonObjectType, ObjectIdType, Owner, Revision, Space,
 };
+use crate::drive::folders::{CloudFolder, CloudFolderModel};
 use crate::drive::CloudObjectTypeAndId;
 use crate::env_vars::{CloudEnvVarCollection, CloudEnvVarCollectionModel, EnvVarCollection};
 use crate::notebooks::{CloudNotebook, CloudNotebookModel};
 use crate::persistence::ModelEvent;
 use crate::server::ids::{ClientId, SyncId};
 use crate::workflows::workflow::Workflow;
+use crate::workflows::workflow_enum::{CloudWorkflowEnum, CloudWorkflowEnumModel, WorkflowEnum};
 use crate::workflows::{CloudWorkflow, CloudWorkflowModel};
 
 const LOCAL_OWNER_ID: &str = "local-galaxy-user";
@@ -211,6 +213,140 @@ impl LocalObjectRepository {
 
     pub fn notebook(&self, id: &SyncId, app: &AppContext) -> Option<CloudNotebook> {
         CloudModel::as_ref(app).get_notebook(id).cloned()
+    }
+
+    pub fn folder(&self, id: &SyncId, app: &AppContext) -> Option<CloudFolder> {
+        CloudModel::as_ref(app).get_folder(id).cloned()
+    }
+
+    pub fn create_folder_with_id(
+        &mut self,
+        id: SyncId,
+        name: String,
+        parent_folder_id: Option<SyncId>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.upsert_folder(
+            new_local_folder(id, parent_folder_id, CloudFolderModel::new(&name, false)),
+            ctx,
+        );
+    }
+
+    pub fn update_folder_name(
+        &mut self,
+        id: SyncId,
+        name: String,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let Some(mut folder) = self.folder(&id, ctx) else {
+            return false;
+        };
+        folder.set_model(CloudFolderModel {
+            name,
+            is_open: folder.model().is_open,
+            is_warp_pack: folder.model().is_warp_pack,
+        });
+        set_locally_saved_metadata(&mut folder.metadata);
+        self.upsert_folder(folder, ctx);
+        true
+    }
+
+    pub fn set_folder_trashed(
+        &mut self,
+        id: SyncId,
+        trashed: bool,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let Some(mut folder) = self.folder(&id, ctx) else {
+            return false;
+        };
+        folder.metadata.trashed_ts = trashed.then(|| ServerTimestamp::new(Utc::now()));
+        set_locally_saved_metadata(&mut folder.metadata);
+        self.upsert_folder(folder, ctx);
+        true
+    }
+
+    pub fn delete_folder(&mut self, id: SyncId, ctx: &mut ModelContext<Self>) -> bool {
+        if self.folder(&id, ctx).is_none() {
+            return false;
+        }
+
+        let ids = CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+            cloud_model.delete_object_and_descendants(id.uid(), ctx)
+        });
+        if ids.is_empty() {
+            return false;
+        }
+        self.save(ModelEvent::DeleteObjects { ids });
+        true
+    }
+
+    pub fn open_folder(&mut self, id: SyncId, ctx: &mut ModelContext<Self>) {
+        self.set_folder_open_state(id, true, ctx);
+    }
+
+    pub fn close_folder(&mut self, id: SyncId, ctx: &mut ModelContext<Self>) {
+        self.set_folder_open_state(id, false, ctx);
+    }
+
+    pub fn toggle_folder_open(&mut self, id: SyncId, ctx: &mut ModelContext<Self>) {
+        let Some(folder) = self.folder(&id, ctx) else {
+            return;
+        };
+        self.set_folder_open_state(id, !folder.model().is_open, ctx);
+    }
+
+    pub fn collapse_local_folders_in_location(
+        &mut self,
+        location: CloudObjectLocation,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let folder_ids = {
+            let cloud_model = CloudModel::as_ref(ctx);
+            cloud_model
+                .get_all_active_and_inactive_folders()
+                .filter(|folder| folder.permissions.owner == local_owner())
+                .filter(|folder| match location {
+                    CloudObjectLocation::Folder(parent_id) => {
+                        if folder.id == parent_id {
+                            return true;
+                        }
+
+                        let mut ancestor_id = folder.metadata.folder_id;
+                        while let Some(id) = ancestor_id {
+                            if id == parent_id {
+                                return true;
+                            }
+                            ancestor_id = cloud_model
+                                .get_folder(&id)
+                                .and_then(|ancestor| ancestor.metadata.folder_id);
+                        }
+                        false
+                    }
+                    CloudObjectLocation::Space(Space::Personal) => true,
+                    CloudObjectLocation::Space(Space::Shared)
+                    | CloudObjectLocation::Space(Space::Team { .. })
+                    | CloudObjectLocation::Trash => false,
+                })
+                .map(|folder| folder.id)
+                .collect::<Vec<_>>()
+        };
+
+        for folder_id in folder_ids {
+            self.close_folder(folder_id, ctx);
+        }
+    }
+
+    fn set_folder_open_state(&self, id: SyncId, is_open: bool, ctx: &mut ModelContext<Self>) {
+        let Some(mut folder) = self.folder(&id, ctx) else {
+            return;
+        };
+        folder.set_model(CloudFolderModel {
+            name: folder.model().name.clone(),
+            is_open,
+            is_warp_pack: folder.model().is_warp_pack,
+        });
+        self.upsert_folder(folder, ctx);
     }
 
     pub fn create_notebook_with_id(
@@ -480,6 +616,23 @@ impl LocalObjectRepository {
         self.upsert_workflow(new_local_workflow(id, folder_id, workflow), ctx);
     }
 
+    pub fn create_workflow_enum_with_id(
+        &mut self,
+        id: SyncId,
+        workflow_enum: WorkflowEnum,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.upsert_workflow_enum(
+            GenericCloudObject::new(
+                id,
+                CloudWorkflowEnumModel::new(workflow_enum),
+                locally_saved_metadata(None),
+                local_permissions(),
+            ),
+            ctx,
+        );
+    }
+
     pub fn update_workflow(
         &mut self,
         id: SyncId,
@@ -591,11 +744,27 @@ impl LocalObjectRepository {
         self.save(ModelEvent::UpsertNotebook { notebook });
     }
 
+    fn upsert_folder(&self, folder: CloudFolder, ctx: &mut ModelContext<Self>) {
+        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+            cloud_model.upsert_local_object(folder.clone(), ctx);
+        });
+        self.save(ModelEvent::UpsertFolder { folder });
+    }
+
     fn upsert_workflow(&self, workflow: CloudWorkflow, ctx: &mut ModelContext<Self>) {
         CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
             cloud_model.upsert_local_object(workflow.clone(), ctx);
         });
         self.save(ModelEvent::UpsertWorkflow { workflow });
+    }
+
+    fn upsert_workflow_enum(&self, workflow_enum: CloudWorkflowEnum, ctx: &mut ModelContext<Self>) {
+        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+            cloud_model.upsert_local_object(workflow_enum.clone(), ctx);
+        });
+        self.save(ModelEvent::UpsertGenericStringObject {
+            object: Box::new(workflow_enum),
+        });
     }
 
     fn delete_local_object(
@@ -653,6 +822,19 @@ pub(crate) fn new_local_notebook(
     CloudNotebook::new(
         id,
         notebook,
+        locally_saved_metadata(folder_id),
+        local_permissions(),
+    )
+}
+
+pub(crate) fn new_local_folder(
+    id: SyncId,
+    folder_id: Option<SyncId>,
+    folder: CloudFolderModel,
+) -> CloudFolder {
+    CloudFolder::new(
+        id,
+        folder,
         locally_saved_metadata(folder_id),
         local_permissions(),
     )

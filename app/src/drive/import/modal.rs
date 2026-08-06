@@ -18,6 +18,7 @@ use super::modal_body::{ImportModalBody, ImportModalBodyAction, ImportModalBodyE
 use crate::appearance::Appearance;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObject, Owner};
+use crate::local_object_repository::local_owner;
 use crate::server::ids::SyncId;
 use crate::server::sync_queue::SyncQueue;
 use crate::themes::theme::GalaxyTheme;
@@ -88,7 +89,8 @@ impl ImportModal {
         let window_id = ctx.window_id();
         let import_body_id = self.import_modal.id();
 
-        let sync_queue_is_dequeueing = SyncQueue::as_ref(ctx).is_dequeueing();
+        let sync_queue_is_dequeueing =
+            self.owner != Some(local_owner()) && SyncQueue::as_ref(ctx).is_dequeueing();
 
         let allowed_file_types = vec![FileType::Yaml, FileType::Markdown];
 
@@ -98,7 +100,7 @@ impl ImportModal {
 
         // Files under a folder could only be uploaded when the folder is created on the server.
         // When sync queue is not dequeueing, disable folder upload in the import modal.
-        if sync_queue_is_dequeueing {
+        if sync_queue_is_dequeueing || self.owner == Some(local_owner()) {
             file_picker_config = file_picker_config.allow_folder();
         }
 
@@ -165,9 +167,13 @@ impl ImportModal {
                 // Convert to a Space for display, in case we're importing into a shared folder.
                 self.owner
                     .map(|owner| {
-                        UserWorkspaces::as_ref(app)
-                            .owner_to_space(owner, app)
-                            .name(app)
+                        if owner == local_owner() {
+                            "Personal".to_string()
+                        } else {
+                            UserWorkspaces::as_ref(app)
+                                .owner_to_space(owner, app)
+                                .name(app)
+                        }
                     })
                     .unwrap_or_default(),
                 0,

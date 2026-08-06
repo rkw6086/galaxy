@@ -3,7 +3,7 @@ use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEvent, AgentEventStream, StopReason, ToolCall, TurnCommand,
     TurnControl, Usage,
 };
-use rig_core::completion::{CompletionError, CompletionModel, CompletionRequest, GetTokenUsage};
+use rig_core::completion::{CompletionError, CompletionModel, CompletionRequest};
 use rig_core::streaming::StreamedAssistantContent;
 use uuid::Uuid;
 
@@ -15,7 +15,6 @@ pub(crate) async fn start_model_turn<M>(
 ) -> Result<AgentEventStream, AgentError>
 where
     M: CompletionModel + Send + Sync + 'static,
-    M::StreamingResponse: Send + Sync + 'static,
 {
     let runtime_request_id = Uuid::new_v4().to_string();
     let stream_future = model.stream(completion_request).fuse();
@@ -112,7 +111,7 @@ where
                             // is the canonical event Galaxy consumes.
                         }
                         Ok(StreamedAssistantContent::Final(response)) => {
-                            let mapped_usage = map_usage(response.token_usage());
+                            let mapped_usage = map_usage(response.usage);
                             last_output_tokens = mapped_usage.output_tokens;
                             yield Ok(AgentEvent::UsageUpdated {
                                 usage: mapped_usage,
@@ -137,6 +136,82 @@ where
                 }
             }
         }
+    };
+
+    Ok(Box::pin(events))
+}
+
+pub(crate) async fn start_model_completion<M>(
+    model: M,
+    completion_request: CompletionRequest,
+    control: TurnControl,
+    max_output_tokens: Option<u64>,
+) -> Result<AgentEventStream, AgentError>
+where
+    M: CompletionModel + Send + Sync + 'static,
+{
+    let runtime_request_id = Uuid::new_v4().to_string();
+    let completion_future = model.completion(completion_request).fuse();
+    let initial_control = control.clone();
+    let control_future = initial_control.receive().fuse();
+    futures::pin_mut!(completion_future, control_future);
+
+    let response = futures::select_biased! {
+        command = control_future => match command {
+            Ok(TurnCommand::Cancel) => {
+                return Ok(stopped_before_stream(runtime_request_id));
+            }
+            Ok(TurnCommand::Steer { .. }) | Err(_) => {
+                completion_future.await.map_err(map_completion_error)?
+            }
+        },
+        result = completion_future => result.map_err(map_completion_error)?,
+    };
+
+    let events = async_stream::stream! {
+        yield Ok(AgentEvent::TurnStarted { runtime_request_id });
+
+        for content in response.choice {
+            match content {
+                rig_core::completion::AssistantContent::Text(text) => {
+                    if !text.text.is_empty() {
+                        yield Ok(AgentEvent::TextDelta { text: text.text });
+                    }
+                }
+                rig_core::completion::AssistantContent::Reasoning(reasoning) => {
+                    yield Ok(AgentEvent::ReasoningCompleted {
+                        text: reasoning.display_text(),
+                        signature: reasoning.first_signature().map(str::to_string),
+                    });
+                }
+                rig_core::completion::AssistantContent::ToolCall(tool_call) => {
+                    yield Ok(AgentEvent::Tool {
+                        event: galaxy_agent_core::ToolEvent::Proposed {
+                            call: domain_tool_call(tool_call),
+                        },
+                    });
+                }
+                rig_core::completion::AssistantContent::Image(_) => {
+                    yield Err(AgentError::new(
+                        AgentErrorKind::Protocol,
+                        "Rig returned an unsupported image completion content block",
+                    ));
+                    return;
+                }
+            }
+        }
+
+        let usage = map_usage(response.usage);
+        let reached_max_tokens = max_output_tokens
+            .is_some_and(|max| usage.output_tokens >= max);
+        yield Ok(AgentEvent::UsageUpdated { usage });
+        yield Ok(AgentEvent::TurnStopped {
+            reason: if reached_max_tokens {
+                StopReason::MaxTokens
+            } else {
+                StopReason::Completed
+            },
+        });
     };
 
     Ok(Box::pin(events))

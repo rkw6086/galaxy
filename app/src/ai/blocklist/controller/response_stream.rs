@@ -230,6 +230,8 @@ impl ResponseStream {
                     kind: client_config.kind,
                     base_url: client_config.base_url.clone(),
                     api_key: client_config.api_key.clone(),
+                    project_id: client_config.project_id.clone(),
+                    location: client_config.location.clone(),
                     model: client_config
                         .model
                         .clone()

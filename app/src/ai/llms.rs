@@ -5,6 +5,11 @@ use std::sync::{Arc, OnceLock};
 
 use ai::api_keys::ApiKeyManager;
 pub use ai::LLMId;
+#[cfg(not(target_family = "wasm"))]
+use galaxy_agent_rig::{
+    discover_anthropic_models, discover_gemini_models, validate_vertex_ai_credentials,
+    vertex_ai_model_catalog, RigModelInfo,
+};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::user_preferences::GetUserPreferences;
@@ -1005,6 +1010,8 @@ impl LLMPreferences {
             bool,
             String,
             Option<String>,
+            Option<String>,
+            Option<String>,
             Vec<OpenAIModelConfig>,
         );
         let mut provider_entries: Vec<OpenAIProviderEntry> = Vec::new();
@@ -1037,6 +1044,8 @@ impl LLMPreferences {
                 true,
                 base_url,
                 api_key,
+                None,
+                None,
                 single_provider_models,
             ));
         }
@@ -1047,11 +1056,19 @@ impl LLMPreferences {
                 .value()
                 .iter()
                 .filter_map(|provider| {
-                    if !provider.enabled
-                        || (provider.kind == OpenAIProviderKind::OpenAICompatible
-                            && provider.base_url.trim().is_empty())
-                        || provider.models.is_empty()
-                    {
+                    let missing_credentials = match provider.kind {
+                        OpenAIProviderKind::OpenAICompatible => provider.base_url.trim().is_empty(),
+                        OpenAIProviderKind::Anthropic | OpenAIProviderKind::Gemini => provider
+                            .api_key
+                            .as_deref()
+                            .is_none_or(|key| key.trim().is_empty()),
+                        OpenAIProviderKind::VertexAI => provider
+                            .project_id
+                            .as_deref()
+                            .is_none_or(|project| project.trim().is_empty()),
+                        OpenAIProviderKind::ChatGPTSubscription => false,
+                    };
+                    if !provider.enabled || missing_credentials || provider.models.is_empty() {
                         return None;
                     }
                     Some((
@@ -1060,6 +1077,8 @@ impl LLMPreferences {
                         provider.enabled,
                         provider.base_url.clone(),
                         provider.api_key.clone(),
+                        provider.project_id.clone(),
+                        provider.location.clone(),
                         provider.models.clone(),
                     ))
                 }),
@@ -1071,8 +1090,16 @@ impl LLMPreferences {
 
         let mut total_injected = 0;
         let mut seen_model_ids: HashSet<String> = HashSet::new();
-        for (provider_name, provider_kind, provider_enabled, base_url, api_key, models) in
-            provider_entries
+        for (
+            provider_name,
+            provider_kind,
+            provider_enabled,
+            base_url,
+            api_key,
+            provider_project_id,
+            provider_location,
+            models,
+        ) in provider_entries
         {
             if !provider_enabled {
                 continue;
@@ -1109,12 +1136,14 @@ impl LLMPreferences {
                         kind: provider_kind,
                         base_url: base_url.clone(),
                         api_key: api_key.clone(),
+                        project_id: provider_project_id.clone(),
+                        location: provider_location.clone(),
                         model: Some(model.model_id.clone()),
                         reasoning_effort: reasoning_effort.clone(),
                         max_input_tokens: Some(openai_model_context_size(model)),
                         max_output_tokens: model.max_output_tokens,
                         use_rig: model.use_rig
-                            || provider_kind == OpenAIProviderKind::ChatGPTSubscription,
+                            || !matches!(provider_kind, OpenAIProviderKind::OpenAICompatible),
                         supports_system_messages: model.supports_system_messages(),
                     };
                     self.openai_provider_routing
@@ -1557,6 +1586,54 @@ impl LLMPreferences {
     pub(crate) async fn discover_openai_provider_models(
         provider: OpenAIProviderConfig,
     ) -> Result<Vec<OpenAIModelConfig>, String> {
+        let native_models = match provider.kind {
+            OpenAIProviderKind::Anthropic => {
+                let api_key = provider
+                    .api_key
+                    .as_deref()
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or_else(|| {
+                        "Enter an Anthropic API key before testing the connection.".to_string()
+                    })?;
+                Some(discover_anthropic_models(api_key).await?)
+            }
+            OpenAIProviderKind::Gemini => {
+                let api_key = provider
+                    .api_key
+                    .as_deref()
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or_else(|| {
+                        "Enter a Gemini API key before testing the connection.".to_string()
+                    })?;
+                Some(discover_gemini_models(api_key).await?)
+            }
+            OpenAIProviderKind::VertexAI => {
+                if provider
+                    .project_id
+                    .as_deref()
+                    .is_none_or(|project| project.trim().is_empty())
+                {
+                    return Err(
+                        "Enter a Google Cloud project ID before testing the connection."
+                            .to_string(),
+                    );
+                }
+                validate_vertex_ai_credentials(
+                    provider.project_id.as_deref().unwrap_or_default(),
+                    provider.location.as_deref().unwrap_or("global"),
+                )?;
+                Some(vertex_ai_model_catalog())
+            }
+            OpenAIProviderKind::OpenAICompatible | OpenAIProviderKind::ChatGPTSubscription => None,
+        };
+
+        if let Some(models) = native_models {
+            if models.is_empty() {
+                return Err("The provider responded, but no models were found.".to_string());
+            }
+            return Ok(Self::rig_models_to_openai_models(models));
+        }
+
         if provider.base_url.trim().is_empty() {
             return Err("Enter a provider URL before testing the connection.".to_string());
         }
@@ -1584,6 +1661,26 @@ impl LLMPreferences {
         }
 
         Ok(models)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn rig_models_to_openai_models(models: Vec<RigModelInfo>) -> Vec<OpenAIModelConfig> {
+        models
+            .into_iter()
+            .map(|model| OpenAIModelConfig {
+                model_id: model.id,
+                display_name: model.display_name,
+                vision_supported: false,
+                context_size: model.context_size.unwrap_or(128_000),
+                max_input_tokens: model.context_size,
+                max_output_tokens: None,
+                provider: None,
+                use_rig: true,
+                supports_system_messages: Some(true),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
+            })
+            .collect()
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.

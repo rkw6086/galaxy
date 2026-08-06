@@ -424,6 +424,34 @@ fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
 }
 
 #[test]
+fn native_provider_settings_roundtrip_with_vertex_configuration() {
+    let provider: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "kind": "vertex_ai",
+        "enabled": true,
+        "name": "Vertex production",
+        "base_url": "",
+        "project_id": "galaxy-project",
+        "location": "us-central1",
+        "models": []
+    }))
+    .expect("Vertex provider settings should deserialize");
+
+    assert_eq!(provider.kind, OpenAIProviderKind::VertexAI);
+    assert_eq!(provider.project_id.as_deref(), Some("galaxy-project"));
+    assert_eq!(provider.location.as_deref(), Some("us-central1"));
+
+    let legacy: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "name": "Legacy provider",
+        "base_url": "http://localhost:4000/v1",
+        "models": []
+    }))
+    .expect("Legacy provider settings should remain compatible");
+    assert_eq!(legacy.kind, OpenAIProviderKind::OpenAICompatible);
+    assert_eq!(legacy.project_id, None);
+    assert_eq!(legacy.location, None);
+}
+
+#[test]
 fn codex_litellm_model_infers_missing_system_message_capability() {
     let mut model = default_openai_providers().remove(0).models.remove(0);
     model.supports_system_messages = None;

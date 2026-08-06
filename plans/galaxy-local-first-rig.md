@@ -123,8 +123,9 @@ The current UI can initially be kept alive with a temporary adapter from `AgentE
 ### `galaxy_agent_rig`
 
 Rig becomes the implementation for provider-backed conversations. The version evaluated for this
-plan is Rig 0.40.0. When introduced, it must be pinned exactly until its documented breaking-change
-cadence settles for Galaxy.
+plan is Rig 0.41.0 from the pinned upstream revision
+`1f9547774edb4c269be991ac42eb043fd7b6e87f`. When introduced, it must be pinned exactly until its
+documented breaking-change cadence settles for Galaxy.
 
 Rig is a good fit for the provider side because it already defines a canonical completion request,
 provider implementations, streaming content/tool events, model history, typed tools, hooks, MCP via
@@ -137,6 +138,9 @@ Provider coverage for the first migration:
 |---|---|---|
 | LiteLLM / generic OpenAI-compatible | Rig OpenAI-compatible client | Custom base URL and key; preserve per-model endpoint routing. |
 | Ollama / LM Studio | OpenAI-compatible or Rig provider adapter | Treat as explicit local/LAN endpoints. |
+| Anthropic | Rig native Anthropic client | Discover models through Rig's native model-listing API and stream completions. |
+| Google Gemini | Rig native Gemini client | Discover models through Rig's native model-listing API and stream completions. |
+| Google Vertex AI | `rig-vertexai` companion crate | Use ADC, project/location configuration, and a bounded catalog because this Rig integration has no model-listing endpoint. |
 | AWS Bedrock | `rig-bedrock` through the Rig facade | Preserve profile, static credential, SSO, region, and inference-profile behavior through a focused compatibility audit. |
 | MCP tools | Rig `rmcp` tool server/client support | Reuse existing Galaxy MCP lifecycle where it is stronger; bridge tools at one boundary. |
 
@@ -258,7 +262,8 @@ Bedrock/OpenAI/ACP configuration.
 
 ### Phase 2 — First Rig vertical slice: OpenAI-compatible streaming
 
-- [x] Pin `rig-core` 0.40.0 and implement one explicit OpenAI-compatible provider.
+- [x] Pin Rig 0.41.0 to one upstream revision and implement the explicit OpenAI-compatible,
+  ChatGPT subscription, Anthropic, Gemini, and Vertex AI provider runtimes.
 - [x] Support text, reasoning where available, cancellation, stop reason, usage, and persisted
   history.
 - [x] Route any model entry with `use_rig = true` through Rig while leaving unmarked models on the
@@ -334,9 +339,9 @@ Galaxy's action model owns permission and execution lifecycle events; normalized
 Rig directly. The legacy Warp response envelope remains only around transcript/init/finished UI
 rendering and non-Rig compatibility runtimes, not in Rig's executable tool path.
 
-### Phase 4 — Bedrock through Rig
+### Phase 4 — Bedrock and native cloud providers through Rig
 
-- [x] Pin `rig-bedrock` 0.40.0 and construct it from Galaxy's already-resolved AWS SDK client so
+- [x] Pin `rig-bedrock` 0.41.0 and construct it from Galaxy's already-resolved AWS SDK client so
   profile, SSO, static-key, region, and egress ownership stay at Galaxy's explicit boundary.
 - [x] Resolve context markers, ARNs, existing inference profiles, and regional inference-profile
   prefixes before passing a model ID to Rig.
@@ -348,12 +353,17 @@ rendering and non-Rig compatibility runtimes, not in Rig's executable tool path.
   normalization without contacting AWS.
 - [x] Preserve signed Bedrock reasoning blocks in Galaxy conversation history so adaptive-thinking
   tool-call turns can be replayed without losing their signatures.
-- [x] Define the Rig 0.40 parity policy: Galaxy retains structured tool-result error state locally
+- [x] Define the Rig 0.41 parity policy: Galaxy retains structured tool-result error state locally
   and sends an explicit `[ERROR]` result prefix because Rig core has no Bedrock status field;
   Rig owns system/message cache checkpoints, tool-schema caching is treated as an optimization,
   and one-hour cache-TTL requests stay on the compatibility runtime.
 - [x] Add a model-by-model Rig switch to the unified Models page and route opted-in Bedrock models
   through the same request, event, permission, history, and UI adapter as OpenAI-compatible models.
+- [x] Add native Anthropic and Gemini providers with Rig-backed model discovery and streaming.
+- [x] Add Vertex AI configuration with project/location and ADC validation, a bounded Rig-supported
+  Gemini catalog, and a non-streaming completion adapter for the current `rig-vertexai` integration.
+- [x] Make the provider setup wizard's provider selector data-driven and independently scrollable so
+  adding the remaining Rig integrations does not expand the modal beyond the window.
 - [ ] Run opt-in live semantic comparisons for system prompts, images, tools, reasoning, usage, and
   context limits before selecting the Rig runtime for any configured Bedrock model.
 - Keep a short-lived compatibility fallback for unsupported Bedrock behavior, measured by tests.
@@ -390,6 +400,14 @@ metadata.
   persistence to the local service while keeping process lifecycle and credentials separate.
 - [x] Make the OSS channel expose only the local Personal scope and resolve it to the stable local
   owner; remote-capable channels retain their existing workspace/shared-space behavior.
+- [x] Move personal Galaxy Drive folder creation, rename, trash/untrash, deletion, and open-state
+  persistence behind `LocalObjectRepository`, including recursive local-folder deletion and nested
+  collapse behavior; shared/team folders retain the existing remote path.
+- [x] Remove the account/signup gate from Galaxy Drive visibility and Settings controls so local
+  Drive remains usable while logged out; team-only actions retain their separate restrictions.
+- [x] Move the retained Drive import flow onto local persistence for personal targets, including
+  local folder/notebook/workflow creation and progress reporting without remote `UpdateManager`
+  or `SyncQueue` dependencies; shared/team imports retain their remote path.
 - [ ] Replace remaining account/workspace ownership in kept content flows with local scopes.
 - [ ] Remove auth, teams, billing, referral, cloud sync, GraphQL, RTC, sharing, and remote-control UI.
 
@@ -406,6 +424,10 @@ assigned to the phase that owns the affected flow before the related work is con
   output refresh and scrolling, failure/timeout handling, and restore behavior. Add deterministic
   unit coverage and a hermetic integration flow for a command that remains active while the agent
   continues running.
+  - [x] Stop takeover no longer starts a completion-assessment turn after the user cancels the
+    monitor.
+  - [x] Monitor teardown now clears orphaned in-memory state when completion metadata is missing.
+  - [x] Refresh requests ignore completed or no-longer-long-running blocks.
 - [ ] Open-source project presentation: structure the About page around Galaxy’s local-first
   identity, audit the repository’s license and third-party notices, and make the root metadata,
   contribution guidance, and license files agree on the final permissive license (currently the
@@ -460,12 +482,10 @@ contract is what the UI and persistence observe.
 | Telemetry/remote logs/remote flags | Remove, not merely default-off. |
 | SSH and remote Git | Keep as explicit user-initiated remote development boundaries. |
 | Web/network agent tools | Disabled by default and permission-visible. |
-| Rig dependency | Exact version pin with upgrade contract tests. |
+| Rig dependency | Exact upstream revision pin with upgrade contract tests. |
 
 ## Immediate next vertical slice
 
 Continue Phase 6 by replacing remaining account/workspace ownership with local scopes and removing
-cloud identity UI from kept flows. The next bounded implementation is to move the remaining Galaxy
-Drive folder mutations (create, rename, trash, and open-state persistence) behind
-`LocalObjectRepository` for OSS. Live Phase 4 Bedrock semantic comparisons remain an explicit
+cloud identity UI from kept flows. Live Phase 4 Bedrock semantic comparisons remain an explicit
 opt-in validation task because they require configured AWS access.

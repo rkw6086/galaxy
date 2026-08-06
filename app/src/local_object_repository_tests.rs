@@ -173,6 +173,71 @@ fn create_update_and_delete_notebook_are_local_and_persisted() {
 }
 
 #[test]
+fn create_update_open_trash_and_delete_folder_are_local_and_persisted() {
+    App::test((), |mut app| async move {
+        let receiver = initialize_app(&mut app);
+        let repository = LocalObjectRepository::handle(&app);
+        let parent_id = SyncId::ClientId(ClientId::new());
+        let child_id = SyncId::ClientId(ClientId::new());
+
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_folder_with_id(parent_id, "Projects".to_string(), None, ctx);
+        });
+        let ModelEvent::UpsertFolder { folder } = receiver.recv().unwrap() else {
+            panic!("expected a local folder upsert");
+        };
+        assert_eq!(folder.id, parent_id);
+        assert_eq!(folder.model().name, "Projects");
+        assert!(!folder.model().is_open);
+
+        repository.update(&mut app, |repository, ctx| {
+            repository.create_folder_with_id(child_id, "Rust".to_string(), Some(parent_id), ctx);
+        });
+        assert!(
+            matches!(receiver.recv().unwrap(), ModelEvent::UpsertFolder { folder } if folder.id == child_id && folder.metadata.folder_id == Some(parent_id))
+        );
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.update_folder_name(parent_id, "Projects 2026".to_string(), ctx)
+        }));
+        assert!(
+            matches!(receiver.recv().unwrap(), ModelEvent::UpsertFolder { folder } if folder.model().name == "Projects 2026")
+        );
+
+        repository.update(&mut app, |repository, ctx| {
+            repository.open_folder(parent_id, ctx);
+        });
+        assert!(
+            matches!(receiver.recv().unwrap(), ModelEvent::UpsertFolder { folder } if folder.model().is_open)
+        );
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.set_folder_trashed(parent_id, true, ctx)
+        }));
+        assert!(
+            matches!(receiver.recv().unwrap(), ModelEvent::UpsertFolder { folder } if folder.metadata.trashed_ts.is_some())
+        );
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.set_folder_trashed(parent_id, false, ctx)
+        }));
+        assert!(
+            matches!(receiver.recv().unwrap(), ModelEvent::UpsertFolder { folder } if folder.metadata.trashed_ts.is_none())
+        );
+
+        assert!(repository.update(&mut app, |repository, ctx| {
+            repository.delete_folder(parent_id, ctx)
+        }));
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            ModelEvent::DeleteObjects { ids }
+                if ids.contains(&(parent_id, ObjectIdType::Folder))
+                    && ids.contains(&(child_id, ObjectIdType::Folder))
+        ));
+    });
+}
+
+#[test]
 fn create_update_and_delete_workflow_are_local_and_persisted() {
     App::test((), |mut app| async move {
         let receiver = initialize_app(&mut app);

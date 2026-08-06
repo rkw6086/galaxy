@@ -265,6 +265,8 @@ impl CLISubagentController {
                 let block_id = block.id().clone();
                 let conversation_id = block.ai_conversation_id();
                 let requested_command_action_id = block.requested_command_action_id().cloned();
+                let should_skip_completion_assessment =
+                    !should_request_completion_assessment(block.long_running_control_state());
                 let completion = match (&block_completed_event.block_type, conversation_id) {
                     (BlockType::User(completed), Some(conversation_id)) => {
                         let command = if completed.command_with_obfuscated_secrets.is_empty() {
@@ -310,16 +312,48 @@ impl CLISubagentController {
                 };
                 drop(terminal_model);
 
-                let Some(subagent_state) = me.active_subagents_by_block.get_mut(&block_id) else {
+                let Some(has_last_snapshot) = me
+                    .active_subagents_by_block
+                    .get(&block_id)
+                    .map(|state| state.last_snapshot_at.is_some())
+                else {
                     return;
                 };
-                if subagent_state.last_snapshot_at.is_some() {
+                if has_last_snapshot {
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
                 }
-                subagent_state.completion = completion;
-                if subagent_state.completion.is_none() {
+
+                // A Stop takeover intentionally cancels the subagent. The command may still
+                // finish later, but that completion must not start a new assessment turn. Also
+                // clean up the in-memory monitor state so the stopped subagent cannot linger in
+                // the UI or intercept later refreshes.
+                if should_skip_completion_assessment {
+                    me.finish_subagent(
+                        &block_id,
+                        conversation_id,
+                        requested_command_action_id,
+                        ctx,
+                    );
+                    return;
+                }
+
+                let has_completion = {
+                    let Some(subagent_state) = me.active_subagents_by_block.get_mut(&block_id)
+                    else {
+                        return;
+                    };
+                    subagent_state.completion = completion;
+                    subagent_state.completion.is_some()
+                };
+                if !has_completion {
                     log::warn!(
                         "CLI monitor block {block_id:?} completed without final command metadata"
+                    );
+                    me.finish_subagent(
+                        &block_id,
+                        conversation_id,
+                        requested_command_action_id,
+                        ctx,
                     );
                     return;
                 }
@@ -380,7 +414,12 @@ impl CLISubagentController {
         }
 
         if completion.final_turn_started {
-            self.finish_completed_subagent(block_id, ctx);
+            self.finish_subagent(
+                block_id,
+                Some(completion.conversation_id),
+                completion.initial_requested_command_action_id,
+                ctx,
+            );
             return;
         }
 
@@ -404,38 +443,55 @@ impl CLISubagentController {
         }
     }
 
-    fn finish_completed_subagent(&mut self, block_id: &BlockId, ctx: &mut ModelContext<Self>) {
+    fn finish_subagent(
+        &mut self,
+        block_id: &BlockId,
+        conversation_id: Option<AIConversationId>,
+        initial_requested_command_action_id: Option<AIAgentActionId>,
+        ctx: &mut ModelContext<Self>,
+    ) {
         let Some(state) = self.active_subagents_by_block.remove(block_id) else {
             return;
         };
-        let Some(completion) = state.completion else {
-            return;
-        };
+        let conversation_id = conversation_id.or_else(|| {
+            state
+                .completion
+                .as_ref()
+                .map(|completion| completion.conversation_id)
+        });
+        let initial_requested_command_action_id = initial_requested_command_action_id
+            .or_else(|| {
+                state
+                    .completion
+                    .as_ref()
+                    .and_then(|completion| completion.initial_requested_command_action_id.clone())
+            })
+            .or(state.initial_requested_command_action_id);
 
-        let deactivate_result =
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
-                history_model.deactivate_cli_subagent_task_for_conversation(
-                    block_id,
-                    completion.conversation_id,
-                )
-            });
-        if let Err(error) = deactivate_result {
-            log::error!(
-                "Failed to deactivate completed CLI monitor for block {block_id:?}: {error:?}"
-            );
+        if let Some(conversation_id) = conversation_id {
+            let deactivate_result =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
+                    history_model
+                        .deactivate_cli_subagent_task_for_conversation(block_id, conversation_id)
+                });
+            if let Err(error) = deactivate_result {
+                log::error!("Failed to deactivate CLI monitor for block {block_id:?}: {error:?}");
+            }
         }
 
         ctx.emit(CLISubagentEvent::FinishedSubagent {
             block_id: block_id.clone(),
-            conversation_id: Some(completion.conversation_id),
-            initial_requested_command_action_id: completion.initial_requested_command_action_id,
+            conversation_id,
+            initial_requested_command_action_id,
         });
 
-        if let Some(agent_view_controller) = &self.agent_view_controller {
+        if let (Some(agent_view_controller), Some(conversation_id)) =
+            (&self.agent_view_controller, conversation_id)
+        {
             agent_view_controller.update(ctx, |controller, ctx| {
                 let is_this_inline_conversation = controller.is_inline()
                     && controller.agent_view_state().active_conversation_id()
-                        == Some(completion.conversation_id);
+                        == Some(conversation_id);
                 if is_this_inline_conversation {
                     controller.exit_agent_view(ctx);
                 }
@@ -917,5 +973,44 @@ fn command_finished_block_id(result: &AIAgentActionResultType) -> Option<&BlockI
         | AIAgentActionResultType::AskUserQuestion(_)
         | AIAgentActionResultType::RunAgents(_)
         | AIAgentActionResultType::WaitForEvents(_) => None,
+    }
+}
+
+fn should_request_completion_assessment(
+    control_state: Option<&LongRunningCommandControlState>,
+) -> bool {
+    !control_state
+        .and_then(LongRunningCommandControlState::user_take_over_reason)
+        .is_some_and(UserTakeOverReason::is_stop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_takeover_does_not_request_a_completion_assessment() {
+        let state = LongRunningCommandControlState::User {
+            reason: UserTakeOverReason::Stop,
+        };
+
+        assert!(!should_request_completion_assessment(Some(&state)));
+    }
+
+    #[test]
+    fn non_stop_control_states_can_request_a_completion_assessment() {
+        let agent_state = LongRunningCommandControlState::Agent {
+            is_blocked: false,
+            should_hide_responses: false,
+        };
+        let transfer_state = LongRunningCommandControlState::User {
+            reason: UserTakeOverReason::TransferFromAgent {
+                reason: "needs user input".to_owned(),
+            },
+        };
+
+        assert!(should_request_completion_assessment(None));
+        assert!(should_request_completion_assessment(Some(&agent_state)));
+        assert!(should_request_completion_assessment(Some(&transfer_state)));
     }
 }

@@ -178,17 +178,28 @@ impl DrivePanel {
             } => match Self::new_object_owner(*space, initial_folder_id.as_ref(), ctx) {
                 Some(owner) => {
                     let client_id = ClientId::default();
-                    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                        update_manager.create_folder(
-                            title.clone(),
-                            owner,
-                            client_id,
-                            *initial_folder_id,
-                            true,
-                            InitiatedBy::User,
-                            ctx,
-                        );
-                    });
+                    if owner == local_owner() {
+                        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                            repository.create_folder_with_id(
+                                SyncId::ClientId(client_id),
+                                title.clone(),
+                                *initial_folder_id,
+                                ctx,
+                            );
+                        });
+                    } else {
+                        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                            update_manager.create_folder(
+                                title.clone(),
+                                owner,
+                                client_id,
+                                *initial_folder_id,
+                                true,
+                                InitiatedBy::User,
+                                ctx,
+                            );
+                        });
+                    }
                 }
                 None => {
                     log::error!("Cannot identify a folder owner from {space:?}");

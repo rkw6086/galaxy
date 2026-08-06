@@ -684,9 +684,11 @@ impl ShellCommandExecutor {
             .force_refresh_senders
             .keys()
             .find(|selector| {
-                selector
-                    .get_block(&terminal_model)
-                    .is_some_and(|block| block.id() == block_id)
+                selector.get_block(&terminal_model).is_some_and(|block| {
+                    block.id() == block_id
+                        && block.is_active_and_long_running()
+                        && !block.finished()
+                })
             })
             .cloned();
         drop(terminal_model);

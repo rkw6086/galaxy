@@ -76,7 +76,6 @@ async fn start_model_turn<M>(
 ) -> Result<AgentEventStream, AgentError>
 where
     M: CompletionModel + Send + Sync + 'static,
-    M::StreamingResponse: Send + Sync + 'static,
 {
     let max_output_tokens = request.max_output_tokens.or(configured_max_output_tokens);
     let completion_request = build_completion_request(

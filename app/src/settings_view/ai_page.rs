@@ -7564,13 +7564,13 @@ impl SettingsWidget for ModelsOverviewWidget {
             .with_spacing(8.)
             .with_child(build_sub_header(appearance, "Models", None).finish())
             .with_child(render_ai_setting_description(
-                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI-compatible endpoints and Bedrock models run through Rig. ACP coding agents use the same Galaxy runtime boundary while retaining their own model, login, session, and tool loop.",
+                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI-compatible, Anthropic, Gemini, Vertex AI, and Bedrock models run through Rig. ACP coding agents use the same Galaxy runtime boundary while retaining their own model, login, session, and tool loop.",
                 true,
                 app,
             ))
             .with_child(render_ai_setting_description(
                 format!(
-                    "{endpoint_count} OpenAI-compatible provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled agent runtime(s)."
+                    "{endpoint_count} configured provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled agent runtime(s)."
                 ),
                 true,
                 app,
@@ -7680,6 +7680,9 @@ impl OpenAIProviderSettingsWidget {
         match provider.kind {
             OpenAIProviderKind::OpenAICompatible => "OpenAI-compatible API",
             OpenAIProviderKind::ChatGPTSubscription => "ChatGPT subscription",
+            OpenAIProviderKind::Anthropic => "Anthropic",
+            OpenAIProviderKind::Gemini => "Google Gemini",
+            OpenAIProviderKind::VertexAI => "Google Vertex AI",
         }
     }
 
@@ -7905,32 +7908,36 @@ impl SettingsWidget for OpenAIProviderSettingsWidget {
             app,
         ));
         column.add_child(render_ai_setting_description(
-            "Connect a ChatGPT subscription, OpenAI-compatible endpoint, AWS Bedrock account, or ACP agent runtime. Each provider can be enabled independently.",
+            "Connect a ChatGPT subscription, OpenAI-compatible endpoint, Anthropic, Gemini, Vertex AI, AWS Bedrock account, or ACP agent runtime. Each provider can be enabled independently.",
             true,
             app,
         ));
 
-        column.add_child(self.render_builtin_provider_card(
-            settings.bedrock_connection_name.value().as_str(),
-            "Use AWS credentials to access Bedrock foundation models directly.",
-            *settings.bedrock_enabled.value(),
-            self.bedrock_enabled_toggle.clone(),
-            AISettingsPageAction::ToggleBedrockEnabled,
-            &self.bedrock_edit_button,
-            &self.bedrock_remove_button,
-            appearance,
-        ));
-        if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+        if !settings.bedrock_models.value().is_empty() {
             column.add_child(self.render_builtin_provider_card(
-                settings.acp_connection_name.value().as_str(),
-                "Use a local session-oriented agent that owns its model and authentication.",
-                *settings.acp_enabled.value(),
-                self.acp_enabled_toggle.clone(),
-                AISettingsPageAction::ToggleAcpEnabled,
-                &self.acp_edit_button,
-                &self.acp_remove_button,
+                settings.bedrock_connection_name.value().as_str(),
+                "Use AWS credentials to access Bedrock foundation models directly.",
+                *settings.bedrock_enabled.value(),
+                self.bedrock_enabled_toggle.clone(),
+                AISettingsPageAction::ToggleBedrockEnabled,
+                &self.bedrock_edit_button,
+                &self.bedrock_remove_button,
                 appearance,
             ));
+        }
+        if cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled() {
+            if *settings.acp_enabled.value() {
+                column.add_child(self.render_builtin_provider_card(
+                    settings.acp_connection_name.value().as_str(),
+                    "Use a local session-oriented agent that owns its model and authentication.",
+                    *settings.acp_enabled.value(),
+                    self.acp_enabled_toggle.clone(),
+                    AISettingsPageAction::ToggleAcpEnabled,
+                    &self.acp_edit_button,
+                    &self.acp_remove_button,
+                    appearance,
+                ));
+            }
         }
 
         if providers.is_empty() {

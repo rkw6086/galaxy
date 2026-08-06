@@ -926,6 +926,13 @@ pub enum OpenAIProviderKind {
     OpenAICompatible,
     /// The ChatGPT subscription backend, authenticated with ChatGPT OAuth.
     ChatGPTSubscription,
+    /// Anthropic's native Messages API.
+    Anthropic,
+    /// Google's Gemini API.
+    Gemini,
+    /// Google's Gemini models hosted through Vertex AI.
+    #[serde(rename = "vertex_ai", alias = "vertex_a_i")]
+    VertexAI,
 }
 
 /// Configuration for a single OpenAI-compatible provider endpoint.
@@ -950,6 +957,12 @@ pub struct OpenAIProviderConfig {
     #[serde(default)]
     #[schemars(description = "API key for this endpoint (optional if the proxy handles auth).")]
     pub api_key: Option<String>,
+    #[serde(default)]
+    #[schemars(description = "Google Cloud project ID for Vertex AI providers.")]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    #[schemars(description = "Google Cloud location for Vertex AI providers.")]
+    pub location: Option<String>,
     #[serde(default)]
     #[schemars(description = "Models available from this provider.")]
     pub models: Vec<OpenAIModelConfig>,
@@ -1021,6 +1034,8 @@ pub(crate) fn default_chatgpt_provider() -> OpenAIProviderConfig {
         name: "ChatGPT Subscription".to_string(),
         base_url: String::new(),
         api_key: None,
+        project_id: None,
+        location: None,
         models: default_chatgpt_models(),
     }
 }
@@ -1035,6 +1050,8 @@ fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
             // Credentials are deliberately never committed. Set this locally in
             // ~/.galaxy/settings.toml before sending a request.
             api_key: None,
+            project_id: None,
+            location: None,
             models: vec![OpenAIModelConfig {
                 model_id: INITIAL_RIG_MODEL_ID.to_string(),
                 display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),

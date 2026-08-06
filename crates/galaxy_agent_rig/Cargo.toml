@@ -14,6 +14,7 @@ futures.workspace = true
 galaxy_agent_core.workspace = true
 rig-core.workspace = true
 rig-bedrock.workspace = true
+rig-vertexai.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
