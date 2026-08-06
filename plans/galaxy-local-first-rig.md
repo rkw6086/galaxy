@@ -405,6 +405,8 @@ metadata.
   collapse behavior; shared/team folders retain the existing remote path.
 - [x] Remove the account/signup gate from Galaxy Drive visibility and Settings controls so local
   Drive remains usable while logged out; team-only actions retain their separate restrictions.
+- [x] Remove the stale account/signup gate from the Global Agent control so configured local
+  providers and runtimes remain usable while logged out.
 - [x] Move the retained Drive import flow onto local persistence for personal targets, including
   local folder/notebook/workflow creation and progress reporting without remote `UpdateManager`
   or `SyncQueue` dependencies; shared/team imports retain their remote path.
