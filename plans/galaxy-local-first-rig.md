@@ -428,10 +428,10 @@ assigned to the phase that owns the affected flow before the related work is con
     monitor.
   - [x] Monitor teardown now clears orphaned in-memory state when completion metadata is missing.
   - [x] Refresh requests ignore completed or no-longer-long-running blocks.
-- [ ] Open-source project presentation: structure the About page around Galaxy’s local-first
+- [x] Open-source project presentation: structure the About page around Galaxy’s local-first
   identity, audit the repository’s license and third-party notices, and make the root metadata,
-  contribution guidance, and license files agree on the final permissive license (currently the
-  repository contains both MIT and AGPL materials and needs an explicit policy).
+  contribution guidance, and license files agree on an explicit license split (the repository
+  contains AGPL-3.0-only application code and MIT-licensed GalaxyUI crates).
 
 ### Phase 7 — UI untangling
 

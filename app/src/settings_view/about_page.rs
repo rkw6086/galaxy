@@ -59,12 +59,12 @@ impl SettingsWidget for AboutPageWidget {
         &self,
         _view: &AboutPageView,
         appearance: &Appearance,
-        _app: &AppContext,
+        app: &AppContext,
     ) -> Box<dyn Element> {
         let ui_builder = appearance.ui_builder();
 
         let icon_file =
-            AppIconSettings::get_base_icon_file_name(*AppIconSettings::as_ref(_app).app_icon);
+            AppIconSettings::get_base_icon_file_name(*AppIconSettings::as_ref(app).app_icon);
         let image_path = match icon_file {
             "galaxy" => "bundled/png/galaxy.png",
             "galaxy_dotmatrix" => "bundled/png/galaxy_dotmatrix.png",
@@ -121,14 +121,23 @@ impl SettingsWidget for AboutPageWidget {
                 .with_child(version_row.finish())
                 .with_child(
                     ui_builder
-                        .span("Open source software released under the MIT License.")
+                        .span("Galaxy is a local-first, open-source developer terminal built around your workflow, your data, and the model providers you choose.")
                         .build()
                         .with_margin_top(16.)
                         .finish(),
                 )
                 .with_child(
                     ui_builder
-                        .span("Source code and license details are available in the project repository.")
+                        .span("Conversations, settings, and Galaxy Drive content are stored locally by default. Network access is limited to providers and tools that you explicitly configure.")
+                        .with_soft_wrap()
+                        .build()
+                        .with_margin_top(8.)
+                        .finish(),
+                )
+                .with_child(
+                    ui_builder
+                        .span("The application and most workspace crates are licensed under AGPL-3.0-only. GalaxyUI crates are licensed under the MIT License. See LICENSE-AGPL and LICENSE-MIT in the source repository for the full terms.")
+                        .with_soft_wrap()
                         .build()
                         .with_margin_top(8.)
                         .finish(),
