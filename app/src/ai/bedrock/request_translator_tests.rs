@@ -299,6 +299,8 @@ fn running_command_turn_gets_monitor_prompt_and_cli_tools() {
     assert!(prompt.contains("command ID"));
     assert!(prompt.contains("read_shell_command_output"));
     assert!(prompt.contains("interrupt_shell_command"));
+    assert!(prompt.contains("next assistant output MUST be a tool call"));
+    assert!(prompt.contains("Do not end a still-running monitor turn with prose"));
     assert!(prompt.contains("Never try to encode Ctrl+C"));
     assert!(!prompt.contains("- Use `run_shell_command`"));
 

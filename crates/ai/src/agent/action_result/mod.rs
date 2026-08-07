@@ -327,7 +327,7 @@ fn shell_snapshot_content(
         .map(|is_preempted| format!("\nPreempted: {is_preempted}"))
         .unwrap_or_default();
     format!(
-        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nContinue monitoring with `read_shell_command_output` using command_id `{block_id}` and a short wait. Do not report completion while the command is still running."
+        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nThe next assistant output MUST be a tool call: continue monitoring with `read_shell_command_output` using command_id `{block_id}` and a short wait. If the user's explicit stop condition is met, call `interrupt_shell_command` immediately. Do not end this turn with prose or report completion while the command is still running."
     )
 }
 

@@ -1389,6 +1389,30 @@ impl BlocklistAIController {
         );
     }
 
+    /// Nudges a CLI monitor that ended a turn without proposing a polling action. The running
+    /// command is attached through normal long-running-command detection so Rig and the legacy
+    /// provider path both receive the monitor-specific prompt and tool set.
+    pub fn send_cli_monitor_nudge(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.send_user_query_in_conversation_internal(
+            "The command is still running. Continue monitoring now: call `read_shell_command_output` \
+             with the existing command ID instead of replying with a status message. If the user's \
+             explicit stop condition is met, call `interrupt_shell_command` immediately."
+                .to_owned(),
+            conversation_id,
+            None,
+            RunningCommandDetection::Detect,
+            HashMap::new(),
+            EntrypointType::AgentInitiated,
+            /*is_queued_prompt*/ false,
+            /*queued_query_id*/ None,
+            ctx,
+        );
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn send_user_query_in_conversation_internal(
         &mut self,

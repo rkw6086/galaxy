@@ -185,7 +185,9 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
     assert!(prompt.contains("## Running Command Monitor"));
-    assert!(prompt.contains("poll with `read_shell_command_output`"));
+    assert!(prompt.contains("`read_shell_command_output` with a short delay"));
+    assert!(prompt.contains("next assistant output MUST be a tool call"));
+    assert!(prompt.contains("Do not end a still-running monitor turn with prose"));
     assert!(prepared
         .request
         .tools
@@ -203,13 +205,14 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
         .any(|message| match &message.content {
             MessageContent::ToolResult { content, .. } => {
                 content.contains("Command ID: precmd-lrc-test")
-                    && content.contains("Continue monitoring with `read_shell_command_output`")
+                    && content.contains("The next assistant output MUST be a tool call")
             }
             MessageContent::MultiPart(parts) => parts.iter().any(|part| {
                 matches!(
                     part,
                     ContentPart::ToolResult { content, .. }
                         if content.contains("Command ID: precmd-lrc-test")
+                            && content.contains("The next assistant output MUST be a tool call")
                 )
             }),
             _ => false,

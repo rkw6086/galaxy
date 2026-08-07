@@ -432,6 +432,8 @@ assigned to the phase that owns the affected flow before the related work is con
     monitor.
   - [x] Monitor teardown now clears orphaned in-memory state when completion metadata is missing.
   - [x] Refresh requests ignore completed or no-longer-long-running blocks.
+  - [x] A monitor turn that ends after a snapshot without a polling action now receives one bounded
+    continuation nudge, with shared prompts requiring a tool call while the command is running.
 - [ ] ChatGPT subscription follow-up: a reported OAuth-backed tool turn failed because the
   Responses request lacked `call_id`. Rig's stream fallback and the serialized assistant/tool
   follow-up are now covered by hermetic tests; complete a fresh authenticated end-to-end check and

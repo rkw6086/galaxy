@@ -43,6 +43,10 @@ struct ActiveCLISubagentState {
     initial_requested_command_action_id: Option<AIAgentActionId>,
     task_id: Option<TaskId>,
     last_snapshot_at: Option<Instant>,
+    /// Prevents a monitor turn that ended with prose and no tool call from recursively
+    /// generating nudges. A real snapshot/action result resets this so the next turn can be
+    /// nudged again if it stalls in the same way.
+    monitor_nudge_sent: bool,
     completion: Option<PendingCommandCompletion>,
 }
 
@@ -67,7 +71,7 @@ impl UserTakeOverReason {
     pub fn transfer_reason(&self) -> Option<&str> {
         match self {
             Self::TransferFromAgent { reason } => Some(reason.as_str()),
-            _ => None,
+            Self::Manual | Self::Stop => None,
         }
     }
 }
@@ -161,6 +165,7 @@ impl CLISubagentController {
                 return;
             };
             me.advance_completed_subagents(*conversation_id, ctx);
+            me.ensure_monitor_continues(*conversation_id, ctx);
         });
 
         ctx.subscribe_to_model(action_model, |me, _, event, ctx| match event {
@@ -226,10 +231,12 @@ impl CLISubagentController {
 
                 // Updates the last snapshot timestamp for the active block after the agent has read the block output.
                 if let Some(snapshot_block_id) = snapshot_block_id {
-                    me.active_subagents_by_block
+                    let state = me
+                        .active_subagents_by_block
                         .entry(snapshot_block_id.clone())
-                        .or_default()
-                        .last_snapshot_at = Some(Instant::now());
+                        .or_default();
+                    state.last_snapshot_at = Some(Instant::now());
+                    state.monitor_nudge_sent = false;
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
                 }
                 if initial_command_finished_without_snapshot {
@@ -441,6 +448,72 @@ impl CLISubagentController {
                 completion.final_turn_started = true;
             }
         }
+    }
+
+    /// A monitor turn that returns only prose has no action result to trigger the normal
+    /// action-follow-up path. Nudge that monitor once with the live command context so a model
+    /// that acknowledged the first snapshot without polling gets another chance to inspect it.
+    fn ensure_monitor_continues(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(block_id) = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(|conversation| {
+                conversation.all_tasks().find_map(|task| {
+                    let block_id = task.cli_subagent_block_id()?;
+                    let state = self.active_subagents_by_block.get(&block_id)?;
+                    if state.task_id.as_ref() != Some(task.id()) || state.completion.is_some() {
+                        return None;
+                    }
+                    let last_exchange_has_action = task.last_exchange().is_some_and(|exchange| {
+                        exchange
+                            .output_status
+                            .output()
+                            .is_some_and(|output| output.get().actions().next().is_some())
+                    });
+                    should_nudge_monitor_turn(last_exchange_has_action, state.monitor_nudge_sent)
+                        .then_some(block_id)
+                })
+            })
+        else {
+            return;
+        };
+
+        if self
+            .controller
+            .as_ref(ctx)
+            .has_active_stream_for_conversation(conversation_id, ctx)
+            || self
+                .action_model
+                .as_ref(ctx)
+                .has_unfinished_actions_for_conversation(conversation_id)
+        {
+            return;
+        }
+
+        let command_is_still_agent_controlled = {
+            let terminal_model = self.terminal_model.lock();
+            terminal_model
+                .block_list()
+                .block_with_id(&block_id)
+                .is_some_and(|block| {
+                    block.is_active_and_long_running()
+                        && block.is_agent_in_control()
+                        && block.ai_conversation_id() == Some(conversation_id)
+                })
+        };
+        if !command_is_still_agent_controlled {
+            return;
+        }
+
+        if let Some(state) = self.active_subagents_by_block.get_mut(&block_id) {
+            state.monitor_nudge_sent = true;
+        }
+        self.controller.update(ctx, |controller, ctx| {
+            controller.send_cli_monitor_nudge(conversation_id, ctx);
+        });
     }
 
     fn finish_subagent(
@@ -984,6 +1057,10 @@ fn should_request_completion_assessment(
         .is_some_and(UserTakeOverReason::is_stop)
 }
 
+fn should_nudge_monitor_turn(last_exchange_has_action: bool, monitor_nudge_sent: bool) -> bool {
+    !last_exchange_has_action && !monitor_nudge_sent
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1012,5 +1089,12 @@ mod tests {
         assert!(should_request_completion_assessment(None));
         assert!(should_request_completion_assessment(Some(&agent_state)));
         assert!(should_request_completion_assessment(Some(&transfer_state)));
+    }
+
+    #[test]
+    fn prose_monitor_turn_is_nudged_once_until_a_tool_action_runs() {
+        assert!(should_nudge_monitor_turn(false, false));
+        assert!(!should_nudge_monitor_turn(false, true));
+        assert!(!should_nudge_monitor_turn(true, false));
     }
 }

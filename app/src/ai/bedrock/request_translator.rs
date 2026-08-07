@@ -1496,10 +1496,13 @@ pub fn extract_system_prompt(
                 "This turn concerns a running or just-finished shell command. Act as its dedicated \
                  monitor while still following the user's steering messages. Use the command ID from \
                  the running-command context or tool result for every read/write operation. If the \
-                 result says the command finished, report its outcome and stop polling. Otherwise, \
-                 poll with `read_shell_command_output` and use short delays. Never choose a poll \
-                 interval that crosses a user-specified deadline or stop condition. When an explicit \
-                 stop condition is met, call `interrupt_shell_command` immediately, then poll briefly \
+                 result says the command finished, report its outcome and stop polling. If it says the \
+                 command is still running, the next assistant output MUST be a tool call: use \
+                 `read_shell_command_output` with a short delay, or call `interrupt_shell_command` \
+                 immediately when the user's explicit stop condition is met. Do not end a still-running \
+                 monitor turn with prose, a status message, or a request for the user to say continue. \
+                 Never choose a poll interval that crosses a user-specified deadline or stop condition. \
+                 After an interrupt, poll briefly \
                  to verify the outcome. Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or \
                  `\\u0003` through `write_to_long_running_shell_command`; that tool is only for actual \
                  process input. Never start a duplicate command merely to check its state, and never \
@@ -2393,10 +2396,12 @@ fn long_running_command_content(snapshot: &api::LongRunningShellCommandSnapshot)
     };
     format!(
         "Command is still running.\nCommand ID: {}\nCurrent terminal output:\n{}\n\
-         Continue monitoring with `read_shell_command_output` using command_id `{}`. \
-         Use `write_to_long_running_shell_command` with the same command_id only if input is \
-         required. If the user's explicit stop condition is met, use `interrupt_shell_command` \
-         with the same command_id. Do not report the command as complete while it is still running.",
+         The next assistant output MUST be a tool call: continue monitoring with \
+         `read_shell_command_output` using command_id `{}` and a short wait. Use \
+         `write_to_long_running_shell_command` with the same command_id only if input is required. \
+         If the user's explicit stop condition is met, use `interrupt_shell_command` immediately \
+         with the same command_id. Do not end this turn with prose or report the command as complete \
+         while it is still running.",
         snapshot.command_id, output, snapshot.command_id
     )
 }
