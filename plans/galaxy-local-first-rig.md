@@ -432,6 +432,10 @@ assigned to the phase that owns the affected flow before the related work is con
     monitor.
   - [x] Monitor teardown now clears orphaned in-memory state when completion metadata is missing.
   - [x] Refresh requests ignore completed or no-longer-long-running blocks.
+- [ ] ChatGPT subscription follow-up: a reported OAuth-backed tool turn failed because the
+  Responses request lacked `call_id`. Rig's stream fallback and the serialized assistant/tool
+  follow-up are now covered by hermetic tests; complete a fresh authenticated end-to-end check and
+  investigate any remaining loss in the app-owned history handoff.
 - [x] Open-source project presentation: structure the About page around Galaxy’s local-first
   identity, audit the repository’s license and third-party notices, and make the root metadata,
   contribution guidance, and license files agree on an explicit license split (the repository

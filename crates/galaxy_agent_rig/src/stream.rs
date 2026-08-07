@@ -310,4 +310,20 @@ mod tests {
         assert_eq!(call.id, "call_123");
         assert_eq!(call.name, "read_files");
     }
+
+    #[test]
+    fn domain_tool_call_falls_back_to_wire_id_without_responses_call_id() {
+        let tool_call = rig_core::message::ToolCall::new(
+            "fc_item_123".to_string(),
+            rig_core::message::ToolFunction {
+                name: "read_files".to_string(),
+                arguments: serde_json::json!({"files": ["Cargo.toml"]}),
+            },
+        );
+
+        let call = domain_tool_call(tool_call);
+
+        assert_eq!(call.id, "fc_item_123");
+        assert_eq!(call.name, "read_files");
+    }
 }
