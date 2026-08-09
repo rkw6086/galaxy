@@ -93,6 +93,17 @@ fn make_item_fields<A: Action + Clone>(
         Icon::Aws
     } else if is_custom_router {
         Icon::Dataflow
+    } else if matches!(llm.provider, crate::ai::llms::LLMProvider::Acp) {
+        let model_id = llm.id.as_str().to_ascii_lowercase();
+        if model_id.contains("claude") {
+            Icon::ClaudeLogo
+        } else if model_id.contains("gemini") {
+            Icon::GeminiLogo
+        } else if model_id.contains("codex") {
+            Icon::OpenAILogo
+        } else {
+            Icon::Terminal
+        }
     } else {
         llm.provider.icon().unwrap_or(Icon::Oz)
     };

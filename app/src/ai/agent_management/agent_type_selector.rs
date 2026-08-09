@@ -7,8 +7,8 @@ use galaxy_core::ui::color::blend::Blend;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxyui::elements::{
     Align, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss,
-    DropShadow, Element, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-    ParentElement, Radius, Shrinkable, Text,
+    DropShadow, Element, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize,
+    MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::keymap::{FixedBinding, Keystroke};
@@ -22,7 +22,7 @@ use crate::appearance::Appearance;
 use crate::ui_components::icons::Icon;
 
 // Modal dimensions based on Figma design.
-const MODAL_WIDTH: f32 = 440.;
+const MODAL_WIDTH: f32 = 680.;
 const DIALOG_CORNER_RADIUS: f32 = 8.;
 
 const HEADER_PADDING_TOP: f32 = 24.;
@@ -40,6 +40,7 @@ const OPTIONS_VERTICAL_GAP: f32 = 8.;
 
 const AVATAR_SIZE: f32 = 48.;
 const AVATAR_ICON_SIZE: f32 = 24.;
+const OPTION_HEIGHT: f32 = 136.;
 
 const TITLE_FONT_SIZE: f32 = 16.;
 const OPTION_TITLE_FONT_SIZE: f32 = 14.;
@@ -292,21 +293,25 @@ impl AgentTypeSelector {
                 )
                 .finish();
 
-            Container::new(
-                Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_spacing(OPTION_GAP)
-                    .with_child(avatar)
-                    .with_child(Shrinkable::new(1., text_content).finish())
-                    .finish(),
+            ConstrainedBox::new(
+                Container::new(
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_spacing(OPTION_GAP)
+                        .with_child(avatar)
+                        .with_child(Shrinkable::new(1., text_content).finish())
+                        .finish(),
+                )
+                .with_padding_left(OPTION_PADDING_HORIZONTAL)
+                .with_padding_right(OPTION_PADDING_HORIZONTAL)
+                .with_padding_top(OPTION_PADDING_VERTICAL)
+                .with_padding_bottom(OPTION_PADDING_VERTICAL)
+                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(OPTION_CORNER_RADIUS)))
+                .with_border(Border::all(1.).with_border_color(border_color))
+                .with_background(background)
+                .finish(),
             )
-            .with_padding_left(OPTION_PADDING_HORIZONTAL)
-            .with_padding_right(OPTION_PADDING_HORIZONTAL)
-            .with_padding_top(OPTION_PADDING_VERTICAL)
-            .with_padding_bottom(OPTION_PADDING_VERTICAL)
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(OPTION_CORNER_RADIUS)))
-            .with_border(Border::all(1.).with_border_color(border_color))
-            .with_background(background)
+            .with_height(OPTION_HEIGHT)
             .finish()
         })
         .with_cursor(Cursor::PointingHand)
@@ -353,11 +358,11 @@ impl AgentTypeSelector {
             appearance,
         );
 
-        let options = Flex::column()
+        let options = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(OPTIONS_VERTICAL_GAP)
-            .with_child(cloud_agent_option)
-            .with_child(local_agent_option)
+            .with_child(Expanded::new(1., cloud_agent_option).finish())
+            .with_child(Expanded::new(1., local_agent_option).finish())
             .finish();
 
         let body = Container::new(options)

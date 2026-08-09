@@ -1,3 +1,5 @@
+use galaxy_cli::agent::Harness;
+use galaxy_core::ui::theme::Fill;
 use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
@@ -12,9 +14,11 @@ use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
+use pathfinder_color::ColorU;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent, ChatGPTAuthState};
+use crate::ai::harness_display;
 use crate::ai::llms::{merge_discovered_provider_models, LLMPreferences};
 use crate::appearance::Appearance;
 use crate::editor::{
@@ -34,6 +38,7 @@ const MODAL_WIDTH: f32 = 900.;
 const MODAL_HEIGHT: f32 = 700.;
 const BODY_HEIGHT: f32 = 630.;
 const INPUT_FONT_SIZE: f32 = 12.;
+const MODEL_LOGO_SIZE: f32 = 20.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderSetupStep {
@@ -1539,6 +1544,49 @@ impl ProviderSetupModalBody {
         .finish()
     }
 
+    fn model_logo(&self) -> (Icon, ColorU) {
+        match self.provider_type {
+            ProviderSetupProviderType::ChatGPTSubscription
+            | ProviderSetupProviderType::OpenAICompatible => {
+                (Icon::OpenAILogo, crate::terminal::cli_agent::OPENAI_COLOR)
+            }
+            ProviderSetupProviderType::Anthropic => {
+                (Icon::ClaudeLogo, crate::ai::blocklist::CLAUDE_ORANGE)
+            }
+            ProviderSetupProviderType::Gemini | ProviderSetupProviderType::VertexAI => {
+                (Icon::GeminiLogo, crate::terminal::cli_agent::GEMINI_BLUE)
+            }
+            ProviderSetupProviderType::Bedrock => {
+                (Icon::BedrockLogo, ColorU::new(255, 153, 0, 255))
+            }
+            ProviderSetupProviderType::Acp => {
+                let agent = self.draft_acp.agent_id.to_ascii_lowercase();
+                let harness = if agent.contains("claude") {
+                    Harness::Claude
+                } else if agent.contains("gemini") {
+                    Harness::Gemini
+                } else if agent.contains("codex") {
+                    Harness::Codex
+                } else {
+                    Harness::Unknown
+                };
+                (
+                    harness_display::icon_for(harness),
+                    harness_display::brand_color(harness)
+                        .unwrap_or(ColorU::new(128, 128, 128, 255)),
+                )
+            }
+        }
+    }
+
+    fn render_model_logo(&self) -> Box<dyn galaxyui::Element> {
+        let (icon, color) = self.model_logo();
+        ConstrainedBox::new(icon.to_galaxyui_icon(Fill::Solid(color)).finish())
+            .with_width(MODEL_LOGO_SIZE)
+            .with_height(MODEL_LOGO_SIZE)
+            .finish()
+    }
+
     fn render_model_table_header(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
         let header = |label: &str| {
             Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
@@ -1630,6 +1678,12 @@ impl ProviderSetupModalBody {
                 .finish(),
             )
             .finish();
+        let model_info = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_spacing(10.)
+            .with_child(self.render_model_logo())
+            .with_child(model_info)
+            .finish();
 
         let context_input = appearance
             .ui_builder()
@@ -1689,26 +1743,33 @@ impl ProviderSetupModalBody {
                 .models
                 .iter()
                 .map(|model| {
-                    Flex::column()
-                        .with_spacing(2.)
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_spacing(10.)
+                        .with_child(self.render_model_logo())
                         .with_child(
-                            Text::new(
-                                model.display_name.clone(),
-                                appearance.ui_font_family(),
-                                INPUT_FONT_SIZE,
-                            )
-                            .with_color(appearance.theme().active_ui_text_color().into())
-                            .finish(),
-                        )
-                        .with_child(
-                            Text::new(
-                                model.model_id.clone(),
-                                appearance.monospace_font_family(),
-                                10.,
-                            )
-                            .with_color(appearance.theme().nonactive_ui_text_color().into())
-                            .soft_wrap(true)
-                            .finish(),
+                            Flex::column()
+                                .with_spacing(2.)
+                                .with_child(
+                                    Text::new(
+                                        model.display_name.clone(),
+                                        appearance.ui_font_family(),
+                                        INPUT_FONT_SIZE,
+                                    )
+                                    .with_color(appearance.theme().active_ui_text_color().into())
+                                    .finish(),
+                                )
+                                .with_child(
+                                    Text::new(
+                                        model.model_id.clone(),
+                                        appearance.monospace_font_family(),
+                                        10.,
+                                    )
+                                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                                    .soft_wrap(true)
+                                    .finish(),
+                                )
+                                .finish(),
                         )
                         .finish()
                 })
@@ -1747,31 +1808,38 @@ impl ProviderSetupModalBody {
                         .map(|value| value.name.as_str())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Flex::column()
-                        .with_spacing(2.)
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_spacing(10.)
+                        .with_child(self.render_model_logo())
                         .with_child(
-                            Text::new(
-                                option.name.clone(),
-                                appearance.ui_font_family(),
-                                INPUT_FONT_SIZE,
-                            )
-                            .with_color(appearance.theme().active_ui_text_color().into())
-                            .with_style(Properties::default().weight(Weight::Bold))
-                            .finish(),
-                        )
-                        .with_child(
-                            Text::new(
-                                if values.is_empty() {
-                                    option.current_value.to_string()
-                                } else {
-                                    values
-                                },
-                                appearance.monospace_font_family(),
-                                10.,
-                            )
-                            .with_color(appearance.theme().nonactive_ui_text_color().into())
-                            .soft_wrap(true)
-                            .finish(),
+                            Flex::column()
+                                .with_spacing(2.)
+                                .with_child(
+                                    Text::new(
+                                        option.name.clone(),
+                                        appearance.ui_font_family(),
+                                        INPUT_FONT_SIZE,
+                                    )
+                                    .with_color(appearance.theme().active_ui_text_color().into())
+                                    .with_style(Properties::default().weight(Weight::Bold))
+                                    .finish(),
+                                )
+                                .with_child(
+                                    Text::new(
+                                        if values.is_empty() {
+                                            option.current_value.to_string()
+                                        } else {
+                                            values
+                                        },
+                                        appearance.monospace_font_family(),
+                                        10.,
+                                    )
+                                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                                    .soft_wrap(true)
+                                    .finish(),
+                                )
+                                .finish(),
                         )
                         .finish()
                 })
