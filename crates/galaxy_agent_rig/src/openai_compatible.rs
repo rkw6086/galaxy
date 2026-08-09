@@ -95,7 +95,7 @@ fn build_completion_request(
         request,
         configured_max_output_tokens,
         supports_system_messages,
-        false,
+        true,
         Some(serde_json::json!({
             "stream_options": { "include_usage": true }
         })),

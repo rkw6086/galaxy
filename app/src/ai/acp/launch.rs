@@ -1,4 +1,7 @@
-use galaxy_acp::{AcpAgentPreset, AcpLaunchConfig, CODEX_ACP_NPM_VERSION, OPENCODE_NPM_VERSION};
+use galaxy_acp::{
+    resolve_known_acp_agent, AcpAgentPreset, AcpLaunchConfig, CODEX_ACP_NPM_VERSION,
+    OPENCODE_NPM_VERSION,
+};
 use sha2::{Digest as _, Sha256};
 
 use crate::persistence::model::AcpConversationData;
@@ -215,9 +218,11 @@ pub(crate) fn resolve_acp_launch(
     match agent_id.trim().to_ascii_lowercase().as_str() {
         "codex" => AcpAgentPreset::Codex.resolve_launch_config(),
         "opencode" => AcpAgentPreset::OpenCode.resolve_launch_config(),
-        unknown => Err(format!(
-            "Unknown ACP agent preset {unknown:?}; choose \"codex\" or \"opencode\", or configure a custom ACP executable"
-        )),
+        _ => resolve_known_acp_agent(agent_id).map_err(|error| {
+            format!(
+                "{error} Configure a custom ACP executable if this client uses a different command."
+            )
+        }),
     }
 }
 

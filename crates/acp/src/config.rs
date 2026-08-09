@@ -10,11 +10,108 @@ use agent_client_protocol::AcpAgentConfig;
 
 use crate::{DenyByDefaultPermissionHandler, PermissionHandler};
 
-/// Pinned version of the official Codex ACP adapter.
-pub const CODEX_ACP_NPM_VERSION: &str = "1.1.7";
+/// Version of the official Codex ACP adapter supported by the built-in setup.
+pub const CODEX_ACP_NPM_VERSION: &str = "1.1.14";
 
 /// Pinned version of OpenCode used by the built-in ACP launch preset.
 pub const OPENCODE_NPM_VERSION: &str = "1.18.9";
+
+/// A known ACP client that can be selected in Galaxy settings.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AcpKnownAgent {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub command: &'static str,
+    pub args: &'static [&'static str],
+}
+
+/// Curated ACP Registry catalog. Launch commands are intentionally local-only:
+/// Galaxy never installs or downloads an agent on the user's behalf.
+pub const KNOWN_ACP_AGENTS: &[AcpKnownAgent] = &[
+    AcpKnownAgent {
+        id: "codex",
+        name: "Codex",
+        description: "OpenAI's coding assistant",
+        command: "codex",
+        args: &[],
+    },
+    AcpKnownAgent {
+        id: "opencode",
+        name: "OpenCode",
+        description: "Open source coding agent",
+        command: "opencode",
+        args: &["acp"],
+    },
+    AcpKnownAgent {
+        id: "claude-acp",
+        name: "Claude Agent",
+        description: "Anthropic's coding agent",
+        command: "claude-agent-acp",
+        args: &[],
+    },
+    AcpKnownAgent {
+        id: "gemini",
+        name: "Gemini CLI",
+        description: "Google's coding agent",
+        command: "gemini",
+        args: &["--acp"],
+    },
+    AcpKnownAgent {
+        id: "cline",
+        name: "Cline",
+        description: "Autonomous coding agent",
+        command: "cline",
+        args: &["--acp"],
+    },
+    AcpKnownAgent {
+        id: "cursor",
+        name: "Cursor",
+        description: "Cursor's coding agent",
+        command: "cursor-agent",
+        args: &["acp"],
+    },
+    AcpKnownAgent {
+        id: "github-copilot-cli",
+        name: "GitHub Copilot",
+        description: "GitHub's AI pair programmer",
+        command: "copilot",
+        args: &["--acp"],
+    },
+    AcpKnownAgent {
+        id: "goose",
+        name: "Goose",
+        description: "Block's open source AI agent",
+        command: "goose",
+        args: &["acp"],
+    },
+    AcpKnownAgent {
+        id: "auggie",
+        name: "Auggie CLI",
+        description: "Augment Code's coding agent",
+        command: "auggie",
+        args: &["--acp"],
+    },
+];
+
+pub fn known_acp_agents() -> &'static [AcpKnownAgent] {
+    KNOWN_ACP_AGENTS
+}
+
+/// Resolve a registry-listed agent from the local PATH.
+pub fn resolve_known_acp_agent(agent_id: &str) -> Result<AcpLaunchConfig, String> {
+    let agent = known_acp_agents()
+        .iter()
+        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id.trim()))
+        .ok_or_else(|| format!("Unknown ACP agent: {agent_id:?}"))?;
+    let command = executable_on_path(agent.command).ok_or_else(|| {
+        format!(
+            "{} is not installed or could not be found on PATH (expected `{}`). Install it or choose Custom.",
+            agent.name, agent.command
+        )
+    })?;
+    Ok(AcpLaunchConfig::new(command).args(agent.args.iter().copied()))
+}
 
 const DEFAULT_CANCELLATION_GRACE_PERIOD: Duration = Duration::from_secs(5);
 const DEFAULT_INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -37,7 +134,7 @@ impl AcpAgentPreset {
     pub fn launch_config(self) -> AcpLaunchConfig {
         match self {
             Self::Codex => AcpLaunchConfig::new("npx")
-                .args(vec![
+                .args([
                     "--yes".to_owned(),
                     format!("@agentclientprotocol/codex-acp@{CODEX_ACP_NPM_VERSION}"),
                 ])
@@ -61,9 +158,9 @@ impl AcpAgentPreset {
 
     /// Resolves the best available executable for this preset.
     ///
-    /// OpenCode's native binary is preferred when installed. The Codex adapter
-    /// uses `npx` when available and can run through Bun's Node compatibility
-    /// mode. OpenCode's npm wrapper requires Node during installation.
+    /// OpenCode's native binary is preferred when installed. Codex runs its ACP
+    /// adapter through npx, while CODEX_PATH points at the user's installed
+    /// Codex CLI rather than downloading a second Codex installation.
     pub fn resolve_launch_config(self) -> Result<AcpLaunchConfig, String> {
         self.resolve_launch_config_with(executable_on_path)
     }
@@ -74,33 +171,30 @@ impl AcpAgentPreset {
     ) -> Result<AcpLaunchConfig, String> {
         match self {
             Self::Codex => {
-                let (command, args) = if let Some(command) = resolve("npx") {
-                    (
-                        command,
-                        vec![
-                            "--yes".to_owned(),
-                            format!("@agentclientprotocol/codex-acp@{CODEX_ACP_NPM_VERSION}"),
-                        ],
-                    )
-                } else if let Some(command) = resolve("bunx") {
-                    (
-                        command,
-                        vec![
-                            "--bun".to_owned(),
-                            format!("@agentclientprotocol/codex-acp@{CODEX_ACP_NPM_VERSION}"),
-                        ],
-                    )
-                } else {
+                let Some(codex) = resolve("codex") else {
                     return Err(
-                        "Codex ACP requires npx or bunx; install Node.js/npm or Bun, or configure a custom ACP executable"
+                        "Codex ACP requires the locally installed codex CLI; install Codex or configure a custom ACP executable"
                             .to_owned(),
                     );
                 };
-                Ok(AcpLaunchConfig::new(command)
-                    .args(args)
+                let launch = if let Some(adapter) = resolve("codex-acp") {
+                    AcpLaunchConfig::new(adapter)
+                } else if let Some(npx) = resolve("npx") {
+                    AcpLaunchConfig::new(npx).args([
+                        "--yes".to_owned(),
+                        format!("@agentclientprotocol/codex-acp@{CODEX_ACP_NPM_VERSION}"),
+                    ])
+                } else {
+                    return Err(
+                        "Codex ACP requires either a local codex-acp executable or npx; install the ACP adapter, install Node.js/npm, or configure a custom ACP executable"
+                            .to_owned(),
+                    );
+                };
+                Ok(launch
                     .preferred_auth_method("chat-gpt")
                     .env("DEFAULT_AUTH_REQUEST", r#"{"methodId":"chat-gpt"}"#)
-                    .env("INITIAL_AGENT_MODE", "read-only"))
+                    .env("INITIAL_AGENT_MODE", "read-only")
+                    .codex_path(codex))
             }
             Self::OpenCode => {
                 if let Some(command) = resolve("opencode") {

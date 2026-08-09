@@ -159,7 +159,7 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
             request,
             self.config.max_output_tokens,
             true,
-            false,
+            true,
             additional_params,
         )?;
 

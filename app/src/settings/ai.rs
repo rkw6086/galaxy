@@ -893,6 +893,13 @@ pub struct OpenAIModelConfig {
         description = "Whether this endpoint accepts system-role messages. Set false for ChatGPT-backed LiteLLM models that reject them."
     )]
     pub supports_system_messages: Option<bool>,
+    /// Per-model capability overrides. Missing entries mean Auto: use provider
+    /// metadata when available and allow the request path to determine support.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[schemars(
+        description = "Optional per-capability overrides: auto, supported, or unsupported."
+    )]
+    pub capability_overrides: HashMap<String, ModelCapabilityOverride>,
     #[serde(default)]
     #[schemars(
         description = "Reasoning effort modes supported by this model when using the ChatGPT subscription provider."
@@ -906,11 +913,62 @@ pub struct OpenAIModelConfig {
 impl settings_value::SettingsValue for OpenAIModelConfig {}
 
 impl OpenAIModelConfig {
+    pub fn capability_override(&self, capability: &str) -> ModelCapabilityOverride {
+        self.capability_overrides
+            .get(capability)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn effective_vision_supported(&self) -> bool {
+        match self.capability_override("vision") {
+            ModelCapabilityOverride::Auto => self.vision_supported,
+            ModelCapabilityOverride::Supported => true,
+            ModelCapabilityOverride::Unsupported => false,
+        }
+    }
+
     pub fn supports_system_messages(&self) -> bool {
+        if self.capability_override("system_messages") == ModelCapabilityOverride::Unsupported {
+            return false;
+        }
         if self.model_id.starts_with("codex-gpt-") {
             return false;
         }
-        self.supports_system_messages.unwrap_or(true)
+        match self.capability_override("system_messages") {
+            ModelCapabilityOverride::Supported => true,
+            ModelCapabilityOverride::Auto => self.supports_system_messages.unwrap_or(true),
+            ModelCapabilityOverride::Unsupported => false,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCapabilityOverride {
+    #[default]
+    Auto,
+    Supported,
+    Unsupported,
+}
+
+impl ModelCapabilityOverride {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Supported,
+            Self::Supported => Self::Unsupported,
+            Self::Unsupported => Self::Auto,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Supported => "On",
+            Self::Unsupported => "Off",
+        }
     }
 }
 
@@ -1013,13 +1071,18 @@ fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
         |(model_id, display_name, reasoning_efforts)| OpenAIModelConfig {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
-            vision_supported: false,
+            // ChatGPT's subscription backend accepts image input for its chat
+            // models, but it does not expose a public capability discovery
+            // endpoint. Keep this explicit catalog in sync with that contract
+            // so the model picker does not hide vision context.
+            vision_supported: true,
             context_size: default_context_size(),
             max_input_tokens: None,
             max_output_tokens: None,
             provider: Some("openai".to_string()),
             use_rig: true,
             supports_system_messages: Some(true),
+            capability_overrides: HashMap::new(),
             reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
             enabled: true,
         },
@@ -1055,13 +1118,16 @@ fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
             models: vec![OpenAIModelConfig {
                 model_id: INITIAL_RIG_MODEL_ID.to_string(),
                 display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
-                vision_supported: false,
+                // Auto capability detection is optimistic for modern
+                // multimodal-compatible endpoints; users can override it per model.
+                vision_supported: true,
                 context_size: default_context_size(),
                 max_input_tokens: None,
                 max_output_tokens: None,
                 provider: Some("openai".to_string()),
                 use_rig: true,
                 supports_system_messages: Some(false),
+                capability_overrides: HashMap::new(),
                 reasoning_efforts: Vec::new(),
                 enabled: true,
             }],

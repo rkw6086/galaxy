@@ -509,7 +509,7 @@ fn default_computer_use_llms() -> AvailableLLMs {
             },
             description: None,
             disable_reason: None,
-            vision_supported: true,
+            vision_supported: false,
             spec: None,
             provider: LLMProvider::Unknown,
             host_configs: HashMap::new(),
@@ -1164,7 +1164,7 @@ impl LLMPreferences {
                         },
                         description: Some(provider_name.clone()),
                         disable_reason: None,
-                        vision_supported: model.vision_supported,
+                        vision_supported: model.effective_vision_supported(),
                         spec: None,
                         provider: LLMProvider::LiteLLM,
                         host_configs: HashMap::from([(
@@ -1670,13 +1670,14 @@ impl LLMPreferences {
             .map(|model| OpenAIModelConfig {
                 model_id: model.id,
                 display_name: model.display_name,
-                vision_supported: false,
+                vision_supported: true,
                 context_size: model.context_size.unwrap_or(128_000),
                 max_input_tokens: model.context_size,
                 max_output_tokens: None,
                 provider: None,
                 use_rig: true,
                 supports_system_messages: Some(true),
+                capability_overrides: std::collections::HashMap::new(),
                 reasoning_efforts: Vec::new(),
                 enabled: true,
             })
@@ -2594,7 +2595,7 @@ async fn fetch_from_litellm_model_info(
                 .and_then(|v| u32::try_from(v).ok());
             let context_size = max_input_tokens.unwrap_or(200_000);
 
-            let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(false);
+            let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(true);
 
             let display_name = model_name.replace(['-', '_'], " ");
             let display_name = display_name
@@ -2651,6 +2652,7 @@ async fn fetch_from_litellm_model_info(
                 } else {
                     model_info["supports_system_messages"].as_bool()
                 },
+                capability_overrides: std::collections::HashMap::new(),
                 reasoning_efforts: Vec::new(),
                 enabled: true,
             })
@@ -2769,7 +2771,7 @@ async fn fetch_from_openai_models(
                 vision_supported: m["supports_vision"]
                     .as_bool()
                     .or_else(|| m["vision_support"].as_bool())
-                    .unwrap_or(false),
+                    .unwrap_or(true),
                 context_size,
                 max_input_tokens,
                 max_output_tokens,
@@ -2780,6 +2782,7 @@ async fn fetch_from_openai_models(
                 } else {
                     m["supports_system_messages"].as_bool()
                 },
+                capability_overrides: std::collections::HashMap::new(),
                 reasoning_efforts: Vec::new(),
                 enabled: true,
             })

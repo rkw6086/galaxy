@@ -152,6 +152,7 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
         provider: None,
         use_rig: false,
         supports_system_messages: None,
+        capability_overrides: std::collections::HashMap::new(),
         reasoning_efforts: Vec::new(),
         enabled: true,
     }

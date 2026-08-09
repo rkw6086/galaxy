@@ -21,7 +21,8 @@ pub use agent_runtime::{
     AcpAgentRuntime, AcpAgentRuntimeConfig, AcpRuntimeState, AcpRuntimeStateHandle,
 };
 pub use config::{
-    AcpAgentPreset, AcpLaunchConfig, AcpManagerConfig, CODEX_ACP_NPM_VERSION, OPENCODE_NPM_VERSION,
+    known_acp_agents, resolve_known_acp_agent, AcpAgentPreset, AcpKnownAgent, AcpLaunchConfig,
+    AcpManagerConfig, CODEX_ACP_NPM_VERSION, KNOWN_ACP_AGENTS, OPENCODE_NPM_VERSION,
 };
 pub use events::AcpEvent;
 pub use permissions::{

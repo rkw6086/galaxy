@@ -707,13 +707,19 @@ impl AISettingsPageView {
         draft: &AcpProviderDraft,
         ctx: &mut ViewContext<Self>,
     ) {
-        let Ok(config) = crate::ai::acp::AcpRuntimeModel::discovery_config_for_values(
+        let config = match crate::ai::acp::AcpRuntimeModel::discovery_config_for_values(
             &draft.agent_id,
             &draft.command,
             &draft.args,
-        ) else {
-            log::warn!("Could not resolve ACP launch configuration for discovery");
-            return;
+        ) {
+            Ok(config) => config,
+            Err(error) => {
+                log::warn!("Could not resolve ACP launch configuration for discovery: {error}");
+                self.provider_setup_modal_body.update(ctx, |body, ctx| {
+                    body.finish_acp_discovery(Err(error), Vec::new(), ctx);
+                });
+                return;
+            }
         };
         self.start_acp_discovery(config, draft.agent_id.clone(), ctx);
     }
@@ -739,7 +745,7 @@ impl AISettingsPageView {
                     log::warn!("Could not start ACP discovery: {error}");
                     let error_text = error.to_string();
                     provider_setup_modal_body.update(ctx, |body, ctx| {
-                        body.finish_acp_discovery(Err(error_text), ctx);
+                        body.finish_acp_discovery(Err(error_text), Vec::new(), ctx);
                     });
                     return;
                 }
@@ -751,6 +757,10 @@ impl AISettingsPageView {
                 match result {
                     Ok(options) => {
                         let option_count = options.len();
+                        let config_options =
+                            crate::ai::acp::AcpRuntimeModel::normalize_config_options(
+                                options.clone(),
+                            );
                         AISettings::handle(ctx).update(ctx, |settings, ctx| {
                             if let Err(error) =
                                 crate::ai::acp::AcpRuntimeModel::upsert_agent_settings(
@@ -774,7 +784,7 @@ impl AISettingsPageView {
                             runtime.finish_discovery_success(option_count, ctx);
                         });
                         provider_setup_modal_body.update(ctx, |body, ctx| {
-                            body.finish_acp_discovery(Ok(()), ctx);
+                            body.finish_acp_discovery(Ok(()), config_options, ctx);
                         });
                     }
                     Err(error) => {
@@ -796,7 +806,7 @@ impl AISettingsPageView {
                             runtime.finish_discovery_failure(error_text.clone(), ctx);
                         });
                         provider_setup_modal_body.update(ctx, |body, ctx| {
-                            body.finish_acp_discovery(Err(error_text), ctx);
+                            body.finish_acp_discovery(Err(error_text), Vec::new(), ctx);
                         });
                     }
                 }
@@ -1791,12 +1801,12 @@ impl AISettingsPageView {
                 ctx,
             )
             .with_modal_style(UiComponentStyles {
-                width: Some(640.),
-                height: Some(600.),
+                width: Some(900.),
+                height: Some(700.),
                 ..Default::default()
             })
             .with_body_style(UiComponentStyles {
-                height: Some(530.),
+                height: Some(630.),
                 ..Default::default()
             })
             .with_dismiss_on_click()
@@ -2017,6 +2027,13 @@ impl AISettingsPageView {
             agent_id: settings.acp_agent_id.value().clone(),
             command: settings.acp_agent_command.value().clone(),
             args: settings.acp_agent_args.value().clone(),
+            config_options: settings
+                .acp_agents
+                .value()
+                .iter()
+                .find(|agent| agent.id.eq_ignore_ascii_case(settings.acp_agent_id.value()))
+                .map(|agent| agent.config_options.clone())
+                .unwrap_or_default(),
         };
         let body = self
             .provider_setup_modal_state

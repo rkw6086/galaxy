@@ -5,6 +5,7 @@ use galaxyui::elements::{
     MouseStateHandle, Padding, ParentElement, Radius, ScrollbarWidth, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
+use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::ui_components::switch::SwitchStateHandle;
@@ -21,17 +22,17 @@ use crate::editor::{
 };
 use crate::modal::{Modal, ModalViewState};
 use crate::settings::ai::{
-    BedrockAuthMethod, BedrockModelConfig, OpenAIModelConfig, OpenAIProviderConfig,
-    OpenAIProviderKind,
+    AcpConfigOptionSettings, BedrockAuthMethod, BedrockModelConfig, ModelCapabilityOverride,
+    OpenAIModelConfig, OpenAIProviderConfig, OpenAIProviderKind,
 };
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
-    ActionButton, NakedTheme, PrimaryTheme, SecondaryTheme,
+    ActionButton, ButtonSize, NakedTheme, PrimaryTheme, SecondaryTheme,
 };
 
-const MODAL_WIDTH: f32 = 640.;
-const MODAL_HEIGHT: f32 = 600.;
-const BODY_HEIGHT: f32 = 530.;
+const MODAL_WIDTH: f32 = 900.;
+const MODAL_HEIGHT: f32 = 700.;
+const BODY_HEIGHT: f32 = 630.;
 const INPUT_FONT_SIZE: f32 = 12.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -111,6 +112,7 @@ pub struct AcpProviderDraft {
     pub agent_id: String,
     pub command: String,
     pub args: Vec<String>,
+    pub config_options: Vec<AcpConfigOptionSettings>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,6 +120,45 @@ enum DiscoveryState {
     Idle,
     Loading,
     Failed(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CapabilityKey {
+    Vision,
+    Files,
+    Audio,
+    Tools,
+    SystemMessages,
+}
+
+impl CapabilityKey {
+    const ALL: [Self; 5] = [
+        Self::Vision,
+        Self::Files,
+        Self::Audio,
+        Self::Tools,
+        Self::SystemMessages,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Vision => "Images",
+            Self::Files => "Files",
+            Self::Audio => "Audio",
+            Self::Tools => "Tools",
+            Self::SystemMessages => "System",
+        }
+    }
+
+    fn setting_key(self) -> &'static str {
+        match self {
+            Self::Vision => "vision",
+            Self::Files => "files",
+            Self::Audio => "audio",
+            Self::Tools => "tools",
+            Self::SystemMessages => "system_messages",
+        }
+    }
 }
 
 pub enum ProviderSetupModalBodyEvent {
@@ -138,12 +179,14 @@ pub enum ProviderSetupModalBodyAction {
     Back,
     Cancel,
     ToggleModel(usize),
+    CycleModelCapability(usize, CapabilityKey),
     ConnectChatGPT,
     OpenChatGPTDevicePage,
     CopyChatGPTDeviceCode,
     SelectBedrockAuth(BedrockAuthMethod),
     ToggleBedrockCrossRegion,
     ToggleBedrockAutoLogin,
+    SelectAcpAgent(String),
 }
 
 pub type ProviderSetupModalState = ModalViewState<Modal<ProviderSetupModalBody>>;
@@ -162,6 +205,7 @@ pub struct ProviderSetupModalBody {
     draft_acp: AcpProviderDraft,
     discovery_state: DiscoveryState,
     provider_type_buttons: Vec<ViewHandle<ActionButton>>,
+    acp_agent_buttons: Vec<ViewHandle<ActionButton>>,
     name_editor: ViewHandle<EditorView>,
     base_url_editor: ViewHandle<EditorView>,
     api_key_editor: ViewHandle<EditorView>,
@@ -175,10 +219,16 @@ pub struct ProviderSetupModalBody {
     acp_agent_id_editor: ViewHandle<EditorView>,
     acp_command_editor: ViewHandle<EditorView>,
     acp_args_editor: ViewHandle<EditorView>,
+    chatgpt_connect_mouse_state: MouseStateHandle,
+    chatgpt_open_mouse_state: MouseStateHandle,
+    chatgpt_copy_mouse_state: MouseStateHandle,
     bedrock_auth_buttons: Vec<ViewHandle<ActionButton>>,
     bedrock_cross_region_toggle: SwitchStateHandle,
     bedrock_auto_login_toggle: SwitchStateHandle,
     model_switches: Vec<SwitchStateHandle>,
+    model_capability_switches: Vec<[SwitchStateHandle; 2]>,
+    model_capability_buttons: Vec<Vec<ViewHandle<ActionButton>>>,
+    model_context_editors: Vec<ViewHandle<EditorView>>,
     provider_type_scroll_state: ClippedScrollStateHandle,
     models_scroll_state: ClippedScrollStateHandle,
     back_button: ViewHandle<ActionButton>,
@@ -218,6 +268,34 @@ impl ProviderSetupModalBody {
         let acp_agent_id_editor = Self::create_editor("codex", false, ctx);
         let acp_command_editor = Self::create_editor("Optional executable", false, ctx);
         let acp_args_editor = Self::create_editor(r#"["arg1", "arg2"]"#, false, ctx);
+
+        let mut acp_agent_buttons = galaxy_acp::known_acp_agents()
+            .iter()
+            .map(|agent| {
+                let id = agent.id.to_owned();
+                ctx.add_typed_action_view(move |_| {
+                    ActionButton::new(agent.name, NakedTheme)
+                        .with_full_width(true)
+                        .on_click({
+                            let id = id.clone();
+                            move |ctx| {
+                                ctx.dispatch_typed_action(
+                                    ProviderSetupModalBodyAction::SelectAcpAgent(id.clone()),
+                                );
+                            }
+                        })
+                })
+            })
+            .collect::<Vec<_>>();
+        acp_agent_buttons.push(ctx.add_typed_action_view(|_| {
+            ActionButton::new("Custom", NakedTheme)
+                .with_full_width(true)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(ProviderSetupModalBodyAction::SelectAcpAgent(
+                        "custom".to_owned(),
+                    ));
+                })
+        }));
 
         let bedrock_auth_buttons = [
             BedrockAuthMethod::Profile,
@@ -358,9 +436,11 @@ impl ProviderSetupModalBody {
                 agent_id: "codex".to_string(),
                 command: String::new(),
                 args: Vec::new(),
+                config_options: Vec::new(),
             },
             discovery_state: DiscoveryState::Idle,
             provider_type_buttons,
+            acp_agent_buttons,
             name_editor,
             base_url_editor,
             api_key_editor,
@@ -374,10 +454,16 @@ impl ProviderSetupModalBody {
             acp_agent_id_editor,
             acp_command_editor,
             acp_args_editor,
+            chatgpt_connect_mouse_state: MouseStateHandle::default(),
+            chatgpt_open_mouse_state: MouseStateHandle::default(),
+            chatgpt_copy_mouse_state: MouseStateHandle::default(),
             bedrock_auth_buttons,
             bedrock_cross_region_toggle: SwitchStateHandle::default(),
             bedrock_auto_login_toggle: SwitchStateHandle::default(),
             model_switches: Vec::new(),
+            model_capability_switches: Vec::new(),
+            model_capability_buttons: Vec::new(),
+            model_context_editors: Vec::new(),
             provider_type_scroll_state: ClippedScrollStateHandle::default(),
             models_scroll_state: ClippedScrollStateHandle::default(),
             back_button,
@@ -440,10 +526,12 @@ impl ProviderSetupModalBody {
             agent_id: "codex".to_string(),
             command: String::new(),
             args: Vec::new(),
+            config_options: Vec::new(),
         };
         self.discovery_state = DiscoveryState::Idle;
         self.sync_editors(ctx);
         self.sync_provider_type_buttons(ctx);
+        self.sync_acp_agent_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
         self.sync_model_switches(ctx);
         self.update_next_button(ctx);
@@ -457,7 +545,9 @@ impl ProviderSetupModalBody {
         provider: OpenAIProviderConfig,
         ctx: &mut ViewContext<Self>,
     ) {
-        self.step = ProviderSetupStep::Configure;
+        // Editing an existing provider is a local catalog operation. Do not
+        // send the user through credentials or model discovery again.
+        self.step = ProviderSetupStep::Models;
         self.editing_index = Some(editing_index);
         self.provider_type = match provider.kind {
             OpenAIProviderKind::ChatGPTSubscription => {
@@ -477,6 +567,7 @@ impl ProviderSetupModalBody {
         self.discovery_state = DiscoveryState::Idle;
         self.sync_editors(ctx);
         self.sync_provider_type_buttons(ctx);
+        self.sync_acp_agent_buttons(ctx);
         self.sync_bedrock_auth_buttons(ctx);
         self.sync_model_switches(ctx);
         self.update_next_button(ctx);
@@ -502,7 +593,11 @@ impl ProviderSetupModalBody {
     }
 
     pub fn begin_edit_acp(&mut self, draft: AcpProviderDraft, ctx: &mut ViewContext<Self>) {
-        self.step = ProviderSetupStep::Configure;
+        self.step = if draft.config_options.is_empty() {
+            ProviderSetupStep::Configure
+        } else {
+            ProviderSetupStep::Models
+        };
         self.editing_index = None;
         self.provider_type = ProviderSetupProviderType::Acp;
         self.draft_name = draft.name.clone();
@@ -521,10 +616,12 @@ impl ProviderSetupModalBody {
     pub fn finish_acp_discovery(
         &mut self,
         result: Result<(), String>,
+        config_options: Vec<AcpConfigOptionSettings>,
         ctx: &mut ViewContext<Self>,
     ) {
         match result {
             Ok(()) => {
+                self.draft_acp.config_options = config_options;
                 self.discovery_state = DiscoveryState::Idle;
                 self.step = ProviderSetupStep::Models;
                 ctx.focus(&self.name_editor);
@@ -593,6 +690,23 @@ impl ProviderSetupModalBody {
         }
     }
 
+    fn sync_acp_agent_buttons(&self, ctx: &mut ViewContext<Self>) {
+        let selected = self.draft_acp.agent_id.trim();
+        for (agent, button) in galaxy_acp::known_acp_agents()
+            .iter()
+            .zip(self.acp_agent_buttons.iter())
+        {
+            button.update(ctx, |button, ctx| {
+                button.set_active(agent.id.eq_ignore_ascii_case(selected), ctx);
+            });
+        }
+        if let Some(button) = self.acp_agent_buttons.last() {
+            button.update(ctx, |button, ctx| {
+                button.set_active(selected.eq_ignore_ascii_case("custom"), ctx);
+            });
+        }
+    }
+
     fn sync_bedrock_auth_buttons(&self, ctx: &mut ViewContext<Self>) {
         for (index, button) in self.bedrock_auth_buttons.iter().enumerate() {
             let method = match index {
@@ -612,6 +726,68 @@ impl ProviderSetupModalBody {
             self.model_switches.push(SwitchStateHandle::default());
         }
         self.model_switches.truncate(self.draft_models.len());
+
+        while self.model_capability_switches.len() < self.draft_models.len() {
+            self.model_capability_switches
+                .push([SwitchStateHandle::default(), SwitchStateHandle::default()]);
+        }
+        self.model_capability_switches
+            .truncate(self.draft_models.len());
+
+        while self.model_capability_buttons.len() < self.draft_models.len() {
+            let index = self.model_capability_buttons.len();
+            let buttons = CapabilityKey::ALL
+                .into_iter()
+                .map(|key| {
+                    ctx.add_typed_action_view(move |_| {
+                        ActionButton::new(format!("{}: Auto", key.label()), NakedTheme)
+                            .with_size(ButtonSize::XSmall)
+                            .on_click(move |ctx| {
+                                ctx.dispatch_typed_action(
+                                    ProviderSetupModalBodyAction::CycleModelCapability(index, key),
+                                );
+                            })
+                    })
+                })
+                .collect();
+            self.model_capability_buttons.push(buttons);
+        }
+        self.model_capability_buttons
+            .truncate(self.draft_models.len());
+
+        while self.model_context_editors.len() < self.draft_models.len() {
+            let index = self.model_context_editors.len();
+            let editor = Self::create_editor("Context window", false, ctx);
+            ctx.subscribe_to_view(&editor, move |me, editor, event, ctx| {
+                if matches!(event, EditorEvent::Edited(_)) {
+                    if let Some(model) = me.draft_models.get_mut(index) {
+                        if let Ok(context_size) = editor.as_ref(ctx).buffer_text(ctx).parse() {
+                            model.context_size = context_size;
+                            model.max_input_tokens = Some(context_size);
+                        }
+                    }
+                    me.update_next_button(ctx);
+                    ctx.notify();
+                }
+            });
+            self.model_context_editors.push(editor);
+        }
+        self.model_context_editors.truncate(self.draft_models.len());
+
+        for (index, model) in self.draft_models.iter().enumerate() {
+            for (button, key) in self.model_capability_buttons[index]
+                .iter()
+                .zip(CapabilityKey::ALL)
+            {
+                let state = model.capability_override(key.setting_key());
+                button.update(ctx, |button, ctx| {
+                    button.set_label(format!("{}: {}", key.label(), state.label()), ctx);
+                });
+            }
+            self.model_context_editors[index].update(ctx, |editor, ctx| {
+                editor.system_reset_buffer_text(&model.context_size.to_string(), ctx);
+            });
+        }
     }
 
     fn update_next_button(&self, ctx: &mut ViewContext<Self>) {
@@ -628,7 +804,11 @@ impl ProviderSetupModalBody {
                             .is_none_or(|key| key.trim().is_empty())
                     }
                     ProviderSetupProviderType::VertexAI => self.draft_project_id.trim().is_empty(),
-                    ProviderSetupProviderType::Acp => self.draft_acp.agent_id.trim().is_empty(),
+                    ProviderSetupProviderType::Acp => {
+                        self.draft_acp.agent_id.trim().is_empty()
+                            || (self.draft_acp.agent_id.eq_ignore_ascii_case("custom")
+                                && self.draft_acp.command.trim().is_empty())
+                    }
                     ProviderSetupProviderType::ChatGPTSubscription
                     | ProviderSetupProviderType::Bedrock => false,
                 };
@@ -957,6 +1137,14 @@ impl ProviderSetupModalBody {
                 .soft_wrap(true)
                 .finish(),
         );
+        if let ChatGPTAuthState::Failed(error) = &state {
+            children.push(
+                Text::new(error.clone(), appearance.monospace_font_family(), 11.)
+                    .with_color(appearance.theme().ui_error_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+            );
+        }
 
         if let ChatGPTAuthState::AwaitingDeviceCode {
             verification_uri,
@@ -985,7 +1173,10 @@ impl ProviderSetupModalBody {
                 .with_child(
                     appearance
                         .ui_builder()
-                        .button(ButtonVariant::Secondary, MouseStateHandle::default())
+                        .button(
+                            ButtonVariant::Secondary,
+                            self.chatgpt_open_mouse_state.clone(),
+                        )
                         .with_text_label("Open sign-in page".to_owned())
                         .build()
                         .on_click(|ctx, _, _| {
@@ -998,7 +1189,10 @@ impl ProviderSetupModalBody {
                 .with_child(
                     appearance
                         .ui_builder()
-                        .button(ButtonVariant::Secondary, MouseStateHandle::default())
+                        .button(
+                            ButtonVariant::Secondary,
+                            self.chatgpt_copy_mouse_state.clone(),
+                        )
                         .with_text_label("Copy code".to_owned())
                         .build()
                         .on_click(|ctx, _, _| {
@@ -1029,7 +1223,10 @@ impl ProviderSetupModalBody {
             children.push(
                 appearance
                     .ui_builder()
-                    .button(ButtonVariant::Secondary, MouseStateHandle::default())
+                    .button(
+                        ButtonVariant::Secondary,
+                        self.chatgpt_connect_mouse_state.clone(),
+                    )
                     .with_text_label("Connect ChatGPT".to_owned())
                     .build()
                     .on_click(|ctx, _, _| {
@@ -1216,24 +1413,32 @@ impl ProviderSetupModalBody {
                 );
             }
             ProviderSetupProviderType::Acp => {
-                children.push(self.render_input(
-                    appearance,
-                    "Agent preset",
-                    &self.acp_agent_id_editor,
-                ));
-                children.push(self.render_input(
-                    appearance,
-                    "Custom executable (optional)",
-                    &self.acp_command_editor,
-                ));
-                children.push(self.render_input(
-                    appearance,
-                    "Arguments (JSON array)",
-                    &self.acp_args_editor,
-                ));
+                children.push(
+                    Text::new("ACP client", appearance.ui_font_family(), INPUT_FONT_SIZE)
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Bold))
+                        .finish(),
+                );
+                children.extend(
+                    self.acp_agent_buttons
+                        .iter()
+                        .map(|button| ChildView::new(button).finish()),
+                );
+                if self.draft_acp.agent_id.eq_ignore_ascii_case("custom") {
+                    children.push(self.render_input(
+                        appearance,
+                        "Executable",
+                        &self.acp_command_editor,
+                    ));
+                    children.push(self.render_input(
+                        appearance,
+                        "Arguments (JSON array)",
+                        &self.acp_args_editor,
+                    ));
+                }
                 children.push(
                     Text::new(
-                        "ACP agents own their model and authentication. Galaxy will discover the configured runtime before saving.",
+                        "Known clients use their local executable. If the client is not installed, Galaxy will show a launch error. Choose Custom for another ACP-compatible command.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
@@ -1330,7 +1535,150 @@ impl ProviderSetupModalBody {
                 .finish(),
         )
         .with_width(MODAL_WIDTH - 56.)
-        .with_max_height(320.)
+        .with_max_height(430.)
+        .finish()
+    }
+
+    fn render_model_table_header(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
+        let header = |label: &str| {
+            Text::new(label.to_owned(), appearance.ui_font_family(), 11.)
+                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                .with_style(Properties::default().weight(Weight::Semibold))
+                .finish()
+        };
+        Container::new(
+            Flex::row()
+                .with_spacing(12.)
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(ConstrainedBox::new(header("Use")).with_width(52.).finish())
+                .with_child(
+                    ConstrainedBox::new(header("Model"))
+                        .with_width(250.)
+                        .finish(),
+                )
+                .with_child(
+                    ConstrainedBox::new(header("Context"))
+                        .with_width(140.)
+                        .finish(),
+                )
+                .with_child(
+                    ConstrainedBox::new(header("Capabilities"))
+                        .with_width(330.)
+                        .finish(),
+                )
+                .finish(),
+        )
+        .with_padding(Padding::uniform(10.).with_vertical(9.))
+        .with_background(appearance.theme().surface_2())
+        .with_border(Border::bottom(1.).with_border_fill(appearance.theme().outline()))
+        .finish()
+    }
+
+    fn render_model_capabilities(
+        &self,
+        appearance: &Appearance,
+        index: usize,
+    ) -> Box<dyn galaxyui::Element> {
+        let buttons = &self.model_capability_buttons[index];
+        let first_row = buttons[..3]
+            .iter()
+            .map(|button| ChildView::new(button).finish())
+            .collect::<Vec<_>>();
+        let second_row = buttons[3..]
+            .iter()
+            .map(|button| ChildView::new(button).finish())
+            .collect::<Vec<_>>();
+        Flex::column()
+            .with_spacing(6.)
+            .with_child(
+                Flex::row()
+                    .with_spacing(8.)
+                    .with_children(first_row)
+                    .finish(),
+            )
+            .with_child(
+                Flex::row()
+                    .with_spacing(8.)
+                    .with_children(second_row)
+                    .finish(),
+            )
+            .finish()
+    }
+
+    fn render_openai_model_row(
+        &self,
+        appearance: &Appearance,
+        index: usize,
+        model: &OpenAIModelConfig,
+    ) -> Box<dyn galaxyui::Element> {
+        let model_info = Flex::column()
+            .with_spacing(4.)
+            .with_child(
+                Text::new_inline(model.display_name.clone(), appearance.ui_font_family(), 12.)
+                    .with_color(appearance.theme().active_ui_text_color().into())
+                    .with_clip(ClipConfig::end())
+                    .finish(),
+            )
+            .with_child(
+                Text::new_inline(
+                    model.model_id.clone(),
+                    appearance.monospace_font_family(),
+                    10.,
+                )
+                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                .with_clip(ClipConfig::end())
+                .finish(),
+            )
+            .finish();
+
+        let context_input = appearance
+            .ui_builder()
+            .text_input(self.model_context_editors[index].clone())
+            .with_style(UiComponentStyles {
+                padding: Some(Coords {
+                    top: 8.,
+                    bottom: 8.,
+                    left: 8.,
+                    right: 8.,
+                }),
+                background: Some(appearance.theme().surface_1().into()),
+                ..Default::default()
+            })
+            .build()
+            .finish();
+
+        Container::new(
+            Flex::row()
+                .with_spacing(12.)
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(
+                    ConstrainedBox::new(
+                        appearance
+                            .ui_builder()
+                            .switch(self.model_switches[index].clone())
+                            .check(model.enabled)
+                            .build()
+                            .on_click(move |ctx, _, _| {
+                                ctx.dispatch_typed_action(
+                                    ProviderSetupModalBodyAction::ToggleModel(index),
+                                );
+                            })
+                            .finish(),
+                    )
+                    .with_width(52.)
+                    .finish(),
+                )
+                .with_child(ConstrainedBox::new(model_info).with_width(250.).finish())
+                .with_child(ConstrainedBox::new(context_input).with_width(140.).finish())
+                .with_child(
+                    ConstrainedBox::new(self.render_model_capabilities(appearance, index))
+                        .with_width(330.)
+                        .finish(),
+                )
+                .finish(),
+        )
+        .with_padding(Padding::uniform(12.).with_vertical(10.))
+        .with_border(Border::bottom(1.).with_border_fill(appearance.theme().outline()))
         .finish()
     }
 
@@ -1382,12 +1730,70 @@ impl ProviderSetupModalBody {
                 .finish();
         }
         if self.provider_type == ProviderSetupProviderType::Acp {
+            let option_rows = self
+                .draft_acp
+                .config_options
+                .iter()
+                .filter(|option| {
+                    matches!(
+                        option.category.as_deref(),
+                        Some("model") | Some("thought_level") | Some("mode")
+                    )
+                })
+                .map(|option| {
+                    let values = option
+                        .options
+                        .iter()
+                        .map(|value| value.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Flex::column()
+                        .with_spacing(2.)
+                        .with_child(
+                            Text::new(
+                                option.name.clone(),
+                                appearance.ui_font_family(),
+                                INPUT_FONT_SIZE,
+                            )
+                            .with_color(appearance.theme().active_ui_text_color().into())
+                            .with_style(Properties::default().weight(Weight::Bold))
+                            .finish(),
+                        )
+                        .with_child(
+                            Text::new(
+                                if values.is_empty() {
+                                    option.current_value.to_string()
+                                } else {
+                                    values
+                                },
+                                appearance.monospace_font_family(),
+                                10.,
+                            )
+                            .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .soft_wrap(true)
+                            .finish(),
+                        )
+                        .finish()
+                })
+                .collect::<Vec<_>>();
+            let catalog = if option_rows.is_empty() {
+                Text::new(
+                    "No model or mode catalog has been discovered yet. Continue to test the ACP agent.",
+                    appearance.ui_font_family(),
+                    INPUT_FONT_SIZE,
+                )
+                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                .soft_wrap(true)
+                .finish()
+            } else {
+                self.render_model_table(appearance, option_rows, 10.)
+            };
             return Flex::column()
                 .with_spacing(12.)
                 .with_child(self.render_input(appearance, "Connection name", &self.name_editor))
                 .with_child(
                     Text::new(
-                        "ACP owns model selection. The configured agent runtime was checked before this step.",
+                        "ACP-discovered models and modes are exposed as selectable combinations in Galaxy's model picker.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
@@ -1395,67 +1801,25 @@ impl ProviderSetupModalBody {
                     .soft_wrap(true)
                     .finish(),
                 )
+                .with_child(catalog)
                 .finish();
         }
-        let mut rows = Vec::with_capacity(self.draft_models.len());
-        for (index, model) in self.draft_models.iter().enumerate() {
-            let modes = if model.reasoning_efforts.is_empty() {
-                "Standard".to_string()
-            } else {
-                model.reasoning_efforts.join(", ")
-            };
-            let info = Flex::column()
-                .with_spacing(2.)
-                .with_child(
-                    Text::new(
-                        model.display_name.clone(),
-                        appearance.ui_font_family(),
-                        INPUT_FONT_SIZE,
-                    )
-                    .with_color(appearance.theme().active_ui_text_color().into())
-                    .finish(),
-                )
-                .with_child(
-                    Text::new(
-                        format!("{} · modes: {modes}", model.model_id),
-                        appearance.monospace_font_family(),
-                        10.,
-                    )
-                    .with_color(appearance.theme().nonactive_ui_text_color().into())
-                    .soft_wrap(true)
-                    .finish(),
-                )
-                .finish();
-            rows.push(
-                Flex::row()
-                    .with_spacing(10.)
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_child(
-                        appearance
-                            .ui_builder()
-                            .switch(self.model_switches[index].clone())
-                            .check(model.enabled)
-                            .build()
-                            .on_click(move |ctx, _, _| {
-                                ctx.dispatch_typed_action(
-                                    ProviderSetupModalBodyAction::ToggleModel(index),
-                                );
-                            })
-                            .finish(),
-                    )
-                    .with_child(info)
-                    .finish(),
-            );
-        }
+        let mut rows = vec![self.render_model_table_header(appearance)];
+        rows.extend(
+            self.draft_models
+                .iter()
+                .enumerate()
+                .map(|(index, model)| self.render_openai_model_row(appearance, index, model)),
+        );
 
-        let table = self.render_model_table(appearance, rows, 12.);
+        let table = self.render_model_table(appearance, rows, 0.);
 
         Flex::column()
             .with_spacing(12.)
             .with_child(self.render_input(appearance, "Connection name", &self.name_editor))
             .with_child(
                 Text::new(
-                    "Choose which models Galaxy should make available. Reasoning modes remain selectable from the model picker.",
+                    "Enable the models Galaxy should offer. Context is the maximum input window. Capabilities use Auto by default and can be overridden per model.",
                     appearance.ui_font_family(),
                     INPUT_FONT_SIZE,
                 )
@@ -1631,10 +1995,31 @@ impl TypedActionView for ProviderSetupModalBody {
             ProviderSetupModalBodyAction::Cancel => {
                 ctx.emit(ProviderSetupModalBodyEvent::Close);
             }
+            ProviderSetupModalBodyAction::SelectAcpAgent(agent_id) => {
+                self.draft_acp.agent_id = agent_id.clone();
+                if !agent_id.eq_ignore_ascii_case("custom") {
+                    self.draft_acp.command.clear();
+                    self.draft_acp.args.clear();
+                }
+                self.sync_editors(ctx);
+                self.sync_acp_agent_buttons(ctx);
+                self.update_next_button(ctx);
+                ctx.notify();
+            }
             ProviderSetupModalBodyAction::ToggleModel(index) => {
                 if let Some(model) = self.draft_models.get_mut(*index) {
                     model.enabled = !model.enabled;
                     self.update_next_button(ctx);
+                    ctx.notify();
+                }
+            }
+            ProviderSetupModalBodyAction::CycleModelCapability(index, capability) => {
+                if let Some(model) = self.draft_models.get_mut(*index) {
+                    let key = capability.setting_key().to_string();
+                    let next = model.capability_override(&key).next();
+                    model.capability_overrides.insert(key, next);
+                    self.update_next_button(ctx);
+                    self.sync_model_switches(ctx);
                     ctx.notify();
                 }
             }

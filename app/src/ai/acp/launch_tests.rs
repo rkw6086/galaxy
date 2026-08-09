@@ -4,7 +4,7 @@ use super::*;
 fn unknown_builtin_agent_ids_are_rejected() {
     let error = resolve_acp_launch("mystery-agent", "", &[]).unwrap_err();
 
-    assert!(error.contains("Unknown ACP agent preset"));
+    assert!(error.contains("Unknown ACP agent"));
 }
 
 #[test]

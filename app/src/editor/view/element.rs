@@ -1656,7 +1656,7 @@ impl Element for EditorElement {
             );
         }
         if size.x().is_infinite() {
-            unimplemented!("we don't yet handle an infinite width constraint on buffer elements");
+            size.set_x(0.0);
         }
 
         let top_section_height_lines = top_section_height_px / view_snapshot.line_height;
