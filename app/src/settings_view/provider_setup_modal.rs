@@ -1,6 +1,5 @@
 use galaxy_cli::agent::Harness;
 use galaxy_core::ui::theme::Fill;
-use galaxyui::clipboard::ClipboardContent;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, MainAxisAlignment, MainAxisSize,
@@ -225,8 +224,6 @@ pub struct ProviderSetupModalBody {
     acp_command_editor: ViewHandle<EditorView>,
     acp_args_editor: ViewHandle<EditorView>,
     chatgpt_connect_mouse_state: MouseStateHandle,
-    chatgpt_open_mouse_state: MouseStateHandle,
-    chatgpt_copy_mouse_state: MouseStateHandle,
     bedrock_auth_buttons: Vec<ViewHandle<ActionButton>>,
     bedrock_cross_region_toggle: SwitchStateHandle,
     bedrock_auto_login_toggle: SwitchStateHandle,
@@ -460,8 +457,6 @@ impl ProviderSetupModalBody {
             acp_command_editor,
             acp_args_editor,
             chatgpt_connect_mouse_state: MouseStateHandle::default(),
-            chatgpt_open_mouse_state: MouseStateHandle::default(),
-            chatgpt_copy_mouse_state: MouseStateHandle::default(),
             bedrock_auth_buttons,
             bedrock_cross_region_toggle: SwitchStateHandle::default(),
             bedrock_auto_login_toggle: SwitchStateHandle::default(),
@@ -1129,10 +1124,8 @@ impl ProviderSetupModalBody {
         let mut children = vec![Self::render_label(appearance, "ChatGPT authorization")];
         let description = match &state {
             ChatGPTAuthState::NotConnected => "Connect your ChatGPT subscription to continue.",
-            ChatGPTAuthState::Connecting => "Waiting for ChatGPT authorization to start...",
-            ChatGPTAuthState::AwaitingDeviceCode { .. } => {
-                "Enter the device code in the ChatGPT sign-in page."
-            }
+            ChatGPTAuthState::AwaitingBrowser => "Waiting for ChatGPT sign-in in your browser...",
+            ChatGPTAuthState::ExchangingToken => "Completing sign-in...",
             ChatGPTAuthState::Connected => "ChatGPT subscription connected.",
             ChatGPTAuthState::Failed(_) => "ChatGPT connection failed.",
         };
@@ -1151,79 +1144,9 @@ impl ProviderSetupModalBody {
             );
         }
 
-        if let ChatGPTAuthState::AwaitingDeviceCode {
-            verification_uri,
-            user_code,
-        } = &state
-        {
-            children.push(
-                Container::new(
-                    FormattedTextElement::from_str(
-                        user_code.clone(),
-                        appearance.monospace_font_family(),
-                        24.,
-                    )
-                    .with_weight(Weight::Bold)
-                    .with_color(appearance.theme().active_ui_text_color().into())
-                    .finish(),
-                )
-                .with_padding(Padding::uniform(12.))
-                .with_background(appearance.theme().surface_1())
-                .with_border(Border::all(1.).with_border_fill(appearance.theme().accent()))
-                .with_corner_radius(CornerRadius::with_all(Radius::Pixels(4.)))
-                .finish(),
-            );
-            let buttons = Flex::row()
-                .with_spacing(8.)
-                .with_child(
-                    appearance
-                        .ui_builder()
-                        .button(
-                            ButtonVariant::Secondary,
-                            self.chatgpt_open_mouse_state.clone(),
-                        )
-                        .with_text_label("Open sign-in page".to_owned())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(
-                                ProviderSetupModalBodyAction::OpenChatGPTDevicePage,
-                            );
-                        })
-                        .finish(),
-                )
-                .with_child(
-                    appearance
-                        .ui_builder()
-                        .button(
-                            ButtonVariant::Secondary,
-                            self.chatgpt_copy_mouse_state.clone(),
-                        )
-                        .with_text_label("Copy code".to_owned())
-                        .build()
-                        .on_click(|ctx, _, _| {
-                            ctx.dispatch_typed_action(
-                                ProviderSetupModalBodyAction::CopyChatGPTDeviceCode,
-                            );
-                        })
-                        .finish(),
-                )
-                .finish();
-            children.push(buttons);
-            children.push(
-                Text::new(
-                    verification_uri.clone(),
-                    appearance.ui_font_family(),
-                    INPUT_FONT_SIZE,
-                )
-                .with_color(appearance.theme().nonactive_ui_text_color().into())
-                .soft_wrap(true)
-                .finish(),
-            );
-        }
-
-        if !matches!(
+        if matches!(
             state,
-            ChatGPTAuthState::Connected | ChatGPTAuthState::Connecting
+            ChatGPTAuthState::NotConnected | ChatGPTAuthState::Failed(_)
         ) {
             children.push(
                 appearance
@@ -2096,25 +2019,10 @@ impl TypedActionView for ProviderSetupModalBody {
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
             }
             ProviderSetupModalBodyAction::OpenChatGPTDevicePage => {
-                #[cfg(not(target_family = "wasm"))]
-                let auth_state = ChatGPTAuthModel::as_ref(ctx).state().clone();
-                let verification_uri = match auth_state {
-                    ChatGPTAuthState::AwaitingDeviceCode {
-                        verification_uri, ..
-                    } => Some(verification_uri),
-                    _ => None,
-                };
-                if let Some(verification_uri) = verification_uri {
-                    ctx.open_url(&verification_uri);
-                }
+                // No-op: device-code flow removed in favor of browser OAuth.
             }
             ProviderSetupModalBodyAction::CopyChatGPTDeviceCode => {
-                #[cfg(not(target_family = "wasm"))]
-                let auth_state = ChatGPTAuthModel::as_ref(ctx).state().clone();
-                if let ChatGPTAuthState::AwaitingDeviceCode { user_code, .. } = auth_state {
-                    ctx.clipboard()
-                        .write(ClipboardContent::plain_text(user_code));
-                }
+                // No-op: device-code flow removed in favor of browser OAuth.
             }
             ProviderSetupModalBodyAction::SelectBedrockAuth(method) => {
                 self.draft_bedrock.auth_method = *method;

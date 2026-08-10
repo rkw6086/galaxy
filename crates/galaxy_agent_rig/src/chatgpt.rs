@@ -144,7 +144,7 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
         request: TurnRequest,
         control: TurnControl,
     ) -> Result<AgentEventStream, AgentError> {
-        let mut builder = chatgpt::Client::builder().oauth();
+        let mut builder = chatgpt::Client::builder().oauth().allow_device_flow(false);
         if let Some(auth_file) = &self.config.auth_file {
             builder = builder.auth_file(auth_file);
         }

@@ -58,7 +58,7 @@ use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
 };
 use crate::ai::blocklist::BlocklistAIPermissions;
 #[cfg(not(target_family = "wasm"))]
-use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent, ChatGPTAuthState};
+use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent};
 use crate::ai::execution_profiles::model_menu_items::available_model_menu_items;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::execution_profiles::profiles::{
@@ -3735,43 +3735,11 @@ impl TypedActionView for AISettingsPageView {
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
                 ctx.notify();
             }
-            AISettingsPageAction::OpenChatGPTDevicePage =>
-            {
-                #[cfg(not(target_family = "wasm"))]
-                if let ChatGPTAuthState::AwaitingDeviceCode {
-                    verification_uri, ..
-                } = ChatGPTAuthModel::as_ref(ctx).state()
-                {
-                    ctx.open_url(verification_uri);
-                }
+            AISettingsPageAction::OpenChatGPTDevicePage => {
+                // No-op: device-code flow removed in favor of browser OAuth.
             }
             AISettingsPageAction::CopyChatGPTDeviceCode => {
-                #[cfg(not(target_family = "wasm"))]
-                let user_code = match ChatGPTAuthModel::as_ref(ctx).state() {
-                    ChatGPTAuthState::AwaitingDeviceCode { user_code, .. } => {
-                        Some(user_code.clone())
-                    }
-                    ChatGPTAuthState::NotConnected
-                    | ChatGPTAuthState::Connecting
-                    | ChatGPTAuthState::Connected
-                    | ChatGPTAuthState::Failed(_) => None,
-                };
-                #[cfg(target_family = "wasm")]
-                let user_code: Option<String> = None;
-                if let Some(user_code) = user_code {
-                    ctx.clipboard()
-                        .write(ClipboardContent::plain_text(user_code));
-                    let window_id = ctx.window_id();
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            crate::view_components::DismissibleToast::success(
-                                "ChatGPT device code copied.".to_string(),
-                            ),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
+                // No-op: device-code flow removed in favor of browser OAuth.
             }
             AISettingsPageAction::ToggleAcpEnabled => {
                 if cfg!(unix) {

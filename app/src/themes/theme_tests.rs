@@ -28,18 +28,6 @@ fn assert_custom_theme_is_not_syncable(custom_theme: CustomTheme) {
 }
 
 #[test]
-fn legacy_samsung_theme_names_deserialize_as_galaxy_themes() {
-    assert_eq!(
-        serde_json::from_str::<ThemeKind>(r#""SamsungDark""#).unwrap(),
-        ThemeKind::GalaxyDark
-    );
-    assert_eq!(
-        serde_json::from_str::<ThemeKind>(r#""SamsungLight""#).unwrap(),
-        ThemeKind::GalaxyDay
-    );
-}
-
-#[test]
 fn galaxy_theme_names_serialize_without_legacy_branding() {
     assert_eq!(
         serde_json::to_string(&ThemeKind::GalaxyDark).unwrap(),
@@ -48,18 +36,6 @@ fn galaxy_theme_names_serialize_without_legacy_branding() {
     assert_eq!(
         serde_json::to_string(&ThemeKind::GalaxyDay).unwrap(),
         r#""GalaxyDay""#
-    );
-}
-
-#[test]
-fn legacy_samsung_theme_settings_values_deserialize_as_galaxy_themes() {
-    assert_eq!(
-        ThemeKind::from_file_value(&serde_json::json!("samsung_dark")),
-        Some(ThemeKind::GalaxyDark)
-    );
-    assert_eq!(
-        ThemeKind::from_file_value(&serde_json::json!("samsung_light")),
-        Some(ThemeKind::GalaxyDay)
     );
 }
 

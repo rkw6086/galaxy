@@ -47,10 +47,8 @@ pub enum ThemeKind {
     ReceivedReferralReward,
     #[schemars(description = "Adeberry")]
     Adeberry,
-    #[serde(alias = "SamsungDark")]
     #[schemars(description = "Galaxy Dark")]
     GalaxyDark,
-    #[serde(alias = "SamsungLight")]
     #[schemars(description = "Galaxy Day")]
     GalaxyDay,
     #[schemars(description = "Phenomenon")]

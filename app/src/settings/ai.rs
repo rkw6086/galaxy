@@ -1071,34 +1071,6 @@ fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
             default_context_size(),
             None,
         ),
-        (
-            "gpt-5.3-codex",
-            "GPT-5.3 Codex",
-            vec!["low", "medium", "high", "xhigh"],
-            default_context_size(),
-            None,
-        ),
-        (
-            "gpt-5.3-codex-spark",
-            "GPT-5.3 Codex Spark",
-            vec![],
-            128_000,
-            Some(121_600),
-        ),
-        (
-            "gpt-5.3-instant",
-            "GPT-5.3 Instant",
-            vec![],
-            default_context_size(),
-            None,
-        ),
-        (
-            "gpt-5.3-chat-latest",
-            "GPT-5.3 Chat Latest",
-            vec![],
-            default_context_size(),
-            None,
-        ),
     ]
     .into_iter()
     .map(

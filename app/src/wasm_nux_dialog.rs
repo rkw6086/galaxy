@@ -171,7 +171,7 @@ impl View for WasmNUXDialog {
                         .with_child(
                             appearance
                                 .ui_builder()
-                                .span("Galaxy is a clone of Warp built for Samsung to use with Bedrock. Get the best features of Warp with the security provided by Bedrock!")
+                                .span("Galaxy is an AI-powered terminal. Get the best features with the security provided by your own cloud infrastructure!")
                                 .with_style(UiComponentStyles {
                                     font_weight: Some(Weight::Thin),
                                     font_color: Some(
