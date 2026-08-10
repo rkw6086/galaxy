@@ -284,6 +284,25 @@ fn bedrock_rig_turn_uses_bedrock_history_invariants_without_a_proto_round_trip()
 }
 
 #[test]
+fn modern_and_legacy_orchestration_tools_follow_subagent_capabilities() {
+    for capability in [ToolType::Subagent, ToolType::StartAgentV2] {
+        let (tools, _) = tool_definitions(&[capability], None);
+        let names = tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"run_agents"));
+        assert!(names.contains(&"start_agent"));
+    }
+
+    let (leaf_tools, _) = tool_definitions(&[ToolType::Grep], None);
+    assert!(!leaf_tools
+        .iter()
+        .any(|tool| matches!(tool.name.as_str(), "run_agents" | "start_agent")));
+}
+
+#[test]
 #[allow(deprecated)]
 fn grouped_mcp_tool_names_use_the_installation_id_not_the_display_name() {
     let tool = serde_json::from_value(serde_json::json!({

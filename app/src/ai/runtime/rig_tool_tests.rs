@@ -6,7 +6,7 @@ use ai::skills::{SkillPathOrigin, SkillReference};
 use galaxy_agent_core::ToolCall;
 
 use super::{action_from_tool_call, MCPToolTarget};
-use crate::ai::agent::{AIAgentActionType, FileEdit};
+use crate::ai::agent::{AIAgentActionType, FileEdit, RunAgentsExecutionMode};
 
 fn call(name: &str, arguments: serde_json::Value) -> ToolCall {
     ToolCall {
@@ -162,6 +162,110 @@ fn local_skill_paths_preserve_the_session_origin() {
                 ))
             )
     ));
+}
+
+#[test]
+fn run_agents_calls_decode_to_local_domain_requests_with_safe_defaults() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "run_agents",
+            serde_json::json!({
+                "summary": "Parallel investigation",
+                "base_prompt": "Inspect before changing files.",
+                "agent_run_configs": [
+                    {
+                        "name": "runtime",
+                        "prompt": "Inspect runtime behavior",
+                        "title": "Runtime investigator"
+                    },
+                    {
+                        "name": "tests",
+                        "prompt": "Design focused tests"
+                    }
+                ]
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+
+    let AIAgentActionType::RunAgents(request) = action.action else {
+        panic!("expected run-agents action");
+    };
+    assert_eq!(request.summary, "Parallel investigation");
+    assert_eq!(request.base_prompt, "Inspect before changing files.");
+    assert!(request.skills.is_empty());
+    assert!(request.model_id.is_empty());
+    assert!(request.harness_type.is_empty());
+    assert_eq!(request.execution_mode, RunAgentsExecutionMode::Local);
+    assert!(request.plan_id.is_empty());
+    assert!(request.harness_auth_secret_name.is_none());
+    assert_eq!(request.agent_run_configs.len(), 2);
+    assert_eq!(request.agent_run_configs[0].name, "runtime");
+    assert_eq!(
+        request.agent_run_configs[0].prompt,
+        "Inspect runtime behavior"
+    );
+    assert_eq!(request.agent_run_configs[0].title, "Runtime investigator");
+    assert_eq!(request.agent_run_configs[1].name, "tests");
+    assert_eq!(request.agent_run_configs[1].prompt, "Design focused tests");
+    assert!(request.agent_run_configs[1].title.is_empty());
+}
+
+#[test]
+fn run_agents_calls_preserve_remote_config_and_skills() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "run_agents",
+            serde_json::json!({
+                "summary": "Remote investigation",
+                "model_id": "remote-model",
+                "harness_type": "codex",
+                "execution_mode": {
+                    "type": "remote",
+                    "environment_id": "env-1",
+                    "worker_host": "worker.example",
+                    "computer_use_enabled": true
+                },
+                "skills": [
+                    {"skill": "galaxyctrl", "reference_type": "bundled"},
+                    {"skill": "/repo/SKILL.md", "reference_type": "path"}
+                ],
+                "agent_run_configs": [{"name": "remote", "prompt": "Inspect"}],
+                "plan_id": "plan-1"
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+
+    let AIAgentActionType::RunAgents(request) = action.action else {
+        panic!("expected run-agents action");
+    };
+    assert_eq!(request.model_id, "remote-model");
+    assert_eq!(request.harness_type, "codex");
+    assert_eq!(request.plan_id, "plan-1");
+    assert_eq!(
+        request.skills,
+        vec![
+            SkillReference::BundledSkillId("galaxyctrl".to_string()),
+            SkillReference::Path(galaxy_util::local_or_remote_path::LocalOrRemotePath::Local(
+                PathBuf::from("/repo/SKILL.md")
+            )),
+        ]
+    );
+    assert_eq!(
+        request.execution_mode,
+        RunAgentsExecutionMode::Remote {
+            environment_id: "env-1".to_string(),
+            worker_host: "worker.example".to_string(),
+            computer_use_enabled: true,
+        }
+    );
 }
 
 #[test]

@@ -9,7 +9,7 @@ use galaxyui::{async_assert, SingletonEntity};
 use prost::Message;
 
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::execution_profiles::ActionPermission;
+use crate::ai::execution_profiles::{ActionPermission, RunAgentsPermission};
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::mcp::{
     JsonTemplate, TemplatableMCPServer, TemplatableMCPServerInstallation,
@@ -278,6 +278,20 @@ pub fn set_execution_profile_auto_execute() -> TestStep {
                     &ActionPermission::AlwaysAllow,
                     ctx,
                 );
+            });
+            async_assert!(true, "Successfully updated execution profile")
+        },
+    )
+}
+
+/// Sets the execution profile to auto-run child agents.
+pub fn set_execution_profile_auto_run_agents() -> TestStep {
+    TestStep::new("Set execution profile to auto-run child agents").add_named_assertion(
+        "Update execution profile",
+        |app, _window_id| {
+            AIExecutionProfilesModel::handle(app).update(app, |profiles, ctx| {
+                let default_profile_id = *profiles.default_profile(ctx).id();
+                profiles.set_run_agents(default_profile_id, RunAgentsPermission::AlwaysAllow, ctx);
             });
             async_assert!(true, "Successfully updated execution profile")
         },

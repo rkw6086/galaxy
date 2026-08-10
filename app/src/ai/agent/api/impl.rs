@@ -19,11 +19,16 @@ pub async fn generate_multi_agent_output(
     cancellation_rx: futures::channel::oneshot::Receiver<()>,
 ) -> Result<ResponseStream, ConvertToAPITypeError> {
     let supported_tools_override = params.supported_tools_override.take();
-    let supported_tools = supported_tools_override
+    let mut supported_tools = supported_tools_override
         .clone()
         .unwrap_or_else(|| get_supported_tools(&params));
-    let supported_cli_agent_tools =
+    remove_orchestration_tools_if_disabled(&mut supported_tools, params.orchestration_enabled);
+    let mut supported_cli_agent_tools =
         supported_tools_override.unwrap_or_else(|| get_supported_cli_agent_tools(&params));
+    remove_orchestration_tools_if_disabled(
+        &mut supported_cli_agent_tools,
+        params.orchestration_enabled,
+    );
     if params.should_redact_secrets {
         redaction::redact_inputs(&mut params.input);
     }
@@ -254,6 +259,21 @@ pub async fn generate_multi_agent_output(
     }
 }
 
+fn remove_orchestration_tools_if_disabled(
+    supported_tools: &mut Vec<api::ToolType>,
+    orchestration_enabled: bool,
+) {
+    if orchestration_enabled {
+        return;
+    }
+    supported_tools.retain(|tool| {
+        !matches!(
+            tool,
+            api::ToolType::Subagent | api::ToolType::RunAgents | api::ToolType::StartAgentV2
+        )
+    });
+}
+
 fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
     let mut supported_tools = vec![
         api::ToolType::Grep,
@@ -262,13 +282,16 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
         api::ToolType::ReadMcpResource,
         api::ToolType::CallMcpTool,
         api::ToolType::RunShellCommand,
-        api::ToolType::Subagent,
         api::ToolType::WriteToLongRunningShellCommand,
         api::ToolType::ReadShellCommandOutput,
         api::ToolType::ReadDocuments,
         api::ToolType::CreateDocuments,
         api::ToolType::EditDocuments,
     ];
+
+    if params.orchestration_enabled {
+        supported_tools.push(api::ToolType::Subagent);
+    }
 
     if FeatureFlag::ConversationsAsContext.is_enabled() {
         supported_tools.push(api::ToolType::FetchConversation);

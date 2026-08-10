@@ -99,6 +99,7 @@ fn advertised_tools_follow_client_capabilities_and_include_local_subagents() {
         vec![
             "run_shell_command",
             "read_files",
+            "run_agents",
             "start_agent",
             "recall_tool_history"
         ]

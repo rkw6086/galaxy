@@ -807,8 +807,12 @@ pub fn assert_active_session_local_path(expected_path: &'static str) -> Assertio
 }
 
 pub fn assert_input_is_focused() -> AssertionCallback {
-    Box::new(|app, window_id| {
-        let terminal_view = single_terminal_view_for_tab(app, window_id, 0);
+    assert_input_is_focused_for_pane(0, 0)
+}
+
+pub fn assert_input_is_focused_for_pane(tab_index: usize, pane_index: usize) -> AssertionCallback {
+    Box::new(move |app, window_id| {
+        let terminal_view = terminal_view(app, window_id, tab_index, pane_index);
         terminal_view.read(app, |view, ctx| {
             let is_input_focused = view.input().as_ref(ctx).editor().as_ref(ctx).is_focused();
             async_assert!(is_input_focused)

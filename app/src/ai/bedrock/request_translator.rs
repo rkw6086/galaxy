@@ -1655,7 +1655,7 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
         "read_plan" | "read_notebook" => has(ToolType::ReadDocuments),
         "create_plan" | "create_notebook" => has(ToolType::CreateDocuments),
         "edit_plan" | "edit_notebook" => has(ToolType::EditDocuments),
-        "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
+        "run_agents" | "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
         "ask_user_question" => has(ToolType::AskUserQuestion),
         "read_skill" => has(ToolType::ReadSkill),
         "fetch_conversation" => has(ToolType::FetchConversation),
@@ -1908,6 +1908,54 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                     "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to notebooks" }
                 },
                 "required": ["diffs"]
+            }),
+        },
+        ToolDefinition {
+            name: "run_agents".to_string(),
+            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and inherit the parent model.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string", "description": "Brief explanation of why child agents help with this task" },
+                    "base_prompt": { "type": "string", "default": "", "description": "Instructions prepended to every child prompt" },
+                    "skills": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "skill": { "type": "string" },
+                                "reference_type": { "type": "string", "enum": ["path", "bundled"] }
+                            },
+                            "required": ["skill", "reference_type"]
+                        }
+                    },
+                    "model_id": { "type": "string", "default": "", "description": "Optional child model override; empty inherits the parent model" },
+                    "harness_type": { "type": "string", "default": "", "description": "Optional harness identifier; empty selects the embedded local child runtime" },
+                    "execution_mode": {
+                        "type": "object",
+                        "properties": {
+                            "type": { "type": "string", "enum": ["local", "remote"], "default": "local" },
+                            "environment_id": { "type": "string", "default": "" },
+                            "worker_host": { "type": "string", "default": "" },
+                            "computer_use_enabled": { "type": "boolean", "default": false }
+                        }
+                    },
+                    "agent_run_configs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "description": "Unique child name" },
+                                "prompt": { "type": "string", "default": "", "description": "Child-specific instructions" },
+                                "title": { "type": "string", "default": "", "description": "Optional display title" }
+                            },
+                            "required": ["name", "prompt"]
+                        }
+                    },
+                    "plan_id": { "type": "string", "default": "", "description": "Optional associated plan document ID" }
+                },
+                "required": ["summary", "agent_run_configs"]
             }),
         },
         ToolDefinition {

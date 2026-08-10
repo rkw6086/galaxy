@@ -1033,58 +1033,94 @@ const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
 
 fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
     // The ChatGPT OAuth backend does not expose a model-listing capability through Rig,
-    // so keep this catalog small and explicit. Reasoning variants are expanded into
-    // selectable LLM entries when the provider is injected into the runtime inventory.
+    // so keep this catalog small and explicit. Context limits come from Codex model
+    // metadata; models absent from that catalog retain the generic fallback.
     [
         (
             "gpt-5.6-sol",
             "GPT-5.6 Sol",
             vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
         ),
         (
             "gpt-5.6-terra",
             "GPT-5.6 Terra",
             vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
         ),
         (
             "gpt-5.6-luna",
             "GPT-5.6 Luna",
             vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
         ),
-        ("gpt-5.4", "GPT-5.4", vec!["low", "medium", "high", "xhigh"]),
+        (
+            "gpt-5.4",
+            "GPT-5.4",
+            vec!["low", "medium", "high", "xhigh"],
+            1_000_000,
+            Some(950_000),
+        ),
         (
             "gpt-5.4-pro",
             "GPT-5.4 Pro",
             vec!["medium", "high", "xhigh"],
+            default_context_size(),
+            None,
         ),
         (
             "gpt-5.3-codex",
             "GPT-5.3 Codex",
             vec!["low", "medium", "high", "xhigh"],
+            default_context_size(),
+            None,
         ),
-        ("gpt-5.3-codex-spark", "GPT-5.3 Codex Spark", vec![]),
-        ("gpt-5.3-instant", "GPT-5.3 Instant", vec![]),
-        ("gpt-5.3-chat-latest", "GPT-5.3 Chat Latest", vec![]),
+        (
+            "gpt-5.3-codex-spark",
+            "GPT-5.3 Codex Spark",
+            vec![],
+            128_000,
+            Some(121_600),
+        ),
+        (
+            "gpt-5.3-instant",
+            "GPT-5.3 Instant",
+            vec![],
+            default_context_size(),
+            None,
+        ),
+        (
+            "gpt-5.3-chat-latest",
+            "GPT-5.3 Chat Latest",
+            vec![],
+            default_context_size(),
+            None,
+        ),
     ]
     .into_iter()
     .map(
-        |(model_id, display_name, reasoning_efforts)| OpenAIModelConfig {
-            model_id: model_id.to_string(),
-            display_name: display_name.to_string(),
-            // ChatGPT's subscription backend accepts image input for its chat
-            // models, but it does not expose a public capability discovery
-            // endpoint. Keep this explicit catalog in sync with that contract
-            // so the model picker does not hide vision context.
-            vision_supported: true,
-            context_size: default_context_size(),
-            max_input_tokens: None,
-            max_output_tokens: None,
-            provider: Some("openai".to_string()),
-            use_rig: true,
-            supports_system_messages: Some(true),
-            capability_overrides: HashMap::new(),
-            reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
-            enabled: true,
+        |(model_id, display_name, reasoning_efforts, context_size, max_input_tokens)| {
+            OpenAIModelConfig {
+                model_id: model_id.to_string(),
+                display_name: display_name.to_string(),
+                // ChatGPT's subscription backend accepts image input for its chat
+                // models, but it does not expose a public capability discovery
+                // endpoint. Keep this explicit catalog in sync with that contract
+                // so the model picker does not hide vision context.
+                vision_supported: true,
+                context_size,
+                max_input_tokens,
+                max_output_tokens: None,
+                provider: Some("openai".to_string()),
+                use_rig: true,
+                supports_system_messages: Some(true),
+                capability_overrides: HashMap::new(),
+                reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
+                enabled: true,
+            }
         },
     )
     .collect()

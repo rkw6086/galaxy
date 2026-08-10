@@ -28,6 +28,28 @@ impl Entity for CapturedDirectProviderChildLinks {
     type Event = ();
 }
 
+#[derive(Default)]
+struct CapturedStartAgentPrompts(Vec<String>);
+
+impl Entity for CapturedStartAgentPrompts {
+    type Event = ();
+}
+
+fn capture_start_agent_prompts(
+    app: &mut App,
+    executor: &ModelHandle<StartAgentExecutor>,
+) -> ModelHandle<CapturedStartAgentPrompts> {
+    let captured = app.add_model(|_| CapturedStartAgentPrompts::default());
+    captured.update(app, |_, ctx| {
+        ctx.subscribe_to_model(executor, |captured, _, event, _ctx| {
+            if let StartAgentExecutorEvent::CreateAgent(request) = event {
+                captured.0.push(request.prompt.clone());
+            }
+        });
+    });
+    captured
+}
+
 fn capture_direct_provider_child_links(
     app: &mut App,
     executor: &ModelHandle<StartAgentExecutor>,
@@ -77,6 +99,126 @@ fn build_start_agent_action_with_prompt(
         requires_result: false,
         tool_name: None,
     }
+}
+
+#[test]
+fn execute_wraps_child_prompt_with_leaf_worker_contract() {
+    App::test((), |mut app| async move {
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let captured = capture_start_agent_prompts(&mut app, &executor);
+        let root_conversation_id = history_model.update(&mut app, |history, ctx| {
+            history.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let execution = executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: root_conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        assert!(matches!(execution, AnyActionExecution::Async { .. }));
+        captured.read(&app, |captured, _ctx| {
+            assert_eq!(captured.0.len(), 1);
+            assert!(captured.0[0].contains("You are a leaf worker"));
+            assert!(
+                captured.0[0].contains("Do not launch, delegate to, or create additional agents")
+            );
+            assert!(captured.0[0].ends_with("Assigned task:\nInvestigate the failure"));
+        });
+    });
+}
+
+#[test]
+fn execute_denies_start_agent_from_child_conversation() {
+    App::test((), |mut app| async move {
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let child_conversation_id = history_model.update(&mut app, |history, ctx| {
+            let conversation_id =
+                history.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            history
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .set_parent_agent_id("parent-agent".to_string());
+            conversation_id
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let execution = executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: child_conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::StartAgent(
+                StartAgentResult::Error { error, .. }
+            )) if error.contains("leaf workers")
+        ));
+        executor.read(&app, |executor, _ctx| {
+            assert!(executor.pending.is_empty());
+        });
+    });
+}
+
+#[test]
+fn dispatch_denies_child_conversation_defense_in_depth() {
+    App::test((), |mut app| async move {
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let child_conversation_id = history_model.update(&mut app, |history, ctx| {
+            let conversation_id =
+                history.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            history
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .set_parent_agent_id("parent-agent".to_string());
+            conversation_id
+        });
+
+        let receiver = executor.update(&mut app, |executor, ctx| {
+            executor.dispatch(
+                "grandchild".to_string(),
+                "Do more work".to_string(),
+                StartAgentExecutionMode::local_with_defaults(),
+                None,
+                child_conversation_id,
+                None,
+                ctx,
+            )
+        });
+
+        assert!(matches!(
+            receiver.try_recv(),
+            Ok(StartAgentOutcome::Error(error)) if error.contains("leaf workers")
+        ));
+        executor.read(&app, |executor, _ctx| {
+            assert!(executor.pending.is_empty());
+        });
+    });
 }
 
 #[test]

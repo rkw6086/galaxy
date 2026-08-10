@@ -294,8 +294,8 @@ impl AIAgentActionResultType {
             | Self::StartAgent(_)
             | Self::SendMessageToAgent(_)
             | Self::AskUserQuestion(_)
-            | Self::RunAgents(_)
             | Self::WaitForEvents(_) => self.to_string(),
+            Self::RunAgents(result) => result.model_content(),
         }
     }
 }
@@ -1627,6 +1627,69 @@ pub struct RunAgentsAgentOutcome {
 pub enum RunAgentsAgentOutcomeKind {
     Launched { agent_id: String },
     Failed { error: String },
+}
+
+impl RunAgentsResult {
+    fn model_content(&self) -> String {
+        let value = match self {
+            Self::Launched {
+                model_id,
+                harness_type,
+                execution_mode,
+                agents,
+            } => {
+                let execution_mode = match execution_mode {
+                    RunAgentsLaunchedExecutionMode::Local => serde_json::json!({
+                        "type": "local",
+                    }),
+                    RunAgentsLaunchedExecutionMode::Remote {
+                        environment_id,
+                        worker_host,
+                        computer_use_enabled,
+                    } => serde_json::json!({
+                        "type": "remote",
+                        "environment_id": environment_id,
+                        "worker_host": worker_host,
+                        "computer_use_enabled": computer_use_enabled,
+                    }),
+                };
+                let agents = agents
+                    .iter()
+                    .map(|agent| match &agent.kind {
+                        RunAgentsAgentOutcomeKind::Launched { agent_id } => serde_json::json!({
+                            "name": agent.name,
+                            "status": "launched",
+                            "agent_id": agent_id,
+                        }),
+                        RunAgentsAgentOutcomeKind::Failed { error } => serde_json::json!({
+                            "name": agent.name,
+                            "status": "failed",
+                            "error": error,
+                        }),
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "status": "launched",
+                    "model_id": model_id,
+                    "harness_type": harness_type,
+                    "execution_mode": execution_mode,
+                    "agents": agents,
+                })
+            }
+            Self::Denied { reason } => serde_json::json!({
+                "status": "denied",
+                "reason": reason,
+            }),
+            Self::Failure { error } => serde_json::json!({
+                "status": "failure",
+                "error": error,
+            }),
+            Self::Cancelled => serde_json::json!({
+                "status": "cancelled",
+            }),
+        };
+        value.to_string()
+    }
 }
 
 impl Display for RunAgentsResult {

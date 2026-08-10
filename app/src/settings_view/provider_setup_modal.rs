@@ -1145,7 +1145,7 @@ impl ProviderSetupModalBody {
         if let ChatGPTAuthState::Failed(error) = &state {
             children.push(
                 Text::new(error.clone(), appearance.monospace_font_family(), 11.)
-                    .with_color(appearance.theme().ui_error_color().into())
+                    .with_color(appearance.theme().ui_error_color())
                     .soft_wrap(true)
                     .finish(),
             );

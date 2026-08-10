@@ -560,9 +560,31 @@ fn disabled_providers_do_not_leave_models_in_the_runtime_inventory() {
 }
 
 #[test]
-fn chatgpt_reasoning_modes_route_to_the_base_model_with_effort_metadata() {
+fn chatgpt_reasoning_modes_route_with_catalog_context_metadata() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
+        let provider = crate::settings::ai::default_chatgpt_provider();
+        let configured_model = |model_id: &str| {
+            provider
+                .models
+                .iter()
+                .find(|model| model.model_id == model_id)
+                .expect("ChatGPT model should be configured")
+        };
+
+        let gpt_54 = configured_model("gpt-5.4");
+        assert_eq!(gpt_54.context_size, 1_000_000);
+        assert_eq!(gpt_54.max_input_tokens, Some(950_000));
+        let gpt_56_sol = configured_model("gpt-5.6-sol");
+        assert_eq!(gpt_56_sol.context_size, 272_000);
+        assert_eq!(gpt_56_sol.max_input_tokens, Some(258_400));
+        let codex_spark = configured_model("gpt-5.3-codex-spark");
+        assert_eq!(codex_spark.context_size, 128_000);
+        assert_eq!(codex_spark.max_input_tokens, Some(121_600));
+        let uncached_model = configured_model("gpt-5.4-pro");
+        assert_eq!(uncached_model.context_size, 200_000);
+        assert_eq!(uncached_model.max_input_tokens, None);
+
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             settings
                 .bedrock_enabled
@@ -582,34 +604,56 @@ fn chatgpt_reasoning_modes_route_to_the_base_model_with_effort_metadata() {
                 .expect("OpenAI model setting should update");
             settings
                 .openai_providers
-                .set_value(vec![crate::settings::ai::default_chatgpt_provider()], ctx)
+                .set_value(vec![provider], ctx)
                 .expect("OpenAI provider setting should update");
         });
 
         let mut preferences = empty_preferences();
         app.read(|ctx| preferences.inject_openai_models(ctx));
 
+        let model_info = |model_id: &str| {
+            preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .find(|model| model.id.as_str() == model_id)
+                .expect("ChatGPT model should be available")
+        };
+        let assert_fixed_context = |model_id: &str, expected: u32| {
+            let context_window = &model_info(model_id).context_window;
+            assert!(!context_window.is_configurable);
+            assert_eq!(context_window.min, expected);
+            assert_eq!(context_window.max, expected);
+            assert_eq!(context_window.default_max, expected);
+        };
+
         let mode_id = "gpt-5.4::reasoning::high";
-        let mode = preferences
-            .models_by_feature
-            .agent_mode
-            .choices
-            .iter()
-            .find(|model| model.id.as_str() == mode_id)
-            .expect("GPT-5.4 high mode should be available");
+        let mode = model_info(mode_id);
         assert_eq!(mode.reasoning_level.as_deref(), Some("high"));
+        assert_fixed_context(mode_id, 950_000);
         let routing = preferences
             .openai_client_config_for_model(mode_id)
             .expect("reasoning mode should have a routing entry");
         assert_eq!(routing.model.as_deref(), Some("gpt-5.4"));
         assert_eq!(routing.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(routing.max_input_tokens, Some(950_000));
 
         let ultra_id = "gpt-5.6-sol::reasoning::ultra";
+        assert_fixed_context(ultra_id, 258_400);
         let ultra_routing = preferences
             .openai_client_config_for_model(ultra_id)
             .expect("GPT-5.6 Sol ultra mode should have a routing entry");
         assert_eq!(ultra_routing.model.as_deref(), Some("gpt-5.6-sol"));
         assert_eq!(ultra_routing.reasoning_effort.as_deref(), Some("ultra"));
+        assert_eq!(ultra_routing.max_input_tokens, Some(258_400));
+
+        let spark_id = "gpt-5.3-codex-spark";
+        assert_fixed_context(spark_id, 121_600);
+        let spark_routing = preferences
+            .openai_client_config_for_model(spark_id)
+            .expect("GPT-5.3 Codex Spark should have a routing entry");
+        assert_eq!(spark_routing.max_input_tokens, Some(121_600));
     });
 }
 

@@ -6,7 +6,10 @@ use galaxy_cli::agent::Harness;
 use galaxyui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 use shell_words::split as split_shell_words;
 
-use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
+use super::{
+    child_agent_delegation_denial_reason, compose_leaf_agent_prompt, ActionExecution,
+    AnyActionExecution, ExecuteActionInput, PreprocessActionInput,
+};
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, LifecycleEventType,
@@ -400,12 +403,19 @@ impl StartAgentExecutor {
             return ActionExecution::InvalidAction;
         };
 
-        let prompt = prompt.clone();
         let version = *version;
-        let action_id = input.action.id.clone();
         let parent_conversation_id = input.conversation_id;
+        if let Some(error) = child_agent_delegation_denial_reason(parent_conversation_id, ctx) {
+            return ActionExecution::Sync(AIAgentActionResultType::StartAgent(
+                StartAgentResult::Error { error, version },
+            ));
+        }
+
+        let prompt = prompt.clone();
+        let action_id = input.action.id.clone();
         let (prompt, execution_mode) =
             normalize_legacy_local_child_harness_command(prompt, execution_mode.clone());
+        let prompt = compose_leaf_agent_prompt(&prompt);
         let (execution_mode, parent_run_id) = match execution_mode {
             StartAgentExecutionMode::Local {
                 harness_type: None,
@@ -597,9 +607,15 @@ impl StartAgentExecutor {
         parent_run_id: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) -> async_channel::Receiver<StartAgentOutcome> {
+        let (sender, receiver) = async_channel::bounded(1);
+        if let Some(error) = child_agent_delegation_denial_reason(parent_conversation_id, ctx) {
+            let _ = sender.try_send(StartAgentOutcome::Error(error));
+            return receiver;
+        }
+
         let (prompt, execution_mode) =
             normalize_legacy_local_child_harness_command(prompt, execution_mode);
-        let (sender, receiver) = async_channel::bounded(1);
+        let prompt = compose_leaf_agent_prompt(&prompt);
         let request_id = self.next_request_id();
         self.pending.insert(
             request_id,

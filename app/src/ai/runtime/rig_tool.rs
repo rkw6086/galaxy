@@ -12,8 +12,9 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionType, AIAgentPtyWriteMode, AskUserQuestionItem,
     AskUserQuestionOption, AskUserQuestionType, CreateDocumentsRequest, DocumentDiff,
     DocumentToCreate, EditDocumentsRequest, FileEdit, FileLocations, ReadDocumentsRequest,
-    ReadFilesRequest, ReadSkillRequest, SearchCodebaseRequest, ShellCommandDelay,
-    StartAgentExecutionMode, StartAgentVersion,
+    ReadFilesRequest, ReadSkillRequest, RunAgentsAgentRunConfig, RunAgentsExecutionMode,
+    RunAgentsRequest, SearchCodebaseRequest, ShellCommandDelay, StartAgentExecutionMode,
+    StartAgentVersion,
 };
 use crate::ai::document::ai_document_model::AIDocumentId;
 
@@ -140,6 +141,27 @@ pub(super) fn action_from_tool_call(
                     .collect(),
             })
         }
+        "run_agents" => AIAgentActionType::RunAgents(RunAgentsRequest {
+            summary: string(input, "summary"),
+            base_prompt: string(input, "base_prompt"),
+            skills: skill_references(input, skill_path_origin),
+            model_id: string(input, "model_id"),
+            harness_type: string(input, "harness_type"),
+            execution_mode: run_agents_execution_mode(input),
+            agent_run_configs: input
+                .get("agent_run_configs")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|config| RunAgentsAgentRunConfig {
+                    name: string(config, "name"),
+                    prompt: string(config, "prompt"),
+                    title: string(config, "title"),
+                })
+                .collect(),
+            plan_id: string(input, "plan_id"),
+            harness_auth_secret_name: None,
+        }),
         "start_agent" => AIAgentActionType::StartAgent {
             version: StartAgentVersion::V1,
             name: string(input, "name"),
@@ -261,6 +283,52 @@ fn uuid(input: &serde_json::Value, key: &str) -> Option<Uuid> {
         .get(key)
         .and_then(serde_json::Value::as_str)
         .and_then(|value| Uuid::parse_str(value).ok())
+}
+
+fn skill_references(
+    input: &serde_json::Value,
+    skill_path_origin: &SkillPathOrigin,
+) -> Vec<SkillReference> {
+    input
+        .get("skills")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|skill| {
+            let reference = string(skill, "skill");
+            if reference.is_empty() {
+                return None;
+            }
+            match skill
+                .get("reference_type")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some("bundled") => Some(SkillReference::BundledSkillId(reference)),
+                Some("path") | Some(_) | None => skill_path_origin
+                    .location_for_path(reference)
+                    .ok()
+                    .map(SkillReference::Path),
+            }
+        })
+        .collect()
+}
+
+fn run_agents_execution_mode(input: &serde_json::Value) -> RunAgentsExecutionMode {
+    let Some(execution_mode) = input.get("execution_mode") else {
+        return RunAgentsExecutionMode::Local;
+    };
+    let mode_type = execution_mode
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| execution_mode.as_str());
+    match mode_type {
+        Some("remote") => RunAgentsExecutionMode::Remote {
+            environment_id: string(execution_mode, "environment_id"),
+            worker_host: string(execution_mode, "worker_host"),
+            computer_use_enabled: boolean(execution_mode, "computer_use_enabled"),
+        },
+        Some("local") | Some(_) | None => RunAgentsExecutionMode::Local,
+    }
 }
 
 fn file_location(file: &serde_json::Value) -> Option<FileLocations> {

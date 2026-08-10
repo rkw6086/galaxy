@@ -106,6 +106,27 @@ use crate::util::image::{
 use crate::util::openable_file_type::is_binary_file;
 use crate::BlocklistAIHistoryModel;
 
+const CHILD_AGENT_DELEGATION_DENIAL_REASON: &str =
+    "Child agents are leaf workers and cannot launch additional agents. Complete the assigned task directly or report the blocker to the lead agent.";
+const CHILD_AGENT_LEAF_INSTRUCTIONS: &str = r#"You are a leaf worker launched by a lead agent.
+- Complete the assigned task directly and stay within its stated scope.
+- Do not launch, delegate to, or create additional agents.
+- Report blockers and completion to the lead through the available coordination channel."#;
+
+pub(super) fn child_agent_delegation_denial_reason(
+    conversation_id: AIConversationId,
+    ctx: &AppContext,
+) -> Option<String> {
+    BlocklistAIHistoryModel::as_ref(ctx)
+        .conversation(&conversation_id)
+        .is_some_and(|conversation| conversation.is_child_agent_conversation())
+        .then(|| CHILD_AGENT_DELEGATION_DENIAL_REASON.to_string())
+}
+
+pub(super) fn compose_leaf_agent_prompt(task_prompt: &str) -> String {
+    format!("{CHILD_AGENT_LEAF_INSTRUCTIONS}\n\nAssigned task:\n{task_prompt}")
+}
+
 /// Types of actions that can be executed in parallel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ParallelExecutionPolicy {

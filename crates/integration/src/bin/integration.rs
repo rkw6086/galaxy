@@ -435,10 +435,12 @@ fn register_tests() -> HashMap<&'static str, BoxedBuilderFn> {
     register_test!(test_rig_read_tool_round_trip);
     register_test!(test_rig_shell_tool_success_round_trip);
     register_test!(test_rig_shell_tool_failure_round_trip);
+    register_test!(test_rig_shell_long_running_round_trip);
     register_test!(test_rig_shell_tool_permission_denial);
     register_test!(test_rig_edit_tool_round_trip);
     register_test!(test_rig_in_flight_cancellation);
     register_test!(test_rig_mcp_tool_round_trip);
+    register_test!(test_rig_local_run_agents_round_trip);
     register_test!(test_git_prompt_chips);
 
     // These tests are only invoked manually, and not included in the

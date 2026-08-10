@@ -91,6 +91,15 @@ fn persist_plan_config_with_harness(
     });
 }
 
+fn mark_conversation_as_child(app: &mut App, conversation_id: AIConversationId) {
+    BlocklistAIHistoryModel::handle(app).update(app, |history, _ctx| {
+        history
+            .conversation_mut(&conversation_id)
+            .expect("conversation should exist")
+            .set_parent_agent_id("parent-agent".to_string());
+    });
+}
+
 #[test]
 fn should_autoexecute_duplicate_launched_agent_denial() {
     App::test((), |mut app| async move {
@@ -160,6 +169,159 @@ fn execute_denies_duplicate_launched_agent() {
         assert!(reason.contains("child (agent-123)"));
         assert!(reason.contains("send_message_to_agent"));
     });
+}
+
+#[test]
+fn execute_denies_run_agents_from_child_conversation() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        mark_conversation_as_child(&mut app, state.conversation_id);
+        let action = remote_run_agents_action("oz");
+
+        let should_autoexecute = state.executor.update(&mut app, |executor, ctx| {
+            executor.should_autoexecute(
+                ExecuteActionInput {
+                    action: &action,
+                    conversation_id: state.conversation_id,
+                },
+                ctx,
+            )
+        });
+        assert!(
+            should_autoexecute,
+            "the denial should not require user approval"
+        );
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("leaf workers")
+        ));
+    });
+}
+
+#[test]
+fn autonomous_mode_still_denies_run_agents_from_child_conversation() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        mark_conversation_as_child(&mut app, state.conversation_id);
+        let action = remote_run_agents_action("oz");
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("leaf workers")
+        ));
+    });
+}
+
+#[test]
+fn execute_denies_mixed_batch_containing_launched_agent() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        state.executor.update(&mut app, |executor, _ctx| {
+            executor.record_launched_agents(
+                state.conversation_id,
+                &[RunAgentsAgentOutcome {
+                    name: "child".to_string(),
+                    kind: RunAgentsAgentOutcomeKind::Launched {
+                        agent_id: "agent-123".to_string(),
+                    },
+                }],
+            );
+        });
+        let mut action = remote_run_agents_action("oz");
+        let AIAgentActionType::RunAgents(request) = &mut action.action else {
+            panic!("expected run_agents action");
+        };
+        request.agent_run_configs.push(RunAgentsAgentRunConfig {
+            name: "new-child".to_string(),
+            prompt: "Do separate work".to_string(),
+            title: String::new(),
+        });
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("child (agent-123)")
+        ));
+    });
+}
+
+#[test]
+fn validate_request_rejects_blank_and_duplicate_agent_names() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+    request.agent_run_configs[0].name = "   ".to_string();
+    assert_eq!(
+        validate_request(&request),
+        Err("orchestrate: agent names must not be empty".to_string())
+    );
+
+    request.agent_run_configs[0].name = "Child".to_string();
+    request.agent_run_configs.push(RunAgentsAgentRunConfig {
+        name: " child ".to_string(),
+        prompt: "Do separate work".to_string(),
+        title: String::new(),
+    });
+    assert_eq!(
+        validate_request(&request),
+        Err("orchestrate: duplicate agent name 'child' in the same batch".to_string())
+    );
+}
+
+#[test]
+fn validate_request_allows_unique_sibling_names() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+    request.agent_run_configs.push(RunAgentsAgentRunConfig {
+        name: "second-child".to_string(),
+        prompt: "Do separate work".to_string(),
+        title: String::new(),
+    });
+
+    assert_eq!(validate_request(&request), Ok(()));
 }
 
 fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTestState {

@@ -92,6 +92,99 @@ pub fn assert_latest_exchange_text(
     })
 }
 
+/// Asserts that the active conversation created exactly one hidden leaf child
+/// and that the child completed with the expected identity and output.
+pub fn assert_single_hidden_child_agent_succeeds(
+    expected_agent_name: &'static str,
+    expected_output: &'static str,
+) -> AssertionCallback {
+    Box::new(move |app, window_id| {
+        let terminal_view = terminal_view(app, window_id, 0, 0);
+        BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
+            let Some(parent) = history_model.active_conversation(terminal_view.id()) else {
+                return AssertionOutcome::failure("No active parent conversation".to_owned());
+            };
+            let parent_id = parent.id();
+            let children = history_model.child_conversations_of(parent_id);
+            let child = match children.as_slice() {
+                [] => {
+                    return AssertionOutcome::failure(
+                        "Waiting for the hidden child conversation".to_owned(),
+                    );
+                }
+                [child] => *child,
+                _ => {
+                    return AssertionOutcome::immediate_failure(format!(
+                        "Expected exactly one child conversation, found {}",
+                        children.len()
+                    ));
+                }
+            };
+
+            match child.status() {
+                ConversationStatus::Success => {}
+                ConversationStatus::InProgress
+                | ConversationStatus::TransientError
+                | ConversationStatus::WaitingForEvents => {
+                    return AssertionOutcome::failure(format!(
+                        "Waiting for child agent to succeed; current status: {:?}",
+                        child.status()
+                    ));
+                }
+                ConversationStatus::Blocked { .. }
+                | ConversationStatus::Error
+                | ConversationStatus::Cancelled => {
+                    return AssertionOutcome::immediate_failure(format!(
+                        "Child agent finished unsuccessfully: {:?}",
+                        child.status()
+                    ));
+                }
+            }
+
+            if child.agent_name() != Some(expected_agent_name) {
+                return AssertionOutcome::immediate_failure(format!(
+                    "Expected child name {expected_agent_name:?}, found {:?}",
+                    child.agent_name()
+                ));
+            }
+            if child.parent_conversation_id() != Some(parent_id) {
+                return AssertionOutcome::immediate_failure(format!(
+                    "Child {:?} was not linked to active parent {parent_id:?}",
+                    child.id()
+                ));
+            }
+            if !child.is_child_agent_conversation() || !child.should_exclude_from_navigation() {
+                return AssertionOutcome::immediate_failure(
+                    "Child conversation was not hidden from normal navigation".to_owned(),
+                );
+            }
+            let grandchildren = history_model.child_conversations_of(child.id());
+            if !grandchildren.is_empty() {
+                return AssertionOutcome::immediate_failure(format!(
+                    "Leaf child unexpectedly created {} grandchildren",
+                    grandchildren.len()
+                ));
+            }
+
+            let output = child
+                .all_exchanges()
+                .into_iter()
+                .filter_map(|exchange| exchange.output_status.output())
+                .map(|output| output.get().format_for_copy(None))
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            if !output.contains(expected_output) {
+                return AssertionOutcome::immediate_failure(format!(
+                    "Child output did not contain {expected_output:?}: {output}"
+                ));
+            }
+
+            AssertionOutcome::Success
+        })
+    })
+}
+
 // Make an assertion on the action requested in the exchange at exchange_index.
 /// This is private because `AIAgentActionType` is not public outside the warp app crate
 /// for use within agent mode evals, so they can't write the `ActionAssertion` directly.
@@ -180,22 +273,41 @@ pub fn assert_any_exchange_text(
     Box::new(move |app, window_id| {
         let terminal_view = terminal_view(app, window_id, 0, 0);
         BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
-            let exchange_count = get_exchange_count(terminal_view.id(), history_model);
-            (0..exchange_count)
-                .map(|exchange_index| {
-                    exchange_succeeds_with_expected_output(
-                        Some(Box::new(assertion.clone())),
-                        None,
-                        ConversationTarget::Active,
-                        terminal_view.id(),
-                        exchange_index,
-                        history_model,
-                    )
-                })
-                .find(|outcome| matches!(outcome, AssertionOutcome::Success))
-                .unwrap_or(AssertionOutcome::failure(
-                    "No exchanges match assertion".to_owned(),
-                ))
+            let Some(conversation) = history_model.active_conversation(terminal_view.id()) else {
+                return AssertionOutcome::failure("No active conversation".to_owned());
+            };
+            let mut output_texts = Vec::with_capacity(conversation.exchange_count());
+            for exchange in conversation.all_exchanges() {
+                let AIAgentOutputStatus::Finished { finished_output } = &exchange.output_status
+                else {
+                    return AssertionOutcome::failure(format!(
+                        "Exchange {:?} is not finished",
+                        exchange.id
+                    ));
+                };
+                match finished_output {
+                    FinishedAIAgentOutput::Success { output } => {
+                        let text = output.get().format_for_copy(None);
+                        if assertion(&text) {
+                            return AssertionOutcome::Success;
+                        }
+                        output_texts.push(text);
+                    }
+                    FinishedAIAgentOutput::Error { error, .. } => {
+                        return AssertionOutcome::immediate_failure(format!(
+                            "Exchange failed with error: {error:?}"
+                        ));
+                    }
+                    FinishedAIAgentOutput::Cancelled { .. } => {
+                        return AssertionOutcome::immediate_failure(
+                            "Exchange was cancelled".to_owned(),
+                        );
+                    }
+                }
+            }
+            AssertionOutcome::failure(format!(
+                "No exchanges match assertion. Exchange outputs: {output_texts:?}"
+            ))
         })
     })
 }

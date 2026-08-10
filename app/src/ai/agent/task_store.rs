@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use warp_multi_agent_api as api;
 
@@ -360,6 +360,59 @@ impl TaskStore {
             append_refs_for_task(tasks, &mut refs, root_task);
         }
 
+        let indexed_task_ids = refs
+            .iter()
+            .map(|exchange_ref| exchange_ref.task_id.clone())
+            .collect::<HashSet<_>>();
+        let mut direct_cli_tasks = tasks
+            .values()
+            .filter(|task| {
+                !indexed_task_ids.contains(task.id())
+                    && task.parent_id().as_ref() == Some(root_task_id)
+                    && task.is_cli_subagent()
+                    && task
+                        .subagent_params()
+                        .is_some_and(|params| params.tool_call_id.is_empty())
+                    && task.exchanges().next().is_some()
+            })
+            .collect::<Vec<_>>();
+        direct_cli_tasks.sort_by(|left, right| {
+            left.exchanges()
+                .next()
+                .map(|exchange| exchange.start_time)
+                .cmp(&right.exchanges().next().map(|exchange| exchange.start_time))
+                .then_with(|| left.id().to_string().cmp(&right.id().to_string()))
+        });
+
+        // Direct providers synthesize CLI monitor tasks without a parent Subagent message.
+        // Place each task as one chronological block so its exchanges remain reachable without
+        // changing the DFS order of server-linked subtasks.
+        for task in direct_cli_tasks {
+            let first_start_time = task
+                .exchanges()
+                .next()
+                .expect("direct CLI task was filtered to contain an exchange")
+                .start_time;
+            let insertion_index = refs
+                .iter()
+                .position(|exchange_ref| {
+                    tasks
+                        .get(&exchange_ref.task_id)
+                        .and_then(|task| task.exchanges().nth(exchange_ref.exchange_index))
+                        .is_some_and(|exchange| exchange.start_time > first_start_time)
+                })
+                .unwrap_or(refs.len());
+            let task_id = task.id().clone();
+            let task_refs = task
+                .exchanges()
+                .enumerate()
+                .map(|(exchange_index, _)| ExchangeRef {
+                    task_id: task_id.clone(),
+                    exchange_index,
+                })
+                .collect::<Vec<_>>();
+            refs.splice(insertion_index..insertion_index, task_refs);
+        }
         refs
     }
 }

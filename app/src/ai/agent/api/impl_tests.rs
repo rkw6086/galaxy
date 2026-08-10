@@ -2,7 +2,9 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::HostId;
 use warp_multi_agent_api as api;
 
-use super::{get_supported_cli_agent_tools, get_supported_tools};
+use super::{
+    get_supported_cli_agent_tools, get_supported_tools, remove_orchestration_tools_if_disabled,
+};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::blocklist::SessionContext;
 use crate::ai::llms::LLMId;
@@ -75,6 +77,40 @@ fn supported_tools_expose_local_subagents_without_hosted_orchestration_tools() {
     assert!(!supported_tools.contains(&api::ToolType::SendMessageToAgent));
     assert!(!supported_tools.contains(&api::ToolType::WaitForEvents));
     assert!(!supported_tools.contains(&api::ToolType::StartAgentV2));
+}
+
+#[test]
+fn supported_tools_omit_subagents_when_orchestration_is_disabled() {
+    let params = request_params_with_ask_user_question_enabled(false);
+    let supported_tools = get_supported_tools(&params);
+
+    assert!(!supported_tools.contains(&api::ToolType::Subagent));
+}
+
+#[test]
+fn supported_tool_override_cannot_restore_leaf_orchestration_tools() {
+    let mut supported_tools = vec![
+        api::ToolType::Grep,
+        api::ToolType::Subagent,
+        api::ToolType::RunAgents,
+        api::ToolType::StartAgentV2,
+    ];
+
+    remove_orchestration_tools_if_disabled(&mut supported_tools, false);
+
+    assert_eq!(supported_tools, vec![api::ToolType::Grep]);
+}
+
+#[test]
+fn enabled_orchestration_preserves_supported_tool_override() {
+    let mut supported_tools = vec![api::ToolType::Grep, api::ToolType::Subagent];
+
+    remove_orchestration_tools_if_disabled(&mut supported_tools, true);
+
+    assert_eq!(
+        supported_tools,
+        vec![api::ToolType::Grep, api::ToolType::Subagent]
+    );
 }
 
 #[test]

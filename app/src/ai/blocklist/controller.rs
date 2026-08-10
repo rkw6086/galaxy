@@ -3044,6 +3044,13 @@ impl BlocklistAIController {
         });
         request_params.parent_agent_id = parent_agent_id;
         request_params.agent_name = agent_name;
+        if history_model
+            .as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| conversation.is_child_agent_conversation())
+        {
+            request_params.orchestration_enabled = false;
+        }
         request_params.message_history = bedrock_history;
         request_params.tool_result_archive = bedrock_tool_result_archive;
         request_params.progressive_summary = bedrock_progressive_summary;

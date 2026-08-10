@@ -2,7 +2,7 @@
 //!
 //! Fans out per-child via [`super::start_agent::StartAgentExecutor::dispatch`]
 //! and aggregates the outcomes into a single `RunAgentsResult`.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest};
@@ -20,7 +20,10 @@ use warp_cli::agent::Harness;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::start_agent::{StartAgentExecutor, StartAgentOutcome};
-use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
+use super::{
+    child_agent_delegation_denial_reason, ActionExecution, AnyActionExecution, ExecuteActionInput,
+    PreprocessActionInput,
+};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, AIAgentInput,
@@ -413,6 +416,9 @@ impl RunAgentsExecutor {
         let AIAgentActionType::RunAgents(request) = &input.action.action else {
             return false;
         };
+        if child_agent_delegation_denial_reason(input.conversation_id, ctx).is_some() {
+            return true;
+        }
         if AppExecutionMode::as_ref(ctx).is_autonomous() {
             return true;
         }
@@ -476,9 +482,9 @@ fn resolve_request_from_approved_config(
 
 /// Normalizes the request and returns a denial reason when launch is blocked.
 ///
-/// Autonomous agents always run: their calls may still inherit approved plan
-/// config fields and default auth secrets, but they bypass interactive policy
-/// denials because they cannot present a confirmation card.
+/// Root autonomous agents bypass interactive policy denials because they cannot
+/// present a confirmation card. Child-agent delegation is rejected before that
+/// bypass, while allowed root calls still inherit approved config and auth fields.
 fn prepare_request_for_execution(
     request: &mut RunAgentsRequest,
     parent_conversation_id: AIConversationId,
@@ -486,6 +492,10 @@ fn prepare_request_for_execution(
     launched_agents: &HashMap<AIConversationId, HashMap<String, ExistingLaunchedAgent>>,
     ctx: &ModelContext<RunAgentsExecutor>,
 ) -> Option<String> {
+    if let Some(reason) = child_agent_delegation_denial_reason(parent_conversation_id, ctx) {
+        return Some(reason);
+    }
+
     let status = resolve_request_from_approved_config(request, parent_conversation_id, ctx);
     populate_default_auth_secret_for_execution(request, ctx);
     if let Some(reason) =
@@ -544,8 +554,11 @@ fn duplicate_launched_agents_reason(
 
     let duplicates = requested_agents
         .iter()
-        .map(|(normalized_name, _)| existing_agents.get(normalized_name))
-        .collect::<Option<Vec<_>>>()?;
+        .filter_map(|(normalized_name, _)| existing_agents.get(normalized_name))
+        .collect::<Vec<_>>();
+    if duplicates.is_empty() {
+        return None;
+    }
     let duplicate_list = duplicates
         .iter()
         .map(|agent| format!("{} ({})", agent.name, agent.agent_id))
@@ -696,6 +709,20 @@ fn validate_request(request: &RunAgentsRequest) -> Result<(), String> {
     if request.agent_run_configs.is_empty() {
         return Err("orchestrate: empty agent_run_configs".to_string());
     }
+
+    let mut normalized_names = HashSet::new();
+    for config in &request.agent_run_configs {
+        let Some(normalized_name) = normalize_agent_name(&config.name) else {
+            return Err("orchestrate: agent names must not be empty".to_string());
+        };
+        if !normalized_names.insert(normalized_name) {
+            return Err(format!(
+                "orchestrate: duplicate agent name '{}' in the same batch",
+                config.name.trim()
+            ));
+        }
+    }
+
     if matches!(request.execution_mode, RunAgentsExecutionMode::Local) {
         if let Some(harness) = Harness::parse_local_child_harness(&request.harness_type) {
             if let Some(message) = local_harness_product_disabled_message(harness) {

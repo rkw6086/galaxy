@@ -147,6 +147,46 @@ fn test_insert_subtask() {
 }
 
 #[test]
+fn test_unlinked_direct_cli_task_is_linearized_chronologically() {
+    let base_time = Local::now();
+    let mut root_task = Task::new_optimistic_root();
+    let root_task_id = root_task.id().clone();
+
+    let mut before_cli = create_test_exchange();
+    before_cli.start_time = base_time;
+    let before_cli_id = before_cli.id;
+    root_task.append_exchange(before_cli);
+
+    let mut after_cli = create_test_exchange();
+    after_cli.start_time = base_time + chrono::Duration::seconds(2);
+    let after_cli_id = after_cli.id;
+    root_task.append_exchange(after_cli);
+
+    let mut cli_task =
+        Task::new_optimistic_cli_agent_subtask(BlockId::new(), Some(root_task_id.to_string()));
+    let mut cli_exchange = create_test_exchange();
+    cli_exchange.start_time = base_time + chrono::Duration::seconds(1);
+    let cli_exchange_id = cli_exchange.id;
+    cli_task.append_exchange(cli_exchange);
+
+    let mut store = TaskStore::with_root_task(root_task);
+    store.insert(cli_task);
+
+    let exchange_ids = store
+        .all_exchanges()
+        .map(|exchange| exchange.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        exchange_ids,
+        vec![before_cli_id, cli_exchange_id, after_cli_id]
+    );
+    assert_eq!(
+        store.latest_exchange().map(|exchange| exchange.id),
+        Some(after_cli_id)
+    );
+}
+
+#[test]
 fn test_remove_task() {
     let task = create_test_task_with_exchanges(3);
     let task_id = task.id().clone();
