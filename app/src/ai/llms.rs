@@ -1040,7 +1040,7 @@ impl LLMPreferences {
             };
             provider_entries.push((
                 name,
-                OpenAIProviderKind::OpenAICompatible,
+                OpenAIProviderKind::LiteLLM,
                 true,
                 base_url,
                 api_key,
@@ -1057,7 +1057,14 @@ impl LLMPreferences {
                 .iter()
                 .filter_map(|provider| {
                     let missing_credentials = match provider.kind {
-                        OpenAIProviderKind::OpenAICompatible => provider.base_url.trim().is_empty(),
+                        OpenAIProviderKind::OpenAI => {
+                            provider.base_url.trim().is_empty()
+                                || provider
+                                    .api_key
+                                    .as_deref()
+                                    .is_none_or(|key| key.trim().is_empty())
+                        }
+                        OpenAIProviderKind::LiteLLM => provider.base_url.trim().is_empty(),
                         OpenAIProviderKind::Anthropic | OpenAIProviderKind::Gemini => provider
                             .api_key
                             .as_deref()
@@ -1143,7 +1150,10 @@ impl LLMPreferences {
                         max_input_tokens: Some(openai_model_context_size(model)),
                         max_output_tokens: model.max_output_tokens,
                         use_rig: model.use_rig
-                            || !matches!(provider_kind, OpenAIProviderKind::OpenAICompatible),
+                            || !matches!(
+                                provider_kind,
+                                OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM
+                            ),
                         supports_system_messages: model.supports_system_messages(),
                     };
                     self.openai_provider_routing
@@ -1531,6 +1541,7 @@ impl LLMPreferences {
             return;
         }
 
+        let provider_kind = provider.kind;
         let requested_base_url = provider.base_url;
         let api_key = provider.api_key.filter(|key| !key.is_empty());
         let request_base_url = requested_base_url.clone();
@@ -1543,10 +1554,12 @@ impl LLMPreferences {
                     .build()
                     .unwrap_or_default();
 
-                if let Some(models) =
-                    fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
-                {
-                    return models;
+                if provider_kind == OpenAIProviderKind::LiteLLM {
+                    if let Some(models) =
+                        fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
+                    {
+                        return models;
+                    }
                 }
 
                 fetch_from_openai_models(base, api_key.as_deref(), &client).await
@@ -1580,7 +1593,7 @@ impl LLMPreferences {
 
     /// Discovers models for a provider draft without persisting or injecting it.
     ///
-    /// The provider setup modal uses this to keep configuration changes atomic
+    /// The provider setup view uses this to keep configuration changes atomic
     /// until the user clicks Save.
     #[cfg(not(target_family = "wasm"))]
     pub(crate) async fn discover_openai_provider_models(
@@ -1624,7 +1637,9 @@ impl LLMPreferences {
                 )?;
                 Some(vertex_ai_model_catalog())
             }
-            OpenAIProviderKind::OpenAICompatible | OpenAIProviderKind::ChatGPTSubscription => None,
+            OpenAIProviderKind::OpenAI
+            | OpenAIProviderKind::LiteLLM
+            | OpenAIProviderKind::ChatGPTSubscription => None,
         };
 
         if let Some(models) = native_models {
@@ -1645,19 +1660,25 @@ impl LLMPreferences {
             .map_err(|error| format!("Could not create the provider client: {error}"))?;
         let api_key = provider.api_key.as_deref().filter(|key| !key.is_empty());
 
-        let models = if let Some(models) =
-            fetch_from_litellm_model_info(&base_url, api_key, &client).await
-        {
-            models
+        let models = if provider.kind == OpenAIProviderKind::LiteLLM {
+            if let Some(models) = fetch_from_litellm_model_info(&base_url, api_key, &client).await {
+                models
+            } else {
+                fetch_from_openai_models(&base_url, api_key, &client).await
+            }
         } else {
             fetch_from_openai_models(&base_url, api_key, &client).await
         };
 
         if models.is_empty() {
-            return Err(
-                "The provider responded, but no models were found at /model/info or /models."
-                    .to_string(),
-            );
+            let endpoint_description = if provider.kind == OpenAIProviderKind::LiteLLM {
+                "/model/info or /models"
+            } else {
+                "/models"
+            };
+            return Err(format!(
+                "The provider responded, but no models were found at {endpoint_description}."
+            ));
         }
 
         Ok(models)

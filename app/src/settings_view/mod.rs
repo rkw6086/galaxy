@@ -86,9 +86,8 @@ mod platform;
 mod platform_page;
 mod privacy;
 mod privacy_page;
-mod provider_setup_modal;
+mod provider_setup_view;
 mod scripting_page;
-mod set_default_model_modal;
 mod settings_file_footer;
 pub(crate) mod settings_page;
 mod tab_menu;
@@ -248,6 +247,12 @@ pub enum SettingsSection {
     ThirdPartyCLIAgents,
     Models,
     Experiments,
+    // ── Providers umbrella subpages ──
+    ProviderOpenAI,
+    ProviderLiteLLM,
+    ProviderChatGPTSubscription,
+    ProviderBedrock,
+    ProviderACP,
     /// Internal backing-page identifier for CodeSettingsPageView. Multiple subpages
     /// (CodeIndexing, EditorAndCodeReview) share this single backing page,
     /// so this variant is needed as the key in `settings_pages`.
@@ -276,6 +281,11 @@ impl Display for SettingsSection {
             SettingsSection::ThirdPartyCLIAgents => write!(f, "Third party CLI agents"),
             SettingsSection::Models => write!(f, "Models"),
             SettingsSection::Experiments => write!(f, "Experiments"),
+            SettingsSection::ProviderOpenAI => write!(f, "OpenAI"),
+            SettingsSection::ProviderLiteLLM => write!(f, "LiteLLM"),
+            SettingsSection::ProviderChatGPTSubscription => write!(f, "ChatGPT Subscription"),
+            SettingsSection::ProviderBedrock => write!(f, "Bedrock"),
+            SettingsSection::ProviderACP => write!(f, "ACP"),
             SettingsSection::Warpify => write!(f, "Wormhole"),
             SettingsSection::CodeIndexing => write!(f, "Indexing and projects"),
             SettingsSection::EditorAndCodeReview => write!(f, "Editor and Code Review"),
@@ -287,7 +297,7 @@ impl Display for SettingsSection {
 impl SettingsSection {
     /// Returns true if this section is a subpage under any umbrella.
     pub fn is_subpage(&self) -> bool {
-        self.is_ai_subpage() || self.is_code_subpage()
+        self.is_ai_subpage() || self.is_provider_subpage() || self.is_code_subpage()
     }
 
     /// Returns true if this section is a subpage under the "Agents" umbrella.
@@ -304,6 +314,36 @@ impl SettingsSection {
         )
     }
 
+    /// Returns true if this section is a subpage under the "Providers" umbrella.
+    pub fn is_provider_subpage(&self) -> bool {
+        matches!(
+            self,
+            Self::ProviderOpenAI
+                | Self::ProviderLiteLLM
+                | Self::ProviderChatGPTSubscription
+                | Self::ProviderBedrock
+                | Self::ProviderACP
+        )
+    }
+
+    /// Returns true if this section renders through the AI settings backing page.
+    pub fn is_ai_backed_subpage(&self) -> bool {
+        matches!(
+            self,
+            Self::WarpAgent
+                | Self::AgentProfiles
+                | Self::Knowledge
+                | Self::ThirdPartyCLIAgents
+                | Self::Models
+                | Self::Experiments
+                | Self::ProviderOpenAI
+                | Self::ProviderLiteLLM
+                | Self::ProviderChatGPTSubscription
+                | Self::ProviderBedrock
+                | Self::ProviderACP
+        )
+    }
+
     /// Returns true if this section is a subpage under the "Code" umbrella.
     pub fn is_code_subpage(&self) -> bool {
         matches!(self, Self::CodeIndexing | Self::EditorAndCodeReview)
@@ -315,8 +355,8 @@ impl SettingsSection {
         match self {
             // AgentMCPServers renders the standalone MCPServers page directly.
             Self::AgentMCPServers => Self::MCPServers,
-            // All other AI subpages render within the AI page.
-            s if s.is_ai_subpage() => Self::AI,
+            // AI and provider subpages render within the AI page.
+            s if s.is_ai_backed_subpage() => Self::AI,
             // Code subpages render within the Code page.
             s if s.is_code_subpage() => Self::Code,
             other => *other,
@@ -327,12 +367,22 @@ impl SettingsSection {
     pub fn ai_subpages() -> &'static [Self] {
         &[
             Self::WarpAgent,
-            Self::Models,
             Self::AgentProfiles,
             Self::AgentMCPServers,
             Self::Knowledge,
             Self::ThirdPartyCLIAgents,
             Self::Experiments,
+        ]
+    }
+
+    /// The ordered list of provider subpage sections shown under the Providers umbrella.
+    pub fn provider_subpages() -> &'static [Self] {
+        &[
+            Self::ProviderOpenAI,
+            Self::ProviderLiteLLM,
+            Self::ProviderChatGPTSubscription,
+            Self::ProviderBedrock,
+            Self::ProviderACP,
         ]
     }
 
@@ -364,14 +414,12 @@ impl FromStr for SettingsSection {
             "MCP servers" | "AgentMCPServers" => Ok(Self::AgentMCPServers),
             "Knowledge" => Ok(Self::Knowledge),
             "Third party CLI agents" | "ThirdPartyCLIAgents" => Ok(Self::ThirdPartyCLIAgents),
-            "Models"
-            | "AWS Bedrock"
-            | "Bedrock"
-            | "OpenAI / LiteLLM"
-            | "OpenAI"
-            | "Agent runtimes"
-            | "Agent Client Protocol"
-            | "ACP" => Ok(Self::Models),
+            "Models" | "Agent runtimes" => Ok(Self::ProviderOpenAI),
+            "AWS Bedrock" | "Bedrock" => Ok(Self::ProviderBedrock),
+            "OpenAI / LiteLLM" | "LiteLLM" => Ok(Self::ProviderLiteLLM),
+            "OpenAI" => Ok(Self::ProviderOpenAI),
+            "ChatGPT Subscription" | "ChatGPTSubscription" => Ok(Self::ProviderChatGPTSubscription),
+            "Agent Client Protocol" | "ACP" => Ok(Self::ProviderACP),
             "Indexing and projects" | "CodeIndexing" => Ok(Self::CodeIndexing),
             "Editor and Code Review" | "EditorAndCodeReview" => Ok(Self::EditorAndCodeReview),
             "Experiments" => Ok(Self::Experiments),
@@ -1236,6 +1284,10 @@ impl SettingsView {
                 SettingsSection::ai_subpages().to_vec(),
             )),
             SettingsNavItem::Umbrella(SettingsUmbrella::new(
+                "Providers",
+                SettingsSection::provider_subpages().to_vec(),
+            )),
+            SettingsNavItem::Umbrella(SettingsUmbrella::new(
                 "Code",
                 vec![
                     SettingsSection::CodeIndexing,
@@ -1367,7 +1419,10 @@ impl SettingsView {
                     // For each AI subpage, temporarily switch to that subpage's
                     // widget set and run the filter to get a subpage-specific result.
                     self.subpage_filter.clear();
-                    for &subpage_section in SettingsSection::ai_subpages() {
+                    for &subpage_section in SettingsSection::ai_subpages()
+                        .iter()
+                        .chain(SettingsSection::provider_subpages().iter())
+                    {
                         if subpage_section == SettingsSection::AgentMCPServers {
                             // AgentMCPServers has its own backing page; handled below.
                             continue;
@@ -1434,7 +1489,7 @@ impl SettingsView {
                 // Restore the active subpage after filtering.
                 if is_search_active {
                     let current = self.current_settings_page;
-                    if current.is_ai_subpage() && current != SettingsSection::AgentMCPServers {
+                    if current.is_ai_backed_subpage() {
                         if let Some(subpage) = AISubpage::from_section(current) {
                             self.ai_page_handle.update(ctx, |view, ctx| {
                                 view.set_active_subpage(Some(subpage), ctx);
@@ -1737,7 +1792,7 @@ impl SettingsView {
 
     fn handle_ai_page_event(&mut self, event: &AISettingsPageEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            AISettingsPageEvent::FocusModal => ctx.focus(&self.search_editor),
+            AISettingsPageEvent::FocusSearch => ctx.focus(&self.search_editor),
             AISettingsPageEvent::OpenAIFactCollection => {
                 ctx.emit(SettingsViewEvent::OpenAIFactCollection)
             }
@@ -1757,10 +1812,6 @@ impl SettingsView {
             }
             AISettingsPageEvent::SignupAnonymousUser => {
                 ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            AISettingsPageEvent::ShowModal | AISettingsPageEvent::HideModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
             }
         }
     }
@@ -1853,8 +1904,8 @@ impl SettingsView {
         // When navigating to a subpage, update the backing page's active subpage mode
         // and auto-expand the umbrella containing it.
         if section.is_subpage() {
-            // AI subpages: update the AI page's subpage mode.
-            if section.is_ai_subpage() && section != SettingsSection::AgentMCPServers {
+            // AI-backed subpages: update the AI page's subpage mode.
+            if section.is_ai_backed_subpage() {
                 let subpage = AISubpage::from_section(section);
                 self.ai_page_handle.update(ctx, |view, ctx| {
                     view.set_active_subpage(subpage, ctx);
@@ -2111,9 +2162,6 @@ impl SettingsView {
                 view.read(app, |view, _| view.get_modal_content())
             }
             SettingsPageViewHandle::MCPServers(view) => {
-                view.read(app, |view, _| view.get_modal_content(app))
-            }
-            SettingsPageViewHandle::AI(view) => {
                 view.read(app, |view, _| view.get_modal_content(app))
             }
             _ => None,

@@ -1,3 +1,9 @@
+use std::borrow::Cow;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+
 use ::ai::api_keys::ApiKeyManager;
 use chrono::{DateTime, Local};
 use enum_iterator::all;
@@ -28,17 +34,17 @@ use galaxyui::{
     ViewHandle,
 };
 use itertools::Itertools;
+use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_geometry::vector::vec2f;
 use regex::Regex;
 use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
 
 use super::execution_profile_view::{ExecutionProfileView, ExecutionProfileViewEvent};
-use super::provider_setup_modal::{
-    AcpProviderDraft, BedrockProviderDraft, ProviderSetupModalBody, ProviderSetupModalBodyEvent,
-    ProviderSetupModalState,
+use super::provider_setup_view::{
+    AcpProviderDraft, BedrockProviderDraft, ProviderSetupProviderType, ProviderSetupView,
+    ProviderSetupViewEvent,
 };
-use super::set_default_model_modal::{SetDefaultModelModalBody, SetDefaultModelModalBodyEvent};
 use super::settings_page::{
     build_sub_header, build_toggle_element, render_body_item_label,
     render_body_item_label_with_icon, render_custom_size_header, render_dropdown_item,
@@ -74,93 +80,49 @@ use crate::ai::llms::{
 };
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::paths::host_native_absolute_path;
+use crate::appearance::{Appearance, AppearanceEvent};
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::GenericStringObjectFormat::Json;
 use crate::cloud_object::{JsonObjectType, ObjectType};
 use crate::editor::{
-    EditorOptions, InteractionState, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
-    TextColors,
+    EditorOptions, EditorView, Event as EditorEvent, InteractionState,
+    PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextColors, TextOptions,
 };
-use crate::modal::{Modal, ModalEvent, ModalViewState};
-use crate::settings::ai::OpenAIProviderKind;
-use crate::settings::{
-    AIAutoDetectionEnabled, AICommandDenylist, AISettingsChangedEvent, AcpEnabled,
-    AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
-    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
-    BedrockEnabled, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled, FileBasedMcpEnabled,
-    GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
-    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
-    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled,
-    OpenAIProviderConfig, OrchestrationMessageDisplayMode, PromptSubmissionMode,
-    RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
-    ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
-    ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, WarpDriveContextEnabled,
-};
-use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
-use crate::terminal::CLIAgent;
-use crate::view_components::action_button::{
-    ActionButton, ButtonSize, DangerSecondaryTheme, SecondaryTheme,
-};
-use crate::view_components::{
-    render_warning_box, FilterableDropdown, SubmittableTextInput, SubmittableTextInputEvent,
-    WarningBoxConfig,
-};
-use crate::workspace::ToastStack;
-use crate::workspaces::user_workspaces::UserWorkspacesEvent;
-
-/// Identifies which subpage of the AI settings the user is viewing.
-/// When `None`, the page shows all widgets (legacy/full view).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AISubpage {
-    /// The main Galaxy Agent page: global AI toggle + Active AI + Input + Other sections.
-    WarpAgent,
-    /// Agent profiles and permissions.
-    Profiles,
-    /// Knowledge / Rules settings.
-    Knowledge,
-    /// Third-party CLI agent settings.
-    ThirdPartyCLIAgents,
-    /// Unified model and provider configuration.
-    Models,
-    /// Experimental features.
-    Experiments,
-}
-
-impl AISubpage {
-    pub fn from_section(section: SettingsSection) -> Option<Self> {
-        match section {
-            SettingsSection::WarpAgent => Some(Self::WarpAgent),
-            SettingsSection::AgentProfiles => Some(Self::Profiles),
-            SettingsSection::Knowledge => Some(Self::Knowledge),
-            SettingsSection::ThirdPartyCLIAgents => Some(Self::ThirdPartyCLIAgents),
-            SettingsSection::Models => Some(Self::Models),
-            SettingsSection::Experiments => Some(Self::Experiments),
-            // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
-            _ => None,
-        }
-    }
-}
-use std::borrow::Cow;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
-
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
-
-use crate::appearance::{Appearance, AppearanceEvent};
-use crate::editor::{EditorView, Event as EditorEvent, TextOptions};
 use crate::menu::{MenuItem, MenuItemFields};
 use crate::server::telemetry::{
     AgentModeAutoDetectionSettingOrigin, AutonomySettingToggleSource,
     ToggleCodeSuggestionsSettingSource,
 };
-use crate::settings::{AISettings, VoiceInputToggleKey};
+use crate::settings::ai::OpenAIProviderKind;
+use crate::settings::{
+    AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent, AcpEnabled,
+    AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
+    AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
+    BedrockEnabled, BedrockModelConfig, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled,
+    FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
+    IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
+    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled, OpenAIModelConfig,
+    OpenAIProviderConfig, OrchestrationMessageDisplayMode, PromptSubmissionMode,
+    RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
+    ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
+    ShowHintText, ThinkingDisplayMode, VoiceInputEnabled, VoiceInputToggleKey,
+    WarpDriveContextEnabled,
+};
+use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
+use crate::terminal::CLIAgent;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
 use crate::util::bindings;
+use crate::view_components::action_button::{
+    ActionButton, ButtonSize, DangerSecondaryTheme, SecondaryTheme,
+};
 use crate::view_components::dropdown::DropdownAction;
-use crate::view_components::{Dropdown, DropdownItem};
+use crate::view_components::{
+    render_warning_box, Dropdown, DropdownItem, FilterableDropdown, SubmittableTextInput,
+    SubmittableTextInputEvent, WarningBoxConfig,
+};
+use crate::workspace::ToastStack;
+use crate::workspaces::user_workspaces::UserWorkspacesEvent;
 use crate::workspaces::workspace::{AdminEnablementSetting, CustomerType};
 use crate::{
     report_error, report_if_error, send_telemetry_from_ctx, TelemetryEvent, UserWorkspaces,
@@ -184,6 +146,59 @@ const SHARED_BLOCK_TITLE_GENERATION_DESCRIPTION: &str =
 const GIT_OPERATIONS_AUTOGEN_DESCRIPTION: &str =
     "Let AI generate commit messages and pull request titles and descriptions.";
 const WISPR_FLOW_URL: &str = "https://wisprflow.ai/";
+
+/// Identifies which subpage of the AI settings the user is viewing.
+/// When `None`, the page shows all widgets (legacy/full view).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AISubpage {
+    /// The main Galaxy Agent page: global AI toggle + Active AI + Input + Other sections.
+    WarpAgent,
+    /// Agent profiles and permissions.
+    Profiles,
+    /// Knowledge / Rules settings.
+    Knowledge,
+    /// Third-party CLI agent settings.
+    ThirdPartyCLIAgents,
+    /// Unified model and provider configuration.
+    Models,
+    /// OpenAI provider settings.
+    ProviderOpenAI,
+    /// LiteLLM provider settings.
+    ProviderLiteLLM,
+    /// ChatGPT subscription provider settings.
+    ProviderChatGPTSubscription,
+    /// AWS Bedrock provider settings.
+    ProviderBedrock,
+    /// ACP provider settings.
+    ProviderACP,
+    /// Experimental features.
+    Experiments,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InlineProviderSetupState {
+    provider_type: ProviderSetupProviderType,
+}
+
+impl AISubpage {
+    pub fn from_section(section: SettingsSection) -> Option<Self> {
+        match section {
+            SettingsSection::WarpAgent => Some(Self::WarpAgent),
+            SettingsSection::AgentProfiles => Some(Self::Profiles),
+            SettingsSection::Knowledge => Some(Self::Knowledge),
+            SettingsSection::ThirdPartyCLIAgents => Some(Self::ThirdPartyCLIAgents),
+            SettingsSection::Models => Some(Self::Models),
+            SettingsSection::ProviderOpenAI => Some(Self::ProviderOpenAI),
+            SettingsSection::ProviderLiteLLM => Some(Self::ProviderLiteLLM),
+            SettingsSection::ProviderChatGPTSubscription => Some(Self::ProviderChatGPTSubscription),
+            SettingsSection::ProviderBedrock => Some(Self::ProviderBedrock),
+            SettingsSection::ProviderACP => Some(Self::ProviderACP),
+            SettingsSection::Experiments => Some(Self::Experiments),
+            // AgentMCPServers renders the standalone MCPServers page, not an AI subpage.
+            _ => None,
+        }
+    }
+}
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
     app: &mut AppContext,
@@ -689,9 +704,8 @@ pub struct AISettingsPageView {
     // Profile views
     profile_views: Vec<ViewHandle<ExecutionProfileView>>,
     add_profile_button: ViewHandle<ActionButton>,
-    provider_setup_modal_state: ProviderSetupModalState,
-    #[cfg(not(target_family = "wasm"))]
-    provider_setup_modal_body: ViewHandle<ProviderSetupModalBody>,
+    provider_setup_body: ViewHandle<ProviderSetupView>,
+    inline_provider_setup: Option<InlineProviderSetupState>,
 
     // Custom model router views (gated on FeatureFlag::CustomModelRouters)
     #[cfg(feature = "local_fs")]
@@ -715,7 +729,7 @@ impl AISettingsPageView {
             Ok(config) => config,
             Err(error) => {
                 log::warn!("Could not resolve ACP launch configuration for discovery: {error}");
-                self.provider_setup_modal_body.update(ctx, |body, ctx| {
+                self.provider_setup_body.update(ctx, |body, ctx| {
                     body.finish_acp_discovery(Err(error), Vec::new(), ctx);
                 });
                 return;
@@ -731,7 +745,7 @@ impl AISettingsPageView {
         agent_id: String,
         ctx: &mut ViewContext<Self>,
     ) {
-        let provider_setup_modal_body = self.provider_setup_modal_body.clone();
+        let provider_setup_body = self.provider_setup_body.clone();
         /*
          * The settings borrow must end before updating the runtime singleton.
          */
@@ -744,7 +758,7 @@ impl AISettingsPageView {
                 Err(error) => {
                     log::warn!("Could not start ACP discovery: {error}");
                     let error_text = error.to_string();
-                    provider_setup_modal_body.update(ctx, |body, ctx| {
+                    provider_setup_body.update(ctx, |body, ctx| {
                         body.finish_acp_discovery(Err(error_text), Vec::new(), ctx);
                     });
                     return;
@@ -783,7 +797,7 @@ impl AISettingsPageView {
                         crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
                             runtime.finish_discovery_success(option_count, ctx);
                         });
-                        provider_setup_modal_body.update(ctx, |body, ctx| {
+                        provider_setup_body.update(ctx, |body, ctx| {
                             body.finish_acp_discovery(Ok(()), config_options, ctx);
                         });
                     }
@@ -805,7 +819,7 @@ impl AISettingsPageView {
                         crate::ai::acp::AcpRuntimeModel::handle(ctx).update(ctx, |runtime, ctx| {
                             runtime.finish_discovery_failure(error_text.clone(), ctx);
                         });
-                        provider_setup_modal_body.update(ctx, |body, ctx| {
+                        provider_setup_body.update(ctx, |body, ctx| {
                             body.finish_acp_discovery(Err(error_text), Vec::new(), ctx);
                         });
                     }
@@ -1144,7 +1158,7 @@ impl AISettingsPageView {
                         settings.add_cli_agent_footer_enabled_command(command, ctx);
                     });
                 }
-                SubmittableTextInputEvent::Escape => ctx.emit(AISettingsPageEvent::FocusModal),
+                SubmittableTextInputEvent::Escape => ctx.emit(AISettingsPageEvent::FocusSearch),
             },
         );
 
@@ -1778,43 +1792,21 @@ impl AISettingsPageView {
             button.set_disabled(!is_any_ai_enabled, ctx);
         });
 
-        let provider_setup_body = ctx.add_typed_action_view(ProviderSetupModalBody::new);
+        let provider_setup_body = ctx.add_typed_action_view(ProviderSetupView::new);
         ctx.subscribe_to_view(&provider_setup_body, |me, _, event, ctx| match event {
-            ProviderSetupModalBodyEvent::Close => me.close_provider_setup_modal(ctx),
-            ProviderSetupModalBodyEvent::RequestAcpDiscovery(draft) => {
+            ProviderSetupViewEvent::Close => me.clear_inline_provider_setup(ctx),
+            ProviderSetupViewEvent::RequestAcpDiscovery(draft) => {
                 #[cfg(not(target_family = "wasm"))]
                 me.refresh_acp_discovery_for_draft(draft, ctx);
             }
-            ProviderSetupModalBodyEvent::SaveOpenAI {
+            ProviderSetupViewEvent::SaveOpenAI {
                 editing_index,
                 provider,
             } => me.save_provider_setup(*editing_index, provider.clone(), ctx),
-            ProviderSetupModalBodyEvent::SaveBedrock(draft) => {
+            ProviderSetupViewEvent::SaveBedrock(draft) => {
                 me.save_bedrock_provider(draft.clone(), ctx)
             }
-            ProviderSetupModalBodyEvent::SaveAcp(draft) => me.save_acp_provider(draft.clone(), ctx),
-        });
-        let provider_setup_modal_view = ctx.add_typed_action_view(|ctx| {
-            Modal::new(
-                Some("Add model provider".to_string()),
-                provider_setup_body.clone(),
-                ctx,
-            )
-            .with_modal_style(UiComponentStyles {
-                width: Some(900.),
-                height: Some(700.),
-                ..Default::default()
-            })
-            .with_body_style(UiComponentStyles {
-                height: Some(630.),
-                ..Default::default()
-            })
-            .with_dismiss_on_click()
-        });
-        ctx.subscribe_to_view(&provider_setup_modal_view, |me, _, event, ctx| {
-            if matches!(event, ModalEvent::Close) {
-                me.close_provider_setup_modal(ctx);
-            }
+            ProviderSetupViewEvent::SaveAcp(draft) => me.save_acp_provider(draft.clone(), ctx),
         });
 
         let agent_toolbar_inline_editor = ctx.add_typed_action_view(|ctx| {
@@ -1921,9 +1913,8 @@ impl AISettingsPageView {
             conversation_layout_dropdown,
             profile_views,
             add_profile_button,
-            provider_setup_modal_state: ModalViewState::new(provider_setup_modal_view),
-            #[cfg(not(target_family = "wasm"))]
-            provider_setup_modal_body: provider_setup_body,
+            provider_setup_body,
+            inline_provider_setup: None,
             #[cfg(feature = "local_fs")]
             router_views,
             #[cfg(feature = "local_fs")]
@@ -1944,52 +1935,48 @@ impl AISettingsPageView {
         ctx.notify();
     }
 
-    pub fn get_modal_content(&self, _app: &AppContext) -> Option<Box<dyn Element>> {
-        self.provider_setup_modal_state
-            .is_open()
-            .then(|| self.provider_setup_modal_state.render())
+    fn provider_setup_type_for_kind(kind: OpenAIProviderKind) -> ProviderSetupProviderType {
+        match kind {
+            OpenAIProviderKind::OpenAI => ProviderSetupProviderType::OpenAI,
+            OpenAIProviderKind::LiteLLM => ProviderSetupProviderType::LiteLLM,
+            OpenAIProviderKind::ChatGPTSubscription => {
+                ProviderSetupProviderType::ChatGPTSubscription
+            }
+            OpenAIProviderKind::Anthropic => ProviderSetupProviderType::Anthropic,
+            OpenAIProviderKind::Gemini => ProviderSetupProviderType::Gemini,
+            OpenAIProviderKind::VertexAI => ProviderSetupProviderType::VertexAI,
+        }
     }
 
-    fn open_provider_setup_modal(
+    fn begin_inline_provider_create(
         &mut self,
-        editing_index: Option<usize>,
+        provider_type: ProviderSetupProviderType,
         ctx: &mut ViewContext<Self>,
     ) {
-        let body = self
-            .provider_setup_modal_state
-            .view
-            .as_ref(ctx)
-            .body()
-            .clone();
-        body.update(ctx, |body, ctx| match editing_index {
-            Some(index) => {
-                let Some(provider) = AISettings::as_ref(ctx)
-                    .openai_providers
-                    .value()
-                    .get(index)
-                    .cloned()
-                else {
-                    return;
-                };
-                body.begin_edit(index, provider, ctx);
-            }
-            None => body.begin_create(ctx),
-        });
-        self.provider_setup_modal_state.open();
-        self.provider_setup_modal_state
-            .view
-            .update(ctx, |modal, ctx| {
-                modal.set_title(Some(if editing_index.is_some() {
-                    "Edit model provider".to_string()
-                } else {
-                    "Add model provider".to_string()
-                }));
-                ctx.notify();
-            });
-        ctx.emit(AISettingsPageEvent::ShowModal);
+        self.provider_setup_body
+            .update(ctx, |body, ctx| body.begin_create(provider_type, ctx));
+        self.inline_provider_setup = Some(InlineProviderSetupState { provider_type });
+        ctx.notify();
     }
 
-    fn open_bedrock_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
+    fn begin_inline_provider_edit(&mut self, provider_index: usize, ctx: &mut ViewContext<Self>) {
+        let Some(provider) = AISettings::as_ref(ctx)
+            .openai_providers
+            .value()
+            .get(provider_index)
+            .cloned()
+        else {
+            return;
+        };
+        let provider_type = Self::provider_setup_type_for_kind(provider.kind);
+        self.provider_setup_body.update(ctx, |body, ctx| {
+            body.begin_edit(provider_index, provider, ctx)
+        });
+        self.inline_provider_setup = Some(InlineProviderSetupState { provider_type });
+        ctx.notify();
+    }
+
+    fn begin_inline_bedrock_setup(&mut self, ctx: &mut ViewContext<Self>) {
         let settings = AISettings::as_ref(ctx);
         let draft = BedrockProviderDraft {
             name: settings.bedrock_connection_name.value().clone(),
@@ -2003,58 +1990,17 @@ impl AISettingsPageView {
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             models: settings.bedrock_models.value().clone(),
         };
-        let body = self
-            .provider_setup_modal_state
-            .view
-            .as_ref(ctx)
-            .body()
-            .clone();
-        body.update(ctx, |body, ctx| body.begin_edit_bedrock(draft.clone(), ctx));
-        self.provider_setup_modal_state.open();
-        self.provider_setup_modal_state
-            .view
-            .update(ctx, |modal, ctx| {
-                modal.set_title(Some("Edit AWS Bedrock provider".to_string()));
-                ctx.notify();
-            });
-        ctx.emit(AISettingsPageEvent::ShowModal);
+        self.provider_setup_body
+            .update(ctx, |body, ctx| body.begin_edit_bedrock(draft.clone(), ctx));
+        self.inline_provider_setup = Some(InlineProviderSetupState {
+            provider_type: ProviderSetupProviderType::Bedrock,
+        });
+        ctx.notify();
     }
 
-    fn open_acp_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        let settings = AISettings::as_ref(ctx);
-        let draft = AcpProviderDraft {
-            name: settings.acp_connection_name.value().clone(),
-            agent_id: settings.acp_agent_id.value().clone(),
-            command: settings.acp_agent_command.value().clone(),
-            args: settings.acp_agent_args.value().clone(),
-            config_options: settings
-                .acp_agents
-                .value()
-                .iter()
-                .find(|agent| agent.id.eq_ignore_ascii_case(settings.acp_agent_id.value()))
-                .map(|agent| agent.config_options.clone())
-                .unwrap_or_default(),
-        };
-        let body = self
-            .provider_setup_modal_state
-            .view
-            .as_ref(ctx)
-            .body()
-            .clone();
-        body.update(ctx, |body, ctx| body.begin_edit_acp(draft.clone(), ctx));
-        self.provider_setup_modal_state.open();
-        self.provider_setup_modal_state
-            .view
-            .update(ctx, |modal, ctx| {
-                modal.set_title(Some("Edit ACP provider".to_string()));
-                ctx.notify();
-            });
-        ctx.emit(AISettingsPageEvent::ShowModal);
-    }
-
-    fn close_provider_setup_modal(&mut self, ctx: &mut ViewContext<Self>) {
-        self.provider_setup_modal_state.close();
-        ctx.emit(AISettingsPageEvent::HideModal);
+    fn clear_inline_provider_setup(&mut self, ctx: &mut ViewContext<Self>) {
+        self.inline_provider_setup = None;
+        self.rebuild_active_subpage(ctx);
     }
 
     fn save_provider_setup(
@@ -2076,8 +2022,7 @@ impl AISettingsPageView {
             }
             report_if_error!(settings.openai_providers.set_value(providers, ctx));
         });
-        self.close_provider_setup_modal(ctx);
-        self.rebuild_active_subpage(ctx);
+        self.clear_inline_provider_setup(ctx);
     }
 
     fn save_bedrock_provider(&mut self, draft: BedrockProviderDraft, ctx: &mut ViewContext<Self>) {
@@ -2104,8 +2049,7 @@ impl AISettingsPageView {
             report_if_error!(settings.bedrock_connection_name.set_value(draft.name, ctx));
             report_if_error!(settings.bedrock_models.set_value(draft.models, ctx));
         });
-        self.close_provider_setup_modal(ctx);
-        self.rebuild_active_subpage(ctx);
+        self.clear_inline_provider_setup(ctx);
     }
 
     fn save_acp_provider(&mut self, draft: AcpProviderDraft, ctx: &mut ViewContext<Self>) {
@@ -2116,8 +2060,7 @@ impl AISettingsPageView {
             report_if_error!(settings.acp_agent_args.set_value(draft.args, ctx));
             report_if_error!(settings.acp_connection_name.set_value(draft.name, ctx));
         });
-        self.close_provider_setup_modal(ctx);
-        self.rebuild_active_subpage(ctx);
+        self.clear_inline_provider_setup(ctx);
     }
 
     /// Set the active subpage and rebuild the widget list to show only relevant widgets.
@@ -2249,9 +2192,38 @@ impl AISettingsPageView {
             }
             Some(AISubpage::Models) => {
                 widgets.push(Box::new(ModelsOverviewWidget));
-                widgets.push(Box::new(OpenAIProviderSettingsWidget::new(ctx)));
                 let title: Option<&str> = None;
                 return (PageType::new_uncategorized(widgets, title), None);
+            }
+            Some(AISubpage::ProviderOpenAI) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::OpenAI,
+                )));
+            }
+            Some(AISubpage::ProviderLiteLLM) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::LiteLLM,
+                )));
+            }
+            Some(AISubpage::ProviderChatGPTSubscription) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::ChatGPTSubscription,
+                )));
+            }
+            Some(AISubpage::ProviderBedrock) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::Bedrock,
+                )));
+            }
+            Some(AISubpage::ProviderACP) => {
+                widgets.push(Box::new(ProviderSettingsWidget::new(
+                    ctx,
+                    ProviderSetupProviderType::Acp,
+                )));
             }
             Some(AISubpage::Experiments) => {
                 widgets.push(Box::new(ExperimentsWidget::default()));
@@ -2300,11 +2272,11 @@ impl AISettingsPageView {
                 }
                 self.sync_context_window_editor(ctx, true);
                 if let EditorEvent::Enter = event {
-                    ctx.emit(AISettingsPageEvent::FocusModal);
+                    ctx.emit(AISettingsPageEvent::FocusSearch);
                 }
                 ctx.notify();
             }
-            EditorEvent::Escape => ctx.emit(AISettingsPageEvent::FocusModal),
+            EditorEvent::Escape => ctx.emit(AISettingsPageEvent::FocusSearch),
             _ => {}
         }
     }
@@ -2387,7 +2359,7 @@ impl AISettingsPageView {
                     }
                 })
             }
-            EditorEvent::Escape => ctx.emit(AISettingsPageEvent::FocusModal),
+            EditorEvent::Escape => ctx.emit(AISettingsPageEvent::FocusSearch),
             _ => {}
         }
     }
@@ -2930,7 +2902,7 @@ impl View for AISettingsPageView {
 
 #[allow(clippy::large_enum_variant)]
 pub enum AISettingsPageEvent {
-    FocusModal,
+    FocusSearch,
     OpenAIFactCollection,
     OpenMCPServerCollection,
     #[cfg(feature = "local_fs")]
@@ -2939,8 +2911,6 @@ pub enum AISettingsPageEvent {
     OpenCustomRouterFile(PathBuf),
     OpenExecutionProfileEditor(ClientProfileId),
     SignupAnonymousUser,
-    ShowModal,
-    HideModal,
 }
 
 impl Entity for AISettingsPageView {
@@ -3013,14 +2983,12 @@ pub enum AISettingsPageAction {
     CopyChatGPTDeviceCode,
     ToggleAcpEnabled,
     FetchOpenAIProviderModels(usize),
-    AddOpenAIProvider,
+    AddOpenAIProvider(ProviderSetupProviderType),
     EditOpenAIProvider(usize),
     ToggleOpenAIProviderEnabled(usize),
     RemoveOpenAIProvider(usize),
     EditBedrockProvider,
     RemoveBedrockProvider,
-    EditAcpProvider,
-    RemoveAcpProvider,
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -3752,11 +3720,11 @@ impl TypedActionView for AISettingsPageView {
             AISettingsPageAction::FetchOpenAIProviderModels(provider_index) => {
                 self.fetch_openai_provider_models(*provider_index, ctx);
             }
-            AISettingsPageAction::AddOpenAIProvider => {
-                self.open_provider_setup_modal(None, ctx);
+            AISettingsPageAction::AddOpenAIProvider(provider_type) => {
+                self.begin_inline_provider_create(*provider_type, ctx);
             }
             AISettingsPageAction::EditOpenAIProvider(provider_index) => {
-                self.open_provider_setup_modal(Some(*provider_index), ctx);
+                self.begin_inline_provider_edit(*provider_index, ctx);
             }
             AISettingsPageAction::ToggleOpenAIProviderEnabled(provider_index) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3778,7 +3746,7 @@ impl TypedActionView for AISettingsPageView {
                 self.rebuild_active_subpage(ctx);
             }
             AISettingsPageAction::EditBedrockProvider => {
-                self.open_bedrock_setup_modal(ctx);
+                self.begin_inline_bedrock_setup(ctx);
             }
             AISettingsPageAction::RemoveBedrockProvider => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -3803,22 +3771,6 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings
                         .bedrock_connection_name
                         .set_value("AWS Bedrock".to_string(), ctx,));
-                });
-                self.rebuild_active_subpage(ctx);
-            }
-            AISettingsPageAction::EditAcpProvider => {
-                self.open_acp_setup_modal(ctx);
-            }
-            AISettingsPageAction::RemoveAcpProvider => {
-                AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                    report_if_error!(settings.acp_enabled.set_value(false, ctx));
-                    report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
-                    report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
-                    report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
-                    report_if_error!(settings
-                        .acp_connection_name
-                        .set_value("ACP agent runtime".to_string(), ctx,));
-                    report_if_error!(settings.acp_agents.set_value(Vec::new(), ctx));
                 });
                 self.rebuild_active_subpage(ctx);
             }
@@ -7130,7 +7082,31 @@ impl SettingsWidget for ModelsOverviewWidget {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let settings = AISettings::as_ref(app);
-        let endpoint_count = settings.openai_providers.value().len();
+        let openai_count = settings
+            .openai_providers
+            .value()
+            .iter()
+            .filter(|provider| {
+                ModelProviderSection::for_provider(provider) == ModelProviderSection::OpenAI
+            })
+            .count();
+        let litellm_count = settings
+            .openai_providers
+            .value()
+            .iter()
+            .filter(|provider| {
+                ModelProviderSection::for_provider(provider) == ModelProviderSection::LiteLLM
+            })
+            .count();
+        let chatgpt_count = settings
+            .openai_providers
+            .value()
+            .iter()
+            .filter(|provider| {
+                ModelProviderSection::for_provider(provider)
+                    == ModelProviderSection::ChatGPTSubscription
+            })
+            .count();
         let endpoint_model_count = settings
             .openai_providers
             .value()
@@ -7144,18 +7120,38 @@ impl SettingsWidget for ModelsOverviewWidget {
             .with_spacing(8.)
             .with_child(build_sub_header(appearance, "Models", None).finish())
             .with_child(render_ai_setting_description(
-                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI-compatible, Anthropic, Gemini, Vertex AI, and Bedrock models run through Rig. ACP coding agents use the same Galaxy runtime boundary while retaining their own model, login, session, and tool loop.",
+                "Configure Galaxy's direct model providers and agent runtimes in one place. OpenAI, LiteLLM, ChatGPT subscription, and Bedrock connections are configured here. ACP coding agents are shown read-only because the agent runtime controls their model, login, session, and tool loop.",
                 true,
                 app,
             ))
             .with_child(render_ai_setting_description(
                 format!(
-                    "{endpoint_count} configured provider(s) with {endpoint_model_count} model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled agent runtime(s)."
+                    "{openai_count} OpenAI provider(s); {litellm_count} LiteLLM provider(s); {chatgpt_count} ChatGPT subscription provider(s); {endpoint_model_count} direct model(s); {bedrock_model_count} Bedrock model(s); {agent_runtime_count} enabled ACP runtime(s)."
                 ),
                 true,
                 app,
             ))
             .finish()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModelProviderSection {
+    OpenAI,
+    LiteLLM,
+    ChatGPTSubscription,
+}
+
+impl ModelProviderSection {
+    fn for_provider(provider: &OpenAIProviderConfig) -> Self {
+        match provider.kind {
+            OpenAIProviderKind::OpenAI
+            | OpenAIProviderKind::Anthropic
+            | OpenAIProviderKind::Gemini
+            | OpenAIProviderKind::VertexAI => Self::OpenAI,
+            OpenAIProviderKind::LiteLLM => Self::LiteLLM,
+            OpenAIProviderKind::ChatGPTSubscription => Self::ChatGPTSubscription,
+        }
     }
 }
 
@@ -7165,20 +7161,25 @@ struct OpenAIProviderCardState {
     remove_button: ViewHandle<ActionButton>,
 }
 
-struct OpenAIProviderSettingsWidget {
+struct ProviderSettingsWidget {
+    provider_type: ProviderSetupProviderType,
     enabled_toggle: SwitchStateHandle,
     bedrock_enabled_toggle: SwitchStateHandle,
-    acp_enabled_toggle: SwitchStateHandle,
+    add_openai_provider_button: ViewHandle<ActionButton>,
+    add_litellm_provider_button: ViewHandle<ActionButton>,
+    add_chatgpt_provider_button: ViewHandle<ActionButton>,
+    bedrock_add_button: ViewHandle<ActionButton>,
+    acp_add_button: ViewHandle<ActionButton>,
     bedrock_edit_button: ViewHandle<ActionButton>,
     bedrock_remove_button: ViewHandle<ActionButton>,
-    acp_edit_button: ViewHandle<ActionButton>,
-    acp_remove_button: ViewHandle<ActionButton>,
-    add_provider_button: ViewHandle<ActionButton>,
     provider_cards: Vec<OpenAIProviderCardState>,
 }
 
-impl OpenAIProviderSettingsWidget {
-    fn new(ctx: &mut ViewContext<<Self as SettingsWidget>::View>) -> Self {
+impl ProviderSettingsWidget {
+    fn new(
+        ctx: &mut ViewContext<<Self as SettingsWidget>::View>,
+        provider_type: ProviderSetupProviderType,
+    ) -> Self {
         let providers = AISettings::as_ref(ctx).openai_providers.value().clone();
         let provider_cards = providers
             .iter()
@@ -7199,11 +7200,47 @@ impl OpenAIProviderSettingsWidget {
                 }),
             })
             .collect();
-        let add_provider_button = ctx.add_typed_action_view(|_| {
+        let add_openai_provider_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Add provider", SecondaryTheme)
                 .with_icon(Icon::Plus)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider);
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider(
+                        ProviderSetupProviderType::OpenAI,
+                    ));
+                })
+        });
+        let add_litellm_provider_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider(
+                        ProviderSetupProviderType::LiteLLM,
+                    ));
+                })
+        });
+        let add_chatgpt_provider_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider(
+                        ProviderSetupProviderType::ChatGPTSubscription,
+                    ));
+                })
+        });
+        let bedrock_add_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::EditBedrockProvider);
+                })
+        });
+        let acp_add_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Add provider", SecondaryTheme)
+                .with_icon(Icon::Plus)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(AISettingsPageAction::AddOpenAIProvider(
+                        ProviderSetupProviderType::Acp,
+                    ));
                 })
         });
         let bedrock_edit_button = ctx.add_typed_action_view(|_| {
@@ -7216,26 +7253,18 @@ impl OpenAIProviderSettingsWidget {
                 ctx.dispatch_typed_action(AISettingsPageAction::RemoveBedrockProvider);
             })
         });
-        let acp_edit_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Edit", SecondaryTheme).on_click(|ctx| {
-                ctx.dispatch_typed_action(AISettingsPageAction::EditAcpProvider);
-            })
-        });
-        let acp_remove_button = ctx.add_typed_action_view(|_| {
-            ActionButton::new("Delete", DangerSecondaryTheme).on_click(|ctx| {
-                ctx.dispatch_typed_action(AISettingsPageAction::RemoveAcpProvider);
-            })
-        });
 
         Self {
+            provider_type,
             enabled_toggle: SwitchStateHandle::default(),
             bedrock_enabled_toggle: SwitchStateHandle::default(),
-            acp_enabled_toggle: SwitchStateHandle::default(),
+            add_openai_provider_button,
+            add_litellm_provider_button,
+            add_chatgpt_provider_button,
+            bedrock_add_button,
+            acp_add_button,
             bedrock_edit_button,
             bedrock_remove_button,
-            acp_edit_button,
-            acp_remove_button,
-            add_provider_button,
             provider_cards,
         }
     }
@@ -7258,12 +7287,204 @@ impl OpenAIProviderSettingsWidget {
 
     fn provider_type(provider: &OpenAIProviderConfig) -> &'static str {
         match provider.kind {
-            OpenAIProviderKind::OpenAICompatible => "OpenAI-compatible API",
+            OpenAIProviderKind::OpenAI => "OpenAI",
+            OpenAIProviderKind::LiteLLM => "LiteLLM",
             OpenAIProviderKind::ChatGPTSubscription => "ChatGPT subscription",
             OpenAIProviderKind::Anthropic => "Anthropic",
             OpenAIProviderKind::Gemini => "Google Gemini",
             OpenAIProviderKind::VertexAI => "Google Vertex AI",
         }
+    }
+
+    fn format_openai_model_details(model: &OpenAIModelConfig) -> String {
+        let mut details = vec![
+            if model.enabled { "Enabled" } else { "Disabled" }.to_string(),
+            format!("Context: {}", model.context_size),
+        ];
+
+        if let Some(max_input_tokens) = model.max_input_tokens {
+            details.push(format!("Max input: {max_input_tokens}"));
+        }
+        if let Some(max_output_tokens) = model.max_output_tokens {
+            details.push(format!("Max output: {max_output_tokens}"));
+        }
+        if model.effective_vision_supported() {
+            details.push("Images".to_string());
+        }
+        if model.use_rig {
+            details.push("Rig".to_string());
+        }
+        if !model.reasoning_efforts.is_empty() {
+            details.push(format!("Reasoning: {}", model.reasoning_efforts.join(", ")));
+        }
+        if !model.capability_overrides.is_empty() {
+            let overrides = model
+                .capability_overrides
+                .iter()
+                .sorted_by_key(|(key, _)| key.as_str())
+                .map(|(key, value)| format!("{}: {}", key.replace('_', " "), value.label()))
+                .join(", ");
+            details.push(format!("Overrides: {overrides}"));
+        }
+
+        details.join(" · ")
+    }
+
+    fn render_model_row(
+        display_name: String,
+        model_id: String,
+        details: String,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        Container::new(
+            Flex::column()
+                .with_spacing(3.)
+                .with_child(
+                    Text::new(display_name, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Semibold))
+                        .finish(),
+                )
+                .with_child(
+                    Text::new(model_id, appearance.monospace_font_family(), 10.)
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .soft_wrap(true)
+                        .finish(),
+                )
+                .with_child(
+                    Text::new(details, appearance.ui_font_family(), 11.)
+                        .with_color(appearance.theme().nonactive_ui_text_color().into())
+                        .soft_wrap(true)
+                        .finish(),
+                )
+                .finish(),
+        )
+        .with_padding(Padding::uniform(10.))
+        .with_border(Border::bottom(1.).with_border_fill(appearance.theme().outline()))
+        .finish()
+    }
+
+    fn render_model_catalog(
+        rows: Vec<Box<dyn Element>>,
+        empty_message: &'static str,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        if rows.is_empty() {
+            return Text::new(
+                empty_message,
+                appearance.ui_font_family(),
+                CONTENT_FONT_SIZE,
+            )
+            .with_color(appearance.theme().nonactive_ui_text_color().into())
+            .soft_wrap(true)
+            .finish();
+        }
+
+        Container::new(Flex::column().with_children(rows).finish())
+            .with_background(appearance.theme().surface_2())
+            .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+            .finish()
+    }
+
+    fn render_openai_model_catalog(
+        provider: &OpenAIProviderConfig,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        let rows = provider
+            .models
+            .iter()
+            .map(|model| {
+                Self::render_model_row(
+                    model.display_name.clone(),
+                    model.model_id.clone(),
+                    Self::format_openai_model_details(model),
+                    appearance,
+                )
+            })
+            .collect::<Vec<_>>();
+        Self::render_model_catalog(
+            rows,
+            "No models configured for this connection.",
+            appearance,
+        )
+    }
+
+    fn render_bedrock_model_catalog(
+        models: &[BedrockModelConfig],
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        let rows = models
+            .iter()
+            .map(|model| {
+                let mut details = Vec::new();
+                if model.vision_supported {
+                    details.push("Images".to_string());
+                }
+                if model.use_rig {
+                    details.push("Rig".to_string());
+                }
+                Self::render_model_row(
+                    model.display_name.clone(),
+                    model.model_id.clone(),
+                    if details.is_empty() {
+                        "Available".to_string()
+                    } else {
+                        details.join(" · ")
+                    },
+                    appearance,
+                )
+            })
+            .collect::<Vec<_>>();
+        Self::render_model_catalog(rows, "No Bedrock models discovered yet.", appearance)
+    }
+
+    fn render_acp_model_catalog(appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
+        let settings = AISettings::as_ref(app);
+        let selected_agent_id = settings.acp_agent_id.value();
+        let Some(agent) = settings
+            .acp_agents
+            .value()
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(selected_agent_id))
+        else {
+            return Text::new(
+                "No ACP model or mode catalog has been discovered yet.",
+                appearance.ui_font_family(),
+                CONTENT_FONT_SIZE,
+            )
+            .with_color(appearance.theme().nonactive_ui_text_color().into())
+            .soft_wrap(true)
+            .finish();
+        };
+
+        let rows = agent
+            .config_options
+            .iter()
+            .filter(|option| {
+                matches!(
+                    option.category.as_deref(),
+                    Some("model") | Some("thought_level") | Some("mode")
+                )
+            })
+            .map(|option| {
+                let details = if option.options.is_empty() {
+                    option.current_value.to_string()
+                } else {
+                    option
+                        .options
+                        .iter()
+                        .map(|value| value.name.as_str())
+                        .join(", ")
+                };
+                Self::render_model_row(option.name.clone(), option.id.clone(), details, appearance)
+            })
+            .collect::<Vec<_>>();
+        Self::render_model_catalog(
+            rows,
+            "No ACP model or mode catalog has been discovered yet.",
+            appearance,
+        )
     }
 
     fn render_provider_card(
@@ -7356,6 +7577,7 @@ impl OpenAIProviderSettingsWidget {
                 .with_child(header)
                 .with_child(summary)
                 .with_child(enablement)
+                .with_child(Self::render_openai_model_catalog(provider, appearance))
                 .finish(),
         )
         .with_padding(Padding::uniform(16.))
@@ -7365,24 +7587,22 @@ impl OpenAIProviderSettingsWidget {
         .finish()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn render_builtin_provider_card(
+    fn render_bedrock_provider_card(
         &self,
         title: &str,
         description: &'static str,
         enabled: bool,
-        toggle: SwitchStateHandle,
-        action: AISettingsPageAction,
-        edit_button: &ViewHandle<ActionButton>,
-        remove_button: &ViewHandle<ActionButton>,
         appearance: &Appearance,
+        app: &AppContext,
     ) -> Box<dyn Element> {
         let toggle = appearance
             .ui_builder()
-            .switch(toggle)
+            .switch(self.bedrock_enabled_toggle.clone())
             .check(enabled)
             .build()
-            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(action.clone()))
+            .on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(AISettingsPageAction::ToggleBedrockEnabled);
+            })
             .finish();
         let header = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
@@ -7412,8 +7632,8 @@ impl OpenAIProviderSettingsWidget {
             .with_child(
                 Flex::row()
                     .with_spacing(8.)
-                    .with_child(ChildView::new(edit_button).finish())
-                    .with_child(ChildView::new(remove_button).finish())
+                    .with_child(ChildView::new(&self.bedrock_edit_button).finish())
+                    .with_child(ChildView::new(&self.bedrock_remove_button).finish())
                     .finish(),
             )
             .finish();
@@ -7437,6 +7657,10 @@ impl OpenAIProviderSettingsWidget {
                         )
                         .finish(),
                 )
+                .with_child(Self::render_bedrock_model_catalog(
+                    AISettings::as_ref(app).bedrock_models.value(),
+                    appearance,
+                ))
                 .finish(),
         )
         .with_padding(Padding::uniform(16.))
@@ -7445,13 +7669,210 @@ impl OpenAIProviderSettingsWidget {
         .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
         .finish()
     }
+
+    fn render_acp_provider_card(
+        &self,
+        title: &str,
+        description: &'static str,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let settings = AISettings::as_ref(app);
+        let status = format!("Read-only · Agent: {}", settings.acp_agent_id.value());
+        let header = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(
+                Flex::column()
+                    .with_spacing(4.)
+                    .with_child(
+                        Text::new(
+                            title.to_string(),
+                            appearance.ui_font_family(),
+                            appearance.header_font_size(),
+                        )
+                        .with_color(appearance.theme().active_ui_text_color().into())
+                        .with_style(Properties::default().weight(Weight::Bold))
+                        .finish(),
+                    )
+                    .with_child(
+                        Text::new(description, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                            .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .soft_wrap(true)
+                            .finish(),
+                    )
+                    .finish(),
+            )
+            .with_child(
+                Text::new(status, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .finish(),
+            )
+            .finish();
+
+        Container::new(
+            Flex::column()
+                .with_spacing(12.)
+                .with_child(header)
+                .with_child(Self::render_acp_model_catalog(appearance, app))
+                .finish(),
+        )
+        .with_padding(Padding::uniform(16.))
+        .with_background(appearance.theme().surface_1())
+        .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
+        .finish()
+    }
+
+    fn render_inline_setup(appearance: &Appearance, view: &AISettingsPageView) -> Box<dyn Element> {
+        Container::new(ChildView::new(&view.provider_setup_body).finish())
+            .with_padding(Padding::uniform(16.))
+            .with_background(appearance.theme().surface_1())
+            .with_border(Border::all(1.).with_border_fill(appearance.theme().outline()))
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
+            .finish()
+    }
+
+    fn model_section_for_provider_type(
+        provider_type: ProviderSetupProviderType,
+    ) -> Option<ModelProviderSection> {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => Some(ModelProviderSection::OpenAI),
+            ProviderSetupProviderType::LiteLLM => Some(ModelProviderSection::LiteLLM),
+            ProviderSetupProviderType::ChatGPTSubscription => {
+                Some(ModelProviderSection::ChatGPTSubscription)
+            }
+            ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI
+            | ProviderSetupProviderType::Bedrock
+            | ProviderSetupProviderType::Acp => None,
+        }
+    }
+
+    fn provider_page_title(provider_type: ProviderSetupProviderType) -> &'static str {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => "OpenAI",
+            ProviderSetupProviderType::LiteLLM => "LiteLLM",
+            ProviderSetupProviderType::ChatGPTSubscription => "ChatGPT Subscription",
+            ProviderSetupProviderType::Bedrock => "Bedrock",
+            ProviderSetupProviderType::Acp => "ACP",
+            ProviderSetupProviderType::Anthropic => "Anthropic",
+            ProviderSetupProviderType::Gemini => "Google Gemini",
+            ProviderSetupProviderType::VertexAI => "Google Vertex AI",
+        }
+    }
+
+    fn provider_page_description(provider_type: ProviderSetupProviderType) -> &'static str {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => {
+                "Connect directly to OpenAI-compatible OpenAI API endpoints and configure the models available from each connection."
+            }
+            ProviderSetupProviderType::LiteLLM => {
+                "Connect LiteLLM endpoints and use LiteLLM model metadata APIs during model discovery."
+            }
+            ProviderSetupProviderType::ChatGPTSubscription => {
+                "Use your ChatGPT subscription through the supported authentication flow."
+            }
+            ProviderSetupProviderType::Bedrock => {
+                "Use AWS Bedrock credentials and discovered Bedrock foundation models."
+            }
+            ProviderSetupProviderType::Acp => {
+                "Add an ACP agent connection here. After it is added, Settings shows it read-only because the agent controls its model, login, session, and tool loop."
+            }
+            ProviderSetupProviderType::Anthropic => "Connect directly to Anthropic.",
+            ProviderSetupProviderType::Gemini => "Connect directly to Google Gemini.",
+            ProviderSetupProviderType::VertexAI => "Connect directly to Google Vertex AI.",
+        }
+    }
+
+    fn empty_message_for_type(provider_type: ProviderSetupProviderType) -> &'static str {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => "No OpenAI provider configured.",
+            ProviderSetupProviderType::LiteLLM => "No LiteLLM provider configured.",
+            ProviderSetupProviderType::ChatGPTSubscription => {
+                "No ChatGPT subscription provider configured."
+            }
+            ProviderSetupProviderType::Bedrock => "No Bedrock provider configured.",
+            ProviderSetupProviderType::Acp => "No ACP agent connection configured.",
+            ProviderSetupProviderType::Anthropic => "No Anthropic provider configured.",
+            ProviderSetupProviderType::Gemini => "No Google Gemini provider configured.",
+            ProviderSetupProviderType::VertexAI => "No Google Vertex AI provider configured.",
+        }
+    }
+
+    fn add_button_for_type(
+        &self,
+        provider_type: ProviderSetupProviderType,
+    ) -> Option<&ViewHandle<ActionButton>> {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => Some(&self.add_openai_provider_button),
+            ProviderSetupProviderType::LiteLLM => Some(&self.add_litellm_provider_button),
+            ProviderSetupProviderType::ChatGPTSubscription => {
+                Some(&self.add_chatgpt_provider_button)
+            }
+            ProviderSetupProviderType::Bedrock => Some(&self.bedrock_add_button),
+            ProviderSetupProviderType::Acp => Some(&self.acp_add_button),
+            ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI => None,
+        }
+    }
+
+    fn render_provider_section(
+        title: &'static str,
+        description: &'static str,
+        add_button: Option<&ViewHandle<ActionButton>>,
+        cards: Vec<Box<dyn Element>>,
+        empty_message: &'static str,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        let mut header = Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_child(build_sub_header(appearance, title, None).finish());
+        if let Some(button) = add_button {
+            header = header.with_child(ChildView::new(button).finish());
+        }
+
+        let mut section = Flex::column()
+            .with_spacing(10.)
+            .with_child(header.finish())
+            .with_child(
+                Text::new(description, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+            );
+
+        if cards.is_empty() {
+            section = section.with_child(
+                Text::new(
+                    empty_message,
+                    appearance.ui_font_family(),
+                    CONTENT_FONT_SIZE,
+                )
+                .with_color(appearance.theme().nonactive_ui_text_color().into())
+                .soft_wrap(true)
+                .finish(),
+            );
+        } else {
+            for card in cards {
+                section.add_child(card);
+            }
+        }
+
+        section.finish()
+    }
 }
 
-impl SettingsWidget for OpenAIProviderSettingsWidget {
+impl SettingsWidget for ProviderSettingsWidget {
     type View = AISettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "openai chatgpt pro subscription litellm custom provider endpoint api key models"
+        "openai chatgpt pro subscription litellm custom provider endpoint api key models acp agent client protocol"
     }
 
     fn should_render(&self, _app: &AppContext) -> bool {
@@ -7460,84 +7881,135 @@ impl SettingsWidget for OpenAIProviderSettingsWidget {
 
     fn render(
         &self,
-        _view: &Self::View,
+        view: &Self::View,
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
         let settings = AISettings::as_ref(app);
-        let is_enabled = *settings.openai_enabled.value();
         let providers = settings.openai_providers.value();
 
-        let mut column = Flex::column().with_spacing(16.);
-        column.add_child(
-            Flex::row()
-                .with_main_axis_size(MainAxisSize::Max)
-                .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(build_sub_header(appearance, "Model providers", None).finish())
-                .with_child(ChildView::new(&self.add_provider_button).finish())
-                .finish(),
-        );
-        column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
-            "Enable model providers",
-            AISettingsPageAction::ToggleOpenAIEnabled,
-            is_enabled,
-            true,
-            self.enabled_toggle.clone(),
-            &RefCell::new(HashMap::new()),
-            app,
-        ));
-        column.add_child(render_ai_setting_description(
-            "Connect a ChatGPT subscription, OpenAI-compatible endpoint, Anthropic, Gemini, Vertex AI, AWS Bedrock account, or ACP agent runtime. Each provider can be enabled independently.",
-            true,
-            app,
-        ));
+        let mut column = Flex::column().with_spacing(18.);
 
-        let has_configured_builtin_provider = !settings.bedrock_models.value().is_empty()
-            || (cfg!(unix)
-                && FeatureFlag::AgentClientProtocol.is_enabled()
-                && *settings.acp_enabled.value());
+        let is_setup_visible = view
+            .inline_provider_setup
+            .is_some_and(|state| state.provider_type == self.provider_type);
 
-        if !settings.bedrock_models.value().is_empty() {
-            column.add_child(self.render_builtin_provider_card(
-                settings.bedrock_connection_name.value().as_str(),
-                "Use AWS credentials to access Bedrock foundation models directly.",
-                *settings.bedrock_enabled.value(),
-                self.bedrock_enabled_toggle.clone(),
-                AISettingsPageAction::ToggleBedrockEnabled,
-                &self.bedrock_edit_button,
-                &self.bedrock_remove_button,
-                appearance,
-            ));
-        }
-        if cfg!(unix)
-            && FeatureFlag::AgentClientProtocol.is_enabled()
-            && *settings.acp_enabled.value()
-        {
-            column.add_child(self.render_builtin_provider_card(
-                settings.acp_connection_name.value().as_str(),
-                "Use a local session-oriented agent that owns its model and authentication.",
-                *settings.acp_enabled.value(),
-                self.acp_enabled_toggle.clone(),
-                AISettingsPageAction::ToggleAcpEnabled,
-                &self.acp_edit_button,
-                &self.acp_remove_button,
-                appearance,
-            ));
-        }
+        match self.provider_type {
+            ProviderSetupProviderType::OpenAI
+            | ProviderSetupProviderType::LiteLLM
+            | ProviderSetupProviderType::ChatGPTSubscription => {
+                column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
+                    "Enable direct providers",
+                    AISettingsPageAction::ToggleOpenAIEnabled,
+                    *settings.openai_enabled.value(),
+                    true,
+                    self.enabled_toggle.clone(),
+                    &RefCell::new(HashMap::new()),
+                    app,
+                ));
 
-        if providers.is_empty() && !has_configured_builtin_provider {
-            column.add_child(render_ai_setting_description(
-                "No providers configured. Select Add provider to get started.",
-                is_enabled,
-                app,
-            ));
-        } else {
-            for (index, provider) in providers.iter().enumerate() {
-                column.add_child(Self::render_provider_card(
-                    self, index, provider, appearance,
+                if is_setup_visible {
+                    column.add_child(Self::render_inline_setup(appearance, view));
+                }
+
+                let cards = Self::model_section_for_provider_type(self.provider_type)
+                    .map(|section| {
+                        providers
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, provider)| {
+                                ModelProviderSection::for_provider(provider) == section
+                            })
+                            .map(|(index, provider)| {
+                                self.render_provider_card(index, provider, appearance)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                column.add_child(Self::render_provider_section(
+                    Self::provider_page_title(self.provider_type),
+                    Self::provider_page_description(self.provider_type),
+                    if is_setup_visible {
+                        None
+                    } else {
+                        self.add_button_for_type(self.provider_type)
+                    },
+                    cards,
+                    Self::empty_message_for_type(self.provider_type),
+                    appearance,
                 ));
             }
+            ProviderSetupProviderType::Bedrock => {
+                if is_setup_visible {
+                    column.add_child(Self::render_inline_setup(appearance, view));
+                }
+
+                let bedrock_cards = if settings.bedrock_models.value().is_empty() {
+                    Vec::new()
+                } else {
+                    vec![self.render_bedrock_provider_card(
+                        settings.bedrock_connection_name.value().as_str(),
+                        "Use AWS credentials to access Bedrock foundation models directly.",
+                        *settings.bedrock_enabled.value(),
+                        appearance,
+                        app,
+                    )]
+                };
+                let bedrock_add_button =
+                    if !is_setup_visible && settings.bedrock_models.value().is_empty() {
+                        Some(&self.bedrock_add_button)
+                    } else {
+                        None
+                    };
+                column.add_child(Self::render_provider_section(
+                    "Bedrock",
+                    "Use AWS Bedrock credentials and discovered Bedrock foundation models.",
+                    bedrock_add_button,
+                    bedrock_cards,
+                    "No Bedrock provider configured.",
+                    appearance,
+                ));
+            }
+            ProviderSetupProviderType::Acp => {
+                if is_setup_visible {
+                    column.add_child(Self::render_inline_setup(appearance, view));
+                }
+
+                let acp_supported = cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled();
+                let acp_cards = if acp_supported && *settings.acp_enabled.value() {
+                    vec![self.render_acp_provider_card(
+                            settings.acp_connection_name.value().as_str(),
+                            "Use a local session-oriented agent that owns its model, login, session, and tool loop.",
+                            appearance,
+                            app,
+                        )]
+                } else {
+                    Vec::new()
+                };
+                let acp_add_button =
+                    if acp_supported && !is_setup_visible && !*settings.acp_enabled.value() {
+                        Some(&self.acp_add_button)
+                    } else {
+                        None
+                    };
+                let empty_message = if acp_supported {
+                    "No ACP agent connection configured."
+                } else {
+                    "ACP providers are not available on this platform."
+                };
+                column.add_child(Self::render_provider_section(
+                    "ACP",
+                    "Add an ACP agent connection here. After it is added, Settings shows it read-only because the agent controls its model, login, session, and tool loop.",
+                    acp_add_button,
+                    acp_cards,
+                    empty_message,
+                    appearance,
+                ));
+            }
+            ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI => {}
         }
 
         column.finish()

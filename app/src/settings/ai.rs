@@ -978,10 +978,13 @@ impl ModelCapabilityOverride {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum OpenAIProviderKind {
-    /// A regular OpenAI-compatible `/chat/completions` endpoint.
-    #[serde(alias = "openai")]
+    /// OpenAI's native Chat Completions API.
+    #[serde(rename = "openai", alias = "open_ai")]
+    OpenAI,
+    /// A LiteLLM endpoint using the OpenAI-compatible API plus LiteLLM metadata APIs.
+    #[serde(rename = "litellm", alias = "openai_compatible")]
     #[default]
-    OpenAICompatible,
+    LiteLLM,
     /// The ChatGPT subscription backend, authenticated with ChatGPT OAuth.
     ChatGPTSubscription,
     /// Anthropic's native Messages API.
@@ -993,14 +996,12 @@ pub enum OpenAIProviderKind {
     VertexAI,
 }
 
-/// Configuration for a single OpenAI-compatible provider endpoint.
+/// Configuration for a single direct model provider endpoint.
 ///
-/// Multiple providers can be configured simultaneously (e.g. LiteLLM for cloud models,
-/// Ollama for local models, etc.). Each provider has its own endpoint, credentials, and model list.
+/// Multiple providers can be configured simultaneously. Each provider has its own endpoint,
+/// credentials, and model list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
-#[schemars(
-    description = "Configuration for an OpenAI-compatible provider endpoint (e.g. LiteLLM, Ollama, vLLM)."
-)]
+#[schemars(description = "Configuration for a direct model provider endpoint.")]
 pub struct OpenAIProviderConfig {
     #[serde(default)]
     #[schemars(description = "Provider protocol and authentication kind.")]
@@ -1114,7 +1115,7 @@ pub(crate) fn default_chatgpt_provider() -> OpenAIProviderConfig {
 fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
     vec![
         OpenAIProviderConfig {
-            kind: OpenAIProviderKind::OpenAICompatible,
+            kind: OpenAIProviderKind::LiteLLM,
             enabled: true,
             name: "LiteLLM (ai.ryserve.net)".to_string(),
             base_url: INITIAL_LITELLM_BASE_URL.to_string(),

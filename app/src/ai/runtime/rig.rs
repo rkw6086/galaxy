@@ -41,7 +41,7 @@ pub(crate) fn rig_openai_response_stream(
     let prepared = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
     let model_id = prepared.request.model.as_str().to_string();
     match config.kind {
-        OpenAIProviderKind::OpenAICompatible => {
+        OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM => {
             let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
                 base_url: config.base_url,
                 api_key: config.api_key,

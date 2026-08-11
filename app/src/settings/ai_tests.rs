@@ -351,7 +351,7 @@ fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
 
     assert_eq!(providers.len(), 2);
     let provider = &providers[0];
-    assert_eq!(provider.kind, OpenAIProviderKind::OpenAICompatible);
+    assert_eq!(provider.kind, OpenAIProviderKind::LiteLLM);
     assert_eq!(provider.base_url, INITIAL_LITELLM_BASE_URL);
     assert_eq!(provider.api_key, None);
     assert_eq!(provider.models.len(), 1);
@@ -414,13 +414,6 @@ fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
             .map(str::to_string)
             .collect::<Vec<_>>()
     );
-
-    let instant = chatgpt
-        .models
-        .iter()
-        .find(|model| model.model_id == "gpt-5.3-instant")
-        .expect("GPT-5.3 Instant should be in the ChatGPT catalog");
-    assert!(instant.reasoning_efforts.is_empty());
 }
 
 #[test]
@@ -446,9 +439,29 @@ fn native_provider_settings_roundtrip_with_vertex_configuration() {
         "models": []
     }))
     .expect("Legacy provider settings should remain compatible");
-    assert_eq!(legacy.kind, OpenAIProviderKind::OpenAICompatible);
+    assert_eq!(legacy.kind, OpenAIProviderKind::LiteLLM);
     assert_eq!(legacy.project_id, None);
     assert_eq!(legacy.location, None);
+
+    let legacy_openai_compatible: OpenAIProviderConfig =
+        serde_json::from_value(serde_json::json!({
+            "kind": "openai_compatible",
+            "name": "Legacy LiteLLM provider",
+            "base_url": "http://localhost:4000/v1",
+            "models": []
+        }))
+        .expect("Legacy OpenAI-compatible provider settings should deserialize");
+    assert_eq!(legacy_openai_compatible.kind, OpenAIProviderKind::LiteLLM);
+
+    let native_openai: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "kind": "openai",
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-test",
+        "models": []
+    }))
+    .expect("Native OpenAI provider settings should deserialize");
+    assert_eq!(native_openai.kind, OpenAIProviderKind::OpenAI);
 }
 
 #[test]

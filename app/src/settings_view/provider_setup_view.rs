@@ -2,10 +2,11 @@ use galaxy_cli::agent::Harness;
 use galaxy_core::ui::theme::Fill;
 use galaxyui::elements::{
     Border, ChildView, ClippedScrollStateHandle, ClippedScrollable, ConstrainedBox, Container,
-    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, MainAxisAlignment, MainAxisSize,
-    MouseStateHandle, Padding, ParentElement, Radius, ScrollbarWidth, Text,
+    CornerRadius, CrossAxisAlignment, Flex, FormattedTextElement, Hoverable, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, Padding, ParentElement, Radius, ScrollbarWidth, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
+use galaxyui::platform::Cursor;
 use galaxyui::text_layout::ClipConfig;
 use galaxyui::ui_components::button::ButtonVariant;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -23,7 +24,6 @@ use crate::appearance::Appearance;
 use crate::editor::{
     EditorView, Event as EditorEvent, SingleLineEditorOptions, TextColors, TextOptions,
 };
-use crate::modal::{Modal, ModalViewState};
 use crate::settings::ai::{
     AcpConfigOptionSettings, BedrockAuthMethod, BedrockModelConfig, ModelCapabilityOverride,
     OpenAIModelConfig, OpenAIProviderConfig, OpenAIProviderKind,
@@ -33,14 +33,12 @@ use crate::view_components::action_button::{
     ActionButton, ButtonSize, NakedTheme, PrimaryTheme, SecondaryTheme,
 };
 
-const MODAL_WIDTH: f32 = 900.;
-const MODAL_HEIGHT: f32 = 700.;
-const BODY_HEIGHT: f32 = 630.;
+const SETUP_WIDTH: f32 = 900.;
 const INPUT_FONT_SIZE: f32 = 12.;
 const MODEL_LOGO_SIZE: f32 = 20.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProviderSetupStep {
+pub(crate) enum ProviderSetupStep {
     ProviderType,
     Configure,
     Discover,
@@ -49,8 +47,9 @@ enum ProviderSetupStep {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderSetupProviderType {
+    OpenAI,
+    LiteLLM,
     ChatGPTSubscription,
-    OpenAICompatible,
     Anthropic,
     Gemini,
     VertexAI,
@@ -60,39 +59,24 @@ pub enum ProviderSetupProviderType {
 
 const PROVIDER_TYPE_OPTIONS: &[(ProviderSetupProviderType, &str, &str)] = &[
     (
+        ProviderSetupProviderType::OpenAI,
+        "OpenAI",
+        "Connect directly to OpenAI's API with an API key.",
+    ),
+    (
+        ProviderSetupProviderType::LiteLLM,
+        "LiteLLM",
+        "Connect LiteLLM and use its richer model metadata APIs during discovery.",
+    ),
+    (
         ProviderSetupProviderType::ChatGPTSubscription,
         "ChatGPT subscription",
         "Use your ChatGPT Plus or Pro subscription with native OAuth.",
     ),
     (
-        ProviderSetupProviderType::OpenAICompatible,
-        "OpenAI-compatible API",
-        "Connect LiteLLM, Ollama, vLLM, or another compatible endpoint.",
-    ),
-    (
-        ProviderSetupProviderType::Anthropic,
-        "Anthropic",
-        "Connect directly to Anthropic's native Messages API with an API key.",
-    ),
-    (
-        ProviderSetupProviderType::Gemini,
-        "Google Gemini",
-        "Connect directly to Google's Gemini API with an API key.",
-    ),
-    (
-        ProviderSetupProviderType::VertexAI,
-        "Google Vertex AI",
-        "Use Google Cloud Application Default Credentials for Vertex-hosted Gemini models.",
-    ),
-    (
         ProviderSetupProviderType::Bedrock,
         "AWS Bedrock",
         "Use the AWS Bedrock credentials and model configuration already managed by Galaxy.",
-    ),
-    (
-        ProviderSetupProviderType::Acp,
-        "ACP agent runtime",
-        "Use a session-oriented ACP agent that owns its model and authentication.",
     ),
 ];
 
@@ -165,7 +149,7 @@ impl CapabilityKey {
     }
 }
 
-pub enum ProviderSetupModalBodyEvent {
+pub enum ProviderSetupViewEvent {
     Close,
     RequestAcpDiscovery(AcpProviderDraft),
     SaveOpenAI {
@@ -177,8 +161,9 @@ pub enum ProviderSetupModalBodyEvent {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum ProviderSetupModalBodyAction {
+pub enum ProviderSetupViewAction {
     SelectProvider(ProviderSetupProviderType),
+    JumpToStep(ProviderSetupStep),
     Next,
     Back,
     Cancel,
@@ -193,12 +178,11 @@ pub enum ProviderSetupModalBodyAction {
     SelectAcpAgent(String),
 }
 
-pub type ProviderSetupModalState = ModalViewState<Modal<ProviderSetupModalBody>>;
-
-pub struct ProviderSetupModalBody {
+pub struct ProviderSetupView {
     step: ProviderSetupStep,
     editing_index: Option<usize>,
     provider_type: ProviderSetupProviderType,
+    provider_type_locked: bool,
     draft_name: String,
     draft_base_url: String,
     draft_api_key: Option<String>,
@@ -233,12 +217,13 @@ pub struct ProviderSetupModalBody {
     model_context_editors: Vec<ViewHandle<EditorView>>,
     provider_type_scroll_state: ClippedScrollStateHandle,
     models_scroll_state: ClippedScrollStateHandle,
+    step_tab_mouse_states: Vec<MouseStateHandle>,
     back_button: ViewHandle<ActionButton>,
     cancel_button: ViewHandle<ActionButton>,
     next_button: ViewHandle<ActionButton>,
 }
 
-impl ProviderSetupModalBody {
+impl ProviderSetupView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let provider_type_buttons = PROVIDER_TYPE_OPTIONS
             .iter()
@@ -249,9 +234,9 @@ impl ProviderSetupModalBody {
                     ActionButton::new(label, NakedTheme)
                         .with_full_width(true)
                         .on_click(move |ctx| {
-                            ctx.dispatch_typed_action(
-                                ProviderSetupModalBodyAction::SelectProvider(kind),
-                            );
+                            ctx.dispatch_typed_action(ProviderSetupViewAction::SelectProvider(
+                                kind,
+                            ));
                         })
                 })
             })
@@ -281,9 +266,9 @@ impl ProviderSetupModalBody {
                         .on_click({
                             let id = id.clone();
                             move |ctx| {
-                                ctx.dispatch_typed_action(
-                                    ProviderSetupModalBodyAction::SelectAcpAgent(id.clone()),
-                                );
+                                ctx.dispatch_typed_action(ProviderSetupViewAction::SelectAcpAgent(
+                                    id.clone(),
+                                ));
                             }
                         })
                 })
@@ -293,7 +278,7 @@ impl ProviderSetupModalBody {
             ActionButton::new("Custom", NakedTheme)
                 .with_full_width(true)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(ProviderSetupModalBodyAction::SelectAcpAgent(
+                    ctx.dispatch_typed_action(ProviderSetupViewAction::SelectAcpAgent(
                         "custom".to_owned(),
                     ));
                 })
@@ -308,9 +293,7 @@ impl ProviderSetupModalBody {
         .map(|method| {
             ctx.add_typed_action_view(move |_| {
                 ActionButton::new(method.display_name(), NakedTheme).on_click(move |ctx| {
-                    ctx.dispatch_typed_action(ProviderSetupModalBodyAction::SelectBedrockAuth(
-                        method,
-                    ));
+                    ctx.dispatch_typed_action(ProviderSetupViewAction::SelectBedrockAuth(method));
                 })
             })
         })
@@ -397,24 +380,25 @@ impl ProviderSetupModalBody {
 
         let back_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Back", NakedTheme).on_click(|ctx| {
-                ctx.dispatch_typed_action(ProviderSetupModalBodyAction::Back);
+                ctx.dispatch_typed_action(ProviderSetupViewAction::Back);
             })
         });
         let cancel_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Cancel", NakedTheme).on_click(|ctx| {
-                ctx.dispatch_typed_action(ProviderSetupModalBodyAction::Cancel);
+                ctx.dispatch_typed_action(ProviderSetupViewAction::Cancel);
             })
         });
         let next_button = ctx.add_typed_action_view(|_| {
             ActionButton::new("Next", PrimaryTheme).on_click(|ctx| {
-                ctx.dispatch_typed_action(ProviderSetupModalBodyAction::Next);
+                ctx.dispatch_typed_action(ProviderSetupViewAction::Next);
             })
         });
 
         Self {
             step: ProviderSetupStep::ProviderType,
             editing_index: None,
-            provider_type: ProviderSetupProviderType::OpenAICompatible,
+            provider_type: ProviderSetupProviderType::LiteLLM,
+            provider_type_locked: false,
             draft_name: String::new(),
             draft_base_url: String::new(),
             draft_api_key: None,
@@ -466,6 +450,7 @@ impl ProviderSetupModalBody {
             model_context_editors: Vec::new(),
             provider_type_scroll_state: ClippedScrollStateHandle::default(),
             models_scroll_state: ClippedScrollStateHandle::default(),
+            step_tab_mouse_states: (0..4).map(|_| MouseStateHandle::default()).collect(),
             back_button,
             cancel_button,
             next_button,
@@ -499,12 +484,43 @@ impl ProviderSetupModalBody {
         })
     }
 
-    pub fn begin_create(&mut self, ctx: &mut ViewContext<Self>) {
-        self.step = ProviderSetupStep::ProviderType;
+    fn default_name(provider_type: ProviderSetupProviderType) -> &'static str {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => "OpenAI",
+            ProviderSetupProviderType::LiteLLM => "LiteLLM",
+            ProviderSetupProviderType::ChatGPTSubscription => "ChatGPT Subscription",
+            ProviderSetupProviderType::Anthropic => "Anthropic",
+            ProviderSetupProviderType::Gemini => "Google Gemini",
+            ProviderSetupProviderType::VertexAI => "Google Vertex AI",
+            ProviderSetupProviderType::Bedrock => "AWS Bedrock",
+            ProviderSetupProviderType::Acp => "ACP agent runtime",
+        }
+    }
+
+    fn default_base_url(provider_type: ProviderSetupProviderType) -> &'static str {
+        match provider_type {
+            ProviderSetupProviderType::OpenAI => "https://api.openai.com/v1",
+            ProviderSetupProviderType::LiteLLM
+            | ProviderSetupProviderType::ChatGPTSubscription
+            | ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI
+            | ProviderSetupProviderType::Bedrock
+            | ProviderSetupProviderType::Acp => "",
+        }
+    }
+
+    pub fn begin_create(
+        &mut self,
+        provider_type: ProviderSetupProviderType,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.step = ProviderSetupStep::Configure;
         self.editing_index = None;
-        self.provider_type = ProviderSetupProviderType::OpenAICompatible;
-        self.draft_name.clear();
-        self.draft_base_url.clear();
+        self.provider_type = provider_type;
+        self.provider_type_locked = true;
+        self.draft_name = Self::default_name(provider_type).to_string();
+        self.draft_base_url = Self::default_base_url(provider_type).to_string();
         self.draft_api_key = None;
         self.draft_project_id.clear();
         self.draft_location = "global".to_string();
@@ -549,11 +565,13 @@ impl ProviderSetupModalBody {
         // send the user through credentials or model discovery again.
         self.step = ProviderSetupStep::Models;
         self.editing_index = Some(editing_index);
+        self.provider_type_locked = true;
         self.provider_type = match provider.kind {
+            OpenAIProviderKind::OpenAI => ProviderSetupProviderType::OpenAI,
+            OpenAIProviderKind::LiteLLM => ProviderSetupProviderType::LiteLLM,
             OpenAIProviderKind::ChatGPTSubscription => {
                 ProviderSetupProviderType::ChatGPTSubscription
             }
-            OpenAIProviderKind::OpenAICompatible => ProviderSetupProviderType::OpenAICompatible,
             OpenAIProviderKind::Anthropic => ProviderSetupProviderType::Anthropic,
             OpenAIProviderKind::Gemini => ProviderSetupProviderType::Gemini,
             OpenAIProviderKind::VertexAI => ProviderSetupProviderType::VertexAI,
@@ -578,6 +596,7 @@ impl ProviderSetupModalBody {
     pub fn begin_edit_bedrock(&mut self, draft: BedrockProviderDraft, ctx: &mut ViewContext<Self>) {
         self.step = ProviderSetupStep::Configure;
         self.editing_index = None;
+        self.provider_type_locked = true;
         self.provider_type = ProviderSetupProviderType::Bedrock;
         self.draft_name = draft.name.clone();
         self.draft_bedrock = draft;
@@ -599,6 +618,7 @@ impl ProviderSetupModalBody {
             ProviderSetupStep::Models
         };
         self.editing_index = None;
+        self.provider_type_locked = true;
         self.provider_type = ProviderSetupProviderType::Acp;
         self.draft_name = draft.name.clone();
         self.draft_acp = draft;
@@ -744,7 +764,7 @@ impl ProviderSetupModalBody {
                             .with_size(ButtonSize::XSmall)
                             .on_click(move |ctx| {
                                 ctx.dispatch_typed_action(
-                                    ProviderSetupModalBodyAction::CycleModelCapability(index, key),
+                                    ProviderSetupViewAction::CycleModelCapability(index, key),
                                 );
                             })
                     })
@@ -793,27 +813,7 @@ impl ProviderSetupModalBody {
     fn update_next_button(&self, ctx: &mut ViewContext<Self>) {
         let (label, disabled) = match self.step {
             ProviderSetupStep::ProviderType => ("Next", false),
-            ProviderSetupStep::Configure => {
-                let disabled = match self.provider_type {
-                    ProviderSetupProviderType::OpenAICompatible => {
-                        self.draft_base_url.trim().is_empty()
-                    }
-                    ProviderSetupProviderType::Anthropic | ProviderSetupProviderType::Gemini => {
-                        self.draft_api_key
-                            .as_deref()
-                            .is_none_or(|key| key.trim().is_empty())
-                    }
-                    ProviderSetupProviderType::VertexAI => self.draft_project_id.trim().is_empty(),
-                    ProviderSetupProviderType::Acp => {
-                        self.draft_acp.agent_id.trim().is_empty()
-                            || (self.draft_acp.agent_id.eq_ignore_ascii_case("custom")
-                                && self.draft_acp.command.trim().is_empty())
-                    }
-                    ProviderSetupProviderType::ChatGPTSubscription
-                    | ProviderSetupProviderType::Bedrock => false,
-                };
-                ("Next", disabled)
-            }
+            ProviderSetupStep::Configure => ("Next", !self.is_configure_valid()),
             ProviderSetupStep::Discover => (
                 if matches!(self.discovery_state, DiscoveryState::Failed(_)) {
                     "Retry"
@@ -823,7 +823,8 @@ impl ProviderSetupModalBody {
                 !matches!(self.discovery_state, DiscoveryState::Failed(_)),
             ),
             ProviderSetupStep::Models => match self.provider_type {
-                ProviderSetupProviderType::OpenAICompatible
+                ProviderSetupProviderType::OpenAI
+                | ProviderSetupProviderType::LiteLLM
                 | ProviderSetupProviderType::ChatGPTSubscription
                 | ProviderSetupProviderType::Anthropic
                 | ProviderSetupProviderType::Gemini
@@ -851,12 +852,14 @@ impl ProviderSetupModalBody {
     fn draft_provider(&self) -> OpenAIProviderConfig {
         OpenAIProviderConfig {
             kind: match self.provider_type {
+                ProviderSetupProviderType::OpenAI => OpenAIProviderKind::OpenAI,
+                ProviderSetupProviderType::LiteLLM => OpenAIProviderKind::LiteLLM,
                 ProviderSetupProviderType::ChatGPTSubscription => {
                     OpenAIProviderKind::ChatGPTSubscription
                 }
-                ProviderSetupProviderType::OpenAICompatible
-                | ProviderSetupProviderType::Bedrock
-                | ProviderSetupProviderType::Acp => OpenAIProviderKind::OpenAICompatible,
+                ProviderSetupProviderType::Bedrock | ProviderSetupProviderType::Acp => {
+                    OpenAIProviderKind::LiteLLM
+                }
                 ProviderSetupProviderType::Anthropic => OpenAIProviderKind::Anthropic,
                 ProviderSetupProviderType::Gemini => OpenAIProviderKind::Gemini,
                 ProviderSetupProviderType::VertexAI => OpenAIProviderKind::VertexAI,
@@ -876,7 +879,8 @@ impl ProviderSetupModalBody {
             },
             api_key: matches!(
                 self.provider_type,
-                ProviderSetupProviderType::OpenAICompatible
+                ProviderSetupProviderType::OpenAI
+                    | ProviderSetupProviderType::LiteLLM
                     | ProviderSetupProviderType::Anthropic
                     | ProviderSetupProviderType::Gemini
             )
@@ -900,6 +904,38 @@ impl ProviderSetupModalBody {
                 },
             ),
             models: self.draft_models.clone(),
+        }
+    }
+
+    fn jump_to_step(&mut self, step: ProviderSetupStep, ctx: &mut ViewContext<Self>) {
+        if !self.can_jump_to_step(step) {
+            return;
+        }
+
+        match step {
+            ProviderSetupStep::ProviderType => {
+                self.step = ProviderSetupStep::ProviderType;
+                self.discovery_state = DiscoveryState::Idle;
+                self.update_next_button(ctx);
+                ctx.notify();
+            }
+            ProviderSetupStep::Configure => {
+                self.step = ProviderSetupStep::Configure;
+                self.discovery_state = DiscoveryState::Idle;
+                self.update_next_button(ctx);
+                ctx.notify();
+            }
+            ProviderSetupStep::Discover => {
+                self.begin_discovery(ctx);
+            }
+            ProviderSetupStep::Models => {
+                self.step = ProviderSetupStep::Models;
+                self.discovery_state = DiscoveryState::Idle;
+                self.sync_model_switches(ctx);
+                self.update_next_button(ctx);
+                ctx.focus(&self.name_editor);
+                ctx.notify();
+            }
         }
     }
 
@@ -948,12 +984,13 @@ impl ProviderSetupModalBody {
                 return;
             }
             ProviderSetupProviderType::Acp => {
-                ctx.emit(ProviderSetupModalBodyEvent::RequestAcpDiscovery(
+                ctx.emit(ProviderSetupViewEvent::RequestAcpDiscovery(
                     self.draft_acp.clone(),
                 ));
                 return;
             }
-            ProviderSetupProviderType::OpenAICompatible
+            ProviderSetupProviderType::OpenAI
+            | ProviderSetupProviderType::LiteLLM
             | ProviderSetupProviderType::Anthropic
             | ProviderSetupProviderType::Gemini
             | ProviderSetupProviderType::VertexAI => {}
@@ -1158,7 +1195,7 @@ impl ProviderSetupModalBody {
                     .with_text_label("Connect ChatGPT".to_owned())
                     .build()
                     .on_click(|ctx, _, _| {
-                        ctx.dispatch_typed_action(ProviderSetupModalBodyAction::ConnectChatGPT);
+                        ctx.dispatch_typed_action(ProviderSetupViewAction::ConnectChatGPT);
                     })
                     .finish(),
             );
@@ -1210,12 +1247,26 @@ impl ProviderSetupModalBody {
             ProviderSetupProviderType::ChatGPTSubscription => {
                 children.push(self.render_chatgpt_auth(appearance, app));
             }
-            ProviderSetupProviderType::OpenAICompatible => {
+            ProviderSetupProviderType::OpenAI => {
                 children.push(self.render_input(appearance, "Base URL", &self.base_url_editor));
                 children.push(self.render_input(appearance, "API key", &self.api_key_editor));
                 children.push(
                     Text::new(
-                        "The API key is stored locally and is never synced to the cloud.",
+                        "The API key is stored locally and is never synced to the cloud. Models will be discovered from OpenAI's /models endpoint.",
+                        appearance.ui_font_family(),
+                        INPUT_FONT_SIZE,
+                    )
+                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                    .soft_wrap(true)
+                    .finish(),
+                );
+            }
+            ProviderSetupProviderType::LiteLLM => {
+                children.push(self.render_input(appearance, "Base URL", &self.base_url_editor));
+                children.push(self.render_input(appearance, "API key", &self.api_key_editor));
+                children.push(
+                    Text::new(
+                        "The API key is stored locally and is never synced to the cloud. LiteLLM model discovery uses /model/info for rich metadata, then falls back to /models.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )
@@ -1301,7 +1352,7 @@ impl ProviderSetupModalBody {
                                     .build()
                                     .on_click(|ctx, _, _| {
                                         ctx.dispatch_typed_action(
-                                            ProviderSetupModalBodyAction::ToggleBedrockAutoLogin,
+                                            ProviderSetupViewAction::ToggleBedrockAutoLogin,
                                         );
                                     })
                                     .finish(),
@@ -1334,7 +1385,7 @@ impl ProviderSetupModalBody {
                         .build()
                         .on_click(|ctx, _, _| {
                             ctx.dispatch_typed_action(
-                                ProviderSetupModalBodyAction::ToggleBedrockCrossRegion,
+                                ProviderSetupViewAction::ToggleBedrockCrossRegion,
                             );
                         })
                         .finish(),
@@ -1462,7 +1513,7 @@ impl ProviderSetupModalBody {
                 .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
                 .finish(),
         )
-        .with_width(MODAL_WIDTH - 56.)
+        .with_width(SETUP_WIDTH - 56.)
         .with_max_height(430.)
         .finish()
     }
@@ -1470,7 +1521,8 @@ impl ProviderSetupModalBody {
     fn model_logo(&self) -> (Icon, ColorU) {
         match self.provider_type {
             ProviderSetupProviderType::ChatGPTSubscription
-            | ProviderSetupProviderType::OpenAICompatible => {
+            | ProviderSetupProviderType::OpenAI
+            | ProviderSetupProviderType::LiteLLM => {
                 (Icon::OpenAILogo, crate::terminal::cli_agent::OPENAI_COLOR)
             }
             ProviderSetupProviderType::Anthropic => {
@@ -1636,9 +1688,9 @@ impl ProviderSetupModalBody {
                             .check(model.enabled)
                             .build()
                             .on_click(move |ctx, _, _| {
-                                ctx.dispatch_typed_action(
-                                    ProviderSetupModalBodyAction::ToggleModel(index),
-                                );
+                                ctx.dispatch_typed_action(ProviderSetupViewAction::ToggleModel(
+                                    index,
+                                ));
                             })
                             .finish(),
                     )
@@ -1828,7 +1880,7 @@ impl ProviderSetupModalBody {
             .with_main_axis_alignment(MainAxisAlignment::End)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(8.);
-        if self.step != ProviderSetupStep::ProviderType {
+        if self.can_go_back() {
             footer = footer.with_child(ChildView::new(&self.back_button).finish());
         }
         footer = footer.with_child(ChildView::new(&self.cancel_button).finish());
@@ -1840,44 +1892,178 @@ impl ProviderSetupModalBody {
         footer.finish()
     }
 
+    fn can_go_back(&self) -> bool {
+        match self.step {
+            ProviderSetupStep::ProviderType => false,
+            ProviderSetupStep::Configure => !self.provider_type_locked,
+            ProviderSetupStep::Discover | ProviderSetupStep::Models => true,
+        }
+    }
+
+    fn is_configure_valid(&self) -> bool {
+        match self.provider_type {
+            ProviderSetupProviderType::OpenAI => {
+                !self.draft_base_url.trim().is_empty()
+                    && self
+                        .draft_api_key
+                        .as_deref()
+                        .is_some_and(|key| !key.trim().is_empty())
+            }
+            ProviderSetupProviderType::LiteLLM => !self.draft_base_url.trim().is_empty(),
+            ProviderSetupProviderType::Anthropic | ProviderSetupProviderType::Gemini => self
+                .draft_api_key
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty()),
+            ProviderSetupProviderType::VertexAI => !self.draft_project_id.trim().is_empty(),
+            ProviderSetupProviderType::Acp => {
+                !self.draft_acp.agent_id.trim().is_empty()
+                    && (!self.draft_acp.agent_id.eq_ignore_ascii_case("custom")
+                        || !self.draft_acp.command.trim().is_empty())
+            }
+            ProviderSetupProviderType::ChatGPTSubscription | ProviderSetupProviderType::Bedrock => {
+                true
+            }
+        }
+    }
+
+    fn has_model_catalog(&self) -> bool {
+        match self.provider_type {
+            ProviderSetupProviderType::OpenAI
+            | ProviderSetupProviderType::LiteLLM
+            | ProviderSetupProviderType::ChatGPTSubscription
+            | ProviderSetupProviderType::Anthropic
+            | ProviderSetupProviderType::Gemini
+            | ProviderSetupProviderType::VertexAI => !self.draft_models.is_empty(),
+            ProviderSetupProviderType::Bedrock => !self.draft_bedrock.models.is_empty(),
+            ProviderSetupProviderType::Acp => !self.draft_acp.config_options.is_empty(),
+        }
+    }
+
+    fn step_tab_index(step: ProviderSetupStep) -> usize {
+        match step {
+            ProviderSetupStep::ProviderType => 0,
+            ProviderSetupStep::Configure => 1,
+            ProviderSetupStep::Discover => 2,
+            ProviderSetupStep::Models => 3,
+        }
+    }
+
+    fn can_jump_to_step(&self, step: ProviderSetupStep) -> bool {
+        if self.step == step {
+            return false;
+        }
+
+        match step {
+            ProviderSetupStep::ProviderType => !self.provider_type_locked,
+            ProviderSetupStep::Configure => true,
+            ProviderSetupStep::Discover => {
+                !matches!(self.discovery_state, DiscoveryState::Loading)
+                    && self.is_configure_valid()
+            }
+            ProviderSetupStep::Models => self.has_model_catalog(),
+        }
+    }
+
+    fn render_step_tab(
+        &self,
+        step: ProviderSetupStep,
+        label: &'static str,
+        appearance: &Appearance,
+    ) -> Box<dyn galaxyui::Element> {
+        let active = self.step == step;
+        let enabled = self.can_jump_to_step(step);
+        let Some(mouse_state) = self
+            .step_tab_mouse_states
+            .get(Self::step_tab_index(step))
+            .cloned()
+        else {
+            return Text::new(label, appearance.ui_font_family(), INPUT_FONT_SIZE)
+                .with_color(appearance.theme().disabled_ui_text_color().into())
+                .finish();
+        };
+
+        let tab = Hoverable::new(mouse_state, move |mouse_state| {
+            let theme = appearance.theme();
+            let text_color = if active {
+                theme.accent()
+            } else if enabled {
+                theme.nonactive_ui_text_color()
+            } else {
+                theme.disabled_ui_text_color()
+            };
+            let mut container = Container::new(
+                Text::new_inline(
+                    label.to_string(),
+                    appearance.ui_font_family(),
+                    INPUT_FONT_SIZE,
+                )
+                .with_color(text_color.into())
+                .with_style(Properties::default().weight(if active {
+                    Weight::Bold
+                } else {
+                    Weight::Normal
+                }))
+                .finish(),
+            )
+            .with_horizontal_padding(10.)
+            .with_vertical_padding(6.)
+            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)));
+
+            if active {
+                container = container.with_background(theme.surface_overlay_1());
+            } else if enabled && mouse_state.is_hovered() {
+                container = container.with_background(theme.surface_overlay_2());
+            }
+
+            container.finish()
+        });
+
+        if enabled {
+            tab.on_click(move |ctx, _, _| {
+                ctx.dispatch_typed_action(ProviderSetupViewAction::JumpToStep(step));
+            })
+            .with_cursor(Cursor::PointingHand)
+            .finish()
+        } else {
+            tab.finish()
+        }
+    }
+
     fn render_step_indicator(&self, appearance: &Appearance) -> Box<dyn galaxyui::Element> {
-        let steps = [
+        let locked_steps = [
+            (ProviderSetupStep::Configure, "Configure"),
+            (ProviderSetupStep::Discover, "Test"),
+            (ProviderSetupStep::Models, "Models"),
+        ];
+        let selectable_steps = [
             (ProviderSetupStep::ProviderType, "Provider"),
             (ProviderSetupStep::Configure, "Configure"),
             (ProviderSetupStep::Discover, "Test"),
             (ProviderSetupStep::Models, "Models"),
         ];
+        let steps: &[(ProviderSetupStep, &str)] = if self.provider_type_locked {
+            &locked_steps
+        } else {
+            &selectable_steps
+        };
         Flex::row()
             .with_spacing(10.)
-            .with_children(steps.into_iter().map(|(step, label)| {
-                let active = self.step == step;
-                Text::new(label, appearance.ui_font_family(), INPUT_FONT_SIZE)
-                    .with_color(
-                        if active {
-                            appearance.theme().accent()
-                        } else {
-                            appearance.theme().nonactive_ui_text_color()
-                        }
-                        .into(),
-                    )
-                    .with_style(Properties::default().weight(if active {
-                        Weight::Bold
-                    } else {
-                        Weight::Normal
-                    }))
-                    .finish()
-            }))
+            .with_children(
+                steps
+                    .iter()
+                    .map(|(step, label)| self.render_step_tab(*step, label, appearance)),
+            )
             .finish()
     }
 }
 
-impl Entity for ProviderSetupModalBody {
-    type Event = ProviderSetupModalBodyEvent;
+impl Entity for ProviderSetupView {
+    type Event = ProviderSetupViewEvent;
 }
 
-impl View for ProviderSetupModalBody {
+impl View for ProviderSetupView {
     fn ui_name() -> &'static str {
-        "ProviderSetupModalBody"
+        "ProviderSetupView"
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn galaxyui::Element> {
@@ -1897,27 +2083,30 @@ impl View for ProviderSetupModalBody {
     }
 }
 
-impl TypedActionView for ProviderSetupModalBody {
-    type Action = ProviderSetupModalBodyAction;
+impl TypedActionView for ProviderSetupView {
+    type Action = ProviderSetupViewAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            ProviderSetupModalBodyAction::SelectProvider(kind) => {
+            ProviderSetupViewAction::SelectProvider(kind) => {
                 if self.provider_type != *kind {
                     self.draft_models.clear();
                     self.discovery_state = DiscoveryState::Idle;
                 }
                 self.provider_type = *kind;
-                if *kind == ProviderSetupProviderType::ChatGPTSubscription {
-                    self.draft_base_url.clear();
+                self.draft_name = Self::default_name(*kind).to_string();
+                self.draft_base_url = Self::default_base_url(*kind).to_string();
+                if matches!(*kind, ProviderSetupProviderType::ChatGPTSubscription) {
                     self.draft_api_key = None;
                 }
+                self.sync_editors(ctx);
                 self.sync_provider_type_buttons(ctx);
                 self.sync_bedrock_auth_buttons(ctx);
                 self.update_next_button(ctx);
                 ctx.notify();
             }
-            ProviderSetupModalBodyAction::Next => match self.step {
+            ProviderSetupViewAction::JumpToStep(step) => self.jump_to_step(*step, ctx),
+            ProviderSetupViewAction::Next => match self.step {
                 ProviderSetupStep::ProviderType => {
                     self.step = ProviderSetupStep::Configure;
                     self.update_next_button(ctx);
@@ -1930,7 +2119,8 @@ impl TypedActionView for ProviderSetupModalBody {
                     }
                 }
                 ProviderSetupStep::Models => match self.provider_type {
-                    ProviderSetupProviderType::OpenAICompatible
+                    ProviderSetupProviderType::OpenAI
+                    | ProviderSetupProviderType::LiteLLM
                     | ProviderSetupProviderType::ChatGPTSubscription
                     | ProviderSetupProviderType::Anthropic
                     | ProviderSetupProviderType::Gemini
@@ -1940,7 +2130,7 @@ impl TypedActionView for ProviderSetupModalBody {
                         {
                             return;
                         }
-                        ctx.emit(ProviderSetupModalBodyEvent::SaveOpenAI {
+                        ctx.emit(ProviderSetupViewEvent::SaveOpenAI {
                             editing_index: self.editing_index,
                             provider: self.draft_provider(),
                         });
@@ -1952,7 +2142,7 @@ impl TypedActionView for ProviderSetupModalBody {
                         }
                         let mut draft = self.draft_bedrock.clone();
                         draft.name = self.draft_name.trim().to_string();
-                        ctx.emit(ProviderSetupModalBodyEvent::SaveBedrock(draft));
+                        ctx.emit(ProviderSetupViewEvent::SaveBedrock(draft));
                     }
                     ProviderSetupProviderType::Acp => {
                         if self.draft_name.trim().is_empty() {
@@ -1960,13 +2150,16 @@ impl TypedActionView for ProviderSetupModalBody {
                         }
                         let mut draft = self.draft_acp.clone();
                         draft.name = self.draft_name.trim().to_string();
-                        ctx.emit(ProviderSetupModalBodyEvent::SaveAcp(draft));
+                        ctx.emit(ProviderSetupViewEvent::SaveAcp(draft));
                     }
                 },
             },
-            ProviderSetupModalBodyAction::Back => match self.step {
+            ProviderSetupViewAction::Back => match self.step {
                 ProviderSetupStep::ProviderType => {}
                 ProviderSetupStep::Configure => {
+                    if self.provider_type_locked {
+                        return;
+                    }
                     self.step = ProviderSetupStep::ProviderType;
                     self.update_next_button(ctx);
                     ctx.notify();
@@ -1983,10 +2176,10 @@ impl TypedActionView for ProviderSetupModalBody {
                     ctx.notify();
                 }
             },
-            ProviderSetupModalBodyAction::Cancel => {
-                ctx.emit(ProviderSetupModalBodyEvent::Close);
+            ProviderSetupViewAction::Cancel => {
+                ctx.emit(ProviderSetupViewEvent::Close);
             }
-            ProviderSetupModalBodyAction::SelectAcpAgent(agent_id) => {
+            ProviderSetupViewAction::SelectAcpAgent(agent_id) => {
                 self.draft_acp.agent_id = agent_id.clone();
                 if !agent_id.eq_ignore_ascii_case("custom") {
                     self.draft_acp.command.clear();
@@ -1997,14 +2190,14 @@ impl TypedActionView for ProviderSetupModalBody {
                 self.update_next_button(ctx);
                 ctx.notify();
             }
-            ProviderSetupModalBodyAction::ToggleModel(index) => {
+            ProviderSetupViewAction::ToggleModel(index) => {
                 if let Some(model) = self.draft_models.get_mut(*index) {
                     model.enabled = !model.enabled;
                     self.update_next_button(ctx);
                     ctx.notify();
                 }
             }
-            ProviderSetupModalBodyAction::CycleModelCapability(index, capability) => {
+            ProviderSetupViewAction::CycleModelCapability(index, capability) => {
                 if let Some(model) = self.draft_models.get_mut(*index) {
                     let key = capability.setting_key().to_string();
                     let next = model.capability_override(&key).next();
@@ -2014,28 +2207,28 @@ impl TypedActionView for ProviderSetupModalBody {
                     ctx.notify();
                 }
             }
-            ProviderSetupModalBodyAction::ConnectChatGPT => {
+            ProviderSetupViewAction::ConnectChatGPT => {
                 #[cfg(not(target_family = "wasm"))]
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
             }
-            ProviderSetupModalBodyAction::OpenChatGPTDevicePage => {
+            ProviderSetupViewAction::OpenChatGPTDevicePage => {
                 // No-op: device-code flow removed in favor of browser OAuth.
             }
-            ProviderSetupModalBodyAction::CopyChatGPTDeviceCode => {
+            ProviderSetupViewAction::CopyChatGPTDeviceCode => {
                 // No-op: device-code flow removed in favor of browser OAuth.
             }
-            ProviderSetupModalBodyAction::SelectBedrockAuth(method) => {
+            ProviderSetupViewAction::SelectBedrockAuth(method) => {
                 self.draft_bedrock.auth_method = *method;
                 self.sync_bedrock_auth_buttons(ctx);
                 self.update_next_button(ctx);
                 ctx.notify();
             }
-            ProviderSetupModalBodyAction::ToggleBedrockCrossRegion => {
+            ProviderSetupViewAction::ToggleBedrockCrossRegion => {
                 self.draft_bedrock.cross_region_inference =
                     !self.draft_bedrock.cross_region_inference;
                 ctx.notify();
             }
-            ProviderSetupModalBodyAction::ToggleBedrockAutoLogin => {
+            ProviderSetupViewAction::ToggleBedrockAutoLogin => {
                 self.draft_bedrock.auto_login = !self.draft_bedrock.auto_login;
                 ctx.notify();
             }
@@ -2045,7 +2238,8 @@ impl TypedActionView for ProviderSetupModalBody {
 
 fn provider_type_label(kind: ProviderSetupProviderType) -> &'static str {
     match kind {
-        ProviderSetupProviderType::OpenAICompatible => "OpenAI-compatible API",
+        ProviderSetupProviderType::OpenAI => "OpenAI",
+        ProviderSetupProviderType::LiteLLM => "LiteLLM",
         ProviderSetupProviderType::ChatGPTSubscription => "ChatGPT subscription",
         ProviderSetupProviderType::Anthropic => "Anthropic",
         ProviderSetupProviderType::Gemini => "Google Gemini",

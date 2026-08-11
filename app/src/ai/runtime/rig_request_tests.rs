@@ -20,7 +20,7 @@ use crate::ai::skills::SkillDescriptor;
 
 fn config() -> OpenAIClientConfig {
     OpenAIClientConfig {
-        kind: crate::settings::OpenAIProviderKind::OpenAICompatible,
+        kind: crate::settings::OpenAIProviderKind::LiteLLM,
         base_url: "http://localhost:4000/v1".to_string(),
         api_key: None,
         project_id: None,
