@@ -341,7 +341,7 @@ fn action_result_type_name(result: &AIAgentActionResultType) -> &'static str {
 
 #[cfg(not(target_family = "wasm"))]
 fn action_result_status(result: &AIAgentActionResultType) -> &'static str {
-    if result.is_successful() {
+    if action_result_is_success_for_remote_log(result) {
         "success"
     } else if result.is_failed() || action_result_failure_summary(result).is_some() {
         "error"
@@ -349,6 +349,55 @@ fn action_result_status(result: &AIAgentActionResultType) -> &'static str {
         "cancelled"
     } else {
         "unknown"
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_is_success_for_remote_log(result: &AIAgentActionResultType) -> bool {
+    if result.is_successful() {
+        return true;
+    }
+
+    match result {
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Snapshot { .. },
+        ) => true,
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::CommandFinished { exit_code, .. },
+        ) => exit_code.was_successful(),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Cancelled
+            | WriteToLongRunningShellCommandResult::Error(_),
+        )
+        | AIAgentActionResultType::RequestCommandOutput(_)
+        | AIAgentActionResultType::RequestFileEdits(_)
+        | AIAgentActionResultType::ReadFiles(_)
+        | AIAgentActionResultType::UploadArtifact(_)
+        | AIAgentActionResultType::SearchCodebase(_)
+        | AIAgentActionResultType::Grep(_)
+        | AIAgentActionResultType::FileGlob(_)
+        | AIAgentActionResultType::FileGlobV2(_)
+        | AIAgentActionResultType::ReadMCPResource(_)
+        | AIAgentActionResultType::CallMCPTool(_)
+        | AIAgentActionResultType::ReadSkill(_)
+        | AIAgentActionResultType::SuggestNewConversation(_)
+        | AIAgentActionResultType::SuggestPrompt(_)
+        | AIAgentActionResultType::OpenCodeReview
+        | AIAgentActionResultType::InsertReviewComments(_)
+        | AIAgentActionResultType::InitProject
+        | AIAgentActionResultType::ReadDocuments(_)
+        | AIAgentActionResultType::EditDocuments(_)
+        | AIAgentActionResultType::CreateDocuments(_)
+        | AIAgentActionResultType::ReadShellCommandOutput(_)
+        | AIAgentActionResultType::UseComputer(_)
+        | AIAgentActionResultType::RequestComputerUse(_)
+        | AIAgentActionResultType::FetchConversation(_)
+        | AIAgentActionResultType::StartAgent(_)
+        | AIAgentActionResultType::SendMessageToAgent(_)
+        | AIAgentActionResultType::TransferShellCommandControlToUser(_)
+        | AIAgentActionResultType::AskUserQuestion(_)
+        | AIAgentActionResultType::RunAgents(_)
+        | AIAgentActionResultType::WaitForEvents(_) => false,
     }
 }
 

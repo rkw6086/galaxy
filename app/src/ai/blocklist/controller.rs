@@ -54,6 +54,8 @@ use crate::ai::agent::{
     PassiveSuggestionTriggerType, RenderableAIError, RequestCommandOutputResult, RequestCost,
     RequestMetadata, RunningCommand, StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::agent::{AIAgentAction, AIAgentActionTypeDiscriminants};
 use crate::ai::agent_events::AgentMessageEventMetadata;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent_sdk::ClaudeHarness;
@@ -63,6 +65,8 @@ use crate::ai::document::ai_document_model::{
 };
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::provider::types::ContentPart;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::features::FeatureFlag;
@@ -160,6 +164,29 @@ impl SessionContext {
             current_working_directory: None,
         }
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn remote_action_tool_name(action: &AIAgentAction) -> String {
+    action
+        .tool_name
+        .clone()
+        .unwrap_or_else(|| format!("{:?}", AIAgentActionTypeDiscriminants::from(&action.action)))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn remote_action_summaries(actions: &[AIAgentAction]) -> Vec<serde_json::Value> {
+    actions
+        .iter()
+        .map(|action| {
+            serde_json::json!({
+                "action_id": action.id.to_string(),
+                "task_id": action.task_id.to_string(),
+                "tool_name": remote_action_tool_name(action),
+                "requires_result": action.requires_result,
+            })
+        })
+        .collect()
 }
 
 pub enum BlocklistAIControllerEvent {
@@ -3469,6 +3496,13 @@ impl BlocklistAIController {
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match event {
                     Ok(api::StreamEvent::ToolProposed(action)) => {
+                        #[cfg(not(target_family = "wasm"))]
+                        let action_log_context = (
+                            action.id.to_string(),
+                            action.task_id.to_string(),
+                            remote_action_tool_name(&action),
+                            action.requires_result,
+                        );
                         let apply_result = history_model.update(ctx, |history_model, ctx| {
                             history_model.apply_domain_tool_proposal(
                                 &stream_id,
@@ -3482,6 +3516,28 @@ impl BlocklistAIController {
                             log::error!(
                                 "Failed to apply Rig tool proposal to conversation: {error:?}"
                             );
+                            #[cfg(not(target_family = "wasm"))]
+                            {
+                                let (action_id, task_id, tool_name, requires_result) =
+                                    action_log_context;
+                                remote_logging::log_model_event(
+                                    ctx,
+                                    RemoteLogRecord {
+                                        level: RemoteLogLevel::Error,
+                                        message: "Tool proposal apply failed".to_string(),
+                                        context: serde_json::json!({
+                                            "event": "tool_proposal_apply_failed",
+                                            "stream_id": stream_id.as_str(),
+                                            "conversation_id": conversation_id.to_string(),
+                                            "action_id": action_id,
+                                            "task_id": task_id,
+                                            "tool_name": tool_name,
+                                            "requires_result": requires_result,
+                                            "error": remote_logging::sanitize_error(format!("{error:?}")),
+                                        }),
+                                    },
+                                );
+                            }
                         }
                     }
                     Ok(api::StreamEvent::Response(event)) => {
@@ -3823,7 +3879,10 @@ impl BlocklistAIController {
                     );
                 });
             }
-            ResponseStreamEvent::AfterStreamFinished { cancellation } => {
+            ResponseStreamEvent::AfterStreamFinished {
+                cancellation,
+                proposed_actions,
+            } => {
                 // Cancellations provide conversation_id (survives truncation); otherwise use dynamic lookup.
                 let conversation_id = match &cancellation {
                     Some(stream_cancellation) => stream_cancellation.conversation_id,
@@ -3944,6 +4003,71 @@ impl BlocklistAIController {
                         }
                         actions_to_queue.extend(output.get().actions().cloned());
                     }
+                }
+
+                let history_action_count = actions_to_queue.len();
+                let proposed_action_count = proposed_actions.len();
+                let mut queued_action_ids = actions_to_queue
+                    .iter()
+                    .map(|action| action.id.clone())
+                    .collect::<HashSet<_>>();
+                let mut queued_from_stream_snapshot_count = 0;
+                for action in proposed_actions {
+                    if queued_action_ids.insert(action.id.clone()) {
+                        queued_from_stream_snapshot_count += 1;
+                        actions_to_queue.push(action.clone());
+                    }
+                }
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    let will_queue_actions = cancellation.is_none() && !is_any_exchange_unfinished;
+                    let used_stream_snapshot_fallback =
+                        will_queue_actions && queued_from_stream_snapshot_count > 0;
+                    let decision = if cancellation.is_some() {
+                        "cancelled"
+                    } else if is_any_exchange_unfinished {
+                        "unfinished_exchange"
+                    } else if actions_to_queue.is_empty() {
+                        "no_actions"
+                    } else if used_stream_snapshot_fallback {
+                        "queue_actions_with_stream_snapshot_fallback"
+                    } else {
+                        "queue_actions"
+                    };
+                    let level = if used_stream_snapshot_fallback {
+                        RemoteLogLevel::Warn
+                    } else {
+                        RemoteLogLevel::Info
+                    };
+                    remote_logging::log_model_event(
+                        ctx,
+                        RemoteLogRecord {
+                            level,
+                            message: "Tool queue decision".to_string(),
+                            context: serde_json::json!({
+                                "event": "tool_queue_decision",
+                                "stream_id": stream_id.as_str(),
+                                "conversation_id": conversation_id.to_string(),
+                                "decision": decision,
+                                "history_action_count": history_action_count,
+                                "proposed_action_count": proposed_action_count,
+                                "candidate_action_count": actions_to_queue.len(),
+                                "will_queue_action_count": if will_queue_actions {
+                                    actions_to_queue.len()
+                                } else {
+                                    0
+                                },
+                                "queued_from_stream_snapshot_count": queued_from_stream_snapshot_count,
+                                "was_passive_request": was_passive_request,
+                                "is_any_exchange_unfinished": is_any_exchange_unfinished,
+                                "cancellation_reason": cancellation
+                                    .as_ref()
+                                    .map(|stream_cancellation| format!("{:?}", stream_cancellation.reason)),
+                                "queued_tools": remote_action_summaries(&actions_to_queue),
+                                "proposed_tools": remote_action_summaries(&proposed_actions),
+                            }),
+                        },
+                    );
                 }
 
                 if let Some(stream_cancellation) = &cancellation {

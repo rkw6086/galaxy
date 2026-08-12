@@ -31,7 +31,7 @@ use crate::ai::agent::api::{self, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::AIAgentInput;
-use crate::ai::agent::{AIIdentifiers, CancellationReason};
+use crate::ai::agent::{AIAgentAction, AIIdentifiers, CancellationReason};
 use crate::ai::bedrock::client::BedrockClientConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::BlocklistAIPermissions;
@@ -96,6 +96,10 @@ fn recovery_action(
 pub struct ResponseStreamId(String);
 
 impl ResponseStreamId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
     pub fn for_shared_session(init_event: &response_event::StreamInit) -> Self {
         // Make the stream ID unique per viewing by appending a local UUID
         // This prevents collisions when replaying the same conversation multiple times
@@ -142,6 +146,12 @@ pub struct ResponseStream {
     /// Track whether we've received any client actions
     /// If true, we cannot retry on subsequent errors since actions may have been executed
     has_received_client_actions: bool,
+    /// Domain tool proposals observed directly from the response stream for the current request.
+    ///
+    /// The controller normally queues actions by reading them back from history after the stream
+    /// finishes. Keeping this snapshot prevents a final tool proposal from being lost if stream
+    /// completion is handled before that proposal has been applied to history.
+    proposed_actions: Vec<AIAgentAction>,
     /// AI identifiers for telemetry emission
     ai_identifiers: AIIdentifiers,
     #[cfg(not(target_family = "wasm"))]
@@ -213,6 +223,7 @@ impl ResponseStream {
             cancellation_tx: Some(cancellation_tx),
             original_error: None,
             has_received_client_actions: false,
+            proposed_actions: Vec::new(),
             ai_identifiers: AIIdentifiers::default(),
             #[cfg(not(target_family = "wasm"))]
             remote_log_backend: "provider".to_string(),
@@ -807,6 +818,7 @@ impl ResponseStream {
             coding_model_fallback_attempted: false,
             original_error: None,
             has_received_client_actions: false,
+            proposed_actions: Vec::new(),
             ai_identifiers,
             #[cfg(not(target_family = "wasm"))]
             remote_log_backend,
@@ -925,6 +937,7 @@ impl ResponseStream {
         self.retry_count += 1;
         // Reset per-attempt state for the new attempt.
         self.has_received_client_actions = false;
+        self.proposed_actions.clear();
         self.stream_finished_received = false;
         self.error_event_emitted = false;
         self.deferred_retry_pending = false;
@@ -1016,6 +1029,7 @@ impl ResponseStream {
                 reason,
                 conversation_id,
             }),
+            proposed_actions: self.proposed_actions.clone(),
         });
     }
 
@@ -1083,6 +1097,7 @@ impl ResponseStream {
         match &event {
             Ok(api::StreamEvent::ToolProposed(action)) => {
                 self.has_received_client_actions = true;
+                self.proposed_actions.push(action.clone());
                 log::debug!(
                     "Rig proposed domain tool action {} for task {}",
                     action.id,
@@ -1414,7 +1429,10 @@ impl ResponseStream {
             }
         }
 
-        ctx.emit(ResponseStreamEvent::AfterStreamFinished { cancellation: None });
+        ctx.emit(ResponseStreamEvent::AfterStreamFinished {
+            cancellation: None,
+            proposed_actions: self.proposed_actions.clone(),
+        });
         self.cancellation_tx = None;
     }
 
@@ -1665,6 +1683,8 @@ pub enum ResponseStreamEvent {
     AfterStreamFinished {
         /// Some for cancellation (with context), None for natural completion (uses dynamic lookup).
         cancellation: Option<StreamCancellation>,
+        /// Domain tool proposals observed directly from the stream before it finished.
+        proposed_actions: Vec<AIAgentAction>,
     },
 }
 
