@@ -1912,7 +1912,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "run_agents".to_string(),
-            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and inherit the parent model.".to_string(),
+            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and inherit the parent model. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1956,6 +1956,20 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                     "plan_id": { "type": "string", "default": "", "description": "Optional associated plan document ID" }
                 },
                 "required": ["summary", "agent_run_configs"]
+            }),
+        },
+        ToolDefinition {
+            name: "wait_for_events".to_string(),
+            description: "Yield after starting child agents or other asynchronous work. Use this when you are waiting for child-agent updates instead of repeating the same investigation yourself.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "idle_timeout_seconds": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Optional idle timeout. 0 lets Galaxy choose the default."
+                    }
+                }
             }),
         },
         ToolDefinition {

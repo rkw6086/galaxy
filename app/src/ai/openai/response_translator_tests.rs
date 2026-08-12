@@ -136,6 +136,8 @@ async fn recall_tool_history_does_not_emit_a_client_tool_call() {
 fn direct_provider_known_tools_exclude_hosted_only_tools() {
     assert!(!is_known_tool("send_message_to_agent"));
     assert!(!is_known_tool("suggest_next_prompt"));
+    assert!(is_known_tool("run_agents"));
+    assert!(is_known_tool("wait_for_events"));
     assert!(is_known_tool("recall_tool_history"));
     assert!(is_known_tool("interrupt_shell_command"));
 }

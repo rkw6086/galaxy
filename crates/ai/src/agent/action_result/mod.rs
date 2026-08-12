@@ -1585,8 +1585,9 @@ impl Display for StartAgentResult {
 /// interceptor can synthesize the marker on the next outbound input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunAgentsResult {
-    /// Orchestration launched. Carries the resolved configuration and one
-    /// `AgentOutcome` per `agent_run_configs[]` entry, in input order.
+    /// Orchestration launch completed. Carries the resolved configuration
+    /// and one launch `AgentOutcome` per `agent_run_configs[]` entry, in input
+    /// order. A launched child agent may still be running.
     Launched {
         model_id: String,
         harness_type: String,
@@ -1670,6 +1671,8 @@ impl RunAgentsResult {
                     .collect::<Vec<_>>();
                 serde_json::json!({
                     "status": "launched",
+                    "completion_state": "children_running",
+                    "instruction": "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results.",
                     "model_id": model_id,
                     "harness_type": harness_type,
                     "execution_mode": execution_mode,

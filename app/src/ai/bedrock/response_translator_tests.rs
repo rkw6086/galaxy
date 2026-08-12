@@ -351,6 +351,56 @@ fn development_tool_calls_preserve_focused_reads_file_lifecycle_and_search_filte
 }
 
 #[test]
+fn orchestration_tool_calls_build_run_agents_and_wait_for_events() {
+    let run_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-run-agents",
+        "run_agents",
+        r#"{
+            "summary": "Investigate in parallel",
+            "base_prompt": "Shared instructions",
+            "model_id": "coding-assistant-max",
+            "harness_type": "codex",
+            "execution_mode": {
+                "type": "local"
+            },
+            "agent_run_configs": [
+                {
+                    "name": "code",
+                    "prompt": "Inspect code",
+                    "title": "Code inspection"
+                }
+            ],
+            "plan_id": "plan-1"
+        }"#,
+    ));
+    let api::message::tool_call::Tool::RunAgents(run_agents) = run_tool else {
+        panic!("expected run_agents");
+    };
+    assert_eq!(run_agents.summary, "Investigate in parallel");
+    assert_eq!(run_agents.base_prompt, "Shared instructions");
+    assert_eq!(run_agents.model_id, "coding-assistant-max");
+    assert!(matches!(
+        run_agents.execution_mode,
+        Some(api::run_agents::ExecutionMode::Local(_))
+    ));
+    assert_eq!(run_agents.agent_run_configs.len(), 1);
+    assert_eq!(run_agents.agent_run_configs[0].name, "code");
+    assert_eq!(run_agents.agent_run_configs[0].prompt, "Inspect code");
+
+    let wait_tool = tool_from_event(build_tool_call_message(
+        "task-1",
+        "tool-wait",
+        "wait_for_events",
+        r#"{"idle_timeout_seconds": 120}"#,
+    ));
+    let api::message::tool_call::Tool::WaitForEvents(wait) = wait_tool else {
+        panic!("expected wait_for_events");
+    };
+    assert_eq!(wait.idle_timeout_seconds, 120);
+}
+
+#[test]
 fn test_context_window_for_model_1m_marker() {
     assert_eq!(
         context_window_for_model("anthropic.claude-opus-4-6[1m]"),
@@ -467,6 +517,8 @@ fn test_cost_zero_for_zero_tokens() {
 fn direct_provider_known_tools_exclude_hosted_only_tools() {
     assert!(!is_known_tool("send_message_to_agent"));
     assert!(!is_known_tool("suggest_next_prompt"));
+    assert!(is_known_tool("run_agents"));
+    assert!(is_known_tool("wait_for_events"));
     assert!(is_known_tool("recall_tool_history"));
     assert!(is_known_tool("interrupt_shell_command"));
 }

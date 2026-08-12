@@ -169,6 +169,106 @@ fn test_multipart_tool_uses_all_get_results() {
 }
 
 #[test]
+fn sanitizer_drops_stale_tool_result_from_current_user_turn() {
+    let mut messages = vec![
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "old_tool".to_string(),
+                name: "read_shell_command_output".to_string(),
+                input: json!({"block_id": "block-1"}),
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old_tool".to_string(),
+                content: "cancelled".to_string(),
+                is_error: true,
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "current_tool".to_string(),
+                name: "read_notebook".to_string(),
+                input: json!({"document_id": "doc-1"}),
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::ToolResult {
+                    tool_use_id: "old_tool".to_string(),
+                    content: "late cancellation".to_string(),
+                    is_error: true,
+                },
+                ContentPart::ToolResult {
+                    tool_use_id: "current_tool".to_string(),
+                    content: "notebook contents".to_string(),
+                    is_error: false,
+                },
+            ]),
+        },
+    ];
+
+    sanitize_messages_for_openai(&mut messages);
+
+    assert_eq!(messages.len(), 4);
+    let MessageContent::MultiPart(parts) = &messages[3].content else {
+        panic!("expected current user message to remain multipart");
+    };
+    assert_eq!(parts.len(), 1);
+    assert!(matches!(
+        &parts[0],
+        ContentPart::ToolResult { tool_use_id, content, is_error }
+            if tool_use_id == "current_tool" && content == "notebook contents" && !is_error
+    ));
+}
+
+#[test]
+fn sanitizer_drops_tool_result_message_not_following_its_tool_use() {
+    let mut messages = vec![
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "old_tool".to_string(),
+                name: "read_shell_command_output".to_string(),
+                input: json!({"block_id": "block-1"}),
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old_tool".to_string(),
+                content: "cancelled".to_string(),
+                is_error: true,
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Continuing.".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old_tool".to_string(),
+                content: "late cancellation".to_string(),
+                is_error: true,
+            },
+        },
+    ];
+
+    sanitize_messages_for_openai(&mut messages);
+
+    assert_eq!(messages.len(), 4);
+    let MessageContent::Text(text) = &messages[3].content else {
+        panic!("expected appended continuation message after stale tool result was dropped");
+    };
+    assert_eq!(text, "Continue.");
+}
+
+#[test]
 fn test_ensure_ends_with_user_message_no_op_when_already_user() {
     let mut messages = vec![
         ConversationMessage {

@@ -8,7 +8,9 @@ use super::request_translator::sanitize_messages_for_openai;
 use super::response_translator::{openai_stream_to_response_events, OpenAIStreamContext};
 use crate::ai::agent::api::LegacyResponseStream;
 use crate::ai::bedrock::request_translator;
-use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
+use crate::ai::provider::types::{
+    flatten_tool_history_for_no_tools_turn, ConversationMessage, MessageContent, MessageRole,
+};
 
 const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 64_000;
 
@@ -92,6 +94,10 @@ pub(crate) fn prepare_turn(params: &TranslatorRequest, request: &mut api::Reques
         message.truncate_tool_results_for_provider_request();
     }
     sanitize_messages_for_openai(&mut messages);
+    let tools = request_translator::extract_tools(request);
+    if tools_are_inline_only(&tools) {
+        flatten_tool_history_for_no_tools_turn(&mut messages);
+    }
 
     PreparedTurn {
         task_id,
@@ -99,10 +105,14 @@ pub(crate) fn prepare_turn(params: &TranslatorRequest, request: &mut api::Reques
         user_query: request_translator::extract_user_query_text(request),
         messages,
         system_prompt: request_translator::extract_system_prompt(request, &params.global_rules),
-        tools: request_translator::extract_tools(request),
+        tools,
         model_id,
         persistent_message_count,
     }
+}
+
+fn tools_are_inline_only(tools: &[crate::ai::provider::types::ToolDefinition]) -> bool {
+    tools.iter().all(|tool| tool.name == "recall_tool_history")
 }
 
 pub async fn execute(

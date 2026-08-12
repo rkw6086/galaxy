@@ -41,6 +41,8 @@ use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::llms::LLMPreferences;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::input_suggestions::HistoryOrder;
 use crate::persistence::model::{
     AcpConversationData, AgentBackend, AgentConversation, AgentConversationData,
@@ -1360,7 +1362,21 @@ impl BlocklistAIHistoryModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if let Some(conversation) = self.conversations_by_id.get_mut(&conversation_id) {
+            #[cfg(not(target_family = "wasm"))]
+            let remote_log_context =
+                remote_status_log_context(conversation, &status, error.as_ref());
             conversation.update_status_with_error(status, error, terminal_surface_id, ctx);
+            #[cfg(not(target_family = "wasm"))]
+            if let Some(context) = remote_log_context {
+                remote_logging::log_model_event(
+                    ctx,
+                    RemoteLogRecord {
+                        level: RemoteLogLevel::Info,
+                        message: "Agent conversation status changed".to_string(),
+                        context,
+                    },
+                );
+            }
         }
     }
 
@@ -2868,6 +2884,46 @@ fn agent_id_key(conversation: &AIConversation) -> Option<String> {
 
 fn agent_id_key_from_persisted_data(conversation_data: &AgentConversationData) -> Option<&str> {
     conversation_data.run_id.as_deref()
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn remote_status_log_context(
+    conversation: &AIConversation,
+    new_status: &ConversationStatus,
+    error: Option<&RenderableAIError>,
+) -> Option<serde_json::Value> {
+    let prev_status = conversation.status();
+    if prev_status == new_status {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "event": "agent_conversation_status_changed",
+        "conversation_id": conversation.id().to_string(),
+        "parent_conversation_id": conversation.parent_conversation_id().map(|id| id.to_string()),
+        "agent_id": conversation.orchestration_agent_id(),
+        "agent_name": conversation.agent_name(),
+        "harness_type": conversation.orchestration_harness_type(),
+        "is_child": conversation.parent_conversation_id().is_some(),
+        "is_remote_child": conversation.is_remote_child(),
+        "previous_status": conversation_status_label(prev_status),
+        "new_status": conversation_status_label(new_status),
+        "new_status_is_terminal": new_status.is_done(),
+        "error": error.map(remote_logging::sanitize_error),
+    }))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn conversation_status_label(status: &ConversationStatus) -> &'static str {
+    match status {
+        ConversationStatus::InProgress => "in_progress",
+        ConversationStatus::Success => "success",
+        ConversationStatus::Error => "error",
+        ConversationStatus::TransientError => "transient_error",
+        ConversationStatus::Cancelled => "cancelled",
+        ConversationStatus::Blocked { .. } => "blocked",
+        ConversationStatus::WaitingForEvents => "waiting_for_events",
+    }
 }
 
 /// Whether an `UpdatedConversationStatus` event represents a restoration

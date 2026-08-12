@@ -11,6 +11,8 @@ mod registry;
 
 use std::cmp::Ordering;
 
+#[cfg(feature = "v2")]
+use galaxy_js::TypedJsFunctionRef;
 pub use lookup::*;
 pub use registry::*;
 use serde::{Deserialize, Serialize};

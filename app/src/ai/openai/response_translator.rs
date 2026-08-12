@@ -679,6 +679,8 @@ const KNOWN_TOOLS: &[&str] = &[
     "read_documents",
     "create_documents",
     "edit_documents",
+    "run_agents",
+    "wait_for_events",
     "start_agent",
     "ask_user_question",
     "read_skill",

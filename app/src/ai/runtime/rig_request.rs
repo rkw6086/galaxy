@@ -20,6 +20,7 @@ use crate::ai::bedrock::request_translator::{
 };
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::request_translator::sanitize_messages_for_openai;
+use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
 
 pub(crate) struct PreparedRigTurn {
     pub task_id: String,
@@ -155,6 +156,9 @@ fn prepare_rig_turn_for_provider(
         });
     }
     turn_messages.extend(persistent_messages.clone());
+    if tools_are_inline_only(&tools) {
+        flatten_tool_history_for_no_tools_turn(&mut turn_messages);
+    }
 
     let model_id = model_override
         .filter(|model| !model.is_empty() && model != "auto")
@@ -514,6 +518,10 @@ fn tool_definitions(
         }
     }
     (tools, mcp_tool_aliases)
+}
+
+fn tools_are_inline_only(tools: &[ToolDefinition]) -> bool {
+    tools.iter().all(|tool| tool.name == "recall_tool_history")
 }
 
 const MAX_PROVIDER_TOOL_NAME_BYTES: usize = 64;

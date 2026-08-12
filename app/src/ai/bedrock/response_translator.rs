@@ -322,7 +322,7 @@ pub fn bedrock_stream_to_response_events(
                                         current_tool_name, current_tool_use_id, current_tool_input_json
                                     ));
                                 }
-                                if current_tool_name == "start_agent" {
+                                if matches!(current_tool_name.as_str(), "start_agent" | "run_agents") {
                                     has_start_agent_calls = true;
                                 }
                                 let tool_msg = build_tool_call_message(
@@ -1244,6 +1244,78 @@ pub fn build_tool_call_message(
                 api::message::tool_call::EditDocuments { diffs },
             ))
         }
+        "run_agents" => {
+            let agent_run_configs = input
+                .get("agent_run_configs")
+                .and_then(|value| value.as_array())
+                .map(|configs| {
+                    configs
+                        .iter()
+                        .map(|config| api::run_agents::AgentRunConfig {
+                            name: config
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            prompt: config
+                                .get("prompt")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            title: config
+                                .get("title")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let execution_mode = input
+                .get("execution_mode")
+                .and_then(run_agents_execution_mode_from_json);
+            Some(api::message::tool_call::Tool::RunAgents(api::RunAgents {
+                summary: input
+                    .get("summary")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                base_prompt: input
+                    .get("base_prompt")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                skills: Vec::new(),
+                model_id: input
+                    .get("model_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                harness: input
+                    .get("harness_type")
+                    .and_then(|value| value.as_str())
+                    .and_then(run_agents_harness_from_str),
+                agent_run_configs,
+                execution_mode,
+                plan_id: input
+                    .get("plan_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            }))
+        }
+        "wait_for_events" => {
+            let idle_timeout_seconds = input
+                .get("idle_timeout_seconds")
+                .and_then(|value| value.as_i64())
+                .and_then(|value| value.try_into().ok())
+                .unwrap_or(0);
+            Some(api::message::tool_call::Tool::WaitForEvents(
+                api::message::tool_call::WaitForEvents {
+                    idle_timeout_seconds,
+                },
+            ))
+        }
         "start_agent" => {
             let name = input
                 .get("name")
@@ -1470,6 +1542,58 @@ pub fn build_tool_call_message(
     }
 }
 
+fn run_agents_execution_mode_from_json(
+    execution_mode: &serde_json::Value,
+) -> Option<api::run_agents::ExecutionMode> {
+    let mode_type = execution_mode
+        .get("type")
+        .and_then(|value| value.as_str())
+        .or_else(|| execution_mode.as_str());
+    match mode_type {
+        Some("remote") => Some(api::run_agents::ExecutionMode::Remote(
+            api::run_agents::Remote {
+                environment_id: execution_mode
+                    .get("environment_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                worker_host: execution_mode
+                    .get("worker_host")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                computer_use_enabled: execution_mode
+                    .get("computer_use_enabled")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+            },
+        )),
+        Some("local") | Some(_) | None => Some(api::run_agents::ExecutionMode::Local(
+            api::run_agents::Local {},
+        )),
+    }
+}
+
+fn run_agents_harness_from_str(harness_type: &str) -> Option<api::Harness> {
+    let variant = match harness_type
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .as_str()
+    {
+        "oz" => api::harness::Variant::Oz(api::harness::Oz {}),
+        "claude" | "claude-code" => api::harness::Variant::ClaudeCode(api::harness::ClaudeCode {}),
+        "opencode" | "open-code" => api::harness::Variant::OpenCode(api::harness::OpenCode {}),
+        "gemini" => api::harness::Variant::Gemini(api::harness::Gemini {}),
+        "codex" => api::harness::Variant::Codex(api::harness::Codex {}),
+        "" | "unknown" => return None,
+        _ => return None,
+    };
+    Some(api::Harness {
+        variant: Some(variant),
+    })
+}
+
 /// Built-in tools that Galaxy knows how to execute directly.
 const KNOWN_TOOLS: &[&str] = &[
     "run_shell_command",
@@ -1493,6 +1617,8 @@ const KNOWN_TOOLS: &[&str] = &[
     "read_documents",
     "create_documents",
     "edit_documents",
+    "run_agents",
+    "wait_for_events",
     "start_agent",
     "ask_user_question",
     "read_skill",

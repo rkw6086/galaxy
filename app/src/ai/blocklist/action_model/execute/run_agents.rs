@@ -37,6 +37,8 @@ use crate::ai::document::plan_publication::{
     prepare_plan_publications, wait_for_plan_publications,
 };
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 
 /// Per-child spawn timeout. If a child agent doesn't report back within
 /// this window (e.g. binary not found, server error), the slot is failed
@@ -169,12 +171,36 @@ impl RunAgentsExecutor {
 
         if self.pending.contains_key(&action_id) {
             log::warn!("RunAgentsExecutor: dispatch reentered for {action_id:?}; rejecting");
+            #[cfg(not(target_family = "wasm"))]
+            log_run_agents_event(
+                ctx,
+                RemoteLogLevel::Warn,
+                "RunAgents dispatch rejected",
+                serde_json::json!({
+                    "event": "run_agents_dispatch_rejected",
+                    "reason": "reentered_pending_action",
+                    "action_id": action_id.to_string(),
+                    "parent_conversation_id": parent_conversation_id.to_string(),
+                }),
+            );
             let _ = sender.try_send(RunAgentsResult::Cancelled);
             return receiver;
         }
 
         if let Err(error) = validate_request(&request) {
             log::warn!("RunAgentsExecutor: validation failure: {error}");
+            #[cfg(not(target_family = "wasm"))]
+            log_run_agents_event(
+                ctx,
+                RemoteLogLevel::Warn,
+                "RunAgents validation failed",
+                serde_json::json!({
+                    "event": "run_agents_validation_failed",
+                    "action_id": action_id.to_string(),
+                    "parent_conversation_id": parent_conversation_id.to_string(),
+                    "error": remote_logging::sanitize_error(&error),
+                }),
+            );
             let _ = sender.try_send(RunAgentsResult::Failure { error });
             return receiver;
         }
@@ -185,6 +211,19 @@ impl RunAgentsExecutor {
         };
         self.pending
             .insert(action_id.clone(), PendingRunAgents::Publishing);
+        #[cfg(not(target_family = "wasm"))]
+        log_run_agents_event(
+            ctx,
+            RemoteLogLevel::Info,
+            "RunAgents plan publication wait started",
+            serde_json::json!({
+                "event": "run_agents_plan_publication_wait_started",
+                "action_id": action_id.to_string(),
+                "parent_conversation_id": parent_conversation_id.to_string(),
+                "agent_count": snapshot.agent_count,
+                "plan_id_present": !request.plan_id.trim().is_empty(),
+            }),
+        );
         ctx.emit(RunAgentsExecutorEvent::SpawningStarted {
             action_id: action_id.clone(),
             snapshot,
@@ -241,6 +280,23 @@ impl RunAgentsExecutor {
             ..
         } = request;
 
+        #[cfg(not(target_family = "wasm"))]
+        log_run_agents_event(
+            ctx,
+            RemoteLogLevel::Info,
+            "RunAgents child dispatch started",
+            serde_json::json!({
+                "event": "run_agents_child_dispatch_started",
+                "action_id": action_id.to_string(),
+                "parent_conversation_id": parent_conversation_id.to_string(),
+                "agent_count": agent_run_configs.len(),
+                "execution_mode": run_agents_execution_mode_label(&run_execution_mode),
+                "harness_type": harness_type.as_str(),
+                "model_id_present": !model_id.trim().is_empty(),
+                "parent_run_id_present": parent_run_id.is_some(),
+            }),
+        );
+
         let mut slots: Vec<ChildSlot> = Vec::with_capacity(agent_run_configs.len());
         for cfg in &agent_run_configs {
             let prompt = compose_run_agents_child_prompt(&base_prompt, &cfg.prompt);
@@ -254,6 +310,19 @@ impl RunAgentsExecutor {
             ) {
                 Ok(mode) => mode,
                 Err(err) => {
+                    #[cfg(not(target_family = "wasm"))]
+                    log_run_agents_event(
+                        ctx,
+                        RemoteLogLevel::Warn,
+                        "RunAgents child dispatch failed before launch",
+                        serde_json::json!({
+                            "event": "run_agents_child_dispatch_prelaunch_failed",
+                            "action_id": action_id.to_string(),
+                            "parent_conversation_id": parent_conversation_id.to_string(),
+                            "agent_name": cfg.name.as_str(),
+                            "error": remote_logging::sanitize_error(&err),
+                        }),
+                    );
                     slots.push(ChildSlot::Failed(err));
                     continue;
                 }
@@ -261,11 +330,37 @@ impl RunAgentsExecutor {
             if matches!(run_execution_mode, RunAgentsExecutionMode::Remote { .. })
                 && parent_run_id.is_none()
             {
+                #[cfg(not(target_family = "wasm"))]
+                log_run_agents_event(
+                    ctx,
+                    RemoteLogLevel::Warn,
+                    "RunAgents remote child dispatch missing parent run_id",
+                    serde_json::json!({
+                        "event": "run_agents_child_dispatch_prelaunch_failed",
+                        "action_id": action_id.to_string(),
+                        "parent_conversation_id": parent_conversation_id.to_string(),
+                        "agent_name": cfg.name.as_str(),
+                        "error": "Remote child agents require the parent run_id to be available.",
+                    }),
+                );
                 slots.push(ChildSlot::Failed(
                     "Remote child agents require the parent run_id to be available.".to_string(),
                 ));
                 continue;
             }
+            #[cfg(not(target_family = "wasm"))]
+            log_run_agents_event(
+                ctx,
+                RemoteLogLevel::Info,
+                "RunAgents child dispatch queued",
+                serde_json::json!({
+                    "event": "run_agents_child_dispatch_queued",
+                    "action_id": action_id.to_string(),
+                    "parent_conversation_id": parent_conversation_id.to_string(),
+                    "agent_name": cfg.name.as_str(),
+                    "execution_mode": start_agent_execution_mode_label(&mode),
+                }),
+            );
             let recv = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
                 executor.dispatch(
                     cfg.name.clone(),
@@ -286,11 +381,20 @@ impl RunAgentsExecutor {
         let run_harness_type = harness_type.clone();
         let run_execution_mode_for_aggr = run_execution_mode.clone();
         let parent_conversation_id_for_result = parent_conversation_id;
+        #[cfg(not(target_family = "wasm"))]
+        let action_id_for_async_log = action_id.clone();
+        #[cfg(not(target_family = "wasm"))]
+        let parent_conversation_id_for_async_log = parent_conversation_id;
+        #[cfg(not(target_family = "wasm"))]
+        let agent_names_for_async_log = agent_run_configs
+            .iter()
+            .map(|cfg| cfg.name.clone())
+            .collect::<Vec<_>>();
 
         ctx.spawn(
             async move {
                 let mut outcomes: Vec<RunAgentsAgentOutcomeKind> = Vec::with_capacity(slots.len());
-                for slot in slots {
+                for (slot_index, slot) in slots.into_iter().enumerate() {
                     let kind = match slot {
                         ChildSlot::Failed(error) => RunAgentsAgentOutcomeKind::Failed { error },
                         ChildSlot::Pending(recv) => {
@@ -331,6 +435,19 @@ impl RunAgentsExecutor {
                             }
                         }
                     };
+                    #[cfg(not(target_family = "wasm"))]
+                    log::info!(
+                        "RunAgents child launch outcome action_id={} parent_conversation_id={} \
+                         agent_name={} slot_index={} outcome={}",
+                        action_id_for_async_log,
+                        parent_conversation_id_for_async_log,
+                        agent_names_for_async_log
+                            .get(slot_index)
+                            .map(String::as_str)
+                            .unwrap_or("<unknown>"),
+                        slot_index,
+                        run_agents_agent_outcome_kind_label(&kind)
+                    );
                     outcomes.push(kind);
                 }
                 outcomes
@@ -345,6 +462,35 @@ impl RunAgentsExecutor {
                     })
                     .collect();
                 me.record_launched_agents(parent_conversation_id_for_result, &agents);
+                #[cfg(not(target_family = "wasm"))]
+                log_run_agents_event(
+                    ctx,
+                    RemoteLogLevel::Info,
+                    "RunAgents launch outcomes resolved",
+                    serde_json::json!({
+                        "event": "run_agents_launch_outcomes_resolved",
+                        "action_id": action_id_for_aggr.to_string(),
+                        "parent_conversation_id": parent_conversation_id_for_result.to_string(),
+                        "agent_count": agents.len(),
+                        "launched_count": agents.iter().filter(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Launched { .. })).count(),
+                        "failed_count": agents.iter().filter(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })).count(),
+                        "agents": agents
+                            .iter()
+                            .map(|agent| match &agent.kind {
+                                RunAgentsAgentOutcomeKind::Launched { agent_id } => serde_json::json!({
+                                    "name": agent.name.as_str(),
+                                    "status": "launched",
+                                    "agent_id": agent_id.as_str(),
+                                }),
+                                RunAgentsAgentOutcomeKind::Failed { error } => serde_json::json!({
+                                    "name": agent.name.as_str(),
+                                    "status": "failed",
+                                    "error": remote_logging::sanitize_error(error),
+                                }),
+                            })
+                            .collect::<Vec<_>>(),
+                    }),
+                );
                 let launched_mode = match &run_execution_mode_for_aggr {
                     RunAgentsExecutionMode::Local => RunAgentsLaunchedExecutionMode::Local,
                     RunAgentsExecutionMode::Remote {
@@ -391,6 +537,18 @@ impl RunAgentsExecutor {
             &self.launched_agents,
             ctx,
         ) {
+            #[cfg(not(target_family = "wasm"))]
+            log_run_agents_event(
+                ctx,
+                RemoteLogLevel::Warn,
+                "RunAgents execution denied",
+                serde_json::json!({
+                    "event": "run_agents_execution_denied",
+                    "action_id": action_id.to_string(),
+                    "parent_conversation_id": parent_conversation_id.to_string(),
+                    "reason": remote_logging::sanitize_error(&reason),
+                }),
+            );
             return ActionExecution::Sync(AIAgentActionResultType::RunAgents(
                 RunAgentsResult::Denied { reason },
             ));
@@ -449,6 +607,47 @@ impl RunAgentsExecutor {
 #[cfg(test)]
 #[path = "run_agents_tests.rs"]
 mod tests;
+
+#[cfg(not(target_family = "wasm"))]
+fn log_run_agents_event(
+    ctx: &mut ModelContext<RunAgentsExecutor>,
+    level: RemoteLogLevel,
+    message: impl Into<String>,
+    context: serde_json::Value,
+) {
+    remote_logging::log_model_event(
+        ctx,
+        RemoteLogRecord {
+            level,
+            message: message.into(),
+            context,
+        },
+    );
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn run_agents_execution_mode_label(mode: &RunAgentsExecutionMode) -> &'static str {
+    match mode {
+        RunAgentsExecutionMode::Local => "local",
+        RunAgentsExecutionMode::Remote { .. } => "remote",
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn start_agent_execution_mode_label(mode: &StartAgentExecutionMode) -> &'static str {
+    match mode {
+        StartAgentExecutionMode::Local { .. } => "local",
+        StartAgentExecutionMode::Remote { .. } => "remote",
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn run_agents_agent_outcome_kind_label(kind: &RunAgentsAgentOutcomeKind) -> &'static str {
+    match kind {
+        RunAgentsAgentOutcomeKind::Launched { .. } => "launched",
+        RunAgentsAgentOutcomeKind::Failed { .. } => "failed",
+    }
+}
 
 enum ChildSlot {
     Failed(String),

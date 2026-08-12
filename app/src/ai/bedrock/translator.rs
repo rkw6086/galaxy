@@ -9,6 +9,7 @@ use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig, BedrockErro
 use crate::ai::bedrock::convert::ConversationMessage;
 use crate::ai::bedrock::diagnostic::BedrockDiagnosticLogger;
 use crate::ai::bedrock::request_translator;
+use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
 
 pub struct TranslatorRequest {
     pub config: BedrockClientConfig,
@@ -108,6 +109,9 @@ pub async fn execute(
 
     let system_prompt = request_translator::extract_system_prompt(request, &params.global_rules);
     let tools = request_translator::extract_tools(request);
+    if tools_are_inline_only(&tools) {
+        flatten_tool_history_for_no_tools_turn(&mut messages);
+    }
 
     log::info!(
         "[bedrock] Sending {} messages, system_prompt={}, progressive_summary={}, tools={}",
@@ -161,6 +165,10 @@ pub async fn execute(
     }
 
     Ok(stream)
+}
+
+fn tools_are_inline_only(tools: &[crate::ai::bedrock::convert::ToolDefinition]) -> bool {
+    tools.iter().all(|tool| tool.name == "recall_tool_history")
 }
 
 fn describe_message_content(content: &crate::ai::bedrock::convert::MessageContent) -> String {

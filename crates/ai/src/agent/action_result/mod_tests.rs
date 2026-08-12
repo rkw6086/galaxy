@@ -78,6 +78,8 @@ fn run_agents_model_content_contains_resolved_config_and_agent_outcomes() {
         content,
         serde_json::json!({
             "status": "launched",
+            "completion_state": "children_running",
+            "instruction": "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results.",
             "model_id": "resolved-model",
             "harness_type": "oz",
             "execution_mode": {

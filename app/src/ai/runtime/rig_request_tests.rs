@@ -125,6 +125,117 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
 }
 
 #[test]
+fn no_tools_turn_flattens_historical_tool_protocol_messages() {
+    let mut params = RequestParams::new_for_test();
+    params.message_history = vec![
+        galaxy_agent_core::ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "call-1".to_string(),
+                name: "run_shell_command".to_string(),
+                input: serde_json::json!({
+                    "command": "find . -name package.json",
+                    "wait_until_complete": true,
+                }),
+            },
+        },
+        galaxy_agent_core::ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "call-1".to_string(),
+                content: "command exited with code 1".to_string(),
+                is_error: true,
+            },
+        },
+    ];
+    params.input = vec![user_query("Summarize what happened")];
+
+    let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
+
+    assert_eq!(prepared.request.tools.len(), 1);
+    assert_eq!(prepared.request.tools[0].name, "recall_tool_history");
+    assert!(prepared
+        .request
+        .messages
+        .iter()
+        .all(|message| !message.content.contains_tool_protocol_blocks()));
+    assert!(prepared.request.messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text)
+            if text.contains("Previous tool call `run_shell_command`")
+                && text.contains("call-1")
+    )));
+    assert!(prepared.request.messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text)
+            if text.contains("Previous tool result for id `call-1` (error)")
+    )));
+    assert!(prepared.persistent_messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::ToolUse { tool_use_id, .. } if tool_use_id == "call-1"
+    )));
+}
+
+#[test]
+fn tool_enabled_turn_preserves_structured_tool_history() {
+    let mut params = RequestParams::new_for_test();
+    params.message_history = vec![
+        galaxy_agent_core::ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "call-1".to_string(),
+                name: "read_files".to_string(),
+                input: serde_json::json!({"files": ["Cargo.toml"]}),
+            },
+        },
+        galaxy_agent_core::ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "call-1".to_string(),
+                content: "[package]\nname = \"galaxy\"".to_string(),
+                is_error: false,
+            },
+        },
+    ];
+    params.input = vec![user_query("Keep inspecting")];
+
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadFiles], Vec::new());
+
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "read_files"));
+    assert!(prepared.request.messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::ToolUse { tool_use_id, .. } if tool_use_id == "call-1"
+    )));
+    assert!(prepared.request.messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::ToolResult { tool_use_id, .. } if tool_use_id == "call-1"
+    )));
+}
+
+trait MessageContentTestExt {
+    fn contains_tool_protocol_blocks(&self) -> bool;
+}
+
+impl MessageContentTestExt for MessageContent {
+    fn contains_tool_protocol_blocks(&self) -> bool {
+        match self {
+            MessageContent::ToolUse { .. } | MessageContent::ToolResult { .. } => true,
+            MessageContent::MultiPart(parts) => parts.iter().any(|part| {
+                matches!(
+                    part,
+                    ContentPart::ToolUse { .. } | ContentPart::ToolResult { .. }
+                )
+            }),
+            MessageContent::Text(_) => false,
+        }
+    }
+}
+
+#[test]
 fn rig_prompt_requires_follow_through_without_manual_continue_prompts() {
     let mut params = RequestParams::new_for_test();
     params.input = vec![user_query("Analyze and fix the issue")];
