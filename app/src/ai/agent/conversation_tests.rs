@@ -228,6 +228,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
         false,
         false,
         AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: None,
@@ -238,6 +239,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
     assert_eq!(
         acp_conversation.agent_backend(),
         &AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),
@@ -256,6 +258,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
 #[test]
 fn restored_conversation_uses_persisted_acp_backend() {
     let backend = AgentBackend::Acp(AcpConversationData {
+        provider_id: "provider-1".to_string(),
         agent_id: "codex-acp".to_string(),
         launch_fingerprint: "launch-123".to_string(),
         session_id: Some("session-123".to_string()),

@@ -9,6 +9,7 @@ use super::{
 #[test]
 fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
     let source = AgentBackend::Acp(AcpConversationData {
+        provider_id: "provider-1".to_owned(),
         agent_id: "codex".to_owned(),
         launch_fingerprint: "launch-123".to_owned(),
         session_id: Some("shared-session".to_owned()),
@@ -21,6 +22,7 @@ fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
     assert_eq!(
         source.for_fork(),
         AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_owned(),
             agent_id: "codex".to_owned(),
             launch_fingerprint: "launch-123".to_owned(),
             session_id: None,
@@ -183,6 +185,7 @@ fn agent_conversation_data_defaults_legacy_rows_to_provider_backend() {
 fn agent_conversation_data_roundtrips_acp_backend() {
     let data = AgentConversationData {
         agent_backend: AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),

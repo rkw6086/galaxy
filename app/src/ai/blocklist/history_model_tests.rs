@@ -78,6 +78,7 @@ fn acp_enabled_with_empty_command_selects_codex_backend() {
             assert_eq!(
                 conversation.agent_backend(),
                 &AgentBackend::Acp(AcpConversationData {
+                    provider_id: "legacy".to_string(),
                     agent_id: "codex".to_string(),
                     launch_fingerprint: crate::ai::acp::acp_launch_fingerprint("codex", "", &[]),
                     session_id: None,

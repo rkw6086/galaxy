@@ -1043,6 +1043,7 @@ impl AgentBackend {
         match self {
             Self::Provider => Self::Provider,
             Self::Acp(acp) => Self::Acp(AcpConversationData {
+                provider_id: acp.provider_id.clone(),
                 agent_id: acp.agent_id.clone(),
                 launch_fingerprint: acp.launch_fingerprint.clone(),
                 session_id: None,
@@ -1059,6 +1060,8 @@ impl AgentBackend {
 /// different executable after those settings change.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct AcpConversationData {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider_id: String,
     #[serde(default)]
     pub agent_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]

@@ -38,6 +38,8 @@ use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::ProviderRuntime;
 use crate::network::NetworkStatus;
 #[cfg(not(target_family = "wasm"))]
@@ -142,6 +144,10 @@ pub struct ResponseStream {
     has_received_client_actions: bool,
     /// AI identifiers for telemetry emission
     ai_identifiers: AIIdentifiers,
+    #[cfg(not(target_family = "wasm"))]
+    remote_log_backend: String,
+    #[cfg(not(target_family = "wasm"))]
+    remote_log_provider: String,
 
     /// Whether this request can attempt to resume the conversation on error.
     /// This is true for all requests except those that are themselves the result of a resume
@@ -208,6 +214,10 @@ impl ResponseStream {
             original_error: None,
             has_received_client_actions: false,
             ai_identifiers: AIIdentifiers::default(),
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_backend: "provider".to_string(),
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_provider: "test".to_string(),
             can_attempt_resume_on_error: false,
             should_resume_conversation_after_stream_finished: false,
             stream_finished_received: false,
@@ -293,6 +303,250 @@ impl ResponseStream {
     }
 
     #[cfg(not(target_family = "wasm"))]
+    fn remote_log_provider_for_config(provider_config: &ProviderConfig) -> String {
+        match provider_config {
+            ProviderConfig::Bedrock(config) => {
+                let region = if config.region.trim().is_empty() {
+                    "auto"
+                } else {
+                    config.region.as_str()
+                };
+                format!("bedrock:{:?}:region={region}", config.auth_method)
+            }
+            ProviderConfig::OpenAI(config) => {
+                format!("openai:{:?}:rig={}", config.kind, config.use_rig)
+            }
+            ProviderConfig::None => "none".to_string(),
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn common_remote_log_context(
+        &self,
+        event: &str,
+        request_id: Uuid,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut context = serde_json::Map::new();
+        context.insert("event".to_string(), serde_json::json!(event));
+        context.insert("stream_id".to_string(), serde_json::json!(self.id.0));
+        context.insert(
+            "request_id".to_string(),
+            serde_json::json!(request_id.to_string()),
+        );
+        context.insert(
+            "model_id".to_string(),
+            serde_json::json!(self.params.model.as_str()),
+        );
+        context.insert(
+            "backend".to_string(),
+            serde_json::json!(self.remote_log_backend),
+        );
+        context.insert(
+            "provider".to_string(),
+            serde_json::json!(self.remote_log_provider),
+        );
+        context.insert(
+            "retry_count".to_string(),
+            serde_json::json!(self.retry_count),
+        );
+        context.insert(
+            "has_received_client_actions".to_string(),
+            serde_json::json!(self.has_received_client_actions),
+        );
+        context.insert(
+            "can_attempt_resume_on_error".to_string(),
+            serde_json::json!(self.can_attempt_resume_on_error),
+        );
+        context.insert(
+            "identifiers".to_string(),
+            serde_json::to_value(&self.ai_identifiers).unwrap_or_else(|_| serde_json::json!({})),
+        );
+        context
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_llm_request_started(
+        ctx: &mut ModelContext<Self>,
+        stream_id: &ResponseStreamId,
+        request_id: Uuid,
+        params: &api::RequestParams,
+        ai_identifiers: &AIIdentifiers,
+        backend: &str,
+        provider: &str,
+        can_attempt_resume_on_error: bool,
+    ) {
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "LLM request started".to_string(),
+                context: serde_json::json!({
+                    "event": "llm_request_started",
+                    "stream_id": stream_id.0,
+                    "request_id": request_id.to_string(),
+                    "model_id": params.model.as_str(),
+                    "coding_model_id": params.coding_model.as_str(),
+                    "backend": backend,
+                    "provider": provider,
+                    "input_count": params.input.len(),
+                    "tool_result_count": params.tool_results.len(),
+                    "task_count": params.tasks.len(),
+                    "message_history_count": params.message_history.len(),
+                    "has_progressive_summary": params.progressive_summary.is_some(),
+                    "memory_enabled": params.is_memory_enabled,
+                    "warp_drive_context_enabled": params.warp_drive_context_enabled,
+                    "planning_enabled": params.planning_enabled,
+                    "web_search_enabled": params.web_search_enabled,
+                    "computer_use_enabled": params.computer_use_enabled,
+                    "ask_user_question_enabled": params.ask_user_question_enabled,
+                    "orchestration_enabled": params.orchestration_enabled,
+                    "is_remote_session": params.session_context.is_remote(),
+                    "can_attempt_resume_on_error": can_attempt_resume_on_error,
+                    "identifiers": serde_json::to_value(ai_identifiers).unwrap_or_else(|_| serde_json::json!({})),
+                }),
+            },
+        );
+        if let Some(raw_payload) =
+            remote_logging::raw_model_payload_context(ctx, raw_model_request_payload(params))
+        {
+            remote_logging::log_model_event(
+                ctx,
+                RemoteLogRecord {
+                    level: RemoteLogLevel::Info,
+                    message: "Raw model request".to_string(),
+                    context: serde_json::json!({
+                        "event": "raw_model_request",
+                        "stream_id": stream_id.0,
+                        "request_id": request_id.to_string(),
+                        "model_id": params.model.as_str(),
+                        "backend": backend,
+                        "provider": provider,
+                        "raw_payload": raw_payload,
+                    }),
+                },
+            );
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_galaxy_decision(
+        &self,
+        request_id: Uuid,
+        decision: &str,
+        details: serde_json::Value,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let mut context = self.common_remote_log_context("galaxy_decision", request_id);
+        context.insert("decision".to_string(), serde_json::json!(decision));
+        context.insert("details".to_string(), details);
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: format!("Galaxy decision: {decision}"),
+                context: serde_json::Value::Object(context),
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_llm_response_finished(
+        &self,
+        request_id: Uuid,
+        finished_event: &warp_multi_agent_api::response_event::StreamFinished,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let mut context = self.common_remote_log_context("llm_response_finished", request_id);
+        context.insert(
+            "reason".to_string(),
+            serde_json::json!(stream_finished_reason_name(&finished_event.reason)),
+        );
+        context.insert(
+            "elapsed_ms".to_string(),
+            serde_json::json!(self.time_to_latest_event.num_milliseconds()),
+        );
+        context.insert(
+            "should_refresh_model_config".to_string(),
+            serde_json::json!(finished_event.should_refresh_model_config),
+        );
+        context.insert(
+            "token_usage".to_string(),
+            token_usage_context(&finished_event.token_usage),
+        );
+        if let Some(cost) = finished_event.request_cost.as_ref() {
+            context.insert(
+                "request_cost".to_string(),
+                serde_json::json!({
+                    "exact": cost.exact,
+                    "platform_credits": cost.platform_credits,
+                }),
+            );
+        }
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "LLM response finished".to_string(),
+                context: serde_json::Value::Object(context),
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_llm_request_error(
+        &self,
+        request_id: Uuid,
+        error: impl std::fmt::Display,
+        recovery: &str,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let mut context = self.common_remote_log_context("llm_request_error", request_id);
+        context.insert(
+            "elapsed_ms".to_string(),
+            serde_json::json!(self.time_to_latest_event.num_milliseconds()),
+        );
+        context.insert("recovery".to_string(), serde_json::json!(recovery));
+        context.insert(
+            "error".to_string(),
+            serde_json::json!(remote_logging::sanitize_error(error)),
+        );
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Warn,
+                message: format!("LLM request error: {recovery}"),
+                context: serde_json::Value::Object(context),
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn log_raw_model_response(
+        &self,
+        request_id: Uuid,
+        payload_kind: &str,
+        raw_payload: impl AsRef<str>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(raw_payload) =
+            remote_logging::raw_model_payload_context(ctx, raw_payload.as_ref())
+        else {
+            return;
+        };
+        let mut context = self.common_remote_log_context("raw_model_response", request_id);
+        context.insert("payload_kind".to_string(), serde_json::json!(payload_kind));
+        context.insert("raw_payload".to_string(), raw_payload);
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Raw model response".to_string(),
+                context: serde_json::Value::Object(context),
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
     fn resolve_acp_manager(
         backend: &crate::persistence::model::AcpConversationData,
         ctx: &mut ModelContext<Self>,
@@ -300,23 +554,23 @@ impl ResponseStream {
         use galaxy_acp::AcpManagerConfig;
 
         let settings = AISettings::as_ref(ctx);
-        let configured_agent_id = settings.acp_agent_id.value().trim();
+        let provider = if backend.provider_id.is_empty() {
+            settings.legacy_acp_provider()
+        } else {
+            settings.enabled_acp_provider_by_id(&backend.provider_id)
+        }
+        .ok_or_else(|| {
+            "The ACP connection for this conversation is no longer configured in Settings. Add it again or start a new ACP conversation."
+                .to_string()
+        })?;
+        let configured_agent_id = provider.agent_id.trim();
         let configured_agent_id = if configured_agent_id.is_empty() {
             "codex"
         } else {
             configured_agent_id
         };
-        let launch = resolve_acp_launch(
-            configured_agent_id,
-            settings.acp_agent_command.value(),
-            settings.acp_agent_args.value(),
-        )?;
-        validate_acp_launch_identity(
-            backend,
-            configured_agent_id,
-            settings.acp_agent_command.value(),
-            &launch,
-        )?;
+        let launch = resolve_acp_launch(configured_agent_id, &provider.command, &provider.args)?;
+        validate_acp_launch_identity(backend, configured_agent_id, &provider.command, &launch)?;
         let config = AcpManagerConfig::new(launch);
         AcpRuntimeModel::handle(ctx).update(ctx, |runtime, _| runtime.manager(config))
     }
@@ -447,6 +701,7 @@ impl ResponseStream {
         let start_time = Local::now();
 
         let request_id = Uuid::new_v4();
+        let response_stream_id = ResponseStreamId(Uuid::new_v4().to_string());
         let runtime_capabilities = match &agent_backend {
             AgentBackend::Provider => RuntimeCapabilities::provider(),
             AgentBackend::Acp(_) => RuntimeCapabilities::session_runtime(),
@@ -455,9 +710,28 @@ impl ResponseStream {
         let acp_session_metadata = Arc::new(Mutex::new(AcpSessionMetadata::default()));
         #[cfg(not(target_family = "wasm"))]
         let acp_turn_control = Arc::new(Mutex::new(None));
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_backend;
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_provider;
         match &agent_backend {
             AgentBackend::Provider => {
                 let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    remote_log_backend = "provider".to_string();
+                    remote_log_provider = Self::remote_log_provider_for_config(&provider_config);
+                    Self::log_llm_request_started(
+                        ctx,
+                        &response_stream_id,
+                        request_id,
+                        &params,
+                        &ai_identifiers,
+                        &remote_log_backend,
+                        &remote_log_provider,
+                        can_attempt_resume_on_error,
+                    );
+                }
                 Self::spawn_provider_request(
                     params.clone(),
                     provider_config,
@@ -467,6 +741,25 @@ impl ResponseStream {
                 );
             }
             AgentBackend::Acp(backend) => {
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    remote_log_backend = "acp".to_string();
+                    remote_log_provider = if backend.agent_id.is_empty() {
+                        "acp".to_string()
+                    } else {
+                        format!("acp:{}", backend.agent_id)
+                    };
+                    Self::log_llm_request_started(
+                        ctx,
+                        &response_stream_id,
+                        request_id,
+                        &params,
+                        &ai_identifiers,
+                        &remote_log_backend,
+                        &remote_log_provider,
+                        can_attempt_resume_on_error,
+                    );
+                }
                 #[cfg(not(target_family = "wasm"))]
                 Self::spawn_acp_request(
                     backend.clone(),
@@ -500,7 +793,7 @@ impl ResponseStream {
             }
         }
         Self {
-            id: ResponseStreamId(Uuid::new_v4().to_string()),
+            id: response_stream_id,
             runtime_capabilities,
             #[cfg(not(target_family = "wasm"))]
             acp_session_metadata,
@@ -515,6 +808,10 @@ impl ResponseStream {
             original_error: None,
             has_received_client_actions: false,
             ai_identifiers,
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_backend,
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_provider,
             can_attempt_resume_on_error,
             should_resume_conversation_after_stream_finished: false,
             stream_finished_received: false,
@@ -640,6 +937,16 @@ impl ResponseStream {
 
         let request_id = Uuid::new_v4();
         self.current_request_id = Some(request_id);
+        #[cfg(not(target_family = "wasm"))]
+        self.log_galaxy_decision(
+            request_id,
+            "retry_request",
+            serde_json::json!({
+                "retry_count": self.retry_count,
+                "model_id": self.params.model.as_str(),
+            }),
+            ctx,
+        );
         let params = self.params.clone();
         let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
         let _ = ctx.spawn(
@@ -675,6 +982,18 @@ impl ResponseStream {
     }
 
     fn retry_with_coding_model(&mut self, ctx: &mut ModelContext<Self>) {
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(request_id) = self.current_request_id {
+            self.log_galaxy_decision(
+                request_id,
+                "fallback_to_coding_model",
+                serde_json::json!({
+                    "from_model_id": self.params.model.as_str(),
+                    "to_model_id": self.params.coding_model.as_str(),
+                }),
+                ctx,
+            );
+        }
         self.coding_model_fallback_attempted = true;
         self.params.model = self.params.coding_model.clone();
         self.retry(ctx);
@@ -730,6 +1049,13 @@ impl ResponseStream {
                 // terminally. (HTTP send failures don't take this path — they arrive as
                 // in-stream error events.)
                 let error = Arc::new(AIApiError::Other(anyhow!(e)));
+                #[cfg(not(target_family = "wasm"))]
+                self.log_llm_request_error(
+                    request_id,
+                    error.as_ref(),
+                    "stream_creation_failed",
+                    ctx,
+                );
                 self.error_event_emitted = true;
                 self.report_request_failure(&error, NetworkStatus::as_ref(ctx).is_online());
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
@@ -762,6 +1088,42 @@ impl ResponseStream {
                     action.id,
                     action.task_id
                 );
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    let mut context =
+                        self.common_remote_log_context("llm_tool_proposed", request_id);
+                    context.insert(
+                        "action_id".to_string(),
+                        serde_json::json!(action.id.to_string()),
+                    );
+                    context.insert(
+                        "task_id".to_string(),
+                        serde_json::json!(action.task_id.to_string()),
+                    );
+                    context.insert(
+                        "tool_name".to_string(),
+                        serde_json::json!(action_tool_name(action)),
+                    );
+                    context.insert(
+                        "requires_result".to_string(),
+                        serde_json::json!(action.requires_result),
+                    );
+                    remote_logging::log_model_event(
+                        ctx,
+                        RemoteLogRecord {
+                            level: RemoteLogLevel::Info,
+                            message: "LLM proposed tool".to_string(),
+                            context: serde_json::Value::Object(context),
+                        },
+                    );
+                }
+                #[cfg(not(target_family = "wasm"))]
+                self.log_raw_model_response(
+                    request_id,
+                    "tool_proposed",
+                    format!("{action:#?}"),
+                    ctx,
+                );
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
             }
             Ok(api::StreamEvent::Response(response_event)) => {
@@ -787,6 +1149,13 @@ impl ResponseStream {
                     None => "None",
                 };
                 log::info!("[bedrock-debug] ResponseStream emitting event type={event_type_name}");
+                #[cfg(not(target_family = "wasm"))]
+                self.log_raw_model_response(
+                    request_id,
+                    event_type_name,
+                    format!("{response_event:#?}"),
+                    ctx,
+                );
                 if let Some(event_type) = &response_event.r#type {
                     match event_type {
                         warp_multi_agent_api::response_event::Type::Init(init_event) => {
@@ -796,12 +1165,35 @@ impl ResponseStream {
                                     init_event.request_id.clone(),
                                 ));
                         }
-                        warp_multi_agent_api::response_event::Type::ClientActions(_) => {
+                        warp_multi_agent_api::response_event::Type::ClientActions(
+                            client_actions,
+                        ) => {
                             // Mark that we've received client actions
                             self.has_received_client_actions = true;
+                            #[cfg(not(target_family = "wasm"))]
+                            {
+                                let mut context = self.common_remote_log_context(
+                                    "llm_client_actions_received",
+                                    request_id,
+                                );
+                                context.insert(
+                                    "action_count".to_string(),
+                                    serde_json::json!(client_actions.actions.len()),
+                                );
+                                remote_logging::log_model_event(
+                                    ctx,
+                                    RemoteLogRecord {
+                                        level: RemoteLogLevel::Info,
+                                        message: "LLM client actions received".to_string(),
+                                        context: serde_json::Value::Object(context),
+                                    },
+                                );
+                            }
                         }
                         warp_multi_agent_api::response_event::Type::Finished(finished_event) => {
                             self.stream_finished_received = true;
+                            #[cfg(not(target_family = "wasm"))]
+                            self.log_llm_response_finished(request_id, finished_event, ctx);
                             // Emit retry success telemetry on successful completion
                             if matches!(
                                 finished_event.reason,
@@ -837,6 +1229,13 @@ impl ResponseStream {
                     log::warn!(
                         "Thinking model rate-limited; retrying with the profile coding model"
                     );
+                    #[cfg(not(target_family = "wasm"))]
+                    self.log_llm_request_error(
+                        request_id,
+                        e.as_ref(),
+                        "fallback_to_coding_model",
+                        ctx,
+                    );
                     self.retry_with_coding_model(ctx);
                     return;
                 }
@@ -855,6 +1254,8 @@ impl ResponseStream {
                             self.retry_count + 1,
                             MAX_RETRIES
                         );
+                        #[cfg(not(target_family = "wasm"))]
+                        self.log_llm_request_error(request_id, e.as_ref(), "retry_now", ctx);
                         // Only emit error telemetry here if we're retrying.
                         // Final errors that aren't being retried are emitted elsewhere.
                         self.emit_retryable_agent_mode_error_telemetry(format!("{e:?}"), ctx);
@@ -868,6 +1269,13 @@ impl ResponseStream {
                             self.retry_count + 1,
                             MAX_RETRIES
                         );
+                        #[cfg(not(target_family = "wasm"))]
+                        self.log_llm_request_error(
+                            request_id,
+                            e.as_ref(),
+                            "retry_when_online",
+                            ctx,
+                        );
                         self.emit_retryable_agent_mode_error_telemetry(format!("{e:?}"), ctx);
                         self.defer_retry_until_online(ctx);
                         return;
@@ -880,10 +1288,20 @@ impl ResponseStream {
                         log::warn!(
                             "MultiAgent request failed after client actions; resuming conversation after stream finishes - Error: {e:?}"
                         );
+                        #[cfg(not(target_family = "wasm"))]
+                        self.log_llm_request_error(
+                            request_id,
+                            e.as_ref(),
+                            "resume_after_stream",
+                            ctx,
+                        );
                         // The resume spawn itself waits for connectivity.
                         self.should_resume_conversation_after_stream_finished = true;
                     }
-                    RecoveryAction::Fail => {}
+                    RecoveryAction::Fail => {
+                        #[cfg(not(target_family = "wasm"))]
+                        self.log_llm_request_error(request_id, e.as_ref(), "fail", ctx);
+                    }
                 }
                 self.error_event_emitted = true;
 
@@ -928,6 +1346,13 @@ impl ResponseStream {
                         self.retry_count + 1,
                         MAX_RETRIES
                     );
+                    #[cfg(not(target_family = "wasm"))]
+                    self.log_llm_request_error(
+                        request_id,
+                        unexpected_eof.as_ref(),
+                        "retry_now",
+                        ctx,
+                    );
                     self.emit_retryable_agent_mode_error_telemetry(
                         format!("{unexpected_eof:?}"),
                         ctx,
@@ -940,6 +1365,13 @@ impl ResponseStream {
                         "MultiAgent request failed while offline; retrying (attempt {}/{}) once connectivity returns - Error: {unexpected_eof:?}",
                         self.retry_count + 1,
                         MAX_RETRIES
+                    );
+                    #[cfg(not(target_family = "wasm"))]
+                    self.log_llm_request_error(
+                        request_id,
+                        unexpected_eof.as_ref(),
+                        "retry_when_online",
+                        ctx,
                     );
                     self.emit_retryable_agent_mode_error_telemetry(
                         format!("{unexpected_eof:?}"),
@@ -956,6 +1388,13 @@ impl ResponseStream {
                     log::warn!(
                         "MultiAgent request truncated after client actions; resuming conversation after stream finishes - Error: {unexpected_eof:?}"
                     );
+                    #[cfg(not(target_family = "wasm"))]
+                    self.log_llm_request_error(
+                        request_id,
+                        unexpected_eof.as_ref(),
+                        "resume_after_stream",
+                        ctx,
+                    );
                     self.should_resume_conversation_after_stream_finished = true;
                     self.error_event_emitted = true;
                     self.report_request_failure(&unexpected_eof, is_online);
@@ -964,6 +1403,8 @@ impl ResponseStream {
                     ))));
                 }
                 RecoveryAction::Fail => {
+                    #[cfg(not(target_family = "wasm"))]
+                    self.log_llm_request_error(request_id, unexpected_eof.as_ref(), "fail", ctx);
                     self.error_event_emitted = true;
                     self.report_request_failure(&unexpected_eof, is_online);
                     ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
@@ -1029,6 +1470,118 @@ impl ResponseStream {
             me.retry(ctx);
         });
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn raw_model_request_payload(params: &api::RequestParams) -> String {
+    let payload = serde_json::json!({
+        "model_id": params.model.as_str(),
+        "coding_model_id": params.coding_model.as_str(),
+        "cli_agent_model_id": params.cli_agent_model.as_str(),
+        "computer_use_model_id": params.computer_use_model.as_str(),
+        "input": format!("{:#?}", params.input),
+        "tool_results": format!("{:#?}", params.tool_results),
+        "tasks": format!("{:#?}", params.tasks),
+        "message_history": serde_json::to_value(&params.message_history)
+            .unwrap_or_else(|_| serde_json::json!(format!("{:#?}", params.message_history))),
+        "progressive_summary": &params.progressive_summary,
+        "tool_result_archive": serde_json::to_value(&params.tool_result_archive)
+            .unwrap_or_else(|_| serde_json::json!(format!("{:#?}", params.tool_result_archive))),
+        "global_rules": &params.global_rules,
+        "mcp_context": format!("{:#?}", params.mcp_context),
+        "session": {
+            "is_remote": params.session_context.is_remote(),
+        },
+        "features": {
+            "memory_enabled": params.is_memory_enabled,
+            "warp_drive_context_enabled": params.warp_drive_context_enabled,
+            "planning_enabled": params.planning_enabled,
+            "web_search_enabled": params.web_search_enabled,
+            "computer_use_enabled": params.computer_use_enabled,
+            "ask_user_question_enabled": params.ask_user_question_enabled,
+            "research_agent_enabled": params.research_agent_enabled,
+            "orchestration_enabled": params.orchestration_enabled,
+        },
+        "autonomy_level": format!("{:?}", params.autonomy_level),
+        "isolation_level": format!("{:?}", params.isolation_level),
+        "supported_tools_override": format!("{:#?}", params.supported_tools_override),
+        "context_window_limit": params.context_window_limit,
+        "omitted_sensitive_fields": [
+            "api_keys",
+            "custom_model_providers",
+            "custom_model_routers",
+        ],
+    });
+    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| format!("{payload:#?}"))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_tool_name(action: &crate::ai::agent::AIAgentAction) -> String {
+    action.tool_name.clone().unwrap_or_else(|| {
+        format!(
+            "{:?}",
+            crate::ai::agent::AIAgentActionTypeDiscriminants::from(&action.action)
+        )
+    })
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn stream_finished_reason_name(
+    reason: &Option<response_event::stream_finished::Reason>,
+) -> &'static str {
+    match reason {
+        None => "done",
+        Some(response_event::stream_finished::Reason::Done(_)) => "done",
+        Some(response_event::stream_finished::Reason::MaxTokenLimit(_)) => "max_token_limit",
+        Some(response_event::stream_finished::Reason::Other(_)) => "other",
+        Some(response_event::stream_finished::Reason::ContextWindowExceeded(_)) => {
+            "context_window_exceeded"
+        }
+        Some(response_event::stream_finished::Reason::QuotaLimit(_)) => "quota_limit",
+        Some(response_event::stream_finished::Reason::LlmUnavailable(_)) => "llm_unavailable",
+        Some(response_event::stream_finished::Reason::InvalidApiKey(_)) => "invalid_api_key",
+        Some(response_event::stream_finished::Reason::InternalError(_)) => "internal_error",
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn token_usage_context(
+    token_usage: &[response_event::stream_finished::TokenUsage],
+) -> serde_json::Value {
+    let total_input: u64 = token_usage
+        .iter()
+        .map(|usage| u64::from(usage.total_input))
+        .sum();
+    let output: u64 = token_usage
+        .iter()
+        .map(|usage| u64::from(usage.output))
+        .sum();
+    let input_cache_read: u64 = token_usage
+        .iter()
+        .map(|usage| u64::from(usage.input_cache_read))
+        .sum();
+    let input_cache_write: u64 = token_usage
+        .iter()
+        .map(|usage| u64::from(usage.input_cache_write))
+        .sum();
+    let cost_in_cents: f32 = token_usage.iter().map(|usage| usage.cost_in_cents).sum();
+    serde_json::json!({
+        "total_input": total_input,
+        "output": output,
+        "input_cache_read": input_cache_read,
+        "input_cache_write": input_cache_write,
+        "cost_in_cents": cost_in_cents,
+        "models": token_usage.iter().map(|usage| {
+            serde_json::json!({
+                "model_id": usage.model_id,
+                "total_input": usage.total_input,
+                "output": usage.output,
+                "input_cache_read": usage.input_cache_read,
+                "input_cache_write": usage.input_cache_write,
+                "cost_in_cents": usage.cost_in_cents,
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 #[cfg(not(target_family = "wasm"))]

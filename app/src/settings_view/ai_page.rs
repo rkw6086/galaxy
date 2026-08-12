@@ -96,7 +96,7 @@ use crate::server::telemetry::{
 use crate::settings::ai::OpenAIProviderKind;
 use crate::settings::{
     AIAutoDetectionEnabled, AICommandDenylist, AISettings, AISettingsChangedEvent, AcpEnabled,
-    AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
+    AcpProviderConfig, AgentModeCodingPermissionsType, AgentModeCommandExecutionDenylist,
     AgentModeCommandExecutionPredicate, AgentModeQuerySuggestionsEnabled, BedrockAutoLogin,
     BedrockEnabled, BedrockModelConfig, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled,
     FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
@@ -2054,7 +2054,24 @@ impl AISettingsPageView {
 
     fn save_acp_provider(&mut self, draft: AcpProviderDraft, ctx: &mut ViewContext<Self>) {
         AISettings::handle(ctx).update(ctx, |settings, ctx| {
+            let legacy_provider = if settings.acp_providers.value().is_empty() {
+                settings.legacy_acp_provider()
+            } else {
+                None
+            };
+            let mut providers = settings.acp_providers.value().clone();
+            if let Some(legacy_provider) = legacy_provider {
+                providers.push(legacy_provider);
+            }
+            providers.push(AcpProviderConfig::new(
+                draft.name.clone(),
+                draft.agent_id.clone(),
+                draft.command.clone(),
+                draft.args.clone(),
+                draft.config_options.clone(),
+            ));
             report_if_error!(settings.acp_enabled.set_value(true, ctx));
+            report_if_error!(settings.acp_providers.set_value(providers, ctx));
             report_if_error!(settings.acp_agent_id.set_value(draft.agent_id, ctx));
             report_if_error!(settings.acp_agent_command.set_value(draft.command, ctx));
             report_if_error!(settings.acp_agent_args.set_value(draft.args, ctx));
@@ -2989,6 +3006,7 @@ pub enum AISettingsPageAction {
     RemoveOpenAIProvider(usize),
     EditBedrockProvider,
     RemoveBedrockProvider,
+    RemoveAcpProvider(String),
     ToggleFileBasedMcp,
     ToggleIncludeAgentCommandsInHistory,
     ToggleAgentAttribution,
@@ -3773,6 +3791,51 @@ impl TypedActionView for AISettingsPageView {
                         .set_value("AWS Bedrock".to_string(), ctx,));
                 });
                 self.rebuild_active_subpage(ctx);
+            }
+            AISettingsPageAction::RemoveAcpProvider(provider_id) => {
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.acp_providers.value().clone();
+                    if providers.is_empty() && provider_id == "legacy" {
+                        report_if_error!(settings.acp_enabled.set_value(false, ctx));
+                        report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
+                        report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
+                        report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
+                        report_if_error!(settings
+                            .acp_connection_name
+                            .set_value("ACP agent runtime".to_string(), ctx,));
+                        report_if_error!(settings.acp_agents.set_value(Vec::new(), ctx));
+                        return;
+                    }
+
+                    providers.retain(|provider| provider.id != provider_id.as_str());
+                    report_if_error!(settings.acp_providers.set_value(providers.clone(), ctx));
+
+                    if let Some(first_provider) = providers.first() {
+                        report_if_error!(settings.acp_enabled.set_value(true, ctx));
+                        report_if_error!(settings
+                            .acp_agent_id
+                            .set_value(first_provider.agent_id.clone(), ctx));
+                        report_if_error!(settings
+                            .acp_agent_command
+                            .set_value(first_provider.command.clone(), ctx));
+                        report_if_error!(settings
+                            .acp_agent_args
+                            .set_value(first_provider.args.clone(), ctx));
+                        report_if_error!(settings
+                            .acp_connection_name
+                            .set_value(first_provider.name.clone(), ctx));
+                    } else {
+                        report_if_error!(settings.acp_enabled.set_value(false, ctx));
+                        report_if_error!(settings.acp_agent_id.set_value("codex".to_string(), ctx));
+                        report_if_error!(settings.acp_agent_command.set_value(String::new(), ctx));
+                        report_if_error!(settings.acp_agent_args.set_value(Vec::new(), ctx));
+                        report_if_error!(settings
+                            .acp_connection_name
+                            .set_value("ACP agent runtime".to_string(), ctx,));
+                        report_if_error!(settings.acp_agents.set_value(Vec::new(), ctx));
+                    }
+                });
+                self.clear_inline_provider_setup(ctx);
             }
             AISettingsPageAction::ToggleFileBasedMcp => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -7114,7 +7177,7 @@ impl SettingsWidget for ModelsOverviewWidget {
             .map(|provider| provider.models.len())
             .sum::<usize>();
         let bedrock_model_count = settings.bedrock_models.value().len();
-        let agent_runtime_count = usize::from(*settings.acp_enabled.value());
+        let agent_runtime_count = settings.enabled_acp_providers().len();
 
         Flex::column()
             .with_spacing(8.)
@@ -7161,6 +7224,10 @@ struct OpenAIProviderCardState {
     remove_button: ViewHandle<ActionButton>,
 }
 
+struct AcpProviderCardState {
+    remove_button: ViewHandle<ActionButton>,
+}
+
 struct ProviderSettingsWidget {
     provider_type: ProviderSetupProviderType,
     enabled_toggle: SwitchStateHandle,
@@ -7173,6 +7240,7 @@ struct ProviderSettingsWidget {
     bedrock_edit_button: ViewHandle<ActionButton>,
     bedrock_remove_button: ViewHandle<ActionButton>,
     provider_cards: Vec<OpenAIProviderCardState>,
+    acp_provider_cards: Vec<AcpProviderCardState>,
 }
 
 impl ProviderSettingsWidget {
@@ -7198,6 +7266,25 @@ impl ProviderSettingsWidget {
                         ));
                     })
                 }),
+            })
+            .collect();
+        let acp_providers = AISettings::as_ref(ctx).configured_acp_providers();
+        let acp_provider_cards = acp_providers
+            .iter()
+            .map(|provider| {
+                let provider_id = provider.id.clone();
+                AcpProviderCardState {
+                    remove_button: ctx.add_typed_action_view(move |_| {
+                        ActionButton::new("Delete", DangerSecondaryTheme).on_click({
+                            let provider_id = provider_id.clone();
+                            move |ctx| {
+                                ctx.dispatch_typed_action(AISettingsPageAction::RemoveAcpProvider(
+                                    provider_id.clone(),
+                                ));
+                            }
+                        })
+                    }),
+                }
             })
             .collect();
         let add_openai_provider_button = ctx.add_typed_action_view(|_| {
@@ -7253,7 +7340,6 @@ impl ProviderSettingsWidget {
                 ctx.dispatch_typed_action(AISettingsPageAction::RemoveBedrockProvider);
             })
         });
-
         Self {
             provider_type,
             enabled_toggle: SwitchStateHandle::default(),
@@ -7266,6 +7352,7 @@ impl ProviderSettingsWidget {
             bedrock_edit_button,
             bedrock_remove_button,
             provider_cards,
+            acp_provider_cards,
         }
     }
 
@@ -7439,15 +7526,11 @@ impl ProviderSettingsWidget {
         Self::render_model_catalog(rows, "No Bedrock models discovered yet.", appearance)
     }
 
-    fn render_acp_model_catalog(appearance: &Appearance, app: &AppContext) -> Box<dyn Element> {
-        let settings = AISettings::as_ref(app);
-        let selected_agent_id = settings.acp_agent_id.value();
-        let Some(agent) = settings
-            .acp_agents
-            .value()
-            .iter()
-            .find(|agent| agent.id.eq_ignore_ascii_case(selected_agent_id))
-        else {
+    fn render_acp_model_catalog(
+        provider: &AcpProviderConfig,
+        appearance: &Appearance,
+    ) -> Box<dyn Element> {
+        if provider.config_options.is_empty() {
             return Text::new(
                 "No ACP model or mode catalog has been discovered yet.",
                 appearance.ui_font_family(),
@@ -7456,9 +7539,9 @@ impl ProviderSettingsWidget {
             .with_color(appearance.theme().nonactive_ui_text_color().into())
             .soft_wrap(true)
             .finish();
-        };
+        }
 
-        let rows = agent
+        let rows = provider
             .config_options
             .iter()
             .filter(|option| {
@@ -7672,13 +7755,15 @@ impl ProviderSettingsWidget {
 
     fn render_acp_provider_card(
         &self,
-        title: &str,
+        provider_index: usize,
+        provider: &AcpProviderConfig,
         description: &'static str,
         appearance: &Appearance,
-        app: &AppContext,
     ) -> Box<dyn Element> {
-        let settings = AISettings::as_ref(app);
-        let status = format!("Read-only · Agent: {}", settings.acp_agent_id.value());
+        let Some(card_state) = self.acp_provider_cards.get(provider_index) else {
+            return Empty::new().finish();
+        };
+        let status = format!("Read-only · Agent: {}", provider.agent_id);
         let header = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
@@ -7688,7 +7773,7 @@ impl ProviderSettingsWidget {
                     .with_spacing(4.)
                     .with_child(
                         Text::new(
-                            title.to_string(),
+                            provider.display_name(),
                             appearance.ui_font_family(),
                             appearance.header_font_size(),
                         )
@@ -7705,8 +7790,15 @@ impl ProviderSettingsWidget {
                     .finish(),
             )
             .with_child(
-                Text::new(status, appearance.ui_font_family(), CONTENT_FONT_SIZE)
-                    .with_color(appearance.theme().nonactive_ui_text_color().into())
+                Flex::row()
+                    .with_spacing(8.)
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_child(
+                        Text::new(status, appearance.ui_font_family(), CONTENT_FONT_SIZE)
+                            .with_color(appearance.theme().nonactive_ui_text_color().into())
+                            .finish(),
+                    )
+                    .with_child(ChildView::new(&card_state.remove_button).finish())
                     .finish(),
             )
             .finish();
@@ -7715,7 +7807,7 @@ impl ProviderSettingsWidget {
             Flex::column()
                 .with_spacing(12.)
                 .with_child(header)
-                .with_child(Self::render_acp_model_catalog(appearance, app))
+                .with_child(Self::render_acp_model_catalog(provider, appearance))
                 .finish(),
         )
         .with_padding(Padding::uniform(16.))
@@ -7977,22 +8069,28 @@ impl SettingsWidget for ProviderSettingsWidget {
                 }
 
                 let acp_supported = cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled();
-                let acp_cards = if acp_supported && *settings.acp_enabled.value() {
-                    vec![self.render_acp_provider_card(
-                            settings.acp_connection_name.value().as_str(),
+                let acp_cards = if acp_supported {
+                    settings
+                        .configured_acp_providers()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, provider)| {
+                            self.render_acp_provider_card(
+                                index,
+                                provider,
                             "Use a local session-oriented agent that owns its model, login, session, and tool loop.",
                             appearance,
-                            app,
-                        )]
+                            )
+                        })
+                        .collect::<Vec<_>>()
                 } else {
                     Vec::new()
                 };
-                let acp_add_button =
-                    if acp_supported && !is_setup_visible && !*settings.acp_enabled.value() {
-                        Some(&self.acp_add_button)
-                    } else {
-                        None
-                    };
+                let acp_add_button = if acp_supported && !is_setup_visible {
+                    Some(&self.acp_add_button)
+                } else {
+                    None
+                };
                 let empty_message = if acp_supported {
                     "No ACP agent connection configured."
                 } else {

@@ -26,6 +26,7 @@ use itertools::Itertools;
 use parking_lot::FairMutex;
 use pending_response_streams::PendingResponseStreams;
 use session_sharing_protocol::common::ParticipantId;
+use settings::Setting;
 pub use slash_command::*;
 use warp_multi_agent_api::{message, Task, ToolType};
 use warpui::r#async::{SpawnedFutureHandle, Timer};
@@ -220,9 +221,18 @@ enum RunningCommandDetection {
 fn acp_backend_model_id(backend: &AgentBackend) -> Option<LLMId> {
     match backend {
         AgentBackend::Provider => None,
-        AgentBackend::Acp(acp) => {
-            Some(crate::ai::acp::acp_selection_identity(&acp.agent_id, &acp.config_values).into())
-        }
+        AgentBackend::Acp(acp) => Some(
+            if acp.provider_id.is_empty() {
+                crate::ai::acp::acp_selection_identity(&acp.agent_id, &acp.config_values)
+            } else {
+                crate::ai::acp::acp_provider_selection_identity(
+                    &acp.provider_id,
+                    &acp.agent_id,
+                    &acp.config_values,
+                )
+            }
+            .into(),
+        ),
     }
 }
 
@@ -3837,7 +3847,9 @@ impl BlocklistAIController {
                     .map(|conversation| {
                         (
                             match conversation.agent_backend() {
-                                AgentBackend::Acp(acp) => Some(acp.agent_id.clone()),
+                                AgentBackend::Acp(acp) => {
+                                    Some((acp.provider_id.clone(), acp.agent_id.clone()))
+                                }
                                 AgentBackend::Provider => None,
                             },
                             conversation
@@ -3853,10 +3865,29 @@ impl BlocklistAIController {
                 #[cfg(not(target_family = "wasm"))]
                 if let Some(metadata) = response_stream.as_ref(ctx).acp_session_metadata() {
                     if !metadata.config_options.is_empty() {
-                        if let Some(agent_id) = &agent_id {
+                        if let Some((provider_id, agent_id)) = &agent_id {
                             crate::settings::AISettings::handle(ctx).update(
                                 ctx,
                                 |settings, ctx| {
+                                    let normalized_options =
+                                        crate::ai::acp::AcpRuntimeModel::normalize_config_options(
+                                            metadata.config_options.clone(),
+                                        );
+                                    let mut providers =
+                                        settings.acp_providers.value().clone();
+                                    if let Some(provider) = providers
+                                        .iter_mut()
+                                        .find(|provider| provider.id == provider_id.as_str())
+                                    {
+                                        provider.config_options = normalized_options;
+                                        if let Err(error) =
+                                            settings.acp_providers.set_value(providers, ctx)
+                                        {
+                                            log::warn!(
+                                                "Failed to persist ACP provider runtime config: {error}"
+                                            );
+                                        }
+                                    }
                                     if let Err(error) =
                                         crate::ai::acp::AcpRuntimeModel::persist_runtime_options(
                                             settings,

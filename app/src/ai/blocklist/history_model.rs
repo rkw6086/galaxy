@@ -1206,33 +1206,29 @@ impl BlocklistAIHistoryModel {
             return llm_preferences.agent_backend_for_active_model(Some(terminal_surface_id), ctx);
         }
 
-        let configured_agent_id = settings.acp_agent_id.value().trim();
-        let agent_id = if configured_agent_id.is_empty() {
+        let providers = settings.enabled_acp_providers();
+        let [provider] = providers.as_slice() else {
+            return AgentBackend::Provider;
+        };
+        let agent_id = provider.agent_id.trim();
+        let agent_id = if agent_id.is_empty() {
             "codex"
         } else {
-            configured_agent_id
+            agent_id
         };
         #[cfg(not(target_family = "wasm"))]
-        let launch_fingerprint = acp_launch_fingerprint(
-            agent_id,
-            settings.acp_agent_command.value(),
-            settings.acp_agent_args.value(),
-        );
+        let launch_fingerprint =
+            acp_launch_fingerprint(agent_id, &provider.command, &provider.args);
         #[cfg(target_family = "wasm")]
         let launch_fingerprint = String::new();
         AgentBackend::Acp(AcpConversationData {
+            provider_id: provider.id.clone(),
             agent_id: agent_id.to_string(),
             launch_fingerprint,
             session_id: None,
-            config_values: settings
-                .acp_agents
-                .value()
-                .iter()
-                .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
-                .map(|agent| {
-                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options)
-                })
-                .unwrap_or_default(),
+            config_values: crate::ai::acp::AcpRuntimeModel::current_config_values(
+                &provider.config_options,
+            ),
         })
     }
 

@@ -36,6 +36,7 @@ else
     WARP_APP_PATH="${TARGET_DIR}/debug/bundle/osx/Galaxy.app"
     WARP_SCHEME_NAME="galaxyoss"
 fi
+TARGET_PROFILE_DIR="debug"
 DONT_OPEN=false
 # Launches the binary with "open", meaning the Galaxy process is
 # launched by the MacOS application launcher instead of a shell session.
@@ -67,6 +68,7 @@ while (( "$#" )); do
       ;;
     --release)
       echo "Detected release build, pointing at release bundle under ${TARGET_DIR}/release/bundle"
+      TARGET_PROFILE_DIR="release"
       if [ "$WARP_CHANNEL" = "local" ]; then
           WARP_APP_PATH="${TARGET_DIR}/release/bundle/osx/Galaxy Local.app"
       else
@@ -77,6 +79,7 @@ while (( "$#" )); do
       ;;
     --profile)
       PROFILE="$2"
+      TARGET_PROFILE_DIR="$PROFILE"
       shift 2
       if [ "$WARP_CHANNEL" = "local" ]; then
           WARP_APP_PATH="${TARGET_DIR}/${PROFILE}/bundle/osx/Galaxy Local.app"
@@ -126,6 +129,23 @@ if [ "${GENERATE_SCHEMA:-false}" != "true" ]; then
   export SKIP_SETTINGS_SCHEMA=1
 fi
 NO_LICENSES=1 "${REPO_ROOT}/script/prepare_bundled_resources" "$WARP_APP_PATH/Contents/Resources" "$WARP_CHANNEL"
+
+DOCK_TILE_PLUGIN_NAME="GalaxyDockTilePlugin.docktileplugin"
+DOCK_TILE_PLUGIN_DIR="${TARGET_DIR}/${TARGET_PROFILE_DIR}/${DOCK_TILE_PLUGIN_NAME}"
+if [ -d "$DOCK_TILE_PLUGIN_DIR" ]; then
+  echo "Copying DockTilePlugin into app bundle..."
+  mkdir -p "$WARP_APP_PATH/Contents/PlugIns"
+  rm -rf "$WARP_APP_PATH/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME"
+  cp -R "$DOCK_TILE_PLUGIN_DIR" "$WARP_APP_PATH/Contents/PlugIns/"
+
+  APP_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$WARP_APP_PATH/Contents/Info.plist")
+  plutil -insert NSDockTilePlugIn -string "$DOCK_TILE_PLUGIN_NAME" "$WARP_APP_PATH/Contents/Info.plist" 2>/dev/null || \
+    plutil -replace NSDockTilePlugIn -string "$DOCK_TILE_PLUGIN_NAME" "$WARP_APP_PATH/Contents/Info.plist"
+  plutil -insert MainAppBundleIdentifier -string "$APP_BUNDLE_ID" "$WARP_APP_PATH/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME/Contents/Info.plist" 2>/dev/null || \
+    plutil -replace MainAppBundleIdentifier -string "$APP_BUNDLE_ID" "$WARP_APP_PATH/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME/Contents/Info.plist"
+else
+  echo "Warning: DockTilePlugin not found at $DOCK_TILE_PLUGIN_DIR; app icon changes will use the runtime fallback only." >&2
+fi
 
 "${REPO_ROOT}/script/compile_icon" "$WARP_CHANNEL" "$WARP_APP_PATH"
 

@@ -56,10 +56,21 @@ use crate::ai::agent::{
     CancellationOutcome, CancellationReason, CreateDocumentsResult, EditDocumentsResult,
     RequestCommandOutputResult,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::agent::{
+    AskUserQuestionResult, CallMCPToolResult, FetchConversationResult, FileGlobResult,
+    FileGlobV2Result, GrepResult, InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult,
+    ReadMCPResourceResult, ReadShellCommandOutputResult, ReadSkillResult, RequestComputerUseResult,
+    RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult, SendMessageToAgentResult,
+    StartAgentResult, TransferShellCommandControlToUserResult, UploadArtifactResult,
+    UseComputerResult, WriteToLongRunningShellCommandResult,
+};
 use crate::ai::ai_document_view::DEFAULT_PLANNING_DOCUMENT_TITLE;
 use crate::ai::blocklist::action_model::execute::suggest_new_conversation::SuggestNewConversationExecutor;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::TerminalModel;
@@ -278,6 +289,274 @@ fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bo
         content,
         status,
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_tool_name(action: &AIAgentAction) -> String {
+    action
+        .tool_name
+        .clone()
+        .unwrap_or_else(|| format!("{:?}", AIAgentActionTypeDiscriminants::from(&action.action)))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_type_name(result: &AIAgentActionResultType) -> &'static str {
+    match result {
+        AIAgentActionResultType::RequestCommandOutput(_) => "RequestCommandOutput",
+        AIAgentActionResultType::WriteToLongRunningShellCommand(_) => {
+            "WriteToLongRunningShellCommand"
+        }
+        AIAgentActionResultType::RequestFileEdits(_) => "RequestFileEdits",
+        AIAgentActionResultType::ReadFiles(_) => "ReadFiles",
+        AIAgentActionResultType::UploadArtifact(_) => "UploadArtifact",
+        AIAgentActionResultType::SearchCodebase(_) => "SearchCodebase",
+        AIAgentActionResultType::Grep(_) => "Grep",
+        AIAgentActionResultType::FileGlob(_) => "FileGlob",
+        AIAgentActionResultType::FileGlobV2(_) => "FileGlobV2",
+        AIAgentActionResultType::ReadMCPResource(_) => "ReadMCPResource",
+        AIAgentActionResultType::CallMCPTool(_) => "CallMCPTool",
+        AIAgentActionResultType::ReadSkill(_) => "ReadSkill",
+        AIAgentActionResultType::SuggestNewConversation(_) => "SuggestNewConversation",
+        AIAgentActionResultType::SuggestPrompt(_) => "SuggestPrompt",
+        AIAgentActionResultType::OpenCodeReview => "OpenCodeReview",
+        AIAgentActionResultType::InsertReviewComments(_) => "InsertReviewComments",
+        AIAgentActionResultType::InitProject => "InitProject",
+        AIAgentActionResultType::ReadDocuments(_) => "ReadDocuments",
+        AIAgentActionResultType::EditDocuments(_) => "EditDocuments",
+        AIAgentActionResultType::CreateDocuments(_) => "CreateDocuments",
+        AIAgentActionResultType::ReadShellCommandOutput(_) => "ReadShellCommandOutput",
+        AIAgentActionResultType::UseComputer(_) => "UseComputer",
+        AIAgentActionResultType::RequestComputerUse(_) => "RequestComputerUse",
+        AIAgentActionResultType::FetchConversation(_) => "FetchConversation",
+        AIAgentActionResultType::StartAgent(_) => "StartAgent",
+        AIAgentActionResultType::SendMessageToAgent(_) => "SendMessageToAgent",
+        AIAgentActionResultType::TransferShellCommandControlToUser(_) => {
+            "TransferShellCommandControlToUser"
+        }
+        AIAgentActionResultType::AskUserQuestion(_) => "AskUserQuestion",
+        AIAgentActionResultType::RunAgents(_) => "RunAgents",
+        AIAgentActionResultType::WaitForEvents(_) => "WaitForEvents",
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_status(result: &AIAgentActionResultType) -> &'static str {
+    if result.is_successful() {
+        "success"
+    } else if result.is_failed() || action_result_failure_summary(result).is_some() {
+        "error"
+    } else if result.is_cancelled() {
+        "cancelled"
+    } else {
+        "unknown"
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_log_level(result: &AIAgentActionResultType) -> RemoteLogLevel {
+    if result.is_failed() || action_result_failure_summary(result).is_some() {
+        RemoteLogLevel::Error
+    } else if result.is_cancelled() {
+        RemoteLogLevel::Warn
+    } else {
+        RemoteLogLevel::Info
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_error_summary(result: &AIAgentActionResultType) -> Option<String> {
+    if let Some(summary) = action_result_failure_summary(result) {
+        Some(remote_logging::sanitize_error(summary))
+    } else if result.is_cancelled() {
+        Some(format!("{} cancelled", action_result_type_name(result)))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_failure_summary(result: &AIAgentActionResultType) -> Option<String> {
+    match result {
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::Completed {
+            exit_code,
+            ..
+        }) if !exit_code.was_successful() => {
+            Some(format!("command exited with code {}", exit_code.value()))
+        }
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::Denylisted {
+            ..
+        }) => Some("command was denylisted".to_string()),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "long-running shell command exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Error(error),
+        ) => Some(format!("{error:?}")),
+        AIAgentActionResultType::RequestFileEdits(
+            RequestFileEditsResult::DiffApplicationFailed { error },
+        ) => Some(error.clone()),
+        AIAgentActionResultType::ReadFiles(ReadFilesResult::Error(error))
+        | AIAgentActionResultType::UploadArtifact(UploadArtifactResult::Error(error))
+        | AIAgentActionResultType::Grep(GrepResult::Error(error))
+        | AIAgentActionResultType::FileGlob(FileGlobResult::Error(error))
+        | AIAgentActionResultType::FileGlobV2(FileGlobV2Result::Error(error))
+        | AIAgentActionResultType::ReadMCPResource(ReadMCPResourceResult::Error(error))
+        | AIAgentActionResultType::CallMCPTool(CallMCPToolResult::Error(error))
+        | AIAgentActionResultType::ReadSkill(ReadSkillResult::Error(error))
+        | AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Error(error))
+        | AIAgentActionResultType::EditDocuments(EditDocumentsResult::Error(error))
+        | AIAgentActionResultType::CreateDocuments(CreateDocumentsResult::Error(error))
+        | AIAgentActionResultType::UseComputer(UseComputerResult::Error(error))
+        | AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Error(error))
+        | AIAgentActionResultType::FetchConversation(FetchConversationResult::Error(error))
+        | AIAgentActionResultType::SendMessageToAgent(SendMessageToAgentResult::Error(error))
+        | AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Error(error)) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Failed {
+            reason,
+            message,
+        }) => Some(format!("{reason:?}: {message}")),
+        AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "shell command output exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::ReadShellCommandOutput(ReadShellCommandOutputResult::Error(
+            error,
+        )) => Some(format!("{error:?}")),
+        AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Error {
+            message,
+            ..
+        }) => Some(message.clone()),
+        AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, .. }) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "transferred shell command exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Error(error),
+        ) => Some(format!("{error:?}")),
+        AIAgentActionResultType::RunAgents(RunAgentsResult::Denied { reason }) => {
+            Some(reason.clone())
+        }
+        AIAgentActionResultType::RunAgents(RunAgentsResult::Failure { error }) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::Completed { .. }
+            | RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::LongRunningCommandSnapshot { .. },
+        )
+        | AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Cancelled
+            | WriteToLongRunningShellCommandResult::CommandFinished { .. }
+            | WriteToLongRunningShellCommandResult::Snapshot { .. },
+        )
+        | AIAgentActionResultType::RequestFileEdits(
+            RequestFileEditsResult::Cancelled | RequestFileEditsResult::Success { .. },
+        )
+        | AIAgentActionResultType::ReadFiles(
+            ReadFilesResult::Success { .. } | ReadFilesResult::Cancelled,
+        )
+        | AIAgentActionResultType::UploadArtifact(
+            UploadArtifactResult::Success { .. } | UploadArtifactResult::Cancelled,
+        )
+        | AIAgentActionResultType::SearchCodebase(
+            SearchCodebaseResult::Success { .. } | SearchCodebaseResult::Cancelled,
+        )
+        | AIAgentActionResultType::Grep(GrepResult::Success { .. } | GrepResult::Cancelled)
+        | AIAgentActionResultType::FileGlob(
+            FileGlobResult::Success { .. } | FileGlobResult::Cancelled,
+        )
+        | AIAgentActionResultType::FileGlobV2(
+            FileGlobV2Result::Success { .. } | FileGlobV2Result::Cancelled,
+        )
+        | AIAgentActionResultType::ReadMCPResource(
+            ReadMCPResourceResult::Success { .. } | ReadMCPResourceResult::Cancelled,
+        )
+        | AIAgentActionResultType::CallMCPTool(
+            CallMCPToolResult::Success { .. } | CallMCPToolResult::Cancelled,
+        )
+        | AIAgentActionResultType::ReadSkill(
+            ReadSkillResult::Success { .. } | ReadSkillResult::Cancelled,
+        )
+        | AIAgentActionResultType::SuggestNewConversation(_)
+        | AIAgentActionResultType::SuggestPrompt(_)
+        | AIAgentActionResultType::OpenCodeReview
+        | AIAgentActionResultType::InsertReviewComments(
+            InsertReviewCommentsResult::Success { .. } | InsertReviewCommentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::InitProject
+        | AIAgentActionResultType::ReadDocuments(
+            ReadDocumentsResult::Success { .. } | ReadDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::EditDocuments(
+            EditDocumentsResult::Success { .. } | EditDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::CreateDocuments(
+            CreateDocumentsResult::Success { .. } | CreateDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::Cancelled
+            | ReadShellCommandOutputResult::CommandFinished { .. }
+            | ReadShellCommandOutputResult::LongRunningCommandSnapshot { .. },
+        )
+        | AIAgentActionResultType::UseComputer(
+            UseComputerResult::Success(_) | UseComputerResult::Cancelled,
+        )
+        | AIAgentActionResultType::RequestComputerUse(
+            RequestComputerUseResult::Approved { .. } | RequestComputerUseResult::Cancelled,
+        )
+        | AIAgentActionResultType::FetchConversation(
+            FetchConversationResult::Success { .. } | FetchConversationResult::Cancelled,
+        )
+        | AIAgentActionResultType::StartAgent(
+            StartAgentResult::Success { .. } | StartAgentResult::Cancelled { .. },
+        )
+        | AIAgentActionResultType::SendMessageToAgent(
+            SendMessageToAgentResult::Success { .. } | SendMessageToAgentResult::Cancelled,
+        )
+        | AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Cancelled
+            | TransferShellCommandControlToUserResult::CommandFinished { .. }
+            | TransferShellCommandControlToUserResult::Snapshot { .. },
+        )
+        | AIAgentActionResultType::AskUserQuestion(
+            AskUserQuestionResult::Success { .. }
+            | AskUserQuestionResult::Cancelled
+            | AskUserQuestionResult::SkippedByAutoApprove { .. },
+        )
+        | AIAgentActionResultType::RunAgents(
+            RunAgentsResult::Launched { .. } | RunAgentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::WaitForEvents(_) => None,
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn log_tool_event(
+    ctx: &mut ModelContext<BlocklistAIActionModel>,
+    level: RemoteLogLevel,
+    message: &str,
+    context: serde_json::Value,
+) {
+    remote_logging::log_model_event(
+        ctx,
+        RemoteLogRecord {
+            level,
+            message: message.to_string(),
+            context,
+        },
+    );
 }
 
 pub struct BlocklistAIActionModel {
@@ -927,6 +1206,21 @@ impl BlocklistAIActionModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if reason.needs_confirmation() {
+            #[cfg(not(target_family = "wasm"))]
+            log_tool_event(
+                ctx,
+                RemoteLogLevel::Info,
+                "Tool permission requested",
+                serde_json::json!({
+                    "event": "tool_permission_requested",
+                    "conversation_id": conversation_id.to_string(),
+                    "action_id": action.id.to_string(),
+                    "task_id": action.task_id.to_string(),
+                    "tool_name": action_tool_name(action),
+                    "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                    "reason": format!("{reason:?}"),
+                }),
+            );
             ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(
                 action.id.clone(),
             ));
@@ -1005,7 +1299,27 @@ impl BlocklistAIActionModel {
 
         let action_id = action.id.clone();
         let phase = self.action_phase_for_action(&action, ctx);
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_action_context = serde_json::json!({
+            "conversation_id": conversation_id.to_string(),
+            "action_id": action_id.to_string(),
+            "task_id": action.task_id.to_string(),
+            "tool_name": action_tool_name(&action),
+            "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+            "phase": format!("{phase:?}"),
+        });
         if is_user_initiated {
+            #[cfg(not(target_family = "wasm"))]
+            log_tool_event(
+                ctx,
+                RemoteLogLevel::Info,
+                "Tool permission resolved",
+                serde_json::json!({
+                    "event": "tool_permission_resolved",
+                    "decision": "allow_once",
+                    "tool": remote_log_action_context,
+                }),
+            );
             ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
                 action_id: action_id.clone(),
                 event: ToolEvent::PermissionResolved {
@@ -1024,6 +1338,17 @@ impl BlocklistAIActionModel {
 
         match execute_result {
             TryExecuteResult::ExecutedAsync => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Info,
+                    "Tool execution started",
+                    serde_json::json!({
+                        "event": "tool_execution_started",
+                        "initiated_by": if is_user_initiated { "user" } else { "auto" },
+                        "tool": remote_log_action_context,
+                    }),
+                );
                 if !is_wait_for_events {
                     self.update_conversation_in_progress_status(conversation_id, ctx);
                 }
@@ -1031,6 +1356,17 @@ impl BlocklistAIActionModel {
                 Some(StartedAction::Async { phase })
             }
             TryExecuteResult::ExecutedSync => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Info,
+                    "Tool execution started",
+                    serde_json::json!({
+                        "event": "tool_execution_started",
+                        "initiated_by": if is_user_initiated { "user" } else { "auto" },
+                        "tool": remote_log_action_context,
+                    }),
+                );
                 if !is_wait_for_events {
                     self.update_conversation_in_progress_status(conversation_id, ctx);
                 }
@@ -1079,6 +1415,29 @@ impl BlocklistAIActionModel {
                 std::mem::discriminant(&action.action)
             );
         }
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            RemoteLogLevel::Info,
+            "Tools queued",
+            serde_json::json!({
+                "event": "tools_queued",
+                "conversation_id": conversation_id.to_string(),
+                "tool_count": actions.len(),
+                "tools": actions
+                    .iter()
+                    .map(|action| {
+                        serde_json::json!({
+                            "action_id": action.id.to_string(),
+                            "task_id": action.task_id.to_string(),
+                            "tool_name": action_tool_name(action),
+                            "requires_result": action.requires_result,
+                            "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }),
+        );
         self.action_order.insert(
             conversation_id,
             actions
@@ -1309,6 +1668,21 @@ impl BlocklistAIActionModel {
         if permission_denied {
             self.denied_permissions
                 .insert((conversation_id, pending_action.id.clone()));
+            #[cfg(not(target_family = "wasm"))]
+            log_tool_event(
+                ctx,
+                RemoteLogLevel::Warn,
+                "Tool permission resolved",
+                serde_json::json!({
+                    "event": "tool_permission_resolved",
+                    "decision": "denied",
+                    "conversation_id": conversation_id.to_string(),
+                    "action_id": pending_action.id.to_string(),
+                    "task_id": pending_action.task_id.to_string(),
+                    "tool_name": action_tool_name(&pending_action),
+                    "permission_kind": format!("{:?}", permission_kind_for_action(&pending_action.action)),
+                }),
+            );
             ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
                 action_id: pending_action.id.clone(),
                 event: ToolEvent::PermissionResolved {
@@ -1476,6 +1850,32 @@ impl BlocklistAIActionModel {
             .entry(conversation_id)
             .or_default()
             .push(tool_result.clone());
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            if permission_denied {
+                RemoteLogLevel::Warn
+            } else {
+                action_result_log_level(&action_result.result)
+            },
+            "Tool execution completed",
+            serde_json::json!({
+                "event": "tool_execution_completed",
+                "conversation_id": conversation_id.to_string(),
+                "action_id": action_result.id.to_string(),
+                "task_id": action_result.task_id.to_string(),
+                "result_type": action_result_type_name(&action_result.result),
+                "status": if permission_denied {
+                    "denied"
+                } else {
+                    action_result_status(&action_result.result)
+                },
+                "tool_result_status": format!("{:?}", tool_result.status),
+                "permission_denied": permission_denied,
+                "cancellation_reason": cancellation_reason.map(|reason| format!("{reason:?}")),
+                "error": action_result_error_summary(&action_result.result),
+            }),
+        );
         ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
             action_id: action_result.id.clone(),
             event: ToolEvent::Completed {

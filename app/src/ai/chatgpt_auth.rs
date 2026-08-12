@@ -183,9 +183,15 @@ fn chatgpt_redirect_uri() -> String {
     format!("{}://chatgpt/oauth2callback", ChannelState::url_scheme())
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ChatGPTAuthCredentials {
+    pub(crate) access_token: String,
+    pub(crate) account_id: Option<String>,
+}
+
 /// Attempts to read tokens from `~/.codex/auth.json` and write them to Rig's auth file.
 /// Returns `Ok(())` if credentials were found and successfully imported.
-fn import_codex_credentials() -> Result<(), String> {
+pub(crate) fn import_codex_credentials() -> Result<(), String> {
     let codex_path = codex_auth_file_path().ok_or("Cannot determine codex auth path")?;
     let bytes = std::fs::read(&codex_path).map_err(|e| format!("{e}"))?;
     let doc: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| format!("{e}"))?;
@@ -234,6 +240,55 @@ fn import_codex_credentials() -> Result<(), String> {
     };
 
     write_auth_file(&record)
+}
+
+pub(crate) fn load_or_import_auth_credentials() -> Result<ChatGPTAuthCredentials, String> {
+    load_auth_credentials().or_else(|load_error| {
+        import_codex_credentials().map_err(|import_error| {
+            format!(
+                "Could not load ChatGPT credentials ({load_error}) or import Codex credentials ({import_error})."
+            )
+        })?;
+        load_auth_credentials()
+    })
+}
+
+fn load_auth_credentials() -> Result<ChatGPTAuthCredentials, String> {
+    let path = auth_file_path().ok_or("Cannot determine ChatGPT auth file path")?;
+    let bytes = std::fs::read(&path)
+        .map_err(|error| format!("Failed to read {}: {error}", path.display()))?;
+    let record: AuthRecord = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Failed to parse {}: {error}", path.display()))?;
+    let access_token = record
+        .access_token
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+        .ok_or("ChatGPT auth file does not contain an access token")?;
+
+    let expires_at = record
+        .expires_at
+        .or_else(|| extract_expiration_timestamp(access_token));
+    if let Some(expires_at) = expires_at {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0);
+        if now >= expires_at - 60 {
+            return Err("ChatGPT access token is expired".to_string());
+        }
+    }
+
+    let account_id = record
+        .account_id
+        .clone()
+        .filter(|account_id| !account_id.trim().is_empty())
+        .or_else(|| extract_account_id(record.id_token.as_deref()))
+        .or_else(|| extract_account_id(Some(access_token)));
+
+    Ok(ChatGPTAuthCredentials {
+        access_token: access_token.to_string(),
+        account_id,
+    })
 }
 
 fn codex_auth_file_path() -> Option<std::path::PathBuf> {
@@ -382,7 +437,7 @@ struct TokenResponse {
     id_token: Option<String>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct AuthRecord {
     access_token: Option<String>,
     refresh_token: Option<String>,

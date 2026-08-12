@@ -996,6 +996,10 @@ impl ProviderSetupView {
             | ProviderSetupProviderType::VertexAI => {}
         }
 
+        self.discovery_state = DiscoveryState::Loading;
+        self.update_next_button(ctx);
+        ctx.notify();
+
         let provider = self.draft_provider();
         let existing_models = self.draft_models.clone();
         ctx.spawn(
@@ -1033,15 +1037,34 @@ impl ProviderSetupView {
             return;
         }
 
-        if self.draft_models.is_empty() {
-            self.draft_models = crate::settings::ai::default_chatgpt_provider().models;
-        }
-        self.discovery_state = DiscoveryState::Idle;
-        self.step = ProviderSetupStep::Models;
-        self.sync_model_switches(ctx);
+        self.discovery_state = DiscoveryState::Loading;
         self.update_next_button(ctx);
-        ctx.focus(&self.name_editor);
         ctx.notify();
+
+        let provider = self.draft_provider();
+        let existing_models = self.draft_models.clone();
+        ctx.spawn(
+            async move { LLMPreferences::discover_openai_provider_models(provider).await },
+            move |me, result, ctx| match result {
+                Ok(models) => {
+                    me.draft_models = crate::ai::llms::merge_discovered_chatgpt_subscription_models(
+                        &existing_models,
+                        models,
+                    );
+                    me.discovery_state = DiscoveryState::Idle;
+                    me.step = ProviderSetupStep::Models;
+                    me.sync_model_switches(ctx);
+                    me.update_next_button(ctx);
+                    ctx.focus(&me.name_editor);
+                    ctx.notify();
+                }
+                Err(error) => {
+                    me.discovery_state = DiscoveryState::Failed(error);
+                    me.update_next_button(ctx);
+                    ctx.notify();
+                }
+            },
+        );
     }
 
     #[cfg(target_family = "wasm")]

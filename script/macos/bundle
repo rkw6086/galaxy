@@ -317,7 +317,8 @@ elif [[ $RELEASE_CHANNEL = "oss" ]]; then
 fi
 
 OUT_DIR="target/$TARGET_PROFILE_DIR/bundle/osx"
-DOCK_TILE_PLUGIN_DIR="target/$TARGET_PROFILE_DIR/WarpDockTilePlugin.docktileplugin"
+DOCK_TILE_PLUGIN_NAME="GalaxyDockTilePlugin.docktileplugin"
+DOCK_TILE_PLUGIN_DIR="target/$TARGET_PROFILE_DIR/$DOCK_TILE_PLUGIN_NAME"
 
 # Handle specific architecture targeting
 if [[ -n "$TARGET_ARCH" ]]; then
@@ -515,11 +516,16 @@ if [[ "$ARTIFACT" == "app" ]]; then
   # Note that the dock tile plugin is pre-built for both arm64 and x86_64 so we don't need to run lipo on it.
   echo "Creating PlugIns directory and copying pre-built DockTilePlugin..."
   mkdir -p "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns"
+  rm -rf "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME"
   cp -R "$DOCK_TILE_PLUGIN_DIR" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/"
 
   echo "Updating plist with dock tile plugin entries"
-  plutil -insert NSDockTilePlugIn -string "WarpDockTilePlugin.docktileplugin" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
-  plutil -insert MainAppBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/PlugIns/WarpDockTilePlugin.docktileplugin/Contents/Info.plist
+  APP_BUNDLE_PLIST="$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
+  APP_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_BUNDLE_PLIST" 2>/dev/null || echo "$BUNDLE_ID")
+  plutil -insert NSDockTilePlugIn -string "$DOCK_TILE_PLUGIN_NAME" "$APP_BUNDLE_PLIST" 2>/dev/null || \
+    plutil -replace NSDockTilePlugIn -string "$DOCK_TILE_PLUGIN_NAME" "$APP_BUNDLE_PLIST"
+  plutil -insert MainAppBundleIdentifier -string "$APP_BUNDLE_ID" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME/Contents/Info.plist" 2>/dev/null || \
+    plutil -replace MainAppBundleIdentifier -string "$APP_BUNDLE_ID" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/$DOCK_TILE_PLUGIN_NAME/Contents/Info.plist"
 
   BUNDLED_RESOURCES_DIR="$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Resources"
   echo "Preparing bundled resources..."

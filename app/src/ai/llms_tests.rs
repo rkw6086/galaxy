@@ -11,7 +11,8 @@ use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::{
-    AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings, OpenAIModelConfig,
+    AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings, AcpProviderConfig,
+    OpenAIModelConfig,
 };
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -210,6 +211,7 @@ fn empty_preferences() -> LLMPreferences {
         custom_model_routers: Vec::new(),
         openai_provider_routing: HashMap::new(),
         fetched_openai_models: Vec::new(),
+        chatgpt_subscription_models_refresh_in_flight: false,
         acp_selections: HashMap::new(),
     }
 }
@@ -299,6 +301,7 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             custom_model_routers: Vec::new(),
             openai_provider_routing: HashMap::new(),
             fetched_openai_models: Vec::new(),
+            chatgpt_subscription_models_refresh_in_flight: false,
             acp_selections: HashMap::new(),
         };
         app.read(|ctx| preferences.inject_acp_models(ctx));
@@ -452,7 +455,7 @@ fn acp_models_expand_reasoning_levels_for_only_the_configured_agent() {
                 .iter()
                 .map(|model| model.display_name.as_str())
                 .collect::<HashSet<_>>(),
-            HashSet::from(["GPT Test (High)", "GPT Test (Xhigh)"])
+            HashSet::from(["GPT Test (High) · OpenCode", "GPT Test (Xhigh) · OpenCode"])
         );
         assert!(models.iter().all(|model| {
             model.provider == LLMProvider::Acp && !model.display_name.contains("Read-only")
@@ -461,6 +464,82 @@ fn acp_models_expand_reasoning_levels_for_only_the_configured_agent() {
             selection.agent_id == "opencode"
                 && selection.config_values.get("mode") == Some(&serde_json::json!("read-only"))
         }));
+    });
+}
+
+#[test]
+fn acp_models_are_scoped_to_each_configured_provider() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let config_options = vec![acp_select_option(
+            "model",
+            "model",
+            "gpt-test",
+            &[("gpt-test", "GPT Test")],
+        )];
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_providers
+                .set_value(
+                    vec![
+                        AcpProviderConfig {
+                            id: "work".to_owned(),
+                            enabled: true,
+                            name: "Codex Work".to_owned(),
+                            agent_id: "codex".to_owned(),
+                            command: String::new(),
+                            args: Vec::new(),
+                            config_options: config_options.clone(),
+                        },
+                        AcpProviderConfig {
+                            id: "personal".to_owned(),
+                            enabled: true,
+                            name: "Codex Personal".to_owned(),
+                            agent_id: "codex".to_owned(),
+                            command: String::new(),
+                            args: Vec::new(),
+                            config_options,
+                        },
+                    ],
+                    ctx,
+                )
+                .expect("ACP providers should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        let models = preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .filter(|model| model.provider == LLMProvider::Acp)
+            .collect::<Vec<_>>();
+        assert_eq!(models.len(), 2);
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.display_name.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["GPT Test · Codex Work", "GPT Test · Codex Personal"])
+        );
+        assert_eq!(
+            preferences
+                .acp_selections
+                .values()
+                .map(|selection| selection.provider_id.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["work", "personal"])
+        );
     });
 }
 
@@ -510,7 +589,7 @@ fn acp_bedrock_models_are_hidden_while_bedrock_is_disabled() {
         assert_eq!(preferences.models_by_feature.agent_mode.choices.len(), 1);
         assert_eq!(
             preferences.models_by_feature.agent_mode.choices[0].display_name,
-            "GPT Test"
+            "GPT Test · OpenCode"
         );
 
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
@@ -578,9 +657,6 @@ fn chatgpt_reasoning_modes_route_with_catalog_context_metadata() {
         let gpt_56_sol = configured_model("gpt-5.6-sol");
         assert_eq!(gpt_56_sol.context_size, 272_000);
         assert_eq!(gpt_56_sol.max_input_tokens, Some(258_400));
-        let codex_spark = configured_model("gpt-5.3-codex-spark");
-        assert_eq!(codex_spark.context_size, 128_000);
-        assert_eq!(codex_spark.max_input_tokens, Some(121_600));
         let uncached_model = configured_model("gpt-5.4-pro");
         assert_eq!(uncached_model.context_size, 200_000);
         assert_eq!(uncached_model.max_input_tokens, None);
@@ -648,12 +724,12 @@ fn chatgpt_reasoning_modes_route_with_catalog_context_metadata() {
         assert_eq!(ultra_routing.reasoning_effort.as_deref(), Some("ultra"));
         assert_eq!(ultra_routing.max_input_tokens, Some(258_400));
 
-        let spark_id = "gpt-5.3-codex-spark";
-        assert_fixed_context(spark_id, 121_600);
-        let spark_routing = preferences
-            .openai_client_config_for_model(spark_id)
-            .expect("GPT-5.3 Codex Spark should have a routing entry");
-        assert_eq!(spark_routing.max_input_tokens, Some(121_600));
+        let uncached_id = "gpt-5.4-pro";
+        assert_fixed_context(uncached_id, 200_000);
+        let uncached_routing = preferences
+            .openai_client_config_for_model(uncached_id)
+            .expect("GPT-5.4 Pro should have a routing entry");
+        assert_eq!(uncached_routing.max_input_tokens, Some(200_000));
     });
 }
 
@@ -669,4 +745,102 @@ fn provider_discovery_enables_rig_for_new_models_and_keeps_manual_models() {
     assert!(merged[0].use_rig);
     assert_eq!(merged[0].supports_system_messages, Some(false));
     assert_eq!(merged[1].model_id, "manual-model");
+}
+
+#[test]
+fn codex_release_json_yields_client_version() {
+    let release = serde_json::json!({
+        "tag_name": "rust-v0.147.0",
+        "name": "0.147.0"
+    });
+
+    assert_eq!(
+        codex_client_version_from_release_json(&release).as_deref(),
+        Some("0.147.0")
+    );
+}
+
+#[test]
+fn chatgpt_codex_models_parse_visible_catalog_entries() {
+    let body = serde_json::json!({
+        "models": [
+            {
+                "slug": "gpt-5.6-sol",
+                "display_name": "GPT-5.6-Sol",
+                "visibility": "list",
+                "context_window": 272000,
+                "max_context_window": 272000,
+                "effective_context_window_percent": 95,
+                "input_modalities": ["text", "image"],
+                "supported_reasoning_levels": [
+                    {"effort": "low", "description": "Fast"},
+                    {"effort": "xhigh", "description": "Deep"},
+                    {"effort": "ultra", "description": "Delegated"}
+                ]
+            },
+            {
+                "slug": "hidden",
+                "display_name": "Hidden",
+                "visibility": "hide",
+                "context_window": 128000,
+                "input_modalities": ["text"],
+                "supported_reasoning_levels": []
+            },
+            {
+                "slug": "gpt-text-only",
+                "display_name": "GPT Text Only",
+                "visibility": "list",
+                "max_context_window": 128000,
+                "effective_context_window_percent": 90,
+                "input_modalities": ["text"],
+                "supported_reasoning_levels": [{"effort": "medium"}]
+            }
+        ]
+    });
+
+    let models = chatgpt_models_from_codex_response(&body);
+
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].model_id, "gpt-5.6-sol");
+    assert_eq!(models[0].display_name, "GPT-5.6-Sol");
+    assert!(models[0].vision_supported);
+    assert_eq!(models[0].context_size, 272_000);
+    assert_eq!(models[0].max_input_tokens, Some(258_400));
+    assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
+    assert!(models[0].use_rig);
+    assert_eq!(models[0].provider.as_deref(), Some("openai"));
+    assert_eq!(models[0].supports_system_messages, Some(true));
+
+    assert_eq!(models[1].model_id, "gpt-text-only");
+    assert!(!models[1].vision_supported);
+    assert_eq!(models[1].context_size, 128_000);
+    assert_eq!(models[1].max_input_tokens, Some(115_200));
+}
+
+#[test]
+fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
+    let mut existing = openai_model("gpt-5.6-sol");
+    existing.enabled = false;
+    existing.use_rig = false;
+    existing.capability_overrides.insert(
+        "vision".to_string(),
+        crate::settings::ModelCapabilityOverride::Unsupported,
+    );
+    let stale = openai_model("stale-model");
+
+    let mut discovered = openai_model("gpt-5.6-sol");
+    discovered.display_name = "GPT-5.6-Sol".to_string();
+    discovered.vision_supported = true;
+    discovered.use_rig = true;
+
+    let merged = merge_discovered_chatgpt_subscription_models(&[existing, stale], vec![discovered]);
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].model_id, "gpt-5.6-sol");
+    assert!(!merged[0].enabled);
+    assert!(!merged[0].use_rig);
+    assert_eq!(
+        merged[0].capability_override("vision"),
+        crate::settings::ModelCapabilityOverride::Unsupported
+    );
 }

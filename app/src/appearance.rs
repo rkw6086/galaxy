@@ -10,7 +10,7 @@ mod macos_app_icon {
     pub use objc2::rc::autoreleasepool;
     pub use objc2::{AnyThread, MainThreadMarker};
     pub use objc2_app_kit::{NSApplication, NSImage, NSWorkspace, NSWorkspaceIconCreationOptions};
-    pub use objc2_foundation::{ns_string, NSBundle, NSString};
+    pub use objc2_foundation::{ns_string, NSBundle, NSData, NSString};
 
     pub use crate::settings::app_icon::{AppIcon, AppIconSettings, AppIconSettingsChangedEvent};
 }
@@ -211,6 +211,7 @@ impl AppearanceManager {
             let ns_app = NSApplication::sharedApplication(mtm);
             let bundle = NSBundle::mainBundle();
             let bundle_path = bundle.bundlePath();
+            let is_bundled_app = bundle.bundleIdentifier().is_some();
             let workspace = NSWorkspace::sharedWorkspace();
 
             // If the user has selected the default icon, reset to the icon that is statically
@@ -226,6 +227,7 @@ impl AppearanceManager {
             // override to display the default icon. This has the drawback of _not_ inheriting the
             // preferred icon style, but that icon style _will_ apply on next app restart.
             if icon == AppIcon::Galaxy
+                && is_bundled_app
                 && ChannelState::channel() != Channel::Local
                 && self.app_icon_at_startup == AppIcon::Galaxy
             {
@@ -245,32 +247,20 @@ impl AppearanceManager {
             let icon_name = AppIconSettings::get_base_icon_file_name(icon);
 
             log::debug!("Setting app icon in memory to: {icon_name}");
-            // Locate the plugin bundle.
-            let Some(plugins_path) = bundle.builtInPlugInsPath() else {
-                log::warn!("Failed to get dock tile plugin bundle");
-                return;
-            };
-            let plugin_name = ns_string!("WarpDockTilePlugin.docktileplugin");
-            let plugin_path = plugins_path.stringByAppendingPathComponent(plugin_name);
-            let Some(plugin_bundle) = NSBundle::bundleWithPath(&plugin_path) else {
-                log::warn!("Failed to get dock tile plugin bundle");
-                return;
-            };
-
-            // Read the images from the plugin bundle.
-            let image_name = NSString::from_str(icon_name);
-            let extension = ns_string!("png");
-            let Some(image_path) =
-                plugin_bundle.pathForResource_ofType(Some(&image_name), Some(extension))
-            else {
-                log::warn!("Failed to get image path for icon: {icon_name}");
-                return;
-            };
-
-            // Create the image from the file.
-            let Some(image) = NSImage::initWithContentsOfFile(NSImage::alloc(), &image_path) else {
-                log::warn!("Failed to create image for icon: {icon_name}");
-                return;
+            let image = if let Some(image) = load_app_icon_from_plugin_bundle(&bundle, icon_name) {
+                image
+            } else {
+                let asset_path = format!("bundled/png/{icon_name}.png");
+                let Ok(image_bytes) = ASSETS.get(&asset_path) else {
+                    log::warn!("Failed to get bundled app icon asset: {asset_path}");
+                    return;
+                };
+                let data = NSData::with_bytes(image_bytes.as_ref());
+                let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
+                    log::warn!("Failed to create image from bundled app icon asset: {asset_path}");
+                    return;
+                };
+                image
             };
 
             // Override the bundled icon with this new image.
@@ -289,6 +279,41 @@ impl AppearanceManager {
             // image, so it remains alive as the active app/dock icon.
         });
     }
+}
+
+#[cfg(target_os = "macos")]
+fn load_app_icon_from_plugin_bundle(
+    bundle: &NSBundle,
+    icon_name: &str,
+) -> Option<objc2::rc::Retained<NSImage>> {
+    let plugins_path = bundle.builtInPlugInsPath()?;
+    for plugin_bundle_name in [
+        "GalaxyDockTilePlugin.docktileplugin",
+        "WarpDockTilePlugin.docktileplugin",
+    ] {
+        let plugin_name = NSString::from_str(plugin_bundle_name);
+        let plugin_path = plugins_path.stringByAppendingPathComponent(&plugin_name);
+        let Some(plugin_bundle) = NSBundle::bundleWithPath(&plugin_path) else {
+            continue;
+        };
+
+        let image_name = NSString::from_str(icon_name);
+        let extension = ns_string!("png");
+        let Some(image_path) =
+            plugin_bundle.pathForResource_ofType(Some(&image_name), Some(extension))
+        else {
+            log::warn!("Failed to get image path for icon {icon_name} from {plugin_bundle_name}");
+            continue;
+        };
+
+        let Some(image) = NSImage::initWithContentsOfFile(NSImage::alloc(), &image_path) else {
+            log::warn!("Failed to create image for icon {icon_name} from {plugin_bundle_name}");
+            continue;
+        };
+
+        return Some(image);
+    }
+    None
 }
 
 impl Entity for AppearanceManager {

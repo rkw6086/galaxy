@@ -116,6 +116,7 @@ fn persisted_sessions_require_the_same_launch_identity() {
     let args = vec!["serve".to_owned()];
     let launch = resolve_acp_launch("custom", command, &args).unwrap();
     let backend = AcpConversationData {
+        provider_id: String::new(),
         agent_id: "custom".to_owned(),
         launch_fingerprint: acp_launch_fingerprint("custom", command, &args),
         session_id: Some("session-123".to_owned()),
@@ -139,6 +140,7 @@ fn persisted_sessions_require_the_same_launch_identity() {
 #[test]
 fn legacy_acp_sessions_fail_closed_without_a_launch_fingerprint() {
     let backend = AcpConversationData {
+        provider_id: String::new(),
         agent_id: "codex".to_owned(),
         launch_fingerprint: String::new(),
         session_id: Some("legacy-session".to_owned()),

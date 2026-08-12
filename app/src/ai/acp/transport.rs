@@ -13,7 +13,7 @@ use galaxy_agent_core::{
     TurnRequest,
 };
 
-use super::launch::acp_selection_identity;
+use super::launch::{acp_provider_selection_identity, acp_selection_identity};
 use super::prompt::{prompt_content, GalaxyTerminalTools};
 use crate::ai::agent::api::{self, RequestParams};
 use crate::ai::agent::EntrypointType;
@@ -88,7 +88,15 @@ pub(crate) async fn acp_output_stream(
     if let Some(server) = galaxy_mcp_server {
         mcp_servers.push(server);
     }
-    let runtime_id = acp_selection_identity(&backend.agent_id, &backend.config_values);
+    let runtime_id = if backend.provider_id.is_empty() {
+        acp_selection_identity(&backend.agent_id, &backend.config_values)
+    } else {
+        acp_provider_selection_identity(
+            &backend.provider_id,
+            &backend.agent_id,
+            &backend.config_values,
+        )
+    };
     let mut runtime_config =
         AcpAgentRuntimeConfig::new(runtime_id.clone(), backend.agent_id.clone(), cwd);
     runtime_config.config_values = backend
@@ -184,7 +192,15 @@ fn response_translator(
         conversation_id: String::new(),
         needs_create_task: params.tasks.is_empty(),
         user_query,
-        model_id: acp_selection_identity(&backend.agent_id, &backend.config_values),
+        model_id: if backend.provider_id.is_empty() {
+            acp_selection_identity(&backend.agent_id, &backend.config_values)
+        } else {
+            acp_provider_selection_identity(
+                &backend.provider_id,
+                &backend.agent_id,
+                &backend.config_values,
+            )
+        },
         max_context_tokens: None,
         capabilities: RuntimeCapabilities::session_runtime(),
         empty_output_message: Some("> ACP agent completed without a text response.".to_owned()),

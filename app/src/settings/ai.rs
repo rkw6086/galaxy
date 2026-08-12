@@ -1032,10 +1032,94 @@ impl settings_value::SettingsValue for OpenAIProviderConfig {}
 const INITIAL_LITELLM_BASE_URL: &str = "https://ai.ryserve.net/v1";
 const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
 
+fn default_acp_agent_id() -> String {
+    "codex".to_string()
+}
+
+fn default_remote_logging_endpoint() -> String {
+    "https://logging.ryserve.net/api/logs".to_string()
+}
+
+fn default_remote_logging_model_payload_max_chars() -> usize {
+    100_000
+}
+
+fn acp_agent_display_name(agent_id: &str) -> String {
+    galaxy_acp::known_acp_agents()
+        .iter()
+        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id.trim()))
+        .map(|agent| agent.name.to_string())
+        .unwrap_or_else(|| agent_id.trim().to_string())
+}
+
+/// Configuration for a single Agent Client Protocol provider connection.
+///
+/// ACP agents own their own model, login, session, and tool loop. Galaxy stores
+/// enough connection metadata to launch the configured local agent and route
+/// discovered model/mode entries back to the right connection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(description = "Configuration for an Agent Client Protocol provider connection.")]
+pub struct AcpProviderConfig {
+    #[serde(default)]
+    #[schemars(description = "Stable local identifier for this ACP connection.")]
+    pub id: String,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this ACP connection is enabled for agent requests.")]
+    pub enabled: bool,
+    #[serde(default)]
+    #[schemars(description = "Display name for this ACP connection.")]
+    pub name: String,
+    #[serde(default = "default_acp_agent_id")]
+    #[schemars(description = "Identifier for the local Agent Client Protocol agent preset.")]
+    pub agent_id: String,
+    #[serde(default)]
+    #[schemars(description = "Executable used to launch this ACP agent.")]
+    pub command: String,
+    #[serde(default)]
+    #[schemars(description = "Arguments passed to this ACP agent executable.")]
+    pub args: Vec<String>,
+    #[serde(default)]
+    #[schemars(
+        description = "Model, mode, and thought-level options discovered from this ACP agent."
+    )]
+    pub config_options: Vec<AcpConfigOptionSettings>,
+}
+
+impl AcpProviderConfig {
+    pub(crate) fn new(
+        name: String,
+        agent_id: String,
+        command: String,
+        args: Vec<String>,
+        config_options: Vec<AcpConfigOptionSettings>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            enabled: true,
+            name,
+            agent_id,
+            command,
+            args,
+            config_options,
+        }
+    }
+
+    pub(crate) fn display_name(&self) -> String {
+        let name = self.name.trim();
+        if name.is_empty() || name == "ACP agent runtime" {
+            acp_agent_display_name(self.agent_id.trim())
+        } else {
+            name.to_string()
+        }
+    }
+}
+
+impl settings_value::SettingsValue for AcpProviderConfig {}
+
 fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
-    // The ChatGPT OAuth backend does not expose a model-listing capability through Rig,
-    // so keep this catalog small and explicit. Context limits come from Codex model
-    // metadata; models absent from that catalog retain the generic fallback.
+    // Fallback catalog used before the first successful Codex model discovery.
+    // Once discovery succeeds, the saved ChatGPT subscription catalog is treated
+    // as backend-owned so removed models do not get reintroduced on startup.
     [
         (
             "gpt-5.6-sol",
@@ -1578,6 +1662,17 @@ define_settings_group!(AISettings, settings: [
         description: "Arguments passed to the local Agent Client Protocol agent executable.",
         feature_flag: FeatureFlag::AgentClientProtocol,
     }
+    // Configured local ACP provider connections.
+    acp_providers: AcpProviders {
+        type: Vec<AcpProviderConfig>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.providers",
+        description: "Configured Agent Client Protocol provider connections.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
     // Cached ACP registry and runtime discovery data. Values are refreshed when the agent is queried.
     acp_agents: AcpAgents {
         type: Vec<AcpAgentSettings>,
@@ -1771,6 +1866,57 @@ define_settings_group!(AISettings, settings: [
         private: false,
         toml_path: "ai.providers",
         description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",
+    }
+    // Whether to send opt-in AI diagnostics to a remote logging endpoint.
+    remote_logging_enabled: RemoteLoggingEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.enabled",
+        description: "Whether to send opt-in AI diagnostics to the configured remote logger.",
+    }
+    // Endpoint for opt-in AI diagnostics. May be either the logger base URL or the full /api/logs URL.
+    remote_logging_endpoint: RemoteLoggingEndpoint {
+        type: String,
+        default: default_remote_logging_endpoint(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.endpoint",
+        description: "Remote logging endpoint for opt-in AI diagnostics.",
+    }
+    // API key used to write opt-in AI diagnostics to the remote logger. Kept local only.
+    remote_logging_api_key: RemoteLoggingApiKey {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.api_key",
+        description: "API key used to write opt-in AI diagnostics to the remote logger.",
+    }
+    // Whether to include raw model request and response payloads in opt-in AI diagnostics.
+    // This can include prompts, model output, tool arguments, and file contents.
+    remote_logging_log_model_payloads: RemoteLoggingLogModelPayloads {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.log_model_payloads",
+        description: "Whether opt-in AI diagnostics include raw model request and response payloads.",
+    }
+    // Maximum number of trailing characters kept for each raw model payload log.
+    remote_logging_model_payload_max_chars: RemoteLoggingModelPayloadMaxChars {
+        type: usize,
+        default: default_remote_logging_model_payload_max_chars(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.model_payload_max_chars",
+        description: "Maximum number of trailing characters to send for each raw model payload diagnostic event.",
     }
     // Whether or not the user wants agent mode requests to use their saved rules.
     memory_enabled: MemoryEnabled {
@@ -2313,6 +2459,68 @@ impl AISettings {
         *self.is_any_ai_enabled
             && self.has_enabled_ai_runtime()
             && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+    }
+
+    pub(crate) fn configured_acp_providers(&self) -> Vec<AcpProviderConfig> {
+        let providers = self
+            .acp_providers
+            .value()
+            .iter()
+            .filter(|provider| !provider.agent_id.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        if !providers.is_empty() {
+            return providers;
+        }
+
+        self.legacy_acp_provider().into_iter().collect()
+    }
+
+    pub(crate) fn enabled_acp_providers(&self) -> Vec<AcpProviderConfig> {
+        if !*self.acp_enabled.value() {
+            return Vec::new();
+        }
+        self.configured_acp_providers()
+            .into_iter()
+            .filter(|provider| provider.enabled)
+            .collect()
+    }
+
+    pub(crate) fn enabled_acp_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<AcpProviderConfig> {
+        self.enabled_acp_providers()
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+    }
+
+    pub(crate) fn legacy_acp_provider(&self) -> Option<AcpProviderConfig> {
+        if !*self.acp_enabled.value() {
+            return None;
+        }
+        let agent_id = self.acp_agent_id.value().trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+        let config_options = self
+            .acp_agents
+            .value()
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+            .map(|agent| agent.config_options.clone())
+            .unwrap_or_default();
+        Some(AcpProviderConfig {
+            id: "legacy".to_string(),
+            enabled: true,
+            name: self.acp_connection_name.value().clone(),
+            agent_id: agent_id.to_string(),
+            command: self.acp_agent_command.value().clone(),
+            args: self.acp_agent_args.value().clone(),
+            config_options,
+        })
     }
 
     /// Returns whether Galaxy has a local model provider or agent runtime enabled.

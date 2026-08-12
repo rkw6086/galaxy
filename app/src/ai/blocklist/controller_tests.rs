@@ -64,6 +64,7 @@ fn acp_backend_model_identity_does_not_claim_a_provider_model() {
     assert_eq!(super::acp_backend_model_id(&AgentBackend::Provider), None);
     assert_eq!(
         super::acp_backend_model_id(&AgentBackend::Acp(AcpConversationData {
+            provider_id: String::new(),
             agent_id: " Codex ".to_owned(),
             launch_fingerprint: "launch-123".to_owned(),
             session_id: None,
@@ -73,6 +74,19 @@ fn acp_backend_model_identity_does_not_claim_a_provider_model() {
             )]),
         })),
         Some(LLMId::from("acp:codex:model=\"fast\""))
+    );
+    assert_eq!(
+        super::acp_backend_model_id(&AgentBackend::Acp(AcpConversationData {
+            provider_id: "work".to_owned(),
+            agent_id: " Codex ".to_owned(),
+            launch_fingerprint: "launch-123".to_owned(),
+            session_id: None,
+            config_values: std::collections::BTreeMap::from([(
+                "model".to_owned(),
+                serde_json::json!("fast"),
+            )]),
+        })),
+        Some(LLMId::from("acp:work:codex:model=\"fast\""))
     );
 }
 

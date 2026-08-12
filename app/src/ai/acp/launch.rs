@@ -10,6 +10,14 @@ pub(crate) fn acp_model_id(agent_id: &str) -> String {
     format!("acp:{}", agent_id.trim().to_ascii_lowercase())
 }
 
+pub(crate) fn acp_provider_model_id(provider_id: &str, agent_id: &str) -> String {
+    format!(
+        "acp:{}:{}",
+        provider_id.trim().to_ascii_lowercase(),
+        agent_id.trim().to_ascii_lowercase()
+    )
+}
+
 pub(crate) fn acp_selection_model_id(
     agent_id: &str,
     values: &std::collections::BTreeMap<String, serde_json::Value>,
@@ -24,6 +32,21 @@ pub(crate) fn acp_selection_model_id(
     } else {
         format!("{}:{suffix}", acp_model_id(agent_id))
     }
+}
+
+pub(crate) fn acp_provider_selection_identity(
+    provider_id: &str,
+    agent_id: &str,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> String {
+    let mut identity = acp_provider_model_id(provider_id, agent_id);
+    for (key, value) in values {
+        identity.push(':');
+        identity.push_str(key);
+        identity.push('=');
+        identity.push_str(&canonical_json_value(value));
+    }
+    identity
 }
 
 pub(crate) fn acp_selection_identity(
