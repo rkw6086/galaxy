@@ -398,6 +398,16 @@ impl BlocklistAIActionExecutor {
             .map(|running| &running.action)
     }
 
+    pub(super) fn has_running_ask_user_question(&self, conversation_id: AIConversationId) -> bool {
+        self.async_executing_actions.values().any(|running| {
+            running.conversation_id == conversation_id
+                && matches!(
+                    running.action.action,
+                    AIAgentActionType::AskUserQuestion { .. }
+                )
+        })
+    }
+
     /// Returns the action_id of any running WaitForEvents action for the
     /// given conversation. There is at most one (wait_for_events is
     /// documented as exclusive within a turn).

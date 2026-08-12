@@ -1822,6 +1822,11 @@ pub enum Event {
     OpenShareSessionModal {
         open_source: SharedSessionActionSource,
     },
+    ShowDeleteConversationConfirmationDialog {
+        conversation_id: AIConversationId,
+        conversation_title: String,
+        terminal_view_id: Option<EntityId>,
+    },
     OpenShareSessionDeniedModal,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
@@ -4305,6 +4310,16 @@ impl TerminalView {
                     // Convert NotebookId -> SyncId -> ObjectUid (String)
                     let object_uid = SyncId::from(*notebook_uid).uid();
                     ctx.emit(Event::OpenGalaxyDriveObjectInPane(object_uid));
+                }
+                ConversationDetailsPanelEvent::ShowDeleteConfirmationDialog {
+                    conversation_id,
+                    conversation_title,
+                } => {
+                    ctx.emit(Event::ShowDeleteConversationConfirmationDialog {
+                        conversation_id: *conversation_id,
+                        conversation_title: conversation_title.clone(),
+                        terminal_view_id: Some(ctx.view_id()),
+                    });
                 }
             }
         });
@@ -26293,6 +26308,10 @@ impl TypedActionView for TerminalView {
                 "Execute rewind to before this point in the AI conversation.".to_owned(),
                 GalaxyA11yRole::ButtonRole,
             )),
+            RequestDeleteCurrentConversation => Custom(AccessibilityContent::new_without_help(
+                "Show confirmation dialog to delete this conversation.".to_owned(),
+                GalaxyA11yRole::ButtonRole,
+            )),
             SelectAIAttachedBlock(_) => Custom(AccessibilityContent::new_without_help(
                 "Click on a block attached as context to this AI query.".to_owned(),
                 GalaxyA11yRole::ButtonRole,
@@ -26534,6 +26553,23 @@ impl TypedActionView for TerminalView {
                         conversation_id
                     );
                 }
+            }
+            RequestDeleteCurrentConversation => {
+                let Some(conversation_id) = self.active_conversation_id(ctx).or_else(|| {
+                    self.ai_context_model
+                        .as_ref(ctx)
+                        .selected_conversation_id(ctx)
+                }) else {
+                    return;
+                };
+                let conversation_title = self
+                    .selected_conversation_display_title(ctx)
+                    .unwrap_or_else(|| "Conversation".to_string());
+                ctx.emit(Event::ShowDeleteConversationConfirmationDialog {
+                    conversation_id,
+                    conversation_title,
+                    terminal_view_id: Some(ctx.view_id()),
+                });
             }
             CloseContextMenu => self.close_context_menu(ctx, true),
             Paste => self.paste(false, ctx),

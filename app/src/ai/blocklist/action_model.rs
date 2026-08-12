@@ -1048,6 +1048,24 @@ impl BlocklistAIActionModel {
         has_pending || has_running
     }
 
+    pub fn has_unresolved_ask_user_question_for_conversation(
+        &self,
+        conversation_id: AIConversationId,
+        app: &AppContext,
+    ) -> bool {
+        self.pending_actions
+            .get(&conversation_id)
+            .is_some_and(|queue| {
+                queue.iter().any(|action| {
+                    matches!(action.action, AIAgentActionType::AskUserQuestion { .. })
+                })
+            })
+            || self
+                .executor
+                .as_ref(app)
+                .has_running_ask_user_question(conversation_id)
+    }
+
     /// Returns finished action results received from the most recent AI output for the active conversation.
     pub fn get_finished_action_results(
         &self,
@@ -1804,6 +1822,18 @@ impl BlocklistAIActionModel {
         self.action_order.remove(&conversation_id);
         self.finished_action_results.remove(&conversation_id);
         self.finished_tool_results.remove(&conversation_id);
+    }
+
+    #[cfg(test)]
+    pub(super) fn push_pending_action_for_test(
+        &mut self,
+        conversation_id: AIConversationId,
+        action: AIAgentAction,
+    ) {
+        self.pending_actions
+            .entry(conversation_id)
+            .or_default()
+            .push_back(action);
     }
 
     /// The control flow for initiating cancellations across suggested plans, requested commands,

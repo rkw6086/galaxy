@@ -18,6 +18,8 @@ use galaxyui::keymap::macros::*;
 use galaxyui::keymap::FixedBinding;
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::TextAlignment;
+use galaxyui::ui_components::checkbox::Checkbox;
+use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use galaxyui::{
     AppContext, BlurContext, Entity, EntityId, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WindowId,
@@ -42,8 +44,11 @@ use crate::editor::{
 };
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::server::telemetry::SharingDialogSource;
-use crate::view_components::action_button::{ActionButton, ButtonSize, SecondaryTheme};
+use crate::view_components::action_button::{
+    ActionButton, ButtonSize, DangerSecondaryTheme, SecondaryTheme,
+};
 use crate::view_components::DismissibleToast;
+use crate::workspace::delete_conversation_confirmation_dialog::DeleteConversationTarget;
 use crate::workspace::global_actions::ForkedConversationDestination;
 use crate::workspace::header_toolbar_item::HeaderToolbarItemKind;
 use crate::workspace::tab_settings::TabSettings;
@@ -56,6 +61,7 @@ use crate::workspace::{ToastStack, WorkspaceAction};
 const VIEW_ALL_LABEL: &str = "View all";
 /// Maximum number of past items to show before the user toggles "view all".
 const INITIAL_MAX_PAST_ITEMS: usize = 10;
+const BULK_CHECKBOX_SIZE: f32 = 14.0;
 
 /// State handles for tracking UI state (hover, scroll, list selection, etc.).
 struct StateHandles {
@@ -67,6 +73,7 @@ struct StateHandles {
     zero_state_button: MouseStateHandle,
     active_header: MouseStateHandle,
     past_header: MouseStateHandle,
+    bulk_select_all: MouseStateHandle,
 }
 
 impl Default for StateHandles {
@@ -80,6 +87,7 @@ impl Default for StateHandles {
             zero_state_button: MouseStateHandle::default(),
             active_header: MouseStateHandle::default(),
             past_header: MouseStateHandle::default(),
+            bulk_select_all: MouseStateHandle::default(),
         }
     }
 }
@@ -150,6 +158,13 @@ pub enum ConversationListViewAction {
     },
     FinishRename,
     CancelRename,
+    EnterBulkDeleteMode,
+    ExitBulkDeleteMode,
+    ToggleBulkDeleteSelection {
+        id: AgentConversationEntryId,
+    },
+    ToggleSelectAllDeletable,
+    DeleteSelectedConversations,
 }
 
 pub enum Event {
@@ -159,6 +174,9 @@ pub enum Event {
         conversation_title: String,
         terminal_view_id: Option<EntityId>,
     },
+    ShowBulkDeleteConfirmationDialog {
+        conversations: Vec<DeleteConversationTarget>,
+    },
 }
 
 pub struct ConversationListView {
@@ -167,6 +185,9 @@ pub struct ConversationListView {
     view_model: ModelHandle<ConversationListViewModel>,
     query_editor: ViewHandle<EditorView>,
     toggle_view_all_button: ViewHandle<ActionButton>,
+    cleanup_button: ViewHandle<ActionButton>,
+    delete_selected_button: ViewHandle<ActionButton>,
+    cancel_bulk_delete_button: ViewHandle<ActionButton>,
     item_overflow_menu: ViewHandle<Menu<ConversationListViewAction>>,
     /// Tracks the overflow menu state (which item it's open for and where to position it).
     overflow_menu_state: Option<OverflowMenuState>,
@@ -186,6 +207,8 @@ pub struct ConversationListView {
     /// Total number of past items before truncation
     /// (we use this to decide whether or not to show the view all button).
     total_past_items: usize,
+    is_bulk_delete_mode: bool,
+    bulk_delete_selection: HashSet<AgentConversationEntryId>,
     state_handles: StateHandles,
 }
 
@@ -279,6 +302,33 @@ impl ConversationListView {
                 })
         });
 
+        let cleanup_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Clean up sessions", SecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .with_icon(Icon::Trash)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(ConversationListViewAction::EnterBulkDeleteMode);
+                })
+        });
+
+        let delete_selected_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Delete selected", DangerSecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(
+                        ConversationListViewAction::DeleteSelectedConversations,
+                    );
+                })
+        });
+
+        let cancel_bulk_delete_button = ctx.add_typed_action_view(|_| {
+            ActionButton::new("Cancel", SecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .on_click(|ctx| {
+                    ctx.dispatch_typed_action(ConversationListViewAction::ExitBulkDeleteMode);
+                })
+        });
+
         let item_overflow_menu = ctx.add_typed_action_view(|_| {
             Menu::new()
                 .prevent_interaction_with_other_elements()
@@ -309,6 +359,9 @@ impl ConversationListView {
             view_model,
             query_editor,
             toggle_view_all_button,
+            cleanup_button,
+            delete_selected_button,
+            cancel_bulk_delete_button,
             item_overflow_menu,
             overflow_menu_state: None,
             sharing_dialog,
@@ -320,6 +373,8 @@ impl ConversationListView {
             list_items: Arc::new(Vec::new()),
             view_all: false,
             total_past_items: 0,
+            is_bulk_delete_mode: false,
+            bulk_delete_selection: HashSet::new(),
             state_handles: StateHandles::default(),
         };
         view.sync_list_items(ctx);
@@ -675,12 +730,24 @@ impl ConversationListView {
             .retain(|id, _| current_ids.contains(id));
 
         // Add new entries
-        for id in current_ids {
-            self.state_handles.item_states.entry(id).or_default();
+        for id in &current_ids {
+            self.state_handles.item_states.entry(*id).or_default();
         }
 
         // Rebuild list_items with current collapse state
         self.rebuild_list_items(ctx);
+
+        self.bulk_delete_selection.retain(|id| {
+            current_ids.contains(id)
+                && self
+                    .view_model
+                    .as_ref(ctx)
+                    .get_item_by_id(id, ctx)
+                    .is_some_and(|entry| entry.capabilities.can_delete)
+        });
+        if self.is_bulk_delete_mode && self.bulk_delete_selection.is_empty() {
+            self.selected_index = None;
+        }
 
         // Adjust selection if it's now invalid.
         if let Some(index) = self.selected_index {
@@ -692,6 +759,146 @@ impl ConversationListView {
             }
         }
         ctx.notify();
+    }
+
+    fn deletable_visible_conversation_ids(
+        &self,
+        ctx: &AppContext,
+    ) -> Vec<AgentConversationEntryId> {
+        let model = self.view_model.as_ref(ctx);
+        self.list_items
+            .iter()
+            .filter_map(|item| match item {
+                ListItem::Conversation { entry, .. } => model
+                    .get_item_by_id(&entry.id, ctx)
+                    .filter(|entry| entry.capabilities.can_delete)
+                    .map(|_| entry.id),
+                ListItem::SectionHeader(_)
+                | ListItem::StartNewConversation
+                | ListItem::ToggleViewAllButton => None,
+            })
+            .collect()
+    }
+
+    fn selected_delete_targets(&self, ctx: &AppContext) -> Vec<DeleteConversationTarget> {
+        let model = self.view_model.as_ref(ctx);
+        let active_views_model = ActiveAgentViewsModel::as_ref(ctx);
+        self.bulk_delete_selection
+            .iter()
+            .filter_map(|id| {
+                let entry = model.get_item_by_id(id, ctx)?;
+                if !entry.capabilities.can_delete {
+                    return None;
+                }
+                let conversation_id = entry.identity.local_conversation_id?;
+                Some(DeleteConversationTarget {
+                    conversation_id,
+                    conversation_title: entry.display.title,
+                    terminal_view_id: active_views_model
+                        .get_terminal_view_id_for_conversation(conversation_id, ctx),
+                })
+            })
+            .collect()
+    }
+
+    fn toggle_bulk_delete_selection(
+        &mut self,
+        id: AgentConversationEntryId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let can_delete = self
+            .view_model
+            .as_ref(ctx)
+            .get_item_by_id(&id, ctx)
+            .is_some_and(|entry| entry.capabilities.can_delete);
+        if !can_delete {
+            return;
+        }
+
+        if !self.bulk_delete_selection.insert(id) {
+            self.bulk_delete_selection.remove(&id);
+        }
+        ctx.notify();
+    }
+
+    fn render_bulk_delete_toolbar(&self, app: &AppContext) -> Box<dyn Element> {
+        let appearance = Appearance::as_ref(app);
+        let theme = appearance.theme();
+        let visible_deletable_ids = self.deletable_visible_conversation_ids(app);
+        let selected_count = self.bulk_delete_selection.len();
+        let all_selected = !visible_deletable_ids.is_empty()
+            && visible_deletable_ids
+                .iter()
+                .all(|id| self.bulk_delete_selection.contains(id));
+
+        let zero_margin = Coords::uniform(0.);
+        let checkbox_default = UiComponentStyles {
+            font_size: Some(BULK_CHECKBOX_SIZE),
+            border_width: Some(1.),
+            border_color: Some(theme.sub_text_color(theme.background()).into()),
+            border_radius: Some(CornerRadius::with_all(Radius::Pixels(2.))),
+            margin: Some(zero_margin),
+            ..Default::default()
+        };
+        let checkbox_checked = UiComponentStyles {
+            font_size: Some(BULK_CHECKBOX_SIZE),
+            background: Some(theme.accent_button_color().into()),
+            font_color: Some(theme.main_text_color(theme.accent_button_color()).into()),
+            border_width: Some(1.),
+            border_color: Some(theme.accent_button_color().into()),
+            border_radius: Some(CornerRadius::with_all(Radius::Pixels(2.))),
+            margin: Some(zero_margin),
+            ..Default::default()
+        };
+
+        let select_all = Checkbox::new(
+            self.state_handles.bulk_select_all.clone(),
+            checkbox_default,
+            None,
+            Some(checkbox_checked),
+            None,
+        )
+        .check(all_selected)
+        .build()
+        .on_click(|ctx, _, _| {
+            ctx.dispatch_typed_action(ConversationListViewAction::ToggleSelectAllDeletable);
+        })
+        .with_cursor(Cursor::PointingHand)
+        .finish();
+
+        let label = Text::new_inline(
+            if selected_count == 0 {
+                "Select conversations to delete".to_string()
+            } else {
+                format!("{selected_count} selected")
+            },
+            appearance.ui_font_family(),
+            appearance.ui_font_size(),
+        )
+        .with_color(theme.main_text_color(theme.background()).into())
+        .finish();
+
+        let buttons = Flex::row()
+            .with_cross_axis_alignment(CrossAxisAlignment::Center)
+            .with_spacing(6.)
+            .with_child(ChildView::new(&self.delete_selected_button).finish())
+            .with_child(ChildView::new(&self.cancel_bulk_delete_button).finish())
+            .finish();
+
+        Container::new(
+            Flex::row()
+                .with_main_axis_size(MainAxisSize::Max)
+                .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_spacing(8.)
+                .with_child(select_all)
+                .with_child(Shrinkable::new(1., label).finish())
+                .with_child(buttons)
+                .finish(),
+        )
+        .with_horizontal_padding(12.)
+        .with_vertical_padding(8.)
+        .with_border(Border::bottom(1.).with_border_fill(theme.surface_3()))
+        .finish()
     }
 
     fn start_rename(&mut self, id: AgentConversationEntryId, ctx: &mut ViewContext<Self>) {
@@ -967,6 +1174,26 @@ fn render_list_action_button(button: &ViewHandle<ActionButton>) -> Box<dyn Eleme
                 .finish(),
         )
         .finish()
+}
+
+fn render_cleanup_action(
+    cleanup_button: &ViewHandle<ActionButton>,
+    app: &AppContext,
+) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
+    let theme = appearance.theme();
+
+    Container::new(
+        Flex::row()
+            .with_main_axis_size(MainAxisSize::Max)
+            .with_main_axis_alignment(MainAxisAlignment::End)
+            .with_child(ChildView::new(cleanup_button).finish())
+            .finish(),
+    )
+    .with_horizontal_padding(12.)
+    .with_vertical_padding(8.)
+    .with_border(Border::bottom(1.).with_border_fill(theme.surface_3()))
+    .finish()
 }
 
 impl Entity for ConversationListView {
@@ -1274,6 +1501,52 @@ impl TypedActionView for ConversationListView {
             ConversationListViewAction::CancelRename => {
                 self.cancel_rename(ctx);
             }
+            ConversationListViewAction::EnterBulkDeleteMode => {
+                self.is_bulk_delete_mode = true;
+                self.selected_index = None;
+                self.overflow_menu_state = None;
+                ctx.notify();
+            }
+            ConversationListViewAction::ExitBulkDeleteMode => {
+                self.is_bulk_delete_mode = false;
+                self.bulk_delete_selection.clear();
+                ctx.notify();
+            }
+            ConversationListViewAction::ToggleBulkDeleteSelection { id } => {
+                self.toggle_bulk_delete_selection(*id, ctx);
+            }
+            ConversationListViewAction::ToggleSelectAllDeletable => {
+                let visible_deletable_ids = self.deletable_visible_conversation_ids(ctx);
+                if visible_deletable_ids.is_empty() {
+                    return;
+                }
+
+                let all_selected = visible_deletable_ids
+                    .iter()
+                    .all(|id| self.bulk_delete_selection.contains(id));
+                if all_selected {
+                    for id in visible_deletable_ids {
+                        self.bulk_delete_selection.remove(&id);
+                    }
+                } else {
+                    self.bulk_delete_selection.extend(visible_deletable_ids);
+                }
+                ctx.notify();
+            }
+            ConversationListViewAction::DeleteSelectedConversations => {
+                let targets = self.selected_delete_targets(ctx);
+                if targets.is_empty() {
+                    return;
+                }
+
+                self.is_bulk_delete_mode = false;
+                self.bulk_delete_selection.clear();
+                self.selected_index = None;
+                ctx.emit(Event::ShowBulkDeleteConfirmationDialog {
+                    conversations: targets,
+                });
+                ctx.notify();
+            }
         }
     }
 }
@@ -1333,6 +1606,8 @@ impl View for ConversationListView {
             let open_conversation_ids =
                 ActiveAgentViewsModel::as_ref(app).get_all_open_conversation_ids(app);
             let share_dialog_open_for = self.share_dialog_open_for;
+            let is_bulk_delete_mode = self.is_bulk_delete_mode;
+            let bulk_delete_selection = self.bulk_delete_selection.clone();
             let list_position_id = self.get_position_id();
             let tooltip_opens_right = TabSettings::as_ref(app)
                 .header_toolbar_chip_selection
@@ -1413,6 +1688,8 @@ impl View for ConversationListView {
                                     };
                                     let is_share_dialog_open =
                                         share_dialog_open_for == Some(entry.id);
+                                    let is_bulk_delete_selected =
+                                        bulk_delete_selection.contains(&entry.id);
                                     Some(render_item(
                                         ItemProps {
                                             conversation: &conversation,
@@ -1429,6 +1706,8 @@ impl View for ConversationListView {
                                             rename_editor: is_renaming.then_some(&rename_editor),
                                             sharing_dialog: &sharing_dialog,
                                             is_share_dialog_open,
+                                            is_bulk_delete_mode,
+                                            is_bulk_delete_selected,
                                             list_position_id: &list_position_id,
                                             tooltip_opens_right,
                                         },
@@ -1481,6 +1760,11 @@ impl View for ConversationListView {
 
         if has_conversations {
             column = column.with_child(render_search_box(&self.query_editor, app));
+            if self.is_bulk_delete_mode {
+                column = column.with_child(self.render_bulk_delete_toolbar(app));
+            } else {
+                column = column.with_child(render_cleanup_action(&self.cleanup_button, app));
+            }
         }
 
         let column_element = column

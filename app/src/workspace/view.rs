@@ -133,7 +133,7 @@ use super::close_session_confirmation_dialog::{
 };
 use super::delete_conversation_confirmation_dialog::{
     DeleteConversationConfirmationDialog, DeleteConversationConfirmationEvent,
-    DeleteConversationDialogSource,
+    DeleteConversationDialogSource, DeleteConversationTarget,
 };
 use super::hoa_onboarding::{
     mark_hoa_onboarding_completed, HoaOnboardingFlow, HoaOnboardingFlowEvent, HoaOnboardingStep,
@@ -6154,6 +6154,20 @@ impl Workspace {
                     false,
                 );
             }
+            AgentManagementViewEvent::ShowDeleteConfirmationDialog {
+                conversation_id,
+                conversation_title,
+                terminal_view_id,
+            } => {
+                self.show_delete_conversation_confirmation_dialog(
+                    DeleteConversationDialogSource::single(
+                        *conversation_id,
+                        conversation_title.clone(),
+                        *terminal_view_id,
+                    ),
+                    ctx,
+                );
+            }
         }
     }
 
@@ -6343,11 +6357,17 @@ impl Workspace {
                 terminal_view_id,
             } => {
                 self.show_delete_conversation_confirmation_dialog(
-                    DeleteConversationDialogSource {
-                        conversation_id: *conversation_id,
-                        conversation_title: conversation_title.clone(),
-                        terminal_view_id: *terminal_view_id,
-                    },
+                    DeleteConversationDialogSource::single(
+                        *conversation_id,
+                        conversation_title.clone(),
+                        *terminal_view_id,
+                    ),
+                    ctx,
+                );
+            }
+            LeftPanelEvent::ShowBulkDeleteConfirmationDialog { conversations } => {
+                self.show_delete_conversation_confirmation_dialog(
+                    DeleteConversationDialogSource::multiple(conversations.clone()),
                     ctx,
                 );
             }
@@ -11208,13 +11228,22 @@ impl Workspace {
             DeleteConversationConfirmationEvent::Confirm { source } => {
                 self.current_workspace_state
                     .is_delete_conversation_confirmation_dialog_open = false;
-                self.handle_action(
-                    &WorkspaceAction::ExecuteDeleteConversation {
-                        conversation_id: source.conversation_id,
-                        terminal_view_id: source.terminal_view_id,
-                    },
-                    ctx,
-                );
+                if let [conversation] = source.conversations.as_slice() {
+                    self.handle_action(
+                        &WorkspaceAction::ExecuteDeleteConversation {
+                            conversation_id: conversation.conversation_id,
+                            terminal_view_id: conversation.terminal_view_id,
+                        },
+                        ctx,
+                    );
+                } else {
+                    self.handle_action(
+                        &WorkspaceAction::ExecuteDeleteConversations {
+                            conversations: source.conversations.clone(),
+                        },
+                        ctx,
+                    );
+                }
                 ctx.focus(&self.left_panel_view);
                 ctx.notify();
             }
@@ -16625,6 +16654,20 @@ impl Workspace {
                     toast_stack.add_ephemeral_toast(toast, ctx);
                 });
             }
+            pane_group::Event::ShowDeleteConversationConfirmationDialog {
+                conversation_id,
+                conversation_title,
+                terminal_view_id,
+            } => {
+                self.show_delete_conversation_confirmation_dialog(
+                    DeleteConversationDialogSource::single(
+                        *conversation_id,
+                        conversation_title.clone(),
+                        *terminal_view_id,
+                    ),
+                    ctx,
+                );
+            }
             pane_group::Event::SignupAnonymousUser { entrypoint } => {
                 self.initiate_user_signup(*entrypoint, ctx);
             }
@@ -18171,6 +18214,68 @@ impl Workspace {
             .is_delete_conversation_confirmation_dialog_open = true;
         ctx.focus(&self.delete_conversation_confirmation_dialog);
         ctx.notify();
+    }
+
+    fn delete_conversation_targets(
+        &mut self,
+        conversations: Vec<DeleteConversationTarget>,
+        window_id: WindowId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let mut seen = HashSet::new();
+        let conversations = conversations
+            .into_iter()
+            .filter(|target| seen.insert(target.conversation_id))
+            .collect::<Vec<_>>();
+        if conversations.is_empty() {
+            return;
+        }
+
+        for target in &conversations {
+            // Exit agent view first if this conversation is currently expanded.
+            // This must happen before updating BlocklistAIHistoryModel to avoid
+            // circular model references.
+            if let Some(controller) = ActiveAgentViewsModel::as_ref(ctx)
+                .get_controller_for_conversation(target.conversation_id, ctx)
+            {
+                let succesfully_exited_agent_view = controller.update(ctx, |controller, ctx| {
+                    controller.exit_agent_view(ctx);
+                    !controller.is_active()
+                });
+
+                if !succesfully_exited_agent_view {
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_ephemeral_toast(
+                            DismissibleToast::error(
+                                "Failed to delete conversation. Please exit the agent view and try again.".to_string(),
+                            ),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                    return;
+                }
+            }
+        }
+
+        let deleted_count = conversations.len();
+        for target in conversations {
+            conversation_utils::delete_conversation(
+                target.conversation_id,
+                target.terminal_view_id,
+                ctx,
+            );
+        }
+
+        send_telemetry_from_ctx!(TelemetryEvent::ConversationListItemDeleted, ctx);
+        let message = if deleted_count == 1 {
+            "Conversation deleted".to_string()
+        } else {
+            format!("{deleted_count} conversations deleted")
+        };
+        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+            toast_stack.add_ephemeral_toast(DismissibleToast::success(message), window_id, ctx);
+        });
     }
 
     pub fn show_native_modal(
@@ -25520,42 +25625,15 @@ impl TypedActionView for Workspace {
                 conversation_id,
                 terminal_view_id,
             } => {
-                // Exit agent view first if this conversation is currently expanded.
-                // This must happen before updating BlocklistAIHistoryModel to avoid
-                // circular model references.
-                if let Some(controller) = ActiveAgentViewsModel::as_ref(ctx)
-                    .get_controller_for_conversation(*conversation_id, ctx)
-                {
-                    let succesfully_exited_agent_view =
-                        controller.update(ctx, |controller, ctx| {
-                            controller.exit_agent_view(ctx);
-                            !controller.is_active()
-                        });
-
-                    if !succesfully_exited_agent_view {
-                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                            toast_stack.add_ephemeral_toast(
-                                DismissibleToast::error(
-                                    "Failed to delete conversation. Please exit the agent view and try again.".to_string(),
-                                ),
-                                window_id,
-                                ctx,
-                            );
-                        });
-                        return;
-                    }
-                }
-
-                conversation_utils::delete_conversation(*conversation_id, *terminal_view_id, ctx);
-
-                send_telemetry_from_ctx!(TelemetryEvent::ConversationListItemDeleted, ctx);
-                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    toast_stack.add_ephemeral_toast(
-                        DismissibleToast::success("Conversation deleted".to_string()),
-                        window_id,
-                        ctx,
-                    );
-                });
+                let target = DeleteConversationTarget {
+                    conversation_id: *conversation_id,
+                    conversation_title: String::new(),
+                    terminal_view_id: *terminal_view_id,
+                };
+                self.delete_conversation_targets(vec![target], window_id, ctx);
+            }
+            ExecuteDeleteConversations { conversations } => {
+                self.delete_conversation_targets(conversations.clone(), window_id, ctx);
             }
             #[cfg(target_family = "wasm")]
             ToggleConversationTranscriptDetailsPanel => {

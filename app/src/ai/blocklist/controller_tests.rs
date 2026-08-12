@@ -1,16 +1,18 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use ai::agent::action::{AskUserQuestionItem, AskUserQuestionType};
 use chrono::Local;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
-use warpui::{App, SingletonEntity};
+use warpui::{App, EntityId, SingletonEntity};
 
-use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentAttachment, AIAgentContext, AIAgentInput, CancellationReason, ImageContext,
-    PassiveSuggestionTrigger, RunningCommand, UserQueryMode,
+    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentAttachment, AIAgentContext,
+    AIAgentInput, CancellationReason, ImageContext, PassiveSuggestionTrigger, RunningCommand,
+    UserQueryMode,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{
@@ -20,10 +22,31 @@ use crate::ai::blocklist::{
 use crate::ai::llms::LLMId;
 use crate::persistence::model::{AcpConversationData, AgentBackend};
 use crate::terminal::model::block::BlockId;
+use crate::test_util::settings::initialize_history_persistence_for_tests;
 use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
 fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
     Uuid::new_v4().to_string().parse().unwrap()
+}
+
+fn ask_user_question_action(action_id: &str) -> AIAgentAction {
+    AIAgentAction {
+        id: AIAgentActionId::from(action_id.to_string()),
+        task_id: TaskId::new(format!("task-{action_id}")),
+        action: AIAgentActionType::AskUserQuestion {
+            questions: vec![AskUserQuestionItem {
+                question_id: "q1".to_owned(),
+                question: "Which path should the agent take?".to_owned(),
+                question_type: AskUserQuestionType::MultipleChoice {
+                    is_multiselect: false,
+                    options: vec![],
+                    supports_other: true,
+                },
+            }],
+        },
+        requires_result: true,
+        tool_name: Some("ask_user_question".to_owned()),
+    }
 }
 
 fn image_attachment(file_name: &str) -> PendingAttachment {
@@ -96,6 +119,126 @@ fn no_action_tool_error_recovery_ignores_normal_answers_and_non_failed_tools() {
         ),
         None
     );
+}
+
+#[test]
+fn tool_queue_decision_blocks_failed_tool_proposal_before_snapshot_fallback() {
+    assert_eq!(
+        super::tool_queue_decision(false, false, true, false, 1, 1,),
+        super::ToolQueueDecision::BlockedFailedToolProposal
+    );
+}
+
+#[test]
+fn tool_queue_decision_blocks_parent_tools_while_child_agents_are_active() {
+    assert_eq!(
+        super::tool_queue_decision(false, false, false, true, 2, 0,),
+        super::ToolQueueDecision::BlockedActiveChildAgents
+    );
+}
+
+#[test]
+fn tool_queue_decision_preserves_existing_terminal_precedence() {
+    assert_eq!(
+        super::tool_queue_decision(true, false, true, true, 1, 1,),
+        super::ToolQueueDecision::Cancelled
+    );
+    assert_eq!(
+        super::tool_queue_decision(false, true, true, true, 1, 1,),
+        super::ToolQueueDecision::UnfinishedExchange
+    );
+}
+
+#[test]
+fn tool_queue_decision_uses_snapshot_fallback_only_when_unblocked() {
+    let decision = super::tool_queue_decision(false, false, false, false, 1, 1);
+
+    assert_eq!(
+        decision,
+        super::ToolQueueDecision::QueueActionsWithStreamSnapshotFallback
+    );
+    assert!(decision.will_queue_actions());
+}
+
+#[test]
+fn query_targets_existing_conversation_extracts_existing_task_id() {
+    let conversation_id = AIConversationId::new();
+    let task_id = TaskId::new("task".to_owned());
+
+    assert_eq!(
+        super::query_targets_existing_conversation(&super::InputQuery {
+            which_task: super::WhichTask::Task {
+                conversation_id,
+                task_id,
+            },
+            input_query: super::InputQueryType::UserSubmittedQueryFromInput {
+                query: "Continue".to_owned(),
+                static_query_type: None,
+                running_command: None,
+            },
+            additional_attachments: HashMap::new(),
+            queued_query_id: None,
+        }),
+        Some(conversation_id)
+    );
+    assert_eq!(
+        super::query_targets_existing_conversation(&super::InputQuery {
+            which_task: super::WhichTask::NewConversation,
+            input_query: super::InputQueryType::UserSubmittedQueryFromInput {
+                query: "new task".to_owned(),
+                static_query_type: None,
+                running_command: None,
+            },
+            additional_attachments: HashMap::new(),
+            queued_query_id: None,
+        }),
+        None
+    );
+}
+
+#[test]
+fn active_descendant_conversation_ids_filters_done_children() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+
+        let orchestrator_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let child_id = history_model.update(&mut app, |history_model, ctx| {
+            history_model.start_new_child_conversation(
+                terminal_view_id,
+                "manifest-owner".to_string(),
+                orchestrator_id,
+                None,
+                ctx,
+            )
+        });
+
+        history_model.read(&app, |history_model, _| {
+            assert_eq!(
+                super::active_descendant_conversation_ids(history_model, orchestrator_id),
+                vec![child_id]
+            );
+        });
+
+        history_model.update(&mut app, |history_model, ctx| {
+            history_model.update_conversation_status(
+                terminal_view_id,
+                child_id,
+                ConversationStatus::Success,
+                ctx,
+            );
+        });
+
+        history_model.read(&app, |history_model, _| {
+            assert_eq!(
+                super::active_descendant_conversation_ids(history_model, orchestrator_id),
+                Vec::<AIConversationId>::new()
+            );
+        });
+    });
 }
 
 #[test]
@@ -376,6 +519,168 @@ fn cancelling_conversation_aborts_pending_auto_resume() {
                     .pending_auto_resume_handles
                     .contains_key(&conversation_id));
             });
+        });
+    });
+}
+
+#[test]
+fn user_follow_up_does_not_cancel_unresolved_ask_user_question() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        let sent_request_count = Arc::new(Mutex::new(0));
+        let controller = terminal.read(&app, |terminal, _| terminal.ai_controller().clone());
+        let sent_request_count_for_subscription = Arc::clone(&sent_request_count);
+        app.update(|ctx| {
+            ctx.subscribe_to_model(&controller, move |_, event, _| {
+                if matches!(event, super::BlocklistAIControllerEvent::SentRequest { .. }) {
+                    *sent_request_count_for_subscription.lock().unwrap() += 1;
+                }
+            });
+        });
+
+        let conversation_id = terminal.update(&mut app, |terminal, ctx| {
+            let terminal_surface_id = terminal.id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    let conversation_id = history_model.start_new_conversation(
+                        terminal_surface_id,
+                        false,
+                        false,
+                        false,
+                        ctx,
+                    );
+                    history_model.mark_active_conversation_id(
+                        conversation_id,
+                        terminal_surface_id,
+                        ctx,
+                    );
+                    history_model.update_conversation_status(
+                        terminal_surface_id,
+                        conversation_id,
+                        ConversationStatus::Blocked {
+                            blocked_action: "ask_user_question".to_owned(),
+                        },
+                        ctx,
+                    );
+                    conversation_id
+                });
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.action_model.update(ctx, |action_model, _| {
+                    action_model.push_pending_action_for_test(
+                        conversation_id,
+                        ask_user_question_action("ask-1"),
+                    );
+                });
+            });
+
+            conversation_id
+        });
+
+        terminal.update(&mut app, |terminal, ctx| {
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.send_user_query_in_conversation(
+                    "Continue".to_owned(),
+                    conversation_id,
+                    None,
+                    ctx,
+                );
+            });
+        });
+
+        assert_eq!(*sent_request_count.lock().unwrap(), 0);
+        controller.read(&app, |controller, ctx| {
+            assert!(controller
+                .action_model
+                .as_ref(ctx)
+                .has_unresolved_ask_user_question_for_conversation(conversation_id, ctx));
+        });
+    });
+}
+
+#[test]
+fn new_conversation_submission_does_not_cancel_active_unresolved_ask_user_question() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        let (conversation_id, initial_conversation_count) =
+            terminal.update(&mut app, |terminal, ctx| {
+                let terminal_surface_id = terminal.id();
+                let conversation_id =
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        let conversation_id = history_model.start_new_conversation(
+                            terminal_surface_id,
+                            false,
+                            false,
+                            false,
+                            ctx,
+                        );
+                        history_model.mark_active_conversation_id(
+                            conversation_id,
+                            terminal_surface_id,
+                            ctx,
+                        );
+                        history_model.update_conversation_status(
+                            terminal_surface_id,
+                            conversation_id,
+                            ConversationStatus::Blocked {
+                                blocked_action: "ask_user_question".to_owned(),
+                            },
+                            ctx,
+                        );
+                        conversation_id
+                    });
+
+                terminal.ai_controller().update(ctx, |controller, ctx| {
+                    controller.action_model.update(ctx, |action_model, _| {
+                        action_model.push_pending_action_for_test(
+                            conversation_id,
+                            ask_user_question_action("ask-new-task"),
+                        );
+                    });
+                });
+
+                let initial_conversation_count = BlocklistAIHistoryModel::as_ref(ctx)
+                    .all_live_conversations()
+                    .len();
+                (conversation_id, initial_conversation_count)
+            });
+
+        terminal.update(&mut app, |terminal, ctx| {
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.send_user_query_in_new_conversation(
+                    "Start another task".to_owned(),
+                    None,
+                    crate::ai::agent::EntrypointType::UserInitiated,
+                    None,
+                    ctx,
+                );
+            });
+        });
+
+        terminal.read(&app, |terminal, ctx| {
+            let history_model = BlocklistAIHistoryModel::as_ref(ctx);
+            assert_eq!(
+                history_model.all_live_conversations().len(),
+                initial_conversation_count
+            );
+            assert_eq!(
+                history_model
+                    .conversation(&conversation_id)
+                    .map(|c| c.status()),
+                Some(&ConversationStatus::Blocked {
+                    blocked_action: "ask_user_question".to_owned()
+                })
+            );
+            assert!(terminal
+                .ai_controller()
+                .as_ref(ctx)
+                .action_model
+                .as_ref(ctx)
+                .has_unresolved_ask_user_question_for_conversation(conversation_id, ctx));
         });
     });
 }

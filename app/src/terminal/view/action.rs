@@ -246,6 +246,8 @@ pub enum TerminalAction {
         exchange_id: AIAgentExchangeId,
         conversation_id: AIConversationId,
     },
+    /// Ask the workspace to confirm deletion of the active conversation for this terminal view.
+    RequestDeleteCurrentConversation,
     SelectAllBlocks,
     ExpandBlockSelectionAbove,
     ExpandBlockSelectionBelow,
@@ -578,6 +580,7 @@ impl fmt::Debug for TerminalAction {
                 write!(f, "OpenInputContextMenu {{ position: {position:?} }}")
             }
             InputContextMenuItem(action) => write!(f, "InputContextMenuItem({action:?})"),
+            RequestDeleteCurrentConversation => f.write_str("RequestDeleteCurrentConversation"),
             SelectAllBlocks => f.write_str("SelectAllBlocks"),
             ExpandBlockSelectionAbove => f.write_str("ExpandBlockSelectionAbove"),
             ExpandBlockSelectionBelow => f.write_str("ExpandBlockSelectionBelow"),

@@ -12,6 +12,7 @@ use galaxyui::elements::{
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
 use galaxyui::text_layout::TextStyle;
+use galaxyui::ui_components::checkbox::Checkbox;
 use galaxyui::ui_components::components::{UiComponent, UiComponentStyles};
 use galaxyui::ui_components::text_input::TextInput;
 use galaxyui::{AppContext, SingletonEntity, ViewHandle};
@@ -51,6 +52,7 @@ const LIST_ITEM_AGENT_SIZE: f32 = 22.;
 /// the conversation list reads better with the status sitting slightly further out than
 /// on the other surfaces.
 const LIST_ITEM_OVERLAY_EXTRA_OVERHANG: f32 = 0.05;
+const BULK_CHECKBOX_SIZE: f32 = 14.0;
 
 /// Generate a position ID for a conversation list item
 fn conversation_item_position_id(id: &AgentConversationEntryId) -> String {
@@ -99,6 +101,8 @@ pub struct ItemProps<'a> {
     pub rename_editor: Option<&'a ViewHandle<EditorView>>,
     pub sharing_dialog: &'a ViewHandle<SharingDialog>,
     pub is_share_dialog_open: bool,
+    pub is_bulk_delete_mode: bool,
+    pub is_bulk_delete_selected: bool,
     pub list_position_id: &'a str,
     pub tooltip_opens_right: bool,
 }
@@ -194,6 +198,8 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
         rename_editor,
         sharing_dialog,
         is_share_dialog_open,
+        is_bulk_delete_mode,
+        is_bulk_delete_selected,
         list_position_id,
         tooltip_opens_right,
     } = props;
@@ -255,16 +261,21 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
         theme.background(),
     );
 
-    let icon_and_title_row = Shrinkable::new(
-        1.0,
-        Flex::row()
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_spacing(ICON_SPACING)
-            .with_child(icon_element)
-            .with_child(Shrinkable::new(1.0, title_element).finish())
-            .finish(),
-    )
-    .finish();
+    let mut title_row = Flex::row()
+        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_spacing(ICON_SPACING);
+    if is_bulk_delete_mode {
+        title_row.add_child(render_bulk_delete_checkbox(
+            state.overflow_button_state.clone(),
+            is_bulk_delete_selected,
+            conversation.capabilities.can_delete,
+            appearance,
+        ));
+    }
+    title_row.add_child(icon_element);
+    title_row.add_child(Shrinkable::new(1.0, title_element).finish());
+
+    let icon_and_title_row = Shrinkable::new(1.0, title_row.finish()).finish();
 
     let timestamp = Text::new_inline(
         format_approx_duration_from_now_utc(conversation.display.last_updated),
@@ -274,6 +285,13 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
     .with_color(theme.sub_text_color(theme.background()).into())
     .finish();
 
+    let bottom_row_left_padding = status_element_size
+        + ICON_SPACING
+        + if is_bulk_delete_mode {
+            BULK_CHECKBOX_SIZE + ICON_SPACING
+        } else {
+            0.
+        };
     let bottom_row = if let Some(subtext) = format_item_subtext(conversation, app) {
         let subtext_element = Shrinkable::new(
             1.0,
@@ -292,7 +310,7 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
                 .with_child(timestamp)
                 .finish(),
         )
-        .with_padding_left(status_element_size + ICON_SPACING)
+        .with_padding_left(bottom_row_left_padding)
         .finish()
     } else {
         // If no subtext, still show timestamp in the bottom row
@@ -303,7 +321,7 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
                 .with_child(timestamp)
                 .finish(),
         )
-        .with_padding_left(status_element_size + ICON_SPACING)
+        .with_padding_left(bottom_row_left_padding)
         .finish()
     };
 
@@ -313,7 +331,7 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
         .with_child(bottom_row)
         .finish();
 
-    let can_open = conversation.capabilities.can_open;
+    let can_open = conversation.capabilities.can_open && !is_bulk_delete_mode;
     let tooltip_text = truncate_from_end(&conversation.display.title, MAX_TOOLTIP_LENGTH);
     let overflow_button_state = state.overflow_button_state.clone();
     let hoverable = Hoverable::new(state.mouse_state.clone(), move |_| {
@@ -332,7 +350,8 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
         let mut stack = Stack::new().with_child(container.finish());
 
         // We show the overflow menu button when the item is selected, or the overflow menu is already open.
-        if !is_renaming
+        if !is_bulk_delete_mode
+            && !is_renaming
             && (is_selected || !matches!(overflow_menu_display, OverflowMenuDisplay::Closed))
         {
             let button_style = UiComponentStyles::default()
@@ -373,7 +392,8 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
         }
 
         // Hide the tooltip when the overflow menu is being shown so that they don't overlap.
-        if !is_renaming
+        if !is_bulk_delete_mode
+            && !is_renaming
             && is_selected
             && matches!(overflow_menu_display, OverflowMenuDisplay::Closed)
         {
@@ -396,6 +416,9 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
     .on_right_click({
         let list_position_id = list_position_id.to_string();
         move |ctx, _, position| {
+            if is_bulk_delete_mode {
+                return;
+            }
             let Some(parent_bounds) = ctx.element_position_by_id(&list_position_id) else {
                 log::warn!("Could not retrieve the position of the conversation list for overflow menu display.");
                 return;
@@ -410,7 +433,22 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
     })
     .with_defer_events_to_children();
 
-    let hoverable_element = if can_open && !is_renaming {
+    let hoverable_element = if is_bulk_delete_mode {
+        if conversation.capabilities.can_delete {
+            hoverable
+                .with_cursor(Cursor::PointingHand)
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(
+                        ConversationListViewAction::ToggleBulkDeleteSelection {
+                            id: conversation_id,
+                        },
+                    );
+                })
+                .finish()
+        } else {
+            hoverable.finish()
+        }
+    } else if can_open && !is_renaming {
         hoverable
             .with_cursor(Cursor::PointingHand)
             .on_click(move |ctx, _, _| {
@@ -466,6 +504,55 @@ pub fn render_item(props: ItemProps<'_>, app: &AppContext) -> Box<dyn Element> {
     }
 
     SavePosition::new(item_stack.finish(), &position_id).finish()
+}
+
+fn render_bulk_delete_checkbox(
+    mouse_state: MouseStateHandle,
+    is_selected: bool,
+    can_delete: bool,
+    appearance: &Appearance,
+) -> Box<dyn Element> {
+    let theme = appearance.theme();
+    let zero_margin = galaxyui::ui_components::components::Coords::uniform(0.);
+    let border_color = if can_delete {
+        theme.sub_text_color(theme.background())
+    } else {
+        theme.disabled_text_color(theme.background())
+    };
+    let checkbox_default = UiComponentStyles {
+        font_size: Some(BULK_CHECKBOX_SIZE),
+        border_width: Some(1.),
+        border_color: Some(border_color.into()),
+        border_radius: Some(CornerRadius::with_all(Radius::Pixels(2.))),
+        margin: Some(zero_margin),
+        ..Default::default()
+    };
+    let checkbox_checked = UiComponentStyles {
+        font_size: Some(BULK_CHECKBOX_SIZE),
+        background: Some(theme.accent_button_color().into()),
+        font_color: Some(theme.main_text_color(theme.accent_button_color()).into()),
+        border_width: Some(1.),
+        border_color: Some(theme.accent_button_color().into()),
+        border_radius: Some(CornerRadius::with_all(Radius::Pixels(2.))),
+        margin: Some(zero_margin),
+        ..Default::default()
+    };
+
+    let mut checkbox = Checkbox::new(
+        mouse_state,
+        checkbox_default,
+        None,
+        Some(checkbox_checked),
+        None,
+    )
+    .check(is_selected)
+    .build();
+
+    if !can_delete {
+        checkbox = checkbox.disable();
+    }
+
+    checkbox.finish()
 }
 
 fn render_inline_rename_editor(

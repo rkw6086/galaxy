@@ -708,6 +708,19 @@ impl BackingView for TerminalView {
             );
         }
 
+        if self.current_conversation_can_be_deleted(ctx) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+
+            items.push(
+                MenuItemFields::new("Delete conversation")
+                    .with_override_text_color(Appearance::as_ref(ctx).theme().ansi_fg_red())
+                    .with_on_select_action(TerminalAction::RequestDeleteCurrentConversation)
+                    .into_item(),
+            );
+        }
+
         items
     }
 
@@ -1001,6 +1014,23 @@ impl TerminalView {
             BlocklistAIHistoryModel::as_ref(ctx),
             conversation,
         ))
+    }
+
+    fn current_conversation_can_be_deleted(&self, ctx: &AppContext) -> bool {
+        let Some(conversation_id) = self.active_conversation_id(ctx).or_else(|| {
+            self.ai_context_model
+                .as_ref(ctx)
+                .selected_conversation_id(ctx)
+        }) else {
+            return false;
+        };
+
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let Some(conversation) = history.conversation(&conversation_id) else {
+            return false;
+        };
+
+        !conversation.is_empty() && conversation.status().is_done()
     }
 
     pub fn selected_conversation_is_empty(&self, ctx: &AppContext) -> bool {

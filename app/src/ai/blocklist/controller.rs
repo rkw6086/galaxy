@@ -36,26 +36,28 @@ use self::response_stream::{ResponseStream, ResponseStreamEvent};
 use super::action_model::{BlocklistAIActionEvent, BlocklistAIActionModel};
 use super::context_model::{BlocklistAIContextModel, PendingAttachment, PendingFile};
 use super::conversation_selection::{ConversationSelectionEvent, ConversationSelectionHandle};
-use super::history_model::BlocklistAIHistoryModel;
+use super::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use super::orchestration_event_streamer::{
     OrchestrationEventStreamer, OrchestrationEventStreamerEvent,
 };
 use super::orchestration_events::{OrchestrationEventService, OrchestrationEventServiceEvent};
+use super::orchestration_topology::descendant_conversation_ids_in_spawn_order;
 use super::queued_query::{QueuedQueryId, QueuedQueryModel};
 use super::{BlocklistAIInputModel, ResponseStreamId};
 use crate::ai::agent::api::{self, ServerConversationToken};
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
-use crate::ai::agent::{
-    extract_user_query_mode, AIAgentActionResult, AIAgentActionResultType, AIAgentAttachment,
-    AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, AIIdentifiers,
-    CancellationOutcome, CancellationReason, DocumentContentAttachmentSource, EntrypointType,
-    FileContext, FinishedAIAgentOutput, PassiveSuggestionResultType, PassiveSuggestionTrigger,
-    PassiveSuggestionTriggerType, RenderableAIError, RequestCommandOutputResult, RequestCost,
-    RequestMetadata, RunningCommand, StaticQueryType, TransientNetworkErrorKind, UserQueryMode,
-};
 #[cfg(not(target_family = "wasm"))]
-use crate::ai::agent::{AIAgentAction, AIAgentActionTypeDiscriminants};
+use crate::ai::agent::AIAgentActionTypeDiscriminants;
+use crate::ai::agent::{
+    extract_user_query_mode, AIAgentAction, AIAgentActionResult, AIAgentActionResultType,
+    AIAgentAttachment, AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
+    AIIdentifiers, CancellationOutcome, CancellationReason, DocumentContentAttachmentSource,
+    EntrypointType, FileContext, FinishedAIAgentOutput, PassiveSuggestionResultType,
+    PassiveSuggestionTrigger, PassiveSuggestionTriggerType, RenderableAIError,
+    RequestCommandOutputResult, RequestCost, RequestMetadata, RunningCommand, StaticQueryType,
+    TransientNetworkErrorKind, UserQueryMode,
+};
 use crate::ai::agent_events::AgentMessageEventMetadata;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent_sdk::ClaudeHarness;
@@ -187,6 +189,146 @@ fn remote_action_summaries(actions: &[AIAgentAction]) -> Vec<serde_json::Value> 
             })
         })
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct FailedToolProposal {
+    action_id: String,
+    task_id: String,
+    tool_name: String,
+    requires_result: bool,
+    error: String,
+}
+
+impl FailedToolProposal {
+    fn new(action: &AIAgentAction, error: impl Into<String>) -> Self {
+        Self {
+            action_id: action.id.to_string(),
+            task_id: action.task_id.to_string(),
+            tool_name: failed_proposal_tool_name(action),
+            requires_result: action.requires_result,
+            error: error.into(),
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn to_remote_log_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "action_id": self.action_id,
+            "task_id": self.task_id,
+            "tool_name": self.tool_name,
+            "requires_result": self.requires_result,
+            "error": remote_logging::sanitize_error(&self.error),
+        })
+    }
+}
+
+fn failed_proposal_tool_name(action: &AIAgentAction) -> String {
+    if let Some(tool_name) = action.tool_name.clone() {
+        return tool_name;
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        format!("{:?}", AIAgentActionTypeDiscriminants::from(&action.action))
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        "unknown".to_string()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolQueueDecision {
+    Cancelled,
+    UnfinishedExchange,
+    BlockedFailedToolProposal,
+    BlockedActiveChildAgents,
+    NoActions,
+    QueueActionsWithStreamSnapshotFallback,
+    QueueActions,
+}
+
+impl ToolQueueDecision {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::UnfinishedExchange => "unfinished_exchange",
+            Self::BlockedFailedToolProposal => "blocked_failed_tool_proposal",
+            Self::BlockedActiveChildAgents => "blocked_active_child_agents",
+            Self::NoActions => "no_actions",
+            Self::QueueActionsWithStreamSnapshotFallback => {
+                "queue_actions_with_stream_snapshot_fallback"
+            }
+            Self::QueueActions => "queue_actions",
+        }
+    }
+
+    fn will_queue_actions(self) -> bool {
+        matches!(
+            self,
+            Self::QueueActions | Self::QueueActionsWithStreamSnapshotFallback
+        )
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn remote_log_level(self) -> RemoteLogLevel {
+        match self {
+            Self::BlockedFailedToolProposal
+            | Self::BlockedActiveChildAgents
+            | Self::QueueActionsWithStreamSnapshotFallback => RemoteLogLevel::Warn,
+            Self::Cancelled | Self::UnfinishedExchange | Self::NoActions | Self::QueueActions => {
+                RemoteLogLevel::Info
+            }
+        }
+    }
+}
+
+fn tool_queue_decision(
+    has_cancellation: bool,
+    has_unfinished_exchange: bool,
+    has_failed_tool_proposal: bool,
+    has_active_child_agents: bool,
+    candidate_action_count: usize,
+    queued_from_stream_snapshot_count: usize,
+) -> ToolQueueDecision {
+    if has_cancellation {
+        ToolQueueDecision::Cancelled
+    } else if has_unfinished_exchange {
+        ToolQueueDecision::UnfinishedExchange
+    } else if has_failed_tool_proposal {
+        ToolQueueDecision::BlockedFailedToolProposal
+    } else if has_active_child_agents {
+        ToolQueueDecision::BlockedActiveChildAgents
+    } else if candidate_action_count == 0 {
+        ToolQueueDecision::NoActions
+    } else if queued_from_stream_snapshot_count > 0 {
+        ToolQueueDecision::QueueActionsWithStreamSnapshotFallback
+    } else {
+        ToolQueueDecision::QueueActions
+    }
+}
+
+fn active_descendant_conversation_ids(
+    history: &BlocklistAIHistoryModel,
+    conversation_id: AIConversationId,
+) -> Vec<AIConversationId> {
+    descendant_conversation_ids_in_spawn_order(history, conversation_id)
+        .into_iter()
+        .filter(|descendant_id| {
+            history
+                .conversation(descendant_id)
+                .is_some_and(|conversation| !conversation.status().is_done())
+        })
+        .collect()
+}
+
+fn query_targets_existing_conversation(input_query: &InputQuery) -> Option<AIConversationId> {
+    match &input_query.which_task {
+        WhichTask::Task {
+            conversation_id, ..
+        } => Some(*conversation_id),
+        WhichTask::NewConversation => None,
+    }
 }
 
 pub enum BlocklistAIControllerEvent {
@@ -469,6 +611,13 @@ pub struct BlocklistAIController {
     pending_local_claude_wakes: HashMap<AIConversationId, SpawnedFutureHandle>,
     /// Passive conversations explicitly requested to follow up after actions complete.
     pending_passive_follow_ups: HashSet<AIConversationId>,
+    /// Conversations with finished action results that should not be drained
+    /// until active child agents in their orchestration subtree finish.
+    pending_child_blocked_follow_ups: HashSet<AIConversationId>,
+    /// Tool proposals that arrived in a provider stream but failed to attach to
+    /// conversation history. If a proposal cannot be attached, executing it via
+    /// the stream snapshot fallback would create orphaned tool history.
+    failed_tool_proposals_by_stream: HashMap<ResponseStreamId, Vec<FailedToolProposal>>,
 
     /// Per-conversation loop detection state for preventing recursive tool failures.
     loop_detection: HashMap<AIConversationId, ToolLoopGuard>,
@@ -601,6 +750,73 @@ impl InputQuery {
 }
 
 impl BlocklistAIController {
+    fn has_unresolved_ask_user_question(
+        &self,
+        conversation_id: AIConversationId,
+        app: &AppContext,
+    ) -> bool {
+        self.action_model
+            .as_ref(app)
+            .has_unresolved_ask_user_question_for_conversation(conversation_id, app)
+    }
+
+    fn should_block_follow_up_for_unresolved_ask_user_question(
+        &self,
+        input_query: &InputQuery,
+        active_conversation_id: Option<AIConversationId>,
+        app: &AppContext,
+    ) -> bool {
+        self.should_block_submission_for_unresolved_ask_user_question(
+            query_targets_existing_conversation(input_query),
+            active_conversation_id,
+            app,
+        )
+    }
+
+    pub(super) fn should_block_submission_for_unresolved_ask_user_question(
+        &self,
+        target_conversation_id: Option<AIConversationId>,
+        active_conversation_id: Option<AIConversationId>,
+        app: &AppContext,
+    ) -> bool {
+        if target_conversation_id
+            .is_some_and(|target_id| self.has_unresolved_ask_user_question(target_id, app))
+        {
+            return true;
+        }
+
+        active_conversation_id.is_some_and(|active_id| {
+            Some(active_id) != target_conversation_id
+                && self.has_unresolved_ask_user_question(active_id, app)
+        })
+    }
+
+    pub(super) fn log_blocked_submission_for_unresolved_ask_user_question(
+        &self,
+        target_conversation_id: Option<AIConversationId>,
+        active_conversation_id: Option<AIConversationId>,
+        is_queued_prompt: bool,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        log::warn!(
+            "Ignoring user follow-up while AskUserQuestion is unresolved: target_conversation_id={target_conversation_id:?}, active_conversation_id={active_conversation_id:?}"
+        );
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Warn,
+                message: "User follow-up blocked for unresolved AskUserQuestion".to_string(),
+                context: serde_json::json!({
+                    "event": "user_follow_up_blocked_unresolved_ask_user_question",
+                    "target_conversation_id": target_conversation_id.map(|id| id.to_string()),
+                    "active_conversation_id": active_conversation_id.map(|id| id.to_string()),
+                    "is_queued_prompt": is_queued_prompt,
+                }),
+            },
+        );
+    }
+
     /// Returns the bundled-skill catalog origin for this controller's active session.
     pub fn skill_path_origin(&self, ctx: &AppContext) -> SkillPathOrigin {
         SessionContext::from_session(self.active_session.as_ref(ctx), ctx).skill_path_origin()
@@ -745,6 +961,30 @@ impl BlocklistAIController {
             me.send_follow_up_for_conversation(*conversation_id, ctx);
         });
 
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| {
+            let BlocklistAIHistoryEvent::UpdatedConversationStatus {
+                terminal_surface_id,
+                new_status,
+                ..
+            } = event
+            else {
+                return;
+            };
+            if *terminal_surface_id != me.terminal_surface_id || !new_status.is_done() {
+                return;
+            }
+
+            let pending_parents = me
+                .pending_child_blocked_follow_ups
+                .iter()
+                .copied()
+                .collect::<Vec<_>>();
+            for parent_id in pending_parents {
+                me.maybe_resume_child_blocked_follow_up(parent_id, ctx);
+            }
+        });
+
         ctx.subscribe_to_model(&conversation_selection, |me, _, event, ctx| {
             let ConversationSelectionEvent::Deactivated {
                 conversation_id,
@@ -787,9 +1027,13 @@ impl BlocklistAIController {
             } => {
                 me.handle_dormant_claude_wake_ready(*conversation_id, wake_message.clone(), ctx);
             }
-            // Viewer-mode events are handled by `OrchestrationViewerModel`.
-            OrchestrationEventStreamerEvent::ChildSpawned { .. }
-            | OrchestrationEventStreamerEvent::ChildStatusChanged { .. } => {}
+            // Viewer-mode placeholder materialization is handled by
+            // `OrchestrationViewerModel`; the owner-side controller only
+            // mirrors status changes for already-known child conversations.
+            OrchestrationEventStreamerEvent::ChildSpawned { .. } => {}
+            OrchestrationEventStreamerEvent::ChildStatusChanged { run_id, status, .. } => {
+                me.handle_orchestrated_child_status_changed(run_id, status.clone(), ctx);
+            }
         });
         let crosscheck_reviewer = ctx.add_model(crate::ai::crosscheck::CrosscheckReviewer::new);
         ctx.subscribe_to_model(&crosscheck_reviewer, move |me, _, event, ctx| {
@@ -815,6 +1059,8 @@ impl BlocklistAIController {
             pending_auto_resume_handles: HashMap::new(),
             pending_local_claude_wakes: HashMap::new(),
             pending_passive_follow_ups: HashSet::new(),
+            pending_child_blocked_follow_ups: HashSet::new(),
+            failed_tool_proposals_by_stream: HashMap::new(),
             pending_passive_suggestion_results: HashMap::new(),
             loop_detection: HashMap::new(),
             error_retry_counts: HashMap::new(),
@@ -848,7 +1094,22 @@ impl BlocklistAIController {
 
         let query = input_query.query().to_owned();
         let is_existing_task = matches!(&input_query.which_task, WhichTask::Task { .. });
-        let (conversation_id, task_id) = match input_query.which_task {
+        let active_conversation_id =
+            BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_surface_id);
+        if self.should_block_follow_up_for_unresolved_ask_user_question(
+            &input_query,
+            active_conversation_id,
+            ctx,
+        ) {
+            self.log_blocked_submission_for_unresolved_ask_user_question(
+                query_targets_existing_conversation(&input_query),
+                active_conversation_id,
+                input_query.queued_query_id.is_some(),
+                ctx,
+            );
+            return;
+        }
+        let (conversation_id, task_id) = match &input_query.which_task {
             WhichTask::NewConversation => {
                 let conversation = self.start_new_conversation_for_request(ctx);
                 (conversation.id(), conversation.get_root_task_id().clone())
@@ -856,15 +1117,13 @@ impl BlocklistAIController {
             WhichTask::Task {
                 conversation_id,
                 task_id,
-            } => (conversation_id, task_id),
+            } => (*conversation_id, task_id.clone()),
         };
 
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
             history.refresh_conversation_backend_without_output(conversation_id, ctx);
         });
 
-        let active_conversation_id =
-            BlocklistAIHistoryModel::as_ref(ctx).active_conversation_id(self.terminal_surface_id);
         let is_same_conversation_running_command_monitor = match &input_query.input_query {
             InputQueryType::UserSubmittedQueryFromInput {
                 running_command: Some(running_command),
@@ -1888,6 +2147,38 @@ impl BlocklistAIController {
             history.mark_active_conversation_id(conversation_id, self.terminal_surface_id, ctx);
         });
 
+        let active_child_conversation_ids = active_descendant_conversation_ids(
+            BlocklistAIHistoryModel::as_ref(ctx),
+            conversation_id,
+        );
+        if !active_child_conversation_ids.is_empty() {
+            self.pending_child_blocked_follow_ups
+                .insert(conversation_id);
+            log::info!(
+                "Deferring agent follow-up for conversation {conversation_id:?}: active child conversations remain: {:?}",
+                active_child_conversation_ids
+            );
+            #[cfg(not(target_family = "wasm"))]
+            remote_logging::log_model_event(
+                ctx,
+                RemoteLogRecord {
+                    level: RemoteLogLevel::Warn,
+                    message: "Agent follow-up deferred for active child agents".to_string(),
+                    context: serde_json::json!({
+                        "event": "agent_follow_up_deferred_active_child_agents",
+                        "conversation_id": conversation_id.to_string(),
+                        "active_descendant_conversation_ids": active_child_conversation_ids
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>(),
+                    }),
+                },
+            );
+            return;
+        }
+        self.pending_child_blocked_follow_ups
+            .remove(&conversation_id);
+
         let mut finished_results = self.action_model.update(ctx, |action_model, _| {
             action_model.drain_finished_action_results(conversation_id)
         });
@@ -2047,6 +2338,69 @@ impl BlocklistAIController {
         }
 
         self.pending_passive_follow_ups.remove(&conversation_id);
+    }
+
+    fn maybe_resume_child_blocked_follow_up(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if !self
+            .pending_child_blocked_follow_ups
+            .contains(&conversation_id)
+        {
+            return;
+        }
+        if self
+            .in_flight_response_streams
+            .has_active_stream_for_conversation(conversation_id, ctx)
+        {
+            return;
+        }
+        if self
+            .action_model
+            .as_ref(ctx)
+            .has_unfinished_actions_for_conversation(conversation_id)
+        {
+            return;
+        }
+        if !active_descendant_conversation_ids(
+            BlocklistAIHistoryModel::as_ref(ctx),
+            conversation_id,
+        )
+        .is_empty()
+        {
+            return;
+        }
+        self.send_follow_up_for_conversation(conversation_id, ctx);
+    }
+
+    fn handle_orchestrated_child_status_changed(
+        &mut self,
+        run_id: &str,
+        status: ConversationStatus,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(conversation_id) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation_id_for_agent_id(run_id)
+        else {
+            return;
+        };
+        let owns_conversation = BlocklistAIHistoryModel::as_ref(ctx)
+            .all_live_conversations_for_terminal_surface(self.terminal_surface_id)
+            .any(|conversation| conversation.id() == conversation_id);
+        if !owns_conversation {
+            return;
+        }
+
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.update_conversation_status(
+                self.terminal_surface_id,
+                conversation_id,
+                status,
+                ctx,
+            );
+        });
     }
 
     fn check_and_record_loop_detection(
@@ -3627,6 +3981,7 @@ impl BlocklistAIController {
                             remote_action_tool_name(&action),
                             action.requires_result,
                         );
+                        let failed_proposal = FailedToolProposal::new(&action, String::new());
                         let apply_result = history_model.update(ctx, |history_model, ctx| {
                             history_model.apply_domain_tool_proposal(
                                 &stream_id,
@@ -3640,6 +3995,12 @@ impl BlocklistAIController {
                             log::error!(
                                 "Failed to apply Rig tool proposal to conversation: {error:?}"
                             );
+                            let mut failed_proposal = failed_proposal;
+                            failed_proposal.error = format!("{error:?}");
+                            self.failed_tool_proposals_by_stream
+                                .entry(stream_id.clone())
+                                .or_default()
+                                .push(failed_proposal);
                             #[cfg(not(target_family = "wasm"))]
                             {
                                 let (action_id, task_id, tool_name, requires_result) =
@@ -4131,6 +4492,10 @@ impl BlocklistAIController {
 
                 let history_action_count = actions_to_queue.len();
                 let proposed_action_count = proposed_actions.len();
+                let failed_tool_proposals = self
+                    .failed_tool_proposals_by_stream
+                    .remove(&stream_id)
+                    .unwrap_or_default();
                 let mut queued_action_ids = actions_to_queue
                     .iter()
                     .map(|action| action.id.clone())
@@ -4142,46 +4507,46 @@ impl BlocklistAIController {
                         actions_to_queue.push(action.clone());
                     }
                 }
+                let active_child_conversation_ids =
+                    active_descendant_conversation_ids(history_model.as_ref(ctx), conversation_id);
+                let queue_decision = tool_queue_decision(
+                    cancellation.is_some(),
+                    is_any_exchange_unfinished,
+                    !failed_tool_proposals.is_empty(),
+                    !active_child_conversation_ids.is_empty(),
+                    actions_to_queue.len(),
+                    queued_from_stream_snapshot_count,
+                );
                 #[cfg(not(target_family = "wasm"))]
                 {
-                    let will_queue_actions = cancellation.is_none() && !is_any_exchange_unfinished;
-                    let used_stream_snapshot_fallback =
-                        will_queue_actions && queued_from_stream_snapshot_count > 0;
-                    let decision = if cancellation.is_some() {
-                        "cancelled"
-                    } else if is_any_exchange_unfinished {
-                        "unfinished_exchange"
-                    } else if actions_to_queue.is_empty() {
-                        "no_actions"
-                    } else if used_stream_snapshot_fallback {
-                        "queue_actions_with_stream_snapshot_fallback"
-                    } else {
-                        "queue_actions"
-                    };
-                    let level = if used_stream_snapshot_fallback {
-                        RemoteLogLevel::Warn
-                    } else {
-                        RemoteLogLevel::Info
-                    };
                     remote_logging::log_model_event(
                         ctx,
                         RemoteLogRecord {
-                            level,
+                            level: queue_decision.remote_log_level(),
                             message: "Tool queue decision".to_string(),
                             context: serde_json::json!({
                                 "event": "tool_queue_decision",
                                 "stream_id": stream_id.as_str(),
                                 "conversation_id": conversation_id.to_string(),
-                                "decision": decision,
+                                "decision": queue_decision.label(),
                                 "history_action_count": history_action_count,
                                 "proposed_action_count": proposed_action_count,
                                 "candidate_action_count": actions_to_queue.len(),
-                                "will_queue_action_count": if will_queue_actions {
+                                "will_queue_action_count": if queue_decision.will_queue_actions() {
                                     actions_to_queue.len()
                                 } else {
                                     0
                                 },
                                 "queued_from_stream_snapshot_count": queued_from_stream_snapshot_count,
+                                "failed_tool_proposal_count": failed_tool_proposals.len(),
+                                "failed_tool_proposals": failed_tool_proposals
+                                    .iter()
+                                    .map(FailedToolProposal::to_remote_log_value)
+                                    .collect::<Vec<_>>(),
+                                "active_descendant_conversation_ids": active_child_conversation_ids
+                                    .iter()
+                                    .map(ToString::to_string)
+                                    .collect::<Vec<_>>(),
                                 "was_passive_request": was_passive_request,
                                 "is_any_exchange_unfinished": is_any_exchange_unfinished,
                                 "cancellation_reason": cancellation
@@ -4248,7 +4613,17 @@ impl BlocklistAIController {
                             ctx,
                         );
                     });
-                } else if !actions_to_queue.is_empty() {
+                } else if !failed_tool_proposals.is_empty() {
+                    log::warn!(
+                        "Skipping tool queue for stream {stream_id:?}: failed tool proposal attach count={}",
+                        failed_tool_proposals.len()
+                    );
+                } else if !active_child_conversation_ids.is_empty() {
+                    log::info!(
+                        "Skipping tool queue for conversation {conversation_id:?}: active child conversations remain: {:?}",
+                        active_child_conversation_ids
+                    );
+                } else if queue_decision.will_queue_actions() {
                     log::info!(
                         "[bedrock-debug] AfterStreamFinished: queuing {} actions",
                         actions_to_queue.len()

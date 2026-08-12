@@ -103,6 +103,19 @@ impl Workspace {
                     true,
                 );
             }
+            ConversationDetailsPanelEvent::ShowDeleteConfirmationDialog {
+                conversation_id,
+                conversation_title,
+            } => {
+                me.show_delete_conversation_confirmation_dialog(
+                    crate::workspace::delete_conversation_confirmation_dialog::DeleteConversationDialogSource::single(
+                        *conversation_id,
+                        conversation_title.clone(),
+                        None,
+                    ),
+                    ctx,
+                );
+            }
         });
 
         panel

@@ -148,6 +148,19 @@ impl SlashCommandRequest {
             is_for_same_conversation: active_conversation_id
                 .is_some_and(|id| id == conversation_id),
         };
+        if controller.should_block_submission_for_unresolved_ask_user_question(
+            Some(conversation_id),
+            active_conversation_id,
+            ctx,
+        ) {
+            controller.log_blocked_submission_for_unresolved_ask_user_question(
+                Some(conversation_id),
+                active_conversation_id,
+                is_queued_prompt,
+                ctx,
+            );
+            return;
+        }
         if let Some(active_conversation_id) = active_conversation_id {
             controller.cancel_conversation_progress(
                 active_conversation_id,

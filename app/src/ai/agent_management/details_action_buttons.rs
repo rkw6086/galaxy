@@ -26,6 +26,7 @@ pub struct ActionButtonsConfig {
     pub view_details_item_id: Option<AgentConversationEntryId>,
     /// Conversation link URL (either to the transcript or live session) for copy link button.
     pub copy_link_url: Option<String>,
+    pub delete_conversation_id: Option<AIConversationId>,
 }
 
 impl ActionButtonsConfig {
@@ -36,6 +37,7 @@ impl ActionButtonsConfig {
             && self.fork_conversation_id.is_none()
             && self.view_details_item_id.is_none()
             && self.copy_link_url.is_none()
+            && self.delete_conversation_id.is_none()
     }
 
     /// Create config for a task.
@@ -58,6 +60,7 @@ impl ActionButtonsConfig {
             fork_conversation_id: None,
             view_details_item_id: None,
             copy_link_url,
+            delete_conversation_id: None,
         }
     }
 
@@ -75,6 +78,7 @@ impl ActionButtonsConfig {
             fork_conversation_id: Some(conversation_id),
             view_details_item_id: None,
             copy_link_url,
+            delete_conversation_id: Some(conversation_id),
         }
     }
 }
@@ -87,6 +91,7 @@ pub enum AgentDetailsButtonEvent {
     ForkConversation { conversation_id: AIConversationId },
     ViewDetails { item_id: AgentConversationEntryId },
     CopyLink { link: String },
+    DeleteConversation { conversation_id: AIConversationId },
 }
 
 /// Actions dispatched by button clicks (internal).
@@ -97,6 +102,7 @@ pub enum AgentDetailsAction {
     ForkConversation,
     ViewDetails,
     CopyLink,
+    DeleteConversation,
 }
 
 /// Reusable action buttons row for details panel.
@@ -107,6 +113,7 @@ pub struct ConversationActionButtonsRow {
     fork_conversation_button: ViewHandle<ActionButton>,
     view_details_button: ViewHandle<ActionButton>,
     copy_link_button: ViewHandle<ActionButton>,
+    delete_conversation_button: ViewHandle<ActionButton>,
 }
 
 impl ConversationActionButtonsRow {
@@ -156,6 +163,15 @@ impl ConversationActionButtonsRow {
             )
         });
 
+        let delete_conversation_button = ctx.add_typed_action_view(|_| {
+            Self::make_action_button(
+                Icon::Trash,
+                "Delete conversation",
+                Some(AnsiColorIdentifier::Red),
+                AgentDetailsAction::DeleteConversation,
+            )
+        });
+
         Self {
             config: ActionButtonsConfig::default(),
             open_button,
@@ -163,6 +179,7 @@ impl ConversationActionButtonsRow {
             fork_conversation_button,
             view_details_button,
             copy_link_button,
+            delete_conversation_button,
         }
     }
 
@@ -231,6 +248,9 @@ impl View for ConversationActionButtonsRow {
         if self.config.view_details_item_id.is_some() {
             row.add_child(ChildView::new(&self.view_details_button).finish());
         }
+        if self.config.delete_conversation_id.is_some() && !cfg!(target_family = "wasm") {
+            row.add_child(ChildView::new(&self.delete_conversation_button).finish());
+        }
 
         row.finish()
     }
@@ -278,6 +298,11 @@ impl TypedActionView for ConversationActionButtonsRow {
                             });
                         },
                     );
+                }
+            }
+            AgentDetailsAction::DeleteConversation => {
+                if let Some(conversation_id) = self.config.delete_conversation_id {
+                    ctx.emit(AgentDetailsButtonEvent::DeleteConversation { conversation_id });
                 }
             }
         }

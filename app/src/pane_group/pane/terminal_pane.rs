@@ -1190,6 +1190,19 @@ fn handle_terminal_view_event(
             Event::OpenShareSessionDeniedModal => {
                 group.open_share_session_denied_modal(terminal_pane_id, ctx);
             }
+            Event::ShowDeleteConversationConfirmationDialog {
+                conversation_id,
+                conversation_title,
+                terminal_view_id,
+            } => {
+                ctx.emit(
+                    pane_group::Event::ShowDeleteConversationConfirmationDialog {
+                        conversation_id: *conversation_id,
+                        conversation_title: conversation_title.clone(),
+                        terminal_view_id: *terminal_view_id,
+                    },
+                );
+            }
             Event::FocusSession => {
                 group.focus_pane(terminal_pane_id.into(), true, ctx);
                 ctx.emit(pane_group::Event::FocusPaneGroup);
