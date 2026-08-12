@@ -845,6 +845,17 @@ impl ResponseStream {
         self.runtime_capabilities.host_managed_history
     }
 
+    pub(super) fn has_error_tool_results(&self) -> bool {
+        self.params
+            .tool_results
+            .iter()
+            .any(galaxy_agent_core::ToolResult::is_error)
+    }
+
+    pub(super) fn tool_result_count(&self) -> usize {
+        self.params.tool_results.len()
+    }
+
     pub fn allows_corrective_retries(&self) -> bool {
         self.runtime_capabilities.corrective_retries
     }

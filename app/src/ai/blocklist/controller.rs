@@ -245,6 +245,74 @@ enum RunningCommandDetection {
     Skip,
 }
 
+fn no_action_tool_error_recovery_reason(
+    had_failed_tool_result: bool,
+    agent_output: &str,
+) -> Option<&'static str> {
+    if !had_failed_tool_result {
+        return None;
+    }
+
+    let output = agent_output.trim();
+    if output.is_empty() {
+        return None;
+    }
+
+    let lower = output.to_ascii_lowercase();
+    let has_tool_intent = [
+        "check", "find", "grep", "inspect", "look", "open", "read", "recall", "search", "verify",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle));
+    if !has_tool_intent {
+        return None;
+    }
+
+    let promise_prefixes = [
+        "i'll ",
+        "i will ",
+        "i’m going to ",
+        "i'm going to ",
+        "i need to ",
+        "i should ",
+        "let me ",
+        "now let me ",
+        "next let me ",
+        "next, let me ",
+    ];
+    let starts_with_unfulfilled_intent = promise_prefixes
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    let ends_with_incomplete_intent = lower.ends_with(':') && lower.chars().count() < 800;
+    if starts_with_unfulfilled_intent || ends_with_incomplete_intent {
+        return Some("unfulfilled_tool_intent");
+    }
+
+    let repeated_intent_lines = lower
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            promise_prefixes
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        })
+        .filter(|line| {
+            [
+                "check", "find", "grep", "inspect", "look", "open", "read", "recall", "search",
+                "verify",
+            ]
+            .iter()
+            .any(|needle| line.contains(needle))
+        })
+        .take(2)
+        .count();
+    if repeated_intent_lines >= 2 {
+        return Some("repeated_unfulfilled_tool_intent");
+    }
+
+    None
+}
+
 fn acp_backend_model_id(backend: &AgentBackend) -> Option<LLMId> {
     match backend {
         AgentBackend::Provider => None,
@@ -2511,6 +2579,62 @@ impl BlocklistAIController {
         );
     }
 
+    fn send_tool_error_no_action_recovery(
+        &mut self,
+        conversation_id: AIConversationId,
+        reason: &'static str,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+        else {
+            return;
+        };
+        let root_task_id = conversation.get_root_task_id().clone();
+        let corrective_msg = format!(
+            "[SYSTEM] The previous tool result failed, and your last response stopped with \
+             an unfulfilled inspection/search intent ({reason}) without calling another tool \
+             or answering. Continue now. Either retry with a narrower available tool call, \
+             or answer from the evidence already available and explicitly state what could \
+             not be verified. Do not end this turn with another promise to inspect."
+        );
+
+        let inputs = vec![AIAgentInput::UserQuery {
+            query: corrective_msg,
+            context: Arc::from([]),
+            static_query_type: None,
+            referenced_attachments: HashMap::new(),
+            user_query_mode: UserQueryMode::Normal,
+            running_command: None,
+            intended_agent: None,
+        }];
+
+        if let Err(error) = self.send_request_input(
+            RequestInput::for_task(
+                inputs,
+                root_task_id,
+                &self.active_session,
+                self.get_current_response_initiator(),
+                conversation_id,
+                self.terminal_surface_id,
+                ctx,
+            ),
+            Some(RequestMetadata {
+                is_autodetected_user_query: false,
+                entrypoint: EntrypointType::AgentInitiated,
+                is_auto_resume_after_error: false,
+            }),
+            /*can_attempt_resume_on_error*/ false,
+            /*is_queued_prompt*/ false,
+            ctx,
+        ) {
+            log::warn!(
+                "Failed to send tool-error no-action recovery for conversation \
+                 {conversation_id:?}: {error:?}"
+            );
+        }
+    }
+
     /// Checks whether a crosscheck review should be triggered for a conversation
     /// that just finished with no actions to queue (i.e., the agent is "done").
     ///
@@ -4146,7 +4270,61 @@ impl BlocklistAIController {
                         .conversation(&conversation_id)
                         .and_then(|c| c.parent_conversation_id())
                         .is_some();
-                    if is_child && !was_passive_request {
+                    let (host_manages_history, had_failed_tool_result, tool_result_count) = {
+                        let response_stream = response_stream.as_ref(ctx);
+                        (
+                            response_stream.host_manages_history(),
+                            response_stream.has_error_tool_results(),
+                            response_stream.tool_result_count(),
+                        )
+                    };
+                    let recovery_reason = if !is_child
+                        && !was_passive_request
+                        && !host_manages_history
+                    {
+                        let agent_output = self.extract_last_agent_output(conversation_id, ctx);
+                        no_action_tool_error_recovery_reason(had_failed_tool_result, &agent_output)
+                    } else {
+                        None
+                    };
+
+                    if let Some(recovery_reason) = recovery_reason {
+                        log::warn!(
+                            "[tool-error-recovery] Sending corrective follow-up for \
+                             conversation {:?}: reason={}, tool_result_count={}",
+                            conversation_id,
+                            recovery_reason,
+                            tool_result_count
+                        );
+                        #[cfg(not(target_family = "wasm"))]
+                        remote_logging::log_model_event(
+                            ctx,
+                            RemoteLogRecord {
+                                level: RemoteLogLevel::Warn,
+                                message: "Tool error no-action recovery".to_string(),
+                                context: serde_json::json!({
+                                    "event": "tool_error_no_action_recovery",
+                                    "stream_id": stream_id.as_str(),
+                                    "conversation_id": conversation_id.to_string(),
+                                    "reason": recovery_reason,
+                                    "tool_result_count": tool_result_count,
+                                    "was_passive_request": was_passive_request,
+                                    "is_child": is_child,
+                                    "host_manages_history": host_manages_history,
+                                }),
+                            },
+                        );
+
+                        // Remove the completed stream before starting the corrective turn.
+                        // Otherwise `send_request_input` sees this conversation as in-flight
+                        // and rejects the recovery request.
+                        self.in_flight_response_streams.cleanup_stream(&stream_id);
+                        self.send_tool_error_no_action_recovery(
+                            conversation_id,
+                            recovery_reason,
+                            ctx,
+                        );
+                    } else if is_child && !was_passive_request {
                         log::info!(
                             "[bedrock-debug] AfterStreamFinished: child conversation {:?} completed, setting status to Success",
                             conversation_id
@@ -4159,35 +4337,40 @@ impl BlocklistAIController {
                                 ctx,
                             );
                         });
-                    }
 
-                    // Crosscheck Work experiment: remember that the main agent produced a final
-                    // response. Start the reviewer only after stream cleanup below so fast reviewer
-                    // feedback cannot race the stale in-flight response-stream entry.
-                    let should_trigger_crosscheck = !is_child && !was_passive_request;
+                        if cancellation.is_none() {
+                            self.in_flight_response_streams.cleanup_stream(&stream_id);
 
-                    // Remove the completed stream before starting the reviewer. A fast reviewer can
-                    // otherwise return feedback while this stream is still considered in flight,
-                    // causing `send_request_input` to reject and silently drop the correction turn.
-                    if cancellation.is_none() {
-                        self.in_flight_response_streams.cleanup_stream(&stream_id);
+                            // Now that the stream is cleaned up, re-check for pending
+                            // orchestration events that couldn't be drained earlier.
+                            self.handle_pending_events_ready(conversation_id, ctx);
+                        }
+                    } else {
+                        // Crosscheck Work experiment: remember that the main agent produced a final
+                        // response. Start the reviewer only after stream cleanup below so fast reviewer
+                        // feedback cannot race the stale in-flight response-stream entry.
+                        let should_trigger_crosscheck = !is_child && !was_passive_request;
 
-                        // Now that the stream is cleaned up, re-check for pending
-                        // orchestration events that couldn't be drained earlier.
-                        self.handle_pending_events_ready(conversation_id, ctx);
-                    }
+                        // Remove the completed stream before starting the reviewer. A fast reviewer can
+                        // otherwise return feedback while this stream is still considered in flight,
+                        // causing `send_request_input` to reject and silently drop the correction turn.
+                        if cancellation.is_none() {
+                            self.in_flight_response_streams.cleanup_stream(&stream_id);
 
-                    if should_trigger_crosscheck {
-                        self.maybe_trigger_crosscheck(conversation_id, ctx);
+                            // Now that the stream is cleaned up, re-check for pending
+                            // orchestration events that couldn't be drained earlier.
+                            self.handle_pending_events_ready(conversation_id, ctx);
+                        }
+
+                        if should_trigger_crosscheck {
+                            self.maybe_trigger_crosscheck(conversation_id, ctx);
+                        }
                     }
                 }
 
                 // Cancelled streams handle pending-response-stream updates synchronously. The
                 // no-action crosscheck path above also cleans up early before starting its reviewer.
-                if cancellation.is_none()
-                    && self
-                        .in_flight_response_streams
-                        .has_active_stream_for_conversation(conversation_id, ctx)
+                if cancellation.is_none() && self.in_flight_response_streams.has_stream(&stream_id)
                 {
                     self.in_flight_response_streams.cleanup_stream(&stream_id);
 

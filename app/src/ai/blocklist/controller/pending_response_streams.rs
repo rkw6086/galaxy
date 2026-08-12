@@ -52,6 +52,10 @@ impl PendingResponseStreams {
             .collect()
     }
 
+    pub fn has_stream(&self, stream_id: &ResponseStreamId) -> bool {
+        self.streams.contains_key(stream_id)
+    }
+
     /// Attempts to inject a plain-text follow-up into an active steerable runtime.
     ///
     /// Returning `None` leaves the caller free to use the normal

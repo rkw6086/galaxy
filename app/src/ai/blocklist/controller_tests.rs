@@ -60,6 +60,45 @@ fn live_steering_eligibility() -> super::LiveSteeringEligibility {
 }
 
 #[test]
+fn no_action_tool_error_recovery_detects_unfulfilled_tool_intent() {
+    assert_eq!(
+        super::no_action_tool_error_recovery_reason(
+            true,
+            "Let me recall earlier in the StateManager class: what I read:",
+        ),
+        Some("unfulfilled_tool_intent")
+    );
+    assert_eq!(
+        super::no_action_tool_error_recovery_reason(
+            true,
+            "Now let me look at how manifests are currently stored and served:\n\
+             Now let me check what writes them:",
+        ),
+        Some("unfulfilled_tool_intent")
+    );
+}
+
+#[test]
+fn no_action_tool_error_recovery_ignores_normal_answers_and_non_failed_tools() {
+    assert_eq!(
+        super::no_action_tool_error_recovery_reason(
+            true,
+            "The grep timed out, so I could not verify the file contents. Based on the \
+             loaded manifest code, the likely fix is to narrow the search and update the \
+             config watcher.",
+        ),
+        None
+    );
+    assert_eq!(
+        super::no_action_tool_error_recovery_reason(
+            false,
+            "Let me look at the config watcher implementation:",
+        ),
+        None
+    );
+}
+
+#[test]
 fn acp_backend_model_identity_does_not_claim_a_provider_model() {
     assert_eq!(super::acp_backend_model_id(&AgentBackend::Provider), None);
     assert_eq!(
