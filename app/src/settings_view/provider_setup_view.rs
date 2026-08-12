@@ -1440,7 +1440,7 @@ impl ProviderSetupView {
                 }
                 children.push(
                     Text::new(
-                        "Known clients use their local executable. If the client is not installed, Galaxy will show a launch error. Choose Custom for another ACP-compatible command.",
+                        "Known NPM-backed clients use npx with a pinned package version. If an ACP client needs another toolchain, choose Custom and configure the executable after installing it yourself.",
                         appearance.ui_font_family(),
                         INPUT_FONT_SIZE,
                     )

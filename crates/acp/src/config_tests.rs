@@ -48,7 +48,7 @@ fn opencode_preset_is_version_pinned() {
 }
 
 #[test]
-fn resolved_opencode_prefers_the_native_executable() {
+fn resolved_opencode_uses_npx_for_the_npm_adapter() {
     let launch = AcpAgentPreset::OpenCode
         .resolve_launch_config_with(|command| match command {
             "opencode" => Some(PathBuf::from("/opt/bin/opencode")),
@@ -57,8 +57,15 @@ fn resolved_opencode_prefers_the_native_executable() {
         })
         .unwrap();
 
-    assert_eq!(launch.command, PathBuf::from("/opt/bin/opencode"));
-    assert_eq!(launch.args, vec!["acp"]);
+    assert_eq!(launch.command, PathBuf::from("/opt/bin/npx"));
+    assert_eq!(
+        launch.args,
+        vec![
+            "--yes".to_owned(),
+            format!("opencode-ai@{OPENCODE_NPM_VERSION}"),
+            "acp".to_owned()
+        ]
+    );
 }
 
 #[test]
@@ -129,7 +136,7 @@ fn resolved_presets_explain_missing_launchers() {
             (command == "bunx").then(|| PathBuf::from("/opt/bin/bunx"))
         })
         .unwrap_err();
-    assert!(opencode_error.contains("requires the opencode executable or npx"));
+    assert!(opencode_error.contains("requires npx"));
 
     let codex_adapter_error = AcpAgentPreset::Codex
         .resolve_launch_config_with(|command| {

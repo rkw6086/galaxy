@@ -12,7 +12,7 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::{
     AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings, AcpProviderConfig,
-    OpenAIModelConfig,
+    BedrockModelConfig, OpenAIModelConfig, OpenAIProviderConfig, OpenAIProviderKind,
 };
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
@@ -159,6 +159,15 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
     }
 }
 
+fn bedrock_model(model_id: &str) -> BedrockModelConfig {
+    BedrockModelConfig {
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        vision_supported: false,
+        use_rig: true,
+    }
+}
+
 fn acp_select_option(
     id: &str,
     category: &str,
@@ -214,6 +223,83 @@ fn empty_preferences() -> LLMPreferences {
         chatgpt_subscription_models_refresh_in_flight: false,
         acp_selections: HashMap::new(),
     }
+}
+
+#[test]
+fn bedrock_and_openai_provider_models_coexist_in_picker() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .openai_enabled
+                .set_value(true, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .openai_providers
+                .set_value(
+                    vec![OpenAIProviderConfig {
+                        kind: OpenAIProviderKind::OpenAI,
+                        enabled: true,
+                        name: "OpenAI Test".to_owned(),
+                        base_url: "https://api.openai.test/v1".to_owned(),
+                        api_key: Some("test-key".to_owned()),
+                        project_id: None,
+                        location: None,
+                        models: vec![openai_model("gpt-test")],
+                    }],
+                    ctx,
+                )
+                .expect("OpenAI providers should update");
+            settings
+                .bedrock_enabled
+                .set_value(true, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .bedrock_models
+                .set_value(vec![bedrock_model("anthropic.claude-test")], ctx)
+                .expect("Bedrock models should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_openai_models(ctx);
+            preferences.inject_bedrock_models(ctx);
+        });
+
+        let agent_models = &preferences.models_by_feature.agent_mode.choices;
+        assert!(
+            agent_models
+                .iter()
+                .any(|model| model.id.as_str() == "gpt-test"
+                    && model.provider == LLMProvider::LiteLLM)
+        );
+        assert!(agent_models.iter().any(|model| {
+            model.id.as_str() == "anthropic.claude-test" && model.provider == LLMProvider::Bedrock
+        }));
+        assert!(preferences
+            .openai_client_config_for_model("gpt-test")
+            .is_some());
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_openai_models(ctx);
+        });
+
+        let agent_models = &preferences.models_by_feature.agent_mode.choices;
+        assert!(
+            agent_models
+                .iter()
+                .any(|model| model.id.as_str() == "gpt-test"
+                    && model.provider == LLMProvider::LiteLLM)
+        );
+        assert!(agent_models.iter().any(|model| {
+            model.id.as_str() == "anthropic.claude-test" && model.provider == LLMProvider::Bedrock
+        }));
+        assert!(preferences
+            .openai_client_config_for_model("gpt-test")
+            .is_some());
+    });
 }
 
 #[test]

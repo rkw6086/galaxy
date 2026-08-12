@@ -45,12 +45,10 @@ pub fn is_using_api_key_for_provider(_provider: &LLMProvider, _app: &AppContext)
     false
 }
 
-pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, app: &AppContext) -> bool {
-    UserWorkspaces::as_ref(app).is_bedrock_enabled(app)
-        && llm
-            .host_configs
-            .get(&LLMModelHost::AwsBedrock)
-            .is_some_and(|config| config.enabled)
+pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, _app: &AppContext) -> bool {
+    llm.host_configs
+        .get(&LLMModelHost::AwsBedrock)
+        .is_some_and(|config| config.enabled)
 }
 
 /// Key for cached LLM metadata in user preferences.
@@ -826,12 +824,19 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_bedrock_models(&mut self, ctx: &AppContext) {
-        // Galaxy's runtime inventory is rebuilt exclusively from enabled local
-        // providers. Never retain Warp-hosted or stale cached model entries.
-        self.models_by_feature.agent_mode.choices.clear();
-        self.models_by_feature.coding.choices.clear();
+        // Remove only previously injected Bedrock entries. Other enabled provider
+        // sections (OpenAI/LiteLLM, ChatGPT subscription, ACP) must remain
+        // available in the shared model picker.
+        self.models_by_feature
+            .agent_mode
+            .choices
+            .retain(|m| m.provider != LLMProvider::Bedrock);
+        self.models_by_feature
+            .coding
+            .choices
+            .retain(|m| m.provider != LLMProvider::Bedrock);
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.clear();
+            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock);
         }
 
         let settings = AISettings::as_ref(ctx);

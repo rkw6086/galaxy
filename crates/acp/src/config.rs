@@ -158,9 +158,9 @@ impl AcpAgentPreset {
 
     /// Resolves the best available executable for this preset.
     ///
-    /// OpenCode's native binary is preferred when installed. Codex runs its ACP
-    /// adapter through npx, while CODEX_PATH points at the user's installed
-    /// Codex CLI rather than downloading a second Codex installation.
+    /// NPM-backed presets run through npx when available. Codex still requires a
+    /// locally installed Codex CLI because the ACP adapter delegates to it via
+    /// CODEX_PATH rather than downloading a second Codex installation.
     pub fn resolve_launch_config(self) -> Result<AcpLaunchConfig, String> {
         self.resolve_launch_config_with(executable_on_path)
     }
@@ -197,9 +197,6 @@ impl AcpAgentPreset {
                     .codex_path(codex))
             }
             Self::OpenCode => {
-                if let Some(command) = resolve("opencode") {
-                    return Ok(AcpLaunchConfig::new(command).args(["acp"]));
-                }
                 if let Some(command) = resolve("npx") {
                     return Ok(AcpLaunchConfig::new(command).args([
                         "--yes".to_owned(),
@@ -208,7 +205,7 @@ impl AcpAgentPreset {
                     ]));
                 }
                 Err(
-                    "OpenCode ACP requires the opencode executable or npx; install OpenCode or Node.js/npm, or configure a custom ACP executable"
+                    "OpenCode ACP requires npx because its ACP adapter is distributed as an NPM package; install Node.js/npm or configure a custom ACP executable"
                         .to_owned(),
                 )
             }
