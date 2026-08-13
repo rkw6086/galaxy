@@ -1375,6 +1375,7 @@ impl AIAgentInput {
                 app,
             )),
             AIAgentInput::UserQuery { .. }
+            | AIAgentInput::CommandCompletionAssessment { .. }
             | AIAgentInput::AutoCodeDiffQuery { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }

@@ -1597,7 +1597,7 @@ impl BlocklistAIController {
         );
     }
 
-    /// Sends one non-preemptive final assessment to a completed CLI-monitor task.
+    /// Sends one non-preemptive final assessment to the root task after a CLI monitor completes.
     ///
     /// This deliberately bypasses `send_query`: command completion must not cancel
     /// another conversation, drain unrelated action results, or replace a request
@@ -1605,8 +1605,7 @@ impl BlocklistAIController {
     pub fn send_command_completion_assessment(
         &mut self,
         conversation_id: AIConversationId,
-        task_id: TaskId,
-        query: String,
+        prompt: String,
         completed_command: RunningCommand,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
@@ -1621,6 +1620,16 @@ impl BlocklistAIController {
             return false;
         }
 
+        let Some(root_task_id) = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .map(|conversation| conversation.get_root_task_id().clone())
+        else {
+            log::warn!(
+                "Cannot send command completion assessment for missing conversation \
+                 {conversation_id:?}"
+            );
+            return false;
+        };
         let context = input_context_for_request(
             false,
             self.context_model.as_ref(ctx),
@@ -1629,16 +1638,12 @@ impl BlocklistAIController {
             ctx,
         );
         let request_input = RequestInput::for_task(
-            vec![AIAgentInput::UserQuery {
-                query,
+            vec![AIAgentInput::CommandCompletionAssessment {
+                prompt,
                 context,
-                static_query_type: None,
-                referenced_attachments: HashMap::new(),
-                user_query_mode: UserQueryMode::Normal,
-                running_command: Some(completed_command),
-                intended_agent: None,
+                completed_command,
             }],
-            task_id,
+            root_task_id,
             &self.active_session,
             self.get_current_response_initiator(),
             conversation_id,
@@ -4553,7 +4558,7 @@ impl BlocklistAIController {
                                     .as_ref()
                                     .map(|stream_cancellation| format!("{:?}", stream_cancellation.reason)),
                                 "queued_tools": remote_action_summaries(&actions_to_queue),
-                                "proposed_tools": remote_action_summaries(&proposed_actions),
+                                "proposed_tools": remote_action_summaries(proposed_actions),
                             }),
                         },
                     );

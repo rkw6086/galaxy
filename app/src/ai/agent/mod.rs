@@ -2705,6 +2705,13 @@ pub enum AIAgentInput {
         intended_agent: Option<AgentType>,
     },
 
+    /// A hidden system turn that asks for the final assessment of a completed command.
+    CommandCompletionAssessment {
+        prompt: String,
+        context: Arc<[AIAgentContext]>,
+        completed_command: RunningCommand,
+    },
+
     AutoCodeDiffQuery {
         query: String,
         context: Arc<[AIAgentContext]>,
@@ -2869,6 +2876,9 @@ impl Display for AIAgentInput {
             Self::UserQuery { .. } => {
                 write!(f, "UserQuery: {}", self.display_query().unwrap_or_default())
             }
+            Self::CommandCompletionAssessment { .. } => {
+                write!(f, "CommandCompletionAssessment")
+            }
             Self::AutoCodeDiffQuery { query, .. } => {
                 write!(f, "AutoCodeDiffQuery: {query}")
             }
@@ -2957,7 +2967,8 @@ impl AIAgentInput {
                 suggestion: PassiveSuggestionResultType::Prompt { prompt },
                 ..
             } => Some(prompt.clone()),
-            Self::AutoCodeDiffQuery { .. }
+            Self::CommandCompletionAssessment { .. }
+            | Self::AutoCodeDiffQuery { .. }
             | Self::ActionResult { .. }
             | Self::TriggerPassiveSuggestion { .. }
             | Self::ResumeConversation { .. }
@@ -3048,6 +3059,7 @@ impl AIAgentInput {
     pub fn context(&self) -> Option<&[AIAgentContext]> {
         match self {
             Self::UserQuery { context, .. }
+            | Self::CommandCompletionAssessment { context, .. }
             | Self::ActionResult { context, .. }
             | Self::AutoCodeDiffQuery { context, .. }
             | Self::ResumeConversation { context, .. }
@@ -3081,7 +3093,8 @@ impl AIAgentInput {
                 Some(res)
             }
             Self::TriggerPassiveSuggestion { attachments, .. } => Some(attachments.clone()),
-            Self::ActionResult { .. }
+            Self::CommandCompletionAssessment { .. }
+            | Self::ActionResult { .. }
             | Self::AutoCodeDiffQuery { .. }
             | Self::ResumeConversation { .. }
             | Self::InitProjectRules { .. }

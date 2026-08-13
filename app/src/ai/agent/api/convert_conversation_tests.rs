@@ -4,7 +4,7 @@ use chrono::Utc;
 use warp_multi_agent_api as api;
 
 use crate::ai::agent::api::convert_conversation::*;
-use crate::ai::agent::api::ServerConversationToken;
+use crate::ai::agent::api::{mark_internal_command_completion_assessment, ServerConversationToken};
 use crate::ai::agent::conversation::{
     AIAgentHarness, AIConversationId, ServerAIConversationMetadata,
 };
@@ -2126,6 +2126,61 @@ fn test_create_then_edit_then_create_version_tracking() {
         create_b_version,
         Some(default_version),
         "Created doc B should have default version (v1), independent of doc A"
+    );
+}
+
+#[test]
+fn test_internal_command_completion_assessment_restores_output_without_visible_input() {
+    let assessment_text =
+        "[Completed command: cargo test]\n[Final terminal output:\ntest result: ok\n]";
+    let mut hidden_assessment = api::Message {
+        id: "msg_assessment".to_string(),
+        task_id: "task1".to_string(),
+        request_id: "req1".to_string(),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: assessment_text.to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    mark_internal_command_completion_assessment(&mut hidden_assessment);
+    let provider_history =
+        crate::ai::bedrock::request_translator::convert_proto_message(&hidden_assessment)
+            .expect("hidden assessment should remain in provider history");
+    assert_eq!(
+        provider_history.role,
+        crate::ai::provider::types::MessageRole::User
+    );
+    assert!(matches!(
+        provider_history.content,
+        crate::ai::provider::types::MessageContent::Text(text) if text == assessment_text
+    ));
+
+    let task = api::Task {
+        id: "task1".to_string(),
+        messages: vec![
+            hidden_assessment,
+            api::Message {
+                id: "msg_output".to_string(),
+                task_id: "task1".to_string(),
+                request_id: "req1".to_string(),
+                message: Some(api::message::Message::AgentOutput(
+                    api::message::AgentOutput {
+                        text: "The command completed successfully.".to_string(),
+                    },
+                )),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let exchanges = task.into_exchanges();
+    assert_eq!(exchanges.len(), 1);
+    assert!(exchanges[0].input.is_empty());
+    assert_eq!(
+        exchanges[0].format_output_for_copy(None),
+        "The command completed successfully."
     );
 }
 

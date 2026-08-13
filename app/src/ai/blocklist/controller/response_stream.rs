@@ -376,6 +376,7 @@ impl ResponseStream {
     }
 
     #[cfg(not(target_family = "wasm"))]
+    #[allow(clippy::too_many_arguments)]
     fn log_llm_request_started(
         ctx: &mut ModelContext<Self>,
         stream_id: &ResponseStreamId,

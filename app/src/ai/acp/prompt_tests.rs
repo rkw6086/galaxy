@@ -118,6 +118,46 @@ fn hidden_system_requests_still_reach_the_agent_without_a_user_bubble() {
 }
 
 #[test]
+fn completed_command_assessment_uses_hidden_context_without_monitor_guidance() {
+    let block_id = BlockId::from("completed-session-42".to_owned());
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![AIAgentInput::CommandCompletionAssessment {
+        prompt: "Report whether the command succeeded.".to_owned(),
+        context: Arc::from([AIAgentContext::SelectedText("root context".to_owned())]),
+        completed_command: RunningCommand {
+            command: "script/run-soak-test".to_owned(),
+            block_id: block_id.clone(),
+            grid_contents: "completed successfully".to_owned(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    }];
+
+    let prompt = prompt_content(
+        &params,
+        GalaxyTerminalTools {
+            status: true,
+            interrupt: true,
+        },
+    )
+    .expect("prompt");
+    let text = prompt_text(&prompt);
+
+    assert!(text.starts_with("Handle the Galaxy system request"));
+    assert!(text.contains("hidden_from_transcript"));
+    assert!(text.contains("A monitored command has completed."));
+    assert!(text.contains("script/run-soak-test"));
+    assert!(text.contains(block_id.as_str()));
+    assert!(text.contains("Final output:\ncompleted successfully"));
+    assert!(text.contains("Report whether the command succeeded."));
+    assert!(text.contains("Selected text:\nroot context"));
+    assert!(!text.contains("galaxy_terminal_status"));
+    assert!(!text.contains("galaxy_terminal_interrupt"));
+    assert!(!text.contains("running_for_ms"));
+}
+
+#[test]
 fn running_command_identity_and_output_are_sent_as_hidden_context() {
     let block_id = BlockId::from("session-42".to_owned());
     let mut params = RequestParams::new_for_test();

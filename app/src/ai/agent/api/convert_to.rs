@@ -348,6 +348,43 @@ fn convert_input_to_user_input(
                 }
             ))
         }
+        AIAgentInput::CommandCompletionAssessment {
+            prompt,
+            completed_command:
+                RunningCommand {
+                    command,
+                    block_id,
+                    grid_contents: output,
+                    cursor,
+                    requested_command_id,
+                    is_alt_screen_active,
+                },
+            ..
+        } => Ok(
+            api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                api::request::input::CliAgentUserQuery {
+                    user_query: Some(api::request::input::UserQuery {
+                        query: prompt,
+                        referenced_attachments: Default::default(),
+                        mode: Some(UserQueryMode::Normal.into()),
+                        intended_agent: api::AgentType::Primary.into(),
+                    }),
+                    running_command: Some(api::RunningShellCommand {
+                        command,
+                        snapshot: Some(api::LongRunningShellCommandSnapshot {
+                            output,
+                            cursor,
+                            command_id: block_id.as_str().to_owned(),
+                            is_alt_screen_active,
+                            is_preempted: false,
+                        }),
+                    }),
+                    run_shell_command_tool_call_id: requested_command_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                },
+            ),
+        ),
         AIAgentInput::ActionResult { result, .. } => result.try_into(),
         AIAgentInput::MessagesReceivedFromAgents { messages } => Ok(
             api::request::input::user_inputs::user_input::Input::MessagesReceivedFromAgents(

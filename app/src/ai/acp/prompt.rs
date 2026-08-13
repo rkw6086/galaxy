@@ -153,6 +153,25 @@ fn append_hidden_input(
             ));
         }
         AIAgentInput::UserQuery { .. } | AIAgentInput::CreateNewProject { .. } => {}
+        AIAgentInput::CommandCompletionAssessment {
+            prompt,
+            completed_command,
+            ..
+        } => {
+            hidden_context.push(format!(
+                "A monitored command has completed.\n\
+                 Command: {}\n\
+                 Galaxy block_id: {}\n\
+                 Final output:\n{}\n\n{}",
+                completed_command.command,
+                completed_command.block_id,
+                tail_chars(
+                    &completed_command.grid_contents,
+                    MAX_RUNNING_COMMAND_OUTPUT_CHARS
+                ),
+                prompt,
+            ));
+        }
         AIAgentInput::AutoCodeDiffQuery { query, .. } => {
             hidden_context.push(format!(
                 "Galaxy system request: create a code diff.\n{query}"

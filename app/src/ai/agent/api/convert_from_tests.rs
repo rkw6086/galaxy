@@ -7,13 +7,14 @@ use warp_multi_agent_api as api;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 
 use super::{
-    convert_api_question, ConversionParams, ConvertAPIMessageToClientOutputMessage,
-    MaybeAIAgentOutputMessage,
+    convert_api_question, user_inputs_from_messages, ConversionParams,
+    ConvertAPIMessageToClientOutputMessage, MaybeAIAgentOutputMessage,
 };
+use crate::ai::agent::api::mark_internal_command_completion_assessment;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    runtime_activity, AIAgentActionType, AIAgentOutputMessageType, LifecycleEventType,
-    StartAgentExecutionMode,
+    runtime_activity, AIAgentActionType, AIAgentInput, AIAgentOutputMessageType,
+    LifecycleEventType, StartAgentExecutionMode,
 };
 
 fn start_agent_tool_call_message(
@@ -615,6 +616,36 @@ fn converts_local_start_agent_v2_with_harness_type() {
         StartAgentExecutionMode::local_harness("claude-code".to_string())
     );
     assert_eq!(lifecycle_subscription, None);
+}
+
+#[test]
+fn internal_command_completion_assessment_is_not_restored_as_shared_user_input() {
+    let mut hidden_assessment = api::Message {
+        id: "hidden-assessment".to_string(),
+        task_id: "task".to_string(),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: "[Completed command: cargo test]".to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    mark_internal_command_completion_assessment(&mut hidden_assessment);
+    let visible_query = api::Message {
+        id: "visible-query".to_string(),
+        task_id: "task".to_string(),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: "What changed?".to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+
+    let inputs = user_inputs_from_messages(&[hidden_assessment, visible_query]);
+    assert_eq!(inputs.len(), 1);
+    assert!(matches!(
+        &inputs[0],
+        AIAgentInput::UserQuery { query, .. } if query == "What changed?"
+    ));
 }
 
 #[test]

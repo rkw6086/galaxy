@@ -7,7 +7,7 @@ use warp_multi_agent_api as api;
 
 use super::convert_to::convert_input;
 use super::{ConvertToAPITypeError, RequestParams, ResponseStream, StreamEvent};
-use crate::ai::agent::redaction;
+use crate::ai::agent::{redaction, AIAgentInput};
 use crate::ai::openai::translator as openai_translator;
 use crate::ai::provider::ProviderConfig;
 use crate::server::server_api::AIApiError;
@@ -97,6 +97,10 @@ pub async fn generate_multi_agent_output(
         );
     }
 
+    let emit_user_query_message = !params
+        .input
+        .iter()
+        .any(|input| matches!(input, AIAgentInput::CommandCompletionAssessment { .. }));
     let mut request = api::Request {
         task_context: Some(api::request::TaskContext {
             tasks: params.tasks,
@@ -189,6 +193,7 @@ pub async fn generate_multi_agent_output(
                 progressive_summary: params.progressive_summary.clone(),
                 messages_sent: params.messages_sent.clone(),
                 global_rules: params.global_rules.clone(),
+                emit_user_query_message,
             };
 
             match openai_translator::execute(translator_request, &mut request).await {
@@ -223,6 +228,7 @@ pub async fn generate_multi_agent_output(
                 bedrock_progressive_summary: params.progressive_summary.clone(),
                 bedrock_messages_sent: params.messages_sent.clone(),
                 global_rules: params.global_rules.clone(),
+                emit_user_query_message,
             };
 
             match crate::ai::bedrock::translator::execute(translator_request, &mut request).await {

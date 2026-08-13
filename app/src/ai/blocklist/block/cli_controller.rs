@@ -400,10 +400,10 @@ impl CLISubagentController {
     }
 
     fn advance_completed_subagent(&mut self, block_id: &BlockId, ctx: &mut ModelContext<Self>) {
-        let Some((task_id, completion)) = self
+        let Some(completion) = self
             .active_subagents_by_block
             .get(block_id)
-            .and_then(|state| Some((state.task_id.clone()?, state.completion.as_ref()?.clone())))
+            .and_then(|state| state.completion.as_ref().cloned())
         else {
             return;
         };
@@ -433,7 +433,6 @@ impl CLISubagentController {
         let sent = self.controller.update(ctx, |controller, ctx| {
             controller.send_command_completion_assessment(
                 completion.conversation_id,
-                task_id,
                 completion.prompt,
                 completion.completed_command,
                 ctx,

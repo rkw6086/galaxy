@@ -16,6 +16,7 @@ use warp_multi_agent_api as api;
 use crate::ai::agent::api::convert_conversation::{
     convert_input_context, convert_tool_call_result_to_input,
 };
+use crate::ai::agent::api::is_internal_command_completion_assessment;
 use crate::ai::agent::comment::CodeReview;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::todos::AIAgentTodoList;
@@ -957,6 +958,9 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
         let Some(inner) = &m.message else { continue };
         match inner {
             api::message::Message::UserQuery(uq) => {
+                if is_internal_command_completion_assessment(m) {
+                    continue;
+                }
                 let context = convert_input_context(uq.context.as_ref());
                 let referenced_attachments = uq
                     .referenced_attachments

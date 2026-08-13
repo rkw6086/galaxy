@@ -21,6 +21,8 @@ pub struct TranslatorRequest {
     pub bedrock_messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     /// Global rules (name, content) from the local CloudModel.
     pub global_rules: Vec<(String, String)>,
+    /// Whether the native input should be emitted as a transcript-visible user query.
+    pub emit_user_query_message: bool,
 }
 
 pub async fn execute(
@@ -131,7 +133,10 @@ pub async fn execute(
         );
     }
 
-    let user_query_text = request_translator::extract_user_query_text(request);
+    let user_query_text = params
+        .emit_user_query_message
+        .then(|| request_translator::extract_user_query_text(request))
+        .flatten();
 
     let stream = bedrock
         .converse_stream(

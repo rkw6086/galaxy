@@ -77,7 +77,8 @@ impl TryFrom<&AIAgentInput> for PersistedAIInputType {
             AIAgentInput::PassiveSuggestionResult { suggestion: PassiveSuggestionResultType::CodeDiff { .. }, .. } => Err(anyhow!(
                 "PassiveSuggestionResult::CodeDiff is not persisted as a query."
             )),
-            AIAgentInput::ActionResult { .. }
+            AIAgentInput::CommandCompletionAssessment { .. }
+            | AIAgentInput::ActionResult { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }
             | AIAgentInput::CreateEnvironment { .. }

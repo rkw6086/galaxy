@@ -7,6 +7,7 @@ use warp_multi_agent_api as api;
 use super::convert::{
     ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
 };
+use crate::ai::agent::api::mark_internal_command_completion_assessment;
 
 /// Command-monitor turns must wake often enough to react to steering and user-specified deadlines.
 ///
@@ -91,32 +92,11 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                     ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text =
-                                    if let Some(running_cmd) = &cli_query.running_command {
-                                        let mut context =
-                                            format!("[Running command: {}]\n", running_cmd.command);
-                                        if let Some(snapshot) = &running_cmd.snapshot {
-                                            if !snapshot.command_id.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Command ID: {}]\n",
-                                                    snapshot.command_id
-                                                ));
-                                            }
-                                            if !snapshot.output.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Terminal output:\n{}\n]\n",
-                                                    snapshot.output
-                                                ));
-                                            }
-                                        }
-                                        context.push_str(&user_query.query);
-                                        context
-                                    } else {
-                                        user_query.query.clone()
-                                    };
                                 user_queries.push(ConversationMessage {
                                     role: MessageRole::User,
-                                    content: MessageContent::Text(query_text),
+                                    content: MessageContent::Text(cli_query_text(
+                                        cli_query, user_query,
+                                    )),
                                 });
                             }
                         }
@@ -565,24 +545,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text =
-                                    if let Some(running_cmd) = &cli_query.running_command {
-                                        let mut context =
-                                            format!("[Running command: {}]\n", running_cmd.command);
-                                        if let Some(snapshot) = &running_cmd.snapshot {
-                                            if !snapshot.output.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Terminal output:\n{}\n]\n",
-                                                    snapshot.output
-                                                ));
-                                            }
-                                        }
-                                        context.push_str(&user_query.query);
-                                        context
-                                    } else {
-                                        user_query.query.clone()
-                                    };
-                                results.push(api::Message {
+                                let mut message = api::Message {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     task_id: task_id.clone(),
                                     request_id: String::new(),
@@ -592,11 +555,15 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                     fetched_memories: vec![],
                                     message: Some(api::message::Message::UserQuery(
                                         api::message::UserQuery {
-                                            query: query_text,
+                                            query: cli_query_text(cli_query, user_query),
                                             ..Default::default()
                                         },
                                     )),
-                                });
+                                };
+                                if cli_query_is_completed_assessment(cli_query) {
+                                    mark_internal_command_completion_assessment(&mut message);
+                                }
+                                results.push(message);
                             }
                         }
                     }
@@ -1235,12 +1202,57 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
     }
 }
 
+fn cli_query_is_completed_assessment(cli_query: &api::request::input::CliAgentUserQuery) -> bool {
+    cli_query
+        .user_query
+        .as_ref()
+        .is_some_and(|query| query.intended_agent() == api::AgentType::Primary)
+}
+
+fn cli_query_text(
+    cli_query: &api::request::input::CliAgentUserQuery,
+    user_query: &api::request::input::UserQuery,
+) -> String {
+    let Some(command) = &cli_query.running_command else {
+        return user_query.query.clone();
+    };
+    let completed = cli_query_is_completed_assessment(cli_query);
+    let mut context = format!(
+        "[{}: {}]\n",
+        if completed {
+            "Completed command"
+        } else {
+            "Running command"
+        },
+        command.command
+    );
+    if let Some(snapshot) = &command.snapshot {
+        if !snapshot.command_id.is_empty() {
+            context.push_str(&format!("[Command ID: {}]\n", snapshot.command_id));
+        }
+        if !snapshot.output.is_empty() {
+            context.push_str(&format!(
+                "[{}:\n{}\n]\n",
+                if completed {
+                    "Final terminal output"
+                } else {
+                    "Terminal output"
+                },
+                snapshot.output
+            ));
+        }
+    }
+    context.push_str(&user_query.query);
+    context
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgentMode {
     Normal,
     Plan,
     Orchestrate,
     Cli,
+    CompletedCommandAssessment,
 }
 
 fn request_agent_mode(request: &api::Request) -> AgentMode {
@@ -1251,6 +1263,17 @@ fn request_agent_mode(request: &api::Request) -> AgentMode {
     else {
         return AgentMode::Normal;
     };
+
+    if user_inputs.inputs.iter().any(|user_input| {
+        matches!(
+            &user_input.input,
+            Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                cli_query
+            )) if cli_query_is_completed_assessment(cli_query)
+        )
+    }) {
+        return AgentMode::CompletedCommandAssessment;
+    }
 
     let mut mode = AgentMode::Normal;
     for user_input in &user_inputs.inputs {
@@ -1511,6 +1534,15 @@ pub fn extract_system_prompt(
                  clear reason.\n\n",
             );
         }
+        AgentMode::CompletedCommandAssessment => {
+            prompt.push_str("## Completed Command Assessment\n");
+            prompt.push_str(
+                "The monitored command has finished. Use its command, command ID, final terminal \
+                 output, and the assessment instruction in the latest hidden input to provide the \
+                 final user-facing outcome. Do not continue polling, request more terminal output, \
+                 or call tools.\n\n",
+            );
+        }
     }
 
     prompt.push_str("## Available Tools\n");
@@ -1559,6 +1591,10 @@ pub fn extract_system_prompt(
 }
 
 pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
+    if request_agent_mode(request) == AgentMode::CompletedCommandAssessment {
+        return Vec::new();
+    }
+
     let mut tools = default_tool_definitions();
     let mut seen_names: std::collections::HashSet<String> =
         tools.iter().map(|t| t.name.clone()).collect();
@@ -1620,10 +1656,12 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
 
 fn supported_tool_types(request: &api::Request) -> Option<HashSet<api::ToolType>> {
     let settings = request.settings.as_ref()?;
-    let raw_tools = if request_agent_mode(request) == AgentMode::Cli {
-        &settings.supported_cli_agent_tools
-    } else {
-        &settings.supported_tools
+    let raw_tools = match request_agent_mode(request) {
+        AgentMode::Cli => &settings.supported_cli_agent_tools,
+        AgentMode::Normal
+        | AgentMode::Plan
+        | AgentMode::Orchestrate
+        | AgentMode::CompletedCommandAssessment => &settings.supported_tools,
     };
     Some(
         raw_tools

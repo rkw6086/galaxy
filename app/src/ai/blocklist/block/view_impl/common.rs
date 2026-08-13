@@ -3687,6 +3687,7 @@ pub(super) fn query_prefix_highlight_len(
         match input {
             AIAgentInput::InvokeSkill { skill, .. } => Some(1 + skill.name.len()),
             AIAgentInput::UserQuery { .. }
+            | AIAgentInput::CommandCompletionAssessment { .. }
             | AIAgentInput::AutoCodeDiffQuery { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }

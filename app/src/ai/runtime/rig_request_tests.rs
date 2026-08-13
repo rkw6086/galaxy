@@ -249,6 +249,77 @@ fn rig_prompt_requires_follow_through_without_manual_continue_prompts() {
 }
 
 #[test]
+#[allow(deprecated)]
+fn completed_command_assessment_uses_root_history_without_tools_or_monitor_instructions() {
+    let block_id: galaxy_terminal::model::BlockId = "completed-lrc-test".to_string().into();
+    let mcp_tool = serde_json::from_value(serde_json::json!({
+        "name": "echo",
+        "description": "Echo input",
+        "inputSchema": {"type": "object"}
+    }))
+    .unwrap();
+    let mut params = RequestParams::new_for_test();
+    params.root_task_id = Some("root-task".to_string());
+    params.message_history = vec![galaxy_agent_core::ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Prior root conversation".to_string()),
+    }];
+    params.mcp_context = Some(MCPContext {
+        resources: Vec::new(),
+        tools: Vec::new(),
+        servers: vec![MCPServer {
+            id: "11111111-1111-4111-8111-111111111111".to_string(),
+            name: "Echo".to_string(),
+            description: String::new(),
+            resources: Vec::new(),
+            tools: vec![mcp_tool],
+        }],
+    });
+    params.input = vec![AIAgentInput::CommandCompletionAssessment {
+        prompt: "Report the final result to the user.".to_string(),
+        context: Arc::from([]),
+        completed_command: crate::ai::agent::RunningCommand {
+            command: "bash loop.sh".to_string(),
+            block_id,
+            grid_contents: "All 42 checks passed.".to_string(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    }];
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![ToolType::RunShellCommand, ToolType::CallMcpTool],
+        vec![ToolType::ReadShellCommandOutput],
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert_eq!(prepared.task_id, "root-task");
+    assert_eq!(prepared.user_query, None);
+    assert!(prepared.request.tools.is_empty());
+    assert!(prepared.mcp_tool_aliases.is_empty());
+    assert!(prompt.contains("## Completed Command Assessment"));
+    assert!(prompt.contains("No tools are available"));
+    assert!(!prompt.contains("## Running Command Monitor"));
+    assert!(!prompt.contains("next assistant output MUST be a tool call"));
+    assert!(prepared.persistent_messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text) if text == "Prior root conversation"
+    )));
+    assert!(prepared.persistent_messages.iter().any(|message| matches!(
+        &message.content,
+        MessageContent::Text(text)
+            if text.contains("[Completed command: bash loop.sh]")
+                && text.contains("[Command ID: completed-lrc-test]")
+                && text.contains("[Final terminal output:\nAll 42 checks passed.")
+                && text.contains("Report the final result to the user.")
+    )));
+    assert_eq!(prepared.request.messages, prepared.persistent_messages);
+}
+
+#[test]
 fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
     let block_id: galaxy_terminal::model::BlockId = "precmd-lrc-test".to_string().into();
     let result = AIAgentActionResult {

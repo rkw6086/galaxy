@@ -110,18 +110,29 @@ fn prepare_rig_turn_for_provider(
     let mode = request_mode(&input);
     let available_tools = match mode {
         RigRequestMode::Cli => supported_cli_agent_tools,
+        RigRequestMode::CompletedCommandAssessment => Vec::new(),
         RigRequestMode::Normal | RigRequestMode::Plan | RigRequestMode::Orchestrate => {
             supported_tools
         }
     };
-    let (mut tools, mcp_tool_aliases) = tool_definitions(&available_tools, mcp_context.as_ref());
-    if matches!(mode, RigRequestMode::Cli) {
-        // History recall cannot advance a running command and is handled inline by the Rig
-        // adapter (without producing a client action that can trigger another turn). Keeping it
-        // in the CLI tool list lets the model spend its entire monitor turn recalling the prior
-        // snapshot instead of scheduling `read_shell_command_output`, so make polling the only
-        // way to inspect the active command here.
-        tools.retain(|tool| tool.name != "recall_tool_history");
+    let (mut tools, mut mcp_tool_aliases) =
+        tool_definitions(&available_tools, mcp_context.as_ref());
+    match mode {
+        RigRequestMode::Cli => {
+            // History recall cannot advance a running command and is handled inline by the Rig
+            // adapter (without producing a client action that can trigger another turn). Keeping it
+            // in the CLI tool list lets the model spend its entire monitor turn recalling the prior
+            // snapshot instead of scheduling `read_shell_command_output`, so make polling the only
+            // way to inspect the active command here.
+            tools.retain(|tool| tool.name != "recall_tool_history");
+        }
+        RigRequestMode::CompletedCommandAssessment => {
+            // The caller deliberately disables tools for the final assessment. The inline history
+            // tool is added independently of supported tool types, so remove it explicitly too.
+            tools.clear();
+            mcp_tool_aliases.clear();
+        }
+        RigRequestMode::Normal | RigRequestMode::Plan | RigRequestMode::Orchestrate => {}
     }
     let system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
 
@@ -243,6 +254,20 @@ fn input_message(input: AIAgentInput) -> Option<ConversationMessage> {
             };
             (text, image_parts(&context))
         }
+        AIAgentInput::CommandCompletionAssessment {
+            prompt,
+            context,
+            completed_command,
+        } => (
+            format!(
+                "[Completed command: {}]\n[Command ID: {}]\n[Final terminal output:\n{}\n]\n{}",
+                completed_command.command,
+                completed_command.block_id,
+                completed_command.grid_contents,
+                prompt
+            ),
+            image_parts(&context),
+        ),
         AIAgentInput::ActionResult { .. } => return None,
         AIAgentInput::AutoCodeDiffQuery { query, .. } => (query, Vec::new()),
         AIAgentInput::ResumeConversation { .. } => (
@@ -389,7 +414,8 @@ fn input_user_query(input: &AIAgentInput) -> Option<String> {
     match input {
         AIAgentInput::UserQuery { query, .. } => Some(query.clone()),
         AIAgentInput::InvokeSkill { skill, .. } => Some(format!("/{}", skill.name)),
-        AIAgentInput::AutoCodeDiffQuery { .. }
+        AIAgentInput::CommandCompletionAssessment { .. }
+        | AIAgentInput::AutoCodeDiffQuery { .. }
         | AIAgentInput::ResumeConversation { .. }
         | AIAgentInput::InitProjectRules { .. }
         | AIAgentInput::CreateEnvironment { .. }
@@ -414,9 +440,17 @@ enum RigRequestMode {
     Plan,
     Orchestrate,
     Cli,
+    CompletedCommandAssessment,
 }
 
 fn request_mode(inputs: &[AIAgentInput]) -> RigRequestMode {
+    if inputs
+        .iter()
+        .any(|input| matches!(input, AIAgentInput::CommandCompletionAssessment { .. }))
+    {
+        return RigRequestMode::CompletedCommandAssessment;
+    }
+
     for input in inputs {
         // A direct-provider follow-up carries an LRC snapshot as an action result rather than
         // as a user query with `running_command`. Treat that result as a CLI-monitor turn so the
@@ -746,6 +780,9 @@ fn build_system_prompt(
         ),
         RigRequestMode::Cli => prompt.push_str(
             "## Running Command Monitor\nThis turn concerns a running or just-finished shell command. Act as its dedicated monitor while still following the user's steering messages. Use the command ID from the tool result for every read/write operation. If the result says the command finished, report its outcome and stop polling. If it says the command is still running, the next assistant output MUST be a tool call: use `read_shell_command_output` with a short delay, or use `interrupt_shell_command` immediately when the user's explicit stop condition is met. Do not end a still-running monitor turn with prose, a status message, or a request for the user to say continue. Never choose a poll interval that crosses a user-specified deadline or stop condition. After an interrupt, poll briefly to verify the outcome. Never start a duplicate command merely to check its state, and never report completion while a result says it is still running.\n\n",
+        ),
+        RigRequestMode::CompletedCommandAssessment => prompt.push_str(
+            "## Completed Command Assessment\nThe monitored command has finished. Use its command, command ID, final terminal output, and the assessment instruction in the latest hidden input to provide the final user-facing outcome. Do not continue polling, request more terminal output, or call tools.\n\n",
         ),
     }
     prompt.push_str("## Available Tools\n");

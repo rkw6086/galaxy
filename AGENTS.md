@@ -129,6 +129,7 @@ Key invariants:
 - Progressive summary (if present) is prepended to the messages array as a user/assistant pair in `translator.rs`
 - Loop prevention guardrail in `controller.rs` detects repeated tool failures (3+ identical) and injects corrective instructions
 - Direct-provider long-running shell follow-ups create unlinked CLI tasks under the root task with an empty subagent tool-call ID; `TaskStore` linearization must include their exchanges chronologically even though no parent `Subagent` output references them
+- Direct-provider completed-command assessments are hidden, tool-free root-task turns; CLI monitor exchanges remain on the retained CLI task, while the root assessment output must survive CLI-task deactivation and restoration and its hidden input must remain available to future provider context
 - Orchestrated child conversations are leaf workers by default: nested `RunAgents` and legacy `StartAgent` calls must be rejected before autonomous or permission bypasses, and child requests must not advertise delegation tools
 
 ### Platform Setup

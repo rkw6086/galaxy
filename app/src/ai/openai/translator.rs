@@ -24,6 +24,8 @@ pub struct TranslatorRequest {
     pub messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
     /// Global rules (name, content) from the local CloudModel.
     pub global_rules: Vec<(String, String)>,
+    /// Whether the native input should be emitted as a transcript-visible user query.
+    pub emit_user_query_message: bool,
 }
 
 pub(crate) struct PreparedTurn {
@@ -102,7 +104,10 @@ pub(crate) fn prepare_turn(params: &TranslatorRequest, request: &mut api::Reques
     PreparedTurn {
         task_id,
         needs_create_task,
-        user_query: request_translator::extract_user_query_text(request),
+        user_query: params
+            .emit_user_query_message
+            .then(|| request_translator::extract_user_query_text(request))
+            .flatten(),
         messages,
         system_prompt: request_translator::extract_system_prompt(request, &params.global_rules),
         tools,

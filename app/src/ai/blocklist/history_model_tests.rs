@@ -21,8 +21,10 @@ use crate::ai::agent::conversation::{
     ServerAIConversationMetadata,
 };
 use crate::ai::agent::{
-    AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, FinishedAIAgentOutput,
-    RenderableAIError, Shared, TransientNetworkErrorKind, UserQueryMode,
+    AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutput, AIAgentOutputMessage,
+    AIAgentOutputMessageType, AIAgentOutputStatus, AIAgentText, AIAgentTextSection,
+    AgentOutputText, FinishedAIAgentOutput, MessageId, RenderableAIError, RunningCommand, Shared,
+    TransientNetworkErrorKind, UserQueryMode,
 };
 use crate::ai::ambient_agents::{
     conversation_output_status_from_conversation, AmbientAgentTaskId, AmbientConversationStatus,
@@ -265,6 +267,125 @@ fn deactivating_cli_subtask_clears_activity_without_deleting_task() {
             assert!(
                 conversation.get_task(&task_id).is_some(),
                 "deactivation must preserve the direct-provider task"
+            );
+        });
+    });
+}
+
+#[test]
+fn completed_command_assessment_survives_cli_subtask_deactivation_on_root() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let block_id = BlockId::new();
+        let assessment_output = "The command completed successfully.";
+
+        history_model.update(&mut app, |model, ctx| {
+            let conversation_id =
+                model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            let cli_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    block_id.clone(),
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("CLI subtask should be created");
+
+            let monitor_exchange =
+                create_exchange_with_query("Check the command status.", Local::now(), None);
+            let monitor_exchange_id = monitor_exchange.id;
+            let conversation = model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist");
+            conversation
+                .append_task_exchange_for_test(
+                    &cli_task_id,
+                    monitor_exchange,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("monitor exchange should be appended to the CLI task");
+
+            let now = Local::now();
+            let assessment_exchange = AIAgentExchange {
+                id: AIAgentExchangeId::new(),
+                input: vec![AIAgentInput::CommandCompletionAssessment {
+                    prompt: "Assess the completed command.".to_string(),
+                    context: Arc::from([]),
+                    completed_command: RunningCommand {
+                        command: "cargo test -p galaxy".to_string(),
+                        block_id: block_id.clone(),
+                        grid_contents: "test result: ok".to_string(),
+                        cursor: String::new(),
+                        requested_command_id: None,
+                        is_alt_screen_active: false,
+                    },
+                }],
+                output_status: AIAgentOutputStatus::Finished {
+                    finished_output: FinishedAIAgentOutput::Success {
+                        output: Shared::new(AIAgentOutput {
+                            messages: vec![AIAgentOutputMessage {
+                                id: MessageId::new("assessment-output".to_string()),
+                                message: AIAgentOutputMessageType::Text(AIAgentText {
+                                    sections: vec![AIAgentTextSection::PlainText {
+                                        text: AgentOutputText::from(assessment_output.to_string()),
+                                    }],
+                                }),
+                                citations: vec![],
+                            }],
+                            ..Default::default()
+                        }),
+                    },
+                },
+                added_message_ids: HashSet::new(),
+                start_time: now,
+                finish_time: Some(now),
+                time_to_first_token_ms: None,
+                working_directory: None,
+                model_id: LLMId::from("test-model"),
+                request_cost: None,
+                coding_model_id: LLMId::from("test-coding-model"),
+                cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                computer_use_model_id: LLMId::from("test-computer-use-model"),
+                response_initiator: None,
+            };
+            let assessment_exchange_id = assessment_exchange.id;
+            model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .append_root_exchange_for_test(assessment_exchange);
+
+            model
+                .deactivate_cli_subagent_task_for_conversation(&block_id, conversation_id)
+                .expect("CLI subtask should deactivate");
+
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should still exist");
+            assert!(!conversation.has_active_subagent());
+            let cli_task = conversation
+                .get_task(&cli_task_id)
+                .expect("CLI task should be retained after deactivation");
+            assert_eq!(cli_task.exchanges_len(), 1);
+            assert_eq!(
+                cli_task.last_exchange().map(|exchange| exchange.id),
+                Some(monitor_exchange_id)
+            );
+
+            let root_exchange = conversation
+                .latest_visible_exchange()
+                .expect("root assessment output should remain visible");
+            assert_eq!(root_exchange.id, assessment_exchange_id);
+            assert!(matches!(
+                root_exchange.input.as_slice(),
+                [AIAgentInput::CommandCompletionAssessment { .. }]
+            ));
+            assert!(root_exchange.input[0].display_query().is_none());
+            assert_eq!(
+                root_exchange.format_output_for_copy(None),
+                assessment_output
             );
         });
     });

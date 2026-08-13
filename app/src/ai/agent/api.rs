@@ -37,6 +37,21 @@ use crate::settings::AISettings;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
+const INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA: &str =
+    "galaxy:internal-command-completion-assessment:v1";
+
+pub(crate) fn mark_internal_command_completion_assessment(
+    message: &mut warp_multi_agent_api::Message,
+) {
+    message.server_message_data = INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA.to_string();
+}
+
+pub(crate) fn is_internal_command_completion_assessment(
+    message: &warp_multi_agent_api::Message,
+) -> bool {
+    message.server_message_data == INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA
+}
+
 /// Unique, server-generated conversation-scoped token to be roundtripped to the API when sending
 /// requests that follow-up within a given conversation.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq, Hash)]
