@@ -80,6 +80,16 @@ fn supported_tools_expose_local_subagents_without_hosted_orchestration_tools() {
 }
 
 #[test]
+fn supported_tools_include_plan_document_capabilities() {
+    let params = request_params_with_ask_user_question_enabled(false);
+    let supported_tools = get_supported_tools(&params);
+
+    assert!(supported_tools.contains(&api::ToolType::ReadDocuments));
+    assert!(supported_tools.contains(&api::ToolType::CreateDocuments));
+    assert!(supported_tools.contains(&api::ToolType::EditDocuments));
+}
+
+#[test]
 fn supported_tools_omit_subagents_when_orchestration_is_disabled() {
     let params = request_params_with_ask_user_question_enabled(false);
     let supported_tools = get_supported_tools(&params);

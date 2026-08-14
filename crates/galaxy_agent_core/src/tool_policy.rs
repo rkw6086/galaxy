@@ -188,6 +188,7 @@ pub fn recall_tool_history(
 
     let filtered = entries
         .iter()
+        .filter(|entry| entry.name != RECALL_TOOL_HISTORY_NAME)
         .filter(|entry| {
             (query.tool_use_id.is_empty() || entry.tool_use_id == query.tool_use_id)
                 && (query.tool_name.is_empty() || entry.name == query.tool_name)

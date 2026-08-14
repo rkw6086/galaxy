@@ -119,8 +119,10 @@ context_size = 128000
 Key invariants:
 - Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`
 - Tool definitions are built via `tool_definition_for_name()` in `convert_request.rs`; includes `recall_tool_history` for retrieving past tool results
+- Direct-provider normal and plan turns must advertise `read_plan`, `create_plan`, and `edit_plan` when the matching document capabilities are enabled; plan-creation requests should call `create_plan` after research rather than only returning prose or claiming the tool is unavailable
 - Unknown/hallucinated tool calls are caught in the stream, paired with synthetic error results, and now emit a visible `AgentOutput` text message to the UI
-- `recall_tool_history` is handled inline in the response translator (synthetic result from `messages_sent`)
+- `recall_tool_history` is handled inline by direct-provider adapters using a synthetic result from `messages_sent`; the Rig adapter must automatically start a bounded follow-up provider turn after pairing that result, without continuing turns that proposed client-executed tools
+- `recall_tool_history` must exclude prior calls to itself from candidates so inline continuation cannot recursively recall synthetic recall results
 - Tool result archive: before progressive summarization drains messages, `ConversationMessage::archive_tool_results()` extracts all tool_use/tool_result pairs into a separate `tool_result_archive` vec. `recall_tool_history` searches both live history + archived results, and supports a `tool_use_id` parameter for exact ID lookup
 - Prompt caching uses three cache points: system prompt, conversation history (second-to-last message), tool config
 - `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`

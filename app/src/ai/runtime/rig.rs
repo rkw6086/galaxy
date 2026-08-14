@@ -4,8 +4,8 @@ use std::sync::Arc;
 use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt};
 use galaxy_agent_core::{
-    turn_control, AgentError, AgentEvent, AgentRuntime, MessageContent, MessageRole, ToolCall,
-    ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand,
+    turn_control, AgentError, AgentEvent, AgentRuntime, MessageContent, MessageRole, StopReason,
+    ToolCall, ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand, Usage,
 };
 use galaxy_agent_rig::{
     AnthropicRuntime, AnthropicRuntimeConfig, ChatGPTSubscriptionRuntime,
@@ -29,6 +29,10 @@ use crate::ai::provider::types::{ContentPart, ConversationMessage};
 use crate::ai::runtime::{RuntimeResponseConfig, RuntimeResponseTranslator};
 use crate::server::server_api::AIApiError;
 use crate::settings::OpenAIProviderKind;
+
+const MAX_INLINE_TOOL_CONTINUATIONS: usize = 3;
+const INLINE_TOOL_LOOP_MESSAGE: &str =
+    "I couldn't continue because the model repeatedly searched prior tool history without making progress. Please retry with a more specific instruction.";
 
 pub(crate) fn rig_openai_response_stream(
     config: OpenAIClientConfig,
@@ -190,30 +194,8 @@ where
     let model_id = turn_request.model.as_str().to_string();
     let tool_policy = ToolPolicy::new(&turn_request.tools);
     let stream = async_stream::stream! {
-        let (control_sender, control) = turn_control();
-        let start_future = runtime.start_turn(turn_request, control).fuse();
         let cancel_future = cancellation_rx.fuse();
-        futures::pin_mut!(start_future, cancel_future);
-
-        let mut agent_events = futures::select_biased! {
-            _ = cancel_future => {
-                let _ = control_sender.try_send(TurnCommand::Cancel);
-                match start_future.await {
-                    Ok(stream) => stream,
-                    Err(error) => {
-                        yield Err(agent_error(error, stream_type));
-                        return;
-                    }
-                }
-            }
-            result = start_future => match result {
-                Ok(stream) => stream,
-                Err(error) => {
-                    yield Err(agent_error(error, stream_type));
-                    return;
-                }
-            },
-        };
+        futures::pin_mut!(cancel_future);
 
         let conversation_id = conversation_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let mut translator = RuntimeResponseTranslator::new(RuntimeResponseConfig {
@@ -226,58 +208,185 @@ where
             capabilities: runtime_capabilities,
             empty_output_message: None,
         });
-        let mut full_text = String::new();
-        let mut full_reasoning = String::new();
-        let mut reasoning_signature = None;
-        let mut proposed_tools = Vec::new();
-        let mut assistant_history_index = None;
+        let mut turn_request = turn_request;
+        let mut cumulative_usage = Usage::default();
+        let mut inline_continuation_count = 0;
 
-        loop {
-            let next_event = agent_events.next().fuse();
-            futures::pin_mut!(next_event);
-            futures::select_biased! {
+        'provider_turns: loop {
+            let (control_sender, control) = turn_control();
+            let start_future = runtime.start_turn(turn_request.clone(), control).fuse();
+            futures::pin_mut!(start_future);
+
+            let mut agent_events = futures::select_biased! {
                 _ = cancel_future => {
                     let _ = control_sender.try_send(TurnCommand::Cancel);
-                }
-                event = next_event => {
-                    let Some(event) = event else {
-                        yield Err(Arc::new(AIApiError::UnexpectedEof));
-                        return;
-                    };
-                    let event = match event {
-                        Ok(event) => event,
+                    match start_future.await {
+                        Ok(stream) => stream,
                         Err(error) => {
                             yield Err(agent_error(error, stream_type));
                             return;
                         }
-                    };
+                    }
+                }
+                result = start_future => match result {
+                    Ok(stream) => stream,
+                    Err(error) => {
+                        yield Err(agent_error(error, stream_type));
+                        return;
+                    }
+                },
+            };
 
-                    match event {
-                        AgentEvent::Tool {
-                            event: ToolEvent::Proposed { call },
-                        } => {
-                            proposed_tools.push(call.clone());
-                            sync_assistant_turn(
-                                &messages_sent,
-                                &full_reasoning,
-                                reasoning_signature.as_deref(),
-                                &full_text,
-                                &proposed_tools,
-                                &mut assistant_history_index,
-                            );
-                            let history = messages_sent
-                                .lock()
-                                .map(|sent| sent.clone())
-                                .unwrap_or_default();
-                            match tool_policy.decide(&call, &history, &tool_result_archive) {
-                                ToolCallDecision::Execute => {
-                                    match build_tool_proposed(
-                                        &task_id,
-                                        &call,
-                                        &skill_path_origin,
-                                        &mcp_tool_aliases,
+            let mut full_text = String::new();
+            let mut full_reasoning = String::new();
+            let mut reasoning_signature = None;
+            let mut proposed_tools = Vec::new();
+            let mut assistant_history_index = None;
+            let mut handled_inline_tool = false;
+            let mut proposed_client_tool = false;
+
+            loop {
+                let next_event = agent_events.next().fuse();
+                futures::pin_mut!(next_event);
+                futures::select_biased! {
+                    _ = cancel_future => {
+                        let _ = control_sender.try_send(TurnCommand::Cancel);
+                    }
+                    event = next_event => {
+                        let Some(event) = event else {
+                            yield Err(Arc::new(AIApiError::UnexpectedEof));
+                            return;
+                        };
+                        let event = match event {
+                            Ok(event) => event,
+                            Err(error) => {
+                                yield Err(agent_error(error, stream_type));
+                                return;
+                            }
+                        };
+
+                        match event {
+                            AgentEvent::Tool {
+                                event: ToolEvent::Proposed { call },
+                            } => {
+                                proposed_tools.push(call.clone());
+                                sync_assistant_turn(
+                                    &messages_sent,
+                                    &full_reasoning,
+                                    reasoning_signature.as_deref(),
+                                    &full_text,
+                                    &proposed_tools,
+                                    &mut assistant_history_index,
+                                );
+                                let history = messages_sent
+                                    .lock()
+                                    .map(|sent| sent.clone())
+                                    .unwrap_or_default();
+                                match tool_policy.decide(&call, &history, &tool_result_archive) {
+                                    ToolCallDecision::Execute => {
+                                        proposed_client_tool = true;
+                                        match build_tool_proposed(
+                                            &task_id,
+                                            &call,
+                                            &skill_path_origin,
+                                            &mcp_tool_aliases,
+                                        ) {
+                                            Ok(action) => yield Ok(StreamEvent::ToolProposed(action)),
+                                            Err(message) => {
+                                                yield Err(agent_error(AgentError::new(
+                                                    galaxy_agent_core::AgentErrorKind::Protocol,
+                                                    message,
+                                                ), stream_type));
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    ToolCallDecision::Inline(result) => {
+                                        handled_inline_tool = true;
+                                        append_tool_result(&messages_sent, result);
+                                    }
+                                    ToolCallDecision::Reject(result) => {
+                                        log::warn!(
+                                            "Rig model called unavailable tool '{}' (id={})",
+                                            call.name,
+                                            call.id
+                                        );
+                                        let error_display = format!(
+                                            "Failed tool call: `{}`\n\n{}",
+                                            call.name, result.content
+                                        );
+                                        append_tool_result(&messages_sent, result);
+                                        let message_id = Uuid::new_v4().to_string();
+                                        yield Ok(StreamEvent::Response(build_add_agent_output_message(
+                                            &task_id,
+                                            &message_id,
+                                            &error_display,
+                                        )));
+                                    }
+                                }
+                            }
+                            AgentEvent::UsageUpdated { usage } => {
+                                accumulate_usage(&mut cumulative_usage, &usage);
+                                let response_events = match translator.translate(
+                                    AgentEvent::UsageUpdated {
+                                        usage: cumulative_usage.clone(),
+                                    },
+                                ) {
+                                    Ok(response_events) => response_events,
+                                    Err(message) => {
+                                        yield Err(agent_error(AgentError::new(
+                                            galaxy_agent_core::AgentErrorKind::Protocol,
+                                            message,
+                                        ), stream_type));
+                                        return;
+                                    }
+                                };
+                                for response_event in response_events {
+                                    yield Ok(StreamEvent::Response(response_event));
+                                }
+                            }
+                            AgentEvent::TurnStopped { mut reason } => {
+                                sync_assistant_turn(
+                                    &messages_sent,
+                                    &full_reasoning,
+                                    reasoning_signature.as_deref(),
+                                    &full_text,
+                                    &proposed_tools,
+                                    &mut assistant_history_index,
+                                );
+                                if reason == StopReason::Completed
+                                    && handled_inline_tool
+                                    && !proposed_client_tool
+                                {
+                                    if inline_continuation_count < MAX_INLINE_TOOL_CONTINUATIONS {
+                                        inline_continuation_count += 1;
+                                        turn_request.messages = match copy_messages(&messages_sent) {
+                                            Ok(messages) => messages,
+                                            Err(()) => {
+                                                yield Err(agent_error(AgentError::new(
+                                                    galaxy_agent_core::AgentErrorKind::Protocol,
+                                                    "could not access Rig conversation history for inline tool continuation",
+                                                ), stream_type));
+                                                return;
+                                            }
+                                        };
+                                        translator.begin_followup_turn();
+                                        log::info!(
+                                            "Continuing Rig provider turn after inline tool result ({inline_continuation_count}/{MAX_INLINE_TOOL_CONTINUATIONS})"
+                                        );
+                                        continue 'provider_turns;
+                                    }
+
+                                    log::warn!(
+                                        "Rig provider exceeded {MAX_INLINE_TOOL_CONTINUATIONS} inline tool continuations"
+                                    );
+                                    append_assistant_text(&messages_sent, INLINE_TOOL_LOOP_MESSAGE);
+                                    let response_events = match translator.translate(
+                                        AgentEvent::RuntimeNotice {
+                                            message: INLINE_TOOL_LOOP_MESSAGE.to_string(),
+                                        },
                                     ) {
-                                        Ok(action) => yield Ok(StreamEvent::ToolProposed(action)),
+                                        Ok(response_events) => response_events,
                                         Err(message) => {
                                             yield Err(agent_error(AgentError::new(
                                                 galaxy_agent_core::AgentErrorKind::Protocol,
@@ -285,90 +394,63 @@ where
                                             ), stream_type));
                                             return;
                                         }
+                                    };
+                                    for response_event in response_events {
+                                        yield Ok(StreamEvent::Response(response_event));
                                     }
+                                    reason = StopReason::ToolLoopLimit;
                                 }
-                                ToolCallDecision::Inline(result) => {
-                                    append_tool_result(&messages_sent, result);
-                                }
-                                ToolCallDecision::Reject(result) => {
-                                    log::warn!(
-                                        "Rig model called unavailable tool '{}' (id={})",
-                                        call.name,
-                                        call.id
-                                    );
-                                    let error_display = format!(
-                                        "Failed tool call: `{}`\n\n{}",
-                                        call.name, result.content
-                                    );
-                                    append_tool_result(&messages_sent, result);
-                                    let message_id = Uuid::new_v4().to_string();
-                                    yield Ok(StreamEvent::Response(build_add_agent_output_message(
-                                        &task_id,
-                                        &message_id,
-                                        &error_display,
-                                    )));
-                                }
-                            }
-                        }
-                        AgentEvent::TurnStopped { reason } => {
-                            sync_assistant_turn(
-                                &messages_sent,
-                                &full_reasoning,
-                                reasoning_signature.as_deref(),
-                                &full_text,
-                                &proposed_tools,
-                                &mut assistant_history_index,
-                            );
-                            let response_events = match translator
-                                .translate(AgentEvent::TurnStopped { reason })
-                            {
-                                Ok(response_events) => response_events,
-                                Err(message) => {
-                                    yield Err(agent_error(AgentError::new(
-                                        galaxy_agent_core::AgentErrorKind::Protocol,
-                                        message,
-                                    ), stream_type));
-                                    return;
-                                }
-                            };
-                            for response_event in response_events {
-                                yield Ok(StreamEvent::Response(response_event));
-                            }
-                            return;
-                        }
-                        event => {
-                            match &event {
-                                AgentEvent::TextDelta { text } => full_text.push_str(text),
-                                AgentEvent::ReasoningDelta { text } => {
-                                    full_reasoning.push_str(text);
-                                }
-                                AgentEvent::ReasoningCompleted { text, signature } => {
-                                    if !text.is_empty() {
-                                        full_reasoning.clone_from(text);
+                                let response_events = match translator
+                                    .translate(AgentEvent::TurnStopped { reason })
+                                {
+                                    Ok(response_events) => response_events,
+                                    Err(message) => {
+                                        yield Err(agent_error(AgentError::new(
+                                            galaxy_agent_core::AgentErrorKind::Protocol,
+                                            message,
+                                        ), stream_type));
+                                        return;
                                     }
-                                    reasoning_signature.clone_from(signature);
+                                };
+                                for response_event in response_events {
+                                    yield Ok(StreamEvent::Response(response_event));
                                 }
-                                AgentEvent::TurnStarted { .. }
-                                | AgentEvent::Tool { .. }
-                                | AgentEvent::UsageUpdated { .. }
-                                | AgentEvent::RuntimeActivityUpdated { .. }
-                                | AgentEvent::ContextUsageUpdated { .. }
-                                | AgentEvent::UserInputAccepted { .. }
-                                | AgentEvent::RuntimeNotice { .. }
-                                | AgentEvent::TurnStopped { .. } => {}
+                                return;
                             }
-                            let response_events = match translator.translate(event) {
-                                Ok(response_events) => response_events,
-                                Err(message) => {
-                                    yield Err(agent_error(AgentError::new(
-                                        galaxy_agent_core::AgentErrorKind::Protocol,
-                                        message,
-                                    ), stream_type));
-                                    return;
+                            event => {
+                                match &event {
+                                    AgentEvent::TextDelta { text } => full_text.push_str(text),
+                                    AgentEvent::ReasoningDelta { text } => {
+                                        full_reasoning.push_str(text);
+                                    }
+                                    AgentEvent::ReasoningCompleted { text, signature } => {
+                                        if !text.is_empty() {
+                                            full_reasoning.clone_from(text);
+                                        }
+                                        reasoning_signature.clone_from(signature);
+                                    }
+                                    AgentEvent::TurnStarted { .. }
+                                    | AgentEvent::Tool { .. }
+                                    | AgentEvent::UsageUpdated { .. }
+                                    | AgentEvent::RuntimeActivityUpdated { .. }
+                                    | AgentEvent::ContextUsageUpdated { .. }
+                                    | AgentEvent::UserInputAccepted { .. }
+                                    | AgentEvent::RuntimeNotice { .. }
+                                    | AgentEvent::TurnStopped { .. } => {}
                                 }
-                            };
-                            for response_event in response_events {
-                                yield Ok(StreamEvent::Response(response_event));
+                                let response_events = match translator.translate(event) {
+                                    Ok(response_events) => response_events,
+                                    Err(message) => {
+                                        yield Err(agent_error(AgentError::new(
+                                            galaxy_agent_core::AgentErrorKind::Protocol,
+                                            message,
+                                        ), stream_type));
+                                        return;
+                                    }
+                                };
+                                for response_event in response_events {
+                                    yield Ok(StreamEvent::Response(response_event));
+                                }
                             }
                         }
                     }
@@ -390,6 +472,15 @@ fn store_messages_sent(
     *sent = messages.to_vec();
 }
 
+fn copy_messages(
+    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+) -> Result<Vec<ConversationMessage>, ()> {
+    messages_sent
+        .lock()
+        .map(|sent| sent.clone())
+        .map_err(|_| ())
+}
+
 fn append_tool_result(
     messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
     result: ToolResult,
@@ -406,6 +497,29 @@ fn append_tool_result(
     if let Ok(mut sent) = messages_sent.lock() {
         sent.push(message);
     }
+}
+
+fn append_assistant_text(
+    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+    text: &str,
+) {
+    if let Ok(mut sent) = messages_sent.lock() {
+        sent.push(ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text(text.to_string()),
+        });
+    }
+}
+
+fn accumulate_usage(total: &mut Usage, usage: &Usage) {
+    total.input_tokens = total.input_tokens.saturating_add(usage.input_tokens);
+    total.output_tokens = total.output_tokens.saturating_add(usage.output_tokens);
+    total.cached_input_tokens = total
+        .cached_input_tokens
+        .saturating_add(usage.cached_input_tokens);
+    total.cache_creation_input_tokens = total
+        .cache_creation_input_tokens
+        .saturating_add(usage.cache_creation_input_tokens);
 }
 
 fn sync_assistant_turn(

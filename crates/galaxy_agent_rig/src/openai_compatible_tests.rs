@@ -226,16 +226,28 @@ fn request_conversion_preserves_history_tools_and_limits() {
     request.system_prompt = Some("Be useful".to_string());
     request.max_output_tokens = Some(123);
     request.tools.push(galaxy_agent_core::ToolDefinition {
-        name: "shell".to_string(),
-        description: "Run a command".to_string(),
-        input_schema: serde_json::json!({"type": "object"}),
+        name: "create_plan".to_string(),
+        description: "Create a plan document".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {"documents": {"type": "array"}},
+            "required": ["documents"]
+        }),
     });
 
     let converted = build_completion_request(request, Some(999), true).unwrap();
 
     assert_eq!(converted.max_tokens, Some(123));
     assert_eq!(converted.tools.len(), 1);
-    assert_eq!(converted.tools[0].name, "shell");
+    assert_eq!(converted.tools[0].name, "create_plan");
+    assert_eq!(
+        converted.tools[0].parameters,
+        serde_json::json!({
+            "type": "object",
+            "properties": {"documents": {"type": "array"}},
+            "required": ["documents"]
+        })
+    );
     assert_eq!(converted.chat_history.len(), 2);
     assert!(matches!(
         converted.chat_history.iter().next(),

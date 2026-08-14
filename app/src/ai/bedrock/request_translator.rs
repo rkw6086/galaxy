@@ -1895,7 +1895,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "create_plan".to_string(),
-            description: "Create a new plan document in Galaxy Drive's Plans folder. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes.".to_string(),
+            description: "Create a new plan document in Galaxy Drive's Plans folder. When the user asks to create a plan for review, use this tool after completing the necessary research instead of only returning plan prose. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

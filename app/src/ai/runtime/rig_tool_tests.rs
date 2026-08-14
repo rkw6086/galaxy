@@ -47,6 +47,32 @@ fn shell_calls_become_domain_actions_without_a_proto_round_trip() {
 }
 
 #[test]
+fn create_plan_calls_become_document_actions() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "create_plan",
+            serde_json::json!({
+                "documents": [{
+                    "title": "Duplicate content items",
+                    "content": "# Implementation plan"
+                }]
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+
+    let AIAgentActionType::CreateDocuments(request) = action.action else {
+        panic!("expected create-documents action");
+    };
+    assert_eq!(request.documents.len(), 1);
+    assert_eq!(request.documents[0].title, "Duplicate content items");
+    assert_eq!(request.documents[0].content, "# Implementation plan");
+}
+
+#[test]
 fn edit_calls_preserve_file_edits_in_the_domain_model() {
     let action = action_from_tool_call(
         "task-1",

@@ -142,6 +142,21 @@ fn recall_supports_exact_call_id_and_case_insensitive_text_search() {
 }
 
 #[test]
+fn recall_never_returns_a_prior_recall_call() {
+    let messages = tool_exchange(
+        "recall-1",
+        RECALL_TOOL_HISTORY_NAME,
+        serde_json::json!({}),
+        "a prior synthetic recall result",
+    );
+
+    assert_eq!(
+        recall_tool_history(&messages, &[], ToolHistoryQuery::default()),
+        "No matching tool calls found in conversation history."
+    );
+}
+
+#[test]
 fn loop_guard_detects_repeated_failures_and_resets_after_detection() {
     let mut guard = ToolLoopGuard::new(5, 3);
     guard.record_failure(7, "cargo test failed");

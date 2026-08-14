@@ -798,6 +798,11 @@ fn build_system_prompt(
                 .join(", "),
         );
         prompt.push_str(".\nNever invent tool names or parameters. Check command exit codes and tool error results before claiming success.\n");
+        if tools.iter().any(|tool| tool.name == "create_plan") {
+            prompt.push_str(
+                "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve.\n",
+            );
+        }
     }
     prompt
 }

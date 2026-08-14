@@ -147,6 +147,11 @@ impl RuntimeResponseTranslator {
         events
     }
 
+    pub(crate) fn begin_followup_turn(&mut self) {
+        self.text_message_id = None;
+        self.reasoning_message_id = None;
+    }
+
     fn initialize(&mut self, events: &mut Vec<ResponseEvent>) {
         if self.initialized {
             return;
