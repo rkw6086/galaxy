@@ -141,6 +141,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         did_input_contain_user_query: true,
         persistence_offset: 0,
         committed_provider_batch: None,
+        finished_provider_batch: None,
         command_action_refs: HashMap::new(),
         command_monitor: None,
         pending_monitor_observation: None,
@@ -597,6 +598,67 @@ fn provider_finished_action_only_resumes_its_committed_batch() {
         ),
         super::ProviderFinishedActionDisposition::Ignore,
     );
+}
+
+#[test]
+fn provider_batch_resumes_after_both_signals_in_either_order() {
+    let work_id = ExternalWorkId {
+        run_id: ProviderRunId::new("current"),
+        epoch: RunEpoch::new(3),
+    };
+    for signals in [
+        [
+            super::ProviderBatchSignal::ActionsFinished,
+            super::ProviderBatchSignal::BatchCommitted,
+        ],
+        [
+            super::ProviderBatchSignal::BatchCommitted,
+            super::ProviderBatchSignal::ActionsFinished,
+        ],
+    ] {
+        let mut committed = None;
+        let mut finished = None;
+        assert!(!super::record_provider_batch_signal(
+            &mut committed,
+            &mut finished,
+            &work_id,
+            signals[0],
+        ));
+        assert!(super::record_provider_batch_signal(
+            &mut committed,
+            &mut finished,
+            &work_id,
+            signals[1],
+        ));
+    }
+}
+
+#[test]
+fn provider_batch_signals_do_not_cross_work_ids() {
+    let current = ExternalWorkId {
+        run_id: ProviderRunId::new("current"),
+        epoch: RunEpoch::new(3),
+    };
+    let stale = ExternalWorkId {
+        run_id: current.run_id.clone(),
+        epoch: RunEpoch::new(2),
+    };
+    let mut committed = None;
+    let mut finished = None;
+    assert!(!super::record_provider_batch_signal(
+        &mut committed,
+        &mut finished,
+        &current,
+        super::ProviderBatchSignal::BatchCommitted,
+    ));
+    assert!(!super::record_provider_batch_signal(
+        &mut committed,
+        &mut finished,
+        &stale,
+        super::ProviderBatchSignal::ActionsFinished,
+    ));
+    assert_eq!(committed, Some(current));
+    assert_eq!(finished, None);
 }
 
 #[test]

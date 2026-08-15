@@ -642,6 +642,7 @@ struct ActiveProviderRunSlot {
     turn_control: Option<TurnCommandSender>,
     cancellation_reason: Option<CancellationReason>,
     committed_provider_batch: Option<ExternalWorkId>,
+    finished_provider_batch: Option<ExternalWorkId>,
     command_action_refs: HashMap<AIAgentActionId, ProviderToolExecutionRef>,
     command_monitor: Option<ProviderCommandMonitorState>,
     pending_monitor_observation: Option<PendingProviderMonitorObservation>,
@@ -706,6 +707,8 @@ struct ActiveProviderRunSnapshot {
     did_input_contain_user_query: bool,
     persistence_offset: usize,
     committed_provider_batch: Option<ExternalWorkId>,
+    #[serde(default)]
+    finished_provider_batch: Option<ExternalWorkId>,
     command_action_refs: HashMap<AIAgentActionId, ProviderToolExecutionRef>,
     command_monitor: Option<ProviderCommandMonitorState>,
     pending_monitor_observation: Option<PendingProviderMonitorObservation>,
@@ -744,6 +747,7 @@ impl ActiveProviderRunSnapshot {
             did_input_contain_user_query: slot.did_input_contain_user_query,
             persistence_offset: checkpoint.persistence_offset,
             committed_provider_batch: slot.committed_provider_batch.clone(),
+            finished_provider_batch: slot.finished_provider_batch.clone(),
             command_action_refs: slot.command_action_refs.clone(),
             command_monitor: slot.command_monitor.clone(),
             pending_monitor_observation: slot.pending_monitor_observation.clone(),
@@ -812,6 +816,13 @@ impl ActiveProviderRunSnapshot {
             .is_some_and(|work_id| &work_id.run_id != run_id)
         {
             return Err("committed provider batch belongs to a different run".to_string());
+        }
+        if self
+            .finished_provider_batch
+            .as_ref()
+            .is_some_and(|work_id| &work_id.run_id != run_id)
+        {
+            return Err("finished provider batch belongs to a different run".to_string());
         }
         for (action_id, execution_ref) in &self.command_action_refs {
             if execution_ref.conversation_id != conversation_id
@@ -891,6 +902,34 @@ enum ProviderFinishedActionDisposition {
     Resume,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderBatchSignal {
+    BatchCommitted,
+    ActionsFinished,
+}
+
+fn record_provider_batch_signal(
+    committed_work_id: &mut Option<ExternalWorkId>,
+    finished_work_id: &mut Option<ExternalWorkId>,
+    work_id: &ExternalWorkId,
+    signal: ProviderBatchSignal,
+) -> bool {
+    if committed_work_id
+        .as_ref()
+        .is_some_and(|recorded_work_id| recorded_work_id != work_id)
+        || finished_work_id
+            .as_ref()
+            .is_some_and(|recorded_work_id| recorded_work_id != work_id)
+    {
+        return false;
+    }
+    match signal {
+        ProviderBatchSignal::BatchCommitted => *committed_work_id = Some(work_id.clone()),
+        ProviderBatchSignal::ActionsFinished => *finished_work_id = Some(work_id.clone()),
+    }
+    committed_work_id.as_ref() == Some(work_id) && finished_work_id.as_ref() == Some(work_id)
+}
+
 fn normalize_restored_provider_snapshot(
     snapshot: &mut ActiveProviderRunSnapshot,
 ) -> Result<(), String> {
@@ -923,6 +962,7 @@ fn normalize_restored_provider_snapshot(
         }
         snapshot.committed_provider_batch = None;
     }
+    snapshot.finished_provider_batch = None;
     Ok(())
 }
 
@@ -4342,6 +4382,7 @@ impl BlocklistAIController {
                     turn_control: None,
                     cancellation_reason: None,
                     committed_provider_batch: None,
+                    finished_provider_batch: None,
                     command_action_refs: HashMap::new(),
                     command_monitor: None,
                     pending_monitor_observation: None,
@@ -4629,6 +4670,7 @@ impl BlocklistAIController {
             did_input_contain_user_query,
             persistence_offset,
             committed_provider_batch,
+            finished_provider_batch,
             command_action_refs,
             command_monitor,
             pending_monitor_observation,
@@ -4721,6 +4763,7 @@ impl BlocklistAIController {
                 turn_control: None,
                 cancellation_reason: None,
                 committed_provider_batch,
+                finished_provider_batch,
                 command_action_refs,
                 command_monitor,
                 pending_monitor_observation,
@@ -5281,6 +5324,8 @@ impl BlocklistAIController {
         };
         match block {
             ProviderRunBlock::Tools(batch) => {
+                slot.committed_provider_batch = None;
+                slot.finished_provider_batch = None;
                 slot.run = Some(run);
                 if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
                     self.fail_active_provider_run(
@@ -5445,10 +5490,17 @@ impl BlocklistAIController {
         ) {
             return;
         }
+        let mut should_resume = false;
         let should_drive = match run.coordinator.apply_tool_lifecycle(execution_ref, event) {
             Ok(ProviderToolLifecycleOutcome::Pending) => false,
             Ok(ProviderToolLifecycleOutcome::BatchCommitted) => {
-                slot.committed_provider_batch = Some(execution_ref.work_id());
+                let work_id = execution_ref.work_id();
+                should_resume = record_provider_batch_signal(
+                    &mut slot.committed_provider_batch,
+                    &mut slot.finished_provider_batch,
+                    &work_id,
+                    ProviderBatchSignal::BatchCommitted,
+                );
                 false
             }
             Err(error) => {
@@ -5471,7 +5523,9 @@ impl BlocklistAIController {
             );
             return;
         }
-        if should_drive {
+        if should_resume {
+            self.handle_provider_actions_finished(conversation_id, execution_ref, ctx);
+        } else if should_drive {
             self.drive_active_provider_run(conversation_id, ctx);
         }
     }
@@ -5655,11 +5709,31 @@ impl BlocklistAIController {
                 ))
             })
             .unwrap_or(ProviderFinishedActionDisposition::Ignore);
+        let work_id = execution_ref.work_id();
+        let should_resume = if disposition == ProviderFinishedActionDisposition::Ignore {
+            false
+        } else {
+            let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                return;
+            };
+            record_provider_batch_signal(
+                &mut slot.committed_provider_batch,
+                &mut slot.finished_provider_batch,
+                &work_id,
+                ProviderBatchSignal::ActionsFinished,
+            )
+        };
         if disposition == ProviderFinishedActionDisposition::AwaitBatchCommit {
+            if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                self.fail_active_provider_run(
+                    conversation_id,
+                    format!("failed to persist finished provider action phase: {error}"),
+                    ctx,
+                );
+            }
             return;
         }
-        let work_id = execution_ref.work_id();
-        let results = (disposition == ProviderFinishedActionDisposition::Resume).then(|| {
+        let results = should_resume.then(|| {
             self.action_model
                 .as_ref(ctx)
                 .provider_finished_action_results(conversation_id, &work_id)
@@ -5674,7 +5748,7 @@ impl BlocklistAIController {
             self.fail_active_provider_run(conversation_id, error, ctx);
             return;
         }
-        if disposition != ProviderFinishedActionDisposition::Resume {
+        if !should_resume {
             return;
         }
 
@@ -5682,6 +5756,7 @@ impl BlocklistAIController {
             return;
         };
         slot.committed_provider_batch = None;
+        slot.finished_provider_batch = None;
         let Some(mut run) = slot.run.take() else {
             return;
         };
