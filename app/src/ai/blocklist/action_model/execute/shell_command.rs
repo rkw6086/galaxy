@@ -190,23 +190,6 @@ impl ShellCommandExecutor {
         }
     }
 
-    /// Decorate the command so that we can turn off pager.
-    fn turn_off_pager_for_command(&self, command: &String, ctx: &mut ModelContext<Self>) -> String {
-        match self.active_session.as_ref(ctx).shell_type(ctx) {
-            // If it's a posix shell, we can use parentheses as the grouping character. Add command to
-            // avoid cases with aliases.
-            Some(ShellType::Zsh) | Some(ShellType::Bash) => format!("({command}) | command cat"),
-            // Fish doesn't have grouping characters. We need to use begin; and end; to ensure the command
-            // gets evaluated first.
-            Some(ShellType::Fish) => format!("begin; {command} ;end | command cat"),
-            // For powershell, we use Out-Host to send paged output to the
-            // console. Add a backslash to avoid executing an alias.
-            Some(ShellType::PowerShell) => format!("({command}) | \\Out-Host"),
-            // If we can't determine a shell type, run command as it is.
-            None => command.clone(),
-        }
-    }
-
     pub(super) fn execute(
         &mut self,
         input: ExecuteActionInput,
@@ -231,7 +214,6 @@ impl ShellCommandExecutor {
         match &input.action.action {
             AIAgentActionType::RequestCommandOutput {
                 command,
-                uses_pager,
                 wait_until_completion,
                 ..
             } => {
@@ -266,15 +248,13 @@ impl ShellCommandExecutor {
                         RequestCommandOutputResult::CancelledBeforeExecution,
                     ));
                 }
-                // If the command might use pager and can't be interacted with,
-                // we pipe its output to cat so we can prevent activating the altscreen.
-                // The parentheses here ensures the command always gets evaluated first.
-                let decorated_command =
-                    if uses_pager.is_some_and(|uses_pager| uses_pager) && *wait_until_completion {
-                        self.turn_off_pager_for_command(command, ctx)
-                    } else {
-                        command.clone()
-                    };
+                // A command expected to finish must not enter an implicit pager. Do not trust the
+                // model-provided pager hint: commands such as `git log` can page implicitly.
+                let decorated_command = command_for_execution(
+                    command,
+                    self.active_session.as_ref(ctx).shell_type(ctx),
+                    *wait_until_completion,
+                );
                 ctx.emit(ShellCommandExecutorEvent::ExecuteCommand {
                     action_id: action_id.clone(),
                     command: decorated_command,
@@ -707,6 +687,30 @@ impl ShellCommandExecutor {
         _ctx: &mut ModelContext<Self>,
     ) -> BoxFuture<'static, ()> {
         futures::future::ready(()).boxed()
+    }
+}
+
+fn command_for_execution(
+    command: &str,
+    shell_type: Option<ShellType>,
+    wait_until_completion: bool,
+) -> String {
+    if !wait_until_completion {
+        return command.to_string();
+    }
+
+    match shell_type {
+        // Pager environment variables preserve the command's output and exit status, unlike piping
+        // through `cat`. Tool-specific variables override user configuration for common pagers.
+        Some(ShellType::Zsh) | Some(ShellType::Bash) => format!(
+            "(export PAGER=cat GIT_PAGER=cat GH_PAGER=cat AWS_PAGER=cat SYSTEMD_PAGER=cat; {command})"
+        ),
+        Some(ShellType::Fish) => format!(
+            "begin; set -lx PAGER cat; set -lx GIT_PAGER cat; set -lx GH_PAGER cat; set -lx AWS_PAGER cat; set -lx SYSTEMD_PAGER cat; {command}; end"
+        ),
+        // PowerShell's pipeline host suppresses paging for commands that honor the host stream.
+        Some(ShellType::PowerShell) => format!("({command}) | \\Out-Host"),
+        None => command.to_string(),
     }
 }
 

@@ -80,7 +80,18 @@ pub(crate) async fn prepare_provider_run(
     let skill_path_origin = params.session_context.skill_path_origin();
     let max_context_tokens = params.context_window_limit;
     let mut cli_params = params.clone();
-    cli_params.model = params.cli_agent_model.clone();
+    let cli_provider_config = match cli_provider_config {
+        crate::ai::provider::ProviderConfig::None => {
+            // The CLI model can be absent from a model-specific provider routing table even when
+            // the base model is usable. Keep monitoring available through the base provider/model.
+            cli_params.model = params.model.clone();
+            base_provider_config.clone()
+        }
+        provider_config => {
+            cli_params.model = params.cli_agent_model.clone();
+            provider_config
+        }
+    };
 
     let (base_runtime, prepared) = prepare_provider_profile(
         base_provider_config,
@@ -90,20 +101,15 @@ pub(crate) async fn prepare_provider_run(
         None,
     )
     .await?;
-    let cli_monitor_profile = match cli_provider_config {
-        crate::ai::provider::ProviderConfig::None => None,
-        provider_config => {
-            let (runtime, prepared) = prepare_provider_profile(
-                provider_config,
-                cli_params,
-                supported_tools,
-                supported_cli_agent_tools,
-                Some(RigRequestMode::Cli),
-            )
-            .await?;
-            Some(ProviderRunProfile::new(runtime, prepared.request))
-        }
-    };
+    let (cli_runtime, cli_prepared) = prepare_provider_profile(
+        cli_provider_config,
+        cli_params,
+        supported_tools,
+        supported_cli_agent_tools,
+        Some(RigRequestMode::Cli),
+    )
+    .await?;
+    let cli_monitor_profile = Some(ProviderRunProfile::new(cli_runtime, cli_prepared.request));
 
     let PreparedRigTurn {
         task_id,
@@ -250,3 +256,7 @@ pub(crate) async fn provider_runtime_for_request(
     };
     Ok(runtime)
 }
+
+#[cfg(test)]
+#[path = "rig_tests.rs"]
+mod tests;

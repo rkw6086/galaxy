@@ -1520,18 +1520,21 @@ pub fn extract_system_prompt(
                  monitor while still following the user's steering messages. Use the command ID from \
                  the running-command context or tool result for every read/write operation. If the \
                  result says the command finished, report its outcome and stop polling. If it says the \
-                 command is still running, the next assistant output MUST be a tool call: use \
-                 `read_shell_command_output` with a short delay, or call `interrupt_shell_command` \
-                 immediately when the user's explicit stop condition is met. Do not end a still-running \
-                 monitor turn with prose, a status message, or a request for the user to say continue. \
-                 Never choose a poll interval that crosses a user-specified deadline or stop condition. \
-                 After an interrupt, poll briefly \
-                 to verify the outcome. Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or \
-                 `\\u0003` through `write_to_long_running_shell_command`; that tool is only for actual \
-                 process input. Never start a duplicate command merely to check its state, and never \
-                 report completion while a result says it is still running. If user interaction is \
-                 the right next step and the transfer tool is available, transfer control with a \
-                 clear reason.\n\n",
+                 command is still running, the next assistant output MUST be a tool call. Use \
+                 `read_shell_command_output` with a short delay for normal progress. If the snapshot \
+                 clearly shows an interactive pager or editor, do not keep polling: an alternate screen \
+                 containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input \
+                 `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode \
+                 `line`. Poll briefly after sending quit input to verify the outcome. Call \
+                 `interrupt_shell_command` immediately when the user's explicit stop condition is met. \
+                 Do not end a still-running monitor turn with prose, a status message, or a request for \
+                 the user to say continue. Never choose a poll interval that crosses a user-specified \
+                 deadline or stop condition. After an interrupt, poll briefly to verify the outcome. \
+                 Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or `\\u0003` through \
+                 `write_to_long_running_shell_command`; that tool is only for actual process input. \
+                 Never start a duplicate command merely to check its state, and never report completion \
+                 while a result says it is still running. If user interaction is the right next step and \
+                 the transfer tool is available, transfer control with a clear reason.\n\n",
             );
         }
         AgentMode::CompletedCommandAssessment => {

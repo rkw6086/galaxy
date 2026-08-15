@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use parking_lot::FairMutex;
 use warpui::{App, EntityId};
 
-use super::{ActionResult, BlockSelector, ShellCommandExecutor};
+use super::{command_for_execution, ActionResult, BlockSelector, ShellCommandExecutor};
 use crate::ai::agent::ShellCommandDelay;
 use crate::terminal::event::{BlockMetadataReceivedEvent, BlockWorkingDirectoryUpdatedEvent};
 use crate::terminal::model::block::{BlockId, BlockMetadata};
@@ -13,6 +13,23 @@ use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::Sessions;
 use crate::terminal::model::terminal_model::{BlockIndex, TerminalModel};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
+use crate::terminal::shell::ShellType;
+
+#[test]
+fn wait_commands_disable_implicit_posix_pagers_without_masking_exit_status() {
+    let command = "git log -8 --oneline && false";
+    let decorated = command_for_execution(command, Some(ShellType::Zsh), true);
+
+    assert_eq!(
+        decorated,
+        "(export PAGER=cat GIT_PAGER=cat GH_PAGER=cat AWS_PAGER=cat SYSTEMD_PAGER=cat; git log -8 --oneline && false)"
+    );
+    assert!(!decorated.contains("| command cat"));
+    assert_eq!(
+        command_for_execution(command, Some(ShellType::Zsh), false),
+        command
+    );
+}
 
 /// Locks in the contract that `ShellCommandExecutor`'s requested-command finish
 /// detector reacts only to `BlockMetadataReceived` (precmd) and not to
