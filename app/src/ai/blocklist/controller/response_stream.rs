@@ -16,7 +16,7 @@ use galaxy_agent_core::RuntimeCapabilities;
 use galaxy_agent_core::TurnCommand;
 #[cfg(not(target_family = "wasm"))]
 use galaxy_core::features::FeatureFlag;
-use galaxyui::{Entity, ModelContext, SingletonEntity};
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity};
 use settings::Setting;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
@@ -31,7 +31,7 @@ use crate::ai::agent::api::{self, ConvertToAPITypeError};
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::AIAgentInput;
-use crate::ai::agent::{AIAgentAction, AIIdentifiers, CancellationReason};
+use crate::ai::agent::{AIIdentifiers, CancellationReason};
 use crate::ai::bedrock::client::BedrockClientConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::BlocklistAIPermissions;
@@ -40,57 +40,13 @@ use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
-use crate::ai::runtime::ProviderRuntime;
-use crate::network::NetworkStatus;
 #[cfg(not(target_family = "wasm"))]
 use crate::pane_group::PaneGroup;
 use crate::persistence::model::AgentBackend;
 use crate::server::server_api::AIApiError;
 #[cfg(not(target_family = "wasm"))]
 use crate::settings::LocalControlSettings;
-use crate::{report_error, send_telemetry_from_ctx, AISettings, BlocklistAIHistoryModel};
-
-/// Maximum number of times a single MAA request is re-sent before the failure is
-/// surfaced.
-const MAX_RETRIES: usize = 3;
-
-/// What to do about a failed or truncated MAA response attempt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RecoveryAction {
-    /// Re-send the same request immediately.
-    RetryNow,
-    /// Re-send the same request once connectivity returns.
-    RetryWhenOnline,
-    /// Resume the conversation with a fresh request after the stream completes.
-    Resume,
-    /// Surface the error; the conversation ends in error.
-    Fail,
-}
-
-/// Decides how to recover from a failed response-stream attempt.
-///
-/// Before any client actions have been received, the request can be re-sent verbatim
-/// (immediately, or once connectivity returns). After actions have streamed,
-/// re-sending is unsafe, so recovery uses a fresh `ResumeConversation` request.
-fn recovery_action(
-    has_received_client_actions: bool,
-    is_recoverable: bool,
-    has_retry_budget: bool,
-    can_attempt_resume_on_error: bool,
-    is_online: bool,
-) -> RecoveryAction {
-    if !has_received_client_actions && is_recoverable && has_retry_budget {
-        if is_online {
-            RecoveryAction::RetryNow
-        } else {
-            RecoveryAction::RetryWhenOnline
-        }
-    } else if has_received_client_actions && is_recoverable && can_attempt_resume_on_error {
-        RecoveryAction::Resume
-    } else {
-        RecoveryAction::Fail
-    }
-}
+use crate::{report_error, AISettings, BlocklistAIHistoryModel};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ResponseStreamId(String);
@@ -120,13 +76,10 @@ struct AcpRequestControl {
     turn_control: AcpTurnControlSlot,
 }
 
-/// Model wrapping an agent API response stream.
+/// Projects an ACP response stream or durable provider-run output into conversation history.
 ///
-/// Emits events when the output corresponding to the stream is updated, typically after receiving
-/// each response chunk.
-///
-/// Handles retries internally - retries are only attempted if no ClientActions events have been
-/// received yet, ensuring we don't retry after the AI has started executing actions.
+/// Direct-provider lifecycle and retry ownership lives in `ProviderRun`; this model owns only ACP
+/// transport plus the common UI/history projection boundary.
 pub struct ResponseStream {
     id: ResponseStreamId,
     runtime_capabilities: RuntimeCapabilities,
@@ -134,42 +87,21 @@ pub struct ResponseStream {
     acp_session_metadata: Arc<Mutex<AcpSessionMetadata>>,
     #[cfg(not(target_family = "wasm"))]
     acp_turn_control: AcpTurnControlSlot,
-    params: api::RequestParams,
-    retry_count: usize,
-    /// One-time fallback from the profile's thinking model to its coding model.
-    coding_model_fallback_attempted: bool,
+    params: Option<api::RequestParams>,
+    projection_model: LLMId,
+    projection_messages_sent:
+        Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>,
     start_time: DateTime<Local>,
     time_to_latest_event: TimeDelta,
     cancellation_tx: Option<oneshot::Sender<()>>,
-    /// Store the original error for telemetry when retries succeed
-    original_error: Option<String>,
-    /// Track whether we've received any client actions
-    /// If true, we cannot retry on subsequent errors since actions may have been executed
+    /// Whether the ACP stream emitted client actions, retained for failure diagnostics.
     has_received_client_actions: bool,
-    /// Domain tool proposals observed directly from the response stream for the current request.
-    ///
-    /// The controller normally queues actions by reading them back from history after the stream
-    /// finishes. Keeping this snapshot prevents a final tool proposal from being lost if stream
-    /// completion is handled before that proposal has been applied to history.
-    proposed_actions: Vec<AIAgentAction>,
     /// AI identifiers for telemetry emission
     ai_identifiers: AIIdentifiers,
     #[cfg(not(target_family = "wasm"))]
     remote_log_backend: String,
     #[cfg(not(target_family = "wasm"))]
     remote_log_provider: String,
-
-    /// Whether this request can attempt to resume the conversation on error.
-    /// This is true for all requests except those that are themselves the result of a resume
-    /// triggered by a previous error.
-    can_attempt_resume_on_error: bool,
-
-    /// Whether we should attempt to resume the conversation after the stream finishes.
-    ///
-    /// This is set when a transient network/server failure occurs after client actions
-    /// have been received (so an in-request retry is unsafe) and
-    /// `can_attempt_resume_on_error` is true.
-    should_resume_conversation_after_stream_finished: bool,
 
     /// Whether a `StreamFinished` event was received for the current request. A
     /// stream that completes without one was truncated in transit.
@@ -179,17 +111,8 @@ pub struct ResponseStream {
     /// request, so stream completion doesn't synthesize a second failure for it.
     error_event_emitted: bool,
 
-    /// Whether a retry is parked waiting for connectivity. While set, completion of
-    /// the failed attempt's underlying stream is ignored.
-    deferred_retry_pending: bool,
-
-    /// Unique, internal id for the current request.
-    ///
-    /// This ensures that the model never emits events for a request that was already cancelled (or
-    /// retried) and is still receiving lagging events.
-    ///
-    /// Note this is unique compared to `id`; this is unique across retry requests while the response
-    /// stream id remains stable.
+    /// Unique internal ID for the active ACP request. Clearing it on cancellation causes late
+    /// transport events to be discarded while the stable response-stream ID remains a projection ID.
     current_request_id: Option<Uuid>,
 }
 
@@ -215,30 +138,25 @@ impl ResponseStream {
             acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
             #[cfg(not(target_family = "wasm"))]
             acp_turn_control: Arc::new(Mutex::new(None)),
-            params: api::RequestParams::new_for_test(),
-            retry_count: 0,
-            coding_model_fallback_attempted: false,
+            params: Some(api::RequestParams::new_for_test()),
+            projection_model: LLMId::from("test-model"),
+            projection_messages_sent: Arc::new(std::sync::Mutex::new(Vec::new())),
             start_time: Local::now(),
             time_to_latest_event: TimeDelta::seconds(0),
             cancellation_tx: Some(cancellation_tx),
-            original_error: None,
             has_received_client_actions: false,
-            proposed_actions: Vec::new(),
             ai_identifiers: AIIdentifiers::default(),
             #[cfg(not(target_family = "wasm"))]
             remote_log_backend: "provider".to_string(),
             #[cfg(not(target_family = "wasm"))]
             remote_log_provider: "test".to_string(),
-            can_attempt_resume_on_error: false,
-            should_resume_conversation_after_stream_finished: false,
             stream_finished_received: false,
             error_event_emitted: false,
-            deferred_retry_pending: false,
             current_request_id: Some(Uuid::new_v4()),
         }
     }
 
-    fn resolve_provider_config(model_id: &str, ctx: &ModelContext<Self>) -> ProviderConfig {
+    pub(super) fn resolve_provider_config(model_id: &str, ctx: &AppContext) -> ProviderConfig {
         let settings = AISettings::as_ref(ctx);
 
         // Check if this specific model has an OpenAI-compatible routing entry.
@@ -271,21 +189,12 @@ impl ResponseStream {
             let auth_method = *settings.bedrock_auth_method.value();
             let region = settings.bedrock_region.value().clone();
             let cross_region_inference = *settings.bedrock_cross_region_inference.value();
-            let mut use_rig = crate::ai::bedrock::models::configured_model_uses_rig(
+            let use_rig = crate::ai::bedrock::models::configured_model_uses_rig(
                 model_id,
                 settings.bedrock_models.value(),
                 &region,
                 cross_region_inference,
             );
-            if use_rig
-                && crate::ai::bedrock::external_config::ExternalBedrockConfig::load()
-                    .enable_prompt_caching_1h
-            {
-                log::warn!(
-                    "[rig/bedrock] Using the compatibility runtime because Rig does not yet expose Bedrock's one-hour cache TTL"
-                );
-                use_rig = false;
-            }
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
             let mut config = BedrockClientConfig {
                 auth_method,
@@ -346,7 +255,7 @@ impl ResponseStream {
         );
         context.insert(
             "model_id".to_string(),
-            serde_json::json!(self.params.model.as_str()),
+            serde_json::json!(self.projection_model.as_str()),
         );
         context.insert(
             "backend".to_string(),
@@ -357,16 +266,8 @@ impl ResponseStream {
             serde_json::json!(self.remote_log_provider),
         );
         context.insert(
-            "retry_count".to_string(),
-            serde_json::json!(self.retry_count),
-        );
-        context.insert(
             "has_received_client_actions".to_string(),
             serde_json::json!(self.has_received_client_actions),
-        );
-        context.insert(
-            "can_attempt_resume_on_error".to_string(),
-            serde_json::json!(self.can_attempt_resume_on_error),
         );
         context.insert(
             "identifiers".to_string(),
@@ -385,7 +286,6 @@ impl ResponseStream {
         ai_identifiers: &AIIdentifiers,
         backend: &str,
         provider: &str,
-        can_attempt_resume_on_error: bool,
     ) {
         remote_logging::log_model_event(
             ctx,
@@ -413,7 +313,6 @@ impl ResponseStream {
                     "ask_user_question_enabled": params.ask_user_question_enabled,
                     "orchestration_enabled": params.orchestration_enabled,
                     "is_remote_session": params.session_context.is_remote(),
-                    "can_attempt_resume_on_error": can_attempt_resume_on_error,
                     "identifiers": serde_json::to_value(ai_identifiers).unwrap_or_else(|_| serde_json::json!({})),
                 }),
             },
@@ -683,127 +582,166 @@ impl ResponseStream {
         );
     }
 
-    fn spawn_provider_request(
+    pub(super) fn new_provider_projection(
         params: api::RequestParams,
-        provider_config: ProviderConfig,
-        request_id: Uuid,
-        cancellation_rx: oneshot::Receiver<()>,
+        ai_identifiers: AIIdentifiers,
         ctx: &mut ModelContext<Self>,
-    ) {
-        let _ = ctx.spawn(
-            async move {
-                ProviderRuntime::new(provider_config)
-                    .start_turn(params, cancellation_rx)
-                    .await
-            },
-            move |me, stream, ctx| {
-                me.handle_response_stream_result(request_id, stream, ctx);
-            },
+    ) -> Self {
+        let start_time = Local::now();
+        let request_id = Uuid::new_v4();
+        let response_stream_id = ResponseStreamId(Uuid::new_v4().to_string());
+        #[cfg(not(target_family = "wasm"))]
+        let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_backend = "provider".to_string();
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_provider = Self::remote_log_provider_for_config(&provider_config);
+        #[cfg(not(target_family = "wasm"))]
+        Self::log_llm_request_started(
+            ctx,
+            &response_stream_id,
+            request_id,
+            &params,
+            &ai_identifiers,
+            &remote_log_backend,
+            &remote_log_provider,
         );
+
+        let projection_model = params.model.clone();
+        let projection_messages_sent = params.messages_sent.clone();
+        Self {
+            id: response_stream_id,
+            runtime_capabilities: RuntimeCapabilities::provider(),
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
+            #[cfg(not(target_family = "wasm"))]
+            acp_turn_control: Arc::new(Mutex::new(None)),
+            params: Some(params),
+            projection_model,
+            projection_messages_sent,
+            start_time,
+            time_to_latest_event: TimeDelta::seconds(0),
+            cancellation_tx: None,
+            has_received_client_actions: false,
+            ai_identifiers,
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_backend,
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_provider,
+            stream_finished_received: false,
+            error_event_emitted: false,
+            current_request_id: None,
+        }
+    }
+
+    pub(super) fn new_restored_provider_projection(
+        model: LLMId,
+        messages_sent: Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>,
+        ai_identifiers: AIIdentifiers,
+        ctx: &mut ModelContext<Self>,
+    ) -> Self {
+        #[cfg(not(target_family = "wasm"))]
+        let provider_config = Self::resolve_provider_config(model.as_str(), ctx);
+        Self {
+            id: ResponseStreamId(Uuid::new_v4().to_string()),
+            runtime_capabilities: RuntimeCapabilities::provider(),
+            #[cfg(not(target_family = "wasm"))]
+            acp_session_metadata: Arc::new(Mutex::new(AcpSessionMetadata::default())),
+            #[cfg(not(target_family = "wasm"))]
+            acp_turn_control: Arc::new(Mutex::new(None)),
+            params: None,
+            projection_model: model,
+            projection_messages_sent: messages_sent,
+            start_time: Local::now(),
+            time_to_latest_event: TimeDelta::seconds(0),
+            cancellation_tx: None,
+            has_received_client_actions: false,
+            ai_identifiers,
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_backend: "provider".to_string(),
+            #[cfg(not(target_family = "wasm"))]
+            remote_log_provider: Self::remote_log_provider_for_config(&provider_config),
+            stream_finished_received: false,
+            error_event_emitted: false,
+            current_request_id: None,
+        }
+    }
+
+    pub(super) fn projected_event(
+        event: warp_multi_agent_api::ResponseEvent,
+    ) -> ResponseStreamEvent {
+        ResponseStreamEvent::ReceivedEvent(Consumable::new(Ok(api::StreamEvent::Response(event))))
     }
 
     pub fn new(
         params: api::RequestParams,
         ai_identifiers: AIIdentifiers,
         agent_backend: AgentBackend,
-        can_attempt_resume_on_error: bool,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
+        let AgentBackend::Acp(backend) = agent_backend else {
+            unreachable!("direct providers must use the durable provider-run projection");
+        };
         let (cancellation_tx, cancellation_rx) = oneshot::channel();
         let start_time = Local::now();
-
         let request_id = Uuid::new_v4();
         let response_stream_id = ResponseStreamId(Uuid::new_v4().to_string());
-        let runtime_capabilities = match &agent_backend {
-            AgentBackend::Provider => RuntimeCapabilities::provider(),
-            AgentBackend::Acp(_) => RuntimeCapabilities::session_runtime(),
-        };
+        let runtime_capabilities = RuntimeCapabilities::session_runtime();
         #[cfg(not(target_family = "wasm"))]
         let acp_session_metadata = Arc::new(Mutex::new(AcpSessionMetadata::default()));
         #[cfg(not(target_family = "wasm"))]
         let acp_turn_control = Arc::new(Mutex::new(None));
         #[cfg(not(target_family = "wasm"))]
-        let remote_log_backend;
+        let remote_log_backend = "acp".to_string();
         #[cfg(not(target_family = "wasm"))]
-        let remote_log_provider;
-        match &agent_backend {
-            AgentBackend::Provider => {
-                let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    remote_log_backend = "provider".to_string();
-                    remote_log_provider = Self::remote_log_provider_for_config(&provider_config);
-                    Self::log_llm_request_started(
-                        ctx,
-                        &response_stream_id,
-                        request_id,
-                        &params,
-                        &ai_identifiers,
-                        &remote_log_backend,
-                        &remote_log_provider,
-                        can_attempt_resume_on_error,
-                    );
-                }
-                Self::spawn_provider_request(
-                    params.clone(),
-                    provider_config,
-                    request_id,
+        let remote_log_provider = if backend.agent_id.is_empty() {
+            "acp".to_string()
+        } else {
+            format!("acp:{}", backend.agent_id)
+        };
+        #[cfg(not(target_family = "wasm"))]
+        {
+            Self::log_llm_request_started(
+                ctx,
+                &response_stream_id,
+                request_id,
+                &params,
+                &ai_identifiers,
+                &remote_log_backend,
+                &remote_log_provider,
+            );
+            Self::spawn_acp_request(
+                backend.clone(),
+                params.clone(),
+                ai_identifiers
+                    .client_conversation_id
+                    .map(|id| format!("{id:?}"))
+                    .unwrap_or_else(|| Uuid::new_v4().to_string()),
+                request_id,
+                AcpRequestControl {
                     cancellation_rx,
-                    ctx,
-                );
-            }
-            AgentBackend::Acp(backend) => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    remote_log_backend = "acp".to_string();
-                    remote_log_provider = if backend.agent_id.is_empty() {
-                        "acp".to_string()
-                    } else {
-                        format!("acp:{}", backend.agent_id)
-                    };
-                    Self::log_llm_request_started(
-                        ctx,
-                        &response_stream_id,
-                        request_id,
-                        &params,
-                        &ai_identifiers,
-                        &remote_log_backend,
-                        &remote_log_provider,
-                        can_attempt_resume_on_error,
-                    );
-                }
-                #[cfg(not(target_family = "wasm"))]
-                Self::spawn_acp_request(
-                    backend.clone(),
-                    params.clone(),
-                    ai_identifiers
-                        .client_conversation_id
-                        .map(|id| format!("{id:?}"))
-                        .unwrap_or_else(|| Uuid::new_v4().to_string()),
-                    request_id,
-                    AcpRequestControl {
-                        cancellation_rx,
-                        session_metadata: acp_session_metadata.clone(),
-                        turn_control: acp_turn_control.clone(),
-                    },
-                    ctx,
-                );
-                #[cfg(target_family = "wasm")]
-                {
-                    let error = Arc::new(AIApiError::Stream {
-                        stream_type: "acp",
-                        source: anyhow!("ACP is unavailable in the web client"),
-                    });
-                    let stream = Box::pin(futures::stream::once(async move { Err(error) }));
-                    let _ = ctx.spawn(
-                        async move { Ok::<_, ConvertToAPITypeError>(stream) },
-                        move |me, stream, ctx| {
-                            me.handle_response_stream_result(request_id, stream, ctx);
-                        },
-                    );
-                }
-            }
+                    session_metadata: acp_session_metadata.clone(),
+                    turn_control: acp_turn_control.clone(),
+                },
+                ctx,
+            );
         }
+        #[cfg(target_family = "wasm")]
+        {
+            let error = Arc::new(AIApiError::Stream {
+                stream_type: "acp",
+                source: anyhow!("ACP is unavailable in the web client"),
+            });
+            let stream = Box::pin(futures::stream::once(async move { Err(error) }));
+            let _ = ctx.spawn(
+                async move { Ok::<_, ConvertToAPITypeError>(stream) },
+                move |me, stream, ctx| {
+                    me.handle_response_stream_result(request_id, stream, ctx);
+                },
+            );
+        }
+        let projection_model = params.model.clone();
+        let projection_messages_sent = params.messages_sent.clone();
         Self {
             id: response_stream_id,
             runtime_capabilities,
@@ -811,25 +749,20 @@ impl ResponseStream {
             acp_session_metadata,
             #[cfg(not(target_family = "wasm"))]
             acp_turn_control,
-            params: params.clone(),
+            params: Some(params),
+            projection_model,
+            projection_messages_sent,
             start_time,
             time_to_latest_event: TimeDelta::seconds(0),
             cancellation_tx: Some(cancellation_tx),
-            retry_count: 0,
-            coding_model_fallback_attempted: false,
-            original_error: None,
             has_received_client_actions: false,
-            proposed_actions: Vec::new(),
             ai_identifiers,
             #[cfg(not(target_family = "wasm"))]
             remote_log_backend,
             #[cfg(not(target_family = "wasm"))]
             remote_log_provider,
-            can_attempt_resume_on_error,
-            should_resume_conversation_after_stream_finished: false,
             stream_finished_received: false,
             error_event_emitted: false,
-            deferred_retry_pending: false,
             current_request_id: Some(request_id),
         }
     }
@@ -847,18 +780,18 @@ impl ResponseStream {
     }
 
     pub(super) fn has_error_tool_results(&self) -> bool {
-        self.params
-            .tool_results
-            .iter()
-            .any(galaxy_agent_core::ToolResult::is_error)
+        self.params.as_ref().is_some_and(|params| {
+            params
+                .tool_results
+                .iter()
+                .any(galaxy_agent_core::ToolResult::is_error)
+        })
     }
 
     pub(super) fn tool_result_count(&self) -> usize {
-        self.params.tool_results.len()
-    }
-
-    pub fn allows_corrective_retries(&self) -> bool {
-        self.runtime_capabilities.corrective_retries
+        self.params
+            .as_ref()
+            .map_or(0, |params| params.tool_results.len())
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -885,8 +818,11 @@ impl ResponseStream {
             {
                 return false;
             }
+            let Some(params) = self.params.as_ref() else {
+                return false;
+            };
             let mut model_text = display_text.clone();
-            self.params.redact_text_for_model(&mut model_text);
+            params.redact_text_for_model(&mut model_text);
             self.acp_turn_control
                 .lock()
                 .ok()
@@ -911,117 +847,16 @@ impl ResponseStream {
         &self,
     ) -> &std::sync::Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>
     {
-        &self.params.messages_sent
+        &self.projection_messages_sent
     }
 
     /// Returns the model ID associated with this response stream's request.
     pub fn model_id(&self) -> &str {
-        self.params.model.as_str()
+        self.projection_model.as_str()
     }
 
     pub(super) fn llm_id(&self) -> &LLMId {
-        &self.params.model
-    }
-
-    /// Returns true if we should attempt to resume the conversation after the stream finishes.
-    pub fn should_resume_conversation_after_stream_finished(&self) -> bool {
-        self.should_resume_conversation_after_stream_finished
-    }
-
-    /// Helper function to emit AgentModeError telemetry for error that is retryable (not user visible).
-    fn emit_retryable_agent_mode_error_telemetry(
-        &self,
-        error: String,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        send_telemetry_from_ctx!(
-            crate::TelemetryEvent::AgentModeError {
-                identifiers: self.ai_identifiers.clone(),
-                error,
-                is_user_visible: false,
-                will_attempt_to_resume: false,
-            },
-            ctx
-        );
-    }
-
-    fn retry(&mut self, ctx: &mut ModelContext<Self>) {
-        self.retry_count += 1;
-        // Reset per-attempt state for the new attempt.
-        self.has_received_client_actions = false;
-        self.proposed_actions.clear();
-        self.stream_finished_received = false;
-        self.error_event_emitted = false;
-        self.deferred_retry_pending = false;
-
-        let (cancellation_tx, cancellation_rx) = oneshot::channel();
-        if let Some(old_cancellation_tx) = self.cancellation_tx.take() {
-            let _ = old_cancellation_tx.send(());
-        }
-        self.cancellation_tx = Some(cancellation_tx);
-
-        let request_id = Uuid::new_v4();
-        self.current_request_id = Some(request_id);
-        #[cfg(not(target_family = "wasm"))]
-        self.log_galaxy_decision(
-            request_id,
-            "retry_request",
-            serde_json::json!({
-                "retry_count": self.retry_count,
-                "model_id": self.params.model.as_str(),
-            }),
-            ctx,
-        );
-        let params = self.params.clone();
-        let provider_config = Self::resolve_provider_config(params.model.as_str(), ctx);
-        let _ = ctx.spawn(
-            async move {
-                ProviderRuntime::new(provider_config)
-                    .start_turn(params, cancellation_rx)
-                    .await
-            },
-            move |me, stream, ctx| {
-                me.handle_response_stream_result(request_id, stream, ctx);
-            },
-        );
-    }
-
-    fn should_fallback_to_coding_model(
-        &self,
-        error: &Arc<crate::server::server_api::AIApiError>,
-    ) -> bool {
-        if !self.runtime_capabilities.model_selection
-            || !self.runtime_capabilities.request_retries
-            || self.coding_model_fallback_attempted
-            || self.has_received_client_actions
-        {
-            return false;
-        }
-        let coding_model = self.params.coding_model.as_str();
-        !coding_model.is_empty()
-            && coding_model != self.params.model.as_str()
-            && matches!(
-                error.as_ref(),
-                crate::server::server_api::AIApiError::QuotaLimit { .. }
-            )
-    }
-
-    fn retry_with_coding_model(&mut self, ctx: &mut ModelContext<Self>) {
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(request_id) = self.current_request_id {
-            self.log_galaxy_decision(
-                request_id,
-                "fallback_to_coding_model",
-                serde_json::json!({
-                    "from_model_id": self.params.model.as_str(),
-                    "to_model_id": self.params.coding_model.as_str(),
-                }),
-                ctx,
-            );
-        }
-        self.coding_model_fallback_attempted = true;
-        self.params.model = self.params.coding_model.clone();
-        self.retry(ctx);
+        &self.projection_model
     }
 
     /// Cancels the stream. The conversation_id is preserved in the emitted event for async handling.
@@ -1041,7 +876,6 @@ impl ResponseStream {
                 reason,
                 conversation_id,
             }),
-            proposed_actions: self.proposed_actions.clone(),
         });
     }
 
@@ -1083,7 +917,7 @@ impl ResponseStream {
                     ctx,
                 );
                 self.error_event_emitted = true;
-                self.report_request_failure(&error, NetworkStatus::as_ref(ctx).is_online());
+                self.report_request_failure(&error);
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
                     error,
                 ))));
@@ -1099,83 +933,21 @@ impl ResponseStream {
         ctx: &mut ModelContext<Self>,
     ) {
         if self.current_request_id.is_none_or(|id| id != request_id) {
-            log::info!(
-                "[bedrock-debug] handle_response_stream_event: stale request_id, dropping event"
-            );
+            log::debug!("Dropping event for stale ACP request {request_id}");
             return;
         }
         self.time_to_latest_event = Local::now().signed_duration_since(self.start_time);
 
         match &event {
-            Ok(api::StreamEvent::ToolProposed(action)) => {
-                self.has_received_client_actions = true;
-                self.proposed_actions.push(action.clone());
-                log::debug!(
-                    "Rig proposed domain tool action {} for task {}",
-                    action.id,
-                    action.task_id
-                );
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    let mut context =
-                        self.common_remote_log_context("llm_tool_proposed", request_id);
-                    context.insert(
-                        "action_id".to_string(),
-                        serde_json::json!(action.id.to_string()),
-                    );
-                    context.insert(
-                        "task_id".to_string(),
-                        serde_json::json!(action.task_id.to_string()),
-                    );
-                    context.insert(
-                        "tool_name".to_string(),
-                        serde_json::json!(action_tool_name(action)),
-                    );
-                    context.insert(
-                        "requires_result".to_string(),
-                        serde_json::json!(action.requires_result),
-                    );
-                    remote_logging::log_model_event(
-                        ctx,
-                        RemoteLogRecord {
-                            level: RemoteLogLevel::Info,
-                            message: "LLM proposed tool".to_string(),
-                            context: serde_json::Value::Object(context),
-                        },
-                    );
-                }
-                #[cfg(not(target_family = "wasm"))]
-                self.log_raw_model_response(
-                    request_id,
-                    "tool_proposed",
-                    format!("{action:#?}"),
-                    ctx,
-                );
-                ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
-            }
             Ok(api::StreamEvent::Response(response_event)) => {
                 let event_type_name = match &response_event.r#type {
                     Some(warp_multi_agent_api::response_event::Type::Init(_)) => "Init",
-                    Some(warp_multi_agent_api::response_event::Type::ClientActions(a)) => {
-                        log::debug!(
-                            "[bedrock] ResponseStream received ClientActions with {} actions",
-                            a.actions.len()
-                        );
+                    Some(warp_multi_agent_api::response_event::Type::ClientActions(_)) => {
                         "ClientActions"
                     }
-                    Some(warp_multi_agent_api::response_event::Type::Finished(f)) => {
-                        log::info!(
-                            "[bedrock-debug] ResponseStream received Finished (reason={:?})",
-                            f.reason
-                                .as_ref()
-                                .map(|r| format!("{r:?}"))
-                                .unwrap_or("None".into())
-                        );
-                        "Finished"
-                    }
+                    Some(warp_multi_agent_api::response_event::Type::Finished(_)) => "Finished",
                     None => "None",
                 };
-                log::info!("[bedrock-debug] ResponseStream emitting event type={event_type_name}");
                 #[cfg(not(target_family = "wasm"))]
                 self.log_raw_model_response(
                     request_id,
@@ -1221,237 +993,47 @@ impl ResponseStream {
                             self.stream_finished_received = true;
                             #[cfg(not(target_family = "wasm"))]
                             self.log_llm_response_finished(request_id, finished_event, ctx);
-                            // Emit retry success telemetry on successful completion
-                            if matches!(
-                                finished_event.reason,
-                                Some(warp_multi_agent_api::response_event::stream_finished::Reason::Done(_)) | None
-                            ) {
-                                // Emit retry success telemetry if this was a successful completion after retries
-                                if self.retry_count > 0 {
-                                    if let Some(original_error) = &self.original_error {
-                                        send_telemetry_from_ctx!(
-                                            crate::TelemetryEvent::AgentModeRequestRetrySucceeded {
-                                                identifiers: self.ai_identifiers.clone(),
-                                                retry_count: self.retry_count,
-                                                original_error: original_error.clone(),
-                                            },
-                                            ctx
-                                        );
-                                    }
-                                }
-                            }
                         }
                     }
                 }
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
             }
             Err(e) => {
-                log::info!("[bedrock-debug] ResponseStream received ERROR: {e:?}");
-                // Store original error if this is the first error
-                if self.retry_count == 0 {
-                    self.original_error = Some(format!("{e:?}"));
-                }
-
-                if self.should_fallback_to_coding_model(e) {
-                    log::warn!(
-                        "Thinking model rate-limited; retrying with the profile coding model"
-                    );
-                    #[cfg(not(target_family = "wasm"))]
-                    self.log_llm_request_error(
-                        request_id,
-                        e.as_ref(),
-                        "fallback_to_coding_model",
-                        ctx,
-                    );
-                    self.retry_with_coding_model(ctx);
-                    return;
-                }
-
-                let is_online = NetworkStatus::as_ref(ctx).is_online();
-                match recovery_action(
-                    self.has_received_client_actions,
-                    e.is_recoverable() && self.runtime_capabilities.request_retries,
-                    self.retry_count < MAX_RETRIES,
-                    self.can_attempt_resume_on_error,
-                    is_online,
-                ) {
-                    RecoveryAction::RetryNow => {
-                        log::warn!(
-                            "MultiAgent request failed, retrying (attempt {}/{}) - Error: {e:?}",
-                            self.retry_count + 1,
-                            MAX_RETRIES
-                        );
-                        #[cfg(not(target_family = "wasm"))]
-                        self.log_llm_request_error(request_id, e.as_ref(), "retry_now", ctx);
-                        // Only emit error telemetry here if we're retrying.
-                        // Final errors that aren't being retried are emitted elsewhere.
-                        self.emit_retryable_agent_mode_error_telemetry(format!("{e:?}"), ctx);
-                        self.retry(ctx);
-                        // Don't emit the error event, we're retrying
-                        return;
-                    }
-                    RecoveryAction::RetryWhenOnline => {
-                        log::warn!(
-                            "MultiAgent request failed while offline; retrying (attempt {}/{}) once connectivity returns - Error: {e:?}",
-                            self.retry_count + 1,
-                            MAX_RETRIES
-                        );
-                        #[cfg(not(target_family = "wasm"))]
-                        self.log_llm_request_error(
-                            request_id,
-                            e.as_ref(),
-                            "retry_when_online",
-                            ctx,
-                        );
-                        self.emit_retryable_agent_mode_error_telemetry(format!("{e:?}"), ctx);
-                        self.defer_retry_until_online(ctx);
-                        return;
-                    }
-                    RecoveryAction::Resume => {
-                        // Recoverable failure after client actions: we'll resume the
-                        // conversation once the stream finishes rather than surface the
-                        // error, so the UI suppresses the banner. Log it so the
-                        // auto-recovery isn't completely silent.
-                        log::warn!(
-                            "MultiAgent request failed after client actions; resuming conversation after stream finishes - Error: {e:?}"
-                        );
-                        #[cfg(not(target_family = "wasm"))]
-                        self.log_llm_request_error(
-                            request_id,
-                            e.as_ref(),
-                            "resume_after_stream",
-                            ctx,
-                        );
-                        // The resume spawn itself waits for connectivity.
-                        self.should_resume_conversation_after_stream_finished = true;
-                    }
-                    RecoveryAction::Fail => {
-                        #[cfg(not(target_family = "wasm"))]
-                        self.log_llm_request_error(request_id, e.as_ref(), "fail", ctx);
-                    }
-                }
+                log::info!("ResponseStream received error: {e:?}");
+                #[cfg(not(target_family = "wasm"))]
+                self.log_llm_request_error(request_id, e.as_ref(), "fail", ctx);
                 self.error_event_emitted = true;
-
-                self.report_request_failure(e, is_online);
-
+                self.report_request_failure(e);
                 ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(event)));
             }
         }
     }
 
     fn on_response_stream_complete(&mut self, request_id: Uuid, ctx: &mut ModelContext<Self>) {
-        log::info!("[bedrock-debug] on_response_stream_complete called (request_id={request_id})");
         if self.current_request_id.is_none_or(|id| id != request_id) {
-            log::info!("[bedrock-debug] on_response_stream_complete: stale request_id, ignoring");
+            log::debug!("Ignoring completion for stale ACP request {request_id}");
             return;
         }
-        // A retry is parked waiting for connectivity; the request is logically still
-        // active, so don't complete the stream for the failed attempt.
-        if self.deferred_retry_pending {
-            return;
-        }
-
-        // The server always sends a StreamFinished event before ending the response,
-        // but a transport cut between chunks surfaces as a clean EOF. Synthesize the
-        // failure and recover like any transient error.
+        // ACP sends StreamFinished before closing. A clean EOF without it is a
+        // truncated protocol response and cannot be retried safely by this projection.
         if !self.stream_finished_received && !self.error_event_emitted {
-            log::warn!(
-                "generate_multi_agent_output stream ended without emitting StreamFinished event."
-            );
+            log::warn!("ACP response stream ended without emitting StreamFinished");
             let unexpected_eof = Arc::new(AIApiError::UnexpectedEof);
-            let is_online = NetworkStatus::as_ref(ctx).is_online();
-            match recovery_action(
-                self.has_received_client_actions,
-                unexpected_eof.is_recoverable() && self.runtime_capabilities.request_retries,
-                self.retry_count < MAX_RETRIES,
-                self.can_attempt_resume_on_error,
-                is_online,
-            ) {
-                RecoveryAction::RetryNow => {
-                    log::warn!(
-                        "MultiAgent request failed, retrying (attempt {}/{}) - Error: {unexpected_eof:?}",
-                        self.retry_count + 1,
-                        MAX_RETRIES
-                    );
-                    #[cfg(not(target_family = "wasm"))]
-                    self.log_llm_request_error(
-                        request_id,
-                        unexpected_eof.as_ref(),
-                        "retry_now",
-                        ctx,
-                    );
-                    self.emit_retryable_agent_mode_error_telemetry(
-                        format!("{unexpected_eof:?}"),
-                        ctx,
-                    );
-                    self.retry(ctx);
-                    return;
-                }
-                RecoveryAction::RetryWhenOnline => {
-                    log::warn!(
-                        "MultiAgent request failed while offline; retrying (attempt {}/{}) once connectivity returns - Error: {unexpected_eof:?}",
-                        self.retry_count + 1,
-                        MAX_RETRIES
-                    );
-                    #[cfg(not(target_family = "wasm"))]
-                    self.log_llm_request_error(
-                        request_id,
-                        unexpected_eof.as_ref(),
-                        "retry_when_online",
-                        ctx,
-                    );
-                    self.emit_retryable_agent_mode_error_telemetry(
-                        format!("{unexpected_eof:?}"),
-                        ctx,
-                    );
-                    self.defer_retry_until_online(ctx);
-                    return;
-                }
-                RecoveryAction::Resume => {
-                    // Recoverable truncation after client actions: we'll resume the
-                    // conversation once the stream finishes rather than surface the
-                    // error, so the UI suppresses the banner. Log it so the
-                    // auto-recovery isn't completely silent.
-                    log::warn!(
-                        "MultiAgent request truncated after client actions; resuming conversation after stream finishes - Error: {unexpected_eof:?}"
-                    );
-                    #[cfg(not(target_family = "wasm"))]
-                    self.log_llm_request_error(
-                        request_id,
-                        unexpected_eof.as_ref(),
-                        "resume_after_stream",
-                        ctx,
-                    );
-                    self.should_resume_conversation_after_stream_finished = true;
-                    self.error_event_emitted = true;
-                    self.report_request_failure(&unexpected_eof, is_online);
-                    ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
-                        unexpected_eof,
-                    ))));
-                }
-                RecoveryAction::Fail => {
-                    #[cfg(not(target_family = "wasm"))]
-                    self.log_llm_request_error(request_id, unexpected_eof.as_ref(), "fail", ctx);
-                    self.error_event_emitted = true;
-                    self.report_request_failure(&unexpected_eof, is_online);
-                    ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
-                        unexpected_eof,
-                    ))));
-                }
-            }
+            #[cfg(not(target_family = "wasm"))]
+            self.log_llm_request_error(request_id, unexpected_eof.as_ref(), "fail", ctx);
+            self.error_event_emitted = true;
+            self.report_request_failure(&unexpected_eof);
+            ctx.emit(ResponseStreamEvent::ReceivedEvent(Consumable::new(Err(
+                unexpected_eof,
+            ))));
         }
 
-        ctx.emit(ResponseStreamEvent::AfterStreamFinished {
-            cancellation: None,
-            proposed_actions: self.proposed_actions.clone(),
-        });
+        ctx.emit(ResponseStreamEvent::AfterStreamFinished { cancellation: None });
         self.cancellation_tx = None;
     }
 
-    /// Reports a non-retried request failure to crash reporting with classification
-    /// tags.
-    #[cfg_attr(not(feature = "crash_reporting"), expect(unused_variables))]
-    fn report_request_failure(&self, error: &Arc<AIApiError>, is_online: bool) {
+    /// Reports a terminal response-stream failure with classification tags.
+    fn report_request_failure(&self, error: &Arc<AIApiError>) {
         #[cfg(feature = "crash_reporting")]
         sentry::with_scope(
             |scope| {
@@ -1461,44 +1043,13 @@ impl ResponseStream {
                 );
                 scope.set_tag("error", format!("{error:?}"));
                 scope.set_tag("is_recoverable", error.is_recoverable());
-                scope.set_tag(
-                    "will_attempt_resume",
-                    self.should_resume_conversation_after_stream_finished,
-                );
-                scope.set_tag("is_online", is_online);
-                scope.set_tag("retry_count", self.retry_count);
             },
             || {
-                report_error!(anyhow!(error.clone()).context(format!(
-                    "MultiAgent request failed after {} retries",
-                    self.retry_count
-                )));
+                report_error!(anyhow!(error.clone()).context("ACP response stream failed"));
             },
         );
         #[cfg(not(feature = "crash_reporting"))]
-        {
-            report_error!(anyhow!(error.clone()).context(format!(
-                "MultiAgent request failed after {} retries",
-                self.retry_count
-            )));
-        }
-    }
-
-    /// Parks a retry until connectivity returns; cancellation invalidates the parked
-    /// retry through `current_request_id`.
-    fn defer_retry_until_online(&mut self, ctx: &mut ModelContext<Self>) {
-        self.deferred_retry_pending = true;
-        ctx.emit(ResponseStreamEvent::WaitingForNetwork { waiting: true });
-        let request_id_at_defer = self.current_request_id;
-        let wait_for_online = NetworkStatus::as_ref(ctx).wait_until_online();
-        let _ = ctx.spawn(wait_for_online, move |me, _, ctx| {
-            // Cancelled or superseded while waiting — drop the parked retry.
-            if request_id_at_defer.is_none() || me.current_request_id != request_id_at_defer {
-                return;
-            }
-            ctx.emit(ResponseStreamEvent::WaitingForNetwork { waiting: false });
-            me.retry(ctx);
-        });
+        report_error!(anyhow!(error.clone()).context("ACP response stream failed"));
     }
 }
 
@@ -1543,16 +1094,6 @@ fn raw_model_request_payload(params: &api::RequestParams) -> String {
         ],
     });
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| format!("{payload:#?}"))
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn action_tool_name(action: &crate::ai::agent::AIAgentAction) -> String {
-    action.tool_name.clone().unwrap_or_else(|| {
-        format!(
-            "{:?}",
-            crate::ai::agent::AIAgentActionTypeDiscriminants::from(&action.action)
-        )
-    })
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -1682,21 +1223,9 @@ pub struct StreamCancellation {
 #[derive(Debug, Clone)]
 pub enum ResponseStreamEvent {
     ReceivedEvent(Consumable<api::Event>),
-    /// A retry is parked until connectivity returns (`waiting: true`) or has just
-    /// fired (`waiting: false`). The controller mirrors this on the conversation
-    /// status (`TransientError` ↔ `InProgress`).
-    ///
-    /// Only emitted from `defer_retry_until_online`, i.e. always after a recoverable
-    /// request failure while offline — never speculatively before an attempt. Consumers
-    /// can therefore treat `waiting: true` as a transient-error (reconnecting) state.
-    WaitingForNetwork {
-        waiting: bool,
-    },
     AfterStreamFinished {
         /// Some for cancellation (with context), None for natural completion (uses dynamic lookup).
         cancellation: Option<StreamCancellation>,
-        /// Domain tool proposals observed directly from the stream before it finished.
-        proposed_actions: Vec<AIAgentAction>,
     },
 }
 

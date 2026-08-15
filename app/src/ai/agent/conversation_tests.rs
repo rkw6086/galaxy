@@ -194,6 +194,19 @@ fn restored_conversation_defaults_autoexecute_override_when_not_persisted() {
 }
 
 #[test]
+fn restored_conversation_retains_active_provider_run_json() {
+    let snapshot = r#"{"version":1,"run":{"state":"awaiting_model"}}"#;
+    let conversation_data = AgentConversationData {
+        active_provider_run_json: Some(snapshot.to_string()),
+        ..Default::default()
+    };
+
+    let conversation = restored_conversation(Some(conversation_data));
+
+    assert_eq!(conversation.active_provider_run_json(), Some(snapshot));
+}
+
+#[test]
 fn restored_conversation_uses_persisted_last_event_sequence() {
     let conversation_data: AgentConversationData =
         serde_json::from_str(r#"{"server_conversation_token":null,"last_event_sequence":42}"#)

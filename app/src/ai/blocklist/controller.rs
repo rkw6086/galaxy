@@ -10,7 +10,7 @@ mod pending_response_streams;
 pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +19,12 @@ use std::time::Duration;
 use ai::skills::SkillPathOrigin;
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
-use galaxy_agent_core::ToolLoopGuard;
+use futures::channel::oneshot;
+use galaxy_agent_core::{
+    turn_control, ExternalWorkId, PendingToolBatch, ProviderRun, ProviderRunFailureKind,
+    ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState, ToolLoopGuard,
+    TurnCommand, TurnCommandSender, TurnRequest,
+};
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
 use itertools::Itertools;
@@ -50,13 +55,15 @@ use crate::ai::agent::task::TaskId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::AIAgentActionTypeDiscriminants;
 use crate::ai::agent::{
-    extract_user_query_mode, AIAgentAction, AIAgentActionResult, AIAgentActionResultType,
-    AIAgentAttachment, AIAgentContext, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
-    AIIdentifiers, CancellationOutcome, CancellationReason, DocumentContentAttachmentSource,
-    EntrypointType, FileContext, FinishedAIAgentOutput, PassiveSuggestionResultType,
-    PassiveSuggestionTrigger, PassiveSuggestionTriggerType, RenderableAIError,
+    extract_user_query_mode, AIAgentAction, AIAgentActionId, AIAgentActionResult,
+    AIAgentActionResultType, AIAgentActionType, AIAgentAttachment, AIAgentContext,
+    AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, AIIdentifiers, CancellationOutcome,
+    CancellationReason, DocumentContentAttachmentSource, EntrypointType, FileContext,
+    FinishedAIAgentOutput, PassiveSuggestionResultType, PassiveSuggestionTrigger,
+    PassiveSuggestionTriggerType, ReadShellCommandOutputResult, RenderableAIError,
     RequestCommandOutputResult, RequestCost, RequestMetadata, RunningCommand, StaticQueryType,
-    TransientNetworkErrorKind, UserQueryMode,
+    TransferShellCommandControlToUserResult, TransientNetworkErrorKind, UserQueryMode,
+    WriteToLongRunningShellCommandResult,
 };
 use crate::ai::agent_events::AgentMessageEventMetadata;
 #[cfg(not(target_family = "wasm"))]
@@ -66,14 +73,19 @@ use crate::ai::document::ai_document_model::{
     AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
 };
 use crate::ai::llms::{LLMId, LLMPreferences};
-use crate::ai::provider::types::ContentPart;
+use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent};
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
+use crate::ai::runtime::{
+    prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,
+    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunResponseProjector,
+    ProviderToolExecutionRef, ProviderToolLifecycleOutcome, RuntimeResponseConfig,
+    BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+};
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::features::FeatureFlag;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
-use crate::network::NetworkStatus;
 use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::persistence::model::AgentBackend;
 use crate::persistence::ModelEvent;
@@ -83,14 +95,13 @@ use crate::server::server_api::AIApiError;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::TelemetryEvent;
 use crate::terminal::model::block::{
-    formatted_terminal_contents_for_input, BlockId, CURSOR_MARKER,
+    formatted_terminal_contents_for_input, BlockId, BlockState, CURSOR_MARKER,
 };
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::SessionType;
 use crate::terminal::model::terminal_model::TerminalModel;
 use crate::terminal::view::inline_banner::ZeroStatePromptSuggestionType;
 use crate::terminal::ShellLaunchData;
-use crate::workspace::OneTimeModalModel;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
@@ -191,60 +202,12 @@ fn remote_action_summaries(actions: &[AIAgentAction]) -> Vec<serde_json::Value> 
         .collect()
 }
 
-#[derive(Debug, Clone)]
-struct FailedToolProposal {
-    action_id: String,
-    task_id: String,
-    tool_name: String,
-    requires_result: bool,
-    error: String,
-}
-
-impl FailedToolProposal {
-    fn new(action: &AIAgentAction, error: impl Into<String>) -> Self {
-        Self {
-            action_id: action.id.to_string(),
-            task_id: action.task_id.to_string(),
-            tool_name: failed_proposal_tool_name(action),
-            requires_result: action.requires_result,
-            error: error.into(),
-        }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn to_remote_log_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "action_id": self.action_id,
-            "task_id": self.task_id,
-            "tool_name": self.tool_name,
-            "requires_result": self.requires_result,
-            "error": remote_logging::sanitize_error(&self.error),
-        })
-    }
-}
-
-fn failed_proposal_tool_name(action: &AIAgentAction) -> String {
-    if let Some(tool_name) = action.tool_name.clone() {
-        return tool_name;
-    }
-    #[cfg(not(target_family = "wasm"))]
-    {
-        format!("{:?}", AIAgentActionTypeDiscriminants::from(&action.action))
-    }
-    #[cfg(target_family = "wasm")]
-    {
-        "unknown".to_string()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolQueueDecision {
     Cancelled,
     UnfinishedExchange,
-    BlockedFailedToolProposal,
     BlockedActiveChildAgents,
     NoActions,
-    QueueActionsWithStreamSnapshotFallback,
     QueueActions,
 }
 
@@ -253,29 +216,20 @@ impl ToolQueueDecision {
         match self {
             Self::Cancelled => "cancelled",
             Self::UnfinishedExchange => "unfinished_exchange",
-            Self::BlockedFailedToolProposal => "blocked_failed_tool_proposal",
             Self::BlockedActiveChildAgents => "blocked_active_child_agents",
             Self::NoActions => "no_actions",
-            Self::QueueActionsWithStreamSnapshotFallback => {
-                "queue_actions_with_stream_snapshot_fallback"
-            }
             Self::QueueActions => "queue_actions",
         }
     }
 
     fn will_queue_actions(self) -> bool {
-        matches!(
-            self,
-            Self::QueueActions | Self::QueueActionsWithStreamSnapshotFallback
-        )
+        matches!(self, Self::QueueActions)
     }
 
     #[cfg(not(target_family = "wasm"))]
     fn remote_log_level(self) -> RemoteLogLevel {
         match self {
-            Self::BlockedFailedToolProposal
-            | Self::BlockedActiveChildAgents
-            | Self::QueueActionsWithStreamSnapshotFallback => RemoteLogLevel::Warn,
+            Self::BlockedActiveChildAgents => RemoteLogLevel::Warn,
             Self::Cancelled | Self::UnfinishedExchange | Self::NoActions | Self::QueueActions => {
                 RemoteLogLevel::Info
             }
@@ -286,23 +240,17 @@ impl ToolQueueDecision {
 fn tool_queue_decision(
     has_cancellation: bool,
     has_unfinished_exchange: bool,
-    has_failed_tool_proposal: bool,
     has_active_child_agents: bool,
     candidate_action_count: usize,
-    queued_from_stream_snapshot_count: usize,
 ) -> ToolQueueDecision {
     if has_cancellation {
         ToolQueueDecision::Cancelled
     } else if has_unfinished_exchange {
         ToolQueueDecision::UnfinishedExchange
-    } else if has_failed_tool_proposal {
-        ToolQueueDecision::BlockedFailedToolProposal
     } else if has_active_child_agents {
         ToolQueueDecision::BlockedActiveChildAgents
     } else if candidate_action_count == 0 {
         ToolQueueDecision::NoActions
-    } else if queued_from_stream_snapshot_count > 0 {
-        ToolQueueDecision::QueueActionsWithStreamSnapshotFallback
     } else {
         ToolQueueDecision::QueueActions
     }
@@ -575,6 +523,715 @@ impl RequestInput {
     }
 }
 
+struct ActiveProviderRun {
+    coordinator: ProviderRunCoordinator,
+    projector: ProviderRunResponseProjector,
+    response_config: RuntimeResponseConfig,
+    action_context: ProviderActionContext,
+    messages_sent: Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+    persistence_offset: usize,
+}
+
+impl ActiveProviderRun {
+    fn set_task_id(&mut self, task_id: &TaskId) {
+        let task_id = task_id.to_string();
+        self.projector.set_task_id(task_id.clone());
+        self.response_config.task_id.clone_from(&task_id);
+        self.action_context.set_task_id(task_id);
+    }
+}
+
+const ACTIVE_PROVIDER_RUN_SNAPSHOT_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ProviderProjectionTarget {
+    task_id: TaskId,
+    exchange_id: AIAgentExchangeId,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ProviderCommandMonitorState {
+    run_id: ProviderRunId,
+    originating_work_id: ExternalWorkId,
+    originating_call_id: String,
+    initial_requested_command_action_id: AIAgentActionId,
+    block_id: BlockId,
+    command: String,
+    cli_task_id: TaskId,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct PendingProviderMonitorObservation {
+    block_id: BlockId,
+    cli_task_id: TaskId,
+}
+
+struct RestoredProviderCommandEvidence {
+    conversation_id: Option<AIConversationId>,
+    requested_command_action_id: Option<AIAgentActionId>,
+    cli_task_id: Option<TaskId>,
+    command: String,
+    state: BlockState,
+    output: String,
+    exit_code: i32,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(super) struct PendingProviderCommandCompletion {
+    block_id: BlockId,
+    initial_requested_command_action_id: Option<AIAgentActionId>,
+    command: String,
+    output: String,
+    exit_code: i32,
+}
+
+impl PendingProviderCommandCompletion {
+    pub(super) fn new(
+        block_id: BlockId,
+        initial_requested_command_action_id: Option<AIAgentActionId>,
+        command: String,
+        output: String,
+        exit_code: i32,
+    ) -> Self {
+        Self {
+            block_id,
+            initial_requested_command_action_id,
+            command,
+            output,
+            exit_code,
+        }
+    }
+
+    fn observation(&self) -> MessageContent {
+        let output = if self.output.is_empty() {
+            "(no output)"
+        } else {
+            self.output.as_str()
+        };
+        MessageContent::Text(format!(
+            "The monitored command has finished with exit code {}. Continue the original objective \
+             using this as evidence; a nonzero exit is not automatic run completion.\n\nCommand:\n{}\n\nFinal output:\n{}",
+            self.exit_code, self.command, output
+        ))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ProviderCommandResult {
+    Snapshot {
+        block_id: BlockId,
+        command: Option<String>,
+    },
+    Finished {
+        block_id: BlockId,
+        command: Option<String>,
+        output: String,
+        exit_code: i32,
+    },
+}
+
+struct ActiveProviderRunSlot {
+    stream_id: ResponseStreamId,
+    response_stream: ModelHandle<ResponseStream>,
+    did_input_contain_user_query: bool,
+    run_id: ProviderRunId,
+    root_task_id: TaskId,
+    projection_target: ProviderProjectionTarget,
+    run: Option<ActiveProviderRun>,
+    checkpoint: Option<ActiveProviderRunCheckpoint>,
+    turn_control: Option<TurnCommandSender>,
+    cancellation_reason: Option<CancellationReason>,
+    committed_provider_batch: Option<ExternalWorkId>,
+    command_action_refs: HashMap<AIAgentActionId, ProviderToolExecutionRef>,
+    command_monitor: Option<ProviderCommandMonitorState>,
+    pending_monitor_observation: Option<PendingProviderMonitorObservation>,
+    pending_command_completion: Option<PendingProviderCommandCompletion>,
+    monitor_prose_continuations: usize,
+}
+
+#[derive(Clone)]
+struct ActiveProviderRunCheckpoint {
+    run: ProviderRun,
+    base_request: TurnRequest,
+    cli_monitor_request: Option<TurnRequest>,
+    response_config: RuntimeResponseConfig,
+    action_context: ProviderActionContext,
+    persistence_offset: usize,
+}
+
+struct PreparedRestoredProviderRun {
+    snapshot: ActiveProviderRunSnapshot,
+    profiles: BTreeMap<String, ProviderRunProfile>,
+}
+
+impl ActiveProviderRunCheckpoint {
+    fn from_active_run(run: &ActiveProviderRun) -> Result<Self, String> {
+        let base_request = run
+            .coordinator
+            .profile_request(BASE_PROVIDER_PROFILE)
+            .cloned()
+            .ok_or_else(|| "provider run is missing its base request profile".to_string())?;
+        let cli_monitor_request = run
+            .coordinator
+            .profile_request(CLI_MONITOR_PROVIDER_PROFILE)
+            .cloned();
+        Ok(Self {
+            run: run.coordinator.run().clone(),
+            base_request,
+            cli_monitor_request,
+            response_config: run.response_config.clone(),
+            action_context: run.action_context.clone(),
+            persistence_offset: run.persistence_offset,
+        })
+    }
+
+    fn with_run(&self, run: ProviderRun) -> Self {
+        Self {
+            run,
+            ..self.clone()
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ActiveProviderRunSnapshot {
+    version: u32,
+    run: ProviderRun,
+    base_request: TurnRequest,
+    cli_monitor_request: Option<TurnRequest>,
+    response_config: RuntimeResponseConfig,
+    action_context: ProviderActionContext,
+    projection_target: ProviderProjectionTarget,
+    root_task_id: TaskId,
+    did_input_contain_user_query: bool,
+    persistence_offset: usize,
+    committed_provider_batch: Option<ExternalWorkId>,
+    command_action_refs: HashMap<AIAgentActionId, ProviderToolExecutionRef>,
+    command_monitor: Option<ProviderCommandMonitorState>,
+    pending_monitor_observation: Option<PendingProviderMonitorObservation>,
+    pending_command_completion: Option<PendingProviderCommandCompletion>,
+    monitor_prose_continuations: usize,
+}
+
+impl ActiveProviderRunSnapshot {
+    fn from_slot(slot: &ActiveProviderRunSlot) -> Result<Self, String> {
+        let checkpoint = match slot.run.as_ref() {
+            Some(run) => ActiveProviderRunCheckpoint::from_active_run(run)?,
+            None => slot
+                .checkpoint
+                .clone()
+                .ok_or_else(|| "provider run is not prepared".to_string())?,
+        };
+        Self::from_slot_and_checkpoint(slot, checkpoint)
+    }
+
+    fn from_slot_and_checkpoint(
+        slot: &ActiveProviderRunSlot,
+        checkpoint: ActiveProviderRunCheckpoint,
+    ) -> Result<Self, String> {
+        if checkpoint.run.id() != &slot.run_id {
+            return Err("provider run snapshot identity mismatch".to_string());
+        }
+        Ok(Self {
+            version: ACTIVE_PROVIDER_RUN_SNAPSHOT_VERSION,
+            run: checkpoint.run,
+            base_request: checkpoint.base_request,
+            cli_monitor_request: checkpoint.cli_monitor_request,
+            response_config: checkpoint.response_config,
+            action_context: checkpoint.action_context,
+            projection_target: slot.projection_target.clone(),
+            root_task_id: slot.root_task_id.clone(),
+            did_input_contain_user_query: slot.did_input_contain_user_query,
+            persistence_offset: checkpoint.persistence_offset,
+            committed_provider_batch: slot.committed_provider_batch.clone(),
+            command_action_refs: slot.command_action_refs.clone(),
+            command_monitor: slot.command_monitor.clone(),
+            pending_monitor_observation: slot.pending_monitor_observation.clone(),
+            pending_command_completion: slot.pending_command_completion.clone(),
+            monitor_prose_continuations: slot.monitor_prose_continuations,
+        })
+    }
+
+    fn parse(json: &str) -> Result<Self, String> {
+        let snapshot: Self = serde_json::from_str(json)
+            .map_err(|error| format!("invalid active provider run snapshot: {error}"))?;
+        if snapshot.version != ACTIVE_PROVIDER_RUN_SNAPSHOT_VERSION {
+            return Err(format!(
+                "unsupported active provider run snapshot version {}",
+                snapshot.version
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    fn validate(&self, conversation_id: AIConversationId) -> Result<(), String> {
+        let run_id = self.run.id();
+        if self.persistence_offset > self.run.transcript().len() {
+            return Err("provider run persistence offset exceeds transcript length".to_string());
+        }
+        if self.base_request.model.as_str() != self.response_config.model_id {
+            return Err("provider run base model does not match response projection".to_string());
+        }
+        if self.action_context.task_id() != self.response_config.task_id {
+            return Err("provider run action and response task IDs do not match".to_string());
+        }
+        let current_task_id = self.action_context.task_id();
+        let task_id_is_valid = current_task_id == &*self.root_task_id
+            || current_task_id == &*self.projection_target.task_id
+            || self
+                .command_monitor
+                .as_ref()
+                .is_some_and(|monitor| current_task_id == &*monitor.cli_task_id);
+        if !task_id_is_valid {
+            return Err(
+                "provider run current task is not owned by its projection or monitor".to_string(),
+            );
+        }
+
+        match self.run.profile().as_str() {
+            BASE_PROVIDER_PROFILE => {}
+            CLI_MONITOR_PROVIDER_PROFILE if self.cli_monitor_request.is_some() => {}
+            CLI_MONITOR_PROVIDER_PROFILE => {
+                return Err(
+                    "provider run uses the CLI profile without a persisted request".to_string(),
+                );
+            }
+            profile => {
+                return Err(format!(
+                    "provider run uses unknown request profile '{profile}'"
+                ));
+            }
+        }
+
+        if self.command_monitor.is_some() && self.cli_monitor_request.is_none() {
+            return Err("provider command monitor is missing its CLI request profile".to_string());
+        }
+        if self
+            .committed_provider_batch
+            .as_ref()
+            .is_some_and(|work_id| &work_id.run_id != run_id)
+        {
+            return Err("committed provider batch belongs to a different run".to_string());
+        }
+        for (action_id, execution_ref) in &self.command_action_refs {
+            if execution_ref.conversation_id != conversation_id
+                || &execution_ref.run_id != run_id
+                || execution_ref.call_id != action_id.to_string()
+            {
+                return Err(format!(
+                    "provider command correlation for action {action_id} has invalid identity"
+                ));
+            }
+        }
+
+        match &self.command_monitor {
+            Some(monitor) => {
+                if monitor.run_id != *run_id
+                    || monitor.originating_work_id.run_id != *run_id
+                    || monitor.originating_call_id
+                        != monitor.initial_requested_command_action_id.to_string()
+                {
+                    return Err("provider command monitor has invalid run identity".to_string());
+                }
+                let Some(execution_ref) = self
+                    .command_action_refs
+                    .get(&monitor.initial_requested_command_action_id)
+                else {
+                    return Err(
+                        "provider command monitor is missing its action correlation".to_string()
+                    );
+                };
+                if execution_ref.work_id() != monitor.originating_work_id
+                    || execution_ref.call_id != monitor.originating_call_id
+                {
+                    return Err(
+                        "provider command monitor action correlation does not match".to_string()
+                    );
+                }
+                if self
+                    .pending_monitor_observation
+                    .as_ref()
+                    .is_some_and(|observation| {
+                        observation.block_id != monitor.block_id
+                            || observation.cli_task_id != monitor.cli_task_id
+                    })
+                {
+                    return Err("provider monitor observation does not match its owner".to_string());
+                }
+                if self
+                    .pending_command_completion
+                    .as_ref()
+                    .is_some_and(|completion| {
+                        completion.block_id != monitor.block_id
+                            || completion.initial_requested_command_action_id.as_ref()
+                                != Some(&monitor.initial_requested_command_action_id)
+                    })
+                {
+                    return Err("provider command completion does not match its owner".to_string());
+                }
+            }
+            None => {
+                if self.pending_monitor_observation.is_some()
+                    || self.pending_command_completion.is_some()
+                {
+                    return Err(
+                        "provider command evidence is missing its monitor owner".to_string()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderFinishedActionDisposition {
+    Ignore,
+    AwaitBatchCommit,
+    Resume,
+}
+
+fn normalize_restored_provider_snapshot(
+    snapshot: &mut ActiveProviderRunSnapshot,
+) -> Result<(), String> {
+    let normalization = snapshot
+        .run
+        .normalize_after_restore()
+        .map_err(|error| error.to_string())?;
+    let interrupted_call_ids = normalization
+        .interrupted_call_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    snapshot
+        .command_action_refs
+        .retain(|_, execution_ref| !interrupted_call_ids.contains(execution_ref.call_id.as_str()));
+    if normalization.committed_tool_batch {
+        snapshot.committed_provider_batch = None;
+    }
+    if let Some(committed_work_id) = snapshot.committed_provider_batch.as_ref() {
+        let has_unreconciled_command = snapshot.command_monitor.is_none()
+            && snapshot
+                .command_action_refs
+                .values()
+                .any(|execution_ref| execution_ref.work_id() == *committed_work_id);
+        if has_unreconciled_command {
+            return Err(
+                "restored provider command batch completed without durable terminal evidence"
+                    .to_string(),
+            );
+        }
+        snapshot.committed_provider_batch = None;
+    }
+    Ok(())
+}
+
+fn apply_restored_provider_command_evidence(
+    conversation_id: AIConversationId,
+    snapshot: &mut ActiveProviderRunSnapshot,
+    evidence: RestoredProviderCommandEvidence,
+) -> Result<(), String> {
+    let Some(monitor) = snapshot.command_monitor.as_ref() else {
+        return Ok(());
+    };
+    if evidence.conversation_id != Some(conversation_id)
+        || evidence.requested_command_action_id.as_ref()
+            != Some(&monitor.initial_requested_command_action_id)
+        || evidence.cli_task_id.as_ref() != Some(&monitor.cli_task_id)
+    {
+        return Err("restored provider command block identity does not match".to_string());
+    }
+    if monitor.command.trim().is_empty() || evidence.command != monitor.command {
+        return Err("restored provider command text does not match".to_string());
+    }
+    match evidence.state {
+        BlockState::BeforeExecution | BlockState::Executing => {
+            snapshot.pending_command_completion = None;
+            snapshot.pending_monitor_observation = Some(PendingProviderMonitorObservation {
+                block_id: monitor.block_id.clone(),
+                cli_task_id: monitor.cli_task_id.clone(),
+            });
+        }
+        BlockState::DoneWithExecution | BlockState::DoneWithNoExecution => {
+            snapshot.pending_monitor_observation = None;
+            snapshot.pending_command_completion = Some(PendingProviderCommandCompletion {
+                block_id: monitor.block_id.clone(),
+                initial_requested_command_action_id: Some(
+                    monitor.initial_requested_command_action_id.clone(),
+                ),
+                command: evidence.command,
+                output: evidence.output,
+                exit_code: evidence.exit_code,
+            });
+        }
+        BlockState::Background | BlockState::Static => {
+            return Err("restored provider command block has an invalid state".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn provider_execution_matches_active_work(
+    run_id: &ProviderRunId,
+    active_work_id: Option<&ExternalWorkId>,
+    execution_ref: &ProviderToolExecutionRef,
+) -> bool {
+    &execution_ref.run_id == run_id
+        && active_work_id.is_some_and(|work_id| {
+            work_id.run_id == execution_ref.run_id && work_id.epoch == execution_ref.epoch
+        })
+}
+
+fn provider_finished_action_disposition(
+    run_id: &ProviderRunId,
+    active_work_id: Option<&ExternalWorkId>,
+    committed_work_id: Option<&ExternalWorkId>,
+    execution_ref: &ProviderToolExecutionRef,
+) -> ProviderFinishedActionDisposition {
+    let execution_work_id = execution_ref.work_id();
+    if &execution_ref.run_id != run_id {
+        ProviderFinishedActionDisposition::Ignore
+    } else if committed_work_id == Some(&execution_work_id) {
+        ProviderFinishedActionDisposition::Resume
+    } else if active_work_id == Some(&execution_work_id) {
+        ProviderFinishedActionDisposition::AwaitBatchCommit
+    } else {
+        ProviderFinishedActionDisposition::Ignore
+    }
+}
+
+fn is_provider_command_action(action: &AIAgentActionType) -> bool {
+    matches!(
+        action,
+        AIAgentActionType::RequestCommandOutput { .. }
+            | AIAgentActionType::WriteToLongRunningShellCommand { .. }
+            | AIAgentActionType::ReadShellCommandOutput { .. }
+            | AIAgentActionType::TransferShellCommandControlToUser { .. }
+    )
+}
+
+fn provider_command_completion_matches(
+    slot_run_id: &ProviderRunId,
+    command_action_refs: &HashMap<AIAgentActionId, ProviderToolExecutionRef>,
+    command_monitor: Option<&ProviderCommandMonitorState>,
+    block_id: &BlockId,
+    initial_requested_command_action_id: Option<&AIAgentActionId>,
+) -> bool {
+    if let Some(monitor) = command_monitor {
+        return monitor.run_id == *slot_run_id
+            && monitor.block_id == *block_id
+            && initial_requested_command_action_id
+                .is_none_or(|action_id| monitor.initial_requested_command_action_id == *action_id);
+    }
+
+    initial_requested_command_action_id
+        .and_then(|action_id| command_action_refs.get(action_id))
+        .is_some_and(|execution_ref| execution_ref.run_id == *slot_run_id)
+}
+
+fn reconcile_provider_completion_with_snapshot(
+    completion: Option<&mut PendingProviderCommandCompletion>,
+    block_id: &BlockId,
+    expected_initial_action_id: &AIAgentActionId,
+    snapshot_command: Option<&str>,
+    fallback_command: Option<&str>,
+) -> Result<bool, String> {
+    let Some(completion) = completion else {
+        return Ok(false);
+    };
+    if completion.block_id != *block_id
+        || completion
+            .initial_requested_command_action_id
+            .as_ref()
+            .is_some_and(|action_id| action_id != expected_initial_action_id)
+    {
+        return Err("provider command completion did not match committed snapshot".to_owned());
+    }
+    if completion.command.is_empty() {
+        completion.command = snapshot_command
+            .or(fallback_command)
+            .unwrap_or_default()
+            .to_owned();
+    }
+    Ok(true)
+}
+
+fn classify_provider_command_result(
+    result: &AIAgentActionResultType,
+) -> Option<ProviderCommandResult> {
+    match result {
+        AIAgentActionResultType::RequestCommandOutput(result) => match result {
+            RequestCommandOutputResult::Completed {
+                block_id,
+                command,
+                output,
+                exit_code,
+                ..
+            } => Some(ProviderCommandResult::Finished {
+                block_id: block_id.clone(),
+                command: Some(command.clone()),
+                output: output.clone(),
+                exit_code: exit_code.value(),
+            }),
+            RequestCommandOutputResult::LongRunningCommandSnapshot {
+                block_id, command, ..
+            } => Some(ProviderCommandResult::Snapshot {
+                block_id: block_id.clone(),
+                command: Some(command.clone()),
+            }),
+            RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::Denylisted { .. } => None,
+        },
+        AIAgentActionResultType::WriteToLongRunningShellCommand(result) => match result {
+            WriteToLongRunningShellCommandResult::Snapshot { block_id, .. } => {
+                Some(ProviderCommandResult::Snapshot {
+                    block_id: block_id.clone(),
+                    command: None,
+                })
+            }
+            WriteToLongRunningShellCommandResult::CommandFinished {
+                block_id,
+                output,
+                exit_code,
+                ..
+            } => Some(ProviderCommandResult::Finished {
+                block_id: block_id.clone(),
+                command: None,
+                output: output.clone(),
+                exit_code: exit_code.value(),
+            }),
+            WriteToLongRunningShellCommandResult::Cancelled
+            | WriteToLongRunningShellCommandResult::Error(_) => None,
+        },
+        AIAgentActionResultType::ReadShellCommandOutput(result) => match result {
+            ReadShellCommandOutputResult::LongRunningCommandSnapshot {
+                block_id, command, ..
+            } => Some(ProviderCommandResult::Snapshot {
+                block_id: block_id.clone(),
+                command: Some(command.clone()),
+            }),
+            ReadShellCommandOutputResult::CommandFinished {
+                block_id,
+                command,
+                output,
+                exit_code,
+                ..
+            } => Some(ProviderCommandResult::Finished {
+                block_id: block_id.clone(),
+                command: Some(command.clone()),
+                output: output.clone(),
+                exit_code: exit_code.value(),
+            }),
+            ReadShellCommandOutputResult::Cancelled | ReadShellCommandOutputResult::Error(_) => {
+                None
+            }
+        },
+        AIAgentActionResultType::TransferShellCommandControlToUser(result) => match result {
+            TransferShellCommandControlToUserResult::Snapshot { block_id, .. } => {
+                Some(ProviderCommandResult::Snapshot {
+                    block_id: block_id.clone(),
+                    command: None,
+                })
+            }
+            TransferShellCommandControlToUserResult::CommandFinished {
+                block_id,
+                output,
+                exit_code,
+                ..
+            } => Some(ProviderCommandResult::Finished {
+                block_id: block_id.clone(),
+                command: None,
+                output: output.clone(),
+                exit_code: exit_code.value(),
+            }),
+            TransferShellCommandControlToUserResult::Cancelled
+            | TransferShellCommandControlToUserResult::Error(_) => None,
+        },
+        _ => None,
+    }
+}
+
+const MAX_PROVIDER_MONITOR_PROSE_CONTINUATIONS: usize = 1;
+
+enum ProviderBoundaryDisposition {
+    Advance { completed_block_id: Option<BlockId> },
+    Park,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderBoundaryPhase {
+    Ready,
+    AwaitingDriver,
+    Unsafe,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderBoundaryIntent {
+    ApplyCompletion,
+    ApplyMonitorObservation,
+    RetryMonitor,
+    CompleteRun,
+    Advance,
+    Park,
+}
+
+fn provider_boundary_phase(state: &ProviderRunState) -> ProviderBoundaryPhase {
+    match state {
+        ProviderRunState::ReadyToCallModel => ProviderBoundaryPhase::Ready,
+        ProviderRunState::AwaitingDriver { .. } => ProviderBoundaryPhase::AwaitingDriver,
+        ProviderRunState::AwaitingModel { .. }
+        | ProviderRunState::ResolvingModel { .. }
+        | ProviderRunState::AwaitingTools { .. }
+        | ProviderRunState::Done { .. }
+        | ProviderRunState::Failed { .. }
+        | ProviderRunState::Cancelled { .. } => ProviderBoundaryPhase::Unsafe,
+    }
+}
+
+fn provider_boundary_intent(
+    phase: ProviderBoundaryPhase,
+    has_committed_batch: bool,
+    has_completion: bool,
+    has_monitor_observation: bool,
+    is_cli_profile: bool,
+    has_monitor: bool,
+    monitor_prose_continuations: usize,
+) -> ProviderBoundaryIntent {
+    if has_committed_batch || phase == ProviderBoundaryPhase::Unsafe {
+        return ProviderBoundaryIntent::Park;
+    }
+    if has_completion {
+        return ProviderBoundaryIntent::ApplyCompletion;
+    }
+    if has_monitor_observation {
+        return ProviderBoundaryIntent::ApplyMonitorObservation;
+    }
+    match phase {
+        ProviderBoundaryPhase::Ready => ProviderBoundaryIntent::Advance,
+        ProviderBoundaryPhase::AwaitingDriver if is_cli_profile && has_monitor => {
+            if monitor_prose_continuations < MAX_PROVIDER_MONITOR_PROSE_CONTINUATIONS {
+                ProviderBoundaryIntent::RetryMonitor
+            } else {
+                ProviderBoundaryIntent::Park
+            }
+        }
+        ProviderBoundaryPhase::AwaitingDriver => ProviderBoundaryIntent::CompleteRun,
+        ProviderBoundaryPhase::Unsafe => ProviderBoundaryIntent::Park,
+    }
+}
+
+enum ProviderDriveMessage {
+    Response(warp_multi_agent_api::ResponseEvent),
+    Checkpoint {
+        checkpoint: ActiveProviderRunCheckpoint,
+        acknowledgement: oneshot::Sender<Result<(), String>>,
+    },
+    Blocked {
+        run: ActiveProviderRun,
+        result: Result<ProviderRunBlock, String>,
+    },
+}
+
 /// Controller for Blocklist AI.
 ///
 /// This is responsible for managing and updating blocklist AI state for a single terminal surface.
@@ -586,6 +1243,8 @@ pub struct BlocklistAIController {
     terminal_model: Arc<FairMutex<TerminalModel>>,
 
     in_flight_response_streams: PendingResponseStreams,
+    active_provider_runs: HashMap<AIConversationId, ActiveProviderRunSlot>,
+    restoring_provider_runs: HashSet<AIConversationId>,
 
     /// The ID of the terminal surface this controller is associated with.
     terminal_surface_id: EntityId,
@@ -603,9 +1262,6 @@ pub struct BlocklistAIController {
     /// Set by the agent driver based on the workspace directory (e.g. `{working_dir}/.warp-core/attachments`).
     attachments_download_dir: Option<std::path::PathBuf>,
 
-    /// Pending auto-resume tasks that are waiting for network connectivity.
-    /// These should be cancelled when a new request is sent for the same conversation.
-    pending_auto_resume_handles: HashMap<AIConversationId, SpawnedFutureHandle>,
     /// Pending dormant Claude wake preparations for success-idle child conversations.
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     pending_local_claude_wakes: HashMap<AIConversationId, SpawnedFutureHandle>,
@@ -614,15 +1270,8 @@ pub struct BlocklistAIController {
     /// Conversations with finished action results that should not be drained
     /// until active child agents in their orchestration subtree finish.
     pending_child_blocked_follow_ups: HashSet<AIConversationId>,
-    /// Tool proposals that arrived in a provider stream but failed to attach to
-    /// conversation history. If a proposal cannot be attached, executing it via
-    /// the stream snapshot fallback would create orphaned tool history.
-    failed_tool_proposals_by_stream: HashMap<ResponseStreamId, Vec<FailedToolProposal>>,
-
     /// Per-conversation loop detection state for preventing recursive tool failures.
     loop_detection: HashMap<AIConversationId, ToolLoopGuard>,
-    /// Per-conversation error retry count for injecting corrective messages on failure.
-    error_retry_counts: HashMap<AIConversationId, usize>,
     /// Passive suggestion results that should be included with the next request
     /// for a given conversation (e.g. accepted/iterated code diffs that weren't
     /// auto-resumed).
@@ -835,14 +1484,28 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) -> Self {
         ctx.subscribe_to_model(&action_model, move |me, _, event, ctx| {
+            if let BlocklistAIActionEvent::ToolLifecycle {
+                execution_ref: Some(execution_ref),
+                event,
+                ..
+            } = event
+            {
+                me.handle_provider_tool_lifecycle(execution_ref, event, ctx);
+                return;
+            }
             let BlocklistAIActionEvent::FinishedAction {
                 conversation_id,
                 cancellation_reason,
+                execution_ref,
                 ..
             } = event
             else {
                 return;
             };
+            if let Some(execution_ref) = execution_ref {
+                me.handle_provider_actions_finished(*conversation_id, execution_ref, ctx);
+                return;
+            }
             // `FinalizedExternally` (e.g. shell exit) means the conversation status and message
             // is set elsewhere through a dedicated path, so we must not trigger a follow-up or update conversation status here.
             let cancellation_outcome =
@@ -962,27 +1625,52 @@ impl BlocklistAIController {
         });
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
-        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| {
-            let BlocklistAIHistoryEvent::UpdatedConversationStatus {
+        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| match event {
+            BlocklistAIHistoryEvent::RestoredConversations {
+                terminal_surface_id,
+                conversation_ids,
+            } if *terminal_surface_id == me.terminal_surface_id => {
+                me.schedule_restored_provider_runs(conversation_ids, ctx);
+            }
+            BlocklistAIHistoryEvent::UpdatedConversationStatus {
                 terminal_surface_id,
                 new_status,
                 ..
-            } = event
-            else {
-                return;
-            };
-            if *terminal_surface_id != me.terminal_surface_id || !new_status.is_done() {
-                return;
+            } if *terminal_surface_id == me.terminal_surface_id && new_status.is_done() => {
+                let pending_parents = me
+                    .pending_child_blocked_follow_ups
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>();
+                for parent_id in pending_parents {
+                    me.maybe_resume_child_blocked_follow_up(parent_id, ctx);
+                }
             }
-
-            let pending_parents = me
-                .pending_child_blocked_follow_ups
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            for parent_id in pending_parents {
-                me.maybe_resume_child_blocked_follow_up(parent_id, ctx);
-            }
+            BlocklistAIHistoryEvent::StartedNewConversation { .. }
+            | BlocklistAIHistoryEvent::CreatedSubtask { .. }
+            | BlocklistAIHistoryEvent::UpgradedTask { .. }
+            | BlocklistAIHistoryEvent::AppendedExchange { .. }
+            | BlocklistAIHistoryEvent::ReassignedExchange { .. }
+            | BlocklistAIHistoryEvent::UpdatedStreamingExchange { .. }
+            | BlocklistAIHistoryEvent::UpdatedConversationStatus { .. }
+            | BlocklistAIHistoryEvent::SetActiveConversation { .. }
+            | BlocklistAIHistoryEvent::ClearedActiveConversation { .. }
+            | BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface { .. }
+            | BlocklistAIHistoryEvent::UpdatedTodoList { .. }
+            | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. }
+            | BlocklistAIHistoryEvent::SplitConversation { .. }
+            | BlocklistAIHistoryEvent::RemoveConversation { .. }
+            | BlocklistAIHistoryEvent::DeletedConversation { .. }
+            | BlocklistAIHistoryEvent::RestoredConversations { .. }
+            | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
+            | BlocklistAIHistoryEvent::UpdatedConversationTitle { .. }
+            | BlocklistAIHistoryEvent::UpdatedConversationArtifacts { .. }
+            | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
+            | BlocklistAIHistoryEvent::ConversationTransferredBetweenTerminalSurfaces { .. }
+            | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
+            | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
+            | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. }
+            | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. } => {}
         });
 
         ctx.subscribe_to_model(&conversation_selection, |me, _, event, ctx| {
@@ -1051,19 +1739,18 @@ impl BlocklistAIController {
             active_session,
             terminal_model,
             in_flight_response_streams: PendingResponseStreams::new(),
+            active_provider_runs: HashMap::new(),
+            restoring_provider_runs: HashSet::new(),
             terminal_surface_id,
             should_refresh_available_llms_on_stream_finish: false,
             shared_session_state: shared_session::SharedSessionState::default(),
             ambient_agent_task_id: None,
             attachments_download_dir: None,
-            pending_auto_resume_handles: HashMap::new(),
             pending_local_claude_wakes: HashMap::new(),
             pending_passive_follow_ups: HashSet::new(),
             pending_child_blocked_follow_ups: HashSet::new(),
-            failed_tool_proposals_by_stream: HashMap::new(),
             pending_passive_suggestion_results: HashMap::new(),
             loop_detection: HashMap::new(),
-            error_retry_counts: HashMap::new(),
             crosscheck_reviewer,
         }
     }
@@ -1369,7 +2056,6 @@ impl BlocklistAIController {
                 entrypoint: entrypoint_type,
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ true,
             is_queued_prompt,
             ctx,
         );
@@ -1659,7 +2345,6 @@ impl BlocklistAIController {
                 entrypoint: EntrypointType::AgentInitiated,
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ false,
             /*is_queued_prompt*/ false,
             ctx,
         )
@@ -1759,8 +2444,8 @@ impl BlocklistAIController {
     }
 
     /// Nudges a CLI monitor that ended a turn without proposing a polling action. The running
-    /// command is attached through normal long-running-command detection so Rig and the legacy
-    /// provider path both receive the monitor-specific prompt and tool set.
+    /// command is attached through normal long-running-command detection so the provider run
+    /// receives the monitor-specific prompt and tool set.
     pub fn send_cli_monitor_nudge(
         &mut self,
         conversation_id: AIConversationId,
@@ -1795,9 +2480,8 @@ impl BlocklistAIController {
         queued_query_id: Option<QueuedQueryId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        // User sending a new query resets loop detection and error retry state — fresh context.
+        // User sending a new query resets loop detection for the fresh context.
         self.loop_detection.remove(&conversation_id);
-        self.error_retry_counts.remove(&conversation_id);
         // Reset any in-flight crosscheck review for this conversation.
         self.crosscheck_reviewer.update(ctx, |reviewer, _| {
             reviewer.reset_review(conversation_id);
@@ -2328,13 +3012,8 @@ impl BlocklistAIController {
                 .extend(event_inputs);
         }
 
-        let result = self.send_request_input(
-            request_input,
-            None,
-            /*can_attempt_resume_on_error*/ true,
-            /*is_queued_prompt*/ false,
-            ctx,
-        );
+        let result =
+            self.send_request_input(request_input, None, /*is_queued_prompt*/ false, ctx);
 
         if has_piggybacked_events && result.is_err() {
             OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
@@ -2452,8 +3131,7 @@ impl BlocklistAIController {
                  Failing action: {}\n\n\
                  Take a completely different approach to accomplish the goal. \
                  If you cannot find an alternative, explain to the user what is failing and why.",
-                looping_entry.threshold,
-                looping_entry.description
+                looping_entry.threshold, looping_entry.description
             );
             Some(warning)
         } else {
@@ -2717,7 +3395,6 @@ impl BlocklistAIController {
                     ctx,
                 ),
                 None,
-                /*can_attempt_resume_on_error*/ true,
                 /*is_queued_prompt*/ false,
                 ctx,
             )
@@ -2779,8 +3456,6 @@ impl BlocklistAIController {
     pub fn resume_conversation(
         &mut self,
         conversation_id: AIConversationId,
-        can_attempt_resume_on_error: bool,
-        is_auto_resume_after_error: bool,
         additional_context: Vec<AIAgentContext>,
         ctx: &mut ModelContext<Self>,
     ) {
@@ -2817,15 +3492,6 @@ impl BlocklistAIController {
         );
 
         let inputs = vec![AIAgentInput::ResumeConversation { context }];
-        let metadata = if is_auto_resume_after_error {
-            Some(RequestMetadata {
-                is_autodetected_user_query: false,
-                entrypoint: EntrypointType::ResumeConversation,
-                is_auto_resume_after_error: true,
-            })
-        } else {
-            None
-        };
         let _ = self.send_request_input(
             RequestInput::for_task(
                 inputs,
@@ -2836,16 +3502,12 @@ impl BlocklistAIController {
                 self.terminal_surface_id,
                 ctx,
             ),
-            metadata,
-            can_attempt_resume_on_error,
+            None,
             /*is_queued_prompt*/ false,
             ctx,
         );
     }
 
-    /// Schedules an auto-resume-after-error for the conversation once the network is online
-    /// and the auto-handoff sleep modal is closed, so the resume doesn't race the user's
-    /// enable/dismiss decision on wake.
     /// Handles the completion of a crosscheck review cycle.
     ///
     /// If the reviewer provided feedback, it is injected as a synthetic user
@@ -2932,7 +3594,6 @@ impl BlocklistAIController {
                 ctx,
             ),
             None,
-            /*can_attempt_resume_on_error*/ false,
             /*is_queued_prompt*/ false,
             ctx,
         );
@@ -2983,7 +3644,6 @@ impl BlocklistAIController {
                 entrypoint: EntrypointType::AgentInitiated,
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ false,
             /*is_queued_prompt*/ false,
             ctx,
         ) {
@@ -3109,38 +3769,6 @@ impl BlocklistAIController {
             .join("\n\n")
     }
 
-    fn schedule_auto_resume_after_error(
-        &mut self,
-        conversation_id: AIConversationId,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let wait_for_online = NetworkStatus::as_ref(ctx).wait_until_online();
-        let wait_for_modal_closed =
-            OneTimeModalModel::as_ref(ctx).wait_until_auto_handoff_sleep_modal_closed();
-        let wait = async move {
-            wait_for_online.await;
-            // Await the modal second: the future reads live modal state at
-            // poll time, so a modal surfaced on wake (after connectivity
-            // returns) is still observed.
-            wait_for_modal_closed.await;
-        };
-        let handle = ctx.spawn(wait, move |me, _, ctx| {
-            // Clean up the pending handle now that the resume is executing.
-            me.pending_auto_resume_handles.remove(&conversation_id);
-            me.resume_conversation(
-                conversation_id,
-                // Don't allow a second resume-on-error to prevent a persistent loop.
-                /*can_attempt_resume_on_error*/
-                false,
-                /*is_auto_resume_after_error*/ true,
-                vec![],
-                ctx,
-            );
-        });
-        self.pending_auto_resume_handles
-            .insert(conversation_id, handle);
-    }
-
     pub fn send_passive_code_diff_request(
         &mut self,
         query: String,
@@ -3182,7 +3810,6 @@ impl BlocklistAIController {
                 },
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ true,
             /*is_queued_prompt*/ false,
             ctx,
         )
@@ -3223,8 +3850,8 @@ impl BlocklistAIController {
         {
             let Some(conversation) = history_model.conversation(&conversation_id) else {
                 return Err(anyhow!(
-                        "Tried to build passive suggestions request params for non-existent conversation with ID {conversation_id:?}"
-                    ));
+                    "Tried to build passive suggestions request params for non-existent conversation with ID {conversation_id:?}"
+                ));
             };
             let task_id = conversation.get_root_task_id().clone();
             let conversation_data = api::ConversationData {
@@ -3260,8 +3887,8 @@ impl BlocklistAIController {
             (conversation_id, task_id, conversation_data)
         } else {
             return Err(anyhow!(
-                    "Tried to use agent response completed trigger to generate passive suggestions without a conversation ID"
-                ));
+                "Tried to use agent response completed trigger to generate passive suggestions without a conversation ID"
+            ));
         };
 
         let inputs = vec![AIAgentInput::TriggerPassiveSuggestion {
@@ -3345,7 +3972,6 @@ impl BlocklistAIController {
                 },
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ true,
             /*is_queued_prompt*/ false,
             ctx,
         )
@@ -3414,7 +4040,6 @@ impl BlocklistAIController {
         &mut self,
         mut request_input: RequestInput,
         query_metadata: Option<RequestMetadata>,
-        can_attempt_resume_on_error: bool,
         is_queued_prompt: bool,
         ctx: &mut ModelContext<Self>,
     ) -> anyhow::Result<(AIConversationId, ResponseStreamId)> {
@@ -3469,21 +4094,9 @@ impl BlocklistAIController {
             request_input.computer_use_model_id = acp_model_id;
         }
 
-        // Cancel any pending auto-resume for this conversation, since the user is sending a new
-        // request.
-        if let Some(handle) = self
-            .pending_auto_resume_handles
-            .remove(&request_input.conversation_id)
-        {
-            handle.abort();
-        }
-
-        // Passive background requests never auto-resume: a resume would issue a fresh
-        // turn on a conversation the user never sees.
         let is_passive_request = request_input
             .all_inputs()
             .any(|input| input.is_passive_request());
-        let can_attempt_resume_on_error = can_attempt_resume_on_error && !is_passive_request;
 
         // Make sure there's no existing response stream for the conversation. If
         // there is, something has gone wrong.
@@ -3595,6 +4208,15 @@ impl BlocklistAIController {
         }
         let server_conversation_token_for_identifiers =
             conversation_data.server_conversation_token.clone();
+        let provider_configs = matches!(&agent_backend, AgentBackend::Provider).then(|| {
+            (
+                ResponseStream::resolve_provider_config(request_params.model.as_str(), ctx),
+                ResponseStream::resolve_provider_config(
+                    request_params.cli_agent_model.as_str(),
+                    ctx,
+                ),
+            )
+        });
 
         let response_stream = ctx.add_model(|ctx| {
             // Create AIIdentifiers for the response stream
@@ -3605,13 +4227,16 @@ impl BlocklistAIController {
                 client_exchange_id: None,
                 model_id: Some(request_params.model.clone()),
             };
-            ResponseStream::new(
-                request_params.clone(),
-                ai_identifiers,
-                agent_backend.clone(),
-                can_attempt_resume_on_error,
-                ctx,
-            )
+            if provider_configs.is_some() {
+                ResponseStream::new_provider_projection(request_params.clone(), ai_identifiers, ctx)
+            } else {
+                ResponseStream::new(
+                    request_params.clone(),
+                    ai_identifiers,
+                    agent_backend.clone(),
+                    ctx,
+                )
+            }
         });
         let response_stream_id = response_stream.as_ref(ctx).id().clone();
         let response_stream_clone = response_stream.clone();
@@ -3662,15 +4287,77 @@ impl BlocklistAIController {
             }
         });
 
+        let provider_projection_target = if provider_configs.is_some() {
+            let (task_id, exchange_id) = history_model
+                .as_ref(ctx)
+                .conversation(&conversation_data.id)
+                .and_then(|conversation| {
+                    conversation.provider_projection_target(&response_stream_id)
+                })
+                .ok_or_else(|| {
+                    anyhow!(
+                        "direct-provider response stream does not have exactly one projection target"
+                    )
+                })?;
+            Some(ProviderProjectionTarget {
+                task_id,
+                exchange_id,
+            })
+        } else {
+            None
+        };
         self.in_flight_response_streams.register_new_stream(
             response_stream_id.clone(),
             conversation_data.id,
-            response_stream,
+            response_stream.clone(),
             CancellationReason::FollowUpSubmitted {
                 is_for_same_conversation: true,
             },
             ctx,
         );
+        if let Some((base_provider_config, cli_provider_config)) = provider_configs {
+            let provider_run_id = ProviderRunId::new(format!(
+                "{}:{}",
+                conversation_data.id,
+                response_stream_id.as_str()
+            ));
+            let root_task_id = history_model
+                .as_ref(ctx)
+                .conversation(&conversation_data.id)
+                .expect("conversation exists while starting provider run")
+                .get_root_task_id()
+                .clone();
+            self.active_provider_runs.insert(
+                conversation_data.id,
+                ActiveProviderRunSlot {
+                    stream_id: response_stream_id.clone(),
+                    response_stream,
+                    did_input_contain_user_query: input_contains_user_query,
+                    run_id: provider_run_id,
+                    root_task_id,
+                    projection_target: provider_projection_target
+                        .expect("provider projection target was validated"),
+                    run: None,
+                    checkpoint: None,
+                    turn_control: None,
+                    cancellation_reason: None,
+                    committed_provider_batch: None,
+                    command_action_refs: HashMap::new(),
+                    command_monitor: None,
+                    pending_monitor_observation: None,
+                    pending_command_completion: None,
+                    monitor_prose_continuations: 0,
+                },
+            );
+            self.prepare_active_provider_run(
+                conversation_data.id,
+                response_stream_id.clone(),
+                base_provider_config,
+                cli_provider_config,
+                request_params.clone(),
+                ctx,
+            );
+        }
 
         // Skip the context reset for a fired queued-prompt row (`is_queued_prompt`): its
         // attachments came from the row, not the live staging, so the live `pending_attachments`
@@ -3717,6 +4404,1549 @@ impl BlocklistAIController {
         Ok((conversation_data.id, response_stream_id))
     }
 
+    fn schedule_restored_provider_runs(
+        &mut self,
+        conversation_ids: &[AIConversationId],
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let conversation_ids = conversation_ids
+            .iter()
+            .copied()
+            .filter(|conversation_id| {
+                !self.active_provider_runs.contains_key(conversation_id)
+                    && !self.restoring_provider_runs.contains(conversation_id)
+                    && history_model
+                        .as_ref(ctx)
+                        .conversation(conversation_id)
+                        .is_some_and(|conversation| {
+                            conversation.active_provider_run_json().is_some()
+                        })
+            })
+            .collect::<Vec<_>>();
+        if conversation_ids.is_empty() {
+            return;
+        }
+        self.restoring_provider_runs
+            .extend(conversation_ids.iter().copied());
+
+        // RestoredConversations is emitted before terminal views finish rebuilding their blocks.
+        let _ = ctx.spawn(async {}, move |me, _, ctx| {
+            for conversation_id in conversation_ids {
+                me.restore_active_provider_run(conversation_id, ctx);
+            }
+        });
+    }
+
+    fn restore_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if self.active_provider_runs.contains_key(&conversation_id) {
+            self.restoring_provider_runs.remove(&conversation_id);
+            return;
+        }
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let Some(snapshot_json) = history_model
+            .as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(AIConversation::active_provider_run_json)
+            .map(str::to_owned)
+        else {
+            self.restoring_provider_runs.remove(&conversation_id);
+            return;
+        };
+        let mut snapshot = match ActiveProviderRunSnapshot::parse(&snapshot_json) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+        };
+        if let Err(error) = snapshot.validate(conversation_id) {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        let history_validation = history_model
+            .as_ref(ctx)
+            .conversation(&conversation_id)
+            .ok_or_else(|| "restored provider conversation is missing".to_string())
+            .and_then(|conversation| {
+                if conversation.agent_backend() != &AgentBackend::Provider {
+                    return Err(
+                        "restored provider run belongs to a non-provider conversation".to_string(),
+                    );
+                }
+                if conversation.get_root_task_id() != &snapshot.root_task_id {
+                    return Err(
+                        "restored provider run root task does not match history".to_string()
+                    );
+                }
+                let Some(task) = conversation.get_task(&snapshot.projection_target.task_id) else {
+                    return Err("restored provider projection task is missing".to_string());
+                };
+                if !task
+                    .exchanges()
+                    .any(|exchange| exchange.id == snapshot.projection_target.exchange_id)
+                {
+                    return Err(
+                        "restored provider projection exchange is missing from its task"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            });
+        if let Err(error) = history_validation {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+
+        if let Err(error) = normalize_restored_provider_snapshot(&mut snapshot) {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        if let Err(error) = self.reconcile_restored_provider_command(conversation_id, &mut snapshot)
+        {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        if let Err(error) = snapshot.validate(conversation_id) {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        if let Err(error) = self.persist_provider_run_snapshot(conversation_id, &snapshot, ctx) {
+            self.fail_restored_provider_run(conversation_id, error, ctx);
+            return;
+        }
+
+        let base_provider_config =
+            ResponseStream::resolve_provider_config(snapshot.base_request.model.as_str(), ctx);
+        let cli_provider_config = snapshot
+            .cli_monitor_request
+            .as_ref()
+            .map(|request| ResponseStream::resolve_provider_config(request.model.as_str(), ctx));
+        let _ = ctx.spawn(
+            async move {
+                let base_runtime =
+                    provider_runtime_for_request(base_provider_config, &snapshot.base_request)
+                        .await?;
+                let mut profiles = BTreeMap::new();
+                profiles.insert(
+                    BASE_PROVIDER_PROFILE.to_string(),
+                    ProviderRunProfile::new(base_runtime, snapshot.base_request.clone()),
+                );
+                if let Some(cli_monitor_request) = snapshot.cli_monitor_request.as_ref() {
+                    let cli_provider_config = cli_provider_config.ok_or_else(|| {
+                        anyhow!("restored CLI provider request is missing its provider config")
+                    })?;
+                    let cli_runtime =
+                        provider_runtime_for_request(cli_provider_config, cli_monitor_request)
+                            .await?;
+                    profiles.insert(
+                        CLI_MONITOR_PROVIDER_PROFILE.to_string(),
+                        ProviderRunProfile::new(cli_runtime, cli_monitor_request.clone()),
+                    );
+                }
+                Ok::<_, anyhow::Error>(PreparedRestoredProviderRun { snapshot, profiles })
+            },
+            move |me, result, ctx| {
+                me.handle_prepared_restored_provider_run(conversation_id, result, ctx);
+            },
+        );
+    }
+
+    fn reconcile_restored_provider_command(
+        &self,
+        conversation_id: AIConversationId,
+        snapshot: &mut ActiveProviderRunSnapshot,
+    ) -> Result<(), String> {
+        let Some(monitor) = snapshot.command_monitor.as_ref() else {
+            return Ok(());
+        };
+        let evidence = {
+            let terminal_model = self.terminal_model.lock();
+            let block = terminal_model
+                .block_list()
+                .block_with_id(&monitor.block_id)
+                .ok_or_else(|| "restored provider command block is missing".to_string())?;
+            RestoredProviderCommandEvidence {
+                conversation_id: block.ai_conversation_id(),
+                requested_command_action_id: block.requested_command_action_id().cloned(),
+                cli_task_id: block.cli_subagent_task_id().cloned(),
+                command: block.command_to_string(),
+                state: block.state(),
+                output: block.output_to_string(),
+                exit_code: block.exit_code().value(),
+            }
+        };
+        apply_restored_provider_command_evidence(conversation_id, snapshot, evidence)
+    }
+
+    fn persist_provider_run_snapshot(
+        &self,
+        conversation_id: AIConversationId,
+        snapshot: &ActiveProviderRunSnapshot,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        let json = serde_json::to_string(snapshot)
+            .map_err(|error| format!("failed to serialize restored provider run: {error}"))?;
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model
+                .persist_active_provider_run_json(conversation_id, Some(json), ctx)
+                .map_err(|error| format!("failed to persist restored provider run: {error:?}"))
+        })
+    }
+
+    fn handle_prepared_restored_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        result: anyhow::Result<PreparedRestoredProviderRun>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if !self.restoring_provider_runs.contains(&conversation_id)
+            || self.active_provider_runs.contains_key(&conversation_id)
+        {
+            self.restoring_provider_runs.remove(&conversation_id);
+            return;
+        }
+        let PreparedRestoredProviderRun { snapshot, profiles } = match result {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
+                return;
+            }
+        };
+        let ActiveProviderRunSnapshot {
+            version: _,
+            run: provider_run,
+            base_request: _,
+            cli_monitor_request: _,
+            response_config,
+            action_context,
+            projection_target,
+            root_task_id,
+            did_input_contain_user_query,
+            persistence_offset,
+            committed_provider_batch,
+            command_action_refs,
+            command_monitor,
+            pending_monitor_observation,
+            pending_command_completion,
+            monitor_prose_continuations,
+        } = snapshot;
+        let run_id = provider_run.id().clone();
+        let transcript = provider_run.transcript();
+        let offset = persistence_offset.min(transcript.len());
+        let messages_sent = Arc::new(std::sync::Mutex::new(transcript[offset..].to_vec()));
+        let coordinator = match ProviderRunCoordinator::new(provider_run, profiles) {
+            Ok(coordinator) => coordinator,
+            Err(error) => {
+                self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
+                return;
+            }
+        };
+        let model = LLMId::from(response_config.model_id.as_str());
+        let ai_identifiers = AIIdentifiers {
+            client_conversation_id: Some(conversation_id),
+            model_id: Some(model.clone()),
+            ..AIIdentifiers::default()
+        };
+        let response_stream = ctx.add_model(|ctx| {
+            ResponseStream::new_restored_provider_projection(
+                model,
+                messages_sent.clone(),
+                ai_identifiers,
+                ctx,
+            )
+        });
+        let stream_id = response_stream.as_ref(ctx).id().clone();
+        let response_stream_clone = response_stream.clone();
+        ctx.subscribe_to_model(&response_stream, move |me, _, event, ctx| {
+            me.handle_response_stream_event(
+                did_input_contain_user_query,
+                event,
+                &response_stream_clone,
+                ctx,
+            );
+        });
+        let rebind_result =
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                history_model.rebind_provider_projection(
+                    conversation_id,
+                    &projection_target.task_id,
+                    projection_target.exchange_id,
+                    stream_id.clone(),
+                    self.terminal_surface_id,
+                    ctx,
+                )
+            });
+        if let Err(error) = rebind_result {
+            ctx.unsubscribe_from_model(&response_stream);
+            self.fail_restored_provider_run(
+                conversation_id,
+                format!("failed to rebind restored provider projection: {error:?}"),
+                ctx,
+            );
+            return;
+        }
+
+        self.in_flight_response_streams.register_new_stream(
+            stream_id.clone(),
+            conversation_id,
+            response_stream.clone(),
+            CancellationReason::FollowUpSubmitted {
+                is_for_same_conversation: true,
+            },
+            ctx,
+        );
+        self.active_provider_runs.insert(
+            conversation_id,
+            ActiveProviderRunSlot {
+                stream_id,
+                response_stream,
+                did_input_contain_user_query,
+                run_id,
+                root_task_id,
+                projection_target,
+                run: Some(ActiveProviderRun {
+                    coordinator,
+                    projector: ProviderRunResponseProjector::restored(response_config.clone()),
+                    response_config,
+                    action_context,
+                    messages_sent,
+                    persistence_offset,
+                }),
+                checkpoint: None,
+                turn_control: None,
+                cancellation_reason: None,
+                committed_provider_batch,
+                command_action_refs,
+                command_monitor,
+                pending_monitor_observation,
+                pending_command_completion,
+                monitor_prose_continuations,
+            },
+        );
+        self.restoring_provider_runs.remove(&conversation_id);
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.update_conversation_status(
+                self.terminal_surface_id,
+                conversation_id,
+                ConversationStatus::InProgress,
+                ctx,
+            );
+        });
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        self.resume_restored_provider_run(conversation_id, ctx);
+    }
+
+    fn resume_restored_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let should_advance_boundary = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.run.as_ref())
+            .is_some_and(|run| {
+                matches!(
+                    run.coordinator.run().state(),
+                    ProviderRunState::ReadyToCallModel | ProviderRunState::AwaitingDriver { .. }
+                )
+            });
+        if !should_advance_boundary {
+            self.drive_active_provider_run(conversation_id, ctx);
+            return;
+        }
+
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        let Some(mut run) = slot.run.take() else {
+            return;
+        };
+        let boundary = match Self::advance_provider_at_safe_boundary(slot, &mut run) {
+            Ok(boundary) => boundary,
+            Err(error) => {
+                let message = format!("failed to resume restored provider run: {error}");
+                let _ = run
+                    .coordinator
+                    .run_mut()
+                    .fail(ProviderRunFailureKind::Restore, message);
+                ProviderBoundaryDisposition::Advance {
+                    completed_block_id: None,
+                }
+            }
+        };
+        slot.run = Some(run);
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        match boundary {
+            ProviderBoundaryDisposition::Advance { completed_block_id } => {
+                if let Some(block_id) = completed_block_id {
+                    self.deactivate_provider_cli_task(conversation_id, &block_id, ctx);
+                }
+                self.drive_active_provider_run(conversation_id, ctx);
+            }
+            ProviderBoundaryDisposition::Park => {}
+        }
+    }
+
+    fn fail_restored_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.restoring_provider_runs.remove(&conversation_id);
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.update_conversation_status_with_error(
+                self.terminal_surface_id,
+                conversation_id,
+                ConversationStatus::Error,
+                Some(RenderableAIError::Other {
+                    error_message: format!("Failed to restore active provider run: {message}"),
+                    will_attempt_resume: false,
+                    waiting_for_network: false,
+                    is_user_error: false,
+                }),
+                ctx,
+            );
+        });
+        // Clearing the snapshot writes the conversation after its error status has been updated.
+        if let Err(error) = self.clear_persisted_active_provider_run(conversation_id, ctx) {
+            log::error!("Failed to clear unrestorable provider run: {error}");
+        }
+    }
+
+    fn prepare_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: ResponseStreamId,
+        base_provider_config: crate::ai::provider::ProviderConfig,
+        cli_provider_config: crate::ai::provider::ProviderConfig,
+        request_params: api::RequestParams,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let _ = ctx.spawn(
+            async move {
+                prepare_provider_run(base_provider_config, cli_provider_config, request_params)
+                    .await
+            },
+            move |me, result, ctx| {
+                me.handle_prepared_provider_run(conversation_id, stream_id, result, ctx);
+            },
+        );
+    }
+
+    fn handle_prepared_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: ResponseStreamId,
+        result: anyhow::Result<PreparedProviderRun>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(slot) = self.active_provider_runs.get(&conversation_id) else {
+            return;
+        };
+        if slot.stream_id != stream_id {
+            return;
+        }
+        let provider_run_id = slot.run_id.clone();
+        let prepared = match result {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                return;
+            }
+        };
+        let PreparedProviderRun {
+            base_profile,
+            cli_monitor_profile,
+            tool_result_archive,
+            messages_sent,
+            persistence_offset,
+            response_config,
+            action_context,
+        } = prepared;
+        let mut coordinator = match ProviderRunCoordinator::from_request(
+            provider_run_id,
+            base_profile.runtime,
+            base_profile.request,
+            tool_result_archive,
+            ProviderRunLimits::default(),
+        ) {
+            Ok(coordinator) => coordinator,
+            Err(error) => {
+                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                return;
+            }
+        };
+        if let Some(profile) = cli_monitor_profile {
+            if let Err(error) = coordinator.insert_profile(
+                CLI_MONITOR_PROVIDER_PROFILE,
+                profile.runtime,
+                profile.request,
+            ) {
+                self.fail_provider_startup(conversation_id, stream_id, error.to_string(), ctx);
+                return;
+            }
+        }
+        let cancellation_reason = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.cancellation_reason);
+        let mut run = ActiveProviderRun {
+            coordinator,
+            projector: ProviderRunResponseProjector::new(response_config.clone()),
+            response_config,
+            action_context,
+            messages_sent,
+            persistence_offset,
+        };
+        if let Some(reason) = cancellation_reason {
+            if let Err(error) = run.coordinator.run_mut().cancel(reason.to_string()) {
+                log::error!("Failed to cancel provider run during startup: {error}");
+            }
+        }
+        if let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) {
+            slot.run = Some(run);
+        }
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        self.drive_active_provider_run(conversation_id, ctx);
+    }
+
+    fn persist_active_provider_run(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        let slot = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .ok_or_else(|| "active provider run disappeared before persistence".to_string())?;
+        let snapshot = ActiveProviderRunSnapshot::from_slot(slot)?;
+        let json = serde_json::to_string(&snapshot)
+            .map_err(|error| format!("failed to serialize active provider run: {error}"))?;
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model
+                .persist_active_provider_run_json(conversation_id, Some(json), ctx)
+                .map_err(|error| format!("failed to persist active provider run: {error:?}"))
+        })
+    }
+
+    fn clear_persisted_active_provider_run(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model
+                .persist_active_provider_run_json(conversation_id, None, ctx)
+                .map_err(|error| format!("failed to clear active provider run: {error:?}"))
+        })
+    }
+
+    fn drive_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        let Some(mut run) = slot.run.take() else {
+            return;
+        };
+        let checkpoint_template = match ActiveProviderRunCheckpoint::from_active_run(&run) {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                slot.run = Some(run);
+                self.fail_active_provider_run(conversation_id, error, ctx);
+                return;
+            }
+        };
+        slot.checkpoint = Some(checkpoint_template.clone());
+        let stream_id = slot.stream_id.clone();
+        let (turn_control_sender, turn_control) = turn_control();
+        if slot.cancellation_reason.is_some() {
+            let _ = turn_control_sender.try_send(TurnCommand::Cancel);
+        }
+        slot.turn_control = Some(turn_control_sender);
+
+        let (sender, receiver) = async_channel::unbounded();
+        ctx.spawn_stream_local(
+            receiver,
+            move |me, message, ctx| {
+                me.handle_provider_drive_message(conversation_id, &stream_id, message, ctx);
+            },
+            |_, _| {},
+        );
+        let _ = ctx.spawn(
+            async move {
+                let projection_sender = sender.clone();
+                let checkpoint_sender = sender.clone();
+                let result = run
+                    .coordinator
+                    .drive_until_blocked_with_checkpoint(
+                        turn_control,
+                        |projection| {
+                            for event in run.projector.project(projection)? {
+                                projection_sender
+                                    .try_send(ProviderDriveMessage::Response(event))
+                                    .map_err(|_| {
+                                        "provider response projection receiver was closed"
+                                            .to_string()
+                                    })?;
+                            }
+                            Ok(())
+                        },
+                        move |provider_run| {
+                            let checkpoint_sender = checkpoint_sender.clone();
+                            let checkpoint = checkpoint_template.with_run(provider_run);
+                            Box::pin(async move {
+                                let (acknowledgement, receiver) = oneshot::channel();
+                                checkpoint_sender
+                                    .send(ProviderDriveMessage::Checkpoint {
+                                        checkpoint,
+                                        acknowledgement,
+                                    })
+                                    .await
+                                    .map_err(|_| {
+                                        "provider checkpoint receiver was closed".to_string()
+                                    })?;
+                                receiver.await.map_err(|_| {
+                                    "provider checkpoint acknowledgement was dropped".to_string()
+                                })?
+                            })
+                        },
+                    )
+                    .await
+                    .map_err(|error| error.to_string());
+                let _ = sender
+                    .send(ProviderDriveMessage::Blocked { run, result })
+                    .await;
+            },
+            |_, _, _| {},
+        );
+    }
+
+    fn handle_provider_drive_message(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: &ResponseStreamId,
+        message: ProviderDriveMessage,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(slot) = self.active_provider_runs.get(&conversation_id) else {
+            return;
+        };
+        if &slot.stream_id != stream_id {
+            return;
+        }
+        match message {
+            ProviderDriveMessage::Response(event) => {
+                let response_stream = slot.response_stream.clone();
+                let did_input_contain_user_query = slot.did_input_contain_user_query;
+                let event = ResponseStream::projected_event(event);
+                self.handle_response_stream_event(
+                    did_input_contain_user_query,
+                    &event,
+                    &response_stream,
+                    ctx,
+                );
+            }
+            ProviderDriveMessage::Checkpoint {
+                checkpoint,
+                acknowledgement,
+            } => {
+                let result = match self.active_provider_runs.get_mut(&conversation_id) {
+                    Some(slot) if checkpoint.run.id() == &slot.run_id => {
+                        slot.checkpoint = Some(checkpoint);
+                        self.persist_active_provider_run(conversation_id, ctx)
+                    }
+                    Some(_) => Err("provider checkpoint run identity did not match".to_string()),
+                    None => Err("provider run disappeared before checkpoint".to_string()),
+                };
+                let _ = acknowledgement.send(result);
+            }
+            ProviderDriveMessage::Blocked { run, result } => {
+                self.handle_provider_run_blocked(conversation_id, run, result, ctx);
+            }
+        }
+    }
+
+    fn advance_provider_at_safe_boundary(
+        slot: &mut ActiveProviderRunSlot,
+        run: &mut ActiveProviderRun,
+    ) -> Result<ProviderBoundaryDisposition, String> {
+        let state = run.coordinator.run().state();
+        let phase = provider_boundary_phase(state);
+        let intent = provider_boundary_intent(
+            phase,
+            slot.committed_provider_batch.is_some(),
+            slot.pending_command_completion.is_some(),
+            slot.pending_monitor_observation.is_some(),
+            run.coordinator.run().profile().as_str() == CLI_MONITOR_PROVIDER_PROFILE,
+            slot.command_monitor.is_some(),
+            slot.monitor_prose_continuations,
+        );
+        if intent == ProviderBoundaryIntent::Park {
+            return Ok(ProviderBoundaryDisposition::Park);
+        }
+        if intent == ProviderBoundaryIntent::Advance {
+            return Ok(ProviderBoundaryDisposition::Advance {
+                completed_block_id: None,
+            });
+        }
+
+        let ready_work_id = run.coordinator.run().ready_work_id();
+        let awaiting_driver_work_id = match state {
+            ProviderRunState::AwaitingDriver { work_id, .. } => Some(work_id.clone()),
+            ProviderRunState::ReadyToCallModel
+            | ProviderRunState::AwaitingModel { .. }
+            | ProviderRunState::ResolvingModel { .. }
+            | ProviderRunState::AwaitingTools { .. }
+            | ProviderRunState::Done { .. }
+            | ProviderRunState::Failed { .. }
+            | ProviderRunState::Cancelled { .. } => None,
+        };
+
+        if intent == ProviderBoundaryIntent::ApplyCompletion {
+            let completion = slot
+                .pending_command_completion
+                .take()
+                .expect("boundary intent checked completion mailbox");
+            let Some(work_id) = ready_work_id.as_ref().or(awaiting_driver_work_id.as_ref()) else {
+                slot.pending_command_completion = Some(completion);
+                return Ok(ProviderBoundaryDisposition::Park);
+            };
+            let completed_block_id = completion.block_id.clone();
+            if let Some(monitor) = slot.command_monitor.as_ref() {
+                log::debug!(
+                    "Completing provider command monitor run={:?} work={:?} call={} block={:?}",
+                    monitor.run_id,
+                    monitor.originating_work_id,
+                    monitor.originating_call_id,
+                    monitor.block_id
+                );
+            }
+            run.set_task_id(&slot.root_task_id);
+            let observation = completion.observation();
+            if ready_work_id.is_some() {
+                run.coordinator
+                    .run_mut()
+                    .continue_ready_with_observation(work_id, observation, BASE_PROVIDER_PROFILE)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                run.coordinator
+                    .run_mut()
+                    .continue_with_observation(work_id, observation, BASE_PROVIDER_PROFILE)
+                    .map_err(|error| error.to_string())?;
+            }
+            if let Some(action_id) = completion.initial_requested_command_action_id.as_ref() {
+                slot.command_action_refs.remove(action_id);
+            }
+            slot.command_monitor = None;
+            slot.pending_monitor_observation = None;
+            slot.monitor_prose_continuations = 0;
+            return Ok(ProviderBoundaryDisposition::Advance {
+                completed_block_id: Some(completed_block_id),
+            });
+        }
+
+        if intent == ProviderBoundaryIntent::ApplyMonitorObservation {
+            let observation = slot
+                .pending_monitor_observation
+                .take()
+                .expect("boundary intent checked monitor mailbox");
+            let work_id = ready_work_id
+                .as_ref()
+                .or(awaiting_driver_work_id.as_ref())
+                .expect("ready boundary must have work identity");
+            let Some(monitor) = slot
+                .command_monitor
+                .as_ref()
+                .filter(|monitor| monitor.block_id == observation.block_id)
+            else {
+                return Err("provider command monitor observation lost its owner".to_string());
+            };
+            run.set_task_id(&observation.cli_task_id);
+            let message = MessageContent::Text(format!(
+                "The command is still running. Continue monitoring block {:?} with the CLI tools \
+                 and do not claim completion until final command evidence is available.\n\nCommand:\n{}",
+                monitor.block_id, monitor.command
+            ));
+            if ready_work_id.is_some() {
+                run.coordinator
+                    .run_mut()
+                    .continue_ready_with_observation(work_id, message, CLI_MONITOR_PROVIDER_PROFILE)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                run.coordinator
+                    .run_mut()
+                    .continue_with_observation(work_id, message, CLI_MONITOR_PROVIDER_PROFILE)
+                    .map_err(|error| error.to_string())?;
+            }
+            slot.monitor_prose_continuations = 0;
+            return Ok(ProviderBoundaryDisposition::Advance {
+                completed_block_id: None,
+            });
+        }
+
+        let work_id = awaiting_driver_work_id.expect("driver boundary must have work identity");
+        if intent == ProviderBoundaryIntent::RetryMonitor {
+            let monitor = slot
+                .command_monitor
+                .as_ref()
+                .expect("boundary intent checked monitor");
+            run.set_task_id(&monitor.cli_task_id);
+            run.coordinator
+                .run_mut()
+                .continue_with_observation(
+                    &work_id,
+                    MessageContent::Text(format!(
+                        "The command in block {:?} is still active. Poll it now with a CLI tool; \
+                         do not respond with only an acknowledgement.",
+                        monitor.block_id
+                    )),
+                    CLI_MONITOR_PROVIDER_PROFILE,
+                )
+                .map_err(|error| error.to_string())?;
+            slot.monitor_prose_continuations += 1;
+            return Ok(ProviderBoundaryDisposition::Advance {
+                completed_block_id: None,
+            });
+        }
+
+        run.coordinator
+            .run_mut()
+            .complete(&work_id)
+            .map_err(|error| error.to_string())?;
+        Ok(ProviderBoundaryDisposition::Advance {
+            completed_block_id: None,
+        })
+    }
+
+    fn handle_provider_run_blocked(
+        &mut self,
+        conversation_id: AIConversationId,
+        mut run: ActiveProviderRun,
+        result: Result<ProviderRunBlock, String>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        slot.turn_control = None;
+        let cancellation_reason = slot.cancellation_reason;
+        if let Some(reason) = cancellation_reason {
+            if !run.coordinator.run().is_terminal() {
+                let _ = run.coordinator.run_mut().cancel(reason.to_string());
+            }
+            slot.run = Some(run);
+            if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                log::error!("Failed to persist cancelled provider run: {error}");
+            }
+            self.drive_active_provider_run(conversation_id, ctx);
+            return;
+        }
+        let block = match result {
+            Ok(block) => block,
+            Err(message) => {
+                if let Err(error) = run
+                    .coordinator
+                    .run_mut()
+                    .fail(ProviderRunFailureKind::ExternalWork, message)
+                {
+                    log::error!("Failed to record provider driver failure: {error}");
+                }
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    log::error!("Failed to persist failed provider run: {error}");
+                }
+                self.drive_active_provider_run(conversation_id, ctx);
+                return;
+            }
+        };
+        match block {
+            ProviderRunBlock::Tools(batch) => {
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!("failed to persist provider tool batch: {error}"),
+                        ctx,
+                    );
+                    return;
+                }
+                self.queue_provider_tool_batch(conversation_id, batch, ctx);
+            }
+            ProviderRunBlock::AwaitingDriver { .. } => {
+                let disposition = match Self::advance_provider_at_safe_boundary(slot, &mut run) {
+                    Ok(disposition) => disposition,
+                    Err(error) => {
+                        let message = format!("failed to advance provider run: {error}");
+                        let _ = run
+                            .coordinator
+                            .run_mut()
+                            .fail(ProviderRunFailureKind::Protocol, message);
+                        ProviderBoundaryDisposition::Advance {
+                            completed_block_id: None,
+                        }
+                    }
+                };
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!("failed to persist provider driver transition: {error}"),
+                        ctx,
+                    );
+                    return;
+                }
+                match disposition {
+                    ProviderBoundaryDisposition::Advance { completed_block_id } => {
+                        if let Some(block_id) = completed_block_id {
+                            self.deactivate_provider_cli_task(conversation_id, &block_id, ctx);
+                        }
+                        self.drive_active_provider_run(conversation_id, ctx);
+                    }
+                    ProviderBoundaryDisposition::Park => {}
+                }
+            }
+            ProviderRunBlock::Done(outcome) => {
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    log::error!("Failed to persist terminal provider run: {error}");
+                }
+                let run = self
+                    .active_provider_runs
+                    .get_mut(&conversation_id)
+                    .and_then(|slot| slot.run.take())
+                    .expect("terminal provider run was just restored to its slot");
+                self.finish_active_provider_run(conversation_id, run, outcome, ctx);
+            }
+        }
+    }
+
+    fn queue_provider_tool_batch(
+        &mut self,
+        conversation_id: AIConversationId,
+        batch: PendingToolBatch,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let conversion = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.run.as_ref())
+            .map(|run| {
+                batch
+                    .calls
+                    .iter()
+                    .filter(|pending| pending.state.result().is_none())
+                    .map(|pending| run.action_context.action_from_tool_call(&pending.call))
+                    .collect::<Result<Vec<_>, _>>()
+            });
+        let actions = match conversion {
+            Some(Ok(actions)) => actions,
+            Some(Err(message)) => {
+                self.fail_active_provider_run(conversation_id, message, ctx);
+                return;
+            }
+            None => return,
+        };
+        let stream_id = self.active_provider_runs[&conversation_id]
+            .stream_id
+            .clone();
+        for action in &actions {
+            let apply_result =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    history_model.apply_domain_tool_proposal(
+                        &stream_id,
+                        conversation_id,
+                        self.terminal_surface_id,
+                        action.clone(),
+                        ctx,
+                    )
+                });
+            if let Err(error) = apply_result {
+                self.fail_active_provider_run(
+                    conversation_id,
+                    format!("failed to attach provider tool proposal: {error:?}"),
+                    ctx,
+                );
+                return;
+            }
+        }
+        if let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) {
+            slot.command_action_refs.extend(
+                actions
+                    .iter()
+                    .filter(|action| is_provider_command_action(&action.action))
+                    .map(|action| {
+                        (
+                            action.id.clone(),
+                            ProviderToolExecutionRef::new(
+                                conversation_id,
+                                &batch.work_id,
+                                action.id.to_string(),
+                            ),
+                        )
+                    }),
+            );
+        }
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!("failed to persist queued provider actions: {error}"),
+                ctx,
+            );
+            return;
+        }
+        let queue_result = self.action_model.update(ctx, |action_model, ctx| {
+            action_model.queue_provider_actions(actions, conversation_id, &batch, ctx)
+        });
+        if let Err(error) = queue_result {
+            self.fail_active_provider_run(conversation_id, error.to_string(), ctx);
+        }
+    }
+
+    fn handle_provider_tool_lifecycle(
+        &mut self,
+        execution_ref: &ProviderToolExecutionRef,
+        event: &galaxy_agent_core::ToolEvent,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let conversation_id = execution_ref.conversation_id;
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        if slot.cancellation_reason.is_some() {
+            return;
+        }
+        let Some(run) = slot.run.as_mut() else {
+            return;
+        };
+        if !provider_execution_matches_active_work(
+            run.coordinator.run().id(),
+            run.coordinator.run().active_work_id(),
+            execution_ref,
+        ) {
+            return;
+        }
+        let should_drive = match run.coordinator.apply_tool_lifecycle(execution_ref, event) {
+            Ok(ProviderToolLifecycleOutcome::Pending) => false,
+            Ok(ProviderToolLifecycleOutcome::BatchCommitted) => {
+                slot.committed_provider_batch = Some(execution_ref.work_id());
+                false
+            }
+            Err(error) => {
+                let message = format!("invalid provider tool lifecycle: {error}");
+                if let Err(fail_error) = run
+                    .coordinator
+                    .run_mut()
+                    .fail(ProviderRunFailureKind::Protocol, message)
+                {
+                    log::error!("Failed to record provider tool lifecycle failure: {fail_error}");
+                }
+                true
+            }
+        };
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!("failed to persist provider tool lifecycle: {error}"),
+                ctx,
+            );
+            return;
+        }
+        if should_drive {
+            self.drive_active_provider_run(conversation_id, ctx);
+        }
+    }
+
+    fn handle_provider_command_action_results(
+        &mut self,
+        conversation_id: AIConversationId,
+        work_id: &ExternalWorkId,
+        results: &[Arc<AIAgentActionResult>],
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        for result in results {
+            let Some(command_result) = classify_provider_command_result(&result.result) else {
+                continue;
+            };
+            let Some(action_ref) = self
+                .active_provider_runs
+                .get(&conversation_id)
+                .and_then(|slot| slot.command_action_refs.get(&result.id))
+                .cloned()
+            else {
+                continue;
+            };
+            if action_ref.work_id() != *work_id {
+                continue;
+            }
+
+            match command_result {
+                ProviderCommandResult::Snapshot { block_id, command } => {
+                    let completion_already_pending = {
+                        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                            return Ok(());
+                        };
+                        let existing_monitor = slot
+                            .command_monitor
+                            .as_ref()
+                            .filter(|monitor| monitor.block_id == block_id);
+                        let expected_initial_action_id = existing_monitor
+                            .map(|monitor| monitor.initial_requested_command_action_id.clone())
+                            .unwrap_or_else(|| result.id.clone());
+                        let fallback_command =
+                            existing_monitor.map(|monitor| monitor.command.clone());
+                        reconcile_provider_completion_with_snapshot(
+                            slot.pending_command_completion.as_mut(),
+                            &block_id,
+                            &expected_initial_action_id,
+                            command.as_deref(),
+                            fallback_command.as_deref(),
+                        )?
+                    };
+                    if completion_already_pending {
+                        continue;
+                    }
+                    let cli_task_id =
+                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                            history_model.create_cli_subagent_task_for_conversation(
+                                block_id.clone(),
+                                conversation_id,
+                                self.terminal_surface_id,
+                                ctx,
+                            )
+                        });
+                    let cli_task_id = cli_task_id.map_err(|error| {
+                        format!(
+                            "failed to create provider CLI task for block {block_id:?}: {error:?}"
+                        )
+                    })?;
+                    let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                        return Ok(());
+                    };
+                    if slot.run_id != action_ref.run_id
+                        || slot.committed_provider_batch.as_ref() != Some(work_id)
+                    {
+                        continue;
+                    }
+                    let existing_monitor = slot
+                        .command_monitor
+                        .as_ref()
+                        .filter(|monitor| monitor.block_id == block_id);
+                    let initial_requested_command_action_id = existing_monitor
+                        .map(|monitor| monitor.initial_requested_command_action_id.clone())
+                        .unwrap_or_else(|| result.id.clone());
+                    let command = command
+                        .or_else(|| existing_monitor.map(|monitor| monitor.command.clone()))
+                        .unwrap_or_default();
+                    slot.command_monitor = Some(ProviderCommandMonitorState {
+                        run_id: slot.run_id.clone(),
+                        originating_work_id: work_id.clone(),
+                        originating_call_id: result.id.to_string(),
+                        initial_requested_command_action_id,
+                        block_id: block_id.clone(),
+                        command,
+                        cli_task_id: cli_task_id.clone(),
+                    });
+                    slot.pending_monitor_observation = Some(PendingProviderMonitorObservation {
+                        block_id,
+                        cli_task_id,
+                    });
+                }
+                ProviderCommandResult::Finished {
+                    block_id,
+                    command,
+                    output,
+                    exit_code,
+                } => {
+                    let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                        return Ok(());
+                    };
+                    let Some(monitor) = slot
+                        .command_monitor
+                        .as_ref()
+                        .filter(|monitor| monitor.block_id == block_id)
+                    else {
+                        continue;
+                    };
+                    if slot.pending_command_completion.is_none() {
+                        slot.pending_command_completion = Some(PendingProviderCommandCompletion {
+                            block_id,
+                            initial_requested_command_action_id: Some(
+                                monitor.initial_requested_command_action_id.clone(),
+                            ),
+                            command: command.unwrap_or_else(|| monitor.command.clone()),
+                            output,
+                            exit_code,
+                        });
+                    }
+                }
+            }
+        }
+        if let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) {
+            let retained_action_ids = [
+                slot.command_monitor
+                    .as_ref()
+                    .map(|monitor| monitor.initial_requested_command_action_id.clone()),
+                slot.pending_command_completion
+                    .as_ref()
+                    .and_then(|completion| completion.initial_requested_command_action_id.clone()),
+            ];
+            slot.command_action_refs.retain(|action_id, execution_ref| {
+                execution_ref.work_id() != *work_id
+                    || retained_action_ids
+                        .iter()
+                        .flatten()
+                        .any(|retained| retained == action_id)
+            });
+        }
+        self.persist_active_provider_run(conversation_id, ctx)?;
+        Ok(())
+    }
+
+    fn deactivate_provider_cli_task(
+        &mut self,
+        conversation_id: AIConversationId,
+        block_id: &BlockId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let result = BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
+            history_model.deactivate_cli_subagent_task_for_conversation(block_id, conversation_id)
+        });
+        if let Err(error) = result {
+            log::error!("Failed to deactivate provider CLI task for block {block_id:?}: {error:?}");
+        }
+    }
+
+    fn handle_provider_actions_finished(
+        &mut self,
+        conversation_id: AIConversationId,
+        execution_ref: &ProviderToolExecutionRef,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let disposition = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| {
+                let run = slot.run.as_ref()?;
+                Some(provider_finished_action_disposition(
+                    run.coordinator.run().id(),
+                    run.coordinator.run().active_work_id(),
+                    slot.committed_provider_batch.as_ref(),
+                    execution_ref,
+                ))
+            })
+            .unwrap_or(ProviderFinishedActionDisposition::Ignore);
+        if disposition == ProviderFinishedActionDisposition::AwaitBatchCommit {
+            return;
+        }
+        let work_id = execution_ref.work_id();
+        let results = (disposition == ProviderFinishedActionDisposition::Resume).then(|| {
+            self.action_model
+                .as_ref(ctx)
+                .provider_finished_action_results(conversation_id, &work_id)
+        });
+        let command_result = results.as_deref().map(|results| {
+            self.handle_provider_command_action_results(conversation_id, &work_id, results, ctx)
+        });
+        self.action_model.update(ctx, |action_model, _| {
+            action_model.archive_provider_finished_action_results(conversation_id, &work_id);
+        });
+        if let Some(Err(error)) = command_result {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
+        if disposition != ProviderFinishedActionDisposition::Resume {
+            return;
+        }
+
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        slot.committed_provider_batch = None;
+        let Some(mut run) = slot.run.take() else {
+            return;
+        };
+        let boundary = match Self::advance_provider_at_safe_boundary(slot, &mut run) {
+            Ok(boundary) => boundary,
+            Err(error) => {
+                let message = format!("failed to resume provider tool batch: {error}");
+                let _ = run
+                    .coordinator
+                    .run_mut()
+                    .fail(ProviderRunFailureKind::Protocol, message);
+                ProviderBoundaryDisposition::Advance {
+                    completed_block_id: None,
+                }
+            }
+        };
+        slot.run = Some(run);
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!("failed to persist provider batch continuation: {error}"),
+                ctx,
+            );
+            return;
+        }
+        match boundary {
+            ProviderBoundaryDisposition::Advance { completed_block_id } => {
+                if let Some(block_id) = completed_block_id {
+                    self.deactivate_provider_cli_task(conversation_id, &block_id, ctx);
+                }
+                self.drive_active_provider_run(conversation_id, ctx);
+            }
+            ProviderBoundaryDisposition::Park => {}
+        }
+    }
+
+    fn fail_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return;
+        };
+        let Some(run) = slot.run.as_mut() else {
+            return;
+        };
+        if let Err(error) = run
+            .coordinator
+            .run_mut()
+            .fail(ProviderRunFailureKind::Protocol, message)
+        {
+            log::error!("Failed to terminate provider run: {error}");
+        }
+        self.drive_active_provider_run(conversation_id, ctx);
+    }
+
+    fn finish_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        mut run: ActiveProviderRun,
+        outcome: ProviderRunOutcome,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if let Ok(mut messages_sent) = run.messages_sent.lock() {
+            let transcript = run.coordinator.run().transcript();
+            let offset = run.persistence_offset.min(transcript.len());
+            *messages_sent = transcript[offset..].to_vec();
+        }
+        let events = match run.projector.finish(&outcome) {
+            Ok(events) => events,
+            Err(message) => {
+                self.fail_provider_startup(
+                    conversation_id,
+                    self.active_provider_runs[&conversation_id]
+                        .stream_id
+                        .clone(),
+                    format!("failed to finish provider response projection: {message}"),
+                    ctx,
+                );
+                return;
+            }
+        };
+        let Some(slot) = self.active_provider_runs.get(&conversation_id) else {
+            return;
+        };
+        let stream_id = slot.stream_id.clone();
+        let response_stream = slot.response_stream.clone();
+        let did_input_contain_user_query = slot.did_input_contain_user_query;
+        for event in events {
+            let event = ResponseStream::projected_event(event);
+            self.handle_response_stream_event(
+                did_input_contain_user_query,
+                &event,
+                &response_stream,
+                ctx,
+            );
+        }
+        if matches!(outcome, ProviderRunOutcome::Cancelled { .. }) {
+            let cancellation_reason =
+                self.active_provider_runs[&conversation_id].cancellation_reason;
+            if let Some(reason) = cancellation_reason {
+                let status = match reason.conversation_outcome() {
+                    CancellationOutcome::KeepInProgress => ConversationStatus::InProgress,
+                    CancellationOutcome::Succeeded => ConversationStatus::Success,
+                    CancellationOutcome::Cancelled => ConversationStatus::Cancelled,
+                    CancellationOutcome::FinalizedExternally => {
+                        self.cleanup_active_provider_run(
+                            conversation_id,
+                            &stream_id,
+                            &response_stream,
+                            ctx,
+                        );
+                        return;
+                    }
+                };
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    history_model.update_conversation_status(
+                        self.terminal_surface_id,
+                        conversation_id,
+                        status,
+                        ctx,
+                    );
+                });
+            }
+        }
+        self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
+    }
+
+    fn fail_provider_startup(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: ResponseStreamId,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let response_stream = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .filter(|slot| slot.stream_id == stream_id)
+            .map(|slot| slot.response_stream.clone());
+        let Some(response_stream) = response_stream else {
+            return;
+        };
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.mark_response_stream_completed_with_error(
+                RenderableAIError::Other {
+                    error_message: message,
+                    will_attempt_resume: false,
+                    waiting_for_network: false,
+                    is_user_error: false,
+                },
+                false,
+                &stream_id,
+                conversation_id,
+                self.terminal_surface_id,
+                ctx,
+            );
+        });
+        self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
+    }
+
+    fn cleanup_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        stream_id: &ResponseStreamId,
+        response_stream: &ModelHandle<ResponseStream>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if let Err(error) = self.clear_persisted_active_provider_run(conversation_id, ctx) {
+            log::error!("Failed to clear persisted provider run during cleanup: {error}");
+        }
+        self.active_provider_runs.remove(&conversation_id);
+        self.restoring_provider_runs.remove(&conversation_id);
+        self.in_flight_response_streams.cleanup_stream(stream_id);
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
+            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                conversation.cleanup_completed_response_stream(stream_id);
+            }
+        });
+        ctx.unsubscribe_from_model(response_stream);
+        ctx.emit(BlocklistAIControllerEvent::FinishedReceivingOutput {
+            stream_id: stream_id.clone(),
+            conversation_id,
+        });
+        AIRequestUsageModel::handle(ctx).update(ctx, |request_usage_model, ctx| {
+            request_usage_model.refresh_request_usage_async(ctx);
+        });
+        self.maybe_refresh_ai_overages(ctx);
+    }
+
+    fn cancel_active_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        reason: CancellationReason,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let Some(mut slot) = self.active_provider_runs.remove(&conversation_id) else {
+            return false;
+        };
+        slot.cancellation_reason = Some(reason);
+        if let Some(turn_control) = &slot.turn_control {
+            let _ = turn_control.try_send(TurnCommand::Cancel);
+        }
+        if let Some(mut run) = slot.run.take() {
+            if !run.coordinator.run().is_terminal() {
+                let _ = run.coordinator.run_mut().cancel(reason.to_string());
+            }
+            if let Ok(mut messages_sent) = run.messages_sent.lock() {
+                let transcript = run.coordinator.run().transcript();
+                let offset = run.persistence_offset.min(transcript.len());
+                *messages_sent = transcript[offset..].to_vec();
+            }
+        }
+
+        self.action_model.update(ctx, |action_model, ctx| {
+            action_model.cancel_all_pending_actions(conversation_id, Some(reason), ctx);
+        });
+
+        let cancellation_outcome = reason.conversation_outcome();
+        if FeatureFlag::AgentSharedSessions.is_enabled()
+            && !matches!(cancellation_outcome, CancellationOutcome::KeepInProgress)
+        {
+            self.send_cancellation_to_viewers(ctx);
+        }
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.mark_response_stream_cancelled(
+                &slot.stream_id,
+                conversation_id,
+                self.terminal_surface_id,
+                reason,
+                ctx,
+            );
+        });
+        if matches!(cancellation_outcome, CancellationOutcome::Cancelled) {
+            self.set_input_mode_for_cancellation(ctx);
+        }
+
+        self.cleanup_active_provider_run(
+            conversation_id,
+            &slot.stream_id,
+            &slot.response_stream,
+            ctx,
+        );
+        true
+    }
+
+    fn cancel_active_provider_run_for_stream(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        reason: CancellationReason,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let conversation_id =
+            self.active_provider_runs
+                .iter()
+                .find_map(|(conversation_id, slot)| {
+                    (&slot.stream_id == stream_id).then_some(*conversation_id)
+                });
+        conversation_id.is_some_and(|conversation_id| {
+            self.cancel_active_provider_run(conversation_id, reason, ctx)
+        })
+    }
+
     /// Cancels a pending AI request response stream, given the exchange ID, if it exists.
     /// Returns true if a pending stream was found and canceled, false otherwise.
     pub fn try_cancel_pending_response_stream(
@@ -3725,8 +5955,103 @@ impl BlocklistAIController {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
-        self.in_flight_response_streams
-            .try_cancel_stream(stream_id, reason, ctx)
+        self.cancel_active_provider_run_for_stream(stream_id, reason, ctx)
+            || self
+                .in_flight_response_streams
+                .try_cancel_stream(stream_id, reason, ctx)
+    }
+
+    pub(super) fn has_active_provider_run(&self, conversation_id: AIConversationId) -> bool {
+        self.active_provider_runs.contains_key(&conversation_id)
+    }
+
+    pub(super) fn accept_provider_command_completion(
+        &mut self,
+        conversation_id: AIConversationId,
+        mut completion: PendingProviderCommandCompletion,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        let should_wake = {
+            let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+                return false;
+            };
+            if !provider_command_completion_matches(
+                &slot.run_id,
+                &slot.command_action_refs,
+                slot.command_monitor.as_ref(),
+                &completion.block_id,
+                completion.initial_requested_command_action_id.as_ref(),
+            ) {
+                return false;
+            }
+
+            if completion.command.is_empty() {
+                completion.command = slot
+                    .command_monitor
+                    .as_ref()
+                    .map(|monitor| monitor.command.clone())
+                    .unwrap_or_default();
+            }
+            slot.pending_command_completion = Some(completion);
+            slot.committed_provider_batch.is_none()
+                && slot.run.as_ref().is_some_and(|run| {
+                    matches!(
+                        run.coordinator.run().state(),
+                        ProviderRunState::ReadyToCallModel
+                            | ProviderRunState::AwaitingDriver { .. }
+                    )
+                })
+        };
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!("failed to persist provider command completion: {error}"),
+                ctx,
+            );
+            return true;
+        }
+        if !should_wake {
+            return true;
+        }
+
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
+            return true;
+        };
+        let Some(mut run) = slot.run.take() else {
+            return true;
+        };
+        let boundary = match Self::advance_provider_at_safe_boundary(slot, &mut run) {
+            Ok(boundary) => boundary,
+            Err(error) => {
+                let message = format!("failed to apply provider command completion: {error}");
+                let _ = run
+                    .coordinator
+                    .run_mut()
+                    .fail(ProviderRunFailureKind::Protocol, message);
+                ProviderBoundaryDisposition::Advance {
+                    completed_block_id: None,
+                }
+            }
+        };
+        slot.run = Some(run);
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            self.fail_active_provider_run(
+                conversation_id,
+                format!("failed to persist provider command boundary: {error}"),
+                ctx,
+            );
+            return true;
+        }
+        match boundary {
+            ProviderBoundaryDisposition::Advance { completed_block_id } => {
+                if let Some(block_id) = completed_block_id {
+                    self.deactivate_provider_cli_task(conversation_id, &block_id, ctx);
+                }
+                self.drive_active_provider_run(conversation_id, ctx);
+            }
+            ProviderBoundaryDisposition::Park => {}
+        }
+        true
     }
 
     pub fn has_active_stream_for_conversation(
@@ -3768,25 +6093,18 @@ impl BlocklistAIController {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Cancel any pending auto-resume for this conversation.
-        if let Some(handle) = self.pending_auto_resume_handles.remove(&conversation_id) {
-            handle.abort();
-        }
-
         // Discard any queued passive suggestion results for this conversation.
         self.pending_passive_suggestion_results
             .remove(&conversation_id);
 
-        if !self
-            .in_flight_response_streams
-            .try_cancel_streams_for_conversation(conversation_id, reason, ctx)
+        let cancelled_provider = self.cancel_active_provider_run(conversation_id, reason, ctx);
+        if !cancelled_provider
+            && !self
+                .in_flight_response_streams
+                .try_cancel_streams_for_conversation(conversation_id, reason, ctx)
         {
             // No active stream whose cancellation would mark the conversation `Cancelled`.
-            // A parked auto-resume was aborted above; nothing else will move the
-            // conversation out of TransientError, so surface the cancellation directly.
-            //
-            // TODO(REMOTE-1950): Track the parked auto-resume as a first-class cancelable so its
-            // cancellation flows through the same `AfterStreamFinished` path, dropping this special case.
+            // Surface cancellation directly when the conversation is parked in a transient error.
             if matches!(
                 reason.conversation_outcome(),
                 CancellationOutcome::Cancelled
@@ -3947,8 +6265,10 @@ impl BlocklistAIController {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
-        self.in_flight_response_streams
-            .try_cancel_stream(response_stream_id, reason, ctx)
+        self.cancel_active_provider_run_for_stream(response_stream_id, reason, ctx)
+            || self
+                .in_flight_response_streams
+                .try_cancel_stream(response_stream_id, reason, ctx)
     }
 
     fn handle_response_stream_event(
@@ -3978,58 +6298,6 @@ impl BlocklistAIController {
                 };
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match event {
-                    Ok(api::StreamEvent::ToolProposed(action)) => {
-                        #[cfg(not(target_family = "wasm"))]
-                        let action_log_context = (
-                            action.id.to_string(),
-                            action.task_id.to_string(),
-                            remote_action_tool_name(&action),
-                            action.requires_result,
-                        );
-                        let failed_proposal = FailedToolProposal::new(&action, String::new());
-                        let apply_result = history_model.update(ctx, |history_model, ctx| {
-                            history_model.apply_domain_tool_proposal(
-                                &stream_id,
-                                conversation_id,
-                                self.terminal_surface_id,
-                                action,
-                                ctx,
-                            )
-                        });
-                        if let Err(error) = apply_result {
-                            log::error!(
-                                "Failed to apply Rig tool proposal to conversation: {error:?}"
-                            );
-                            let mut failed_proposal = failed_proposal;
-                            failed_proposal.error = format!("{error:?}");
-                            self.failed_tool_proposals_by_stream
-                                .entry(stream_id.clone())
-                                .or_default()
-                                .push(failed_proposal);
-                            #[cfg(not(target_family = "wasm"))]
-                            {
-                                let (action_id, task_id, tool_name, requires_result) =
-                                    action_log_context;
-                                remote_logging::log_model_event(
-                                    ctx,
-                                    RemoteLogRecord {
-                                        level: RemoteLogLevel::Error,
-                                        message: "Tool proposal apply failed".to_string(),
-                                        context: serde_json::json!({
-                                            "event": "tool_proposal_apply_failed",
-                                            "stream_id": stream_id.as_str(),
-                                            "conversation_id": conversation_id.to_string(),
-                                            "action_id": action_id,
-                                            "task_id": task_id,
-                                            "tool_name": tool_name,
-                                            "requires_result": requires_result,
-                                            "error": remote_logging::sanitize_error(format!("{error:?}")),
-                                        }),
-                                    },
-                                );
-                            }
-                        }
-                    }
                     Ok(api::StreamEvent::Response(event)) => {
                         // If this controller is part of a shared session, forward the entire response event to viewers first.
                         if FeatureFlag::AgentSharedSessions.is_enabled()
@@ -4200,179 +6468,20 @@ impl BlocklistAIController {
                             });
                         }
 
-                        // Check if this error is eligible for corrective retry.
-                        // Similar to loop detection, inject a message telling the LLM
-                        // to try a different approach rather than just failing.
-                        // Exclude errors that are proxy/config issues (cache_control,
-                        // BadRequestError from LiteLLM) since the LLM can't fix those.
-                        let error_str = format!("{e}");
-                        let is_proxy_config_error = error_str.contains("cache_control")
-                            || error_str.contains("tool_use` ids were found without")
-                            || error_str.contains("BadRequestError");
-                        let is_corrective_retry_candidate = !is_proxy_config_error
-                            && !matches!(e.as_ref(), AIApiError::QuotaLimit { .. })
-                            && (error_str.contains("ValidationException")
-                                || error_str.contains("context window")
-                                || error_str.contains("too many tokens")
-                                || error_str.contains("input is too long")
-                                || error_str.contains("throttl")
-                                || error_str.contains("ThrottlingException"));
-
-                        const MAX_ERROR_RETRIES: usize = 2;
-                        let retry_count =
-                            self.error_retry_counts.entry(conversation_id).or_insert(0);
-                        let should_corrective_retry =
-                            response_stream.as_ref(ctx).allows_corrective_retries()
-                                && is_corrective_retry_candidate
-                                && *retry_count < MAX_ERROR_RETRIES;
-
-                        if should_corrective_retry {
-                            *retry_count += 1;
-                            let retry_num = *retry_count;
-                            log::warn!(
-                                "[error-retry] Attempting corrective retry {}/{} for conversation {:?}: {}",
-                                retry_num,
-                                MAX_ERROR_RETRIES,
+                        history_model.update(ctx, |history_model, ctx| {
+                            history_model.mark_response_stream_completed_with_error(
+                                (&e).into(),
+                                /*recovery_pending*/ false,
+                                &stream_id,
                                 conversation_id,
-                                error_str
+                                self.terminal_surface_id,
+                                ctx,
                             );
-
-                            // Mark the error on the conversation but with recovery pending
-                            let renderable_error = RenderableAIError::Other {
-                                error_message: format!(
-                                    "Error encountered, retrying with different approach (attempt {}/{})",
-                                    retry_num, MAX_ERROR_RETRIES
-                                ),
-                                will_attempt_resume: true,
-                                waiting_for_network: false,
-                                is_user_error: false,
-                            };
-                            history_model.update(ctx, |history_model, ctx| {
-                                history_model.mark_response_stream_completed_with_error(
-                                    renderable_error,
-                                    /*recovery_pending*/ true,
-                                    &stream_id,
-                                    conversation_id,
-                                    self.terminal_surface_id,
-                                    ctx,
-                                );
-                            });
-
-                            // Inject a corrective message and resume
-                            if let Some(conversation) =
-                                BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
-                            {
-                                let root_task_id = conversation.get_root_task_id().clone();
-                                let corrective_msg = format!(
-                                    "[SYSTEM] The previous request resulted in an error: {}\n\n\
-                                     Please try a completely different approach to accomplish the goal. \
-                                     If the error is related to context size, reduce the amount of content \
-                                     you are working with (read fewer files, use smaller commands, break \
-                                     the task into smaller steps). If you cannot find an alternative, \
-                                     explain to the user what is failing and why.",
-                                    error_str
-                                );
-
-                                let inputs = vec![AIAgentInput::UserQuery {
-                                    query: corrective_msg,
-                                    context: Arc::from([]),
-                                    static_query_type: None,
-                                    referenced_attachments: HashMap::new(),
-                                    user_query_mode: UserQueryMode::Normal,
-                                    running_command: None,
-                                    intended_agent: None,
-                                }];
-
-                                let _ = self.send_request_input(
-                                    RequestInput::for_task(
-                                        inputs,
-                                        root_task_id,
-                                        &self.active_session,
-                                        self.get_current_response_initiator(),
-                                        conversation_id,
-                                        self.terminal_surface_id,
-                                        ctx,
-                                    ),
-                                    None,
-                                    /*can_attempt_resume_on_error*/ false,
-                                    /*is_queued_prompt*/ false,
-                                    ctx,
-                                );
-                            }
-                        } else {
-                            // Clear retry count on non-retryable errors or exhausted retries
-                            self.error_retry_counts.remove(&conversation_id);
-
-                            // A resume scheduled for this failure keeps the conversation in
-                            // the non-terminal TransientError status instead of Error.
-                            let recovery_pending = response_stream
-                                .as_ref(ctx)
-                                .should_resume_conversation_after_stream_finished();
-                            let mut renderable_error: RenderableAIError = (&e).into();
-                            if let RenderableAIError::Other {
-                                will_attempt_resume,
-                                waiting_for_network,
-                                ..
-                            }
-                            | RenderableAIError::TransientNetworkError {
-                                will_attempt_resume,
-                                waiting_for_network,
-                                ..
-                            } = &mut renderable_error
-                            {
-                                // Rendering-only hints; state machine consumers key off the
-                                // TransientError conversation status instead.
-                                *will_attempt_resume |= recovery_pending;
-                                if recovery_pending {
-                                    let network_status = NetworkStatus::as_ref(ctx);
-                                    *waiting_for_network = !network_status.is_online();
-                                }
-                            }
-
-                            history_model.update(ctx, |history_model, ctx| {
-                                history_model.mark_response_stream_completed_with_error(
-                                    renderable_error,
-                                    recovery_pending,
-                                    &stream_id,
-                                    conversation_id,
-                                    self.terminal_surface_id,
-                                    ctx,
-                                );
-                            });
-                        }
+                        });
                     }
                 }
             }
-            ResponseStreamEvent::WaitingForNetwork { waiting } => {
-                let Some(conversation_id) = BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation_for_response_stream(&stream_id)
-                else {
-                    log::warn!("Could not find conversation for response stream: {stream_id:?}");
-                    return;
-                };
-                // Mirror the parked-retry state on the conversation: TransientError while
-                // waiting for connectivity, back to InProgress when the retry fires.
-                // This event is only emitted after a recoverable request failure parks a
-                // retry while offline (see `defer_retry_until_online`), so treating
-                // `waiting` as a transient-error state is always correct here.
-                let status = if *waiting {
-                    ConversationStatus::TransientError
-                } else {
-                    ConversationStatus::InProgress
-                };
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.update_conversation_status(
-                        self.terminal_surface_id,
-                        conversation_id,
-                        status,
-                        ctx,
-                    );
-                });
-            }
-            ResponseStreamEvent::AfterStreamFinished {
-                cancellation,
-                proposed_actions,
-            } => {
+            ResponseStreamEvent::AfterStreamFinished { cancellation } => {
                 // Cancellations provide conversation_id (survives truncation); otherwise use dynamic lookup.
                 let conversation_id = match &cancellation {
                     Some(stream_cancellation) => stream_cancellation.conversation_id,
@@ -4454,7 +6563,9 @@ impl BlocklistAIController {
                 }
                 log::info!(
                     "[bedrock-debug] AfterStreamFinished: stream_id={:?}, conversation_id={:?}, new_exchange_ids count={}",
-                    stream_id, conversation_id, new_exchange_ids.len()
+                    stream_id,
+                    conversation_id,
+                    new_exchange_ids.len()
                 );
                 let mut was_passive_request = false;
                 let mut is_any_exchange_unfinished = false;
@@ -4483,7 +6594,8 @@ impl BlocklistAIController {
                         let msg_count = output.get().messages.len();
                         log::info!(
                             "[bedrock-debug] AfterStreamFinished: output has {} messages, {} actions",
-                            msg_count, action_count
+                            msg_count,
+                            action_count
                         );
                         for msg in output.get().messages.iter() {
                             log::info!(
@@ -4496,31 +6608,13 @@ impl BlocklistAIController {
                 }
 
                 let history_action_count = actions_to_queue.len();
-                let proposed_action_count = proposed_actions.len();
-                let failed_tool_proposals = self
-                    .failed_tool_proposals_by_stream
-                    .remove(&stream_id)
-                    .unwrap_or_default();
-                let mut queued_action_ids = actions_to_queue
-                    .iter()
-                    .map(|action| action.id.clone())
-                    .collect::<HashSet<_>>();
-                let mut queued_from_stream_snapshot_count = 0;
-                for action in proposed_actions {
-                    if queued_action_ids.insert(action.id.clone()) {
-                        queued_from_stream_snapshot_count += 1;
-                        actions_to_queue.push(action.clone());
-                    }
-                }
                 let active_child_conversation_ids =
                     active_descendant_conversation_ids(history_model.as_ref(ctx), conversation_id);
                 let queue_decision = tool_queue_decision(
                     cancellation.is_some(),
                     is_any_exchange_unfinished,
-                    !failed_tool_proposals.is_empty(),
                     !active_child_conversation_ids.is_empty(),
                     actions_to_queue.len(),
-                    queued_from_stream_snapshot_count,
                 );
                 #[cfg(not(target_family = "wasm"))]
                 {
@@ -4535,19 +6629,12 @@ impl BlocklistAIController {
                                 "conversation_id": conversation_id.to_string(),
                                 "decision": queue_decision.label(),
                                 "history_action_count": history_action_count,
-                                "proposed_action_count": proposed_action_count,
                                 "candidate_action_count": actions_to_queue.len(),
                                 "will_queue_action_count": if queue_decision.will_queue_actions() {
                                     actions_to_queue.len()
                                 } else {
                                     0
                                 },
-                                "queued_from_stream_snapshot_count": queued_from_stream_snapshot_count,
-                                "failed_tool_proposal_count": failed_tool_proposals.len(),
-                                "failed_tool_proposals": failed_tool_proposals
-                                    .iter()
-                                    .map(FailedToolProposal::to_remote_log_value)
-                                    .collect::<Vec<_>>(),
                                 "active_descendant_conversation_ids": active_child_conversation_ids
                                     .iter()
                                     .map(ToString::to_string)
@@ -4558,7 +6645,6 @@ impl BlocklistAIController {
                                     .as_ref()
                                     .map(|stream_cancellation| format!("{:?}", stream_cancellation.reason)),
                                 "queued_tools": remote_action_summaries(&actions_to_queue),
-                                "proposed_tools": remote_action_summaries(proposed_actions),
                             }),
                         },
                     );
@@ -4618,11 +6704,6 @@ impl BlocklistAIController {
                             ctx,
                         );
                     });
-                } else if !failed_tool_proposals.is_empty() {
-                    log::warn!(
-                        "Skipping tool queue for stream {stream_id:?}: failed tool proposal attach count={}",
-                        failed_tool_proposals.len()
-                    );
                 } else if !active_child_conversation_ids.is_empty() {
                     log::info!(
                         "Skipping tool queue for conversation {conversation_id:?}: active child conversations remain: {:?}",
@@ -4639,7 +6720,8 @@ impl BlocklistAIController {
                 } else {
                     log::warn!(
                         "[bedrock-debug] AfterStreamFinished: NO actions to queue, was_passive={}, is_any_unfinished={}",
-                        was_passive_request, is_any_exchange_unfinished
+                        was_passive_request,
+                        is_any_exchange_unfinished
                     );
                     // If this is a child conversation (has a parent) and the
                     // stream ended with EndTurn and no actions, the child agent
@@ -4757,14 +6839,6 @@ impl BlocklistAIController {
                     // Now that the stream is cleaned up, re-check for pending
                     // orchestration events that couldn't be drained earlier.
                     self.handle_pending_events_ready(conversation_id, ctx);
-                }
-
-                // Before cleaning up the response stream, check if we should attempt to resume.
-                if response_stream
-                    .as_ref(ctx)
-                    .should_resume_conversation_after_stream_finished()
-                {
-                    self.schedule_auto_resume_after_error(conversation_id, ctx);
                 }
 
                 // Clean up the response stream tracking entry now that the stream is complete.

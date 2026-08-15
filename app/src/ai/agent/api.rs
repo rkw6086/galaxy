@@ -21,10 +21,10 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::{AppContext, EntityId, SingletonEntity as _};
 use mcp::TemplatableMCPServerInfo;
-pub use r#impl::generate_multi_agent_output;
+pub(crate) use r#impl::prepare_direct_provider_params;
 use serde::Serialize;
 
-use super::{AIAgentAction, AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
+use super::{AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{BlocklistAIPermissions, RequestInput, SessionContext};
@@ -112,7 +112,7 @@ pub struct RequestParams {
     /// locally so ACP-provided Galaxy tools can be pinned to the exact pane.
     pub terminal_view_id: Option<EntityId>,
     pub input: Vec<AIAgentInput>,
-    /// Normalized results consumed directly by Rig-selected models.
+    /// Normalized action results appended to direct-provider run history.
     pub tool_results: Vec<ToolResult>,
     pub conversation_token: Option<ServerConversationToken>,
     pub forked_from_conversation_token: Option<ServerConversationToken>,
@@ -151,8 +151,8 @@ pub struct RequestParams {
     pub research_agent_enabled: bool,
     pub orchestration_enabled: bool,
     pub supported_tools_override: Option<Vec<warp_multi_agent_api::ToolType>>,
-    /// The root task ID for the conversation — needed for direct Bedrock streaming
-    /// since optimistic tasks don't appear in the proto task_context.
+    /// The root task ID used to anchor direct-provider projection when optimistic tasks are not
+    /// present in the proto task context.
     pub root_task_id: Option<String>,
     /// The conversation ID of the parent agent that spawned this child agent, if any.
     pub parent_agent_id: Option<String>,
@@ -167,9 +167,8 @@ pub struct RequestParams {
     /// Kept separately so `recall_tool_history` can search archived results even after
     /// they've been summarized away from live history.
     pub tool_result_archive: Vec<crate::ai::provider::types::ConversationMessage>,
-    /// Populated by direct-provider paths after building the message list.
-    /// Contains the full messages sent (old history + new input) so the controller
-    /// can store them back into the conversation for the next request cycle.
+    /// Populated while preparing a direct-provider run with the durable transcript that the
+    /// controller persists for restoration and future turns.
     pub messages_sent:
         std::sync::Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>,
     /// Global rules (name, content) from the local CloudModel (AIFact/AIMemory).
@@ -177,15 +176,10 @@ pub struct RequestParams {
     pub global_rules: Vec<(String, String)>,
 }
 
-/// Provider/runtime events consumed by the local conversation controller.
-///
-/// The legacy response envelope remains at the UI boundary while the local Rig runtime emits
-/// executable tool proposals directly as Galaxy domain actions. This avoids translating Rig tool
-/// calls into protobuf only to immediately translate them back before execution.
+/// Response event projected into the local conversation controller.
 #[derive(Debug)]
 pub enum StreamEvent {
     Response(warp_multi_agent_api::ResponseEvent),
-    ToolProposed(AIAgentAction),
 }
 
 pub type Event = Result<StreamEvent, Arc<AIApiError>>;

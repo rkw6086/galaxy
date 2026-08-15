@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
 use galaxy_agent_core::{
-    AgentEvent, RuntimeActivity, RuntimeActivityStatus, RuntimeCapabilities, StopReason, Usage,
+    AgentEvent, ProviderRunOutcome, RuntimeActivity, RuntimeActivityStatus, RuntimeCapabilities,
+    StopReason, Usage,
 };
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
+use super::provider_run_coordinator::ProviderRunProjection;
 use crate::ai::agent::runtime_activity;
 use crate::ai::bedrock::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
@@ -14,6 +16,7 @@ use crate::ai::bedrock::response_translator::{
 };
 use crate::ai::openai::response_translator::{build_stream_finished, StreamUsage};
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RuntimeResponseConfig {
     pub(crate) task_id: String,
     pub(crate) conversation_id: String,
@@ -41,17 +44,104 @@ pub(crate) struct RuntimeResponseTranslator {
     context_usage: Option<(u64, u64)>,
 }
 
+/// Projects a multi-turn provider run into one existing Galaxy response stream.
+/// Intermediate model stops remain coordinator-internal; only the run outcome
+/// emits the UI's terminal `Finished` event.
+pub(crate) struct ProviderRunResponseProjector {
+    translator: RuntimeResponseTranslator,
+    has_started_model_turn: bool,
+    finished: bool,
+}
+
+impl ProviderRunResponseProjector {
+    pub(crate) fn new(config: RuntimeResponseConfig) -> Self {
+        Self {
+            translator: RuntimeResponseTranslator::new(config),
+            has_started_model_turn: false,
+            finished: false,
+        }
+    }
+
+    pub(crate) fn restored(config: RuntimeResponseConfig) -> Self {
+        Self {
+            translator: RuntimeResponseTranslator::restored(config),
+            has_started_model_turn: false,
+            finished: false,
+        }
+    }
+
+    pub(crate) fn project(
+        &mut self,
+        projection: ProviderRunProjection,
+    ) -> Result<Vec<ResponseEvent>, String> {
+        if self.finished {
+            return Err("provider run projection is already finished".to_string());
+        }
+        match projection {
+            ProviderRunProjection::ModelTurnStarted { .. } => {
+                if self.has_started_model_turn {
+                    self.translator.begin_followup_turn();
+                }
+                self.has_started_model_turn = true;
+                self.translator.translate(AgentEvent::TurnStarted {
+                    runtime_request_id: String::new(),
+                })
+            }
+            ProviderRunProjection::ModelEvent { event, .. } => self.translator.translate(event),
+            ProviderRunProjection::ModelRetry { .. }
+            | ProviderRunProjection::ToolBatchReady { .. } => Ok(Vec::new()),
+        }
+    }
+
+    pub(crate) fn set_task_id(&mut self, task_id: impl Into<String>) {
+        self.translator.set_task_id(task_id);
+    }
+
+    pub(crate) fn finish(
+        &mut self,
+        outcome: &ProviderRunOutcome,
+    ) -> Result<Vec<ResponseEvent>, String> {
+        if self.finished {
+            return Err("provider run projection is already finished".to_string());
+        }
+        self.finished = true;
+        match outcome {
+            ProviderRunOutcome::Completed(completion) => {
+                self.translator.translate(AgentEvent::TurnStopped {
+                    reason: completion.stop_reason.clone(),
+                })
+            }
+            ProviderRunOutcome::Failed(failure) => {
+                Ok(self.translator.provider_failure(&failure.message))
+            }
+            ProviderRunOutcome::Cancelled { .. } => {
+                self.translator.translate(AgentEvent::TurnStopped {
+                    reason: StopReason::Cancelled,
+                })
+            }
+        }
+    }
+}
+
 impl RuntimeResponseTranslator {
     pub(crate) fn new(config: RuntimeResponseConfig) -> Self {
+        Self::with_initialization(config, false)
+    }
+
+    pub(crate) fn restored(config: RuntimeResponseConfig) -> Self {
+        Self::with_initialization(config, true)
+    }
+
+    fn with_initialization(config: RuntimeResponseConfig, initialized: bool) -> Self {
         Self {
             config,
             request_id: Uuid::new_v4().to_string(),
-            initialized: false,
+            initialized,
             text_message_id: None,
             reasoning_message_id: None,
             activity_message_ids: HashMap::new(),
             activities: HashMap::new(),
-            has_visible_output: false,
+            has_visible_output: initialized,
             usage: Usage::default(),
             context_usage: None,
         }
@@ -150,6 +240,18 @@ impl RuntimeResponseTranslator {
     pub(crate) fn begin_followup_turn(&mut self) {
         self.text_message_id = None;
         self.reasoning_message_id = None;
+    }
+
+    pub(crate) fn set_task_id(&mut self, task_id: impl Into<String>) {
+        let task_id = task_id.into();
+        if self.config.task_id == task_id {
+            return;
+        }
+        self.config.task_id = task_id;
+        self.text_message_id = None;
+        self.reasoning_message_id = None;
+        self.activity_message_ids.clear();
+        self.activities.clear();
     }
 
     fn initialize(&mut self, events: &mut Vec<ResponseEvent>) {
@@ -256,7 +358,23 @@ impl RuntimeResponseTranslator {
     }
 
     fn finished(&self, reason: StopReason) -> ResponseEvent {
-        let reason = map_stop_reason(reason);
+        self.finished_with_reason(map_stop_reason(reason))
+    }
+
+    fn provider_failure(&mut self, message: &str) -> Vec<ResponseEvent> {
+        let mut events = Vec::new();
+        self.initialize(&mut events);
+        events.push(
+            self.finished_with_reason(stream_finished::Reason::InternalError(
+                stream_finished::InternalError {
+                    message: message.to_owned(),
+                },
+            )),
+        );
+        events
+    }
+
+    fn finished_with_reason(&self, reason: stream_finished::Reason) -> ResponseEvent {
         if !self.config.capabilities.host_managed_history {
             let (used_tokens, context_size) = self.context_usage.unwrap_or_default();
             return build_context_finished(

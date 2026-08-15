@@ -34,7 +34,7 @@ pub enum SkillConversionError {
 /// Live agent responses can be decoded from the active session's location. Restored payloads do
 /// not carry enough session identity to safely reconstruct path-based skill locations, so callers
 /// must use [`SkillPathOrigin::Unavailable`] rather than silently assuming the local filesystem.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SkillPathOrigin {
     Local,
     Remote {

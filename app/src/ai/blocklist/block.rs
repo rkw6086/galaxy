@@ -4723,7 +4723,7 @@ impl AIBlock {
             }
 
             match event {
-                BlocklistAIActionEvent::ExecutingAction(..) => {
+                BlocklistAIActionEvent::ExecutingAction { .. } => {
                     match &me.autonomy_setting_speedbump {
                         AutonomySettingSpeedbump::ShouldShowForAutoexecutingReadonlyCommands {
                             action_id: speedbump_action_id,
@@ -4793,7 +4793,7 @@ impl AIBlock {
                         _ => {}
                     }
                 }
-                BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(..) => {
+                BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
                     ctx.emit(AIBlockEvent::ActionBlockedOnUserConfirmation);
                 }
                 BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
@@ -4950,7 +4950,7 @@ impl AIBlock {
                     }
                     ctx.notify();
                 }
-                BlocklistAIActionEvent::QueuedAction(action_id) => {
+                BlocklistAIActionEvent::QueuedAction { action_id, .. } => {
                     // Update search codebase view status when action is queued
                     if let Some(view) = me.search_codebase_view.get(action_id) {
                         view.update(ctx, |view, ctx| {

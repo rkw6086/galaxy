@@ -376,7 +376,7 @@ impl RunAgentsCardView {
             {
                 ctx.notify();
             }
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(action_id)
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { action_id, .. }
                 if action_id == &action_id_for_action_events =>
             {
                 // Normal case: streaming is complete and the action is

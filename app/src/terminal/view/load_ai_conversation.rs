@@ -937,6 +937,7 @@ impl TerminalView {
 
         let conversation_data = AgentConversationData {
             agent_backend: Default::default(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids: None,

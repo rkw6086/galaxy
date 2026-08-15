@@ -329,7 +329,7 @@ impl BlocklistAIStatusBar {
         );
 
         ctx.subscribe_to_model(&action_model, |_, _, event, ctx| match event {
-            BlocklistAIActionEvent::ExecutingAction(..)
+            BlocklistAIActionEvent::ExecutingAction { .. }
             | BlocklistAIActionEvent::FinishedAction { .. } => ctx.notify(),
             _ => (),
         });

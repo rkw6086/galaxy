@@ -18,7 +18,7 @@ use crate::ai::agent::{
 };
 use crate::ai::document::ai_document_model::AIDocumentId;
 
-pub(super) fn action_from_tool_call(
+pub(crate) fn action_from_tool_call(
     task_id: &str,
     call: &ToolCall,
     skill_path_origin: &SkillPathOrigin,

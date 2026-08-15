@@ -15,6 +15,7 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
 use crate::ai::blocklist::context_model::block_context_from_terminal_model;
+use crate::ai::blocklist::controller::PendingProviderCommandCompletion;
 use crate::ai::blocklist::{
     BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIController,
     BlocklistAIControllerEvent, BlocklistAIHistoryEvent,
@@ -56,6 +57,7 @@ struct PendingCommandCompletion {
     initial_requested_command_action_id: Option<AIAgentActionId>,
     prompt: String,
     completed_command: RunningCommand,
+    exit_code: i32,
     final_turn_started: bool,
 }
 
@@ -169,7 +171,7 @@ impl CLISubagentController {
         });
 
         ctx.subscribe_to_model(action_model, |me, _, event, ctx| match event {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(_) => {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
                 active_block.update_is_agent_blocked(true);
@@ -181,7 +183,7 @@ impl CLISubagentController {
                     agent_has_control: active_block.is_agent_in_control(),
                 });
             }
-            BlocklistAIActionEvent::ExecutingAction(..) => {
+            BlocklistAIActionEvent::ExecutingAction { .. } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
                 active_block.update_is_agent_blocked(false);
@@ -303,6 +305,7 @@ impl CLISubagentController {
                                 requested_command_id: requested_command_action_id.clone(),
                                 is_alt_screen_active: false,
                             },
+                            exit_code,
                             final_turn_started: false,
                         })
                     }
@@ -319,15 +322,39 @@ impl CLISubagentController {
                 };
                 drop(terminal_model);
 
-                let Some(has_last_snapshot) = me
+                let provider_consumed_completion = completion.as_ref().is_some_and(|completion| {
+                    me.controller.update(ctx, |controller, ctx| {
+                        controller.accept_provider_command_completion(
+                            completion.conversation_id,
+                            PendingProviderCommandCompletion::new(
+                                completion.completed_command.block_id.clone(),
+                                completion.initial_requested_command_action_id.clone(),
+                                completion.completed_command.command.clone(),
+                                completion.completed_command.grid_contents.clone(),
+                                completion.exit_code,
+                            ),
+                            ctx,
+                        )
+                    })
+                });
+                let has_last_snapshot = me
                     .active_subagents_by_block
                     .get(&block_id)
-                    .map(|state| state.last_snapshot_at.is_some())
-                else {
-                    return;
-                };
+                    .is_some_and(|state| state.last_snapshot_at.is_some());
                 if has_last_snapshot {
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
+                }
+                if provider_consumed_completion {
+                    me.finish_subagent(
+                        &block_id,
+                        conversation_id,
+                        requested_command_action_id,
+                        ctx,
+                    );
+                    return;
+                }
+                if !me.active_subagents_by_block.contains_key(&block_id) {
+                    return;
                 }
 
                 // A Stop takeover intentionally cancels the subagent. The command may still
@@ -483,7 +510,11 @@ impl CLISubagentController {
         if self
             .controller
             .as_ref(ctx)
-            .has_active_stream_for_conversation(conversation_id, ctx)
+            .has_active_provider_run(conversation_id)
+            || self
+                .controller
+                .as_ref(ctx)
+                .has_active_stream_for_conversation(conversation_id, ctx)
             || self
                 .action_model
                 .as_ref(ctx)
@@ -737,13 +768,7 @@ impl CLISubagentController {
                         .collect()
                 };
                 self.controller.update(ctx, |controller, ctx| {
-                    controller.resume_conversation(
-                        conversation_id,
-                        /*can_attempt_resume_on_error*/ true,
-                        /*is_auto_resume_after_error*/ false,
-                        resume_context,
-                        ctx,
-                    );
+                    controller.resume_conversation(conversation_id, resume_context, ctx);
                 });
             }
         }

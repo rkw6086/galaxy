@@ -1079,6 +1079,9 @@ pub struct AcpConversationData {
 pub struct AgentConversationData {
     #[serde(default, skip_serializing_if = "AgentBackend::is_provider")]
     pub agent_backend: AgentBackend,
+    /// Versioned application-owned snapshot for an active direct-provider run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_provider_run_json: Option<String>,
     pub server_conversation_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_usage_metadata: Option<ConversationUsageMetadata>,

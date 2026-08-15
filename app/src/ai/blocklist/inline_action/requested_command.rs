@@ -418,21 +418,21 @@ impl RequestedCommandView {
         if !is_finished {
             ctx.subscribe_to_model(action_model, |me, _, event, ctx| {
                 match event {
-                    BlocklistAIActionEvent::QueuedAction(action_id)
+                    BlocklistAIActionEvent::QueuedAction { action_id, .. }
                         if *action_id == me.action_id =>
                     {
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(action_id)
-                        if *action_id == me.action_id =>
-                    {
+                    BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                        action_id, ..
+                    } if *action_id == me.action_id => {
                         if me.action_type.is_requested_command() {
                             me.ensure_editor(ctx);
                         }
                         me.set_is_header_expanded(true, ctx);
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::ExecutingAction(action_id)
+                    BlocklistAIActionEvent::ExecutingAction { action_id, .. }
                         if *action_id == me.action_id =>
                     {
                         // For shared-session viewers, sync the command text from the action when it starts executing.

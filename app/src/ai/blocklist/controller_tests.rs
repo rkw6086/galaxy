@@ -1,8 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use ai::agent::action::{AskUserQuestionItem, AskUserQuestionType};
 use chrono::Local;
+use galaxy_agent_core::{
+    CompletedModelTurn, ContentPart, ConversationMessage, ExternalWorkId, MessageContent,
+    MessageRole, PermissionKind, PermissionRequest, ProviderRun, ProviderRunId, ProviderRunLimits,
+    ProviderRunState, ProviderRunStep, RunEpoch, RuntimeCapabilities, StopReason, ToolCall,
+    TurnRequest, Usage,
+};
+use galaxy_core::command::ExitCode;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event;
 use warpui::{App, EntityId, SingletonEntity};
@@ -10,9 +17,11 @@ use warpui::{App, EntityId, SingletonEntity};
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentAttachment, AIAgentContext,
-    AIAgentInput, CancellationReason, ImageContext, PassiveSuggestionTrigger, RunningCommand,
-    UserQueryMode,
+    AIAgentAction, AIAgentActionId, AIAgentActionResultType, AIAgentActionType, AIAgentAttachment,
+    AIAgentContext, AIAgentExchangeId, AIAgentInput, CancellationReason, ImageContext,
+    PassiveSuggestionTrigger, ReadShellCommandOutputResult, RequestCommandOutputResult,
+    RunningCommand, ShellCommandError, TransferShellCommandControlToUserResult, UserQueryMode,
+    WriteToLongRunningShellCommandResult,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{
@@ -21,7 +30,7 @@ use crate::ai::blocklist::{
 };
 use crate::ai::llms::LLMId;
 use crate::persistence::model::{AcpConversationData, AgentBackend};
-use crate::terminal::model::block::BlockId;
+use crate::terminal::model::block::{BlockId, BlockState};
 use crate::test_util::settings::initialize_history_persistence_for_tests;
 use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
@@ -82,6 +91,907 @@ fn live_steering_eligibility() -> super::LiveSteeringEligibility {
     }
 }
 
+fn provider_execution_ref(
+    conversation_id: AIConversationId,
+    run_id: &str,
+    epoch: u64,
+) -> crate::ai::runtime::ProviderToolExecutionRef {
+    crate::ai::runtime::ProviderToolExecutionRef {
+        conversation_id,
+        run_id: ProviderRunId::new(run_id),
+        epoch: RunEpoch::new(epoch),
+        call_id: "call".to_owned(),
+    }
+}
+
+fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProviderRunSnapshot {
+    let task_id = TaskId::new("root-task".to_owned());
+    let messages = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("Finish the task".to_owned()),
+    }];
+    super::ActiveProviderRunSnapshot {
+        version: super::ACTIVE_PROVIDER_RUN_SNAPSHOT_VERSION,
+        run: ProviderRun::new(
+            "restored-run",
+            messages.clone(),
+            crate::ai::runtime::BASE_PROVIDER_PROFILE,
+            ProviderRunLimits::default(),
+        ),
+        base_request: TurnRequest::new("provider-model", messages),
+        cli_monitor_request: None,
+        response_config: crate::ai::runtime::RuntimeResponseConfig {
+            task_id: task_id.to_string(),
+            conversation_id: conversation_id.to_string(),
+            needs_create_task: false,
+            user_query: None,
+            model_id: "provider-model".to_owned(),
+            max_context_tokens: Some(128_000),
+            capabilities: RuntimeCapabilities::provider(),
+            empty_output_message: None,
+        },
+        action_context: crate::ai::runtime::ProviderActionContext::new_for_test(
+            task_id.to_string(),
+        ),
+        projection_target: super::ProviderProjectionTarget {
+            task_id: task_id.clone(),
+            exchange_id: AIAgentExchangeId::new(),
+        },
+        root_task_id: task_id,
+        did_input_contain_user_query: true,
+        persistence_offset: 0,
+        committed_provider_batch: None,
+        command_action_refs: HashMap::new(),
+        command_monitor: None,
+        pending_monitor_observation: None,
+        pending_command_completion: None,
+        monitor_prose_continuations: 0,
+    }
+}
+
+fn start_snapshot_tool(
+    snapshot: &mut super::ActiveProviderRunSnapshot,
+    call_id: &str,
+) -> ExternalWorkId {
+    let Some(ProviderRunStep::CallModel(call)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider model call");
+    };
+    snapshot
+        .run
+        .accept_model_turn(
+            &call.work_id,
+            CompletedModelTurn {
+                assistant_content: vec![ContentPart::Text("I will run a command.".to_owned())],
+                tool_calls: vec![ToolCall {
+                    id: call_id.to_owned(),
+                    name: "run_shell_command".to_owned(),
+                    arguments: serde_json::json!({"command": "sleep 10"}),
+                }],
+                usage: Usage::default(),
+                stop_reason: StopReason::Completed,
+                advertised_tools: BTreeSet::from(["run_shell_command".to_owned()]),
+            },
+        )
+        .unwrap();
+    let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider tool batch");
+    };
+    batch.work_id
+}
+
+fn attach_snapshot_command_monitor(
+    snapshot: &mut super::ActiveProviderRunSnapshot,
+    conversation_id: AIConversationId,
+) -> (AIAgentActionId, BlockId, TaskId) {
+    let action_id = AIAgentActionId::from("command-call".to_owned());
+    let block_id = BlockId::new();
+    let cli_task_id = TaskId::new("cli-task".to_owned());
+    let work_id = snapshot.run.ready_work_id().expect("ready work identity");
+    snapshot.cli_monitor_request = Some(TurnRequest::new("provider-model", Vec::new()));
+    snapshot.command_action_refs.insert(
+        action_id.clone(),
+        crate::ai::runtime::ProviderToolExecutionRef::new(
+            conversation_id,
+            &work_id,
+            action_id.to_string(),
+        ),
+    );
+    snapshot.command_monitor = Some(super::ProviderCommandMonitorState {
+        run_id: snapshot.run.id().clone(),
+        originating_work_id: work_id,
+        originating_call_id: action_id.to_string(),
+        initial_requested_command_action_id: action_id.clone(),
+        block_id: block_id.clone(),
+        command: "sleep 10".to_owned(),
+        cli_task_id: cli_task_id.clone(),
+    });
+    snapshot.action_context.set_task_id(cli_task_id.to_string());
+    snapshot.response_config.task_id = cli_task_id.to_string();
+    (action_id, block_id, cli_task_id)
+}
+
+#[test]
+fn provider_snapshot_parse_and_validation_reject_corrupt_restore_identity() {
+    let conversation_id = AIConversationId::new();
+    let snapshot = provider_snapshot(conversation_id);
+    let json = serde_json::to_string(&snapshot).unwrap();
+    assert!(super::ActiveProviderRunSnapshot::parse(&json)
+        .unwrap()
+        .validate(conversation_id)
+        .is_ok());
+
+    let mut unsupported_version = serde_json::to_value(&snapshot).unwrap();
+    unsupported_version["version"] = serde_json::json!(99);
+    assert!(
+        super::ActiveProviderRunSnapshot::parse(&unsupported_version.to_string())
+            .unwrap_err()
+            .contains("unsupported active provider run snapshot version")
+    );
+
+    let mut invalid_offset = snapshot.clone();
+    invalid_offset.persistence_offset = invalid_offset.run.transcript().len() + 1;
+    assert_eq!(
+        invalid_offset.validate(conversation_id).unwrap_err(),
+        "provider run persistence offset exceeds transcript length"
+    );
+
+    let mut mismatched_model = snapshot.clone();
+    mismatched_model.response_config.model_id = "different-model".to_owned();
+    assert_eq!(
+        mismatched_model.validate(conversation_id).unwrap_err(),
+        "provider run base model does not match response projection"
+    );
+
+    let mut orphaned_task = snapshot;
+    orphaned_task.action_context.set_task_id("orphan-task");
+    orphaned_task.response_config.task_id = "orphan-task".to_owned();
+    assert_eq!(
+        orphaned_task.validate(conversation_id).unwrap_err(),
+        "provider run current task is not owned by its projection or monitor"
+    );
+}
+
+#[test]
+fn restored_committed_command_requires_durable_terminal_owner() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let action_id = AIAgentActionId::from("command-call".to_owned());
+    let work_id = snapshot.run.ready_work_id().expect("ready work identity");
+    snapshot.committed_provider_batch = Some(work_id.clone());
+    snapshot.command_action_refs.insert(
+        action_id.clone(),
+        crate::ai::runtime::ProviderToolExecutionRef::new(
+            conversation_id,
+            &work_id,
+            action_id.to_string(),
+        ),
+    );
+
+    assert_eq!(
+        super::normalize_restored_provider_snapshot(&mut snapshot).unwrap_err(),
+        "restored provider command batch completed without durable terminal evidence"
+    );
+}
+
+#[test]
+fn restore_normalization_removes_interrupted_command_correlation() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let call_id = "command-call";
+    let work_id = start_snapshot_tool(&mut snapshot, call_id);
+    snapshot.run.start_tool(&work_id, call_id).unwrap();
+    let action_id = AIAgentActionId::from(call_id.to_owned());
+    snapshot.command_action_refs.insert(
+        action_id.clone(),
+        crate::ai::runtime::ProviderToolExecutionRef::new(
+            conversation_id,
+            &work_id,
+            action_id.to_string(),
+        ),
+    );
+
+    super::normalize_restored_provider_snapshot(&mut snapshot).unwrap();
+
+    assert!(!snapshot.command_action_refs.contains_key(&action_id));
+    assert!(matches!(
+        snapshot.run.state(),
+        ProviderRunState::ReadyToCallModel
+    ));
+    let MessageContent::MultiPart(parts) = &snapshot.run.transcript().last().unwrap().content
+    else {
+        panic!("interrupted command result should be committed");
+    };
+    assert!(matches!(
+        &parts[0],
+        ContentPart::ToolResult {
+            tool_use_id,
+            is_error: true,
+            ..
+        } if tool_use_id == call_id
+    ));
+}
+
+#[test]
+fn restore_normalization_reproposes_permission_without_losing_correlation() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let call_id = "command-call";
+    let work_id = start_snapshot_tool(&mut snapshot, call_id);
+    snapshot
+        .run
+        .request_tool_permission(
+            &work_id,
+            PermissionRequest {
+                id: "permission-1".to_owned(),
+                call_id: call_id.to_owned(),
+                kind: PermissionKind::Execute,
+                reason: None,
+            },
+        )
+        .unwrap();
+    let action_id = AIAgentActionId::from(call_id.to_owned());
+    snapshot.command_action_refs.insert(
+        action_id.clone(),
+        crate::ai::runtime::ProviderToolExecutionRef::new(
+            conversation_id,
+            &work_id,
+            action_id.to_string(),
+        ),
+    );
+
+    super::normalize_restored_provider_snapshot(&mut snapshot).unwrap();
+
+    assert!(snapshot.command_action_refs.contains_key(&action_id));
+    let ProviderRunState::AwaitingTools { batch } = snapshot.run.state() else {
+        panic!("permission reset should keep the tool batch pending");
+    };
+    assert!(matches!(
+        batch.calls[0].state,
+        galaxy_agent_core::PendingToolCallState::Proposed
+    ));
+}
+
+#[test]
+fn restored_active_command_rebuilds_monitor_observation() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let (action_id, block_id, cli_task_id) =
+        attach_snapshot_command_monitor(&mut snapshot, conversation_id);
+    snapshot.pending_command_completion = Some(super::PendingProviderCommandCompletion {
+        block_id: block_id.clone(),
+        initial_requested_command_action_id: Some(action_id.clone()),
+        command: "stale".to_owned(),
+        output: "stale".to_owned(),
+        exit_code: 1,
+    });
+
+    super::apply_restored_provider_command_evidence(
+        conversation_id,
+        &mut snapshot,
+        super::RestoredProviderCommandEvidence {
+            conversation_id: Some(conversation_id),
+            requested_command_action_id: Some(action_id),
+            cli_task_id: Some(cli_task_id.clone()),
+            command: "sleep 10".to_owned(),
+            state: BlockState::Executing,
+            output: "running".to_owned(),
+            exit_code: 0,
+        },
+    )
+    .unwrap();
+
+    assert!(snapshot.pending_command_completion.is_none());
+    let observation = snapshot
+        .pending_monitor_observation
+        .expect("active command should restore monitoring");
+    assert_eq!(observation.block_id, block_id);
+    assert_eq!(observation.cli_task_id, cli_task_id);
+}
+
+#[test]
+fn restored_completed_command_rebuilds_exact_completion_evidence() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let (action_id, block_id, cli_task_id) =
+        attach_snapshot_command_monitor(&mut snapshot, conversation_id);
+    snapshot.pending_monitor_observation = Some(super::PendingProviderMonitorObservation {
+        block_id: block_id.clone(),
+        cli_task_id: cli_task_id.clone(),
+    });
+
+    super::apply_restored_provider_command_evidence(
+        conversation_id,
+        &mut snapshot,
+        super::RestoredProviderCommandEvidence {
+            conversation_id: Some(conversation_id),
+            requested_command_action_id: Some(action_id.clone()),
+            cli_task_id: Some(cli_task_id),
+            command: "sleep 10".to_owned(),
+            state: BlockState::DoneWithExecution,
+            output: "done".to_owned(),
+            exit_code: 17,
+        },
+    )
+    .unwrap();
+
+    assert!(snapshot.pending_monitor_observation.is_none());
+    let completion = snapshot
+        .pending_command_completion
+        .expect("completed command should restore final evidence");
+    assert_eq!(completion.block_id, block_id);
+    assert_eq!(
+        completion.initial_requested_command_action_id,
+        Some(action_id)
+    );
+    assert_eq!(completion.command, "sleep 10");
+    assert_eq!(completion.output, "done");
+    assert_eq!(completion.exit_code, 17);
+}
+
+#[test]
+fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let (action_id, _block_id, cli_task_id) =
+        attach_snapshot_command_monitor(&mut snapshot, conversation_id);
+
+    assert_eq!(
+        super::apply_restored_provider_command_evidence(
+            conversation_id,
+            &mut snapshot,
+            super::RestoredProviderCommandEvidence {
+                conversation_id: Some(AIConversationId::new()),
+                requested_command_action_id: Some(action_id.clone()),
+                cli_task_id: Some(cli_task_id.clone()),
+                command: "sleep 10".to_owned(),
+                state: BlockState::Executing,
+                output: String::new(),
+                exit_code: 0,
+            },
+        )
+        .unwrap_err(),
+        "restored provider command block identity does not match"
+    );
+    assert_eq!(
+        super::apply_restored_provider_command_evidence(
+            conversation_id,
+            &mut snapshot,
+            super::RestoredProviderCommandEvidence {
+                conversation_id: Some(conversation_id),
+                requested_command_action_id: Some(action_id),
+                cli_task_id: Some(cli_task_id),
+                command: "sleep 10".to_owned(),
+                state: BlockState::Background,
+                output: String::new(),
+                exit_code: 0,
+            },
+        )
+        .unwrap_err(),
+        "restored provider command block has an invalid state"
+    );
+}
+
+#[test]
+fn provider_restore_failure_is_visible_and_clears_persisted_run() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let terminal_surface_id = terminal.id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    let conversation_id = history_model.start_new_conversation(
+                        terminal_surface_id,
+                        false,
+                        false,
+                        false,
+                        ctx,
+                    );
+                    history_model
+                        .persist_active_provider_run_json(
+                            conversation_id,
+                            Some("corrupt snapshot".to_owned()),
+                            ctx,
+                        )
+                        .unwrap();
+                    conversation_id
+                });
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.restoring_provider_runs.insert(conversation_id);
+                controller.fail_restored_provider_run(
+                    conversation_id,
+                    "snapshot identity mismatch".to_owned(),
+                    ctx,
+                );
+                assert!(!controller
+                    .restoring_provider_runs
+                    .contains(&conversation_id));
+            });
+
+            let history_model = BlocklistAIHistoryModel::handle(ctx);
+            let conversation = history_model
+                .as_ref(ctx)
+                .conversation(&conversation_id)
+                .expect("failed restored conversation should remain visible");
+            assert_eq!(conversation.status(), &ConversationStatus::Error);
+            assert!(conversation.active_provider_run_json().is_none());
+            let error = conversation
+                .status_error()
+                .expect("restore failure should retain a structured error");
+            assert!(error
+                .to_string()
+                .contains("Failed to restore active provider run: snapshot identity mismatch"));
+            assert!(matches!(
+                error,
+                crate::ai::agent::RenderableAIError::Other {
+                    will_attempt_resume: false,
+                    waiting_for_network: false,
+                    is_user_error: false,
+                    ..
+                }
+            ));
+        });
+    });
+}
+
+#[test]
+fn provider_lifecycle_requires_exact_active_work_identity() {
+    let conversation_id = AIConversationId::new();
+    let active_work = ExternalWorkId {
+        run_id: ProviderRunId::new("current"),
+        epoch: RunEpoch::new(3),
+    };
+
+    assert!(super::provider_execution_matches_active_work(
+        &active_work.run_id,
+        Some(&active_work),
+        &provider_execution_ref(conversation_id, "current", 3),
+    ));
+    assert!(!super::provider_execution_matches_active_work(
+        &active_work.run_id,
+        Some(&active_work),
+        &provider_execution_ref(conversation_id, "current", 2),
+    ));
+    assert!(!super::provider_execution_matches_active_work(
+        &active_work.run_id,
+        Some(&active_work),
+        &provider_execution_ref(conversation_id, "old", 3),
+    ));
+}
+
+#[test]
+fn provider_finished_action_only_resumes_its_committed_batch() {
+    let conversation_id = AIConversationId::new();
+    let run_id = ProviderRunId::new("current");
+    let work_id = ExternalWorkId {
+        run_id: run_id.clone(),
+        epoch: RunEpoch::new(3),
+    };
+    let current = provider_execution_ref(conversation_id, "current", 3);
+
+    assert_eq!(
+        super::provider_finished_action_disposition(&run_id, Some(&work_id), None, &current),
+        super::ProviderFinishedActionDisposition::AwaitBatchCommit,
+    );
+    assert_eq!(
+        super::provider_finished_action_disposition(&run_id, None, Some(&work_id), &current),
+        super::ProviderFinishedActionDisposition::Resume,
+    );
+    assert_eq!(
+        super::provider_finished_action_disposition(
+            &run_id,
+            None,
+            Some(&work_id),
+            &provider_execution_ref(conversation_id, "current", 2),
+        ),
+        super::ProviderFinishedActionDisposition::Ignore,
+    );
+    assert_eq!(
+        super::provider_finished_action_disposition(
+            &run_id,
+            None,
+            Some(&work_id),
+            &provider_execution_ref(conversation_id, "old", 3),
+        ),
+        super::ProviderFinishedActionDisposition::Ignore,
+    );
+}
+
+#[test]
+fn provider_boundary_prioritizes_completion_and_waits_for_committed_results() {
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::Ready,
+            true,
+            true,
+            true,
+            true,
+            true,
+            0,
+        ),
+        super::ProviderBoundaryIntent::Park
+    );
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::Unsafe,
+            false,
+            true,
+            true,
+            true,
+            true,
+            0,
+        ),
+        super::ProviderBoundaryIntent::Park
+    );
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::Ready,
+            false,
+            true,
+            true,
+            true,
+            true,
+            0,
+        ),
+        super::ProviderBoundaryIntent::ApplyCompletion
+    );
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::Ready,
+            false,
+            false,
+            true,
+            false,
+            true,
+            0,
+        ),
+        super::ProviderBoundaryIntent::ApplyMonitorObservation
+    );
+}
+
+#[test]
+fn provider_monitor_prose_retry_is_bounded_then_parks() {
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::AwaitingDriver,
+            false,
+            false,
+            false,
+            true,
+            true,
+            0,
+        ),
+        super::ProviderBoundaryIntent::RetryMonitor
+    );
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::AwaitingDriver,
+            false,
+            false,
+            false,
+            true,
+            true,
+            super::MAX_PROVIDER_MONITOR_PROSE_CONTINUATIONS,
+        ),
+        super::ProviderBoundaryIntent::Park
+    );
+    assert_eq!(
+        super::provider_boundary_intent(
+            super::ProviderBoundaryPhase::AwaitingDriver,
+            false,
+            false,
+            false,
+            false,
+            false,
+            0,
+        ),
+        super::ProviderBoundaryIntent::CompleteRun
+    );
+}
+
+#[test]
+fn provider_completion_requires_current_run_and_exact_monitor_identity() {
+    let conversation_id = AIConversationId::new();
+    let run_id = ProviderRunId::new("current");
+    let block_id = BlockId::new();
+    let other_block_id = BlockId::new();
+    let action_id = AIAgentActionId::from("command-1".to_owned());
+    let other_action_id = AIAgentActionId::from("command-2".to_owned());
+    let execution_ref = provider_execution_ref(conversation_id, "current", 3);
+    let command_action_refs = HashMap::from([(action_id.clone(), execution_ref.clone())]);
+
+    assert!(super::provider_command_completion_matches(
+        &run_id,
+        &command_action_refs,
+        None,
+        &block_id,
+        Some(&action_id),
+    ));
+    assert!(!super::provider_command_completion_matches(
+        &run_id,
+        &command_action_refs,
+        None,
+        &block_id,
+        Some(&other_action_id),
+    ));
+
+    let monitor = super::ProviderCommandMonitorState {
+        run_id: run_id.clone(),
+        originating_work_id: execution_ref.work_id(),
+        originating_call_id: action_id.to_string(),
+        initial_requested_command_action_id: action_id.clone(),
+        block_id: block_id.clone(),
+        command: "sleep 10".to_owned(),
+        cli_task_id: TaskId::new("cli-task".to_owned()),
+    };
+    assert!(super::provider_command_completion_matches(
+        &run_id,
+        &command_action_refs,
+        Some(&monitor),
+        &block_id,
+        Some(&action_id),
+    ));
+    assert!(super::provider_command_completion_matches(
+        &run_id,
+        &command_action_refs,
+        Some(&monitor),
+        &block_id,
+        None,
+    ));
+    assert!(!super::provider_command_completion_matches(
+        &run_id,
+        &command_action_refs,
+        Some(&monitor),
+        &other_block_id,
+        Some(&action_id),
+    ));
+    assert!(!super::provider_command_completion_matches(
+        &ProviderRunId::new("replacement"),
+        &command_action_refs,
+        Some(&monitor),
+        &block_id,
+        Some(&action_id),
+    ));
+}
+
+#[test]
+fn pending_provider_completion_reconciles_with_its_committed_snapshot() {
+    let block_id = BlockId::new();
+    let action_id = AIAgentActionId::from("command-1".to_owned());
+    let mut completion = super::PendingProviderCommandCompletion {
+        block_id: block_id.clone(),
+        initial_requested_command_action_id: Some(action_id.clone()),
+        command: String::new(),
+        output: "done".to_owned(),
+        exit_code: 0,
+    };
+
+    assert!(super::reconcile_provider_completion_with_snapshot(
+        Some(&mut completion),
+        &block_id,
+        &action_id,
+        Some("sleep 10"),
+        None,
+    )
+    .unwrap());
+    assert_eq!(completion.command, "sleep 10");
+    assert!(super::reconcile_provider_completion_with_snapshot(
+        None,
+        &block_id,
+        &action_id,
+        Some("sleep 10"),
+        None,
+    )
+    .is_ok_and(|matched| !matched));
+}
+
+#[test]
+fn pending_provider_completion_rejects_a_different_snapshot() {
+    let block_id = BlockId::new();
+    let action_id = AIAgentActionId::from("command-1".to_owned());
+    let mut completion = super::PendingProviderCommandCompletion {
+        block_id,
+        initial_requested_command_action_id: Some(action_id.clone()),
+        command: String::new(),
+        output: "done".to_owned(),
+        exit_code: 0,
+    };
+
+    assert!(super::reconcile_provider_completion_with_snapshot(
+        Some(&mut completion),
+        &BlockId::new(),
+        &action_id,
+        Some("sleep 10"),
+        None,
+    )
+    .is_err());
+    let completion_block_id = completion.block_id.clone();
+    assert!(super::reconcile_provider_completion_with_snapshot(
+        Some(&mut completion),
+        &completion_block_id,
+        &AIAgentActionId::from("command-2".to_owned()),
+        Some("sleep 10"),
+        None,
+    )
+    .is_err());
+}
+
+#[test]
+fn nonzero_provider_completion_is_continuation_evidence() {
+    let completion = super::PendingProviderCommandCompletion {
+        block_id: BlockId::new(),
+        initial_requested_command_action_id: None,
+        command: "cargo test".to_owned(),
+        output: "one test failed".to_owned(),
+        exit_code: 17,
+    };
+    let galaxy_agent_core::MessageContent::Text(observation) = completion.observation() else {
+        panic!("command completion must be text evidence");
+    };
+    assert!(observation.contains("exit code 17"));
+    assert!(observation.contains("nonzero exit is not automatic run completion"));
+    assert!(observation.contains("Continue the original objective"));
+}
+
+#[test]
+fn provider_command_result_classifier_covers_snapshot_and_finished_variants() {
+    let block_id = BlockId::new();
+    let exit_code = ExitCode::from(17);
+    let expected_snapshot = super::ProviderCommandResult::Snapshot {
+        block_id: block_id.clone(),
+        command: Some("sleep 10".to_owned()),
+    };
+    assert_eq!(
+        super::classify_provider_command_result(&AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::LongRunningCommandSnapshot {
+                block_id: block_id.clone(),
+                command: "sleep 10".to_owned(),
+                grid_contents: "running".to_owned(),
+                cursor: String::new(),
+                is_alt_screen_active: false,
+            },
+        ),),
+        Some(expected_snapshot.clone())
+    );
+    assert_eq!(
+        super::classify_provider_command_result(&AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::LongRunningCommandSnapshot {
+                command: "sleep 10".to_owned(),
+                block_id: block_id.clone(),
+                grid_contents: "running".to_owned(),
+                cursor: String::new(),
+                is_alt_screen_active: false,
+                is_preempted: false,
+            },
+        ),),
+        Some(expected_snapshot)
+    );
+    for result in [
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Snapshot {
+                block_id: block_id.clone(),
+                grid_contents: "running".to_owned(),
+                cursor: String::new(),
+                is_alt_screen_active: false,
+                is_preempted: false,
+            },
+        ),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Snapshot {
+                block_id: block_id.clone(),
+                grid_contents: "running".to_owned(),
+                cursor: String::new(),
+                is_alt_screen_active: false,
+                is_preempted: false,
+            },
+        ),
+    ] {
+        assert_eq!(
+            super::classify_provider_command_result(&result),
+            Some(super::ProviderCommandResult::Snapshot {
+                block_id: block_id.clone(),
+                command: None,
+            })
+        );
+    }
+
+    let expected_finished = super::ProviderCommandResult::Finished {
+        block_id: block_id.clone(),
+        command: Some("sleep 10".to_owned()),
+        output: "failed".to_owned(),
+        exit_code: 17,
+    };
+    assert_eq!(
+        super::classify_provider_command_result(&AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::Completed {
+                block_id: block_id.clone(),
+                command: "sleep 10".to_owned(),
+                output: "failed".to_owned(),
+                exit_code,
+                start_ts: None,
+                completed_ts: None,
+            },
+        ),),
+        Some(expected_finished.clone())
+    );
+    assert_eq!(
+        super::classify_provider_command_result(&AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::CommandFinished {
+                command: "sleep 10".to_owned(),
+                block_id: block_id.clone(),
+                output: "failed".to_owned(),
+                exit_code,
+                start_ts: None,
+                completed_ts: None,
+            },
+        ),),
+        Some(expected_finished)
+    );
+    for result in [
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::CommandFinished {
+                block_id: block_id.clone(),
+                output: "failed".to_owned(),
+                exit_code,
+                start_ts: None,
+                completed_ts: None,
+            },
+        ),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::CommandFinished {
+                block_id: block_id.clone(),
+                output: "failed".to_owned(),
+                exit_code,
+                start_ts: None,
+                completed_ts: None,
+            },
+        ),
+    ] {
+        assert_eq!(
+            super::classify_provider_command_result(&result),
+            Some(super::ProviderCommandResult::Finished {
+                block_id: block_id.clone(),
+                command: None,
+                output: "failed".to_owned(),
+                exit_code: 17,
+            })
+        );
+    }
+}
+
+#[test]
+fn provider_command_result_classifier_ignores_cancelled_and_error_variants() {
+    let results = [
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::CancelledBeforeExecution,
+        ),
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::Denylisted {
+            command: "blocked".to_owned(),
+        }),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Cancelled,
+        ),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Error(ShellCommandError::BlockNotFound),
+        ),
+        AIAgentActionResultType::ReadShellCommandOutput(ReadShellCommandOutputResult::Cancelled),
+        AIAgentActionResultType::ReadShellCommandOutput(ReadShellCommandOutputResult::Error(
+            ShellCommandError::BlockNotFound,
+        )),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Cancelled,
+        ),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Error(ShellCommandError::BlockNotFound),
+        ),
+    ];
+    assert!(results
+        .iter()
+        .all(|result| super::classify_provider_command_result(result).is_none()));
+}
+
 #[test]
 fn no_action_tool_error_recovery_detects_unfulfilled_tool_intent() {
     assert_eq!(
@@ -122,17 +1032,9 @@ fn no_action_tool_error_recovery_ignores_normal_answers_and_non_failed_tools() {
 }
 
 #[test]
-fn tool_queue_decision_blocks_failed_tool_proposal_before_snapshot_fallback() {
-    assert_eq!(
-        super::tool_queue_decision(false, false, true, false, 1, 1,),
-        super::ToolQueueDecision::BlockedFailedToolProposal
-    );
-}
-
-#[test]
 fn tool_queue_decision_blocks_parent_tools_while_child_agents_are_active() {
     assert_eq!(
-        super::tool_queue_decision(false, false, false, true, 2, 0,),
+        super::tool_queue_decision(false, false, true, 2),
         super::ToolQueueDecision::BlockedActiveChildAgents
     );
 }
@@ -140,23 +1042,20 @@ fn tool_queue_decision_blocks_parent_tools_while_child_agents_are_active() {
 #[test]
 fn tool_queue_decision_preserves_existing_terminal_precedence() {
     assert_eq!(
-        super::tool_queue_decision(true, false, true, true, 1, 1,),
+        super::tool_queue_decision(true, false, true, 1),
         super::ToolQueueDecision::Cancelled
     );
     assert_eq!(
-        super::tool_queue_decision(false, true, true, true, 1, 1,),
+        super::tool_queue_decision(false, true, true, 1),
         super::ToolQueueDecision::UnfinishedExchange
     );
 }
 
 #[test]
-fn tool_queue_decision_uses_snapshot_fallback_only_when_unblocked() {
-    let decision = super::tool_queue_decision(false, false, false, false, 1, 1);
+fn tool_queue_decision_queues_actions_when_unblocked() {
+    let decision = super::tool_queue_decision(false, false, false, 1);
 
-    assert_eq!(
-        decision,
-        super::ToolQueueDecision::QueueActionsWithStreamSnapshotFallback
-    );
+    assert_eq!(decision, super::ToolQueueDecision::QueueActions);
     assert!(decision.will_queue_actions());
 }
 
@@ -489,36 +1388,6 @@ fn input_for_query_converts_prompt_attachments_and_ignores_live_staging() {
             assert!(referenced_attachments.contains_key("notes.txt"));
             assert!(referenced_attachments.contains_key("notes.txt (1)"));
             assert!(!referenced_attachments.contains_key("live.txt"));
-        });
-    });
-}
-
-#[test]
-fn cancelling_conversation_aborts_pending_auto_resume() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let terminal = add_window_with_terminal(&mut app, None);
-
-        // An ID with no backing conversation: if the scheduled wait ever
-        // completes, the resume is a harmless no-op.
-        let conversation_id = AIConversationId::new();
-
-        terminal.update(&mut app, |terminal, ctx| {
-            terminal.ai_controller().update(ctx, |controller, ctx| {
-                controller.schedule_auto_resume_after_error(conversation_id, ctx);
-                assert!(controller
-                    .pending_auto_resume_handles
-                    .contains_key(&conversation_id));
-
-                controller.cancel_conversation_progress(
-                    conversation_id,
-                    CancellationReason::ManuallyCancelled,
-                    ctx,
-                );
-                assert!(!controller
-                    .pending_auto_resume_handles
-                    .contains_key(&conversation_id));
-            });
         });
     });
 }

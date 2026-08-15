@@ -194,7 +194,6 @@ impl SlashCommandRequest {
                 entrypoint,
                 is_auto_resume_after_error: false,
             }),
-            /*can_attempt_resume_on_error*/ true,
             is_queued_prompt,
             ctx,
         ) {

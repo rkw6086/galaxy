@@ -7,8 +7,8 @@ pub mod external_config;
 pub mod models;
 pub mod request_translator;
 pub mod response_translator;
+pub mod runtime;
 pub mod settings_view;
-pub mod translator;
 
 #[cfg(test)]
 mod convert_tests;

@@ -6930,13 +6930,7 @@ impl TerminalView {
         }
 
         self.ai_controller.update(ctx, |controller, ctx| {
-            controller.resume_conversation(
-                *conversation_id,
-                /*can_attempt_resume_on_error*/ true,
-                /*is_auto_resume_after_error*/ false,
-                vec![],
-                ctx,
-            );
+            controller.resume_conversation(*conversation_id, vec![], ctx);
         });
     }
 
@@ -7261,7 +7255,7 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(_) => {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
                 let is_agent_in_control = self
                     .model
                     .lock()
@@ -7272,7 +7266,7 @@ impl TerminalView {
                     self.redetermine_terminal_focus(ctx);
                 }
             }
-            BlocklistAIActionEvent::ExecutingAction(..) => {
+            BlocklistAIActionEvent::ExecutingAction { .. } => {
                 self.redetermine_terminal_focus(ctx);
                 ctx.notify();
             }
@@ -7378,7 +7372,7 @@ impl TerminalView {
                     );
                 }
             }
-            BlocklistAIActionEvent::QueuedAction(_)
+            BlocklistAIActionEvent::QueuedAction { .. }
             | BlocklistAIActionEvent::ToolLifecycle { .. } => {}
         }
     }
@@ -11168,13 +11162,7 @@ impl TerminalView {
             };
 
             self.ai_controller.update(ctx, |controller, ctx| {
-                controller.resume_conversation(
-                    conversation_id,
-                    /*can_attempt_resume_on_error*/ true,
-                    /*is_auto_resume_after_error*/ false,
-                    resume_context,
-                    ctx,
-                );
+                controller.resume_conversation(conversation_id, resume_context, ctx);
             });
         }
 

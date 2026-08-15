@@ -4,7 +4,8 @@ use std::sync::Arc;
 use super::*;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionResultType, AnyFileContent, FileContext, GrepResult, ReadFilesResult,
+    AIAgentAction, AIAgentActionResultType, AIAgentActionType, AnyFileContent, FileContext,
+    GrepResult, ReadFilesResult,
 };
 
 fn make_action_result(id: &str) -> Arc<AIAgentActionResult> {
@@ -20,6 +21,36 @@ fn action_result(id: &str, result: AIAgentActionResultType) -> AIAgentActionResu
         id: AIAgentActionId::from(id.to_owned()),
         task_id: TaskId::new("task".to_owned()),
         result,
+    }
+}
+
+fn action(id: &str) -> AIAgentAction {
+    AIAgentAction {
+        id: AIAgentActionId::from(id.to_string()),
+        action: AIAgentActionType::InitProject,
+        task_id: TaskId::new("task".to_string()),
+        requires_result: true,
+        tool_name: Some("init_project".to_string()),
+    }
+}
+
+fn pending_tool_batch(call_ids: &[&str]) -> PendingToolBatch {
+    PendingToolBatch {
+        work_id: galaxy_agent_core::ExternalWorkId {
+            run_id: galaxy_agent_core::ProviderRunId::new("run"),
+            epoch: galaxy_agent_core::RunEpoch::new(7),
+        },
+        calls: call_ids
+            .iter()
+            .map(|call_id| galaxy_agent_core::PendingToolCall {
+                call: galaxy_agent_core::ToolCall {
+                    id: (*call_id).to_string(),
+                    name: "init_project".to_string(),
+                    arguments: serde_json::json!({}),
+                },
+                state: galaxy_agent_core::PendingToolCallState::Proposed,
+            })
+            .collect(),
     }
 }
 
@@ -43,6 +74,34 @@ fn count_startable_actions_for_pass(phases: &[(RunningActionPhase, bool)]) -> us
     }
 
     count
+}
+
+#[test]
+fn provider_action_correlations_require_the_exact_unresolved_batch_order() {
+    let conversation_id = AIConversationId::new();
+    let batch = pending_tool_batch(&["first", "second"]);
+    let actions = vec![action("first"), action("second")];
+
+    let correlations = provider_action_correlations(&actions, conversation_id, &batch).unwrap();
+    assert_eq!(correlations.len(), 2);
+    assert_eq!(correlations[0].0, (conversation_id, actions[0].id.clone()));
+    assert_eq!(correlations[0].1.run_id, batch.work_id.run_id);
+    assert_eq!(correlations[0].1.epoch, batch.work_id.epoch);
+    assert_eq!(correlations[0].1.call_id, "first");
+
+    let error = provider_action_correlations(
+        &[action("second"), action("first")],
+        conversation_id,
+        &batch,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error,
+        ProviderActionQueueError::ActionSetMismatch {
+            expected: vec!["first".to_string(), "second".to_string()],
+            received: vec!["second".to_string(), "first".to_string()],
+        }
+    );
 }
 
 #[test]
@@ -94,8 +153,7 @@ fn finished_results_stay_in_original_action_order() {
         make_action_result("second"),
     ];
 
-    finished_results
-        .sort_by_key(|result| action_order.get(&result.id).copied().unwrap_or(usize::MAX));
+    sort_action_results_by_order(&mut finished_results, &action_order);
 
     assert_eq!(
         finished_results[0].id,

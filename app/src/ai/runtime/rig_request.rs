@@ -33,8 +33,8 @@ pub(crate) struct PreparedRigTurn {
     pub mcp_tool_aliases: HashMap<String, MCPToolTarget>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct MCPToolTarget {
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct MCPToolTarget {
     pub server_id: Option<Uuid>,
     pub name: String,
 }
@@ -52,6 +52,25 @@ pub(crate) fn prepare_rig_turn(
         params,
         supported_tools,
         supported_cli_agent_tools,
+        None,
+    )
+}
+
+pub(crate) fn prepare_rig_turn_for_mode(
+    config: &OpenAIClientConfig,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+    mode: RigRequestMode,
+) -> PreparedRigTurn {
+    prepare_rig_turn_for_provider(
+        config.model.clone(),
+        config.max_output_tokens.map(u64::from),
+        RigRequestSanitizer::OpenAICompatible,
+        params,
+        supported_tools,
+        supported_cli_agent_tools,
+        Some(mode),
     )
 }
 
@@ -62,6 +81,24 @@ pub(crate) fn prepare_bedrock_rig_turn(
     supported_tools: Vec<ToolType>,
     supported_cli_agent_tools: Vec<ToolType>,
 ) -> PreparedRigTurn {
+    prepare_bedrock_rig_turn_for_mode(
+        model,
+        max_output_tokens,
+        params,
+        supported_tools,
+        supported_cli_agent_tools,
+        None,
+    )
+}
+
+pub(crate) fn prepare_bedrock_rig_turn_for_mode(
+    model: String,
+    max_output_tokens: Option<u64>,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+    mode: Option<RigRequestMode>,
+) -> PreparedRigTurn {
     prepare_rig_turn_for_provider(
         Some(model),
         max_output_tokens,
@@ -69,6 +106,7 @@ pub(crate) fn prepare_bedrock_rig_turn(
         params,
         supported_tools,
         supported_cli_agent_tools,
+        mode,
     )
 }
 
@@ -85,6 +123,7 @@ fn prepare_rig_turn_for_provider(
     params: RequestParams,
     supported_tools: Vec<ToolType>,
     supported_cli_agent_tools: Vec<ToolType>,
+    mode_override: Option<RigRequestMode>,
 ) -> PreparedRigTurn {
     let RequestParams {
         input,
@@ -107,7 +146,7 @@ fn prepare_rig_turn_for_provider(
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let needs_create_task = tasks.is_empty();
     let user_query = input.iter().find_map(input_user_query);
-    let mode = request_mode(&input);
+    let mode = mode_override.unwrap_or_else(|| request_mode(&input));
     let available_tools = match mode {
         RigRequestMode::Cli => supported_cli_agent_tools,
         RigRequestMode::CompletedCommandAssessment => Vec::new(),
@@ -119,11 +158,9 @@ fn prepare_rig_turn_for_provider(
         tool_definitions(&available_tools, mcp_context.as_ref());
     match mode {
         RigRequestMode::Cli => {
-            // History recall cannot advance a running command and is handled inline by the Rig
-            // adapter (without producing a client action that can trigger another turn). Keeping it
-            // in the CLI tool list lets the model spend its entire monitor turn recalling the prior
-            // snapshot instead of scheduling `read_shell_command_output`, so make polling the only
-            // way to inspect the active command here.
+            // History recall cannot advance a running command. Keeping it in the CLI tool list lets
+            // the model spend its monitor turn recalling a prior snapshot instead of scheduling
+            // `read_shell_command_output`, so make polling the only inspection path here.
             tools.retain(|tool| tool.name != "recall_tool_history");
         }
         RigRequestMode::CompletedCommandAssessment => {
@@ -435,7 +472,7 @@ fn input_user_query(input: &AIAgentInput) -> Option<String> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RigRequestMode {
+pub(crate) enum RigRequestMode {
     Normal,
     Plan,
     Orchestrate,

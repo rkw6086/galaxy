@@ -6,13 +6,13 @@ use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::config::Region;
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
 use galaxy_agent_core::AgentError;
-use galaxy_agent_rig::{BedrockRigConfig, BedrockRuntime};
 
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
+use super::runtime::BedrockAgentRuntime;
 use crate::ai::agent::api::LegacyResponseStream;
 use crate::settings::ai::BedrockAuthMethod;
 
@@ -171,25 +171,20 @@ impl BedrockClient {
         })
     }
 
-    /// Builds the Phase 4 Rig runtime from the AWS SDK client whose region and
-    /// credentials Galaxy already resolved. This does not change production
-    /// routing; callers opt in only after the Bedrock parity suite passes.
-    pub fn rig_runtime(
+    pub(crate) fn agent_runtime(
         &self,
         model: String,
         cross_region_inference: bool,
-        prompt_caching: bool,
         max_output_tokens: Option<u64>,
-    ) -> Result<BedrockRuntime, AgentError> {
-        BedrockRuntime::from_aws_client(
+        caching_config: CachingConfig,
+    ) -> Result<BedrockAgentRuntime, AgentError> {
+        BedrockAgentRuntime::new(
             self.runtime_client.clone(),
-            BedrockRigConfig {
-                model,
-                region: self.region.clone(),
-                cross_region_inference,
-                prompt_caching,
-                max_output_tokens,
-            },
+            model,
+            self.region.clone(),
+            cross_region_inference,
+            max_output_tokens,
+            caching_config,
         )
     }
 

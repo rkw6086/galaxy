@@ -688,6 +688,7 @@ impl BlocklistAIActionExecutor {
 
                 ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
                     action_id: action_id.clone(),
+                    conversation_id,
                 });
                 ctx.emit(BlocklistAIActionExecutorEvent::FinishedAction {
                     result: Arc::new(AIAgentActionResult {
@@ -904,6 +905,7 @@ impl BlocklistAIActionExecutor {
                 );
                 ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
                     action_id: action_id.clone(),
+                    conversation_id,
                 });
                 log::info!("[tool-debug] try_to_execute_action: spawning ASYNC execution for action_id={:?}", action_id);
                 ctx.spawn(execute_future, move |me, result, ctx| {
@@ -932,6 +934,7 @@ impl BlocklistAIActionExecutor {
             AnyActionExecution::Sync(action_result) => {
                 ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
                     action_id: action_id.clone(),
+                    conversation_id,
                 });
                 ctx.emit(BlocklistAIActionExecutorEvent::FinishedAction {
                     result: Arc::new(AIAgentActionResult {
@@ -1140,9 +1143,10 @@ impl Entity for BlocklistAIActionExecutor {
 }
 
 pub enum BlocklistAIActionExecutorEvent {
-    /// Emitted when an action is execution starts.
+    /// Emitted when an action begins execution.
     ExecutingAction {
         action_id: AIAgentActionId,
+        conversation_id: AIConversationId,
     },
 
     /// Emitted when an action has finished.

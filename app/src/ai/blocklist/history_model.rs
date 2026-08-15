@@ -563,6 +563,44 @@ impl BlocklistAIHistoryModel {
         conversation.write_updated_conversation_state(ctx);
     }
 
+    pub(crate) fn persist_active_provider_run_json(
+        &mut self,
+        conversation_id: AIConversationId,
+        snapshot: Option<String>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        let conversation = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?;
+        conversation.set_active_provider_run_json(snapshot);
+        conversation.write_updated_conversation_state(ctx);
+        Ok(())
+    }
+
+    pub(crate) fn rebind_provider_projection(
+        &mut self,
+        conversation_id: AIConversationId,
+        task_id: &TaskId,
+        exchange_id: AIAgentExchangeId,
+        response_stream_id: ResponseStreamId,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        let conversation = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?;
+        conversation.rebind_provider_projection(
+            task_id,
+            exchange_id,
+            response_stream_id,
+            terminal_surface_id,
+            ctx,
+        )?;
+        Ok(())
+    }
+
     fn update_cached_metadata_for_conversation(&mut self, conversation_id: AIConversationId) {
         let Some(conversation) = self.conversations_by_id.get(&conversation_id) else {
             return;
@@ -1652,6 +1690,7 @@ impl BlocklistAIHistoryModel {
 
         let conversation_data = AgentConversationData {
             agent_backend: source_conversation.agent_backend().for_fork(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: Some(source_conversation.usage_metadata()),
             reverted_action_ids,
@@ -1816,6 +1855,7 @@ impl BlocklistAIHistoryModel {
         // be recomputed based on the retained exchanges in a follow-up.
         let conversation_data = AgentConversationData {
             agent_backend: conversation.agent_backend().for_fork(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids,
@@ -2823,6 +2863,9 @@ fn merged_remote_child_placeholder_conversation_data(
     AgentConversationData {
         // Placeholder authoritative.
         agent_backend: placeholder.agent_backend().clone(),
+
+        // Active process-local provider runs cannot be merged from a cloud transcript.
+        active_provider_run_json: None,
 
         // Cloud authoritative.
         server_conversation_token: cloud_conversation

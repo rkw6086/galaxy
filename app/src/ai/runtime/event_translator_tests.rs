@@ -3,8 +3,9 @@ use galaxy_agent_core::{
 };
 use warp_multi_agent_api::{client_action, message, response_event};
 
-use super::{RuntimeResponseConfig, RuntimeResponseTranslator};
+use super::{ProviderRunResponseProjector, RuntimeResponseConfig, RuntimeResponseTranslator};
 use crate::ai::agent::runtime_activity;
+use crate::ai::runtime::provider_run_coordinator::ProviderRunProjection;
 
 fn provider_translator() -> RuntimeResponseTranslator {
     RuntimeResponseTranslator::new(RuntimeResponseConfig {
@@ -30,6 +31,51 @@ fn session_translator() -> RuntimeResponseTranslator {
         capabilities: RuntimeCapabilities::session_runtime(),
         empty_output_message: Some("> runtime completed without text".to_owned()),
     })
+}
+
+#[test]
+fn restored_provider_projection_skips_stream_initialization() {
+    let config = RuntimeResponseConfig {
+        task_id: "task".to_owned(),
+        conversation_id: "conversation".to_owned(),
+        needs_create_task: true,
+        user_query: Some("do not duplicate".to_owned()),
+        model_id: "model".to_owned(),
+        max_context_tokens: Some(1_000),
+        capabilities: RuntimeCapabilities::provider(),
+        empty_output_message: None,
+    };
+    let mut projector = ProviderRunResponseProjector::restored(config);
+    let work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(2),
+    };
+
+    assert!(projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: work_id.clone(),
+            runtime_request_id: "request".to_owned(),
+            retry_attempt: 0,
+        })
+        .unwrap()
+        .is_empty());
+    let events = projector
+        .project(ProviderRunProjection::ModelEvent {
+            work_id,
+            event: AgentEvent::TextDelta {
+                text: "continued".to_owned(),
+            },
+        })
+        .unwrap();
+
+    assert_eq!(events.len(), 1);
+    let Some(response_event::Type::ClientActions(actions)) = &events[0].r#type else {
+        panic!("restored output should append through a client action");
+    };
+    assert!(matches!(
+        actions.actions[0].action,
+        Some(client_action::Action::AddMessagesToTask(_))
+    ));
 }
 
 #[test]
@@ -60,6 +106,41 @@ fn provider_and_session_runtimes_share_text_translation() {
             second_actions.actions[0].action,
             Some(client_action::Action::AppendToMessageContent(_))
         ));
+    }
+}
+
+#[test]
+fn retargeting_starts_new_text_and_reasoning_messages_on_the_new_task() {
+    let mut translator = provider_translator();
+    translator
+        .translate(AgentEvent::TextDelta {
+            text: "root text".to_owned(),
+        })
+        .expect("root text");
+    translator
+        .translate(AgentEvent::ReasoningDelta {
+            text: "root reasoning".to_owned(),
+        })
+        .expect("root reasoning");
+
+    translator.set_task_id("cli-task");
+    for event in [
+        AgentEvent::TextDelta {
+            text: "cli text".to_owned(),
+        },
+        AgentEvent::ReasoningDelta {
+            text: "cli reasoning".to_owned(),
+        },
+    ] {
+        let translated = translator.translate(event).expect("retargeted output");
+        let Some(response_event::Type::ClientActions(actions)) = &translated[0].r#type else {
+            panic!("expected retargeted client action");
+        };
+        let Some(client_action::Action::AddMessagesToTask(add)) = &actions.actions[0].action else {
+            panic!("retargeted output must start a new message");
+        };
+        assert_eq!(add.task_id, "cli-task");
+        assert_eq!(add.messages[0].task_id, "cli-task");
     }
 }
 

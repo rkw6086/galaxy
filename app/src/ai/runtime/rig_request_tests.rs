@@ -7,7 +7,10 @@ use galaxy_agent_core::{ContentPart, MessageContent, MessageRole, ToolResult, To
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use warp_multi_agent_api::ToolType;
 
-use super::{input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, tool_definitions};
+use super::{
+    input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, prepare_rig_turn_for_mode,
+    tool_definitions, RigRequestMode,
+};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
@@ -342,6 +345,38 @@ fn completed_command_assessment_uses_root_history_without_tools_or_monitor_instr
                 && text.contains("Report the final result to the user.")
     )));
     assert_eq!(prepared.request.messages, prepared.persistent_messages);
+}
+
+#[test]
+fn forced_cli_profile_uses_monitor_prompt_and_tools_for_an_initial_query() {
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query("Run the checks")];
+
+    let prepared = prepare_rig_turn_for_mode(
+        &config(),
+        params,
+        vec![ToolType::RunShellCommand],
+        vec![ToolType::ReadShellCommandOutput],
+        RigRequestMode::Cli,
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prompt.contains("## Running Command Monitor"));
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "read_shell_command_output"));
+    assert!(!prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "run_shell_command"));
+    assert!(!prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "recall_tool_history"));
 }
 
 #[test]

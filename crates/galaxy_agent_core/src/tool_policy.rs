@@ -95,8 +95,12 @@ impl ToolLoopGuard {
 
 impl ToolPolicy {
     pub fn new(tools: &[ToolDefinition]) -> Self {
+        Self::from_names(tools.iter().map(|tool| tool.name.clone()))
+    }
+
+    pub fn from_names(names: impl IntoIterator<Item = String>) -> Self {
         Self {
-            advertised_tools: tools.iter().map(|tool| tool.name.clone()).collect(),
+            advertised_tools: names.into_iter().collect(),
         }
     }
 

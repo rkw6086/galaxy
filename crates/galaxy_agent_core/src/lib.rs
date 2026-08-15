@@ -4,10 +4,12 @@
 //! concrete runtimes such as Rig-backed providers or ACP agents. It must not
 //! depend on GalaxyUI, provider SDKs, persistence, or Warp wire protocols.
 
+mod provider_run;
 mod runtime;
 mod tool_policy;
 mod types;
 
+pub use provider_run::*;
 pub use runtime::*;
 pub use tool_policy::*;
 pub use types::*;

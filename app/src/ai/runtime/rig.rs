@@ -1,12 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::channel::oneshot;
-use futures::{FutureExt, StreamExt};
-use galaxy_agent_core::{
-    turn_control, AgentError, AgentEvent, AgentRuntime, MessageContent, MessageRole, StopReason,
-    ToolCall, ToolCallDecision, ToolEvent, ToolPolicy, ToolResult, TurnCommand, Usage,
-};
+use galaxy_agent_core::{AgentRuntime, ToolCall, TurnRequest};
 use galaxy_agent_rig::{
     AnthropicRuntime, AnthropicRuntimeConfig, ChatGPTSubscriptionRuntime,
     ChatGPTSubscriptionRuntimeConfig, GeminiRuntime, GeminiRuntimeConfig, OpenAICompatibleRuntime,
@@ -16,597 +11,242 @@ use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
 use super::rig_request::{
-    prepare_bedrock_rig_turn, prepare_rig_turn, MCPToolTarget, PreparedRigTurn,
+    prepare_bedrock_rig_turn_for_mode, prepare_rig_turn, prepare_rig_turn_for_mode, MCPToolTarget,
+    PreparedRigTurn, RigRequestMode,
 };
 use super::rig_tool::action_from_tool_call;
-use crate::ai::agent::api::{Event, RequestParams, ResponseStream, StreamEvent};
+use super::ProviderRunProfile;
+use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::AIAgentAction;
-use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
+use crate::ai::bedrock::client::BedrockClient;
+use crate::ai::bedrock::convert::CachingConfig;
 use crate::ai::bedrock::external_config::ExternalBedrockConfig;
-use crate::ai::bedrock::response_translator::build_add_agent_output_message;
-use crate::ai::openai::client::OpenAIClientConfig;
-use crate::ai::provider::types::{ContentPart, ConversationMessage};
-use crate::ai::runtime::{RuntimeResponseConfig, RuntimeResponseTranslator};
-use crate::server::server_api::AIApiError;
+use crate::ai::provider::types::ConversationMessage;
+use crate::ai::runtime::RuntimeResponseConfig;
 use crate::settings::OpenAIProviderKind;
 
-const MAX_INLINE_TOOL_CONTINUATIONS: usize = 3;
-const INLINE_TOOL_LOOP_MESSAGE: &str =
-    "I couldn't continue because the model repeatedly searched prior tool history without making progress. Please retry with a more specific instruction.";
+pub(crate) struct PreparedProviderRun {
+    pub(crate) base_profile: ProviderRunProfile,
+    pub(crate) cli_monitor_profile: Option<ProviderRunProfile>,
+    pub(crate) tool_result_archive: Vec<ConversationMessage>,
+    pub(crate) messages_sent: Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
+    pub(crate) persistence_offset: usize,
+    pub(crate) response_config: RuntimeResponseConfig,
+    pub(crate) action_context: ProviderActionContext,
+}
 
-pub(crate) fn rig_openai_response_stream(
-    config: OpenAIClientConfig,
-    params: RequestParams,
-    supported_tools: Vec<ToolType>,
-    supported_cli_agent_tools: Vec<ToolType>,
-    cancellation_rx: oneshot::Receiver<()>,
-) -> ResponseStream {
-    let skill_path_origin = params.session_context.skill_path_origin();
-    let prepared = prepare_rig_turn(&config, params, supported_tools, supported_cli_agent_tools);
-    let model_id = prepared.request.model.as_str().to_string();
-    match config.kind {
-        OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM => {
-            let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
-                base_url: config.base_url,
-                api_key: config.api_key,
-                model: model_id.clone(),
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-                supports_system_messages: config.supports_system_messages,
-            });
-            rig_response_stream(
-                runtime,
-                prepared,
-                skill_path_origin,
-                config.max_input_tokens,
-                "rig_openai_compatible",
-                cancellation_rx,
-            )
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ProviderActionContext {
+    task_id: String,
+    skill_path_origin: ai::skills::SkillPathOrigin,
+    mcp_tool_aliases: HashMap<String, MCPToolTarget>,
+}
+
+impl ProviderActionContext {
+    pub(crate) fn task_id(&self) -> &str {
+        &self.task_id
+    }
+
+    pub(crate) fn set_task_id(&mut self, task_id: impl Into<String>) {
+        self.task_id = task_id.into();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(task_id: impl Into<String>) -> Self {
+        Self {
+            task_id: task_id.into(),
+            skill_path_origin: ai::skills::SkillPathOrigin::Local,
+            mcp_tool_aliases: HashMap::new(),
         }
-        OpenAIProviderKind::ChatGPTSubscription => {
-            let runtime = ChatGPTSubscriptionRuntime::new(ChatGPTSubscriptionRuntimeConfig {
-                model: model_id,
-                reasoning_effort: config.reasoning_effort,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-                auth_file: None,
-            });
-            rig_response_stream(
-                runtime,
-                prepared,
-                skill_path_origin,
-                config.max_input_tokens,
-                "rig_chatgpt_subscription",
-                cancellation_rx,
-            )
-        }
-        OpenAIProviderKind::Anthropic => {
-            let runtime = AnthropicRuntime::new(AnthropicRuntimeConfig {
-                api_key: config.api_key.unwrap_or_default(),
-                model: model_id,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-            });
-            rig_response_stream(
-                runtime,
-                prepared,
-                skill_path_origin,
-                config.max_input_tokens,
-                "rig_anthropic",
-                cancellation_rx,
-            )
-        }
-        OpenAIProviderKind::Gemini => {
-            let runtime = GeminiRuntime::new(GeminiRuntimeConfig {
-                api_key: config.api_key.unwrap_or_default(),
-                model: model_id,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-            });
-            rig_response_stream(
-                runtime,
-                prepared,
-                skill_path_origin,
-                config.max_input_tokens,
-                "rig_gemini",
-                cancellation_rx,
-            )
-        }
-        OpenAIProviderKind::VertexAI => {
-            let runtime = VertexAiRuntime::new(VertexAiRuntimeConfig {
-                project_id: config.project_id.unwrap_or_default(),
-                location: config.location.unwrap_or_else(|| "global".to_string()),
-                model: model_id,
-                max_output_tokens: config.max_output_tokens.map(u64::from),
-            });
-            rig_response_stream(
-                runtime,
-                prepared,
-                skill_path_origin,
-                config.max_input_tokens,
-                "rig_vertex_ai",
-                cancellation_rx,
-            )
-        }
+    }
+
+    pub(crate) fn action_from_tool_call(&self, call: &ToolCall) -> Result<AIAgentAction, String> {
+        action_from_tool_call(
+            &self.task_id,
+            call,
+            &self.skill_path_origin,
+            &self.mcp_tool_aliases,
+        )
     }
 }
 
-pub(crate) async fn rig_bedrock_response_stream(
-    config: BedrockClientConfig,
-    params: RequestParams,
-    supported_tools: Vec<ToolType>,
-    supported_cli_agent_tools: Vec<ToolType>,
-    cancellation_rx: oneshot::Receiver<()>,
-) -> anyhow::Result<ResponseStream> {
+pub(crate) async fn prepare_provider_run(
+    base_provider_config: crate::ai::provider::ProviderConfig,
+    cli_provider_config: crate::ai::provider::ProviderConfig,
+    mut params: RequestParams,
+) -> anyhow::Result<PreparedProviderRun> {
+    let (supported_tools, supported_cli_agent_tools) =
+        crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
     let max_context_tokens = params.context_window_limit;
-    let model = params.model.as_str().to_string();
-    let max_output_tokens = Some(64_000);
-    let cross_region_inference = config.cross_region_inference;
-    let external_config = ExternalBedrockConfig::load();
-    let prompt_caching = !external_config.disable_prompt_caching;
-    let client = BedrockClient::from_config(config).await?;
-    let runtime = client.rig_runtime(
-        model.clone(),
-        cross_region_inference,
-        prompt_caching,
-        max_output_tokens,
-    )?;
-    let prepared = prepare_bedrock_rig_turn(
-        model,
-        max_output_tokens,
+    let mut cli_params = params.clone();
+    cli_params.model = params.cli_agent_model.clone();
+
+    let (base_runtime, prepared) = prepare_provider_profile(
+        base_provider_config,
         params,
-        supported_tools,
-        supported_cli_agent_tools,
-    );
+        supported_tools.clone(),
+        supported_cli_agent_tools.clone(),
+        None,
+    )
+    .await?;
+    let cli_monitor_profile = match cli_provider_config {
+        crate::ai::provider::ProviderConfig::None => None,
+        provider_config => {
+            let (runtime, prepared) = prepare_provider_profile(
+                provider_config,
+                cli_params,
+                supported_tools,
+                supported_cli_agent_tools,
+                Some(RigRequestMode::Cli),
+            )
+            .await?;
+            Some(ProviderRunProfile::new(runtime, prepared.request))
+        }
+    };
 
-    Ok(rig_response_stream(
-        runtime,
-        prepared,
-        skill_path_origin,
-        max_context_tokens,
-        "rig_bedrock",
-        cancellation_rx,
-    ))
-}
-
-fn rig_response_stream<R>(
-    runtime: R,
-    prepared: PreparedRigTurn,
-    skill_path_origin: ai::skills::SkillPathOrigin,
-    max_context_tokens: Option<u32>,
-    stream_type: &'static str,
-    cancellation_rx: oneshot::Receiver<()>,
-) -> ResponseStream
-where
-    R: AgentRuntime + Send + Sync + 'static,
-{
-    let runtime_capabilities = runtime.descriptor().capabilities.clone();
     let PreparedRigTurn {
         task_id,
         needs_create_task,
         user_query,
-        request: turn_request,
+        request,
         persistent_messages,
         tool_result_archive,
         messages_sent,
         mcp_tool_aliases,
     } = prepared;
-    store_messages_sent(&messages_sent, &persistent_messages);
-
-    let conversation_id = turn_request.conversation_id.clone();
-    let model_id = turn_request.model.as_str().to_string();
-    let tool_policy = ToolPolicy::new(&turn_request.tools);
-    let stream = async_stream::stream! {
-        let cancel_future = cancellation_rx.fuse();
-        futures::pin_mut!(cancel_future);
-
-        let conversation_id = conversation_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-        let mut translator = RuntimeResponseTranslator::new(RuntimeResponseConfig {
-            task_id: task_id.clone(),
-            conversation_id,
-            needs_create_task,
-            user_query,
-            model_id,
-            max_context_tokens,
-            capabilities: runtime_capabilities,
-            empty_output_message: None,
-        });
-        let mut turn_request = turn_request;
-        let mut cumulative_usage = Usage::default();
-        let mut inline_continuation_count = 0;
-
-        'provider_turns: loop {
-            let (control_sender, control) = turn_control();
-            let start_future = runtime.start_turn(turn_request.clone(), control).fuse();
-            futures::pin_mut!(start_future);
-
-            let mut agent_events = futures::select_biased! {
-                _ = cancel_future => {
-                    let _ = control_sender.try_send(TurnCommand::Cancel);
-                    match start_future.await {
-                        Ok(stream) => stream,
-                        Err(error) => {
-                            yield Err(agent_error(error, stream_type));
-                            return;
-                        }
-                    }
-                }
-                result = start_future => match result {
-                    Ok(stream) => stream,
-                    Err(error) => {
-                        yield Err(agent_error(error, stream_type));
-                        return;
-                    }
-                },
-            };
-
-            let mut full_text = String::new();
-            let mut full_reasoning = String::new();
-            let mut reasoning_signature = None;
-            let mut proposed_tools = Vec::new();
-            let mut assistant_history_index = None;
-            let mut handled_inline_tool = false;
-            let mut proposed_client_tool = false;
-
-            loop {
-                let next_event = agent_events.next().fuse();
-                futures::pin_mut!(next_event);
-                futures::select_biased! {
-                    _ = cancel_future => {
-                        let _ = control_sender.try_send(TurnCommand::Cancel);
-                    }
-                    event = next_event => {
-                        let Some(event) = event else {
-                            yield Err(Arc::new(AIApiError::UnexpectedEof));
-                            return;
-                        };
-                        let event = match event {
-                            Ok(event) => event,
-                            Err(error) => {
-                                yield Err(agent_error(error, stream_type));
-                                return;
-                            }
-                        };
-
-                        match event {
-                            AgentEvent::Tool {
-                                event: ToolEvent::Proposed { call },
-                            } => {
-                                proposed_tools.push(call.clone());
-                                sync_assistant_turn(
-                                    &messages_sent,
-                                    &full_reasoning,
-                                    reasoning_signature.as_deref(),
-                                    &full_text,
-                                    &proposed_tools,
-                                    &mut assistant_history_index,
-                                );
-                                let history = messages_sent
-                                    .lock()
-                                    .map(|sent| sent.clone())
-                                    .unwrap_or_default();
-                                match tool_policy.decide(&call, &history, &tool_result_archive) {
-                                    ToolCallDecision::Execute => {
-                                        proposed_client_tool = true;
-                                        match build_tool_proposed(
-                                            &task_id,
-                                            &call,
-                                            &skill_path_origin,
-                                            &mcp_tool_aliases,
-                                        ) {
-                                            Ok(action) => yield Ok(StreamEvent::ToolProposed(action)),
-                                            Err(message) => {
-                                                yield Err(agent_error(AgentError::new(
-                                                    galaxy_agent_core::AgentErrorKind::Protocol,
-                                                    message,
-                                                ), stream_type));
-                                                return;
-                                            }
-                                        }
-                                    }
-                                    ToolCallDecision::Inline(result) => {
-                                        handled_inline_tool = true;
-                                        append_tool_result(&messages_sent, result);
-                                    }
-                                    ToolCallDecision::Reject(result) => {
-                                        log::warn!(
-                                            "Rig model called unavailable tool '{}' (id={})",
-                                            call.name,
-                                            call.id
-                                        );
-                                        let error_display = format!(
-                                            "Failed tool call: `{}`\n\n{}",
-                                            call.name, result.content
-                                        );
-                                        append_tool_result(&messages_sent, result);
-                                        let message_id = Uuid::new_v4().to_string();
-                                        yield Ok(StreamEvent::Response(build_add_agent_output_message(
-                                            &task_id,
-                                            &message_id,
-                                            &error_display,
-                                        )));
-                                    }
-                                }
-                            }
-                            AgentEvent::UsageUpdated { usage } => {
-                                accumulate_usage(&mut cumulative_usage, &usage);
-                                let response_events = match translator.translate(
-                                    AgentEvent::UsageUpdated {
-                                        usage: cumulative_usage.clone(),
-                                    },
-                                ) {
-                                    Ok(response_events) => response_events,
-                                    Err(message) => {
-                                        yield Err(agent_error(AgentError::new(
-                                            galaxy_agent_core::AgentErrorKind::Protocol,
-                                            message,
-                                        ), stream_type));
-                                        return;
-                                    }
-                                };
-                                for response_event in response_events {
-                                    yield Ok(StreamEvent::Response(response_event));
-                                }
-                            }
-                            AgentEvent::TurnStopped { mut reason } => {
-                                sync_assistant_turn(
-                                    &messages_sent,
-                                    &full_reasoning,
-                                    reasoning_signature.as_deref(),
-                                    &full_text,
-                                    &proposed_tools,
-                                    &mut assistant_history_index,
-                                );
-                                if reason == StopReason::Completed
-                                    && handled_inline_tool
-                                    && !proposed_client_tool
-                                {
-                                    if inline_continuation_count < MAX_INLINE_TOOL_CONTINUATIONS {
-                                        inline_continuation_count += 1;
-                                        turn_request.messages = match copy_messages(&messages_sent) {
-                                            Ok(messages) => messages,
-                                            Err(()) => {
-                                                yield Err(agent_error(AgentError::new(
-                                                    galaxy_agent_core::AgentErrorKind::Protocol,
-                                                    "could not access Rig conversation history for inline tool continuation",
-                                                ), stream_type));
-                                                return;
-                                            }
-                                        };
-                                        translator.begin_followup_turn();
-                                        log::info!(
-                                            "Continuing Rig provider turn after inline tool result ({inline_continuation_count}/{MAX_INLINE_TOOL_CONTINUATIONS})"
-                                        );
-                                        continue 'provider_turns;
-                                    }
-
-                                    log::warn!(
-                                        "Rig provider exceeded {MAX_INLINE_TOOL_CONTINUATIONS} inline tool continuations"
-                                    );
-                                    append_assistant_text(&messages_sent, INLINE_TOOL_LOOP_MESSAGE);
-                                    let response_events = match translator.translate(
-                                        AgentEvent::RuntimeNotice {
-                                            message: INLINE_TOOL_LOOP_MESSAGE.to_string(),
-                                        },
-                                    ) {
-                                        Ok(response_events) => response_events,
-                                        Err(message) => {
-                                            yield Err(agent_error(AgentError::new(
-                                                galaxy_agent_core::AgentErrorKind::Protocol,
-                                                message,
-                                            ), stream_type));
-                                            return;
-                                        }
-                                    };
-                                    for response_event in response_events {
-                                        yield Ok(StreamEvent::Response(response_event));
-                                    }
-                                    reason = StopReason::ToolLoopLimit;
-                                }
-                                let response_events = match translator
-                                    .translate(AgentEvent::TurnStopped { reason })
-                                {
-                                    Ok(response_events) => response_events,
-                                    Err(message) => {
-                                        yield Err(agent_error(AgentError::new(
-                                            galaxy_agent_core::AgentErrorKind::Protocol,
-                                            message,
-                                        ), stream_type));
-                                        return;
-                                    }
-                                };
-                                for response_event in response_events {
-                                    yield Ok(StreamEvent::Response(response_event));
-                                }
-                                return;
-                            }
-                            event => {
-                                match &event {
-                                    AgentEvent::TextDelta { text } => full_text.push_str(text),
-                                    AgentEvent::ReasoningDelta { text } => {
-                                        full_reasoning.push_str(text);
-                                    }
-                                    AgentEvent::ReasoningCompleted { text, signature } => {
-                                        if !text.is_empty() {
-                                            full_reasoning.clone_from(text);
-                                        }
-                                        reasoning_signature.clone_from(signature);
-                                    }
-                                    AgentEvent::TurnStarted { .. }
-                                    | AgentEvent::Tool { .. }
-                                    | AgentEvent::UsageUpdated { .. }
-                                    | AgentEvent::RuntimeActivityUpdated { .. }
-                                    | AgentEvent::ContextUsageUpdated { .. }
-                                    | AgentEvent::UserInputAccepted { .. }
-                                    | AgentEvent::RuntimeNotice { .. }
-                                    | AgentEvent::TurnStopped { .. } => {}
-                                }
-                                let response_events = match translator.translate(event) {
-                                    Ok(response_events) => response_events,
-                                    Err(message) => {
-                                        yield Err(agent_error(AgentError::new(
-                                            galaxy_agent_core::AgentErrorKind::Protocol,
-                                            message,
-                                        ), stream_type));
-                                        return;
-                                    }
-                                };
-                                for response_event in response_events {
-                                    yield Ok(StreamEvent::Response(response_event));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    let persistence_offset = request
+        .messages
+        .len()
+        .saturating_sub(persistent_messages.len());
+    let response_config = RuntimeResponseConfig {
+        task_id: task_id.clone(),
+        conversation_id: request
+            .conversation_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
+        needs_create_task,
+        user_query,
+        model_id: request.model.as_str().to_string(),
+        max_context_tokens,
+        capabilities: base_runtime.descriptor().capabilities.clone(),
+        empty_output_message: None,
     };
-
-    Box::pin(stream)
-}
-
-fn store_messages_sent(
-    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-    messages: &[ConversationMessage],
-) {
-    let Ok(mut sent) = messages_sent.lock() else {
-        return;
-    };
-    *sent = messages.to_vec();
-}
-
-fn copy_messages(
-    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-) -> Result<Vec<ConversationMessage>, ()> {
-    messages_sent
-        .lock()
-        .map(|sent| sent.clone())
-        .map_err(|_| ())
-}
-
-fn append_tool_result(
-    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-    result: ToolResult,
-) {
-    let is_error = result.is_error();
-    let message = ConversationMessage {
-        role: MessageRole::User,
-        content: MessageContent::ToolResult {
-            tool_use_id: result.call_id,
-            content: result.content,
-            is_error,
+    Ok(PreparedProviderRun {
+        base_profile: ProviderRunProfile::new(base_runtime, request),
+        cli_monitor_profile,
+        tool_result_archive,
+        messages_sent,
+        persistence_offset,
+        response_config,
+        action_context: ProviderActionContext {
+            task_id,
+            skill_path_origin,
+            mcp_tool_aliases,
         },
-    };
-    if let Ok(mut sent) = messages_sent.lock() {
-        sent.push(message);
-    }
+    })
 }
 
-fn append_assistant_text(
-    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-    text: &str,
-) {
-    if let Ok(mut sent) = messages_sent.lock() {
-        sent.push(ConversationMessage {
-            role: MessageRole::Assistant,
-            content: MessageContent::Text(text.to_string()),
-        });
-    }
-}
-
-fn accumulate_usage(total: &mut Usage, usage: &Usage) {
-    total.input_tokens = total.input_tokens.saturating_add(usage.input_tokens);
-    total.output_tokens = total.output_tokens.saturating_add(usage.output_tokens);
-    total.cached_input_tokens = total
-        .cached_input_tokens
-        .saturating_add(usage.cached_input_tokens);
-    total.cache_creation_input_tokens = total
-        .cache_creation_input_tokens
-        .saturating_add(usage.cache_creation_input_tokens);
-}
-
-fn sync_assistant_turn(
-    messages_sent: &std::sync::Arc<std::sync::Mutex<Vec<ConversationMessage>>>,
-    reasoning_text: &str,
-    reasoning_signature: Option<&str>,
-    text: &str,
-    tool_calls: &[ToolCall],
-    history_index: &mut Option<usize>,
-) {
-    let has_reasoning = !reasoning_text.is_empty() || reasoning_signature.is_some();
-    let mut parts = Vec::with_capacity(
-        usize::from(has_reasoning) + usize::from(!text.is_empty()) + tool_calls.len(),
-    );
-    if has_reasoning {
-        parts.push(ContentPart::Reasoning {
-            text: reasoning_text.to_string(),
-            signature: reasoning_signature.map(str::to_string),
-        });
-    }
-    if !text.is_empty() {
-        parts.push(ContentPart::Text(text.to_string()));
-    }
-    parts.extend(tool_calls.iter().map(|call| ContentPart::ToolUse {
-        tool_use_id: call.id.clone(),
-        name: call.name.clone(),
-        input: call.arguments.clone(),
-    }));
-    if parts.is_empty() {
-        return;
-    }
-
-    let content = if parts.len() == 1 {
-        match parts.pop().unwrap() {
-            ContentPart::Text(text) => MessageContent::Text(text),
-            ContentPart::ToolUse {
-                tool_use_id,
-                name,
-                input,
-            } => MessageContent::ToolUse {
-                tool_use_id,
-                name,
-                input,
-            },
-            reasoning @ ContentPart::Reasoning { .. } => MessageContent::MultiPart(vec![reasoning]),
-            ContentPart::Image { .. } | ContentPart::ToolResult { .. } => unreachable!(),
+async fn prepare_provider_profile(
+    provider_config: crate::ai::provider::ProviderConfig,
+    params: RequestParams,
+    supported_tools: Vec<ToolType>,
+    supported_cli_agent_tools: Vec<ToolType>,
+    mode: Option<RigRequestMode>,
+) -> anyhow::Result<(Arc<dyn AgentRuntime>, PreparedRigTurn)> {
+    let model = params.model.as_str().to_string();
+    let prepared = match &provider_config {
+        crate::ai::provider::ProviderConfig::OpenAI(config) => match mode {
+            Some(mode) => prepare_rig_turn_for_mode(
+                config,
+                params,
+                supported_tools,
+                supported_cli_agent_tools,
+                mode,
+            ),
+            None => prepare_rig_turn(config, params, supported_tools, supported_cli_agent_tools),
+        },
+        crate::ai::provider::ProviderConfig::Bedrock(_) => prepare_bedrock_rig_turn_for_mode(
+            model,
+            Some(64_000),
+            params,
+            supported_tools,
+            supported_cli_agent_tools,
+            mode,
+        ),
+        crate::ai::provider::ProviderConfig::None => {
+            anyhow::bail!(
+                "No AI runtime configured. Enable an agent runtime or model provider in settings."
+            );
         }
-    } else {
-        MessageContent::MultiPart(parts)
     };
-    let message = ConversationMessage {
-        role: MessageRole::Assistant,
-        content,
-    };
+    let runtime = provider_runtime_for_request(provider_config, &prepared.request).await?;
+    Ok((runtime, prepared))
+}
 
-    let Ok(mut sent) = messages_sent.lock() else {
-        return;
-    };
-    if let Some(index) = *history_index {
-        if index < sent.len() {
-            sent[index] = message;
-            return;
+/// Rebuilds a one-turn provider transport from current settings and a persisted request.
+/// Credentials remain in the live provider config and never enter the run snapshot.
+pub(crate) async fn provider_runtime_for_request(
+    provider_config: crate::ai::provider::ProviderConfig,
+    request: &TurnRequest,
+) -> anyhow::Result<Arc<dyn AgentRuntime>> {
+    let model = request.model.as_str().to_string();
+    let runtime: Arc<dyn AgentRuntime> = match provider_config {
+        crate::ai::provider::ProviderConfig::OpenAI(config) => match config.kind {
+            OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM => Arc::new(
+                OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
+                    base_url: config.base_url,
+                    api_key: config.api_key,
+                    model,
+                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    supports_system_messages: config.supports_system_messages,
+                }),
+            ),
+            OpenAIProviderKind::ChatGPTSubscription => Arc::new(ChatGPTSubscriptionRuntime::new(
+                ChatGPTSubscriptionRuntimeConfig {
+                    model,
+                    reasoning_effort: config.reasoning_effort,
+                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                    auth_file: None,
+                },
+            )),
+            OpenAIProviderKind::Anthropic => {
+                Arc::new(AnthropicRuntime::new(AnthropicRuntimeConfig {
+                    api_key: config.api_key.unwrap_or_default(),
+                    model,
+                    max_output_tokens: config.max_output_tokens.map(u64::from),
+                }))
+            }
+            OpenAIProviderKind::Gemini => Arc::new(GeminiRuntime::new(GeminiRuntimeConfig {
+                api_key: config.api_key.unwrap_or_default(),
+                model,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+            })),
+            OpenAIProviderKind::VertexAI => Arc::new(VertexAiRuntime::new(VertexAiRuntimeConfig {
+                project_id: config.project_id.unwrap_or_default(),
+                location: config.location.unwrap_or_else(|| "global".to_string()),
+                model,
+                max_output_tokens: config.max_output_tokens.map(u64::from),
+            })),
+        },
+        crate::ai::provider::ProviderConfig::Bedrock(config) => {
+            let max_output_tokens = Some(64_000);
+            let cross_region_inference = config.cross_region_inference;
+            let caching_config =
+                CachingConfig::from_external_config(&ExternalBedrockConfig::load());
+            let client = BedrockClient::from_config(config).await?;
+            Arc::new(client.agent_runtime(
+                model,
+                cross_region_inference,
+                max_output_tokens,
+                caching_config,
+            )?)
         }
-    }
-    *history_index = Some(sent.len());
-    sent.push(message);
-}
-
-fn build_tool_proposed(
-    task_id: &str,
-    call: &ToolCall,
-    skill_path_origin: &ai::skills::SkillPathOrigin,
-    mcp_tool_aliases: &HashMap<String, MCPToolTarget>,
-) -> Result<AIAgentAction, String> {
-    action_from_tool_call(task_id, call, skill_path_origin, mcp_tool_aliases)
-}
-
-fn agent_error(error: AgentError, stream_type: &'static str) -> Arc<AIApiError> {
-    Arc::new(
-        AIApiError::Stream {
-            stream_type,
-            source: anyhow::anyhow!(error),
+        crate::ai::provider::ProviderConfig::None => {
+            anyhow::bail!(
+                "No AI runtime configured. Enable an agent runtime or model provider in settings."
+            );
         }
-        .into_quota_limit_if_provider_budget_exhausted(),
-    )
+    };
+    Ok(runtime)
 }
-
-#[cfg(test)]
-#[path = "rig_tests.rs"]
-mod tests;

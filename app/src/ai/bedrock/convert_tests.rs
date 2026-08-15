@@ -258,7 +258,10 @@ fn test_system_prompt_separated_from_messages() {
         None,
         None,
         None,
-        CachingConfig::default(),
+        CachingConfig {
+            enabled: false,
+            extended_ttl_requested: false,
+        },
     );
 
     assert_eq!(result.system.len(), 1);
@@ -334,7 +337,10 @@ fn test_tool_definitions_produce_tool_config() {
         None,
         None,
         None,
-        CachingConfig::default(),
+        CachingConfig {
+            enabled: false,
+            extended_ttl_requested: false,
+        },
     );
 
     assert!(result.tool_config.is_some());
