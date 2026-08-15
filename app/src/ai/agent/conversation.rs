@@ -2349,15 +2349,12 @@ impl AIConversation {
         if self.contains_action(&action.id) {
             return Ok(());
         }
-        let added_exchanges = self
-            .added_exchanges_by_response
-            .get(stream_id)
-            .ok_or(UpdateConversationError::NoPendingRequest)?;
-        let exchange_id = added_exchanges
-            .iter()
-            .find(|added| added.task_id == action.task_id)
-            .map(|added| added.exchange_id)
-            .ok_or(UpdateConversationError::TaskNotFound)?;
+        let exchange_id = self.ensure_response_exchange_for_task(
+            stream_id,
+            &action.task_id,
+            terminal_surface_id,
+            ctx,
+        )?;
         let message_id = MessageId::new(action.id.to_string());
         let exchange = self.get_exchange_to_update(exchange_id)?;
         match &exchange.output_status {
@@ -2381,6 +2378,59 @@ impl AIConversation {
             is_hidden: self.hidden_exchanges.contains(&exchange_id),
         });
         Ok(())
+    }
+
+    fn ensure_response_exchange_for_task(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        task_id: &TaskId,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<AIAgentExchangeId, UpdateConversationError> {
+        let added_exchanges = self
+            .added_exchanges_by_response
+            .get(stream_id)
+            .ok_or(UpdateConversationError::NoPendingRequest)?;
+        if let Some(exchange_id) = added_exchanges
+            .iter()
+            .find_map(|added| (added.task_id == *task_id).then_some(added.exchange_id))
+        {
+            return Ok(exchange_id);
+        }
+
+        // Direct-provider command monitoring can switch tasks within one response stream. A
+        // tool-first monitor turn needs an exchange before any message event can create it.
+        let source_exchange = added_exchanges.last().clone();
+        let existing_exchange = self
+            .task_store
+            .get(&source_exchange.task_id)
+            .ok_or(UpdateConversationError::TaskNotFound)?
+            .exchange(source_exchange.exchange_id)
+            .cloned()
+            .ok_or(UpdateConversationError::ExchangeNotFound)?;
+        let mut task = self
+            .task_store
+            .remove(task_id)
+            .ok_or(UpdateConversationError::TaskNotFound)?;
+        let exchange_id = task.append_new_exchange(&existing_exchange);
+        self.task_store.insert(task);
+        self.added_exchanges_by_response
+            .get_mut(stream_id)
+            .ok_or(UpdateConversationError::NoPendingRequest)?
+            .push(AddedExchange {
+                task_id: task_id.clone(),
+                exchange_id,
+            });
+        let is_hidden = self.hidden_exchanges.contains(&exchange_id);
+        ctx.emit(BlocklistAIHistoryEvent::AppendedExchange {
+            response_stream_id: Some(stream_id.clone()),
+            exchange_id,
+            task_id: task_id.clone(),
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden,
+        });
+        Ok(exchange_id)
     }
 
     pub fn update_cost_and_usage_for_request(

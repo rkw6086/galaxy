@@ -21,10 +21,10 @@ use crate::ai::agent::conversation::{
     ServerAIConversationMetadata,
 };
 use crate::ai::agent::{
-    AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutput, AIAgentOutputMessage,
-    AIAgentOutputMessageType, AIAgentOutputStatus, AIAgentText, AIAgentTextSection,
-    AgentOutputText, FinishedAIAgentOutput, MessageId, RenderableAIError, RunningCommand, Shared,
-    TransientNetworkErrorKind, UserQueryMode,
+    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentExchange, AIAgentExchangeId,
+    AIAgentInput, AIAgentOutput, AIAgentOutputMessage, AIAgentOutputMessageType,
+    AIAgentOutputStatus, AIAgentText, AIAgentTextSection, AgentOutputText, FinishedAIAgentOutput,
+    MessageId, RenderableAIError, RunningCommand, Shared, TransientNetworkErrorKind, UserQueryMode,
 };
 use crate::ai::ambient_agents::{
     conversation_output_status_from_conversation, AmbientAgentTaskId, AmbientConversationStatus,
@@ -220,6 +220,101 @@ fn repeated_command_steering_reuses_the_active_cli_subtask() {
         });
 
         assert_eq!(first_task_id, second_task_id);
+    });
+}
+
+#[test]
+fn provider_tool_proposal_creates_exchange_for_tool_first_cli_turn() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let stream_id = ResponseStreamId::new_for_test();
+        let action_id = AIAgentActionId::from("monitor-tool-call".to_owned());
+
+        let (conversation_id, cli_task_id, action) =
+            history_model.update(&mut app, |model, ctx| {
+                let conversation_id =
+                    model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+                let root_task_id = model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .get_root_task_id()
+                    .clone();
+                model
+                    .update_conversation_for_new_request_input(
+                        RequestInput {
+                            conversation_id,
+                            input_messages: HashMap::from([(root_task_id, Vec::new())]),
+                            working_directory: None,
+                            model_id: LLMId::from("test-model"),
+                            coding_model_id: LLMId::from("test-coding-model"),
+                            cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                            computer_use_model_id: LLMId::from("test-computer-use-model"),
+                            shared_session_response_initiator: None,
+                            request_start_ts: Local::now(),
+                            supported_tools_override: None,
+                        },
+                        stream_id.clone(),
+                        terminal_view_id,
+                        ctx,
+                    )
+                    .expect("root response exchange should be recorded");
+                model.initialize_output_for_response_stream(
+                    &stream_id,
+                    conversation_id,
+                    terminal_view_id,
+                    warp_multi_agent_api::response_event::StreamInit {
+                        request_id: "provider-request".to_owned(),
+                        conversation_id: "provider-conversation".to_owned(),
+                        run_id: "provider-run".to_owned(),
+                    },
+                    ctx,
+                );
+                let cli_task_id = model
+                    .create_cli_subagent_task_for_conversation(
+                        BlockId::new(),
+                        conversation_id,
+                        terminal_view_id,
+                        ctx,
+                    )
+                    .expect("CLI subtask should be created");
+                let action = AIAgentAction {
+                    id: action_id.clone(),
+                    task_id: cli_task_id.clone(),
+                    action: AIAgentActionType::FileGlob {
+                        patterns: vec!["*.rs".to_owned()],
+                        path: None,
+                    },
+                    requires_result: true,
+                    tool_name: Some("file_glob".to_owned()),
+                };
+                model
+                    .apply_domain_tool_proposal(
+                        &stream_id,
+                        conversation_id,
+                        terminal_view_id,
+                        action.clone(),
+                        ctx,
+                    )
+                    .expect("tool-first CLI proposal should attach to a lazy exchange");
+                (conversation_id, cli_task_id, action)
+            });
+
+        history_model.read(&app, |model, _| {
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            let cli_task = conversation
+                .get_task(&cli_task_id)
+                .expect("CLI subtask should exist");
+            assert_eq!(cli_task.exchanges_len(), 1);
+            assert_eq!(
+                conversation.exchange_id_for_action(&action.id),
+                cli_task.last_exchange().map(|exchange| exchange.id)
+            );
+            assert!(conversation.contains_action(&action.id));
+        });
     });
 }
 
