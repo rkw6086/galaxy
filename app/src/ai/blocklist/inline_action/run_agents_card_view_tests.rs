@@ -57,30 +57,20 @@ fn make_edit_state_with_orch_fields(
 }
 
 #[test]
-fn local_to_cloud_initializes_remote_with_empty_environment() {
+fn remote_toggle_remains_local() {
     let mut state =
         RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
+
+    state.orch.toggle_execution_mode_to_remote(true);
+
     assert!(matches!(
         state.orch.execution_mode,
         RunAgentsExecutionMode::Local
     ));
-
-    state.orch.toggle_execution_mode_to_remote(true);
-    let RunAgentsExecutionMode::Remote {
-        environment_id,
-        worker_host,
-        computer_use_enabled,
-    } = state.orch.execution_mode
-    else {
-        panic!("expected Remote after toggle");
-    };
-    assert_eq!(environment_id, "");
-    assert_eq!(worker_host, "warp");
-    assert!(!computer_use_enabled);
 }
 
 #[test]
-fn cloud_to_local_drops_environment() {
+fn legacy_remote_request_normalizes_to_local() {
     let mut state = RunAgentsEditState::from_request(&make_request(
         "oz",
         RunAgentsExecutionMode::Remote {
@@ -97,15 +87,21 @@ fn cloud_to_local_drops_environment() {
 }
 
 #[test]
-fn local_to_cloud_resets_opencode_to_oz() {
+fn remote_toggle_preserves_supported_local_harness() {
     let mut state =
         RunAgentsEditState::from_request(&make_request("opencode", RunAgentsExecutionMode::Local));
+
     state.orch.toggle_execution_mode_to_remote(true);
-    assert_eq!(state.orch.harness_type, "oz");
+
+    assert_eq!(state.orch.harness_type, "opencode");
+    assert!(matches!(
+        state.orch.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
 }
 
 #[test]
-fn cloud_without_env_no_longer_disables_accept() {
+fn legacy_remote_request_without_environment_allows_local_acceptance() {
     let state = RunAgentsEditState::from_request(&make_request(
         "oz",
         RunAgentsExecutionMode::Remote {
@@ -114,15 +110,15 @@ fn cloud_without_env_no_longer_disables_accept() {
             computer_use_enabled: false,
         },
     ));
-    assert!(
-        state.orch.accept_disabled_reason().is_none(),
-        "Cloud without env should NOT disable Accept (soft recommendation only)"
-    );
+    assert!(matches!(
+        state.orch.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
+    assert!(state.orch.accept_disabled_reason().is_none());
 }
 
 #[test]
-fn cloud_with_opencode_disables_accept() {
-    // Bypass the toggle helper to test the validation gate directly.
+fn legacy_remote_opencode_request_is_normalized_and_allowed_locally() {
     let state = RunAgentsEditState::from_request(&make_request(
         "opencode",
         RunAgentsExecutionMode::Remote {
@@ -131,9 +127,12 @@ fn cloud_with_opencode_disables_accept() {
             computer_use_enabled: false,
         },
     ));
-    let reason = state.orch.accept_disabled_reason();
-    assert!(reason.is_some(), "Cloud + OpenCode should disable Accept");
-    assert!(reason.unwrap().contains("OpenCode"));
+
+    assert!(matches!(
+        state.orch.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
+    assert_eq!(state.orch.accept_disabled_reason(), None);
 }
 
 #[test]
@@ -149,12 +148,11 @@ fn local_with_any_harness_does_not_disable_accept() {
 }
 
 #[test]
-fn local_with_disabled_codex_disables_accept() {
+fn local_with_disabled_codex_is_sanitized() {
     let state = make_edit_state_with_orch_fields("codex", RunAgentsExecutionMode::Local);
-    assert_eq!(
-        state.orch.accept_disabled_reason(),
-        Some("Local Codex child agents are temporarily disabled.")
-    );
+
+    assert_eq!(state.orch.harness_type, "oz");
+    assert_eq!(state.orch.accept_disabled_reason(), None);
 }
 
 #[test]
@@ -168,7 +166,7 @@ fn from_request_sanitizes_disabled_local_harness_to_oz() {
 }
 
 #[test]
-fn cloud_with_env_and_non_opencode_harness_allows_accept() {
+fn legacy_remote_harnesses_normalize_and_allow_local_acceptance() {
     for harness in ["oz", "claude", "gemini"] {
         let state = RunAgentsEditState::from_request(&make_request(
             harness,
@@ -178,9 +176,13 @@ fn cloud_with_env_and_non_opencode_harness_allows_accept() {
                 computer_use_enabled: false,
             },
         ));
+        assert!(matches!(
+            state.orch.execution_mode,
+            RunAgentsExecutionMode::Local
+        ));
         assert!(
             state.orch.accept_disabled_reason().is_none(),
-            "Cloud + env + {harness} should allow Accept"
+            "normalized local + {harness} should allow Accept"
         );
     }
 }
@@ -197,7 +199,7 @@ fn set_environment_id_no_op_in_local_mode() {
 }
 
 #[test]
-fn set_environment_id_updates_remote() {
+fn set_environment_id_is_ignored_for_normalized_remote_request() {
     let mut state = RunAgentsEditState::from_request(&make_request(
         "oz",
         RunAgentsExecutionMode::Remote {
@@ -206,15 +208,17 @@ fn set_environment_id_updates_remote() {
             computer_use_enabled: false,
         },
     ));
+
     state.orch.set_environment_id("new-env".to_string());
-    let RunAgentsExecutionMode::Remote { environment_id, .. } = state.orch.execution_mode else {
-        panic!("expected Remote");
-    };
-    assert_eq!(environment_id, "new-env");
+
+    assert!(matches!(
+        state.orch.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
 }
 
 #[test]
-fn to_request_round_trips_request_fields() {
+fn to_request_preserves_fields_but_normalizes_execution_to_local() {
     let mut req = make_request_with_skills(
         "claude",
         RunAgentsExecutionMode::Remote {
@@ -232,11 +236,15 @@ fn to_request_round_trips_request_fields() {
     req.plan_id = "plan-1".to_string();
     let state = RunAgentsEditState::from_request(&req);
     let round_tripped = state.to_request();
+
     assert_eq!(round_tripped.summary, req.summary);
     assert_eq!(round_tripped.base_prompt, req.base_prompt);
     assert_eq!(round_tripped.model_id, req.model_id);
     assert_eq!(round_tripped.harness_type, req.harness_type);
-    assert_eq!(round_tripped.execution_mode, req.execution_mode);
+    assert!(matches!(
+        round_tripped.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
     assert_eq!(round_tripped.agent_run_configs, req.agent_run_configs);
     assert_eq!(round_tripped.skills, req.skills);
     assert_eq!(round_tripped.plan_id, req.plan_id);
@@ -414,34 +422,27 @@ mod override_from_approved_config_tests {
 
     #[test]
     fn overrides_even_when_request_has_values() {
-        let mut state = RunAgentsEditState::from_request(&make_request(
-            "claude",
-            RunAgentsExecutionMode::Local,
-        ));
+        let mut state =
+            RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
         state
             .orch
-            .override_from_approved_config(&local_config("gpt-5", "codex"));
-        assert_eq!(state.orch.model_id, "gpt-5");
-        assert_eq!(state.orch.harness_type, "codex");
+            .override_from_approved_config(&local_config("sonnet", "claude"));
+        assert_eq!(state.orch.model_id, "sonnet");
+        assert_eq!(state.orch.harness_type, "claude");
     }
 
     #[test]
-    fn overrides_local_to_remote() {
+    fn remote_config_override_stays_local() {
         let mut state =
             RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
         state
             .orch
             .override_from_approved_config(&remote_config("auto", "oz", "env-1"));
-        let RunAgentsExecutionMode::Remote {
-            environment_id,
-            worker_host,
-            ..
-        } = &state.orch.execution_mode
-        else {
-            panic!("expected Remote after override");
-        };
-        assert_eq!(environment_id, "env-1");
-        assert_eq!(worker_host, "warp");
+
+        assert!(matches!(
+            state.orch.execution_mode,
+            RunAgentsExecutionMode::Local
+        ));
     }
 
     #[test]
@@ -464,7 +465,7 @@ mod override_from_approved_config_tests {
     }
 
     #[test]
-    fn preserves_computer_use_when_both_remote() {
+    fn remote_request_and_remote_override_drop_computer_use() {
         let mut state = RunAgentsEditState::from_request(&make_request(
             "oz",
             RunAgentsExecutionMode::Remote {
@@ -476,57 +477,29 @@ mod override_from_approved_config_tests {
         state
             .orch
             .override_from_approved_config(&remote_config("auto", "oz", "new-env"));
-        let RunAgentsExecutionMode::Remote {
-            environment_id,
-            computer_use_enabled,
-            ..
-        } = &state.orch.execution_mode
-        else {
-            panic!("expected Remote");
-        };
-        assert_eq!(environment_id, "new-env", "env should come from config");
-        assert!(
-            *computer_use_enabled,
-            "computer_use_enabled should be preserved from original request"
-        );
+
+        assert!(matches!(
+            state.orch.execution_mode,
+            RunAgentsExecutionMode::Local
+        ));
     }
 
     #[test]
-    fn does_not_carry_computer_use_from_local_to_remote() {
+    fn approved_local_disabled_harness_is_sanitized() {
         let mut state =
             RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
         state
             .orch
-            .override_from_approved_config(&remote_config("auto", "oz", "env-1"));
-        let RunAgentsExecutionMode::Remote {
-            computer_use_enabled,
-            ..
-        } = &state.orch.execution_mode
-        else {
-            panic!("expected Remote");
-        };
-        assert!(
-            !*computer_use_enabled,
-            "computer_use_enabled should default to false when original was Local"
-        );
-    }
+            .override_from_approved_config(&local_config("gpt-5", "codex"));
 
-    #[test]
-    fn approved_local_disabled_harness_reports_disabled_reason_after_override() {
-        let mut state =
-            RunAgentsEditState::from_request(&make_request("oz", RunAgentsExecutionMode::Local));
-        state
-            .orch
-            .override_from_approved_config(&local_config("auto", "codex"));
-        assert_eq!(
-            state.orch.accept_disabled_reason(),
-            Some("Local Codex child agents are temporarily disabled.")
-        );
+        assert_eq!(state.orch.harness_type, "oz");
+        assert_eq!(state.orch.model_id, "");
+        assert_eq!(state.orch.accept_disabled_reason(), None);
     }
 }
 
 #[test]
-fn local_to_cloud_idempotent_when_already_remote() {
+fn remote_toggle_is_idempotently_local() {
     let mut state = RunAgentsEditState::from_request(&make_request(
         "oz",
         RunAgentsExecutionMode::Remote {
@@ -535,21 +508,11 @@ fn local_to_cloud_idempotent_when_already_remote() {
             computer_use_enabled: true,
         },
     ));
+
     state.orch.toggle_execution_mode_to_remote(true);
-    let RunAgentsExecutionMode::Remote {
-        environment_id,
-        computer_use_enabled,
-        ..
-    } = state.orch.execution_mode
-    else {
-        panic!("expected Remote");
-    };
-    assert_eq!(
-        environment_id, "env-1",
-        "toggle to Remote when already Remote should not clobber env"
-    );
-    assert!(
-        computer_use_enabled,
-        "toggle to Remote when already Remote should not clobber computer_use"
-    );
+
+    assert!(matches!(
+        state.orch.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
 }

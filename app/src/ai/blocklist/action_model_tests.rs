@@ -259,6 +259,36 @@ fn action_permission_kinds_match_the_safety_boundary() {
 }
 
 #[test]
+fn denied_permission_event_resolves_the_pending_call() {
+    let action = action("call-1");
+
+    let ToolEvent::PermissionResolved {
+        request_id,
+        call_id,
+        decision,
+    } = permission_denied_tool_event(&action)
+    else {
+        panic!("expected a permission resolution event");
+    };
+
+    assert_eq!(request_id, "permission:call-1");
+    assert_eq!(call_id, "call-1");
+    assert_eq!(
+        decision,
+        PermissionDecision::Denied {
+            reason: Some("Permission denied by the user.".to_string()),
+        }
+    );
+}
+
+#[test]
+fn provider_owned_denial_suppresses_duplicate_completion() {
+    assert!(!should_emit_tool_completion(true, true));
+    assert!(should_emit_tool_completion(true, false));
+    assert!(should_emit_tool_completion(false, true));
+}
+
+#[test]
 fn only_rejecting_a_blocked_action_is_a_permission_denial() {
     assert!(is_permission_denial(
         CancellationReason::ManuallyCancelled,

@@ -695,6 +695,7 @@ fn prepare_request_for_execution(
         return Some(reason);
     }
 
+    normalize_request_for_local_execution(request);
     let status = resolve_request_from_approved_config(request, parent_conversation_id, ctx);
     populate_default_auth_secret_for_execution(request, ctx);
     if let Some(reason) =
@@ -885,6 +886,18 @@ fn populate_default_auth_secret_for_execution(
         default_auth_secret_name_for_harness(&request.harness_type, ctx);
 }
 
+fn normalize_request_for_local_execution(request: &mut RunAgentsRequest) {
+    let edit_state = OrchestrationEditState::from_run_agents_fields(
+        &request.model_id,
+        &request.harness_type,
+        &request.execution_mode,
+    );
+    request.model_id = edit_state.model_id;
+    request.harness_type = edit_state.harness_type;
+    request.execution_mode = RunAgentsExecutionMode::Local;
+    request.harness_auth_secret_name = None;
+}
+
 /// Unconditionally overrides run-wide fields on a `RunAgentsRequest`
 /// from the approved orchestration config, delegating to
 /// `OrchestrationEditState::override_from_approved_config`.
@@ -907,6 +920,9 @@ fn resolve_request_from_config(request: &mut RunAgentsRequest, config: &Orchestr
 fn validate_request(request: &RunAgentsRequest) -> Result<(), String> {
     if request.agent_run_configs.is_empty() {
         return Err("orchestrate: empty agent_run_configs".to_string());
+    }
+    if request.execution_mode.is_remote() {
+        return Err("Galaxy only supports local child-agent orchestration.".to_string());
     }
 
     let mut normalized_names = HashSet::new();

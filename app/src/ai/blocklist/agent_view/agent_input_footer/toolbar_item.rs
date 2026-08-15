@@ -178,6 +178,8 @@ impl AgentToolbarItemKind {
     pub fn is_available(&self, app: &warpui::AppContext) -> bool {
         match self {
             Self::HandoffToCloud => AISettings::as_ref(app).is_cloud_handoff_enabled(app),
+            // Retain the enum variant so existing toolbar settings still deserialize.
+            Self::ShareSession => false,
             _ => true,
         }
     }
@@ -215,11 +217,6 @@ impl AgentToolbarItemKind {
             Self::ContextWindowUsage,
             Self::ModelSelector,
         ];
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && FeatureFlag::HOARemoteControl.is_enabled()
-        {
-            items.push(Self::ShareSession);
-        }
         if FeatureFlag::OzHandoff.is_enabled()
             && FeatureFlag::HandoffLocalCloud.is_enabled()
             && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
@@ -246,11 +243,6 @@ impl AgentToolbarItemKind {
         ]);
         if FeatureFlag::FastForwardAutoexecuteButton.is_enabled() {
             items.push(Self::FastForwardToggle);
-        }
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && FeatureFlag::HOARemoteControl.is_enabled()
-        {
-            items.push(Self::ShareSession);
         }
         if FeatureFlag::OzHandoff.is_enabled()
             && FeatureFlag::HandoffLocalCloud.is_enabled()
@@ -322,3 +314,7 @@ impl From<ContextChipKind> for AgentToolbarItemKind {
         Self::ContextChip(kind)
     }
 }
+
+#[cfg(test)]
+#[path = "toolbar_item_tests.rs"]
+mod tests;

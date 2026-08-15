@@ -246,6 +246,20 @@ fn permission_request_id(action_id: &AIAgentActionId) -> String {
     format!("permission:{action_id}")
 }
 
+fn permission_denied_tool_event(action: &AIAgentAction) -> ToolEvent {
+    ToolEvent::PermissionResolved {
+        request_id: permission_request_id(&action.id),
+        call_id: action.id.to_string(),
+        decision: PermissionDecision::Denied {
+            reason: Some("Permission denied by the user.".to_string()),
+        },
+    }
+}
+
+fn should_emit_tool_completion(is_provider_owned: bool, permission_denied: bool) -> bool {
+    !is_provider_owned || !permission_denied
+}
+
 fn is_permission_denial(reason: CancellationReason, status: Option<&AIActionStatus>) -> bool {
     matches!(reason, CancellationReason::ManuallyCancelled)
         && matches!(status, Some(AIActionStatus::Blocked))
@@ -661,7 +675,7 @@ pub struct BlocklistAIActionModel {
     /// we can still order the results consistently.
     action_order: HashMap<AIConversationId, HashMap<AIAgentActionId, usize>>,
 
-    /// Permission-card rejections that still need a correlated completion event.
+    /// Permission-card rejections whose cancelled action result must not emit a second provider event.
     denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
 
     /// Durable provider work identity for actions owned by an active provider run.
@@ -1249,6 +1263,7 @@ impl BlocklistAIActionModel {
             );
             return;
         };
+        self.resolve_permission_denial(conversation_id, &action, ctx);
         let result = Arc::new(AIAgentActionResult {
             id: action.id,
             task_id: action.task_id,
@@ -1832,6 +1847,36 @@ impl BlocklistAIActionModel {
         to_drain
     }
 
+    fn resolve_permission_denial(
+        &mut self,
+        conversation_id: AIConversationId,
+        pending_action: &AIAgentAction,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.denied_permissions
+            .insert((conversation_id, pending_action.id.clone()));
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            RemoteLogLevel::Warn,
+            "Tool permission resolved",
+            serde_json::json!({
+                "event": "tool_permission_resolved",
+                "decision": "denied",
+                "conversation_id": conversation_id.to_string(),
+                "action_id": pending_action.id.to_string(),
+                "task_id": pending_action.task_id.to_string(),
+                "tool_name": action_tool_name(pending_action),
+                "permission_kind": format!("{:?}", permission_kind_for_action(&pending_action.action)),
+            }),
+        );
+        ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+            action_id: pending_action.id.clone(),
+            execution_ref: self.provider_tool_execution_ref(conversation_id, &pending_action.id),
+            event: permission_denied_tool_event(pending_action),
+        });
+    }
+
     fn cancel_pending_action(
         &mut self,
         conversation_id: AIConversationId,
@@ -1841,35 +1886,7 @@ impl BlocklistAIActionModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if permission_denied {
-            self.denied_permissions
-                .insert((conversation_id, pending_action.id.clone()));
-            #[cfg(not(target_family = "wasm"))]
-            log_tool_event(
-                ctx,
-                RemoteLogLevel::Warn,
-                "Tool permission resolved",
-                serde_json::json!({
-                    "event": "tool_permission_resolved",
-                    "decision": "denied",
-                    "conversation_id": conversation_id.to_string(),
-                    "action_id": pending_action.id.to_string(),
-                    "task_id": pending_action.task_id.to_string(),
-                    "tool_name": action_tool_name(&pending_action),
-                    "permission_kind": format!("{:?}", permission_kind_for_action(&pending_action.action)),
-                }),
-            );
-            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
-                action_id: pending_action.id.clone(),
-                execution_ref: self
-                    .provider_tool_execution_ref(conversation_id, &pending_action.id),
-                event: ToolEvent::PermissionResolved {
-                    request_id: permission_request_id(&pending_action.id),
-                    call_id: pending_action.id.to_string(),
-                    decision: PermissionDecision::Denied {
-                        reason: Some("Permission denied by the user.".to_string()),
-                    },
-                },
-            });
+            self.resolve_permission_denial(conversation_id, &pending_action, ctx);
         }
 
         if matches!(
@@ -2103,7 +2120,7 @@ impl BlocklistAIActionModel {
         );
         // Permission denial completes provider-owned calls when the permission decision is
         // applied, so emitting a second correlated completion would violate exactly-once delivery.
-        if execution_ref.is_none() || !permission_denied {
+        if should_emit_tool_completion(execution_ref.is_some(), permission_denied) {
             ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
                 action_id: action_result.id.clone(),
                 execution_ref: execution_ref.clone(),

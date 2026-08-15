@@ -658,12 +658,11 @@ impl View for OrchestrationConfigBlockView {
 
             // Expanded controls
             if self.details_expanded {
-                // Cloud / Local mode toggle (full width)
+                // Galaxy orchestration is local-only.
                 let active_seg_bg =
                     galaxy_core::ui::theme::color::internal_colors::accent_overlay_2(theme);
                 column.add_child(
                     Container::new(oc::render_mode_toggle(
-                        self.edit_state.execution_mode.is_remote(),
                         &self.pickers,
                         appearance,
                         Some(active_seg_bg),

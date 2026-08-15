@@ -292,6 +292,7 @@ fn validate_request_rejects_blank_and_duplicate_agent_names() {
     let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
         panic!("expected run_agents action");
     };
+    normalize_request_for_local_execution(&mut request);
     request.agent_run_configs[0].name = "   ".to_string();
     assert_eq!(
         validate_request(&request),
@@ -315,6 +316,7 @@ fn validate_request_allows_unique_sibling_names() {
     let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
         panic!("expected run_agents action");
     };
+    normalize_request_for_local_execution(&mut request);
     request.agent_run_configs.push(RunAgentsAgentRunConfig {
         name: "second-child".to_string(),
         prompt: "Do separate work".to_string(),
@@ -322,6 +324,38 @@ fn validate_request_allows_unique_sibling_names() {
     });
 
     assert_eq!(validate_request(&request), Ok(()));
+}
+
+#[test]
+fn local_normalization_clears_remote_only_fields_and_disabled_harness() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("codex").action else {
+        panic!("expected run_agents action");
+    };
+    request.model_id = "gpt-5".to_string();
+    request.harness_auth_secret_name = Some("remote-secret".to_string());
+
+    normalize_request_for_local_execution(&mut request);
+
+    assert!(matches!(
+        request.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
+    assert_eq!(request.harness_type, "oz");
+    assert_eq!(request.model_id, "");
+    assert_eq!(request.harness_auth_secret_name, None);
+    assert_eq!(validate_request(&request), Ok(()));
+}
+
+#[test]
+fn validate_request_rejects_remote_dispatch() {
+    let AIAgentActionType::RunAgents(request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+
+    assert_eq!(
+        validate_request(&request),
+        Err("Galaxy only supports local child-agent orchestration.".to_string())
+    );
 }
 
 fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTestState {
@@ -486,7 +520,7 @@ fn should_autoexecute_when_plan_has_approved_orchestration_config() {
 }
 
 #[test]
-fn should_not_autoexecute_approved_remote_non_warp_plan_without_default_auth_secret() {
+fn approved_remote_plan_is_normalized_and_can_autoexecute_locally() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         persist_plan_config_with_harness(
@@ -508,7 +542,7 @@ fn should_not_autoexecute_approved_remote_non_warp_plan_without_default_auth_sec
             )
         });
 
-        assert!(!should_autoexecute);
+        assert!(should_autoexecute);
     });
 }
 
@@ -782,7 +816,7 @@ fn should_not_autoexecute_without_approved_plan_or_always_allow_profile() {
 }
 
 #[test]
-fn execute_denies_remote_non_warp_harness_without_default_auth_secret() {
+fn execute_normalizes_remote_non_oz_harness_without_requiring_remote_auth() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         let action = remote_run_agents_action("codex");
@@ -799,21 +833,12 @@ fn execute_denies_remote_non_warp_harness_without_default_auth_secret() {
                 .into()
         });
 
-        let AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(RunAgentsResult::Denied {
-            reason,
-        })) = execution
-        else {
-            panic!("expected synchronous run_agents denial");
-        };
-        assert_eq!(
-            reason,
-            "Cloud child agents using this harness require an API key before they can run."
-        );
+        assert!(matches!(execution, AnyActionExecution::Async { .. }));
     });
 }
 
 #[test]
-fn should_autoexecute_remote_non_warp_harness_with_always_allow_even_without_default_auth_secret() {
+fn normalized_remote_non_oz_harness_autoexecutes_with_always_allow() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);
@@ -834,7 +859,7 @@ fn should_autoexecute_remote_non_warp_harness_with_always_allow_even_without_def
 }
 
 #[test]
-fn should_autoexecute_remote_non_warp_harness_with_default_auth_secret() {
+fn normalized_remote_non_oz_harness_ignores_default_auth_secret() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);
@@ -856,7 +881,7 @@ fn should_autoexecute_remote_non_warp_harness_with_default_auth_secret() {
 }
 
 #[test]
-fn should_autoexecute_remote_warp_harness_without_default_auth_secret() {
+fn normalized_remote_oz_harness_autoexecutes_without_default_auth_secret() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);

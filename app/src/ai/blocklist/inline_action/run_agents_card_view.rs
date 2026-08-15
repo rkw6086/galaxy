@@ -139,7 +139,7 @@ impl RunAgentsEditState {
             skills: self.skills.clone(),
             model_id: self.orch.model_id.clone(),
             harness_type: self.orch.harness_type.clone(),
-            execution_mode: self.orch.execution_mode.clone(),
+            execution_mode: RunAgentsExecutionMode::Local,
             agent_run_configs: self.agent_run_configs.clone(),
             plan_id: self.plan_id.clone(),
             harness_auth_secret_name: self.orch.auth_secret_name().map(str::to_string),
@@ -1490,7 +1490,6 @@ fn render_editor(
 
     column.add_child(
         Container::new(oc::render_mode_toggle(
-            state.orch.execution_mode.is_remote(),
             &handles.pickers,
             appearance,
             None,
