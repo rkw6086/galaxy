@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { render, Text, Box } from "ink";
 import Spinner from "ink-spinner";
-import { spawn, execSync } from "child_process";
+import { spawn, execFileSync, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 
@@ -59,12 +59,45 @@ function runCommandStreaming(
   });
 }
 
-function isAppRunning(appName: string): boolean {
+function isAppRunning(processName: string): boolean {
   try {
-    execSync(`pgrep -x "${appName}"`, { stdio: "ignore" });
+    execFileSync("pgrep", ["-x", processName], { stdio: "ignore" });
     return true;
   } catch {
     return false;
+  }
+}
+
+async function waitForAppToExit(processName: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAppRunning(processName)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isAppRunning(processName);
+}
+
+async function stopApp(processName: string, onLog: (line: string) => void): Promise<void> {
+  if (!isAppRunning(processName)) return;
+
+  onLog(`${processName} is running. Stopping it before replacing the app...`);
+  try {
+    execFileSync("pkill", ["-TERM", "-x", processName], { stdio: "ignore" });
+  } catch {
+    // The process may exit between the running check and the signal.
+  }
+
+  if (await waitForAppToExit(processName, 2000)) return;
+
+  onLog(`${processName} did not exit after SIGTERM. Force killing it...`);
+  try {
+    execFileSync("pkill", ["-KILL", "-x", processName], { stdio: "ignore" });
+  } catch {
+    // Verify the process state below instead of relying on pkill's exit status.
+  }
+
+  if (!(await waitForAppToExit(processName, 1000))) {
+    throw new Error(`Unable to stop ${processName} before updating /Applications`);
   }
 }
 
@@ -158,15 +191,7 @@ function App() {
           throw new Error(`Built app not found at ${appPath}`);
         }
 
-        if (isAppRunning("Galaxy")) {
-          appendLog(1, "Galaxy is running. Quitting it before replacing...");
-          try {
-            execSync(`osascript -e 'quit app "Galaxy"'`, { stdio: "ignore" });
-            await new Promise((r) => setTimeout(r, 2000));
-          } catch {
-            // ignore
-          }
-        }
+        await stopApp("Galaxy", (line) => appendLog(1, line));
 
         if (fs.existsSync(destPath)) {
           appendLog(1, `Removing existing ${destPath}`);
