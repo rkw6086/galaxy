@@ -1,4 +1,24 @@
-use super::is_interactive_remote_command;
+use warp_multi_agent_api::response_event::stream_finished;
+
+use super::{is_interactive_remote_command, stream_finished_llm_finished};
+
+#[test]
+fn response_finish_reason_reports_whether_the_llm_completed() {
+    assert!(stream_finished_llm_finished(&None));
+    assert!(stream_finished_llm_finished(&Some(
+        stream_finished::Reason::Done(stream_finished::Done {})
+    )));
+    assert!(stream_finished_llm_finished(&Some(
+        stream_finished::Reason::MaxTokenLimit(stream_finished::ReachedMaxTokenLimit {})
+    )));
+    assert!(!stream_finished_llm_finished(&Some(
+        stream_finished::Reason::Other(stream_finished::Other {})
+    )));
+    assert!(!stream_finished_llm_finished(&Some(
+        stream_finished::Reason::LlmUnavailable(stream_finished::LlmUnavailable {})
+    )));
+}
+
 #[test]
 fn raw_interactive_ssh_is_treated_as_remote_for_acp() {
     for command in [

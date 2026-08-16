@@ -54,8 +54,12 @@ fn restored_provider_projection_skips_stream_initialization() {
     assert!(projector
         .project(ProviderRunProjection::ModelTurnStarted {
             work_id: work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
             runtime_request_id: "request".to_owned(),
             retry_attempt: 0,
+            elapsed_ms: 1,
         })
         .unwrap()
         .is_empty());

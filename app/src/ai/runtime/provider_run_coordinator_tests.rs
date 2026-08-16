@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use galaxy_agent_core::{
@@ -63,6 +65,65 @@ impl AgentRuntime for ScriptedRuntime {
             .pop_front()
             .expect("scripted runtime ran out of turns")?;
         Ok(Box::pin(futures::stream::iter(turn)))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FirstAttemptStall {
+    Start,
+    Event,
+}
+
+struct StallingRuntime {
+    descriptor: RuntimeDescriptor,
+    first_attempt_stall: FirstAttemptStall,
+    attempts: AtomicUsize,
+    requests: Mutex<Vec<TurnRequest>>,
+}
+
+impl StallingRuntime {
+    fn new(first_attempt_stall: FirstAttemptStall) -> Self {
+        Self {
+            descriptor: RuntimeDescriptor {
+                id: "stalling".to_string(),
+                display_name: "Stalling provider".to_string(),
+                kind: RuntimeKind::Provider,
+                capabilities: RuntimeCapabilities::provider(),
+            },
+            first_attempt_stall,
+            attempts: AtomicUsize::new(0),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<TurnRequest> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl AgentRuntime for StallingRuntime {
+    fn descriptor(&self) -> &RuntimeDescriptor {
+        &self.descriptor
+    }
+
+    async fn start_turn(
+        &self,
+        request: TurnRequest,
+        _control: TurnControl,
+    ) -> Result<AgentEventStream, AgentError> {
+        self.requests.lock().unwrap().push(request);
+        let attempt = self.attempts.fetch_add(1, Ordering::Relaxed);
+        if attempt == 0 {
+            match self.first_attempt_stall {
+                FirstAttemptStall::Start => return futures::future::pending().await,
+                FirstAttemptStall::Event => {
+                    let started = futures::stream::iter(vec![started("request-stalled")]);
+                    return Ok(Box::pin(started.chain(futures::stream::pending())));
+                }
+            }
+        }
+        Ok(Box::pin(futures::stream::iter(answer_turn().unwrap())))
     }
 }
 
@@ -690,7 +751,9 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
                 retry_attempt,
                 ..
             } => Some((work_id.clone(), *retry_attempt)),
-            ProviderRunProjection::ModelTurnStarted { .. }
+            ProviderRunProjection::ModelTurnRequested { .. }
+            | ProviderRunProjection::ModelTurnStarted { .. }
+            | ProviderRunProjection::ModelTurnFinished { .. }
             | ProviderRunProjection::ModelEvent { .. }
             | ProviderRunProjection::ToolBatchReady { .. } => None,
         })
@@ -703,7 +766,9 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
                 retry_attempt: 1,
                 ..
             } => Some(work_id.clone()),
-            ProviderRunProjection::ModelTurnStarted { .. }
+            ProviderRunProjection::ModelTurnRequested { .. }
+            | ProviderRunProjection::ModelTurnStarted { .. }
+            | ProviderRunProjection::ModelTurnFinished { .. }
             | ProviderRunProjection::ModelEvent { .. }
             | ProviderRunProjection::ModelRetry { .. }
             | ProviderRunProjection::ToolBatchReady { .. } => None,
@@ -711,6 +776,119 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
         .expect("retried model start");
     assert_eq!(retry.0, started);
     assert_eq!(retry.1, 1);
+}
+
+fn assert_single_retry_lifecycle(
+    projections: &[ProviderRunProjection],
+    expected_timeout_stage: &str,
+    expected_initial_start: bool,
+) {
+    let mut work_ids = Vec::new();
+    let mut phases = Vec::new();
+    let mut retry_error = None;
+    for projection in projections {
+        match projection {
+            ProviderRunProjection::ModelTurnRequested {
+                work_id,
+                retry_attempt,
+                ..
+            } => {
+                work_ids.push(work_id.clone());
+                phases.push(format!("requested:{retry_attempt}"));
+            }
+            ProviderRunProjection::ModelTurnStarted {
+                work_id,
+                retry_attempt,
+                ..
+            } => {
+                work_ids.push(work_id.clone());
+                phases.push(format!("started:{retry_attempt}"));
+            }
+            ProviderRunProjection::ModelRetry {
+                work_id,
+                retry_attempt,
+                error,
+                ..
+            } => {
+                work_ids.push(work_id.clone());
+                phases.push(format!("retry:{retry_attempt}"));
+                retry_error = Some(error);
+            }
+            ProviderRunProjection::ModelTurnFinished {
+                work_id,
+                retry_attempt,
+                ..
+            } => {
+                work_ids.push(work_id.clone());
+                phases.push(format!("finished:{retry_attempt}"));
+            }
+            ProviderRunProjection::ModelEvent { .. }
+            | ProviderRunProjection::ToolBatchReady { .. } => {}
+        }
+    }
+
+    let expected = if expected_initial_start {
+        vec![
+            "requested:0",
+            "started:0",
+            "retry:1",
+            "requested:1",
+            "started:1",
+            "finished:1",
+        ]
+    } else {
+        vec![
+            "requested:0",
+            "retry:1",
+            "requested:1",
+            "started:1",
+            "finished:1",
+        ]
+    };
+    assert_eq!(phases, expected);
+    assert!(work_ids.windows(2).all(|ids| ids[0] == ids[1]));
+    let retry_error = retry_error.expect("timeout retry error");
+    assert_eq!(retry_error.kind, AgentErrorKind::Transport);
+    assert!(retry_error.recoverable);
+    assert!(retry_error.message.contains(expected_timeout_stage));
+}
+
+#[tokio::test]
+async fn model_start_timeout_retries_the_same_work_identity() {
+    let runtime = Arc::new(StallingRuntime::new(FirstAttemptStall::Start));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_model_timeouts(Duration::from_millis(10), Duration::from_secs(1));
+    let mut projections = Vec::new();
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    assert_eq!(runtime.requests().len(), 2);
+    assert_eq!(coordinator.run().model_retries(), 1);
+    assert_single_retry_lifecycle(&projections, "start timed out", false);
+}
+
+#[tokio::test]
+async fn model_event_idle_timeout_retries_the_same_work_identity() {
+    let runtime = Arc::new(StallingRuntime::new(FirstAttemptStall::Event));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_model_timeouts(Duration::from_secs(1), Duration::from_millis(10));
+    let mut projections = Vec::new();
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    assert_eq!(runtime.requests().len(), 2);
+    assert_eq!(coordinator.run().model_retries(), 1);
+    assert_single_retry_lifecycle(&projections, "event timed out", true);
 }
 
 #[tokio::test]
@@ -724,7 +902,9 @@ async fn tool_projection_failure_synthesizes_a_result_and_fails_the_run() {
             ProviderRunProjection::ToolBatchReady { .. } => {
                 Err("task projection disappeared".to_string())
             }
-            ProviderRunProjection::ModelTurnStarted { .. }
+            ProviderRunProjection::ModelTurnRequested { .. }
+            | ProviderRunProjection::ModelTurnStarted { .. }
+            | ProviderRunProjection::ModelTurnFinished { .. }
             | ProviderRunProjection::ModelEvent { .. }
             | ProviderRunProjection::ModelRetry { .. } => Ok(()),
         })

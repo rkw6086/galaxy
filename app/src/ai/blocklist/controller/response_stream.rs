@@ -313,6 +313,8 @@ impl ResponseStream {
                     "ask_user_question_enabled": params.ask_user_question_enabled,
                     "orchestration_enabled": params.orchestration_enabled,
                     "is_remote_session": params.session_context.is_remote(),
+                    "llm_finished": false,
+                    "response_stream_terminal": false,
                     "identifiers": serde_json::to_value(ai_identifiers).unwrap_or_else(|_| serde_json::json!({})),
                 }),
             },
@@ -373,6 +375,14 @@ impl ResponseStream {
             serde_json::json!(stream_finished_reason_name(&finished_event.reason)),
         );
         context.insert(
+            "llm_finished".to_string(),
+            serde_json::json!(stream_finished_llm_finished(&finished_event.reason)),
+        );
+        context.insert(
+            "response_stream_terminal".to_string(),
+            serde_json::json!(true),
+        );
+        context.insert(
             "elapsed_ms".to_string(),
             serde_json::json!(self.time_to_latest_event.num_milliseconds()),
         );
@@ -417,6 +427,11 @@ impl ResponseStream {
             serde_json::json!(self.time_to_latest_event.num_milliseconds()),
         );
         context.insert("recovery".to_string(), serde_json::json!(recovery));
+        context.insert("llm_finished".to_string(), serde_json::json!(false));
+        context.insert(
+            "response_stream_terminal".to_string(),
+            serde_json::json!(true),
+        );
         context.insert(
             "error".to_string(),
             serde_json::json!(remote_logging::sanitize_error(error)),
@@ -1113,6 +1128,15 @@ fn stream_finished_reason_name(
         Some(response_event::stream_finished::Reason::InvalidApiKey(_)) => "invalid_api_key",
         Some(response_event::stream_finished::Reason::InternalError(_)) => "internal_error",
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn stream_finished_llm_finished(reason: &Option<response_event::stream_finished::Reason>) -> bool {
+    matches!(
+        reason,
+        None | Some(response_event::stream_finished::Reason::Done(_))
+            | Some(response_event::stream_finished::Reason::MaxTokenLimit(_))
+    )
 }
 
 #[cfg(not(target_family = "wasm"))]

@@ -8,8 +8,9 @@ pub(crate) use event_translator::{
     ProviderRunResponseProjector, RuntimeResponseConfig, RuntimeResponseTranslator,
 };
 pub(crate) use provider_run_coordinator::{
-    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderToolExecutionRef,
-    ProviderToolLifecycleOutcome, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
+    ProviderToolExecutionRef, ProviderToolLifecycleOutcome, BASE_PROVIDER_PROFILE,
+    CLI_MONITOR_PROVIDER_PROFILE,
 };
 pub(crate) use rig::{
     prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,

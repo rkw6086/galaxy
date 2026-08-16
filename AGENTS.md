@@ -132,8 +132,11 @@ context_size = 128000
 
 Key invariants:
 - Every direct-provider `AgentRuntime::start_turn` performs exactly one model call; only `ProviderRun` may schedule another turn or retry
+- Direct-provider model calls allow 120 seconds for stream startup and 300 seconds between stream events; either timeout is a recoverable transport failure that enters the existing bounded retry lifecycle with the same work identity
+- Direct-provider remote telemetry records requested, started, retry-scheduled, and finished model-turn phases with explicit `llm_finished` state; root `provider_run_finished` records distinguish clean completion from failure or cancellation and mark the response stream terminal
 - `use_rig` and provider selection may choose request/transport details but must never choose lifecycle ownership
 - Direct-provider output may be projected through `ResponseStream`, but provider progress must not depend on response-stream result draining or `AfterStreamFinished`
+- A clean direct-provider `ProviderRunOutcome::Completed` explicitly finalizes the conversation as `Success` after terminal output projection, even if earlier turns added tool actions; child-completion waits rely on that status
 - Provider actions and results must correlate by `(conversation_id, run_id, epoch, call_id)`; stale or duplicate callbacks must not advance a run
 - Active provider runs must checkpoint before external work, persist without credentials, normalize unsafe restored states, and reconcile command state before continuing
 - Known tools are in `KNOWN_TOOLS` in `response_translator.rs`; definitions are built by `tool_definition_for_name()` in `convert_request.rs`

@@ -88,7 +88,9 @@ impl ProviderRunResponseProjector {
                 })
             }
             ProviderRunProjection::ModelEvent { event, .. } => self.translator.translate(event),
-            ProviderRunProjection::ModelRetry { .. }
+            ProviderRunProjection::ModelTurnRequested { .. }
+            | ProviderRunProjection::ModelTurnFinished { .. }
+            | ProviderRunProjection::ModelRetry { .. }
             | ProviderRunProjection::ToolBatchReady { .. } => Ok(Vec::new()),
         }
     }

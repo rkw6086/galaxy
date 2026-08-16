@@ -4,10 +4,11 @@ use std::sync::{Arc, Mutex};
 use ai::agent::action::{AskUserQuestionItem, AskUserQuestionType};
 use chrono::Local;
 use galaxy_agent_core::{
-    CompletedModelTurn, ContentPart, ConversationMessage, ExternalWorkId, MessageContent,
-    MessageRole, PermissionKind, PermissionRequest, ProviderRun, ProviderRunId, ProviderRunLimits,
-    ProviderRunState, ProviderRunStep, RunEpoch, RuntimeCapabilities, StopReason, ToolCall,
-    TurnRequest, Usage,
+    AgentError, AgentErrorKind, CompletedModelTurn, ContentPart, ConversationMessage,
+    ExternalWorkId, MessageContent, MessageRole, PermissionKind, PermissionRequest, ProviderRun,
+    ProviderRunFailure, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits,
+    ProviderRunOutcome, ProviderRunState, ProviderRunStep, RunEpoch, RuntimeCapabilities,
+    StopReason, ToolCall, TurnRequest, Usage,
 };
 use galaxy_core::command::ExitCode;
 use uuid::Uuid;
@@ -26,9 +27,11 @@ use crate::ai::agent::{
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, PendingAttachment, PendingFile, RequestInput,
-    ResponseStream, ResponseStreamId,
+    ResponseStream, ResponseStreamId, StartAgentExecutor,
 };
 use crate::ai::llms::LLMId;
+use crate::ai::remote_logging::RemoteLogLevel;
+use crate::ai::runtime::ProviderRunProjection;
 use crate::persistence::model::{AcpConversationData, AgentBackend};
 use crate::terminal::model::block::{BlockId, BlockState};
 use crate::test_util::settings::initialize_history_persistence_for_tests;
@@ -36,6 +39,128 @@ use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_te
 
 fn new_ambient_agent_task_id() -> AmbientAgentTaskId {
     Uuid::new_v4().to_string().parse().unwrap()
+}
+
+#[test]
+fn provider_lifecycle_logs_expose_llm_completion_and_sanitize_errors() {
+    let conversation_id = AIConversationId::new();
+    let stream_id = ResponseStreamId::new_for_test();
+    let work_id = ExternalWorkId {
+        run_id: ProviderRunId::new("run-1"),
+        epoch: RunEpoch::new(3),
+    };
+    let mut retry_error = AgentError::new(AgentErrorKind::Transport, "sk-secret connection failed");
+    retry_error.recoverable = true;
+    let projections = [
+        ProviderRunProjection::ModelTurnRequested {
+            work_id: work_id.clone(),
+            profile: "base".into(),
+            runtime_id: "rig:openai".to_owned(),
+            model_id: "test-model".to_owned(),
+            retry_attempt: 0,
+        },
+        ProviderRunProjection::ModelTurnStarted {
+            work_id: work_id.clone(),
+            profile: "base".into(),
+            runtime_id: "rig:openai".to_owned(),
+            model_id: "test-model".to_owned(),
+            runtime_request_id: "request-1".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 12,
+        },
+        ProviderRunProjection::ModelRetry {
+            work_id: work_id.clone(),
+            profile: "base".into(),
+            runtime_id: "rig:openai".to_owned(),
+            model_id: "test-model".to_owned(),
+            retry_attempt: 1,
+            elapsed_ms: 120_000,
+            error: retry_error,
+        },
+        ProviderRunProjection::ModelTurnFinished {
+            work_id,
+            profile: "base".into(),
+            runtime_id: "rig:openai".to_owned(),
+            model_id: "test-model".to_owned(),
+            stop_reason: StopReason::Completed,
+            retry_attempt: 1,
+            elapsed_ms: 140,
+            tool_call_count: 2,
+        },
+    ];
+    let records = projections
+        .iter()
+        .map(|projection| {
+            let lifecycle = super::provider_llm_lifecycle(projection).unwrap();
+            super::provider_llm_lifecycle_remote_log_record(conversation_id, &stream_id, &lifecycle)
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.context["event"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "provider_model_turn_requested",
+            "provider_model_turn_started",
+            "provider_model_turn_retry_scheduled",
+            "provider_model_turn_finished",
+        ]
+    );
+    assert_eq!(records[0].context["llm_finished"], false);
+    assert_eq!(records[1].context["llm_finished"], false);
+    assert_eq!(records[2].context["llm_finished"], false);
+    assert_eq!(records[3].context["llm_finished"], true);
+    assert_eq!(records[2].level, RemoteLogLevel::Warn);
+    assert_eq!(records[2].context["error"], "[redacted] connection failed");
+    assert_eq!(records[3].context["provider_run_id"], "run-1");
+    assert_eq!(records[3].context["provider_epoch"], 3);
+    assert_eq!(records[3].context["profile"], "base");
+    assert_eq!(records[3].context["runtime_id"], "rig:openai");
+    assert_eq!(records[3].context["model_id"], "test-model");
+    assert_eq!(records[3].context["stop_reason"], "Completed");
+    assert_eq!(records[3].context["tool_call_count"], 2);
+}
+
+#[test]
+fn provider_terminal_logs_distinguish_clean_completion_from_failure() {
+    let conversation_id = AIConversationId::new();
+    let stream_id = ResponseStreamId::new_for_test();
+    let run = ProviderRun::new(
+        "run-1",
+        Vec::new(),
+        crate::ai::runtime::BASE_PROVIDER_PROFILE,
+        ProviderRunLimits::default(),
+    );
+    let completed = super::provider_run_terminal_remote_log_record(
+        conversation_id,
+        &stream_id,
+        &run,
+        &ProviderRunOutcome::Completed(galaxy_agent_core::ProviderRunCompletion {
+            stop_reason: StopReason::Completed,
+        }),
+    );
+    let failed = super::provider_run_terminal_remote_log_record(
+        conversation_id,
+        &stream_id,
+        &run,
+        &ProviderRunOutcome::Failed(ProviderRunFailure {
+            kind: ProviderRunFailureKind::RetryLimitExceeded,
+            message: "sk-secret timeout".to_owned(),
+            source: None,
+        }),
+    );
+
+    assert_eq!(completed.context["llm_finished"], true);
+    assert_eq!(completed.context["provider_run_finished"], true);
+    assert_eq!(completed.context["response_stream_terminal"], true);
+    assert_eq!(completed.context["outcome"], "completed");
+    assert_eq!(failed.level, RemoteLogLevel::Error);
+    assert_eq!(failed.context["llm_finished"], false);
+    assert_eq!(failed.context["outcome"], "failed");
+    assert_eq!(failed.context["failure_kind"], "RetryLimitExceeded");
+    assert_eq!(failed.context["error"], "[redacted] timeout");
 }
 
 fn ask_user_question_action(action_id: &str) -> AIAgentAction {
@@ -1846,6 +1971,135 @@ fn mock_response_stream_updates_history_through_controller() {
                 ..
             } if *id == conversation_id
         )));
+    });
+}
+
+#[test]
+fn completed_provider_run_with_prior_action_resolves_child_completion_wait() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let start_agent_executor = app.add_model(StartAgentExecutor::new);
+        let terminal_surface_id = terminal.read(&app, |terminal, _| terminal.id());
+        let stream_id = ResponseStreamId::new_for_test();
+        let history_model = BlocklistAIHistoryModel::handle(&app);
+        let (parent_conversation_id, child_conversation_id, child_task_id) =
+            history_model.update(&mut app, |history_model, ctx| {
+                let parent_conversation_id = history_model.start_new_conversation(
+                    terminal_surface_id,
+                    false,
+                    false,
+                    false,
+                    ctx,
+                );
+                let child_conversation_id = history_model.start_new_child_conversation(
+                    terminal_surface_id,
+                    "child".to_owned(),
+                    parent_conversation_id,
+                    None,
+                    ctx,
+                );
+                let child_task_id = history_model
+                    .conversation(&child_conversation_id)
+                    .expect("child conversation should exist")
+                    .get_root_task_id()
+                    .clone();
+                history_model
+                    .update_conversation_for_new_request_input(
+                        RequestInput {
+                            conversation_id: child_conversation_id,
+                            input_messages: HashMap::from([(child_task_id.clone(), vec![])]),
+                            working_directory: None,
+                            model_id: LLMId::from("test-model"),
+                            coding_model_id: LLMId::from("test-coding-model"),
+                            cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                            computer_use_model_id: LLMId::from("test-computer-use-model"),
+                            shared_session_response_initiator: None,
+                            request_start_ts: Local::now(),
+                            supported_tools_override: None,
+                        },
+                        stream_id.clone(),
+                        terminal_surface_id,
+                        ctx,
+                    )
+                    .expect("child request should be recorded");
+                history_model.initialize_output_for_response_stream(
+                    &stream_id,
+                    child_conversation_id,
+                    terminal_surface_id,
+                    response_event::StreamInit {
+                        request_id: "provider-request".to_owned(),
+                        conversation_id: "provider-conversation".to_owned(),
+                        run_id: "provider-run".to_owned(),
+                    },
+                    ctx,
+                );
+                (parent_conversation_id, child_conversation_id, child_task_id)
+            });
+        let dispatch = start_agent_executor.update(&mut app, |executor, ctx| {
+            executor.reattach(
+                AIAgentActionId::from("run-agents-action".to_owned()),
+                "child".to_owned(),
+                parent_conversation_id,
+                child_conversation_id,
+                None,
+                ctx,
+            )
+        });
+
+        history_model.update(&mut app, |history_model, ctx| {
+            history_model
+                .apply_domain_tool_proposal(
+                    &stream_id,
+                    child_conversation_id,
+                    terminal_surface_id,
+                    AIAgentAction {
+                        id: AIAgentActionId::from("prior-tool-call".to_owned()),
+                        task_id: child_task_id,
+                        action: AIAgentActionType::FileGlob {
+                            patterns: vec!["*.rs".to_owned()],
+                            path: None,
+                        },
+                        requires_result: true,
+                        tool_name: Some("file_glob".to_owned()),
+                    },
+                    ctx,
+                )
+                .expect("provider tool proposal should attach to child history");
+            history_model.mark_response_stream_completed_successfully(
+                &stream_id,
+                child_conversation_id,
+                terminal_surface_id,
+                ctx,
+            );
+        });
+        history_model.read(&app, |history_model, _| {
+            let child = history_model
+                .conversation(&child_conversation_id)
+                .expect("child conversation should exist");
+            assert_eq!(child.count_all_actions(), 1);
+            assert_eq!(child.status(), &ConversationStatus::InProgress);
+        });
+        assert!(matches!(
+            dispatch.receiver.try_recv(),
+            Err(async_channel::TryRecvError::Empty)
+        ));
+
+        terminal.update(&mut app, |terminal, ctx| {
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.finalize_completed_provider_conversation(child_conversation_id, ctx);
+            });
+        });
+
+        history_model.read(&app, |history_model, _| {
+            assert_eq!(
+                history_model
+                    .conversation(&child_conversation_id)
+                    .map(|conversation| conversation.status()),
+                Some(&ConversationStatus::Success)
+            );
+        });
+        assert!(dispatch.receiver.try_recv().is_ok());
     });
 }
 

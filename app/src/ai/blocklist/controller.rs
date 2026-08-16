@@ -78,9 +78,9 @@ use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageConten
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
     prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,
-    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunResponseProjector,
-    ProviderToolExecutionRef, ProviderToolLifecycleOutcome, RuntimeResponseConfig,
-    BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
+    ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
+    RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
 };
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -1287,8 +1287,256 @@ fn provider_boundary_intent(
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProviderLlmLifecyclePhase {
+    Requested,
+    Started,
+    RetryScheduled,
+    Finished,
+}
+
+impl ProviderLlmLifecyclePhase {
+    fn event(self) -> &'static str {
+        match self {
+            Self::Requested => "provider_model_turn_requested",
+            Self::Started => "provider_model_turn_started",
+            Self::RetryScheduled => "provider_model_turn_retry_scheduled",
+            Self::Finished => "provider_model_turn_finished",
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::Requested => "Provider model turn requested",
+            Self::Started => "Provider model turn started",
+            Self::RetryScheduled => "Provider model turn retry scheduled",
+            Self::Finished => "Provider model turn finished",
+        }
+    }
+
+    fn llm_finished(self) -> bool {
+        matches!(self, Self::Finished)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProviderLlmLifecycle {
+    phase: ProviderLlmLifecyclePhase,
+    work_id: ExternalWorkId,
+    profile: String,
+    runtime_id: String,
+    model_id: String,
+    runtime_request_id: Option<String>,
+    retry_attempt: u32,
+    elapsed_ms: Option<u64>,
+    stop_reason: Option<String>,
+    tool_call_count: Option<usize>,
+    error_kind: Option<String>,
+    error_recoverable: Option<bool>,
+    error: Option<String>,
+}
+
+fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<ProviderLlmLifecycle> {
+    let lifecycle = match projection {
+        ProviderRunProjection::ModelTurnRequested {
+            work_id,
+            profile,
+            runtime_id,
+            model_id,
+            retry_attempt,
+        } => ProviderLlmLifecycle {
+            phase: ProviderLlmLifecyclePhase::Requested,
+            work_id: work_id.clone(),
+            profile: profile.as_str().to_string(),
+            runtime_id: runtime_id.clone(),
+            model_id: model_id.clone(),
+            runtime_request_id: None,
+            retry_attempt: *retry_attempt,
+            elapsed_ms: None,
+            stop_reason: None,
+            tool_call_count: None,
+            error_kind: None,
+            error_recoverable: None,
+            error: None,
+        },
+        ProviderRunProjection::ModelTurnStarted {
+            work_id,
+            profile,
+            runtime_id,
+            model_id,
+            runtime_request_id,
+            retry_attempt,
+            elapsed_ms,
+        } => ProviderLlmLifecycle {
+            phase: ProviderLlmLifecyclePhase::Started,
+            work_id: work_id.clone(),
+            profile: profile.as_str().to_string(),
+            runtime_id: runtime_id.clone(),
+            model_id: model_id.clone(),
+            runtime_request_id: Some(runtime_request_id.clone()),
+            retry_attempt: *retry_attempt,
+            elapsed_ms: Some(*elapsed_ms),
+            stop_reason: None,
+            tool_call_count: None,
+            error_kind: None,
+            error_recoverable: None,
+            error: None,
+        },
+        ProviderRunProjection::ModelTurnFinished {
+            work_id,
+            profile,
+            runtime_id,
+            model_id,
+            stop_reason,
+            retry_attempt,
+            elapsed_ms,
+            tool_call_count,
+        } => ProviderLlmLifecycle {
+            phase: ProviderLlmLifecyclePhase::Finished,
+            work_id: work_id.clone(),
+            profile: profile.as_str().to_string(),
+            runtime_id: runtime_id.clone(),
+            model_id: model_id.clone(),
+            runtime_request_id: None,
+            retry_attempt: *retry_attempt,
+            elapsed_ms: Some(*elapsed_ms),
+            stop_reason: Some(format!("{stop_reason:?}")),
+            tool_call_count: Some(*tool_call_count),
+            error_kind: None,
+            error_recoverable: None,
+            error: None,
+        },
+        ProviderRunProjection::ModelRetry {
+            work_id,
+            profile,
+            runtime_id,
+            model_id,
+            retry_attempt,
+            elapsed_ms,
+            error,
+        } => ProviderLlmLifecycle {
+            phase: ProviderLlmLifecyclePhase::RetryScheduled,
+            work_id: work_id.clone(),
+            profile: profile.as_str().to_string(),
+            runtime_id: runtime_id.clone(),
+            model_id: model_id.clone(),
+            runtime_request_id: None,
+            retry_attempt: *retry_attempt,
+            elapsed_ms: Some(*elapsed_ms),
+            stop_reason: None,
+            tool_call_count: None,
+            error_kind: Some(format!("{:?}", error.kind)),
+            error_recoverable: Some(error.recoverable),
+            error: Some(error.message.clone()),
+        },
+        ProviderRunProjection::ModelEvent { .. } | ProviderRunProjection::ToolBatchReady { .. } => {
+            return None
+        }
+    };
+    Some(lifecycle)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn provider_llm_lifecycle_remote_log_record(
+    conversation_id: AIConversationId,
+    stream_id: &ResponseStreamId,
+    lifecycle: &ProviderLlmLifecycle,
+) -> RemoteLogRecord {
+    let level = if lifecycle.phase == ProviderLlmLifecyclePhase::RetryScheduled {
+        RemoteLogLevel::Warn
+    } else {
+        RemoteLogLevel::Info
+    };
+    RemoteLogRecord {
+        level,
+        message: lifecycle.phase.message().to_string(),
+        context: serde_json::json!({
+            "event": lifecycle.phase.event(),
+            "conversation_id": conversation_id.to_string(),
+            "stream_id": stream_id.as_str(),
+            "provider_run_id": lifecycle.work_id.run_id.as_str(),
+            "provider_epoch": lifecycle.work_id.epoch.get(),
+            "provider_work_id": format!(
+                "{}:{}",
+                lifecycle.work_id.run_id.as_str(),
+                lifecycle.work_id.epoch.get()
+            ),
+            "profile": lifecycle.profile,
+            "runtime_id": lifecycle.runtime_id,
+            "model_id": lifecycle.model_id,
+            "runtime_request_id": lifecycle.runtime_request_id,
+            "retry_attempt": lifecycle.retry_attempt,
+            "elapsed_ms": lifecycle.elapsed_ms,
+            "stop_reason": lifecycle.stop_reason,
+            "tool_call_count": lifecycle.tool_call_count,
+            "error_kind": lifecycle.error_kind,
+            "error_recoverable": lifecycle.error_recoverable,
+            "error": lifecycle.error.as_deref().map(remote_logging::sanitize_error),
+            "llm_finished": lifecycle.phase.llm_finished(),
+            "response_stream_terminal": false,
+        }),
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn provider_run_terminal_remote_log_record(
+    conversation_id: AIConversationId,
+    stream_id: &ResponseStreamId,
+    run: &ProviderRun,
+    outcome: &ProviderRunOutcome,
+) -> RemoteLogRecord {
+    let (level, outcome_name, llm_finished, stop_reason, failure_kind, error) = match outcome {
+        ProviderRunOutcome::Completed(completion) => (
+            RemoteLogLevel::Info,
+            "completed",
+            true,
+            Some(format!("{:?}", completion.stop_reason)),
+            None,
+            None,
+        ),
+        ProviderRunOutcome::Failed(failure) => (
+            RemoteLogLevel::Error,
+            "failed",
+            false,
+            None,
+            Some(format!("{:?}", failure.kind)),
+            Some(remote_logging::sanitize_error(&failure.message)),
+        ),
+        ProviderRunOutcome::Cancelled { reason } => (
+            RemoteLogLevel::Info,
+            "cancelled",
+            false,
+            None,
+            None,
+            Some(remote_logging::sanitize_error(reason)),
+        ),
+    };
+    RemoteLogRecord {
+        level,
+        message: "Provider run finished".to_string(),
+        context: serde_json::json!({
+            "event": "provider_run_finished",
+            "conversation_id": conversation_id.to_string(),
+            "stream_id": stream_id.as_str(),
+            "provider_run_id": run.id().as_str(),
+            "provider_epoch": run.epoch().get(),
+            "profile": run.profile().as_str(),
+            "model_turn_count": run.model_turns(),
+            "model_retry_count": run.model_retries(),
+            "outcome": outcome_name,
+            "stop_reason": stop_reason,
+            "failure_kind": failure_kind,
+            "error": error,
+            "llm_finished": llm_finished,
+            "provider_run_finished": true,
+            "response_stream_terminal": true,
+        }),
+    }
+}
+
 enum ProviderDriveMessage {
     Response(warp_multi_agent_api::ResponseEvent),
+    Lifecycle(ProviderLlmLifecycle),
     Checkpoint {
         checkpoint: ActiveProviderRunCheckpoint,
         acknowledgement: oneshot::Sender<Result<(), String>>,
@@ -5075,6 +5323,14 @@ impl BlocklistAIController {
                     .drive_until_blocked_with_checkpoint(
                         turn_control,
                         |projection| {
+                            if let Some(lifecycle) = provider_llm_lifecycle(&projection) {
+                                projection_sender
+                                    .try_send(ProviderDriveMessage::Lifecycle(lifecycle))
+                                    .map_err(|_| {
+                                        "provider lifecycle projection receiver was closed"
+                                            .to_string()
+                                    })?;
+                            }
                             for event in run.projector.project(projection)? {
                                 projection_sender
                                     .try_send(ProviderDriveMessage::Response(event))
@@ -5139,6 +5395,19 @@ impl BlocklistAIController {
                     &response_stream,
                     ctx,
                 );
+            }
+            ProviderDriveMessage::Lifecycle(lifecycle) => {
+                #[cfg(not(target_family = "wasm"))]
+                remote_logging::log_model_event(
+                    ctx,
+                    provider_llm_lifecycle_remote_log_record(
+                        conversation_id,
+                        stream_id,
+                        &lifecycle,
+                    ),
+                );
+                #[cfg(target_family = "wasm")]
+                let _ = lifecycle;
             }
             ProviderDriveMessage::Checkpoint {
                 checkpoint,
@@ -5894,6 +6163,28 @@ impl BlocklistAIController {
         self.drive_active_provider_run(conversation_id, ctx);
     }
 
+    fn finalize_completed_provider_conversation(
+        &self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let should_finalize = history_model
+            .as_ref(ctx)
+            .conversation_status(&conversation_id)
+            .is_some_and(|status| status != &ConversationStatus::Success);
+        if should_finalize {
+            history_model.update(ctx, |history_model, ctx| {
+                history_model.update_conversation_status(
+                    self.terminal_surface_id,
+                    conversation_id,
+                    ConversationStatus::Success,
+                    ctx,
+                );
+            });
+        }
+    }
+
     fn finish_active_provider_run(
         &mut self,
         conversation_id: AIConversationId,
@@ -5935,32 +6226,49 @@ impl BlocklistAIController {
                 ctx,
             );
         }
-        if matches!(outcome, ProviderRunOutcome::Cancelled { .. }) {
-            let cancellation_reason =
-                self.active_provider_runs[&conversation_id].cancellation_reason;
-            if let Some(reason) = cancellation_reason {
-                let status = match reason.conversation_outcome() {
-                    CancellationOutcome::KeepInProgress => ConversationStatus::InProgress,
-                    CancellationOutcome::Succeeded => ConversationStatus::Success,
-                    CancellationOutcome::Cancelled => ConversationStatus::Cancelled,
-                    CancellationOutcome::FinalizedExternally => {
-                        self.cleanup_active_provider_run(
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            provider_run_terminal_remote_log_record(
+                conversation_id,
+                &stream_id,
+                run.coordinator.run(),
+                &outcome,
+            ),
+        );
+        match outcome {
+            ProviderRunOutcome::Completed(_) => {
+                self.finalize_completed_provider_conversation(conversation_id, ctx);
+            }
+            // Failed outcomes are finalized by the projected InternalError event.
+            ProviderRunOutcome::Failed(_) => {}
+            ProviderRunOutcome::Cancelled { .. } => {
+                let cancellation_reason =
+                    self.active_provider_runs[&conversation_id].cancellation_reason;
+                if let Some(reason) = cancellation_reason {
+                    let status = match reason.conversation_outcome() {
+                        CancellationOutcome::KeepInProgress => ConversationStatus::InProgress,
+                        CancellationOutcome::Succeeded => ConversationStatus::Success,
+                        CancellationOutcome::Cancelled => ConversationStatus::Cancelled,
+                        CancellationOutcome::FinalizedExternally => {
+                            self.cleanup_active_provider_run(
+                                conversation_id,
+                                &stream_id,
+                                &response_stream,
+                                ctx,
+                            );
+                            return;
+                        }
+                    };
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        history_model.update_conversation_status(
+                            self.terminal_surface_id,
                             conversation_id,
-                            &stream_id,
-                            &response_stream,
+                            status,
                             ctx,
                         );
-                        return;
-                    }
-                };
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.update_conversation_status(
-                        self.terminal_surface_id,
-                        conversation_id,
-                        status,
-                        ctx,
-                    );
-                });
+                    });
+                }
             }
         }
         self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
