@@ -136,6 +136,10 @@ use crate::{AIAgentTodoList, FeatureFlag};
 
 const BLOCKED_ACTION_MESSAGE_FOR_UPLOADING_ARTIFACT: &str = "Grant access to upload this artifact?";
 
+fn should_render_requested_edit(action_status: Option<&AIActionStatus>) -> bool {
+    !action_status.is_some_and(AIActionStatus::is_preprocessing)
+}
+
 /// Data required to render the AI block output component.
 #[derive(Copy, Clone)]
 pub(crate) struct Props<'a> {
@@ -564,10 +568,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             let action_status =
                                 props.action_model.as_ref(app).get_action_status(id);
 
-                            let is_preprocessing = action_status
-                                .clone()
-                                .is_some_and(|status| status.is_preprocessing());
-                            if !is_preprocessing && !status.is_streaming() {
+                            if should_render_requested_edit(action_status.as_ref()) {
                                 if let Some(requested_edit) = props.requested_edits.get(id) {
                                     // Don't render the requested edit if the diffs are empty for passive code diffs.
                                     if request_type.is_passive_code_diff()

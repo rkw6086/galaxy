@@ -366,7 +366,7 @@ pub enum CodeDiffState {
     /// The diff is received, but is queued for interaction behind another action.
     Queued,
     /// The user is reviewing (and possibly editing) the code diff.
-    /// Unlike requested commands, a [`CodeDiffView`] is only created upon stream completion.
+    /// The view is created as soon as the requested edit is present in streaming output.
     WaitingForUser,
     /// If the payload is some, the code diff was accepted but the individual file changes have not
     /// been fully computed and saved yet. We cache the accepted diff state to collect unified diffs

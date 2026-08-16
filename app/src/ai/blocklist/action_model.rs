@@ -190,6 +190,54 @@ type ProviderActionCorrelation = (
     ProviderToolExecutionRef,
 );
 
+type ActionExecutionKey = (AIConversationId, AIAgentActionId);
+
+#[derive(Default)]
+struct NotReadyActionTracker {
+    actions: HashSet<ActionExecutionKey>,
+}
+
+impl NotReadyActionTracker {
+    fn should_retry(&self, conversation_id: AIConversationId, action_id: &AIAgentActionId) -> bool {
+        self.actions.contains(&(conversation_id, action_id.clone()))
+    }
+
+    fn update_after_attempt(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: AIAgentActionId,
+        reason: NotExecutedReason,
+        initiator: ActionExecutionInitiator,
+    ) {
+        let key = (conversation_id, action_id);
+        match (reason, initiator) {
+            (NotExecutedReason::NotReady, ActionExecutionInitiator::Automatic) => {
+                self.actions.insert(key);
+            }
+            (NotExecutedReason::NotReady, ActionExecutionInitiator::User)
+            | (NotExecutedReason::NeedsConfirmation | NotExecutedReason::WaitingOnSharer, _) => {
+                self.actions.remove(&key);
+            }
+        }
+    }
+
+    fn clear(&mut self, conversation_id: AIConversationId, action_id: &AIAgentActionId) {
+        self.actions.remove(&(conversation_id, action_id.clone()));
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ActionExecutionInitiator {
+    Automatic,
+    User,
+}
+
+impl ActionExecutionInitiator {
+    fn is_user_initiated(self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
 impl RunningActions {
     fn new(phase: RunningActionPhase, action_id: AIAgentActionId) -> Self {
         Self {
@@ -678,6 +726,9 @@ pub struct BlocklistAIActionModel {
     /// Permission-card rejections whose cancelled action result must not emit a second provider event.
     denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
 
+    /// Actions parked because their executor-specific UI or state was not ready yet.
+    not_ready_actions: NotReadyActionTracker,
+
     /// Durable provider work identity for actions owned by an active provider run.
     provider_tool_executions:
         HashMap<(AIConversationId, AIAgentActionId), ProviderToolExecutionRef>,
@@ -771,6 +822,7 @@ impl BlocklistAIActionModel {
             running_actions: Default::default(),
             action_order: Default::default(),
             denied_permissions: Default::default(),
+            not_ready_actions: Default::default(),
             provider_tool_executions: Default::default(),
             terminal_view_id,
             pending_preprocessed_actions: Default::default(),
@@ -975,9 +1027,12 @@ impl BlocklistAIActionModel {
                 }
             }
 
-            let Some(result) =
-                self.start_pending_action_by_id(&front_action.id, conversation_id, false, ctx)
-            else {
+            let Some(result) = self.start_pending_action_by_id(
+                &front_action.id,
+                conversation_id,
+                ActionExecutionInitiator::Automatic,
+                ctx,
+            ) else {
                 log::info!("[tool-debug] try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
                 return;
             };
@@ -1290,7 +1345,12 @@ impl BlocklistAIActionModel {
         };
 
         if self
-            .start_pending_action_by_id(&pending_action_id, conversation_id, true, ctx)
+            .start_pending_action_by_id(
+                &pending_action_id,
+                conversation_id,
+                ActionExecutionInitiator::User,
+                ctx,
+            )
             .is_some_and(|result| matches!(result, StartedAction::Sync))
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
@@ -1305,7 +1365,39 @@ impl BlocklistAIActionModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if self
-            .start_pending_action_by_id(action_id, conversation_id, true, ctx)
+            .start_pending_action_by_id(
+                action_id,
+                conversation_id,
+                ActionExecutionInitiator::User,
+                ctx,
+            )
+            .is_some_and(|result| matches!(result, StartedAction::Sync))
+        {
+            self.try_to_execute_available_actions(conversation_id, ctx);
+        }
+    }
+
+    /// Retries an action only when a prior automatic attempt found its executor not ready.
+    pub(super) fn retry_not_ready_action(
+        &mut self,
+        action_id: &AIAgentActionId,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if !self
+            .not_ready_actions
+            .should_retry(conversation_id, action_id)
+        {
+            return;
+        }
+
+        if self
+            .start_pending_action_by_id(
+                action_id,
+                conversation_id,
+                ActionExecutionInitiator::Automatic,
+                ctx,
+            )
             .is_some_and(|result| matches!(result, StartedAction::Sync))
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
@@ -1339,50 +1431,69 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if reason.needs_confirmation() {
-            #[cfg(not(target_family = "wasm"))]
-            log_tool_event(
-                ctx,
-                RemoteLogLevel::Info,
-                "Tool permission requested",
-                serde_json::json!({
-                    "event": "tool_permission_requested",
-                    "conversation_id": conversation_id.to_string(),
-                    "action_id": action.id.to_string(),
-                    "task_id": action.task_id.to_string(),
-                    "tool_name": action_tool_name(action),
-                    "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
-                    "reason": format!("{reason:?}"),
-                }),
-            );
-            let execution_ref = self.provider_tool_execution_ref(conversation_id, &action.id);
-            ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
-                action_id: action.id.clone(),
-                execution_ref: execution_ref.clone(),
-            });
-            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
-                action_id: action.id.clone(),
-                execution_ref,
-                event: ToolEvent::PermissionRequested {
-                    request: PermissionRequest {
-                        id: permission_request_id(&action.id),
-                        call_id: action.id.to_string(),
-                        kind: permission_kind_for_action(&action.action),
-                        reason: Some(action.action.user_friendly_name()),
-                    },
-                },
-            });
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                let blocked_action_user_friendly_str = action.action.user_friendly_name();
-                history_model.update_conversation_status(
-                    self.terminal_view_id,
-                    conversation_id,
-                    ConversationStatus::Blocked {
-                        blocked_action: format!("{blocked_action_user_friendly_str:?}"),
-                    },
+        match reason {
+            NotExecutedReason::NeedsConfirmation => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
                     ctx,
+                    RemoteLogLevel::Info,
+                    "Tool permission requested",
+                    serde_json::json!({
+                        "event": "tool_permission_requested",
+                        "conversation_id": conversation_id.to_string(),
+                        "action_id": action.id.to_string(),
+                        "task_id": action.task_id.to_string(),
+                        "tool_name": action_tool_name(action),
+                        "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                        "reason": format!("{reason:?}"),
+                    }),
                 );
-            });
+                let execution_ref = self.provider_tool_execution_ref(conversation_id, &action.id);
+                ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                    action_id: action.id.clone(),
+                    execution_ref: execution_ref.clone(),
+                });
+                ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                    action_id: action.id.clone(),
+                    execution_ref,
+                    event: ToolEvent::PermissionRequested {
+                        request: PermissionRequest {
+                            id: permission_request_id(&action.id),
+                            call_id: action.id.to_string(),
+                            kind: permission_kind_for_action(&action.action),
+                            reason: Some(action.action.user_friendly_name()),
+                        },
+                    },
+                });
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    let blocked_action_user_friendly_str = action.action.user_friendly_name();
+                    history_model.update_conversation_status(
+                        self.terminal_view_id,
+                        conversation_id,
+                        ConversationStatus::Blocked {
+                            blocked_action: format!("{blocked_action_user_friendly_str:?}"),
+                        },
+                        ctx,
+                    );
+                });
+            }
+            NotExecutedReason::NotReady => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Warn,
+                    "Tool execution deferred",
+                    serde_json::json!({
+                        "event": "tool_execution_not_ready",
+                        "conversation_id": conversation_id.to_string(),
+                        "action_id": action.id.to_string(),
+                        "task_id": action.task_id.to_string(),
+                        "tool_name": action_tool_name(action),
+                        "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                    }),
+                );
+            }
+            NotExecutedReason::WaitingOnSharer => {}
         }
     }
 
@@ -1415,9 +1526,10 @@ impl BlocklistAIActionModel {
         &mut self,
         action_id: &AIAgentActionId,
         conversation_id: AIConversationId,
-        is_user_initiated: bool,
+        initiator: ActionExecutionInitiator,
         ctx: &mut ModelContext<Self>,
     ) -> Option<StartedAction> {
+        let is_user_initiated = initiator.is_user_initiated();
         if is_user_initiated && self.running_actions.contains_key(&conversation_id) {
             // User-driven approvals still execute one action at a time so that interactive
             // confirmations do not overlap in the UI.
@@ -1476,6 +1588,7 @@ impl BlocklistAIActionModel {
 
         match execute_result {
             TryExecuteResult::ExecutedAsync => {
+                self.not_ready_actions.clear(conversation_id, &action_id);
                 #[cfg(not(target_family = "wasm"))]
                 log_tool_event(
                     ctx,
@@ -1494,6 +1607,7 @@ impl BlocklistAIActionModel {
                 Some(StartedAction::Async { phase })
             }
             TryExecuteResult::ExecutedSync => {
+                self.not_ready_actions.clear(conversation_id, &action_id);
                 #[cfg(not(target_family = "wasm"))]
                 log_tool_event(
                     ctx,
@@ -1511,6 +1625,12 @@ impl BlocklistAIActionModel {
                 Some(StartedAction::Sync)
             }
             TryExecuteResult::NotExecuted { reason, action } => {
+                self.not_ready_actions.update_after_attempt(
+                    conversation_id,
+                    action_id,
+                    reason,
+                    initiator,
+                );
                 self.pending_actions
                     .entry(conversation_id)
                     .or_default()
@@ -2047,6 +2167,8 @@ impl BlocklistAIActionModel {
             std::mem::discriminant(&action_result.result),
             cancellation_reason
         );
+        self.not_ready_actions
+            .clear(conversation_id, &action_result.id);
         let should_remove_entry =
             self.running_actions
                 .get_mut(&conversation_id)

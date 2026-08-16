@@ -141,6 +141,47 @@ fn phased_scheduling_stops_at_serial_barrier_and_resumes_afterward() {
 }
 
 #[test]
+fn automatic_retries_only_target_actions_deferred_as_not_ready() {
+    let conversation_id = AIConversationId::new();
+    let action_id = AIAgentActionId::from("file-edit".to_string());
+    let mut tracker = NotReadyActionTracker::default();
+
+    tracker.update_after_attempt(
+        conversation_id,
+        action_id.clone(),
+        NotExecutedReason::NotReady,
+        ActionExecutionInitiator::Automatic,
+    );
+    assert!(tracker.should_retry(conversation_id, &action_id));
+    assert!(!ActionExecutionInitiator::Automatic.is_user_initiated());
+
+    tracker.update_after_attempt(
+        conversation_id,
+        action_id.clone(),
+        NotExecutedReason::NotReady,
+        ActionExecutionInitiator::User,
+    );
+    assert!(!tracker.should_retry(conversation_id, &action_id));
+
+    tracker.update_after_attempt(
+        conversation_id,
+        action_id.clone(),
+        NotExecutedReason::NeedsConfirmation,
+        ActionExecutionInitiator::Automatic,
+    );
+    assert!(!tracker.should_retry(conversation_id, &action_id));
+
+    tracker.update_after_attempt(
+        conversation_id,
+        action_id.clone(),
+        NotExecutedReason::WaitingOnSharer,
+        ActionExecutionInitiator::Automatic,
+    );
+    assert!(!tracker.should_retry(conversation_id, &action_id));
+    assert!(ActionExecutionInitiator::User.is_user_initiated());
+}
+
+#[test]
 fn finished_results_stay_in_original_action_order() {
     let action_order = HashMap::from([
         (AIAgentActionId::from("first".to_owned()), 0),

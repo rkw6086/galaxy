@@ -2198,6 +2198,19 @@ impl AIBlock {
             match action {
                 AIAgentAction {
                     id: action_id,
+                    action: AIAgentActionType::RequestFileEdits { title, file_edits },
+                    ..
+                } => {
+                    self.ensure_requested_edit_view(
+                        action_id,
+                        title,
+                        file_edits.clone(),
+                        output.server_output_id.clone(),
+                        ctx,
+                    );
+                }
+                AIAgentAction {
+                    id: action_id,
                     action:
                         AIAgentActionType::RequestCommandOutput {
                             command, citations, ..
@@ -2761,7 +2774,7 @@ impl AIBlock {
                         },
                     ..
                 } => {
-                    self.handle_requested_edit_complete(
+                    self.ensure_requested_edit_view(
                         id,
                         title,
                         file_edits.clone(),
@@ -3281,7 +3294,7 @@ impl AIBlock {
         });
     }
 
-    fn handle_requested_edit_complete(
+    fn ensure_requested_edit_view(
         &mut self,
         action_id: &AIAgentActionId,
         title: &Option<String>,
@@ -3289,6 +3302,10 @@ impl AIBlock {
         server_output_id: Option<ServerOutputId>,
         ctx: &mut ViewContext<Self>,
     ) {
+        if self.requested_edits.contains_key(action_id) {
+            return;
+        }
+
         let identifiers = AIIdentifiers {
             client_conversation_id: Some(self.client_ids.conversation_id),
             client_exchange_id: Some(self.client_ids.client_exchange_id),
@@ -3344,14 +3361,6 @@ impl AIBlock {
                 ctx,
             )
         });
-        let executor = self
-            .action_model
-            .as_ref(ctx)
-            .request_file_edits_executor(ctx);
-        executor.update(ctx, |executor, _| {
-            executor.register_requested_edits(action_id, &view);
-        });
-
         // If the diff is being viewed in a shared session (read-only mode), populate diffs from the payload.
         if self.action_model.as_ref(ctx).is_view_only() {
             let active_session = self.active_session.as_ref(ctx);
@@ -3508,7 +3517,17 @@ impl AIBlock {
         });
 
         self.requested_edits
-            .insert(action_id.clone(), RequestedEdit::new(view));
+            .insert(action_id.clone(), RequestedEdit::new(view.clone()));
+        let executor = self
+            .action_model
+            .as_ref(ctx)
+            .request_file_edits_executor(ctx);
+        executor.update(ctx, |executor, ctx| {
+            executor.register_requested_edits(action_id, &view, ctx);
+        });
+        self.action_model.update(ctx, |action_model, ctx| {
+            action_model.retry_not_ready_action(action_id, self.client_ids.conversation_id, ctx);
+        });
 
         if self.model.request_type(ctx).is_passive() {
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {

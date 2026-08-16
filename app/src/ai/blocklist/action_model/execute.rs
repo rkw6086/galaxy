@@ -231,12 +231,6 @@ pub enum NotExecutedReason {
     WaitingOnSharer,
 }
 
-impl NotExecutedReason {
-    pub fn needs_confirmation(&self) -> bool {
-        matches!(self, Self::NeedsConfirmation)
-    }
-}
-
 /// Result type for `BlocklistAIActionExecutor::try_to_execute_action`.
 #[derive(Debug)]
 pub(super) enum TryExecuteResult {

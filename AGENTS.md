@@ -136,6 +136,7 @@ Key invariants:
 - Direct-provider remote telemetry records requested, started, retry-scheduled, and finished model-turn phases with explicit `llm_finished` state; root `provider_run_finished` records distinguish clean completion from failure or cancellation and mark the response stream terminal
 - `use_rig` and provider selection may choose request/transport details but must never choose lifecycle ownership
 - Direct-provider output may be projected through `ResponseStream`, but provider progress must not depend on response-stream result draining or `AfterStreamFinished`
+- Direct-provider `RequestFileEdits` views must register from streaming output before provider-run completion; preprocessing results must survive delayed view registration, and `NotReady` retries must remain automatic rather than emitting a synthetic user permission decision
 - A clean direct-provider `ProviderRunOutcome::Completed` explicitly finalizes the conversation as `Success` after terminal output projection, even if earlier turns added tool actions; child-completion waits rely on that status
 - Provider actions and results must correlate by `(conversation_id, run_id, epoch, call_id)`; stale or duplicate callbacks must not advance a run
 - Active provider runs must checkpoint before external work, persist without credentials, normalize unsafe restored states, and reconcile command state before continuing

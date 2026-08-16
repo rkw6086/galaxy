@@ -83,6 +83,86 @@ fn restored_provider_projection_skips_stream_initialization() {
 }
 
 #[test]
+fn provider_followup_turn_starts_a_distinct_text_message() {
+    let mut projector = ProviderRunResponseProjector::new(RuntimeResponseConfig {
+        task_id: "task".to_owned(),
+        conversation_id: "conversation".to_owned(),
+        needs_create_task: false,
+        user_query: None,
+        model_id: "model".to_owned(),
+        max_context_tokens: Some(1_000),
+        capabilities: RuntimeCapabilities::provider(),
+        empty_output_message: None,
+    });
+    let first_work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(1),
+    };
+    projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: first_work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            runtime_request_id: "request-1".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 1,
+        })
+        .unwrap();
+    let first_text = projector
+        .project(ProviderRunProjection::ModelEvent {
+            work_id: first_work_id,
+            event: AgentEvent::TextDelta {
+                text: "before tool".to_owned(),
+            },
+        })
+        .unwrap();
+    let Some(response_event::Type::ClientActions(first_actions)) = &first_text[0].r#type else {
+        panic!("expected first text action");
+    };
+    let Some(client_action::Action::AddMessagesToTask(first_add)) =
+        &first_actions.actions[0].action
+    else {
+        panic!("first turn should add a text message");
+    };
+    let first_message_id = first_add.messages[0].id.clone();
+
+    let second_work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(2),
+    };
+    projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: second_work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            runtime_request_id: "request-2".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 1,
+        })
+        .unwrap();
+    let second_text = projector
+        .project(ProviderRunProjection::ModelEvent {
+            work_id: second_work_id,
+            event: AgentEvent::TextDelta {
+                text: "after tool".to_owned(),
+            },
+        })
+        .unwrap();
+    let Some(response_event::Type::ClientActions(second_actions)) = &second_text[0].r#type else {
+        panic!("expected follow-up text action");
+    };
+    let Some(client_action::Action::AddMessagesToTask(second_add)) =
+        &second_actions.actions[0].action
+    else {
+        panic!("follow-up turn should add a text message");
+    };
+
+    assert_ne!(first_message_id, second_add.messages[0].id);
+}
+
+#[test]
 fn provider_and_session_runtimes_share_text_translation() {
     for mut translator in [provider_translator(), session_translator()] {
         let first = translator

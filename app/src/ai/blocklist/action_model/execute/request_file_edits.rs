@@ -42,10 +42,34 @@ use crate::terminal::model::session::SessionType;
 use crate::{safe_warn, BlocklistAIHistoryModel};
 const APPLY_DIFF_RESULT_CONTEXT_LINES: usize = 10;
 
+type AppliedDiffs = (Vec<FileDiff>, DiffSessionType);
+
+#[derive(Default)]
+struct PendingAppliedDiffs {
+    by_action: HashMap<AIAgentActionId, AppliedDiffs>,
+}
+
+impl PendingAppliedDiffs {
+    fn buffer(
+        &mut self,
+        action_id: AIAgentActionId,
+        diffs: Vec<FileDiff>,
+        diff_session_type: DiffSessionType,
+    ) {
+        self.by_action.insert(action_id, (diffs, diff_session_type));
+    }
+
+    fn take(&mut self, action_id: &AIAgentActionId) -> Option<AppliedDiffs> {
+        self.by_action.remove(action_id)
+    }
+}
+
 pub struct RequestFileEditsExecutor {
     active_session: ModelHandle<ActiveSession>,
     apply_diff_model: ModelHandle<ApplyDiffModel>,
     diff_views: HashMap<AIAgentActionId, ViewHandle<CodeDiffView>>,
+    /// Successfully applied diffs that completed before their view was registered.
+    pending_applied_diffs: PendingAppliedDiffs,
     /// Set of action IDs where diff application failed.
     diff_application_failures: HashMap<AIAgentActionId, Vec1<DiffApplicationError>>,
     terminal_view_id: EntityId,
@@ -62,6 +86,7 @@ impl RequestFileEditsExecutor {
             active_session,
             apply_diff_model,
             diff_views: HashMap::new(),
+            pending_applied_diffs: PendingAppliedDiffs::default(),
             diff_application_failures: HashMap::new(),
             terminal_view_id,
         }
@@ -117,15 +142,18 @@ impl RequestFileEditsExecutor {
             .is_allowed()
     }
 
-    /// Registers a diff view to handle a RequestFileEdits action.
-    /// Note this MUST be called before `execute` or `preprocess_action` is invoked in
-    /// order for the necessary state to be set to handle the action.
+    /// Registers a diff view to handle a RequestFileEdits action and applies any diffs that
+    /// finished preprocessing before the UI observed the action.
     pub fn register_requested_edits(
         &mut self,
         action_id: &AIAgentActionId,
         view: &ViewHandle<CodeDiffView>,
+        ctx: &mut ModelContext<Self>,
     ) {
         self.diff_views.insert(action_id.clone(), view.clone());
+        if let Some((diffs, diff_session_type)) = self.pending_applied_diffs.take(action_id) {
+            Self::apply_diffs_to_view(view, diffs, diff_session_type, ctx);
+        }
     }
 
     pub(super) fn execute(
@@ -322,23 +350,43 @@ impl RequestFileEditsExecutor {
         tx: oneshot::Sender<()>,
         ctx: &mut ModelContext<Self>,
     ) {
-        tx.send(()).ok();
+        match applied_diffs {
+            Ok(applied_diffs) if !applied_diffs.is_empty() => {
+                let current_working_directory = self
+                    .active_session
+                    .as_ref(ctx)
+                    .current_working_directory()
+                    .cloned();
+                let shell_launch_data = self.active_session.as_ref(ctx).shell_launch_data(ctx);
+                let diffs = applied_diffs
+                    .into_iter()
+                    .map(|diff| {
+                        let path = host_native_absolute_path(
+                            diff.file_name.as_str(),
+                            &shell_launch_data,
+                            &current_working_directory,
+                        );
+                        FileDiff::new(diff.original_content, path, diff.diff_type)
+                    })
+                    .collect();
+                let diff_session_type = match self.active_session.as_ref(ctx).session_type(ctx) {
+                    Some(SessionType::WarpifiedRemote {
+                        host_id: Some(host_id),
+                    }) => DiffSessionType::Remote(host_id.clone()),
+                    _ => DiffSessionType::Local,
+                };
 
-        let Some(diff_view) = self.diff_views.get(&id) else {
-            log::warn!(
-                "Tried to apply diffs for a RequestFileEdits action without a corresponding diff view"
-            );
-            return;
-        };
-
-        let applied_diffs = match applied_diffs {
-            Ok(diffs) if !diffs.is_empty() => diffs,
+                if let Some(diff_view) = self.diff_views.get(&id).cloned() {
+                    Self::apply_diffs_to_view(&diff_view, diffs, diff_session_type, ctx);
+                } else {
+                    self.pending_applied_diffs
+                        .buffer(id, diffs, diff_session_type);
+                }
+            }
             Ok(_) => {
-                // We didn't generate any diffs--consider this a failure.
                 log::warn!("No diffs generated");
                 self.diff_application_failures
                     .insert(id, vec1![DiffApplicationError::EmptyDiff]);
-                return;
             }
             Err(err) => {
                 safe_warn!(
@@ -346,38 +394,18 @@ impl RequestFileEditsExecutor {
                     full: ("Failed to generate diffs {err:?}")
                 );
                 self.diff_application_failures.insert(id, err);
-                return;
             }
-        };
-
-        let current_working_directory = self
-            .active_session
-            .as_ref(ctx)
-            .current_working_directory()
-            .cloned();
-
-        let shell_launch_data = self.active_session.as_ref(ctx).shell_launch_data(ctx);
-
-        let mut diffs = Vec::with_capacity(applied_diffs.len());
-        for diff in applied_diffs {
-            let path = host_native_absolute_path(
-                diff.file_name.as_str(),
-                &shell_launch_data,
-                &current_working_directory,
-            );
-            let file_diff = FileDiff::new(diff.original_content, path, diff.diff_type);
-            diffs.push(file_diff);
         }
 
-        // Set the session type on the diff view so save/delete/create routes
-        // through the correct FileModel backend.
-        let diff_session_type = match self.active_session.as_ref(ctx).session_type(ctx) {
-            Some(SessionType::WarpifiedRemote {
-                host_id: Some(host_id),
-            }) => DiffSessionType::Remote(host_id.clone()),
-            _ => DiffSessionType::Local,
-        };
+        tx.send(()).ok();
+    }
 
+    fn apply_diffs_to_view(
+        diff_view: &ViewHandle<CodeDiffView>,
+        diffs: Vec<FileDiff>,
+        diff_session_type: DiffSessionType,
+        ctx: &mut ModelContext<Self>,
+    ) {
         diff_view.update(ctx, |diff_view, ctx| {
             diff_view.set_diff_session_type(diff_session_type);
             diff_view.set_candidate_diffs(diffs, ctx);
