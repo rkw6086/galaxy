@@ -12,14 +12,17 @@ use ai::agent::action_result::{
 };
 use ai::agent::orchestration_config::OrchestrationConfig;
 use ai::skills::SkillReference;
-use futures::future::BoxFuture;
+use futures::future::{join_all, BoxFuture};
 use futures::FutureExt;
 use galaxy_core::execution_mode::AppExecutionMode;
 use settings::Setting;
 use warp_cli::agent::Harness;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
-use super::start_agent::{StartAgentExecutor, StartAgentOutcome};
+use super::start_agent::{
+    StartAgentDispatch, StartAgentExecutor, StartAgentExecutorEvent, StartAgentOutcome,
+    StartAgentWaitPolicy,
+};
 use super::{
     child_agent_delegation_denial_reason, ActionExecution, AnyActionExecution, ExecuteActionInput,
     PreprocessActionInput,
@@ -80,6 +83,12 @@ pub enum RunAgentsExecutorEvent {
     SpawningFinished {
         action_id: AIAgentActionId,
     },
+    ChildConversationCreated {
+        action_id: AIAgentActionId,
+        agent_name: String,
+        parent_conversation_id: AIConversationId,
+        child_conversation_id: AIConversationId,
+    },
 }
 
 impl Entity for RunAgentsExecutor {
@@ -90,7 +99,24 @@ impl RunAgentsExecutor {
     pub fn new(
         start_agent_executor: ModelHandle<StartAgentExecutor>,
         terminal_view_id: EntityId,
+        ctx: &mut ModelContext<Self>,
     ) -> Self {
+        ctx.subscribe_to_model(&start_agent_executor, |_, _, event, ctx| {
+            if let StartAgentExecutorEvent::RunAgentsChildConversationCreated {
+                action_id,
+                agent_name,
+                parent_conversation_id,
+                child_conversation_id,
+            } = event
+            {
+                ctx.emit(RunAgentsExecutorEvent::ChildConversationCreated {
+                    action_id: action_id.clone(),
+                    agent_name: agent_name.clone(),
+                    parent_conversation_id: *parent_conversation_id,
+                    child_conversation_id: *child_conversation_id,
+                });
+            }
+        });
         Self {
             pending: HashMap::new(),
             launched_agents: HashMap::new(),
@@ -101,6 +127,10 @@ impl RunAgentsExecutor {
 
     pub fn is_pending(&self, action_id: &AIAgentActionId) -> bool {
         self.pending.contains_key(action_id)
+    }
+
+    pub(crate) fn terminal_view_id(&self) -> EntityId {
+        self.terminal_view_id
     }
 
     /// Cancels a pending run so publication completion cannot fan out children.
@@ -361,8 +391,9 @@ impl RunAgentsExecutor {
                     "execution_mode": start_agent_execution_mode_label(&mode),
                 }),
             );
-            let recv = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
+            let dispatch = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
                 executor.dispatch(
+                    action_id.clone(),
                     cfg.name.clone(),
                     prompt,
                     mode,
@@ -372,7 +403,7 @@ impl RunAgentsExecutor {
                     exec_ctx,
                 )
             });
-            slots.push(ChildSlot::Pending(recv));
+            slots.push(ChildSlot::Pending(dispatch));
         }
 
         let agent_run_configs_for_result = agent_run_configs.clone();
@@ -393,49 +424,9 @@ impl RunAgentsExecutor {
 
         ctx.spawn(
             async move {
-                let mut outcomes: Vec<RunAgentsAgentOutcomeKind> = Vec::with_capacity(slots.len());
-                for (slot_index, slot) in slots.into_iter().enumerate() {
-                    let kind = match slot {
-                        ChildSlot::Failed(error) => RunAgentsAgentOutcomeKind::Failed { error },
-                        ChildSlot::Pending(recv) => {
-                            let timeout = warpui::r#async::Timer::after(SPAWN_TIMEOUT);
-                            match futures::future::select(Box::pin(recv.recv()), Box::pin(timeout))
-                                .await
-                            {
-                                futures::future::Either::Left((
-                                    Ok(StartAgentOutcome::Started { agent_id }),
-                                    _,
-                                )) => RunAgentsAgentOutcomeKind::Launched { agent_id },
-                                futures::future::Either::Left((
-                                    Ok(StartAgentOutcome::Completed { agent_id, .. }),
-                                    _,
-                                )) => RunAgentsAgentOutcomeKind::Launched { agent_id },
-                                futures::future::Either::Left((
-                                    Ok(StartAgentOutcome::Error(error)),
-                                    _,
-                                )) => RunAgentsAgentOutcomeKind::Failed { error },
-                                futures::future::Either::Left((Err(_), _)) => {
-                                    RunAgentsAgentOutcomeKind::Failed {
-                                        error: "Cancelled before launch".to_string(),
-                                    }
-                                }
-                                futures::future::Either::Right((_, _)) => {
-                                    log::warn!(
-                                        "Agent spawn timed out after {} seconds",
-                                        SPAWN_TIMEOUT.as_secs()
-                                    );
-                                    RunAgentsAgentOutcomeKind::Failed {
-                                        error: format!(
-                                            "Agent failed to start within {} seconds. \
-                                             The harness binary may not be installed.",
-                                            SPAWN_TIMEOUT.as_secs()
-                                        ),
-                                    }
-                                }
-                            }
-                        }
-                    };
-                    #[cfg(not(target_family = "wasm"))]
+                let outcomes = join_all(slots.into_iter().map(resolve_child_slot)).await;
+                #[cfg(not(target_family = "wasm"))]
+                for (slot_index, kind) in outcomes.iter().enumerate() {
                     log::info!(
                         "RunAgents child launch outcome action_id={} parent_conversation_id={} \
                          agent_name={} slot_index={} outcome={}",
@@ -446,9 +437,8 @@ impl RunAgentsExecutor {
                             .map(String::as_str)
                             .unwrap_or("<unknown>"),
                         slot_index,
-                        run_agents_agent_outcome_kind_label(&kind)
+                        run_agents_agent_outcome_kind_label(kind)
                     );
-                    outcomes.push(kind);
                 }
                 outcomes
             },
@@ -651,7 +641,57 @@ fn run_agents_agent_outcome_kind_label(kind: &RunAgentsAgentOutcomeKind) -> &'st
 
 enum ChildSlot {
     Failed(String),
-    Pending(async_channel::Receiver<StartAgentOutcome>),
+    Pending(StartAgentDispatch),
+}
+
+async fn resolve_child_slot(slot: ChildSlot) -> RunAgentsAgentOutcomeKind {
+    resolve_child_slot_with_timeout(slot, SPAWN_TIMEOUT).await
+}
+
+async fn resolve_child_slot_with_timeout(
+    slot: ChildSlot,
+    spawn_timeout: Duration,
+) -> RunAgentsAgentOutcomeKind {
+    let dispatch = match slot {
+        ChildSlot::Failed(error) => return RunAgentsAgentOutcomeKind::Failed { error },
+        ChildSlot::Pending(dispatch) => dispatch,
+    };
+
+    let outcome = match dispatch.wait_policy {
+        StartAgentWaitPolicy::Completion => dispatch.receiver.recv().await.ok(),
+        StartAgentWaitPolicy::Startup => {
+            let timeout = warpui::r#async::Timer::after(spawn_timeout);
+            match futures::future::select(Box::pin(dispatch.receiver.recv()), Box::pin(timeout))
+                .await
+            {
+                futures::future::Either::Left((outcome, _)) => outcome.ok(),
+                futures::future::Either::Right((_, _)) => {
+                    log::warn!(
+                        "Agent spawn timed out after {} seconds",
+                        spawn_timeout.as_secs()
+                    );
+                    return RunAgentsAgentOutcomeKind::Failed {
+                        error: format!(
+                            "Agent failed to start within {} seconds. \
+                             The harness binary may not be installed.",
+                            spawn_timeout.as_secs()
+                        ),
+                    };
+                }
+            }
+        }
+    };
+
+    match outcome {
+        Some(StartAgentOutcome::Started { agent_id })
+        | Some(StartAgentOutcome::Completed { agent_id, .. }) => {
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
+        }
+        Some(StartAgentOutcome::Error(error)) => RunAgentsAgentOutcomeKind::Failed { error },
+        None => RunAgentsAgentOutcomeKind::Failed {
+            error: "Child agent was cancelled before completion".to_string(),
+        },
+    }
 }
 
 fn approved_orchestration_config_can_autoexecute(

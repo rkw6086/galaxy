@@ -30,8 +30,21 @@ pub enum StartAgentOutcome {
         agent_id: String,
         output: String,
     },
-    /// An error occurred while starting the agent.
+    /// An error occurred while starting or running the agent.
     Error(String),
+}
+
+/// Determines whether a dispatch receiver acknowledges startup or waits for a
+/// direct-provider child to reach a terminal state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartAgentWaitPolicy {
+    Startup,
+    Completion,
+}
+
+pub struct StartAgentDispatch {
+    pub receiver: async_channel::Receiver<StartAgentOutcome>,
+    pub wait_policy: StartAgentWaitPolicy,
 }
 
 fn invalid_local_child_harness_error(harness_type: &str) -> String {
@@ -118,9 +131,10 @@ pub struct StartAgentRequest {
 }
 
 struct PendingStartAgent {
-    /// Present for standalone StartAgent tool calls. RunAgents dispatches use
-    /// the same executor but do not have a one-to-one StartAgent action card.
-    action_id: Option<AIAgentActionId>,
+    action_id: AIAgentActionId,
+    /// Present when RunAgents owns this dispatch. Standalone StartAgent calls
+    /// use the action id only for their one-to-one inline child panel.
+    run_agents_child_name: Option<String>,
     parent_conversation_id: AIConversationId,
     /// Set once the child conversation is synchronously created.
     child_conversation_id: Option<AIConversationId>,
@@ -128,7 +142,7 @@ struct PendingStartAgent {
     /// Direct Bedrock/OpenAI parents do not have a server run id or an
     /// orchestration event stream. Keep the tool call open until their local
     /// child finishes, then return the child's output inline.
-    wait_for_completion: bool,
+    wait_policy: StartAgentWaitPolicy,
 }
 
 pub struct StartAgentExecutor {
@@ -161,34 +175,33 @@ impl StartAgentExecutor {
         child_conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let direct_provider_panel_link = {
+        let child_link_event = {
             let Some(pending) = self.pending.get_mut(&request_id) else {
                 return;
             };
             pending.child_conversation_id = Some(child_conversation_id);
-            if pending.wait_for_completion {
-                pending.action_id.clone().map(|action_id| {
-                    (
-                        action_id,
-                        pending.parent_conversation_id,
-                        child_conversation_id,
-                    )
+            if let Some(agent_name) = pending.run_agents_child_name.clone() {
+                Some(StartAgentExecutorEvent::RunAgentsChildConversationCreated {
+                    action_id: pending.action_id.clone(),
+                    agent_name,
+                    parent_conversation_id: pending.parent_conversation_id,
+                    child_conversation_id,
                 })
+            } else if matches!(pending.wait_policy, StartAgentWaitPolicy::Completion) {
+                Some(
+                    StartAgentExecutorEvent::DirectProviderChildConversationCreated {
+                        action_id: pending.action_id.clone(),
+                        parent_conversation_id: pending.parent_conversation_id,
+                        child_conversation_id,
+                    },
+                )
             } else {
                 None
             }
         };
 
-        if let Some((action_id, parent_conversation_id, child_conversation_id)) =
-            direct_provider_panel_link
-        {
-            ctx.emit(
-                StartAgentExecutorEvent::DirectProviderChildConversationCreated {
-                    action_id,
-                    parent_conversation_id,
-                    child_conversation_id,
-                },
-            );
+        if let Some(event) = child_link_event {
+            ctx.emit(event);
         }
         self.maybe_complete_pending_for_child_state(request_id, child_conversation_id, ctx);
     }
@@ -274,14 +287,15 @@ impl StartAgentExecutor {
             return;
         };
         let _ = pending.sender.try_send(StartAgentOutcome::Error(error_msg));
-        // A child that reaches `complete_pending_as_error` never obtained an
-        // agent id, so it failed at the launch stage. Clean up its hidden
-        // pane + conversation so the orchestration pill bar does not retain a
-        // dead chip — but only for terminal failures, leaving recoverable
-        // `Blocked` startup states (e.g. awaiting GitHub auth) intact.
-        let should_cleanup = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&child_conversation_id)
-            .is_some_and(|conversation| should_cleanup_failed_child_launch(conversation.status()));
+        // Only startup acknowledgements may clean up a conversation that never
+        // initialized. Direct-provider completion waits preserve the terminal
+        // child so its transcript and failure remain inspectable.
+        let should_cleanup = matches!(pending.wait_policy, StartAgentWaitPolicy::Startup)
+            && BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&child_conversation_id)
+                .is_some_and(|conversation| {
+                    should_cleanup_failed_child_launch(conversation.status())
+                });
         if should_cleanup {
             ctx.emit(StartAgentExecutorEvent::CleanupFailedChildLaunch {
                 conversation_id: child_conversation_id,
@@ -300,23 +314,49 @@ impl StartAgentExecutor {
         else {
             return;
         };
-        if let Some(error_msg) = start_agent_error_message_for_status(
-            conversation.status(),
-            conversation.status_error_message().as_deref(),
-        ) {
-            self.complete_pending_as_error(request_id, child_conversation_id, error_msg, ctx);
-            return;
-        }
-        let wait_for_completion = self
+        let wait_policy = self
             .pending
             .get(&request_id)
-            .is_some_and(|pending| pending.wait_for_completion);
-        if wait_for_completion && matches!(conversation.status(), ConversationStatus::Success) {
-            self.complete_pending_as_completed(request_id, child_conversation_id, ctx);
-            return;
-        }
-        if conversation.orchestration_agent_id().is_some() {
-            self.complete_pending_as_started(request_id, child_conversation_id, ctx);
+            .map(|pending| pending.wait_policy);
+        match wait_policy {
+            Some(StartAgentWaitPolicy::Completion) => match conversation.status() {
+                ConversationStatus::Success => {
+                    self.complete_pending_as_completed(request_id, child_conversation_id, ctx);
+                }
+                ConversationStatus::Error | ConversationStatus::Cancelled => {
+                    let error_msg = direct_child_error_message_for_status(
+                        conversation.status(),
+                        conversation.status_error_message().as_deref(),
+                    )
+                    .expect("terminal direct child status should produce an error");
+                    self.complete_pending_as_error(
+                        request_id,
+                        child_conversation_id,
+                        error_msg,
+                        ctx,
+                    );
+                }
+                ConversationStatus::InProgress
+                | ConversationStatus::TransientError
+                | ConversationStatus::Blocked { .. }
+                | ConversationStatus::WaitingForEvents => {}
+            },
+            Some(StartAgentWaitPolicy::Startup) => {
+                if let Some(error_msg) = start_agent_startup_error_message_for_status(
+                    conversation.status(),
+                    conversation.status_error_message().as_deref(),
+                ) {
+                    self.complete_pending_as_error(
+                        request_id,
+                        child_conversation_id,
+                        error_msg,
+                        ctx,
+                    );
+                } else if conversation.orchestration_agent_id().is_some() {
+                    self.complete_pending_as_started(request_id, child_conversation_id, ctx);
+                }
+            }
+            None => {}
         }
     }
 
@@ -349,6 +389,22 @@ impl StartAgentExecutor {
             } => {
                 self.record_child_conversation(*request_id, *conversation_id, ctx);
             }
+            BlocklistAIHistoryEvent::RemoveConversation {
+                conversation_id, ..
+            }
+            | BlocklistAIHistoryEvent::DeletedConversation {
+                conversation_id, ..
+            } => {
+                let Some(request_id) = self.find_pending_by_child(conversation_id) else {
+                    return;
+                };
+                let Some(pending) = self.pending.remove(&request_id) else {
+                    return;
+                };
+                let _ = pending.sender.try_send(StartAgentOutcome::Error(
+                    "Child agent conversation was removed by the user.".to_string(),
+                ));
+            }
             BlocklistAIHistoryEvent::StartedNewConversation { .. }
             | BlocklistAIHistoryEvent::CreatedSubtask { .. }
             | BlocklistAIHistoryEvent::UpgradedTask { .. }
@@ -361,8 +417,6 @@ impl StartAgentExecutor {
             | BlocklistAIHistoryEvent::UpdatedTodoList { .. }
             | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. }
             | BlocklistAIHistoryEvent::SplitConversation { .. }
-            | BlocklistAIHistoryEvent::RemoveConversation { .. }
-            | BlocklistAIHistoryEvent::DeletedConversation { .. }
             | BlocklistAIHistoryEvent::RestoredConversations { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationTitle { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
@@ -543,18 +597,23 @@ impl StartAgentExecutor {
 
         // In local mode (no parent_run_id), block until the child finishes
         // so the parent model receives the child's output as the tool result.
-        let wait_for_completion = parent_run_id.is_none();
+        let wait_policy = if parent_run_id.is_none() {
+            StartAgentWaitPolicy::Completion
+        } else {
+            StartAgentWaitPolicy::Startup
+        };
 
         let (sender, receiver) = async_channel::bounded(1);
         let request_id = self.next_request_id();
         self.pending.insert(
             request_id,
             PendingStartAgent {
-                action_id: Some(action_id),
+                action_id,
+                run_agents_child_name: None,
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
-                wait_for_completion,
+                wait_policy,
             },
         );
 
@@ -599,6 +658,7 @@ impl StartAgentExecutor {
     #[allow(clippy::too_many_arguments)]
     pub fn dispatch(
         &mut self,
+        action_id: AIAgentActionId,
         name: String,
         prompt: String,
         execution_mode: StartAgentExecutionMode,
@@ -606,11 +666,19 @@ impl StartAgentExecutor {
         parent_conversation_id: AIConversationId,
         parent_run_id: Option<String>,
         ctx: &mut ModelContext<Self>,
-    ) -> async_channel::Receiver<StartAgentOutcome> {
+    ) -> StartAgentDispatch {
+        let wait_policy = if parent_run_id.is_none() {
+            StartAgentWaitPolicy::Completion
+        } else {
+            StartAgentWaitPolicy::Startup
+        };
         let (sender, receiver) = async_channel::bounded(1);
         if let Some(error) = child_agent_delegation_denial_reason(parent_conversation_id, ctx) {
             let _ = sender.try_send(StartAgentOutcome::Error(error));
-            return receiver;
+            return StartAgentDispatch {
+                receiver,
+                wait_policy,
+            };
         }
 
         let (prompt, execution_mode) =
@@ -620,11 +688,12 @@ impl StartAgentExecutor {
         self.pending.insert(
             request_id,
             PendingStartAgent {
-                action_id: None,
+                action_id,
+                run_agents_child_name: Some(name.clone()),
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
-                wait_for_completion: parent_run_id.is_none(),
+                wait_policy,
             },
         );
         ctx.emit(StartAgentExecutorEvent::CreateAgent(Box::new(
@@ -638,7 +707,10 @@ impl StartAgentExecutor {
                 parent_run_id,
             },
         )));
-        receiver
+        StartAgentDispatch {
+            receiver,
+            wait_policy,
+        }
     }
 
     pub(super) fn preprocess_action(
@@ -682,7 +754,7 @@ fn should_cleanup_failed_child_launch(status: &ConversationStatus) -> bool {
     }
 }
 
-fn start_agent_error_message_for_status(
+fn start_agent_startup_error_message_for_status(
     status: &ConversationStatus,
     error_message: Option<&str>,
 ) -> Option<String> {
@@ -717,6 +789,26 @@ fn start_agent_error_message_for_status(
     }
 }
 
+fn direct_child_error_message_for_status(
+    status: &ConversationStatus,
+    error_message: Option<&str>,
+) -> Option<String> {
+    match status {
+        ConversationStatus::Error => Some(
+            error_message
+                .filter(|message| !message.trim().is_empty())
+                .unwrap_or("Child agent failed")
+                .to_string(),
+        ),
+        ConversationStatus::Cancelled => Some("Child agent was cancelled by the user.".to_string()),
+        ConversationStatus::InProgress
+        | ConversationStatus::TransientError
+        | ConversationStatus::Success
+        | ConversationStatus::Blocked { .. }
+        | ConversationStatus::WaitingForEvents => None,
+    }
+}
+
 impl Entity for StartAgentExecutor {
     type Event = StartAgentExecutorEvent;
 }
@@ -728,6 +820,14 @@ pub enum StartAgentExecutorEvent {
     /// action render the live child panel before the tool result exists.
     DirectProviderChildConversationCreated {
         action_id: AIAgentActionId,
+        parent_conversation_id: AIConversationId,
+        child_conversation_id: AIConversationId,
+    },
+    /// A RunAgents child conversation is available for live status and
+    /// navigation in the owning action card.
+    RunAgentsChildConversationCreated {
+        action_id: AIAgentActionId,
+        agent_name: String,
         parent_conversation_id: AIConversationId,
         child_conversation_id: AIConversationId,
     },

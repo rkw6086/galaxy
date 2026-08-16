@@ -1203,6 +1203,69 @@ fn active_descendant_conversation_ids_filters_done_children() {
 }
 
 #[test]
+fn child_removal_and_deletion_resume_deferred_parent_follow_up() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        for delete_child in [false, true] {
+            let (parent_id, child_id) = terminal.update(&mut app, |terminal, ctx| {
+                let terminal_surface_id = terminal.id();
+                let history_model = BlocklistAIHistoryModel::handle(ctx);
+                let parent_id = history_model.update(ctx, |history_model, ctx| {
+                    history_model.start_new_conversation(
+                        terminal_surface_id,
+                        false,
+                        false,
+                        false,
+                        ctx,
+                    )
+                });
+                let child_id = history_model.update(ctx, |history_model, ctx| {
+                    history_model.start_new_child_conversation(
+                        terminal_surface_id,
+                        "child".to_string(),
+                        parent_id,
+                        None,
+                        ctx,
+                    )
+                });
+                terminal.ai_controller().update(ctx, |controller, ctx| {
+                    controller.send_follow_up_for_conversation(parent_id, ctx);
+                    assert!(controller
+                        .pending_child_blocked_follow_ups
+                        .contains(&parent_id));
+                });
+                (parent_id, child_id)
+            });
+
+            terminal.update(&mut app, |terminal, ctx| {
+                let terminal_surface_id = terminal.id();
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    if delete_child {
+                        history_model.delete_conversation(child_id, Some(terminal_surface_id), ctx);
+                    } else {
+                        history_model.remove_conversation(child_id, terminal_surface_id, ctx);
+                    }
+                });
+            });
+            futures_lite::future::yield_now().await;
+
+            terminal.update(&mut app, |terminal, ctx| {
+                terminal.ai_controller().read(ctx, |controller, _| {
+                    assert!(
+                        !controller
+                            .pending_child_blocked_follow_ups
+                            .contains(&parent_id),
+                        "removing the final active child should unblock its parent"
+                    );
+                });
+            });
+        }
+    });
+}
+
+#[test]
 fn acp_backend_model_identity_does_not_claim_a_provider_model() {
     assert_eq!(super::acp_backend_model_id(&AgentBackend::Provider), None);
     assert_eq!(

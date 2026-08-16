@@ -7705,6 +7705,9 @@ impl TerminalView {
                 // AI blocks subscribe directly to this executor event so the
                 // StartAgent card can render its live child transcript.
             }
+            StartAgentExecutorEvent::RunAgentsChildConversationCreated { .. } => {
+                // RunAgentsExecutor forwards this linkage to its owning card.
+            }
             StartAgentExecutorEvent::CleanupFailedChildLaunch { conversation_id } => {
                 // The child failed at launch and never started a server-side
                 // run; reuse the Kill path to drop its hidden pane and

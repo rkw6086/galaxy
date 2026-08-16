@@ -8,7 +8,11 @@ use ai::agent::action_result::{
 use ai::skills::SkillReference;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 
-use super::RunAgentsEditState;
+use super::{
+    has_run_agents_child, link_run_agents_child, mark_run_agents_child_removed,
+    sync_run_agents_children, RunAgentsChildState, RunAgentsEditState,
+};
+use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::blocklist::inline_action::orchestration_controls::OrchestrationEditState;
 
 fn make_request(harness: &str, mode: RunAgentsExecutionMode) -> RunAgentsRequest {
@@ -248,6 +252,57 @@ fn to_request_preserves_fields_but_normalizes_execution_to_local() {
     assert_eq!(round_tripped.agent_run_configs, req.agent_run_configs);
     assert_eq!(round_tripped.skills, req.skills);
     assert_eq!(round_tripped.plan_id, req.plan_id);
+}
+
+#[test]
+fn live_child_links_and_removal_survive_streaming_config_sync() {
+    let first_id = AIConversationId::new();
+    let replacement_id = AIConversationId::new();
+    let mut children = vec![
+        RunAgentsChildState::new("alpha".to_string()),
+        RunAgentsChildState::new("beta".to_string()),
+    ];
+
+    assert!(link_run_agents_child(&mut children, "alpha", first_id));
+    assert!(has_run_agents_child(&children, first_id));
+    assert!(mark_run_agents_child_removed(&mut children, first_id));
+    assert!(children[0].removed);
+
+    let configs = vec![
+        RunAgentsAgentRunConfig {
+            name: "gamma".to_string(),
+            prompt: "new work".to_string(),
+            title: String::new(),
+        },
+        RunAgentsAgentRunConfig {
+            name: "alpha".to_string(),
+            prompt: "updated work".to_string(),
+            title: String::new(),
+        },
+    ];
+    sync_run_agents_children(&mut children, &configs);
+
+    assert_eq!(
+        children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gamma", "alpha"]
+    );
+    assert_eq!(children[1].conversation_id, Some(first_id));
+    assert!(children[1].removed);
+    assert!(link_run_agents_child(
+        &mut children,
+        "alpha",
+        replacement_id
+    ));
+    assert_eq!(children[1].conversation_id, Some(replacement_id));
+    assert!(!children[1].removed);
+    assert!(!link_run_agents_child(
+        &mut children,
+        "missing",
+        AIConversationId::new()
+    ));
 }
 
 mod format_terminal_state_tests {

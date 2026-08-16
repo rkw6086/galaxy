@@ -35,6 +35,15 @@ impl Entity for CapturedStartAgentPrompts {
     type Event = ();
 }
 
+#[derive(Default)]
+struct CapturedRunAgentsChildLinks(
+    Vec<(AIAgentActionId, String, AIConversationId, AIConversationId)>,
+);
+
+impl Entity for CapturedRunAgentsChildLinks {
+    type Event = ();
+}
+
 fn capture_start_agent_prompts(
     app: &mut App,
     executor: &ModelHandle<StartAgentExecutor>,
@@ -65,6 +74,32 @@ fn capture_direct_provider_child_links(
             {
                 captured.0.push((
                     action_id.clone(),
+                    *parent_conversation_id,
+                    *child_conversation_id,
+                ));
+            }
+        });
+    });
+    captured
+}
+
+fn capture_run_agents_child_links(
+    app: &mut App,
+    executor: &ModelHandle<StartAgentExecutor>,
+) -> ModelHandle<CapturedRunAgentsChildLinks> {
+    let captured = app.add_model(|_| CapturedRunAgentsChildLinks::default());
+    captured.update(app, |_, ctx| {
+        ctx.subscribe_to_model(executor, |captured, _, event, _ctx| {
+            if let StartAgentExecutorEvent::RunAgentsChildConversationCreated {
+                action_id,
+                agent_name,
+                parent_conversation_id,
+                child_conversation_id,
+            } = event
+            {
+                captured.0.push((
+                    action_id.clone(),
+                    agent_name.clone(),
                     *parent_conversation_id,
                     *child_conversation_id,
                 ));
@@ -199,8 +234,9 @@ fn dispatch_denies_child_conversation_defense_in_depth() {
             conversation_id
         });
 
-        let receiver = executor.update(&mut app, |executor, ctx| {
+        let dispatch = executor.update(&mut app, |executor, ctx| {
             executor.dispatch(
+                AIAgentActionId::from("run-agents-action".to_string()),
                 "grandchild".to_string(),
                 "Do more work".to_string(),
                 StartAgentExecutionMode::local_with_defaults(),
@@ -212,7 +248,7 @@ fn dispatch_denies_child_conversation_defense_in_depth() {
         });
 
         assert!(matches!(
-            receiver.try_recv(),
+            dispatch.receiver.try_recv(),
             Ok(StartAgentOutcome::Error(error)) if error.contains("leaf workers")
         ));
         executor.read(&app, |executor, _ctx| {
@@ -685,6 +721,231 @@ fn hosted_child_link_does_not_publish_direct_provider_panel_event() {
     });
 }
 
+struct PendingDirectProviderChild {
+    action_id: AIAgentActionId,
+    parent_conversation_id: AIConversationId,
+    history_model: ModelHandle<BlocklistAIHistoryModel>,
+    executor: ModelHandle<StartAgentExecutor>,
+    captured_cleanup: ModelHandle<CapturedCleanupEvents>,
+    direct_links: ModelHandle<CapturedDirectProviderChildLinks>,
+    run_agents_links: ModelHandle<CapturedRunAgentsChildLinks>,
+    terminal_view_id: EntityId,
+    child_conversation_id: AIConversationId,
+    dispatch: StartAgentDispatch,
+}
+
+fn dispatch_pending_direct_provider_child(app: &mut App) -> PendingDirectProviderChild {
+    initialize_history_persistence_for_tests(app);
+    let terminal_view_id = EntityId::new();
+    let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+    let executor = app.add_model(StartAgentExecutor::new);
+    let captured_cleanup = app.add_model(|_| CapturedCleanupEvents::default());
+    captured_cleanup.update(app, |_, ctx| {
+        ctx.subscribe_to_model(&executor, |captured, _, event, _ctx| {
+            if let StartAgentExecutorEvent::CleanupFailedChildLaunch { conversation_id } = event {
+                captured.0.push(*conversation_id);
+            }
+        });
+    });
+    let direct_links = capture_direct_provider_child_links(app, &executor);
+    let run_agents_links = capture_run_agents_child_links(app, &executor);
+    let parent_conversation_id = history_model.update(app, |history_model, ctx| {
+        history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+    });
+    let action_id = AIAgentActionId::from("run-agents-action".to_string());
+    let dispatch = executor.update(app, |executor, ctx| {
+        executor.dispatch(
+            action_id.clone(),
+            "child".to_string(),
+            "Investigate the failure".to_string(),
+            StartAgentExecutionMode::local_with_defaults(),
+            None,
+            parent_conversation_id,
+            None,
+            ctx,
+        )
+    });
+    let child_conversation_id = history_model.update(app, |history_model, ctx| {
+        history_model.start_new_child_conversation(
+            terminal_view_id,
+            "child".to_string(),
+            parent_conversation_id,
+            None,
+            ctx,
+        )
+    });
+    history_model.update(app, |history_model, ctx| {
+        history_model.record_new_conversation_request_complete(
+            FIRST_REQUEST_ID,
+            child_conversation_id,
+            ctx,
+        );
+    });
+
+    PendingDirectProviderChild {
+        action_id,
+        parent_conversation_id,
+        history_model,
+        executor,
+        captured_cleanup,
+        direct_links,
+        run_agents_links,
+        terminal_view_id,
+        child_conversation_id,
+        dispatch,
+    }
+}
+
+#[test]
+fn direct_provider_nonterminal_states_remain_pending_until_cancelled() {
+    App::test((), |mut app| async move {
+        let state = dispatch_pending_direct_provider_child(&mut app);
+        assert_eq!(state.dispatch.wait_policy, StartAgentWaitPolicy::Completion);
+
+        for status in [
+            ConversationStatus::Blocked {
+                blocked_action: "Waiting for user input".to_string(),
+            },
+            ConversationStatus::TransientError,
+            ConversationStatus::WaitingForEvents,
+        ] {
+            state.history_model.update(&mut app, |history_model, ctx| {
+                history_model.update_conversation_status(
+                    state.terminal_view_id,
+                    state.child_conversation_id,
+                    status,
+                    ctx,
+                );
+            });
+            assert!(matches!(
+                state.dispatch.receiver.try_recv(),
+                Err(async_channel::TryRecvError::Empty)
+            ));
+            state.executor.read(&app, |executor, _| {
+                assert!(executor.pending.contains_key(&FIRST_REQUEST_ID));
+            });
+        }
+
+        state.history_model.update(&mut app, |history_model, ctx| {
+            history_model.update_conversation_status(
+                state.terminal_view_id,
+                state.child_conversation_id,
+                ConversationStatus::Cancelled,
+                ctx,
+            );
+        });
+
+        assert!(matches!(
+            state.dispatch.receiver.try_recv(),
+            Ok(StartAgentOutcome::Error(error))
+                if error == "Child agent was cancelled by the user."
+        ));
+        state.executor.read(&app, |executor, _| {
+            assert!(executor.pending.is_empty());
+        });
+        state.captured_cleanup.read(&app, |captured, _| {
+            assert!(captured.0.is_empty());
+        });
+    });
+}
+
+#[test]
+fn direct_provider_error_preserves_child_for_inspection() {
+    App::test((), |mut app| async move {
+        let state = dispatch_pending_direct_provider_child(&mut app);
+        state.history_model.update(&mut app, |history_model, ctx| {
+            history_model.update_conversation_status_with_error(
+                state.terminal_view_id,
+                state.child_conversation_id,
+                ConversationStatus::Error,
+                Some(RenderableAIError::other("Child execution failed", false)),
+                ctx,
+            );
+        });
+
+        assert!(matches!(
+            state.dispatch.receiver.try_recv(),
+            Ok(StartAgentOutcome::Error(error)) if error == "Child execution failed"
+        ));
+        state.captured_cleanup.read(&app, |captured, _| {
+            assert!(captured.0.is_empty());
+        });
+        state.history_model.read(&app, |history_model, _| {
+            assert!(history_model
+                .conversation(&state.child_conversation_id)
+                .is_some());
+        });
+    });
+}
+
+#[test]
+fn removing_direct_provider_child_resolves_pending_wait() {
+    App::test((), |mut app| async move {
+        let state = dispatch_pending_direct_provider_child(&mut app);
+        state.history_model.update(&mut app, |history_model, ctx| {
+            history_model.remove_conversation(
+                state.child_conversation_id,
+                state.terminal_view_id,
+                ctx,
+            );
+        });
+
+        assert!(matches!(
+            state.dispatch.receiver.try_recv(),
+            Ok(StartAgentOutcome::Error(error))
+                if error == "Child agent conversation was removed by the user."
+        ));
+        state.executor.read(&app, |executor, _| {
+            assert!(executor.pending.is_empty());
+        });
+    });
+}
+
+#[test]
+fn deleting_direct_provider_child_resolves_pending_wait() {
+    App::test((), |mut app| async move {
+        let state = dispatch_pending_direct_provider_child(&mut app);
+        state.history_model.update(&mut app, |history_model, ctx| {
+            history_model.delete_conversation(
+                state.child_conversation_id,
+                Some(state.terminal_view_id),
+                ctx,
+            );
+        });
+
+        assert!(matches!(
+            state.dispatch.receiver.try_recv(),
+            Ok(StartAgentOutcome::Error(error))
+                if error == "Child agent conversation was removed by the user."
+        ));
+        state.executor.read(&app, |executor, _| {
+            assert!(executor.pending.is_empty());
+        });
+    });
+}
+
+#[test]
+fn run_agents_dispatch_publishes_only_run_agents_child_link() {
+    App::test((), |mut app| async move {
+        let state = dispatch_pending_direct_provider_child(&mut app);
+
+        state.direct_links.read(&app, |captured, _| {
+            assert!(captured.0.is_empty());
+        });
+        state.run_agents_links.read(&app, |captured, _| {
+            assert_eq!(
+                captured.0,
+                vec![(
+                    state.action_id.clone(),
+                    "child".to_string(),
+                    state.parent_conversation_id,
+                    state.child_conversation_id,
+                )]
+            );
+        });
+    });
+}
+
 #[test]
 fn execute_waits_for_direct_provider_child_and_returns_its_output() {
     App::test((), |mut app| async move {
@@ -738,7 +999,7 @@ fn execute_waits_for_direct_provider_child_and_returns_its_output() {
                 .pending
                 .get(&FIRST_REQUEST_ID)
                 .expect("direct child should remain pending until completion");
-            assert!(pending.wait_for_completion);
+            assert_eq!(pending.wait_policy, StartAgentWaitPolicy::Completion);
         });
 
         history_model.update(&mut app, |history_model, ctx| {

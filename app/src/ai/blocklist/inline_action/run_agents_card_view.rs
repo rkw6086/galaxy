@@ -7,14 +7,15 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest};
-use ai::agent::action_result::{RunAgentsAgentOutcomeKind, RunAgentsResult};
+use ai::agent::action_result::{RunAgentsAgentOutcome, RunAgentsAgentOutcomeKind, RunAgentsResult};
 use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationConfigStatus};
 use ai::skills::SkillReference;
 use galaxy_core::send_telemetry_from_ctx;
 use pathfinder_geometry::vector::vec2f;
 use warpui::elements::{
     Border, ChildAnchor, ChildView, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
-    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Stack, Text, Wrap,
+    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
+    Stack, Text, Wrap,
 };
 use warpui::keymap::FixedBinding;
 use warpui::{
@@ -22,11 +23,15 @@ use warpui::{
     ViewHandle,
 };
 
-use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus, StatusColorStyle};
 use crate::ai::agent::{icons, AIAgentActionId, AIAgentActionResultType};
 use crate::ai::blocklist::action_model::{
     AIActionStatus, BlocklistAIActionEvent, BlocklistAIActionModel, RunAgentsExecutor,
     RunAgentsExecutorEvent, RunAgentsSpawningSnapshot,
+};
+use crate::ai::blocklist::agent_view::orchestration_conversation_links::{
+    conversation_id_for_agent_id, conversation_navigation_card_with_icon,
+    dispatch_focus_or_open_child_agent_pane,
 };
 use crate::ai::blocklist::agent_view::orchestration_pill_bar::render_static_agent_pill;
 use crate::ai::blocklist::block::model::AIBlockModel;
@@ -50,6 +55,7 @@ use crate::ai::blocklist::telemetry::{
     OrchestrationExecutionModeKind, OrchestrationHarnessKind, RunAgentsCardDecision,
     RunAgentsCardDecisionEvent,
 };
+use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::connected_self_hosted_workers::{
     ConnectedSelfHostedWorkersEvent, ConnectedSelfHostedWorkersModel,
 };
@@ -213,11 +219,90 @@ pub enum RunAgentsCardViewEvent {
     RejectRequested,
 }
 
+#[derive(Clone)]
+struct RunAgentsChildState {
+    name: String,
+    conversation_id: Option<AIConversationId>,
+    removed: bool,
+    mouse_state: MouseStateHandle,
+}
+
+impl RunAgentsChildState {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            conversation_id: None,
+            removed: false,
+            mouse_state: MouseStateHandle::default(),
+        }
+    }
+}
+
+fn sync_run_agents_children(
+    children: &mut Vec<RunAgentsChildState>,
+    configs: &[RunAgentsAgentRunConfig],
+) {
+    let mut previous_children = std::mem::take(children);
+    *children = configs
+        .iter()
+        .map(|config| {
+            previous_children
+                .iter()
+                .position(|child| child.name == config.name)
+                .map(|index| previous_children.remove(index))
+                .unwrap_or_else(|| RunAgentsChildState::new(config.name.clone()))
+        })
+        .collect();
+}
+
+fn link_run_agents_child(
+    children: &mut [RunAgentsChildState],
+    agent_name: &str,
+    conversation_id: AIConversationId,
+) -> bool {
+    let child_index = children
+        .iter()
+        .position(|child| child.name == agent_name && child.conversation_id.is_none())
+        .or_else(|| children.iter().position(|child| child.name == agent_name));
+    let Some(child_index) = child_index else {
+        return false;
+    };
+    let child = &mut children[child_index];
+    child.conversation_id = Some(conversation_id);
+    child.removed = false;
+    true
+}
+
+fn has_run_agents_child(
+    children: &[RunAgentsChildState],
+    conversation_id: AIConversationId,
+) -> bool {
+    children
+        .iter()
+        .any(|child| child.conversation_id == Some(conversation_id))
+}
+
+fn mark_run_agents_child_removed(
+    children: &mut [RunAgentsChildState],
+    conversation_id: AIConversationId,
+) -> bool {
+    let Some(child) = children
+        .iter_mut()
+        .find(|child| child.conversation_id == Some(conversation_id))
+    else {
+        return false;
+    };
+    child.removed = true;
+    true
+}
+
 pub struct RunAgentsCardView {
     action_id: AIAgentActionId,
     state: RunAgentsEditState,
     handles: RunAgentsCardHandles,
     spawning: Option<RunAgentsSpawningSnapshot>,
+    children: Vec<RunAgentsChildState>,
+    terminal_view_id: warpui::EntityId,
     /// Retained for interactive defaults and telemetry about plan-sourced
     /// orchestration state.
     active_config: Option<(OrchestrationConfig, OrchestrationConfigStatus)>,
@@ -303,6 +388,12 @@ impl RunAgentsCardView {
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let state = RunAgentsEditState::from_request(request);
+        let children = state
+            .agent_run_configs
+            .iter()
+            .map(|config| RunAgentsChildState::new(config.name.clone()))
+            .collect();
+        let terminal_view_id = run_agents_executor.as_ref(ctx).terminal_view_id();
         // Snapshot the raw incoming request so we can diff against the
         // edited state at Accept time.
         let original_tool_call_request = request.clone();
@@ -364,8 +455,36 @@ impl RunAgentsCardView {
                 me.spawning = None;
                 ctx.notify();
             }
+            RunAgentsExecutorEvent::ChildConversationCreated {
+                action_id,
+                agent_name,
+                child_conversation_id,
+                ..
+            } if action_id == &action_id_for_subscription => {
+                me.link_child_conversation(agent_name, *child_conversation_id);
+                ctx.notify();
+            }
             RunAgentsExecutorEvent::SpawningStarted { .. }
-            | RunAgentsExecutorEvent::SpawningFinished { .. } => {}
+            | RunAgentsExecutorEvent::SpawningFinished { .. }
+            | RunAgentsExecutorEvent::ChildConversationCreated { .. } => {}
+        });
+
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| match event {
+            BlocklistAIHistoryEvent::UpdatedConversationStatus {
+                conversation_id, ..
+            } if me.has_child_conversation(*conversation_id) => {
+                ctx.notify();
+            }
+            BlocklistAIHistoryEvent::RemoveConversation {
+                conversation_id, ..
+            }
+            | BlocklistAIHistoryEvent::DeletedConversation {
+                conversation_id, ..
+            } if me.mark_child_removed(*conversation_id) => {
+                ctx.notify();
+            }
+            _ => {}
         });
 
         // Re-render when this action finishes or becomes blocked.
@@ -481,6 +600,8 @@ impl RunAgentsCardView {
                 ..Default::default()
             },
             spawning: None,
+            children,
+            terminal_view_id,
             active_config,
             is_accept_menu_open: false,
             accept_menu,
@@ -543,6 +664,7 @@ impl RunAgentsCardView {
                 || self.state.orch.model_id != new_state.orch.model_id
                 || self.state.orch.execution_mode != new_state.orch.execution_mode;
             self.state = new_state;
+            self.sync_configured_children();
             if harness_or_model_changed {
                 // Repopulate pickers and re-arm auto-open for the newly-
                 // streamed harness.
@@ -553,6 +675,26 @@ impl RunAgentsCardView {
             self.maybe_auto_open_create_modal(ctx);
             ctx.notify();
         }
+    }
+
+    fn sync_configured_children(&mut self) {
+        sync_run_agents_children(&mut self.children, &self.state.agent_run_configs);
+    }
+
+    fn link_child_conversation(&mut self, agent_name: &str, conversation_id: AIConversationId) {
+        if !link_run_agents_child(&mut self.children, agent_name, conversation_id) {
+            log::warn!(
+                "RunAgentsCardView: received child conversation for unknown agent '{agent_name}'"
+            );
+        }
+    }
+
+    fn has_child_conversation(&self, conversation_id: AIConversationId) -> bool {
+        has_run_agents_child(&self.children, conversation_id)
+    }
+
+    fn mark_child_removed(&mut self, conversation_id: AIConversationId) -> bool {
+        mark_run_agents_child_removed(&mut self.children, conversation_id)
     }
 
     /// Validates and dispatches the resolved request.
@@ -957,7 +1099,13 @@ impl View for RunAgentsCardView {
 
         if let Some(AIActionStatus::Finished(result)) = &status {
             if let AIAgentActionResultType::RunAgents(orchestrate_result) = &result.result {
-                return render_terminal_state(orchestrate_result, appearance, app);
+                return render_terminal_state(
+                    orchestrate_result,
+                    &self.children,
+                    self.terminal_view_id,
+                    appearance,
+                    app,
+                );
             }
             log::error!(
                 "Unexpected action result type for orchestrate: {:?}",
@@ -969,13 +1117,25 @@ impl View for RunAgentsCardView {
         // In-flight dispatch: check both spawning snapshot and action
         // status because the event arrives one tick after the status.
         if let Some(snapshot) = &self.spawning {
-            return render_spawning_card(snapshot, appearance, app);
+            return render_spawning_card(
+                snapshot,
+                &self.children,
+                self.terminal_view_id,
+                appearance,
+                app,
+            );
         }
         if matches!(status, Some(AIActionStatus::RunningAsync)) {
             let snapshot = RunAgentsSpawningSnapshot {
                 agent_count: self.state.agent_run_configs.len(),
             };
-            return render_spawning_card(&snapshot, appearance, app);
+            return render_spawning_card(
+                &snapshot,
+                &self.children,
+                self.terminal_view_id,
+                appearance,
+                app,
+            );
         }
 
         // Restored-from-history: dispatch state is lost, render as
@@ -1352,11 +1512,21 @@ fn render_agents_section(state: &RunAgentsEditState, app: &AppContext) -> Box<dy
 
 fn render_terminal_state(
     result: &RunAgentsResult,
+    children: &[RunAgentsChildState],
+    terminal_view_id: warpui::EntityId,
     appearance: &Appearance,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let (label, kind) = format_terminal_state(result);
-    render_status_only_card(label, appearance, kind, app)
+    render_status_card(
+        label,
+        appearance,
+        kind,
+        children,
+        Some(result),
+        Some(terminal_view_id),
+        app,
+    )
 }
 
 pub(crate) fn format_terminal_state(result: &RunAgentsResult) -> (String, StatusKind) {
@@ -1424,6 +1594,8 @@ pub(crate) enum StatusKind {
 
 fn render_spawning_card(
     snapshot: &RunAgentsSpawningSnapshot,
+    children: &[RunAgentsChildState],
+    terminal_view_id: warpui::EntityId,
     appearance: &Appearance,
     app: &AppContext,
 ) -> Box<dyn Element> {
@@ -1433,13 +1605,34 @@ fn render_spawning_card(
     } else {
         format!("Spawning {total} agents\u{2026}")
     };
-    render_status_only_card(label, appearance, StatusKind::Spawning, app)
+    render_status_card(
+        label,
+        appearance,
+        StatusKind::Spawning,
+        children,
+        None,
+        Some(terminal_view_id),
+        app,
+    )
 }
 
 fn render_status_only_card(
     label: String,
     appearance: &Appearance,
     kind: StatusKind,
+    app: &AppContext,
+) -> Box<dyn Element> {
+    render_status_card(label, appearance, kind, &[], None, None, app)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_status_card(
+    label: String,
+    appearance: &Appearance,
+    kind: StatusKind,
+    children: &[RunAgentsChildState],
+    result: Option<&RunAgentsResult>,
+    terminal_view_id: Option<warpui::EntityId>,
     app: &AppContext,
 ) -> Box<dyn Element> {
     let theme = appearance.theme();
@@ -1452,7 +1645,8 @@ fn render_status_only_card(
         StatusKind::Failure => inline_action_icons::red_x_icon(appearance).finish(),
         StatusKind::Cancelled => inline_action_icons::cancelled_icon(appearance).finish(),
     };
-    let row = render_requested_action_row_for_text(
+    let mut column = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
+    column.add_child(render_requested_action_row_for_text(
         label.into(),
         appearance.ui_font_family(),
         Some(icon),
@@ -1460,13 +1654,137 @@ fn render_status_only_card(
         false,
         false,
         app,
-    );
-    Container::new(row)
+    ));
+
+    if !children.is_empty() {
+        let Some(terminal_view_id) = terminal_view_id else {
+            log::error!("RunAgentsCardView: child rows require a terminal view id");
+            return Empty::new().finish();
+        };
+        let outcomes = match result {
+            Some(RunAgentsResult::Launched { agents, .. }) => Some(agents.as_slice()),
+            Some(
+                RunAgentsResult::Denied { .. }
+                | RunAgentsResult::Failure { .. }
+                | RunAgentsResult::Cancelled,
+            )
+            | None => None,
+        };
+        let mut child_column =
+            Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for (index, child) in children.iter().enumerate() {
+            let outcome = outcomes.and_then(|agents| agents.get(index));
+            child_column.add_child(
+                Container::new(render_run_agents_child_row(
+                    child,
+                    outcome,
+                    result.is_some(),
+                    terminal_view_id,
+                    appearance,
+                    app,
+                ))
+                .with_margin_top(4.)
+                .finish(),
+            );
+        }
+        column.add_child(
+            Container::new(child_column.finish())
+                .with_padding_left(8.)
+                .with_padding_right(8.)
+                .with_padding_bottom(8.)
+                .finish(),
+        );
+    }
+
+    Container::new(column.finish())
         .with_background_color(blended_colors::neutral_2(theme))
         .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
         .finish()
         .with_agent_output_item_spacing(app)
         .finish()
+}
+
+fn render_run_agents_child_row(
+    child: &RunAgentsChildState,
+    outcome: Option<&RunAgentsAgentOutcome>,
+    is_terminal: bool,
+    terminal_view_id: warpui::EntityId,
+    appearance: &Appearance,
+    app: &AppContext,
+) -> Box<dyn Element> {
+    let outcome_conversation_id = outcome.and_then(|outcome| match &outcome.kind {
+        RunAgentsAgentOutcomeKind::Launched { agent_id } => {
+            conversation_id_for_agent_id(agent_id, app)
+        }
+        RunAgentsAgentOutcomeKind::Failed { .. } => None,
+    });
+    let conversation_id = child.conversation_id.or(outcome_conversation_id);
+
+    if !child.removed {
+        if let Some(conversation_id) = conversation_id {
+            if let Some(conversation) =
+                BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)
+            {
+                let status = conversation.status();
+                let status_icon =
+                    status.status_icon_and_color(appearance.theme(), StatusColorStyle::Standard);
+                let mouse_state = child.mouse_state.clone();
+                return conversation_navigation_card_with_icon(
+                    Some(status_icon),
+                    child.name.clone(),
+                    Some(status.to_string()),
+                    move |ctx, app, _| {
+                        dispatch_focus_or_open_child_agent_pane(
+                            conversation_id,
+                            terminal_view_id,
+                            ctx,
+                            app,
+                        );
+                    },
+                    mouse_state,
+                    true,
+                    None,
+                    app,
+                );
+            }
+        }
+    }
+
+    let (status, label) = if child.removed {
+        (ConversationStatus::Cancelled, "Removed".to_string())
+    } else if let Some(outcome) = outcome {
+        match &outcome.kind {
+            RunAgentsAgentOutcomeKind::Launched { .. } => {
+                (ConversationStatus::Success, "Started".to_string())
+            }
+            RunAgentsAgentOutcomeKind::Failed { error } => (
+                ConversationStatus::Error,
+                if error.trim().is_empty() {
+                    "Failed".to_string()
+                } else {
+                    format!("Failed: {error}")
+                },
+            ),
+        }
+    } else if is_terminal {
+        (ConversationStatus::Cancelled, "Not started".to_string())
+    } else {
+        (
+            ConversationStatus::InProgress,
+            "Starting\u{2026}".to_string(),
+        )
+    };
+    let (icon, color) =
+        status.status_icon_and_color(appearance.theme(), StatusColorStyle::Standard);
+    render_requested_action_row_for_text(
+        format!("{}: {label}", child.name).into(),
+        appearance.ui_font_family(),
+        Some(icon.to_warpui_icon(color.into()).finish()),
+        None,
+        false,
+        false,
+        app,
+    )
 }
 
 fn render_editor(

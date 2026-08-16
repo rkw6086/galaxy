@@ -358,6 +358,113 @@ fn validate_request_rejects_remote_dispatch() {
     );
 }
 
+#[test]
+fn completion_slots_are_polled_concurrently_and_preserve_request_order() {
+    App::test((), |_app| async move {
+        let (first_sender, first_receiver) = async_channel::bounded(1);
+        let (second_sender, second_receiver) = async_channel::bounded(1);
+        let slots = vec![
+            ChildSlot::Pending(StartAgentDispatch {
+                receiver: first_receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+            }),
+            ChildSlot::Pending(StartAgentDispatch {
+                receiver: second_receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+            }),
+            ChildSlot::Failed("prelaunch failure".to_string()),
+        ];
+        let mut outcomes =
+            Box::pin(join_all(slots.into_iter().map(|slot| {
+                resolve_child_slot_with_timeout(slot, Duration::from_millis(1))
+            })));
+
+        second_sender
+            .try_send(StartAgentOutcome::Completed {
+                agent_id: "second-agent".to_string(),
+                output: "done".to_string(),
+            })
+            .unwrap();
+        assert!(futures::poll!(&mut outcomes).is_pending());
+        assert!(
+            !second_sender.is_full(),
+            "join_all should poll and drain the second slot while the first is pending"
+        );
+
+        first_sender
+            .try_send(StartAgentOutcome::Error("first failed".to_string()))
+            .unwrap();
+        let outcomes = outcomes.await;
+
+        assert!(matches!(
+            &outcomes[0],
+            RunAgentsAgentOutcomeKind::Failed { error } if error == "first failed"
+        ));
+        assert!(matches!(
+            &outcomes[1],
+            RunAgentsAgentOutcomeKind::Launched { agent_id } if agent_id == "second-agent"
+        ));
+        assert!(matches!(
+            &outcomes[2],
+            RunAgentsAgentOutcomeKind::Failed { error } if error == "prelaunch failure"
+        ));
+    });
+}
+
+#[test]
+fn completion_wait_ignores_spawn_timeout() {
+    App::test((), |_app| async move {
+        let (sender, receiver) = async_channel::bounded(1);
+        let completion = Box::pin(resolve_child_slot_with_timeout(
+            ChildSlot::Pending(StartAgentDispatch {
+                receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+            }),
+            Duration::from_millis(1),
+        ));
+        let wait = warpui::r#async::Timer::after(Duration::from_millis(20));
+
+        let completion = match futures::future::select(completion, Box::pin(wait)).await {
+            futures::future::Either::Left((outcome, _)) => {
+                panic!("completion wait unexpectedly resolved before child completion: {outcome:?}")
+            }
+            futures::future::Either::Right((_, completion)) => completion,
+        };
+        sender
+            .try_send(StartAgentOutcome::Completed {
+                agent_id: "child-agent".to_string(),
+                output: "done".to_string(),
+            })
+            .unwrap();
+
+        assert!(matches!(
+            completion.await,
+            RunAgentsAgentOutcomeKind::Launched { agent_id } if agent_id == "child-agent"
+        ));
+    });
+}
+
+#[test]
+fn startup_wait_retains_spawn_timeout() {
+    App::test((), |_app| async move {
+        let (_sender, receiver) = async_channel::bounded(1);
+        let outcome = resolve_child_slot_with_timeout(
+            ChildSlot::Pending(StartAgentDispatch {
+                receiver,
+                wait_policy: StartAgentWaitPolicy::Startup,
+            }),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        assert!(matches!(
+            outcome,
+            RunAgentsAgentOutcomeKind::Failed { error }
+                if error.contains("Agent failed to start within")
+        ));
+    });
+}
+
 fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTestState {
     initialize_settings_for_tests_with_mode(app, mode, false);
     let global_resource_handles = GlobalResourceHandles::mock(app);
@@ -389,8 +496,9 @@ fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTe
         history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
     });
     let start_agent_executor = app.add_model(StartAgentExecutor::new);
-    let executor =
-        app.add_model(|_| RunAgentsExecutor::new(start_agent_executor.clone(), terminal_view_id));
+    let executor = app.add_model(|ctx| {
+        RunAgentsExecutor::new(start_agent_executor.clone(), terminal_view_id, ctx)
+    });
 
     RunAgentsTestState {
         conversation_id,

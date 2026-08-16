@@ -1672,19 +1672,14 @@ impl BlocklistAIController {
             } if *terminal_surface_id == me.terminal_surface_id => {
                 me.schedule_restored_provider_runs(conversation_ids, ctx);
             }
-            BlocklistAIHistoryEvent::UpdatedConversationStatus {
-                terminal_surface_id,
-                new_status,
-                ..
-            } if *terminal_surface_id == me.terminal_surface_id && new_status.is_done() => {
-                let pending_parents = me
-                    .pending_child_blocked_follow_ups
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>();
-                for parent_id in pending_parents {
-                    me.maybe_resume_child_blocked_follow_up(parent_id, ctx);
-                }
+            BlocklistAIHistoryEvent::UpdatedConversationStatus { new_status, .. }
+                if new_status.is_done() =>
+            {
+                me.resume_pending_child_blocked_follow_ups(ctx);
+            }
+            BlocklistAIHistoryEvent::RemoveConversation { .. }
+            | BlocklistAIHistoryEvent::DeletedConversation { .. } => {
+                me.resume_pending_child_blocked_follow_ups(ctx);
             }
             BlocklistAIHistoryEvent::StartedNewConversation { .. }
             | BlocklistAIHistoryEvent::CreatedSubtask { .. }
@@ -1699,8 +1694,6 @@ impl BlocklistAIController {
             | BlocklistAIHistoryEvent::UpdatedTodoList { .. }
             | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. }
             | BlocklistAIHistoryEvent::SplitConversation { .. }
-            | BlocklistAIHistoryEvent::RemoveConversation { .. }
-            | BlocklistAIHistoryEvent::DeletedConversation { .. }
             | BlocklistAIHistoryEvent::RestoredConversations { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationTitle { .. }
@@ -3062,6 +3055,17 @@ impl BlocklistAIController {
         }
 
         self.pending_passive_follow_ups.remove(&conversation_id);
+    }
+
+    fn resume_pending_child_blocked_follow_ups(&mut self, ctx: &mut ModelContext<Self>) {
+        let pending_parents = self
+            .pending_child_blocked_follow_ups
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        for parent_id in pending_parents {
+            self.maybe_resume_child_blocked_follow_up(parent_id, ctx);
+        }
     }
 
     fn maybe_resume_child_blocked_follow_up(

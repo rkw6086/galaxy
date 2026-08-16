@@ -150,6 +150,7 @@ Key invariants:
 - Direct-provider completed-command assessments are hidden, tool-free root-task turns whose output and hidden input survive CLI-task deactivation and restoration
 - ACP remains a separate session-owned runtime; direct-provider cleanup must not move ACP lifecycle into `ProviderRun`
 - Orchestrated child conversations are leaf workers: nested `RunAgents` and legacy `StartAgent` calls are rejected before autonomy or permission bypasses, and child requests do not advertise delegation tools
+- Direct-provider `RunAgents` remains pending until every local child reaches `Success`, `Error`, or `Cancelled`, or is removed/deleted; recoverable `Blocked`, `TransientError`, and `WaitingForEvents` states remain pending, and the hosted 30-second startup timeout must not apply to these completion waits
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.
