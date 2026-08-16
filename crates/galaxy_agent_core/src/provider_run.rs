@@ -139,6 +139,8 @@ pub enum PendingToolCallState {
         decision: PermissionDecision,
     },
     Executing,
+    /// External work survived a restart and must be reattached before it can complete.
+    RecoveryPending,
     Resolved {
         result: ToolResult,
     },
@@ -151,7 +153,8 @@ impl PendingToolCallState {
             Self::Proposed
             | Self::PermissionPending { .. }
             | Self::Approved { .. }
-            | Self::Executing => None,
+            | Self::Executing
+            | Self::RecoveryPending => None,
         }
     }
 
@@ -161,6 +164,7 @@ impl PendingToolCallState {
             Self::PermissionPending { .. } => "permission_pending",
             Self::Approved { .. } => "approved",
             Self::Executing => "executing",
+            Self::RecoveryPending => "recovery_pending",
             Self::Resolved { .. } => "resolved",
         }
     }
@@ -300,6 +304,7 @@ pub enum ModelFailureDisposition {
 pub struct ProviderRunRestoreNormalization {
     pub permission_call_ids_reset: Vec<String>,
     pub interrupted_call_ids: Vec<String>,
+    pub recovery_call_ids: Vec<String>,
     pub committed_tool_batch: bool,
 }
 
@@ -500,6 +505,13 @@ impl ProviderRun {
     pub fn normalize_after_restore(
         &mut self,
     ) -> Result<ProviderRunRestoreNormalization, ProviderRunProtocolError> {
+        self.normalize_after_restore_with_recoverable_calls(&HashSet::new())
+    }
+
+    pub fn normalize_after_restore_with_recoverable_calls(
+        &mut self,
+        recoverable_call_ids: &HashSet<String>,
+    ) -> Result<ProviderRunRestoreNormalization, ProviderRunProtocolError> {
         let ProviderRunState::AwaitingTools { batch } = &mut self.state else {
             return Ok(ProviderRunRestoreNormalization::default());
         };
@@ -512,6 +524,19 @@ impl ProviderRun {
                         .permission_call_ids_reset
                         .push(pending.call.id.clone());
                     pending.state = PendingToolCallState::Proposed;
+                }
+                PendingToolCallState::Executing
+                    if recoverable_call_ids.contains(&pending.call.id) =>
+                {
+                    normalization
+                        .recovery_call_ids
+                        .push(pending.call.id.clone());
+                    pending.state = PendingToolCallState::RecoveryPending;
+                }
+                PendingToolCallState::RecoveryPending => {
+                    normalization
+                        .recovery_call_ids
+                        .push(pending.call.id.clone());
                 }
                 PendingToolCallState::Approved { .. } | PendingToolCallState::Executing => {
                     normalization
@@ -719,7 +744,8 @@ impl ProviderRun {
             }
             PendingToolCallState::PermissionPending { .. }
             | PendingToolCallState::Approved { .. }
-            | PendingToolCallState::Executing => {
+            | PendingToolCallState::Executing
+            | PendingToolCallState::RecoveryPending => {
                 Err(invalid_tool_transition(call, "permission request"))
             }
         }
@@ -742,7 +768,8 @@ impl ProviderRun {
             }
             PendingToolCallState::Proposed
             | PendingToolCallState::Approved { .. }
-            | PendingToolCallState::Executing => {
+            | PendingToolCallState::Executing
+            | PendingToolCallState::RecoveryPending => {
                 return Err(invalid_tool_transition(call, "permission resolution"));
             }
         };
@@ -782,7 +809,9 @@ impl ProviderRun {
     ) -> Result<(), ProviderRunProtocolError> {
         let call = self.pending_tool_call_mut(work_id, call_id)?;
         match &call.state {
-            PendingToolCallState::Proposed | PendingToolCallState::Approved { .. } => {
+            PendingToolCallState::Proposed
+            | PendingToolCallState::Approved { .. }
+            | PendingToolCallState::RecoveryPending => {
                 call.state = PendingToolCallState::Executing;
                 Ok(())
             }
@@ -806,7 +835,8 @@ impl ProviderRun {
         match &call.state {
             PendingToolCallState::Proposed
             | PendingToolCallState::Approved { .. }
-            | PendingToolCallState::Executing => {
+            | PendingToolCallState::Executing
+            | PendingToolCallState::RecoveryPending => {
                 call.state = PendingToolCallState::Resolved { result };
                 Ok(())
             }
@@ -837,7 +867,8 @@ impl ProviderRun {
             PendingToolCallState::Proposed
             | PendingToolCallState::PermissionPending { .. }
             | PendingToolCallState::Approved { .. }
-            | PendingToolCallState::Executing => {
+            | PendingToolCallState::Executing
+            | PendingToolCallState::RecoveryPending => {
                 call.state = PendingToolCallState::Resolved {
                     result: ToolResult {
                         call_id: call_id.to_string(),

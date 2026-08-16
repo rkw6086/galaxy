@@ -2008,19 +2008,23 @@ impl AIConversation {
             .sum()
     }
 
-    pub fn contains_action(&self, action_id: &AIAgentActionId) -> bool {
-        self.task_store.tasks().any(|task| {
-            task.exchanges()
-            .any(|exchange| {
-                let Some(output) = exchange.output_status.output()
-                else {
-                    return false;
-                };
-                output.get().messages.iter().any(|step| {
-                    matches!(step, AIAgentOutputMessage{ message: AIAgentOutputMessageType::Action(AIAgentAction { id, .. }), .. } if id == action_id)
+    pub fn action(&self, action_id: &AIAgentActionId) -> Option<AIAgentAction> {
+        self.task_store.tasks().find_map(|task| {
+            task.exchanges().find_map(|exchange| {
+                let output = exchange.output_status.output()?;
+                output.get().messages.iter().find_map(|step| match step {
+                    AIAgentOutputMessage {
+                        message: AIAgentOutputMessageType::Action(action),
+                        ..
+                    } if &action.id == action_id => Some(action.clone()),
+                    AIAgentOutputMessage { .. } => None,
                 })
             })
         })
+    }
+
+    pub fn contains_action(&self, action_id: &AIAgentActionId) -> bool {
+        self.action(action_id).is_some()
     }
 
     /// Returns the exchange ID that contains the given action ID, if any.

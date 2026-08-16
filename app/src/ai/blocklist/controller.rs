@@ -21,9 +21,9 @@ use anyhow::anyhow;
 use chrono::{DateTime, Local};
 use futures::channel::oneshot;
 use galaxy_agent_core::{
-    turn_control, ExternalWorkId, PendingToolBatch, ProviderRun, ProviderRunFailureKind,
-    ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState, ToolLoopGuard,
-    TurnCommand, TurnCommandSender, TurnRequest,
+    turn_control, ExternalWorkId, PendingToolBatch, PendingToolCallState, ProviderRun,
+    ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState,
+    ToolLoopGuard, TurnCommand, TurnCommandSender, TurnRequest,
 };
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
@@ -930,12 +930,39 @@ fn record_provider_batch_signal(
     committed_work_id.as_ref() == Some(work_id) && finished_work_id.as_ref() == Some(work_id)
 }
 
+fn recoverable_run_agents_call_ids(
+    snapshot: &ActiveProviderRunSnapshot,
+) -> Result<HashSet<String>, String> {
+    let ProviderRunState::AwaitingTools { batch } = snapshot.run.state() else {
+        return Ok(HashSet::new());
+    };
+    batch
+        .calls
+        .iter()
+        .filter(|pending| {
+            matches!(
+                pending.state,
+                PendingToolCallState::Executing | PendingToolCallState::RecoveryPending
+            )
+        })
+        .try_fold(HashSet::new(), |mut call_ids, pending| {
+            let action = snapshot
+                .action_context
+                .action_from_tool_call(&pending.call)?;
+            if matches!(action.action, AIAgentActionType::RunAgents(_)) {
+                call_ids.insert(pending.call.id.clone());
+            }
+            Ok(call_ids)
+        })
+}
+
 fn normalize_restored_provider_snapshot(
     snapshot: &mut ActiveProviderRunSnapshot,
 ) -> Result<(), String> {
+    let recoverable_call_ids = recoverable_run_agents_call_ids(snapshot)?;
     let normalization = snapshot
         .run
-        .normalize_after_restore()
+        .normalize_after_restore_with_recoverable_calls(&recoverable_call_ids)
         .map_err(|error| error.to_string())?;
     let interrupted_call_ids = normalization
         .interrupted_call_ids
@@ -5404,10 +5431,19 @@ impl BlocklistAIController {
                     .calls
                     .iter()
                     .filter(|pending| pending.state.result().is_none())
-                    .map(|pending| run.action_context.action_from_tool_call(&pending.call))
+                    .map(|pending| {
+                        run.action_context
+                            .action_from_tool_call(&pending.call)
+                            .map(|action| {
+                                (
+                                    action,
+                                    matches!(pending.state, PendingToolCallState::RecoveryPending),
+                                )
+                            })
+                    })
                     .collect::<Result<Vec<_>, _>>()
             });
-        let actions = match conversion {
+        let converted_actions = match conversion {
             Some(Ok(actions)) => actions,
             Some(Err(message)) => {
                 self.fail_active_provider_run(conversation_id, message, ctx);
@@ -5418,25 +5454,58 @@ impl BlocklistAIController {
         let stream_id = self.active_provider_runs[&conversation_id]
             .stream_id
             .clone();
-        for action in &actions {
-            let apply_result =
-                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                    history_model.apply_domain_tool_proposal(
-                        &stream_id,
+        let mut recovery_action_ids = HashSet::new();
+        let mut actions = Vec::with_capacity(converted_actions.len());
+        for (mut action, is_recovery) in converted_actions {
+            if is_recovery {
+                let restored_action = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .and_then(|conversation| conversation.action(&action.id));
+                let Some(restored_action) = restored_action else {
+                    self.fail_active_provider_run(
                         conversation_id,
-                        self.terminal_surface_id,
-                        action.clone(),
+                        format!(
+                            "restored RunAgents action {} is missing from conversation history",
+                            action.id
+                        ),
                         ctx,
-                    )
-                });
-            if let Err(error) = apply_result {
-                self.fail_active_provider_run(
-                    conversation_id,
-                    format!("failed to attach provider tool proposal: {error:?}"),
-                    ctx,
-                );
-                return;
+                    );
+                    return;
+                };
+                if !matches!(restored_action.action, AIAgentActionType::RunAgents(_)) {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!(
+                            "restored provider action {} no longer matches RunAgents history",
+                            action.id
+                        ),
+                        ctx,
+                    );
+                    return;
+                }
+                recovery_action_ids.insert(action.id.clone());
+                action = restored_action;
+            } else {
+                let apply_result =
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        history_model.apply_domain_tool_proposal(
+                            &stream_id,
+                            conversation_id,
+                            self.terminal_surface_id,
+                            action.clone(),
+                            ctx,
+                        )
+                    });
+                if let Err(error) = apply_result {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!("failed to attach provider tool proposal: {error:?}"),
+                        ctx,
+                    );
+                    return;
+                }
             }
+            actions.push(action);
         }
         if let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) {
             slot.command_action_refs.extend(
@@ -5464,7 +5533,13 @@ impl BlocklistAIController {
             return;
         }
         let queue_result = self.action_model.update(ctx, |action_model, ctx| {
-            action_model.queue_provider_actions(actions, conversation_id, &batch, ctx)
+            action_model.queue_provider_actions(
+                actions,
+                recovery_action_ids,
+                conversation_id,
+                &batch,
+                ctx,
+            )
         });
         if let Err(error) = queue_result {
             self.fail_active_provider_run(conversation_id, error.to_string(), ctx);

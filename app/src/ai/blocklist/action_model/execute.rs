@@ -24,6 +24,7 @@ pub(super) mod use_computer;
 pub(super) mod wait_for_events;
 
 use std::any::Any;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -295,6 +296,7 @@ pub struct BlocklistAIActionExecutor {
     /// We track them per action rather than as a single slot so multiple actions from the same
     /// parallel phase can complete independently.
     async_executing_actions: std::collections::HashMap<AIAgentActionId, AsyncExecutingAction>,
+    restored_action_ids: HashSet<AIAgentActionId>,
 
     /// Reference to the terminal model for checking session sharing state.
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -382,6 +384,7 @@ impl BlocklistAIActionExecutor {
             use_computer_executor,
             request_computer_use_executor,
             async_executing_actions: Default::default(),
+            restored_action_ids: Default::default(),
             terminal_model,
             read_skill_executor,
             fetch_conversation_executor,
@@ -397,6 +400,17 @@ impl BlocklistAIActionExecutor {
         self.async_executing_actions
             .get(action_id)
             .map(|running| &running.action)
+    }
+
+    pub fn mark_restored_actions(
+        &mut self,
+        action_ids: &HashSet<AIAgentActionId>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.restored_action_ids.extend(action_ids.iter().cloned());
+        self.run_agents_executor.update(ctx, |executor, _| {
+            executor.mark_recovery_actions(action_ids);
+        });
     }
 
     pub(super) fn has_running_ask_user_question(&self, conversation_id: AIConversationId) -> bool {
@@ -710,6 +724,7 @@ impl BlocklistAIActionExecutor {
             action.id,
             std::mem::discriminant(&action.action)
         );
+        let is_restored = self.restored_action_ids.remove(&action.id);
         let action_clone = action.clone();
         let execution = match &action.action {
             AIAgentActionType::RequestCommandOutput { .. }
@@ -904,10 +919,12 @@ impl BlocklistAIActionExecutor {
                         conversation_id,
                     },
                 );
-                ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
-                    action_id: action_id.clone(),
-                    conversation_id,
-                });
+                if !is_restored {
+                    ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
+                        action_id: action_id.clone(),
+                        conversation_id,
+                    });
+                }
                 log::info!("[tool-debug] try_to_execute_action: spawning ASYNC execution for action_id={:?}", action_id);
                 ctx.spawn(execute_future, move |me, result, ctx| {
                     let Some(running) = me.async_executing_actions.remove(&action_id) else {
@@ -933,10 +950,12 @@ impl BlocklistAIActionExecutor {
                 TryExecuteResult::ExecutedAsync
             }
             AnyActionExecution::Sync(action_result) => {
-                ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
-                    action_id: action_id.clone(),
-                    conversation_id,
-                });
+                if !is_restored {
+                    ctx.emit(BlocklistAIActionExecutorEvent::ExecutingAction {
+                        action_id: action_id.clone(),
+                        conversation_id,
+                    });
+                }
                 ctx.emit(BlocklistAIActionExecutorEvent::FinishedAction {
                     result: Arc::new(AIAgentActionResult {
                         id: action_id,
@@ -1035,7 +1054,9 @@ impl BlocklistAIActionExecutor {
     }
 
     fn should_autoexecute(&self, input: ExecuteActionInput, ctx: &mut ModelContext<Self>) -> bool {
-        if cfg!(feature = "bedrock_smoke_test") {
+        if self.restored_action_ids.contains(&input.action.id)
+            || cfg!(feature = "bedrock_smoke_test")
+        {
             return true;
         }
         match input.action.action {

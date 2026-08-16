@@ -713,6 +713,45 @@ impl StartAgentExecutor {
         }
     }
 
+    pub fn reattach(
+        &mut self,
+        action_id: AIAgentActionId,
+        name: String,
+        parent_conversation_id: AIConversationId,
+        child_conversation_id: AIConversationId,
+        parent_run_id: Option<String>,
+        ctx: &mut ModelContext<Self>,
+    ) -> StartAgentDispatch {
+        let wait_policy = if parent_run_id.is_none() {
+            StartAgentWaitPolicy::Completion
+        } else {
+            StartAgentWaitPolicy::Startup
+        };
+        let (sender, receiver) = async_channel::bounded(1);
+        let request_id = self.next_request_id();
+        self.pending.insert(
+            request_id,
+            PendingStartAgent {
+                action_id,
+                run_agents_child_name: Some(name),
+                parent_conversation_id,
+                child_conversation_id: Some(child_conversation_id),
+                sender,
+                wait_policy,
+            },
+        );
+        self.record_child_conversation(request_id, child_conversation_id, ctx);
+        StartAgentDispatch {
+            receiver,
+            wait_policy,
+        }
+    }
+
+    pub fn cancel_dispatches_for_action(&mut self, action_id: &AIAgentActionId) {
+        self.pending
+            .retain(|_, pending| &pending.action_id != action_id);
+    }
+
     pub(super) fn preprocess_action(
         &mut self,
         _action: PreprocessActionInput,

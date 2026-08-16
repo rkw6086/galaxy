@@ -69,6 +69,7 @@ struct ExistingLaunchedAgent {
 
 pub struct RunAgentsExecutor {
     pending: HashMap<AIAgentActionId, PendingRunAgents>,
+    recovery_action_ids: HashSet<AIAgentActionId>,
     launched_agents: HashMap<AIConversationId, HashMap<String, ExistingLaunchedAgent>>,
     start_agent_executor: ModelHandle<StartAgentExecutor>,
     terminal_view_id: EntityId,
@@ -119,6 +120,7 @@ impl RunAgentsExecutor {
         });
         Self {
             pending: HashMap::new(),
+            recovery_action_ids: HashSet::new(),
             launched_agents: HashMap::new(),
             start_agent_executor,
             terminal_view_id,
@@ -129,21 +131,25 @@ impl RunAgentsExecutor {
         self.pending.contains_key(action_id)
     }
 
+    pub fn mark_recovery_actions(&mut self, action_ids: &HashSet<AIAgentActionId>) {
+        self.recovery_action_ids.extend(action_ids.iter().cloned());
+    }
+
     pub(crate) fn terminal_view_id(&self) -> EntityId {
         self.terminal_view_id
     }
 
-    /// Cancels a pending run so publication completion cannot fan out children.
+    /// Cancels the parent tool wait without cancelling independently-running children.
     pub(super) fn cancel_execution(
         &mut self,
         action_id: &AIAgentActionId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if matches!(
-            self.pending.get(action_id),
-            Some(PendingRunAgents::Publishing)
-        ) {
-            self.pending.remove(action_id);
+        self.recovery_action_ids.remove(action_id);
+        self.start_agent_executor.update(ctx, |executor, _| {
+            executor.cancel_dispatches_for_action(action_id);
+        });
+        if self.pending.remove(action_id).is_some() {
             ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
                 action_id: action_id.clone(),
             });
@@ -276,6 +282,7 @@ impl RunAgentsExecutor {
                     action_id_for_wait.clone(),
                     request,
                     parent_conversation_id,
+                    HashMap::new(),
                     sender,
                     ctx,
                 )
@@ -285,11 +292,48 @@ impl RunAgentsExecutor {
         receiver
     }
 
+    fn dispatch_recovered_run_agents(
+        &mut self,
+        action_id: AIAgentActionId,
+        request: RunAgentsRequest,
+        parent_conversation_id: AIConversationId,
+        recovery_children: HashMap<String, AIConversationId>,
+        ctx: &mut ModelContext<Self>,
+    ) -> async_channel::Receiver<RunAgentsResult> {
+        let (sender, receiver) = async_channel::bounded(1);
+        if self.pending.contains_key(&action_id) {
+            let _ = sender.try_send(RunAgentsResult::Cancelled);
+            return receiver;
+        }
+        if let Err(error) = validate_request(&request) {
+            let _ = sender.try_send(RunAgentsResult::Failure { error });
+            return receiver;
+        }
+
+        let snapshot = RunAgentsSpawningSnapshot {
+            agent_count: request.agent_run_configs.len(),
+        };
+        ctx.emit(RunAgentsExecutorEvent::SpawningStarted {
+            action_id: action_id.clone(),
+            snapshot,
+        });
+        self.dispatch_children_for_prepared_request(
+            action_id,
+            request,
+            parent_conversation_id,
+            recovery_children,
+            sender,
+            ctx,
+        );
+        receiver
+    }
+
     fn dispatch_children_for_prepared_request(
         &mut self,
         action_id: AIAgentActionId,
         request: RunAgentsRequest,
         parent_conversation_id: AIConversationId,
+        mut recovery_children: HashMap<String, AIConversationId>,
         sender: async_channel::Sender<RunAgentsResult>,
         ctx: &mut ModelContext<Self>,
     ) {
@@ -329,6 +373,23 @@ impl RunAgentsExecutor {
 
         let mut slots: Vec<ChildSlot> = Vec::with_capacity(agent_run_configs.len());
         for cfg in &agent_run_configs {
+            let normalized_name = normalize_agent_name(&cfg.name)
+                .expect("validated RunAgents requests have non-empty agent names");
+            if let Some(child_conversation_id) = recovery_children.remove(&normalized_name) {
+                let dispatch = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
+                    executor.reattach(
+                        action_id.clone(),
+                        cfg.name.clone(),
+                        parent_conversation_id,
+                        child_conversation_id,
+                        parent_run_id.clone(),
+                        exec_ctx,
+                    )
+                });
+                slots.push(ChildSlot::Pending(dispatch));
+                continue;
+            }
+
             let prompt = compose_run_agents_child_prompt(&base_prompt, &cfg.prompt);
             let mode = match run_agents_to_start_agent_mode(
                 &run_execution_mode,
@@ -443,6 +504,9 @@ impl RunAgentsExecutor {
                 outcomes
             },
             move |me, outcomes, ctx| {
+                if !me.is_pending(&action_id_for_aggr) {
+                    return;
+                }
                 let agents: Vec<RunAgentsAgentOutcome> = agent_run_configs_for_result
                     .iter()
                     .zip(outcomes)
@@ -520,32 +584,56 @@ impl RunAgentsExecutor {
         let mut request = request.clone();
         let action_id = id.clone();
         let parent_conversation_id = input.conversation_id;
-        if let Some(reason) = prepare_request_for_execution(
-            &mut request,
-            parent_conversation_id,
-            self.terminal_view_id,
-            &self.launched_agents,
-            ctx,
-        ) {
-            #[cfg(not(target_family = "wasm"))]
-            log_run_agents_event(
-                ctx,
-                RemoteLogLevel::Warn,
-                "RunAgents execution denied",
-                serde_json::json!({
-                    "event": "run_agents_execution_denied",
-                    "action_id": action_id.to_string(),
-                    "parent_conversation_id": parent_conversation_id.to_string(),
-                    "reason": remote_logging::sanitize_error(&reason),
-                }),
-            );
-            return ActionExecution::Sync(AIAgentActionResultType::RunAgents(
-                RunAgentsResult::Denied { reason },
-            ));
-        }
+        let is_recovery = self.recovery_action_ids.remove(&action_id);
 
-        let receiver =
-            self.dispatch_prepared_run_agents(action_id, request, parent_conversation_id, ctx);
+        let recovery_children = if is_recovery {
+            prepare_recovery_request_for_execution(&mut request, parent_conversation_id, ctx);
+            match recovery_children_by_name(parent_conversation_id, ctx) {
+                Ok(children) => children,
+                Err(error) => {
+                    return ActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                        RunAgentsResult::Failure { error },
+                    ));
+                }
+            }
+        } else {
+            if let Some(reason) = prepare_request_for_execution(
+                &mut request,
+                parent_conversation_id,
+                self.terminal_view_id,
+                &self.launched_agents,
+                ctx,
+            ) {
+                #[cfg(not(target_family = "wasm"))]
+                log_run_agents_event(
+                    ctx,
+                    RemoteLogLevel::Warn,
+                    "RunAgents execution denied",
+                    serde_json::json!({
+                        "event": "run_agents_execution_denied",
+                        "action_id": action_id.to_string(),
+                        "parent_conversation_id": parent_conversation_id.to_string(),
+                        "reason": remote_logging::sanitize_error(&reason),
+                    }),
+                );
+                return ActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                    RunAgentsResult::Denied { reason },
+                ));
+            }
+            HashMap::new()
+        };
+
+        let receiver = if is_recovery {
+            self.dispatch_recovered_run_agents(
+                action_id,
+                request,
+                parent_conversation_id,
+                recovery_children,
+                ctx,
+            )
+        } else {
+            self.dispatch_prepared_run_agents(action_id, request, parent_conversation_id, ctx)
+        };
 
         ActionExecution::new_async(
             async move { receiver.recv().await },
@@ -769,6 +857,42 @@ fn prepare_request_for_execution(
     }
 
     None
+}
+
+fn prepare_recovery_request_for_execution(
+    request: &mut RunAgentsRequest,
+    parent_conversation_id: AIConversationId,
+    ctx: &ModelContext<RunAgentsExecutor>,
+) {
+    normalize_request_for_local_execution(request);
+    resolve_request_from_approved_config(request, parent_conversation_id, ctx);
+    populate_default_auth_secret_for_execution(request, ctx);
+}
+
+fn recovery_children_by_name(
+    parent_conversation_id: AIConversationId,
+    ctx: &ModelContext<RunAgentsExecutor>,
+) -> Result<HashMap<String, AIConversationId>, String> {
+    let mut children_by_name = HashMap::new();
+    for conversation in
+        BlocklistAIHistoryModel::as_ref(ctx).child_conversations_of(parent_conversation_id)
+    {
+        let Some(name) = conversation.agent_name() else {
+            continue;
+        };
+        let Some(normalized_name) = normalize_agent_name(name) else {
+            continue;
+        };
+        if children_by_name
+            .insert(normalized_name.clone(), conversation.id())
+            .is_some()
+        {
+            return Err(format!(
+                "Cannot recover child agent '{name}': multiple persisted child conversations have the same name."
+            ));
+        }
+    }
+    Ok(children_by_name)
 }
 
 fn duplicate_launched_agents_reason(

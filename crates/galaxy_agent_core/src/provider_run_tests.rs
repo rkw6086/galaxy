@@ -759,6 +759,73 @@ fn restore_normalization_reproposes_permissions_and_interrupts_unsafe_tools() {
 }
 
 #[test]
+fn restore_normalization_preserves_selected_executing_tools_for_recovery() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("run-agents", "run_agents"),
+                tool_call("read", "read_files"),
+            ],
+            &["run_agents", "read_files"],
+        ),
+    );
+    run.start_tool(&batch.work_id, "run-agents").unwrap();
+    run.start_tool(&batch.work_id, "read").unwrap();
+
+    let normalization = run
+        .normalize_after_restore_with_recoverable_calls(&HashSet::from(["run-agents".to_string()]))
+        .unwrap();
+
+    assert_eq!(normalization.recovery_call_ids, vec!["run-agents"]);
+    assert_eq!(normalization.interrupted_call_ids, vec!["read"]);
+    let ProviderRunState::AwaitingTools { batch } = run.state() else {
+        panic!("recovered tool batch should remain pending");
+    };
+    assert!(matches!(
+        batch.calls[0].state,
+        PendingToolCallState::RecoveryPending
+    ));
+    assert_eq!(
+        batch.calls[1].state.result().unwrap().status,
+        ToolResultStatus::Error
+    );
+}
+
+#[test]
+fn recovery_pending_tool_survives_another_restore_and_completes_once() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("run-agents", "run_agents")], &["run_agents"]),
+    );
+    run.start_tool(&batch.work_id, "run-agents").unwrap();
+    run.normalize_after_restore_with_recoverable_calls(&HashSet::from(["run-agents".to_string()]))
+        .unwrap();
+    let serialized = serde_json::to_string(&run).unwrap();
+    let mut restored: ProviderRun = serde_json::from_str(&serialized).unwrap();
+
+    let normalization = restored.normalize_after_restore().unwrap();
+    assert_eq!(normalization.recovery_call_ids, vec!["run-agents"]);
+    restored
+        .complete_tool(
+            &batch.work_id,
+            successful_result("run-agents", "children completed"),
+        )
+        .unwrap();
+    assert!(matches!(
+        restored.complete_tool(
+            &batch.work_id,
+            successful_result("run-agents", "duplicate completion"),
+        ),
+        Err(ProviderRunProtocolError::DuplicateToolUpdate { .. })
+    ));
+    restored.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(restored.state().phase(), ProviderRunPhase::ReadyToCallModel);
+}
+
+#[test]
 fn restore_normalization_commits_a_fully_resolved_batch() {
     let mut run = run();
     let batch = accept_tool_turn(

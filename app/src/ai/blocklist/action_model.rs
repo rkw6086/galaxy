@@ -1546,6 +1546,7 @@ impl BlocklistAIActionModel {
     pub(super) fn queue_provider_actions(
         &mut self,
         actions: Vec<AIAgentAction>,
+        recovery_action_ids: HashSet<AIAgentActionId>,
         conversation_id: AIConversationId,
         batch: &PendingToolBatch,
         ctx: &mut ModelContext<Self>,
@@ -1562,6 +1563,9 @@ impl BlocklistAIActionModel {
             }
         }
         self.provider_tool_executions.extend(refs);
+        self.executor.update(ctx, |executor, ctx| {
+            executor.mark_restored_actions(&recovery_action_ids, ctx);
+        });
         self.queue_actions(actions, conversation_id, ctx);
         Ok(())
     }

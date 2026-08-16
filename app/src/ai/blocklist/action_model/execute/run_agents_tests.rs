@@ -359,6 +359,166 @@ fn validate_request_rejects_remote_dispatch() {
 }
 
 #[test]
+fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_child() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        let terminal_view_id = EntityId::new();
+        let history = BlocklistAIHistoryModel::handle(&app);
+        let existing_child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        let captured = subscribe_to_start_agent_requests(&mut app, &state.start_agent_executor);
+        let mut action = remote_run_agents_action("oz");
+        let AIAgentActionType::RunAgents(request) = &mut action.action else {
+            panic!("expected run_agents action");
+        };
+        request.agent_run_configs.push(RunAgentsAgentRunConfig {
+            name: "missing-child".to_string(),
+            prompt: "Do separate work".to_string(),
+            title: String::new(),
+        });
+        state.executor.update(&mut app, |executor, _| {
+            executor.mark_recovery_actions(&HashSet::from([action.id.clone()]));
+        });
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async recovery execution");
+        };
+        let missing_request = captured.read(&app, |captured, _| {
+            assert_eq!(captured.0.len(), 1);
+            assert_eq!(captured.0[0].name, "missing-child");
+            captured.0[0].clone()
+        });
+
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(
+                terminal_view_id,
+                existing_child_id,
+                crate::ai::agent::conversation::ConversationStatus::Success,
+                ctx,
+            );
+        });
+        let missing_child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "missing-child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history.update(&mut app, |history, ctx| {
+            history.record_new_conversation_request_complete(
+                missing_request.id,
+                missing_child_id,
+                ctx,
+            );
+            history.update_conversation_status(
+                terminal_view_id,
+                missing_child_id,
+                crate::ai::agent::conversation::ConversationStatus::Success,
+                ctx,
+            );
+        });
+
+        let async_result = execute_future.await;
+        let result = app.update(|ctx| on_complete(async_result, ctx));
+        let AIAgentActionResultType::RunAgents(RunAgentsResult::Launched { agents, .. }) = result
+        else {
+            panic!("expected recovered RunAgents result");
+        };
+        assert_eq!(agents.len(), 2);
+        assert!(matches!(
+            &agents[0].kind,
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
+                if agent_id == &existing_child_id.to_string()
+        ));
+        assert!(matches!(
+            &agents[1].kind,
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
+                if agent_id == &missing_child_id.to_string()
+        ));
+    });
+}
+
+#[test]
+fn cancelling_recovered_run_agents_keeps_persisted_child_running() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        let terminal_view_id = EntityId::new();
+        let history = BlocklistAIHistoryModel::handle(&app);
+        let child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        let action = remote_run_agents_action("oz");
+        state.executor.update(&mut app, |executor, _| {
+            executor.mark_recovery_actions(&HashSet::from([action.id.clone()]));
+        });
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async recovery execution");
+        };
+
+        state.executor.update(&mut app, |executor, ctx| {
+            executor.cancel_execution(&action.id, ctx);
+        });
+        let async_result = execute_future.await;
+        let result = app.update(|ctx| on_complete(async_result, ctx));
+        assert!(matches!(
+            result,
+            AIAgentActionResultType::RunAgents(RunAgentsResult::Cancelled)
+        ));
+        history.read(&app, |history, _| {
+            assert!(matches!(
+                history.conversation(&child_id).map(|child| child.status()),
+                Some(crate::ai::agent::conversation::ConversationStatus::InProgress)
+            ));
+        });
+    });
+}
+
+#[test]
 fn completion_slots_are_polled_concurrently_and_preserve_request_order() {
     App::test((), |_app| async move {
         let (first_sender, first_receiver) = async_channel::bounded(1);

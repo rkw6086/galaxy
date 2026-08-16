@@ -313,6 +313,60 @@ fn restore_normalization_removes_interrupted_command_correlation() {
 }
 
 #[test]
+fn restore_normalization_preserves_executing_run_agents_for_recovery() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let Some(ProviderRunStep::CallModel(call)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider model call");
+    };
+    snapshot
+        .run
+        .accept_model_turn(
+            &call.work_id,
+            CompletedModelTurn {
+                assistant_content: vec![ContentPart::Text("I will run child agents.".to_owned())],
+                tool_calls: vec![ToolCall {
+                    id: "run-agents-call".to_owned(),
+                    name: "run_agents".to_owned(),
+                    arguments: serde_json::json!({
+                        "summary": "Run child agents",
+                        "base_prompt": "Shared instructions",
+                        "agent_run_configs": [{
+                            "name": "child",
+                            "prompt": "Do work",
+                            "title": "Child",
+                        }],
+                    }),
+                }],
+                usage: Usage::default(),
+                stop_reason: StopReason::Completed,
+                advertised_tools: BTreeSet::from(["run_agents".to_owned()]),
+            },
+        )
+        .unwrap();
+    let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider tool batch");
+    };
+    snapshot
+        .run
+        .start_tool(&batch.work_id, "run-agents-call")
+        .unwrap();
+
+    let recoverable = super::recoverable_run_agents_call_ids(&snapshot).unwrap();
+    assert_eq!(recoverable.len(), 1);
+    assert!(recoverable.contains("run-agents-call"));
+    super::normalize_restored_provider_snapshot(&mut snapshot).unwrap();
+
+    let ProviderRunState::AwaitingTools { batch } = snapshot.run.state() else {
+        panic!("recovered RunAgents call should keep the provider batch pending");
+    };
+    assert!(matches!(
+        batch.calls[0].state,
+        galaxy_agent_core::PendingToolCallState::RecoveryPending
+    ));
+}
+
+#[test]
 fn restore_normalization_reproposes_permission_without_losing_correlation() {
     let conversation_id = AIConversationId::new();
     let mut snapshot = provider_snapshot(conversation_id);
