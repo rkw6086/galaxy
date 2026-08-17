@@ -5,16 +5,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use futures::StreamExt;
+use futures::{FutureExt as _, StreamExt};
 use galaxy_agent_core::{
-    AgentError, AgentErrorKind, AgentEvent, AgentRuntime, CompletedModelTurn, ContentPart,
-    ExternalWorkId, ModelFailureDisposition, PendingToolBatch, ProviderModelCall,
+    turn_control, AgentError, AgentErrorKind, AgentEvent, AgentRuntime, CompletedModelTurn,
+    ContentPart, ExternalWorkId, ModelFailureDisposition, PendingToolBatch, ProviderModelCall,
     ProviderRequestProfile, ProviderRun, ProviderRunFailureKind, ProviderRunId, ProviderRunLimits,
     ProviderRunOutcome, ProviderRunPhase, ProviderRunProtocolError, ProviderRunState,
-    ProviderRunStep, RunEpoch, RuntimeKind, StopReason, ToolEvent, TurnControl, TurnRequest, Usage,
+    ProviderRunStep, RunEpoch, RuntimeKind, StopReason, ToolEvent, TurnCommand, TurnControl,
+    TurnRequest, Usage,
 };
 use instant::Instant;
-use warpui::r#async::FutureExt as _;
+use warpui::r#async::Timer;
 
 use crate::ai::agent::conversation::AIConversationId;
 
@@ -321,31 +322,55 @@ impl ProviderRunCoordinator {
         &mut self,
         control: TurnControl,
         mut project: F,
-        mut checkpoint: C,
+        checkpoint: C,
     ) -> Result<ProviderRunBlock, ProviderRunCoordinatorError>
     where
         F: FnMut(ProviderRunProjection) -> Result<(), String>,
+        C: FnMut(ProviderRun) -> BoxFuture<'static, Result<(), String>>,
+    {
+        self.drive_until_blocked_with_acknowledgements(
+            control,
+            move |projection| {
+                let result = project(projection);
+                Box::pin(async move { result })
+            },
+            checkpoint,
+        )
+        .await
+    }
+
+    pub(crate) async fn drive_until_blocked_with_acknowledgements<F, C>(
+        &mut self,
+        control: TurnControl,
+        mut project: F,
+        mut checkpoint: C,
+    ) -> Result<ProviderRunBlock, ProviderRunCoordinatorError>
+    where
+        F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
         C: FnMut(ProviderRun) -> BoxFuture<'static, Result<(), String>>,
     {
         loop {
             match self.run.next_step()? {
                 Some(ProviderRunStep::CallModel(call)) => {
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
-                        continue;
+                        return self.terminal_block();
                     }
-                    self.drive_model_call(call, control.clone(), &mut project)
+                    self.drive_model_call_acknowledged(call, control.clone(), &mut project)
                         .await?;
                 }
                 Some(ProviderRunStep::DispatchTools(batch)) => {
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
-                        continue;
+                        return self.terminal_block();
                     }
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ToolBatchReady {
-                            batch: batch.clone(),
-                        },
-                        &mut project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ToolBatchReady {
+                                batch: batch.clone(),
+                            },
+                            &mut project,
+                        )
+                        .await?
+                    {
                         continue;
                     }
                     if batch.is_complete() {
@@ -356,7 +381,7 @@ impl ProviderRunCoordinator {
                 }
                 Some(ProviderRunStep::Done(outcome)) => {
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
-                        continue;
+                        return self.terminal_block();
                     }
                     return Ok(ProviderRunBlock::Done(outcome));
                 }
@@ -368,7 +393,7 @@ impl ProviderRunCoordinator {
                         let work_id = work_id.clone();
                         let stop_reason = stop_reason.clone();
                         if !self.checkpoint_or_fail(&mut checkpoint).await? {
-                            continue;
+                            return self.terminal_block();
                         }
                         return Ok(ProviderRunBlock::AwaitingDriver {
                             work_id,
@@ -413,14 +438,26 @@ impl ProviderRunCoordinator {
         }
     }
 
-    async fn drive_model_call<F>(
+    fn terminal_block(&mut self) -> Result<ProviderRunBlock, ProviderRunCoordinatorError> {
+        match self.run.next_step()? {
+            Some(ProviderRunStep::Done(outcome)) => Ok(ProviderRunBlock::Done(outcome)),
+            Some(ProviderRunStep::CallModel(_) | ProviderRunStep::DispatchTools(_)) | None => Err(
+                ProviderRunCoordinatorError::Core(ProviderRunProtocolError::UnexpectedState {
+                    expected: ProviderRunPhase::Failed,
+                    actual: self.run.state().phase(),
+                }),
+            ),
+        }
+    }
+
+    async fn drive_model_call_acknowledged<F>(
         &mut self,
         call: ProviderModelCall,
         control: TurnControl,
         project: &mut F,
     ) -> Result<(), ProviderRunCoordinatorError>
     where
-        F: FnMut(ProviderRunProjection) -> Result<(), String>,
+        F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
         let Some(profile) = self.profiles.get(call.profile.as_str()).cloned() else {
             self.run.fail(
@@ -440,39 +477,66 @@ impl ProviderRunCoordinator {
             .collect::<BTreeSet<_>>();
         let runtime_id = profile.runtime.descriptor().id.clone();
         let model_id = profile.request.model.as_str().to_string();
-        if !self.project_or_fail(
-            ProviderRunProjection::ModelTurnRequested {
-                work_id: call.work_id.clone(),
-                profile: call.profile.clone(),
-                runtime_id: runtime_id.clone(),
-                model_id: model_id.clone(),
-                retry_attempt: call.retry_attempt,
-            },
-            project,
-        )? {
+        if !self
+            .project_or_fail_acknowledged(
+                ProviderRunProjection::ModelTurnRequested {
+                    work_id: call.work_id.clone(),
+                    profile: call.profile.clone(),
+                    runtime_id: runtime_id.clone(),
+                    model_id: model_id.clone(),
+                    retry_attempt: call.retry_attempt,
+                },
+                project,
+            )
+            .await?
+        {
             return Ok(());
         }
         let request = request_for_model_call(profile.request.clone(), &call);
         let started_at = Instant::now();
-        let stream = match profile
-            .runtime
-            .start_turn(request, control)
-            .with_timeout(self.model_start_timeout)
-            .await
-        {
-            Ok(Ok(stream)) => stream,
-            Ok(Err(error)) => {
-                self.handle_model_failure(&call, &profile, started_at, error, project)?;
+        let (attempt_sender, attempt_control) = turn_control();
+        let start_future = profile.runtime.start_turn(request, attempt_control).fuse();
+        let timeout = futures::FutureExt::fuse(Timer::after(self.model_start_timeout));
+        futures::pin_mut!(start_future, timeout);
+        let mut control_open = true;
+        let start_result = loop {
+            let command = if control_open {
+                futures::future::Either::Left(control.receive())
+            } else {
+                futures::future::Either::Right(futures::future::pending())
+            }
+            .fuse();
+            futures::pin_mut!(command);
+            futures::select_biased! {
+                result = start_future => break Some(result),
+                _ = timeout => {
+                    let _ = attempt_sender.send(TurnCommand::Cancel).await;
+                    break None;
+                }
+                command = command => match command {
+                    Ok(command) => {
+                        let _ = attempt_sender.send(command).await;
+                    }
+                    Err(_) => control_open = false,
+                },
+            }
+        };
+        let stream = match start_result {
+            Some(Ok(stream)) => stream,
+            Some(Err(error)) => {
+                self.handle_model_failure_acknowledged(&call, &profile, started_at, error, project)
+                    .await?;
                 return Ok(());
             }
-            Err(_) => {
-                self.handle_model_failure(
+            None => {
+                self.handle_model_failure_acknowledged(
                     &call,
                     &profile,
                     started_at,
                     provider_timeout_error("start", self.model_start_timeout),
                     project,
-                )?;
+                )
+                .await?;
                 return Ok(());
             }
         };
@@ -480,157 +544,230 @@ impl ProviderRunCoordinator {
         let mut buffer = ModelTurnBuffer::default();
 
         loop {
-            let event = match stream
-                .next()
-                .with_timeout(self.model_event_idle_timeout)
-                .await
-            {
-                Ok(Some(Ok(event))) => event,
-                Ok(Some(Err(error))) => {
-                    self.handle_model_failure(&call, &profile, started_at, error, project)?;
+            let next_event = stream.next().fuse();
+            let timeout = futures::FutureExt::fuse(Timer::after(self.model_event_idle_timeout));
+            futures::pin_mut!(next_event, timeout);
+            let event_result = loop {
+                let command = if control_open {
+                    futures::future::Either::Left(control.receive())
+                } else {
+                    futures::future::Either::Right(futures::future::pending())
+                }
+                .fuse();
+                futures::pin_mut!(command);
+                futures::select_biased! {
+                    event = next_event => break Some(event),
+                    _ = timeout => {
+                        let _ = attempt_sender.send(TurnCommand::Cancel).await;
+                        break None;
+                    }
+                    command = command => match command {
+                        Ok(command) => {
+                            let _ = attempt_sender.send(command).await;
+                        }
+                        Err(_) => control_open = false,
+                    },
+                }
+            };
+            let event = match event_result {
+                Some(Some(Ok(event))) => event,
+                Some(Some(Err(error))) => {
+                    self.handle_model_failure_acknowledged(
+                        &call, &profile, started_at, error, project,
+                    )
+                    .await?;
                     return Ok(());
                 }
-                Ok(None) => break,
-                Err(_) => {
-                    self.handle_model_failure(
+                Some(None) => break,
+                None => {
+                    self.handle_model_failure_acknowledged(
                         &call,
                         &profile,
                         started_at,
                         provider_timeout_error("event", self.model_event_idle_timeout),
                         project,
-                    )?;
+                    )
+                    .await?;
                     return Ok(());
                 }
             };
             match event {
                 AgentEvent::TurnStarted { runtime_request_id } => {
                     if buffer.started {
-                        self.handle_model_failure(
+                        self.handle_model_failure_acknowledged(
                             &call,
                             &profile,
                             started_at,
                             protocol_error("provider emitted more than one TurnStarted event"),
                             project,
-                        )?;
+                        )
+                        .await?;
                         return Ok(());
                     }
                     if runtime_request_id.is_empty() {
-                        self.handle_model_failure(
+                        self.handle_model_failure_acknowledged(
                             &call,
                             &profile,
                             started_at,
                             protocol_error("provider emitted an empty runtime request ID"),
                             project,
-                        )?;
+                        )
+                        .await?;
                         return Ok(());
                     }
                     buffer.started = true;
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelTurnStarted {
-                            work_id: call.work_id.clone(),
-                            profile: call.profile.clone(),
-                            runtime_id: runtime_id.clone(),
-                            model_id: model_id.clone(),
-                            runtime_request_id,
-                            retry_attempt: call.retry_attempt,
-                            elapsed_ms: elapsed_millis(started_at),
-                        },
-                        project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelTurnStarted {
+                                work_id: call.work_id.clone(),
+                                profile: call.profile.clone(),
+                                runtime_id: runtime_id.clone(),
+                                model_id: model_id.clone(),
+                                runtime_request_id,
+                                retry_attempt: call.retry_attempt,
+                                elapsed_ms: elapsed_millis(started_at),
+                            },
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                 }
                 AgentEvent::TextDelta { text } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                     buffer.text.push_str(&text);
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelEvent {
-                            work_id: call.work_id.clone(),
-                            event: AgentEvent::TextDelta { text },
-                        },
-                        project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::TextDelta { text },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                 }
                 AgentEvent::ReasoningDelta { text } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                     buffer.reasoning.push_str(&text);
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelEvent {
-                            work_id: call.work_id.clone(),
-                            event: AgentEvent::ReasoningDelta { text },
-                        },
-                        project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::ReasoningDelta { text },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                 }
                 AgentEvent::ReasoningCompleted { text, signature } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
-                    if !text.is_empty() {
-                        buffer.reasoning.clone_from(&text);
-                    }
+                    buffer.reasoning.clone_from(&text);
                     buffer.reasoning_signature.clone_from(&signature);
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelEvent {
-                            work_id: call.work_id.clone(),
-                            event: AgentEvent::ReasoningCompleted { text, signature },
-                        },
-                        project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::ReasoningCompleted { text, signature },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                 }
                 AgentEvent::Tool {
                     event: ToolEvent::Proposed { call: tool_call },
                 } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                     buffer.tool_calls.push(tool_call);
                 }
                 AgentEvent::UsageUpdated { usage } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                     buffer.usage.clone_from(&usage);
                     let cumulative_usage = combined_usage(self.run.usage(), &usage);
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelEvent {
-                            work_id: call.work_id.clone(),
-                            event: AgentEvent::UsageUpdated {
-                                usage: cumulative_usage,
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::UsageUpdated {
+                                    usage: cumulative_usage,
+                                },
                             },
-                        },
-                        project,
-                    )? {
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                 }
                 AgentEvent::TurnStopped { reason } => {
-                    if !self.ensure_model_started(&call, &profile, started_at, &buffer, project)? {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
-                    if !self.project_or_fail(
-                        ProviderRunProjection::ModelTurnFinished {
-                            work_id: call.work_id.clone(),
-                            profile: call.profile.clone(),
-                            runtime_id: runtime_id.clone(),
-                            model_id: model_id.clone(),
-                            stop_reason: reason.clone(),
-                            retry_attempt: call.retry_attempt,
-                            elapsed_ms: elapsed_millis(started_at),
-                            tool_call_count: buffer.tool_calls.len(),
-                        },
-                        project,
-                    )? {
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelTurnFinished {
+                                work_id: call.work_id.clone(),
+                                profile: call.profile.clone(),
+                                runtime_id: runtime_id.clone(),
+                                model_id: model_id.clone(),
+                                stop_reason: reason.clone(),
+                                retry_attempt: call.retry_attempt,
+                                elapsed_ms: elapsed_millis(started_at),
+                                tool_call_count: buffer.tool_calls.len(),
+                            },
+                            project,
+                        )
+                        .await?
+                    {
                         return Ok(());
                     }
                     if reason == StopReason::Cancelled {
@@ -657,7 +794,7 @@ impl ProviderRunCoordinator {
                 | AgentEvent::ContextUsageUpdated { .. }
                 | AgentEvent::UserInputAccepted { .. }
                 | AgentEvent::RuntimeNotice { .. } => {
-                    self.handle_model_failure(
+                    self.handle_model_failure_acknowledged(
                         &call,
                         &profile,
                         started_at,
@@ -665,23 +802,25 @@ impl ProviderRunCoordinator {
                             "direct-provider transport emitted a non-model lifecycle event",
                         ),
                         project,
-                    )?;
+                    )
+                    .await?;
                     return Ok(());
                 }
             }
         }
 
-        self.handle_model_failure(
+        self.handle_model_failure_acknowledged(
             &call,
             &profile,
             started_at,
             protocol_error("provider stream ended before TurnStopped"),
             project,
-        )?;
+        )
+        .await?;
         Ok(())
     }
 
-    fn ensure_model_started<F>(
+    async fn ensure_model_started_acknowledged<F>(
         &mut self,
         call: &ProviderModelCall,
         profile: &ProviderRunProfile,
@@ -690,22 +829,23 @@ impl ProviderRunCoordinator {
         project: &mut F,
     ) -> Result<bool, ProviderRunCoordinatorError>
     where
-        F: FnMut(ProviderRunProjection) -> Result<(), String>,
+        F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
         if buffer.started {
             return Ok(true);
         }
-        self.handle_model_failure(
+        self.handle_model_failure_acknowledged(
             call,
             profile,
             started_at,
             protocol_error("provider emitted model output before TurnStarted"),
             project,
-        )?;
+        )
+        .await?;
         Ok(false)
     }
 
-    fn handle_model_failure<F>(
+    async fn handle_model_failure_acknowledged<F>(
         &mut self,
         call: &ProviderModelCall,
         profile: &ProviderRunProfile,
@@ -714,7 +854,7 @@ impl ProviderRunCoordinator {
         project: &mut F,
     ) -> Result<(), ProviderRunCoordinatorError>
     where
-        F: FnMut(ProviderRunProjection) -> Result<(), String>,
+        F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
         let disposition = self
             .run
@@ -737,7 +877,7 @@ impl ProviderRunCoordinator {
                     ));
                 }
             };
-            self.project_or_fail(
+            self.project_or_fail_acknowledged(
                 ProviderRunProjection::ModelRetry {
                     work_id: call.work_id.clone(),
                     profile: call.profile.clone(),
@@ -748,20 +888,21 @@ impl ProviderRunCoordinator {
                     error,
                 },
                 project,
-            )?;
+            )
+            .await?;
         }
         Ok(())
     }
 
-    fn project_or_fail<F>(
+    async fn project_or_fail_acknowledged<F>(
         &mut self,
         event: ProviderRunProjection,
         project: &mut F,
     ) -> Result<bool, ProviderRunCoordinatorError>
     where
-        F: FnMut(ProviderRunProjection) -> Result<(), String>,
+        F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
-        match project(event) {
+        match project(event).await {
             Ok(()) => Ok(true),
             Err(message) => {
                 self.run.fail(

@@ -13,7 +13,6 @@ use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_util::path::ShellFamily;
 use galaxyui::r#async::{Spawnable, Timer};
 use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
-use itertools::Itertools;
 use parking_lot::FairMutex;
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
@@ -37,11 +36,11 @@ use crate::{send_telemetry_from_ctx, TelemetryEvent};
 
 pub struct ShellCommandExecutor {
     active_session: ModelHandle<ActiveSession>,
-    block_finished_senders: HashMap<BlockSelector, oneshot::Sender<()>>,
+    block_finished_senders: HashMap<BlockSelector, Vec<oneshot::Sender<()>>>,
     /// Senders used by `Check now` and the automatic monitor watchdog to force a long-running
     /// shell command's pending poll future to resolve immediately with a fresh snapshot,
     /// bypassing the agent-set timeout.
-    force_refresh_senders: HashMap<BlockSelector, oneshot::Sender<()>>,
+    force_refresh_senders: HashMap<BlockSelector, Vec<oneshot::Sender<()>>>,
     terminal_model: Arc<FairMutex<TerminalModel>>,
     terminal_view_id: EntityId,
     /// Sender to notify when user hands control back to agent after TransferShellCommandControlToUser.
@@ -80,24 +79,39 @@ impl ShellCommandExecutor {
         event: &ModelEvent,
         _ctx: &mut ModelContext<Self>,
     ) {
-        // We wait for precmd for the block _after_ the requested command's block so that
-        // downstream checks for current working directory are fresh. The precmd hook is when
-        // the shell relays current working directory to warp.
-        if let ModelEvent::BlockMetadataReceived(BlockMetadataReceivedEvent { .. }) = event {
+        // Precmd provides fresh CWD metadata, while BlockCompleted is definitive completion
+        // evidence for shells that never deliver a subsequent precmd.
+        if matches!(
+            event,
+            ModelEvent::BlockMetadataReceived(BlockMetadataReceivedEvent { .. })
+                | ModelEvent::BlockCompleted(_)
+        ) {
             let model = self.terminal_model.lock();
-            let block_finished_senders = self.block_finished_senders.drain().collect_vec();
-            for (block_selector, block_finished_tx) in block_finished_senders.into_iter() {
-                if let Some(block) = block_selector.get_block(&model) {
-                    if block.is_command_finished() {
+            let block_finished_senders = self.block_finished_senders.drain().collect::<Vec<_>>();
+            for (block_selector, block_finished_txs) in block_finished_senders {
+                let completed_block = block_selector.get_block(&model).filter(|block| {
+                    block.is_command_finished()
+                        && match event {
+                            ModelEvent::BlockCompleted(completed) => {
+                                block.id() == &completed.block_id
+                            }
+                            ModelEvent::BlockMetadataReceived(_) => true,
+                            _ => false,
+                        }
+                });
+                if completed_block.is_some() {
+                    for block_finished_tx in block_finished_txs {
                         if let Err(e) = block_finished_tx.send(()) {
                             log::warn!(
                                 "Failed to notify block completion for running requested command: {e:?}"
                             )
                         }
-                    } else {
-                        self.block_finished_senders
-                            .insert(block_selector, block_finished_tx);
                     }
+                } else {
+                    // The requested-command association may not exist yet. Keep all waiters until
+                    // this selector resolves and its block actually completes, or it is cancelled.
+                    self.block_finished_senders
+                        .insert(block_selector, block_finished_txs);
                 }
             }
         }
@@ -195,20 +209,14 @@ impl ShellCommandExecutor {
         input: ExecuteActionInput,
         ctx: &mut ModelContext<Self>,
     ) -> impl Into<AnyActionExecution> {
-        log::info!(
-            "[tool-debug] ShellCommandExecutor::execute: action_type={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "ShellCommandExecutor::execute: action_type={:?}",
             std::mem::discriminant(&input.action.action)
         );
         let model = self.terminal_model.lock();
 
         // Determine the action we want to take based on the input.
         let action_id = input.action.id.clone();
-
-        let command = model
-            .block_list()
-            .active_block()
-            .command_with_secrets_unobfuscated(false)
-            .clone();
 
         let handle = ctx.handle();
         match &input.action.action {
@@ -222,18 +230,13 @@ impl ShellCommandExecutor {
                     .active_block()
                     .is_active_and_long_running()
                 {
-                    // Another command is still running (e.g. stuck in a pager). Return an error
-                    // result so the model receives feedback and can adapt. Using Completed with a
-                    // non-zero exit code ensures a follow-up request is triggered.
-                    return ActionExecution::Sync(AIAgentActionResultType::RequestCommandOutput(
-                        RequestCommandOutputResult::Completed {
-                            command: command.clone(),
-                            block_id: model.block_list().active_block().id().clone(),
-                            output: "Error: Cannot execute command because another command is still running in the terminal.".to_string(),
-                            exit_code: ExitCode::from(1),
-                            start_ts: None,
-                            completed_ts: None,
-                        },
+                    let running_command = model
+                        .block_list()
+                        .active_block()
+                        .command_with_secrets_unobfuscated(false);
+                    return ActionExecution::Sync(terminal_busy_execution_error(
+                        command,
+                        &running_command,
                     ));
                 }
                 // If another conversation has taken over the agent view since this command
@@ -275,8 +278,7 @@ impl ShellCommandExecutor {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
                             handle.update(ctx, |me, _| {
-                                me.block_finished_senders.remove(&block_selector);
-                                me.force_refresh_senders.remove(&block_selector);
+                                me.prune_closed_senders(&block_selector);
                             });
                         }
 
@@ -339,8 +341,7 @@ impl ShellCommandExecutor {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
                             handle.update(ctx, |me, _| {
-                                me.block_finished_senders.remove(&block_selector);
-                                me.force_refresh_senders.remove(&block_selector);
+                                me.prune_closed_senders(&block_selector);
                             });
                         }
 
@@ -371,6 +372,7 @@ impl ShellCommandExecutor {
                         },
                     ));
                 }
+                let command = block.command_with_secrets_unobfuscated(false);
                 drop(model);
 
                 let block_selector = BlockSelector::Id(block_id.clone());
@@ -380,8 +382,7 @@ impl ShellCommandExecutor {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
                             handle.update(ctx, |me, _| {
-                                me.block_finished_senders.remove(&block_selector);
-                                me.force_refresh_senders.remove(&block_selector);
+                                me.prune_closed_senders(&block_selector);
                             });
                         }
 
@@ -419,7 +420,9 @@ impl ShellCommandExecutor {
                 // Set up a future to also wait for block completion.
                 let (block_finished_tx, block_finished_rx) = oneshot::channel();
                 self.block_finished_senders
-                    .insert(block_selector.clone(), block_finished_tx);
+                    .entry(block_selector.clone())
+                    .or_default()
+                    .push(block_finished_tx);
 
                 // Build the future that captures terminal model and block data.
                 let transfer_future = {
@@ -491,7 +494,7 @@ impl ShellCommandExecutor {
                     // Clean up.
                     if let Some(handle) = handle.upgrade(ctx) {
                         handle.update(ctx, |me, _| {
-                            me.block_finished_senders.remove(&block_selector);
+                            me.prune_closed_senders(&block_selector);
                             me.control_handback_sender = None;
                         });
                     }
@@ -520,13 +523,17 @@ impl ShellCommandExecutor {
         // Create a channel to notify us when we receive block metadata.
         let (block_metadata_received_tx, block_metadata_received_rx) = oneshot::channel();
         self.block_finished_senders
-            .insert(block_selector.clone(), block_metadata_received_tx);
+            .entry(block_selector.clone())
+            .or_default()
+            .push(block_metadata_received_tx);
 
         // Create a channel so `Check now` or the automatic monitor watchdog can short-circuit
         // the timeout and deliver the agent a fresh snapshot immediately.
         let (force_refresh_tx, force_refresh_rx) = oneshot::channel();
         self.force_refresh_senders
-            .insert(block_selector.clone(), force_refresh_tx);
+            .entry(block_selector.clone())
+            .or_default()
+            .push(force_refresh_tx);
 
         // Create a future that resolves when we should send a result to the agent.
         let terminal_model = self.terminal_model.clone();
@@ -600,7 +607,12 @@ impl ShellCommandExecutor {
                             completed_ts: block.completed_ts().cloned(),
                         }
                     } else {
-                        let grid_contents = if model.is_alt_screen_active() {
+                        let selected_block_owns_alt_screen = selected_block_owns_alt_screen(
+                            model.is_alt_screen_active(),
+                            model.active_block_id(),
+                            block.id(),
+                        );
+                        let grid_contents = if selected_block_owns_alt_screen {
                             formatted_terminal_contents_for_input(
                                 model.alt_screen().grid_handler(),
                                 None,
@@ -618,7 +630,7 @@ impl ShellCommandExecutor {
                             block_id: block.id().clone(),
                             grid_contents,
                             cursor: CURSOR_MARKER,
-                            is_alt_screen_active: model.is_alt_screen_active(),
+                            is_alt_screen_active: selected_block_owns_alt_screen,
                             is_preempted,
                         }
                     }
@@ -630,23 +642,50 @@ impl ShellCommandExecutor {
         }
     }
 
-    pub(super) fn cancel_execution(&mut self, id: &AIAgentActionId, _ctx: &mut ModelContext<Self>) {
+    pub(super) fn cancel_execution(
+        &mut self,
+        id: &AIAgentActionId,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
         let terminal_model = self.terminal_model.lock();
-        let active_block = terminal_model.block_list().active_block();
-        if !active_block.is_active_and_long_running() {
-            return;
-        }
-
-        let selector = if active_block
-            .requested_command_action_id()
-            .is_some_and(|requested_command_id| requested_command_id == id)
-        {
-            BlockSelector::RequestedCommandId(id.clone())
+        let requested_selector = BlockSelector::RequestedCommandId(id.clone());
+        let requested_block_is_running = requested_selector
+            .get_block(&terminal_model)
+            .is_some_and(|block| block.is_active_and_long_running() && !block.finished());
+        let selector = if requested_block_is_running {
+            requested_selector
         } else {
-            BlockSelector::Id(active_block.id().clone())
+            BlockSelector::Id(terminal_model.active_block_id().clone())
         };
-        self.block_finished_senders.remove(&selector);
-        self.force_refresh_senders.remove(&selector);
+        // Cancelling the wait future alone would report cancellation while the process keeps
+        // running. Terminate the exact requested command before resolving the action as cancelled.
+        if requested_block_is_running {
+            ctx.emit(ShellCommandExecutorEvent::CancelExecution {
+                action_id: id.clone(),
+            });
+        }
+        if !requested_block_is_running {
+            self.block_finished_senders.remove(&selector);
+            self.force_refresh_senders.remove(&selector);
+        }
+        requested_block_is_running
+    }
+
+    fn prune_closed_senders(&mut self, selector: &BlockSelector) {
+        Self::prune_closed_sender_group(&mut self.block_finished_senders, selector);
+        Self::prune_closed_sender_group(&mut self.force_refresh_senders, selector);
+    }
+
+    fn prune_closed_sender_group(
+        senders: &mut HashMap<BlockSelector, Vec<oneshot::Sender<()>>>,
+        selector: &BlockSelector,
+    ) {
+        if let Some(selector_senders) = senders.get_mut(selector) {
+            selector_senders.retain(|sender| !sender.is_canceled());
+            if selector_senders.is_empty() {
+                senders.remove(selector);
+            }
+        }
     }
 
     /// Force any in-flight poll for the given long-running command block to resolve
@@ -657,9 +696,8 @@ impl ShellCommandExecutor {
     /// control to the user). Returns whether a matching poll was successfully refreshed.
     pub fn force_refresh_block(&mut self, block_id: &BlockId) -> bool {
         let terminal_model = self.terminal_model.lock();
-        // Find a sender whose selector resolves to this block. In practice there is at
-        // most one: a given block can have at most one in-flight `action_result_future`
-        // at a time.
+        // Find every pending poll whose selector resolves to this block. Multiple provider polls
+        // may legitimately wait on the same command and must be refreshed together.
         let matching_selector = self
             .force_refresh_senders
             .keys()
@@ -674,8 +712,12 @@ impl ShellCommandExecutor {
         drop(terminal_model);
 
         if let Some(selector) = matching_selector {
-            if let Some(sender) = self.force_refresh_senders.remove(&selector) {
-                return sender.send(()).is_ok();
+            if let Some(senders) = self.force_refresh_senders.remove(&selector) {
+                let mut refreshed = false;
+                for sender in senders {
+                    refreshed |= sender.send(()).is_ok();
+                }
+                return refreshed;
             }
         }
         false
@@ -712,6 +754,21 @@ fn command_for_execution(
         Some(ShellType::PowerShell) => format!("({command}) | \\Out-Host"),
         None => command.to_string(),
     }
+}
+
+fn terminal_busy_execution_error(command: &str, running_command: &str) -> AIAgentActionResultType {
+    AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::ExecutionError {
+        command: command.to_string(),
+        message: format!("terminal is busy running command '{running_command}'"),
+    })
+}
+
+fn selected_block_owns_alt_screen(
+    is_alt_screen_active: bool,
+    active_block_id: &BlockId,
+    selected_block_id: &BlockId,
+) -> bool {
+    is_alt_screen_active && active_block_id == selected_block_id
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -919,7 +976,9 @@ pub enum ShellCommandExecutorEvent {
         input: Bytes,
         mode: AIAgentPtyWriteMode,
     },
-    CancelExecution,
+    CancelExecution {
+        action_id: AIAgentActionId,
+    },
     /// Emitted when the agent requests to transfer control of a long-running command to the user.
     TransferControlToUser {
         action_id: AIAgentActionId,

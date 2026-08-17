@@ -173,14 +173,14 @@ impl RequestFileEditsExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!(
-            "[tool-debug] RequestFileEditsExecutor::execute: action_id={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "RequestFileEditsExecutor::execute: action_id={:?}",
             id
         );
 
         let Some(diff_view) = self.diff_views.get(id) else {
-            log::warn!(
-                "[tool-debug] RequestFileEditsExecutor: no diff view found for action_id={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "RequestFileEditsExecutor: no diff view found for action_id={:?}",
                 id
             );
             return ActionExecution::NotReady;

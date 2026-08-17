@@ -3578,7 +3578,10 @@ impl AIBlock {
                 }
 
                 // Set the state based on the action status from the action model
-                let action_status = self.action_model.as_ref(ctx).get_action_status(action_id);
+                let action_status = self
+                    .action_model
+                    .as_ref(ctx)
+                    .get_action_status(self.client_ids.conversation_id, action_id);
 
                 let is_reverted = BlocklistAIHistoryModel::as_ref(ctx)
                     .conversation(&self.client_ids.conversation_id)
@@ -3673,6 +3676,7 @@ impl AIBlock {
             RequestedCommandViewEvent::Accepted => {
                 self.action_model.update(ctx, |action_model, ctx| {
                     action_model.handle_requested_command_accepted(
+                        self.client_ids.conversation_id,
                         action_id,
                         view.as_ref(ctx).command_text().to_string(),
                         ctx,
@@ -3691,7 +3695,10 @@ impl AIBlock {
             RequestedCommandViewEvent::UpdatedExpansionState { is_expanded } => {
                 // We only care about expansion state updates when the command
                 // is running or finished (i.e. when it has a block).
-                let action_status = self.action_model.as_ref(ctx).get_action_status(action_id);
+                let action_status = self
+                    .action_model
+                    .as_ref(ctx)
+                    .get_action_status(self.client_ids.conversation_id, action_id);
                 let has_finished_command_block = {
                     let terminal_model = self.terminal_model.lock();
                     terminal_model
@@ -3890,7 +3897,7 @@ impl AIBlock {
         if self
             .action_model
             .as_ref(ctx)
-            .get_action_status(action_id)
+            .get_action_status(self.client_ids.conversation_id, action_id)
             .is_some_and(|status| status.is_blocked())
         {
             ctx.focus(&view);
@@ -4274,7 +4281,10 @@ impl AIBlock {
         // but it's not incorrect to populate if it is, and we rely on this for
         // for restored conversations because action model events don't re-fire
         // after the view is created.
-        let action_status = self.action_model.as_ref(ctx).get_action_status(action_id);
+        let action_status = self
+            .action_model
+            .as_ref(ctx)
+            .get_action_status(self.client_ids.conversation_id, action_id);
         if let Some(view) = self.search_codebase_view.get(action_id) {
             let files = if let Some(AIActionStatus::Finished(ref result)) = action_status {
                 if let AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Success {
@@ -4708,7 +4718,11 @@ impl AIBlock {
     pub fn is_blocked_on_user_confirmation(&self, app: &AppContext) -> bool {
         self.requested_action_ids
             .iter()
-            .filter_map(|id| self.action_model.as_ref(app).get_action_status(id))
+            .filter_map(|id| {
+                self.action_model
+                    .as_ref(app)
+                    .get_action_status(self.client_ids.conversation_id, id)
+            })
             .any(|status| status.is_blocked())
     }
 
@@ -4734,7 +4748,12 @@ impl AIBlock {
         ctx.subscribe_to_model(action_model, |me, action_model, event, ctx| {
             let action_id = event.action_id();
 
-            if me.is_finished() || !me.requested_action_ids.contains(action_id) {
+            if event
+                .conversation_id()
+                .is_some_and(|conversation_id| conversation_id != me.client_ids.conversation_id)
+                || me.is_finished()
+                || !me.requested_action_ids.contains(action_id)
+            {
                 // Technically, this subscription should be unregistered after `is_finished` is
                 // set to true, but it seems that the callback is called once more after the `unsubscribe_to_model`
                 // call, so early return here if this is errantly being called.
@@ -4828,7 +4847,7 @@ impl AIBlock {
                     {
                         let should_collapse = action_model
                             .as_ref(ctx)
-                            .get_action_result(action_id)
+                            .get_action_result(me.client_ids.conversation_id, action_id)
                             .is_none_or(|result| match &result.result {
                                 AIAgentActionResultType::RequestCommandOutput(
                                     RequestCommandOutputResult::Completed { exit_code, .. },
@@ -4843,7 +4862,9 @@ impl AIBlock {
                     }
 
                     if let Some(view) = me.search_codebase_view.get(action_id) {
-                        let new_status = action_model.as_ref(ctx).get_action_status(action_id);
+                        let new_status = action_model
+                            .as_ref(ctx)
+                            .get_action_status(me.client_ids.conversation_id, action_id);
                         view.update(ctx, |view, ctx| {
                             view.update_status(new_status);
                             ctx.notify();
@@ -4852,7 +4873,9 @@ impl AIBlock {
 
                     // Create subagent panel state for finished StartAgent actions
                     if let Some(AIActionStatus::Finished(result)) =
-                        action_model.as_ref(ctx).get_action_status(action_id)
+                        action_model
+                            .as_ref(ctx)
+                            .get_action_status(me.client_ids.conversation_id, action_id)
                     {
                         if let AIAgentActionResultType::StartAgent(
                             crate::ai::agent::StartAgentResult::Success { agent_id, .. },
@@ -4874,7 +4897,11 @@ impl AIBlock {
                     let action_statuses = me
                         .requested_action_ids
                         .iter()
-                        .filter_map(|id| action_model.as_ref(ctx).get_action_status(id))
+                        .filter_map(|id| {
+                            action_model
+                                .as_ref(ctx)
+                                .get_action_status(me.client_ids.conversation_id, id)
+                        })
                         .collect_vec();
 
                     // Detecting links on SearchCodebase tool call outputs
@@ -4907,7 +4934,9 @@ impl AIBlock {
                                     view.update_render_read_file_args(
                                         &me.find_state,
                                         files.clone(),
-                                        action_model.as_ref(ctx).get_action_status(action_id),
+                                        action_model
+                                            .as_ref(ctx)
+                                            .get_action_status(me.client_ids.conversation_id, action_id),
                                     );
                                     ctx.notify();
                                 })
@@ -4917,7 +4946,9 @@ impl AIBlock {
 
                     // Open the AI document pane when documents are created or edited
                     if let Some(action_result) =
-                        action_model.as_ref(ctx).get_action_result(action_id)
+                        action_model
+                            .as_ref(ctx)
+                            .get_action_result(me.client_ids.conversation_id, action_id)
                     {
                         match &action_result.result {
                             AIAgentActionResultType::CreateDocuments(
@@ -5677,7 +5708,9 @@ impl AIBlock {
     /// This hides their keybindings in the UI and makes them less interactive.
     pub fn ignore_passive_actions(&mut self, ctx: &mut ViewContext<Self>) {
         self.action_model.update(ctx, |action_model, ctx| {
-            for action in action_model.get_pending_actions() {
+            for action in
+                action_model.get_pending_actions_for_conversation(&self.client_ids.conversation_id)
+            {
                 if let Some(edit) = self.requested_edits.get(&action.id) {
                     edit.view.update(ctx, |view, ctx| view.dismiss(ctx));
                 } else if let Some(suggested_prompt) = self.unit_tests_suggestions.get(&action.id) {
@@ -5730,7 +5763,12 @@ impl AIBlock {
                     .view
                     .update(ctx, |view, ctx| view.commit_and_get_command_text(ctx));
                 self.action_model.update(ctx, |action_model, ctx| {
-                    action_model.handle_requested_command_accepted(&action_id, command_text, ctx);
+                    action_model.handle_requested_command_accepted(
+                        self.client_ids.conversation_id,
+                        &action_id,
+                        command_text,
+                        ctx,
+                    );
                 });
                 ctx.notify();
             }
@@ -5758,12 +5796,11 @@ impl AIBlock {
     /// Finds the undismissed passive code diff across all pending actions.
     /// This is needed because passive code diffs are NOT added to the active conversation by default, when they first appear.
     pub(crate) fn find_undismissed_code_diff(&self, app: &AppContext) -> Option<&RequestedEdit> {
-        let all_pending_actions = self.action_model.as_ref(app).get_pending_actions();
-
         // Find any RequestFileEdits action that has a corresponding passive code diff view.
         // Note that we only expect a maximum of 1 passive code diff to be undismissed at any given time.
-        all_pending_actions
-            .iter()
+        self.action_model
+            .as_ref(app)
+            .get_pending_actions_for_conversation(&self.client_ids.conversation_id)
             .find_map(|action| match &action.action {
                 AIAgentActionType::RequestFileEdits {
                     file_edits: _,
@@ -5803,7 +5840,10 @@ impl AIBlock {
             .is_none_or(|output| {
                 output.get().actions().last().is_none_or(|action| {
                     let is_streaming = self.model.status(app).is_streaming();
-                    let status = self.action_model.as_ref(app).get_action_status(&action.id);
+                    let status = self
+                        .action_model
+                        .as_ref(app)
+                        .get_action_status(self.client_ids.conversation_id, &action.id);
                     is_streaming || status.is_some_and(|status| status.is_running())
                 })
             })
@@ -5830,7 +5870,7 @@ impl AIBlock {
             .any(|(action_id, requested_command)| {
                 self.action_model
                     .as_ref(app)
-                    .get_action_status(action_id)
+                    .get_action_status(self.client_ids.conversation_id, action_id)
                     .is_some_and(|status| status.is_running())
                     && requested_command.view.as_ref(app).is_header_expanded()
             })
@@ -5930,7 +5970,10 @@ impl AIBlock {
             return String::new();
         };
         let output = output.get();
-        output.format_for_copy(Some(self.action_model.as_ref(app)))
+        output.format_for_copy_for_conversation(
+            Some(self.action_model.as_ref(app)),
+            Some(self.client_ids.conversation_id),
+        )
     }
 
     /// Gets AI output text for copying from the preceding user query until the next user query
@@ -5985,8 +6028,10 @@ impl AIBlock {
         // Collect all AI outputs from start_idx to end_idx (exclusive)
         let mut combined_result = Vec::new();
         for exchange in exchanges.iter().take(end_idx).skip(start_idx) {
-            let formatted_output =
-                exchange.format_output_for_copy(Some(self.action_model.as_ref(app)));
+            let formatted_output = exchange.format_output_for_copy_for_conversation(
+                Some(self.action_model.as_ref(app)),
+                Some(self.client_ids.conversation_id),
+            );
             if !formatted_output.is_empty() {
                 combined_result.push(formatted_output);
             }
@@ -7158,7 +7203,7 @@ impl TypedActionView for AIBlock {
                     let Some(result) = self
                         .action_model
                         .as_ref(ctx)
-                        .get_action_result(action_id)
+                        .get_action_result(self.client_ids.conversation_id, action_id)
                         .map(Arc::clone)
                     else {
                         continue;

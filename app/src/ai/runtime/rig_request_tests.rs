@@ -128,6 +128,28 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
 }
 
 #[test]
+fn system_prompt_prefers_specialized_file_tools_over_shell_substitutes() {
+    let mut params = RequestParams::new_for_test();
+    params.input = vec![user_query("Find every Rust file containing ProviderRun")];
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![
+            ToolType::RunShellCommand,
+            ToolType::FileGlob,
+            ToolType::Grep,
+            ToolType::ReadFiles,
+        ],
+        Vec::new(),
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prompt.contains("Prefer `file_glob`, `grep`, and `read_files`"));
+    assert!(prompt.contains("do not use shell `find`, `grep`, `rg`, `cat`, `head`, or `tail`"));
+}
+
+#[test]
 fn normal_turn_advertises_plan_creation_and_corrects_false_unavailability_claims() {
     let mut params = RequestParams::new_for_test();
     params.planning_enabled = true;

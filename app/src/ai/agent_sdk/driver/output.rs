@@ -61,6 +61,9 @@ pub mod text {
                     RequestCommandOutputResult::CancelledBeforeExecution => {
                         writeln!(w, "{CANCELLED_MESSAGE}")
                     }
+                    RequestCommandOutputResult::ExecutionError { command, message } => {
+                        writeln!(w, "Command `{command}` was not executed: {message}")
+                    }
                     RequestCommandOutputResult::Denylisted { .. } => {
                         writeln!(
                             w,
@@ -828,6 +831,11 @@ pub mod json {
                     }
                     RequestCommandOutputResult::CancelledBeforeExecution => {
                         Some(JsonMessage::ToolCanceled)
+                    }
+                    RequestCommandOutputResult::ExecutionError { message, .. } => {
+                        Some(JsonMessage::ToolError {
+                            error: Cow::Borrowed(message),
+                        })
                     }
                     RequestCommandOutputResult::Denylisted { .. } => Some(JsonMessage::ToolError {
                         error: Cow::Borrowed(

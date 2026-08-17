@@ -258,6 +258,71 @@ fn dispatch_denies_child_conversation_defense_in_depth() {
 }
 
 #[test]
+fn local_execution_waits_for_completion() {
+    assert_eq!(
+        wait_policy_for_execution_mode(&StartAgentExecutionMode::local_with_defaults()),
+        StartAgentWaitPolicy::Completion
+    );
+}
+
+#[test]
+fn detach_dispatch_rejects_late_child_callback() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let parent_conversation_id = history_model.update(&mut app, |history, ctx| {
+            history.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let dispatch = executor.update(&mut app, |executor, ctx| {
+            executor.dispatch(
+                AIAgentActionId::from("run-agents".to_string()),
+                "child".to_string(),
+                "work".to_string(),
+                StartAgentExecutionMode::Remote {
+                    environment_id: "environment".to_string(),
+                    skill_references: Vec::new(),
+                    model_id: "model".to_string(),
+                    computer_use_enabled: false,
+                    worker_host: String::new(),
+                    harness_type: "oz".to_string(),
+                    title: String::new(),
+                    auth_secret_name: None,
+                },
+                None,
+                parent_conversation_id,
+                Some(PARENT_RUN_ID.to_string()),
+                ctx,
+            )
+        });
+        assert!(executor.update(&mut app, |executor, _| {
+            executor.detach_dispatch(dispatch.request_id)
+        }));
+
+        let child_conversation_id = history_model.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                parent_conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history_model.update(&mut app, |history, ctx| {
+            history.record_new_conversation_request_complete(
+                dispatch.request_id,
+                child_conversation_id,
+                ctx,
+            );
+        });
+
+        executor.read(&app, |executor, _| assert!(executor.pending.is_empty()));
+        assert!(dispatch.receiver.try_recv().is_err());
+    });
+}
+
+#[test]
 fn legacy_local_codex_command_prompt_normalizes_to_local_harness() {
     let (prompt, execution_mode) = normalize_legacy_local_child_harness_command(
         "codex --dangerously-bypass-approvals-and-sandbox 'Investigate the failure'".to_string(),
@@ -879,6 +944,69 @@ fn direct_provider_error_preserves_child_for_inspection() {
 }
 
 #[test]
+fn cancelling_standalone_start_agent_drops_dispatch_but_keeps_child_running() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let parent_conversation_id = history_model.update(&mut app, |history, ctx| {
+            history.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+        let execution = executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: parent_conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let child_conversation_id = history_model.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                parent_conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history_model.update(&mut app, |history, ctx| {
+            history.record_new_conversation_request_complete(
+                FIRST_REQUEST_ID,
+                child_conversation_id,
+                ctx,
+            );
+        });
+
+        executor.update(&mut app, |executor, _| {
+            executor.cancel_execution(&action.id);
+        });
+
+        executor.read(&app, |executor, _| assert!(executor.pending.is_empty()));
+        history_model.read(&app, |history, _| {
+            assert_eq!(
+                history
+                    .conversation(&child_conversation_id)
+                    .expect("child should remain in history")
+                    .status(),
+                &ConversationStatus::InProgress
+            );
+        });
+        let AnyActionExecution::Async { execute_future, .. } = execution else {
+            panic!("expected async StartAgent execution");
+        };
+        let _ = execute_future.await;
+    });
+}
+
+#[test]
 fn removing_direct_provider_child_resolves_pending_wait() {
     App::test((), |mut app| async move {
         let state = dispatch_pending_direct_provider_child(&mut app);
@@ -975,7 +1103,7 @@ fn reattach_reuses_persisted_child_without_launching_another_agent() {
                 "child".to_string(),
                 parent_conversation_id,
                 child_conversation_id,
-                None,
+                StartAgentWaitPolicy::Completion,
                 ctx,
             )
         });

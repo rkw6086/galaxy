@@ -165,6 +165,7 @@ impl AIAgentActionResultType {
                     None,
                 ),
                 RequestCommandOutputResult::CancelledBeforeExecution
+                | RequestCommandOutputResult::ExecutionError { .. }
                 | RequestCommandOutputResult::Denylisted { .. } => result.to_string(),
             },
             Self::WriteToLongRunningShellCommand(result) => match result {
@@ -418,6 +419,8 @@ pub enum RequestCommandOutputResult {
     /// A running command canceled via ctrl-c
     /// would have Completed result with exit code 130.
     CancelledBeforeExecution,
+    /// The command could not start because the terminal was unavailable for execution.
+    ExecutionError { command: String, message: String },
     /// The command was denied because it was present on the denylist.
     Denylisted { command: String },
 }
@@ -427,14 +430,16 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { exit_code, .. } => exit_code.was_successful(),
             Self::LongRunningCommandSnapshot { .. } => true,
-            Self::CancelledBeforeExecution | Self::Denylisted { .. } => false,
+            Self::CancelledBeforeExecution
+            | Self::ExecutionError { .. }
+            | Self::Denylisted { .. } => false,
         }
     }
 
     pub fn failed(&self) -> bool {
         match self {
             Self::Completed { exit_code, .. } => !exit_code.was_successful(),
-            Self::Denylisted { .. } => true,
+            Self::ExecutionError { .. } | Self::Denylisted { .. } => true,
             Self::CancelledBeforeExecution | Self::LongRunningCommandSnapshot { .. } => false,
         }
     }
@@ -444,6 +449,7 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { command, .. }
             | Self::LongRunningCommandSnapshot { command, .. }
+            | Self::ExecutionError { command, .. }
             | Self::Denylisted { command } => command.clone(),
             Self::CancelledBeforeExecution => "cancelled".to_string(),
         }
@@ -472,6 +478,9 @@ impl Display for RequestCommandOutputResult {
             }
             RequestCommandOutputResult::CancelledBeforeExecution => {
                 write!(f, "Command output cancelled")
+            }
+            RequestCommandOutputResult::ExecutionError { command, message } => {
+                write!(f, "Command '{command}' could not be executed: {message}")
             }
             RequestCommandOutputResult::Denylisted { .. } => {
                 write!(f, "Command output was on denylist")
@@ -1042,7 +1051,9 @@ impl AIAgentActionResultType {
                 | TransferShellCommandControlToUserResult::CommandFinished { .. },
             ) => true,
             Self::AskUserQuestion(AskUserQuestionResult::Success { .. }) => true,
-            Self::RunAgents(RunAgentsResult::Launched { .. }) => true,
+            Self::RunAgents(RunAgentsResult::Launched { agents, .. }) => agents
+                .iter()
+                .any(|agent| !matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })),
             Self::WaitForEvents(WaitForEventsResult::Completed) => true,
             _ => false,
         }
@@ -1075,6 +1086,12 @@ impl AIAgentActionResultType {
             )
             | Self::RunAgents(RunAgentsResult::Failure { .. } | RunAgentsResult::Denied { .. }) => {
                 true
+            }
+            Self::RunAgents(RunAgentsResult::Launched { agents, .. }) => {
+                !agents.is_empty()
+                    && agents
+                        .iter()
+                        .all(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. }))
             }
             _ => false,
         }
@@ -1627,6 +1644,7 @@ pub struct RunAgentsAgentOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunAgentsAgentOutcomeKind {
     Launched { agent_id: String },
+    Completed { agent_id: String, output: String },
     Failed { error: String },
 }
 
@@ -1654,6 +1672,17 @@ impl RunAgentsResult {
                         "computer_use_enabled": computer_use_enabled,
                     }),
                 };
+                let children_completed = agents.iter().all(|agent| {
+                    matches!(
+                        agent.kind,
+                        RunAgentsAgentOutcomeKind::Completed { .. }
+                            | RunAgentsAgentOutcomeKind::Failed { .. }
+                    )
+                });
+                let all_failed = !agents.is_empty()
+                    && agents.iter().all(|agent| {
+                        matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })
+                    });
                 let agents = agents
                     .iter()
                     .map(|agent| match &agent.kind {
@@ -1662,6 +1691,14 @@ impl RunAgentsResult {
                             "status": "launched",
                             "agent_id": agent_id,
                         }),
+                        RunAgentsAgentOutcomeKind::Completed { agent_id, output } => {
+                            serde_json::json!({
+                                "name": agent.name,
+                                "status": "completed",
+                                "agent_id": agent_id,
+                                "output": output,
+                            })
+                        }
                         RunAgentsAgentOutcomeKind::Failed { error } => serde_json::json!({
                             "name": agent.name,
                             "status": "failed",
@@ -1670,9 +1707,13 @@ impl RunAgentsResult {
                     })
                     .collect::<Vec<_>>();
                 serde_json::json!({
-                    "status": "launched",
-                    "completion_state": "children_running",
-                    "instruction": "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results.",
+                    "status": if all_failed { "failure" } else { "launched" },
+                    "completion_state": if children_completed { "children_completed" } else { "children_running" },
+                    "instruction": if children_completed {
+                        "Child agents reached terminal states. Use their structured outputs and errors to complete the task."
+                    } else {
+                        "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results."
+                    },
                     "model_id": model_id,
                     "harness_type": harness_type,
                     "execution_mode": execution_mode,
@@ -1701,7 +1742,13 @@ impl Display for RunAgentsResult {
             RunAgentsResult::Launched { agents, .. } => {
                 let launched = agents
                     .iter()
-                    .filter(|a| matches!(a.kind, RunAgentsAgentOutcomeKind::Launched { .. }))
+                    .filter(|a| {
+                        matches!(
+                            a.kind,
+                            RunAgentsAgentOutcomeKind::Launched { .. }
+                                | RunAgentsAgentOutcomeKind::Completed { .. }
+                        )
+                    })
                     .count();
                 write!(
                     f,

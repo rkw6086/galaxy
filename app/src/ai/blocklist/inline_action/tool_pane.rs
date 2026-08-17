@@ -14,6 +14,7 @@ use crate::ai::blocklist::block::view_impl::{
 pub(crate) fn render_tool_pane_shell(
     content: Box<dyn Element>,
     has_highlighted_border: bool,
+    spans_conversation_width: bool,
     should_remove_bottom_margin: bool,
     app: &AppContext,
 ) -> Box<dyn Element> {
@@ -25,7 +26,7 @@ pub(crate) fn render_tool_pane_shell(
     };
 
     Container::new(content)
-        .with_margin_left(if has_highlighted_border {
+        .with_margin_left(if has_highlighted_border || spans_conversation_width {
             CONTENT_HORIZONTAL_PADDING
         } else {
             CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.

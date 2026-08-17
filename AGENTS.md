@@ -40,6 +40,7 @@ Environment variables:
 - Set `GALAXY_BEDROCK_DIAGNOSTICS=1` to enable Bedrock diagnostic output, including:
   - `Error_<timestamp>.txt` snapshot files written to the repository root on request/stream failures (includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails)
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
+- Set `GALAXY_TOOL_DIAGNOSTICS=1` to enable verbose local tool queue/execution debug logs and cancellation backtraces. These diagnostics are disabled during routine operation.
 
 ### AI Provider Architecture
 
@@ -139,7 +140,10 @@ Key invariants:
 - Direct-provider `RequestFileEdits` views must register from streaming output before provider-run completion; preprocessing results must survive delayed view registration, and `NotReady` retries must remain automatic rather than emitting a synthetic user permission decision
 - A clean direct-provider `ProviderRunOutcome::Completed` explicitly finalizes the conversation as `Success` after terminal output projection, even if earlier turns added tool actions; child-completion waits rely on that status
 - Provider actions and results must correlate by `(conversation_id, run_id, epoch, call_id)`; stale or duplicate callbacks must not advance a run
-- Active provider runs must checkpoint before external work, persist without credentials, normalize unsafe restored states, and reconcile command state before continuing
+- Action status/result lookups and archived results are keyed by `(conversation_id, action_id)`; callers must supply the owning conversation and must not fall back to a global action-ID search
+- Action blocked/executing/finished events carry `conversation_id`; UI subscribers must match it, and CLI shell-control mutations must also match the active block's requested-command action ID
+- Active provider runs must checkpoint before external work, persist without credentials, normalize unsafe restored states, and reconcile command state before continuing; cancellation intent stays checkpointed until the terminal outcome is projected and `finish_active_provider_run` performs cleanup
+- Same-conversation direct-provider follow-ups queue behind the cancelling generation; the old run keeps the active slot until terminal projection and cleanup, then the next generation starts, and stale callbacks are ignored by stream identity
 - Known tools are in `KNOWN_TOOLS` in `response_translator.rs`; definitions are built by `tool_definition_for_name()` in `convert_request.rs`
 - Direct-provider normal and plan turns must advertise `read_plan`, `create_plan`, and `edit_plan` when the matching document capabilities are enabled; plan-creation requests should call `create_plan` after research rather than only returning prose
 - Unknown or invalid tool calls receive one correlated synthetic error result and a visible `AgentOutput` message; the durable run owns any continuation
@@ -151,10 +155,13 @@ Key invariants:
 - Progressive summaries are prepended to provider requests as a user/assistant pair; background summarization remains independent of the active provider run
 - Loop prevention in `controller.rs` detects repeated tool failures (3+ identical) and injects a corrective instruction
 - Direct-provider long-running shell follow-ups retain CLI tasks as UI projections while command monitoring and completion stay owned by the same provider run
+- A direct-provider command completion is only queued when the terminal reports it; the CLI task remains active until the provider run applies that completion at a safe boundary and deactivates it
 - Direct-provider completed-command assessments are hidden, tool-free root-task turns whose output and hidden input survive CLI-task deactivation and restoration
 - ACP remains a separate session-owned runtime; direct-provider cleanup must not move ACP lifecycle into `ProviderRun`
 - Orchestrated child conversations are leaf workers: nested `RunAgents` and legacy `StartAgent` calls are rejected before autonomy or permission bypasses, and child requests do not advertise delegation tools
 - Direct-provider `RunAgents` remains pending until every local child reaches `Success`, `Error`, or `Cancelled`, or is removed/deleted; recoverable `Blocked`, `TransientError`, and `WaitingForEvents` states remain pending, and the hosted 30-second startup timeout must not apply to these completion waits
+- `StartAgentWaitPolicy` is selected from child execution mode, not parent `run_id`: local children wait for completion and only remote/hosted children use startup acknowledgement
+- Hosted `RunAgents` startup timeouts detach the exact `StartAgentRequestId`; late launch callbacks must not register the child after the timeout result, while children linked before cancellation remain independently running
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.

@@ -346,3 +346,128 @@ fn only_rejecting_a_blocked_action_is_a_permission_denial() {
         Some(&AIActionStatus::Blocked),
     ));
 }
+
+#[test]
+fn duplicate_action_ids_resolve_only_within_the_requested_conversation() {
+    let first_conversation = AIConversationId::new();
+    let second_conversation = AIConversationId::new();
+    let duplicate_id = AIAgentActionId::from("duplicate".to_string());
+    let first_result = make_action_result("duplicate");
+    let mut second_result = action_result("duplicate", AIAgentActionResultType::InitProject);
+    second_result.task_id = TaskId::new("second-task".to_string());
+    let second_result = Arc::new(second_result);
+    let finished_results = HashMap::from([(first_conversation, vec![first_result.clone()])]);
+    let provider_results = HashMap::new();
+    let archive = HashMap::from([
+        (
+            (first_conversation, duplicate_id.clone()),
+            first_result.clone(),
+        ),
+        (
+            (second_conversation, duplicate_id.clone()),
+            second_result.clone(),
+        ),
+    ]);
+
+    assert!(Arc::ptr_eq(
+        action_result_for_conversation(
+            &finished_results,
+            &provider_results,
+            &archive,
+            first_conversation,
+            &duplicate_id,
+        )
+        .unwrap(),
+        &first_result,
+    ));
+    assert!(Arc::ptr_eq(
+        action_result_for_conversation(
+            &finished_results,
+            &provider_results,
+            &archive,
+            second_conversation,
+            &duplicate_id,
+        )
+        .unwrap(),
+        &second_result,
+    ));
+    assert!(action_result_for_conversation(
+        &finished_results,
+        &provider_results,
+        &archive,
+        AIConversationId::new(),
+        &duplicate_id,
+    )
+    .is_none());
+}
+
+#[test]
+fn cancellation_permission_inference_uses_the_matching_conversation_status() {
+    let blocked_conversation = AIConversationId::new();
+    let queued_conversation = AIConversationId::new();
+    let duplicate_id = AIAgentActionId::from("duplicate".to_string());
+    let pending_actions = HashMap::from([
+        (blocked_conversation, VecDeque::from([action("duplicate")])),
+        (
+            queued_conversation,
+            VecDeque::from([action("first"), action("duplicate")]),
+        ),
+    ]);
+    let running_actions = HashMap::new();
+
+    let blocked_status = pending_action_status(
+        &pending_actions,
+        &running_actions,
+        blocked_conversation,
+        &duplicate_id,
+        false,
+    );
+    let queued_status = pending_action_status(
+        &pending_actions,
+        &running_actions,
+        queued_conversation,
+        &duplicate_id,
+        false,
+    );
+
+    assert!(is_permission_denial(
+        CancellationReason::ManuallyCancelled,
+        blocked_status.as_ref(),
+    ));
+    assert!(!is_permission_denial(
+        CancellationReason::ManuallyCancelled,
+        queued_status.as_ref(),
+    ));
+}
+
+#[test]
+fn action_lifecycle_events_disambiguate_duplicate_ids_by_conversation() {
+    let first_conversation = AIConversationId::new();
+    let second_conversation = AIConversationId::new();
+    let duplicate_id = AIAgentActionId::from("duplicate".to_owned());
+    let events = [
+        BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+            action_id: duplicate_id.clone(),
+            conversation_id: first_conversation,
+            execution_ref: None,
+        },
+        BlocklistAIActionEvent::ExecutingAction {
+            action_id: duplicate_id.clone(),
+            conversation_id: second_conversation,
+            execution_ref: None,
+        },
+        BlocklistAIActionEvent::FinishedAction {
+            action_id: duplicate_id.clone(),
+            conversation_id: first_conversation,
+            cancellation_reason: None,
+            execution_ref: None,
+        },
+    ];
+
+    assert_eq!(events[0].conversation_id(), Some(first_conversation));
+    assert_eq!(events[1].conversation_id(), Some(second_conversation));
+    assert_eq!(events[2].conversation_id(), Some(first_conversation));
+    assert!(events
+        .iter()
+        .all(|event| event.action_id() == &duplicate_id));
+}

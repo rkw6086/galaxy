@@ -41,6 +41,7 @@ pub enum UserTakeOverReason {
 
 #[derive(Debug, Clone, Default)]
 struct ActiveCLISubagentState {
+    initial_requested_command_conversation_id: Option<AIConversationId>,
     initial_requested_command_action_id: Option<AIAgentActionId>,
     task_id: Option<TaskId>,
     last_snapshot_at: Option<Instant>,
@@ -171,9 +172,21 @@ impl CLISubagentController {
         });
 
         ctx.subscribe_to_model(action_model, |me, _, event, ctx| match event {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
+                if !matches_active_requested_command(
+                    *conversation_id,
+                    action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    return;
+                }
                 active_block.update_is_agent_blocked(true);
 
                 let action_id = active_block.requested_command_action_id().cloned();
@@ -183,9 +196,21 @@ impl CLISubagentController {
                     agent_has_control: active_block.is_agent_in_control(),
                 });
             }
-            BlocklistAIActionEvent::ExecutingAction { .. } => {
+            BlocklistAIActionEvent::ExecutingAction {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
+                if !matches_active_requested_command(
+                    *conversation_id,
+                    action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    return;
+                }
                 active_block.update_is_agent_blocked(false);
 
                 let action_id = active_block.requested_command_action_id().cloned();
@@ -197,12 +222,13 @@ impl CLISubagentController {
             }
             BlocklistAIActionEvent::FinishedAction {
                 action_id: finished_action_id,
+                conversation_id,
                 ..
             } => {
                 let action_result = me
                     .action_model
                     .as_ref(ctx)
-                    .get_action_result(finished_action_id);
+                    .get_action_result(*conversation_id, finished_action_id);
                 let initial_command_finished_without_snapshot =
                     action_result.is_some_and(|result| {
                         matches!(
@@ -222,14 +248,22 @@ impl CLISubagentController {
                     .cloned();
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
-                active_block.update_is_agent_blocked(false);
+                if matches_active_requested_command(
+                    *conversation_id,
+                    finished_action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    active_block.update_is_agent_blocked(false);
 
-                let active_command_action_id = active_block.requested_command_action_id().cloned();
-                ctx.emit(CLISubagentEvent::UpdatedControl {
-                    block_id: active_block.id().clone(),
-                    requested_command_action_id: active_command_action_id,
-                    agent_has_control: active_block.is_agent_in_control(),
-                });
+                    let active_command_action_id =
+                        active_block.requested_command_action_id().cloned();
+                    ctx.emit(CLISubagentEvent::UpdatedControl {
+                        block_id: active_block.id().clone(),
+                        requested_command_action_id: active_command_action_id,
+                        agent_has_control: active_block.is_agent_in_control(),
+                    });
+                }
 
                 // Updates the last snapshot timestamp for the active block after the agent has read the block output.
                 if let Some(snapshot_block_id) = snapshot_block_id {
@@ -244,18 +278,17 @@ impl CLISubagentController {
                 if initial_command_finished_without_snapshot {
                     me.active_subagents_by_block.retain(|_, state| {
                         state.task_id.is_some()
-                            || state.initial_requested_command_action_id.as_ref()
-                                != Some(finished_action_id)
+                            || !matches_requested_command_identity(
+                                *conversation_id,
+                                finished_action_id,
+                                state.initial_requested_command_conversation_id,
+                                state.initial_requested_command_action_id.as_ref(),
+                            )
                     });
                 }
+                drop(terminal_model);
                 if let Some(block_id) = command_finished_block_id {
-                    if let Some(completion) = me
-                        .active_subagents_by_block
-                        .get_mut(&block_id)
-                        .and_then(|state| state.completion.as_mut())
-                    {
-                        completion.final_turn_started = true;
-                    }
+                    me.advance_completed_subagent(&block_id, ctx);
                 }
             }
             _ => (),
@@ -322,7 +355,7 @@ impl CLISubagentController {
                 };
                 drop(terminal_model);
 
-                let provider_consumed_completion = completion.as_ref().is_some_and(|completion| {
+                let provider_accepted_completion = completion.as_ref().is_some_and(|completion| {
                     me.controller.update(ctx, |controller, ctx| {
                         controller.accept_provider_command_completion(
                             completion.conversation_id,
@@ -344,13 +377,9 @@ impl CLISubagentController {
                 if has_last_snapshot {
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
                 }
-                if provider_consumed_completion {
-                    me.finish_subagent(
-                        &block_id,
-                        conversation_id,
-                        requested_command_action_id,
-                        ctx,
-                    );
+                if provider_accepted_completion {
+                    // The provider controller owns deactivation after it applies the queued
+                    // completion at a safe run boundary.
                     return;
                 }
                 if !me.active_subagents_by_block.contains_key(&block_id) {
@@ -628,11 +657,18 @@ impl CLISubagentController {
     ///
     /// The placeholder lets command completion and action-result events arrive in either order
     /// without losing the completion that a subsequently-created CLI monitor needs.
-    pub fn track_requested_command(&mut self, block_id: &BlockId, action_id: &AIAgentActionId) {
-        self.active_subagents_by_block
+    pub fn track_requested_command(
+        &mut self,
+        block_id: &BlockId,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) {
+        let state = self
+            .active_subagents_by_block
             .entry(block_id.clone())
-            .or_default()
-            .initial_requested_command_action_id = Some(action_id.clone());
+            .or_default();
+        state.initial_requested_command_conversation_id = Some(conversation_id);
+        state.initial_requested_command_action_id = Some(action_id.clone());
     }
 
     /// Force the currently in-flight poll for the given long-running command block to
@@ -882,6 +918,10 @@ impl CLISubagentController {
         self.active_subagents_by_block
             .entry(block_id.clone())
             .or_default()
+            .initial_requested_command_conversation_id = Some(conversation_id);
+        self.active_subagents_by_block
+            .entry(block_id.clone())
+            .or_default()
             .task_id = Some(task_id.clone());
 
         ctx.emit(CLISubagentEvent::SpawnedSubagent {
@@ -1027,6 +1067,7 @@ fn command_finished_block_id(result: &AIAgentActionResultType) -> Option<&BlockI
         AIAgentActionResultType::RequestCommandOutput(
             RequestCommandOutputResult::LongRunningCommandSnapshot { .. }
             | RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::ExecutionError { .. }
             | RequestCommandOutputResult::Denylisted { .. },
         )
         | AIAgentActionResultType::WriteToLongRunningShellCommand(
@@ -1085,6 +1126,26 @@ fn should_nudge_monitor_turn(last_exchange_has_action: bool, monitor_nudge_sent:
     !last_exchange_has_action && !monitor_nudge_sent
 }
 
+fn matches_active_requested_command(
+    event_conversation_id: AIConversationId,
+    event_action_id: &AIAgentActionId,
+    active_conversation_id: Option<AIConversationId>,
+    active_requested_command_id: Option<&AIAgentActionId>,
+) -> bool {
+    active_conversation_id == Some(event_conversation_id)
+        && active_requested_command_id == Some(event_action_id)
+}
+
+fn matches_requested_command_identity(
+    event_conversation_id: AIConversationId,
+    event_action_id: &AIAgentActionId,
+    requested_command_conversation_id: Option<AIConversationId>,
+    requested_command_action_id: Option<&AIAgentActionId>,
+) -> bool {
+    requested_command_conversation_id == Some(event_conversation_id)
+        && requested_command_action_id == Some(event_action_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1120,5 +1181,52 @@ mod tests {
         assert!(should_nudge_monitor_turn(false, false));
         assert!(!should_nudge_monitor_turn(false, true));
         assert!(!should_nudge_monitor_turn(true, false));
+    }
+
+    #[test]
+    fn shell_control_event_must_match_conversation_and_requested_command() {
+        let active_conversation_id = AIConversationId::new();
+        let other_conversation_id = AIConversationId::new();
+        let active_action_id = AIAgentActionId::from("same-action".to_owned());
+        let other_action_id = AIAgentActionId::from("other-action".to_owned());
+
+        assert!(matches_active_requested_command(
+            active_conversation_id,
+            &active_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+        assert!(!matches_active_requested_command(
+            other_conversation_id,
+            &active_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+        assert!(!matches_active_requested_command(
+            active_conversation_id,
+            &other_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+    }
+
+    #[test]
+    fn requested_command_identity_rejects_duplicate_id_from_another_conversation() {
+        let active_conversation_id = AIConversationId::new();
+        let other_conversation_id = AIConversationId::new();
+        let duplicate_action_id = AIAgentActionId::from("duplicate-action".to_owned());
+
+        assert!(matches_requested_command_identity(
+            active_conversation_id,
+            &duplicate_action_id,
+            Some(active_conversation_id),
+            Some(&duplicate_action_id),
+        ));
+        assert!(!matches_requested_command_identity(
+            other_conversation_id,
+            &duplicate_action_id,
+            Some(active_conversation_id),
+            Some(&duplicate_action_id),
+        ));
     }
 }

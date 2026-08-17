@@ -820,7 +820,8 @@ impl ProviderRun {
                     call_id: call.call.id.clone(),
                 })
             }
-            PendingToolCallState::PermissionPending { .. } | PendingToolCallState::Executing => {
+            PendingToolCallState::Executing => Ok(()),
+            PendingToolCallState::PermissionPending { .. } => {
                 Err(invalid_tool_transition(call, "tool start"))
             }
         }
@@ -840,6 +841,9 @@ impl ProviderRun {
                 call.state = PendingToolCallState::Resolved { result };
                 Ok(())
             }
+            PendingToolCallState::Resolved {
+                result: completed_result,
+            } if completed_result == &result => Ok(()),
             PendingToolCallState::Resolved { .. } => {
                 Err(ProviderRunProtocolError::DuplicateToolUpdate {
                     call_id: call.call.id.clone(),

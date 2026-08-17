@@ -695,12 +695,26 @@ impl CodeDiffView {
             session_platform,
             ctx,
         );
+        let action_id = (*action_id).clone();
 
         ctx.subscribe_to_model(
             &action_model,
             move |me, action_model, event, ctx| match event {
-                BlocklistAIActionEvent::FinishedAction { action_id, .. } if !me.is_complete() => {
-                    match action_model.as_ref(ctx).get_action_status(&me.action_id) {
+                BlocklistAIActionEvent::FinishedAction {
+                    action_id: event_action_id,
+                    conversation_id: event_conversation_id,
+                    ..
+                } if !me.is_complete()
+                    && *event_action_id == me.action_id
+                    && me.identifiers.client_conversation_id == Some(*event_conversation_id) =>
+                {
+                    let Some(conversation_id) = me.identifiers.client_conversation_id else {
+                        return;
+                    };
+                    match action_model
+                        .as_ref(ctx)
+                        .get_action_status(conversation_id, &me.action_id)
+                    {
                         Some(AIActionStatus::Blocked) => {
                             me.state = CodeDiffState::WaitingForUser;
                             ctx.notify();

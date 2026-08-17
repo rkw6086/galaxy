@@ -7254,8 +7254,22 @@ impl TerminalView {
         event: &BlocklistAIActionEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        let event_matches_active_conversation = || {
+            let Some(event_conversation_id) = event.conversation_id() else {
+                return true;
+            };
+            self.model
+                .lock()
+                .block_list()
+                .active_block()
+                .ai_conversation_id()
+                == Some(event_conversation_id)
+        };
         match event {
             BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
+                if !event_matches_active_conversation() {
+                    return;
+                }
                 let is_agent_in_control = self
                     .model
                     .lock()
@@ -7267,14 +7281,20 @@ impl TerminalView {
                 }
             }
             BlocklistAIActionEvent::ExecutingAction { .. } => {
-                self.redetermine_terminal_focus(ctx);
+                if event_matches_active_conversation() {
+                    self.redetermine_terminal_focus(ctx);
+                }
                 ctx.notify();
             }
-            BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
+            BlocklistAIActionEvent::FinishedAction {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 // Refresh git line changes when files are potentially updated by an action
                 let action_result = action_model
                     .as_ref(ctx)
-                    .get_action_result(action_id)
+                    .get_action_result(*conversation_id, action_id)
                     .cloned();
 
                 let maybe_modified_files = action_result
@@ -7644,7 +7664,11 @@ impl TerminalView {
                 drop(model);
 
                 self.cli_subagent_controller.update(ctx, |controller, _| {
-                    controller.track_requested_command(&block_id, action_id);
+                    controller.track_requested_command(
+                        &block_id,
+                        parent_conversation_id,
+                        action_id,
+                    );
                 });
 
                 ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
@@ -7672,10 +7696,23 @@ impl TerminalView {
             ShellCommandExecutorEvent::WriteToPty { input, mode } => {
                 self.write_agent_bytes_to_pty(input.to_vec(), mode, ctx);
             }
-            ShellCommandExecutorEvent::CancelExecution => {
+            ShellCommandExecutorEvent::CancelExecution { action_id } => {
                 // We need to manually invoke ctrl-c to terminate the running command because the
                 // user's ctrl-c was directed to the AIBlock instead of the command's shell block.
-                self.ctrl_c(ctx);
+                let is_exact_active_command = self
+                    .model
+                    .lock()
+                    .block_list()
+                    .active_block()
+                    .requested_command_action_id()
+                    .is_some_and(|requested_id| requested_id == action_id);
+                if is_exact_active_command {
+                    self.ctrl_c(ctx);
+                } else {
+                    log::warn!(
+                        "Refusing to interrupt active terminal command for stale requested action {action_id}"
+                    );
+                }
             }
             ShellCommandExecutorEvent::TransferControlToUser { reason, .. } => {
                 // Transfer control of the long-running command to the user.

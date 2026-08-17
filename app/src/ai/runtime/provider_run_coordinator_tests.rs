@@ -79,6 +79,7 @@ struct StallingRuntime {
     first_attempt_stall: FirstAttemptStall,
     attempts: AtomicUsize,
     requests: Mutex<Vec<TurnRequest>>,
+    controls: Mutex<Vec<TurnControl>>,
 }
 
 impl StallingRuntime {
@@ -93,11 +94,21 @@ impl StallingRuntime {
             first_attempt_stall,
             attempts: AtomicUsize::new(0),
             requests: Mutex::new(Vec::new()),
+            controls: Mutex::new(Vec::new()),
         }
     }
 
     fn requests(&self) -> Vec<TurnRequest> {
         self.requests.lock().unwrap().clone()
+    }
+
+    fn attempt_commands(&self) -> Vec<Option<TurnCommand>> {
+        self.controls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|control| control.try_receive().ok())
+            .collect()
     }
 }
 
@@ -110,9 +121,10 @@ impl AgentRuntime for StallingRuntime {
     async fn start_turn(
         &self,
         request: TurnRequest,
-        _control: TurnControl,
+        control: TurnControl,
     ) -> Result<AgentEventStream, AgentError> {
         self.requests.lock().unwrap().push(request);
+        self.controls.lock().unwrap().push(control);
         let attempt = self.attempts.fetch_add(1, Ordering::Relaxed);
         if attempt == 0 {
             match self.first_attempt_stall {
@@ -778,6 +790,64 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
     assert_eq!(retry.1, 1);
 }
 
+#[tokio::test]
+async fn model_progress_waits_for_each_projection_acknowledgement() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = coordinator(runtime.clone());
+    let (acknowledgement_sender, acknowledgement_receiver) = async_channel::unbounded();
+    let (observed_sender, observed_receiver) = async_channel::unbounded();
+    let (_sender, control) = turn_control();
+
+    let drive = async {
+        coordinator
+            .drive_until_blocked_with_acknowledgements(
+                control,
+                move |projection| {
+                    let acknowledgement_receiver = acknowledgement_receiver.clone();
+                    let observed_sender = observed_sender.clone();
+                    Box::pin(async move {
+                        observed_sender.send(projection).await.unwrap();
+                        acknowledgement_receiver.recv().await.unwrap()
+                    })
+                },
+                |_| Box::pin(async { Ok(()) }),
+            )
+            .await
+            .unwrap()
+    };
+    let driver = async {
+        let first = observed_receiver.recv().await.unwrap();
+        assert!(matches!(
+            first,
+            ProviderRunProjection::ModelTurnRequested { .. }
+        ));
+        assert_eq!(runtime.requests().len(), 0);
+        assert!(observed_receiver.try_recv().is_err());
+        acknowledgement_sender.send(Ok(())).await.unwrap();
+
+        let second = observed_receiver.recv().await.unwrap();
+        assert!(matches!(
+            second,
+            ProviderRunProjection::ModelTurnStarted { .. }
+        ));
+        assert_eq!(runtime.requests().len(), 1);
+        assert!(observed_receiver.try_recv().is_err());
+        acknowledgement_sender.send(Ok(())).await.unwrap();
+
+        loop {
+            let projection = observed_receiver.recv().await.unwrap();
+            let finished = matches!(projection, ProviderRunProjection::ModelTurnFinished { .. });
+            acknowledgement_sender.send(Ok(())).await.unwrap();
+            if finished {
+                break;
+            }
+        }
+    };
+
+    let (block, ()) = futures::join!(drive, driver);
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+}
+
 fn assert_single_retry_lifecycle(
     projections: &[ProviderRunProjection],
     expected_timeout_stage: &str,
@@ -868,6 +938,10 @@ async fn model_start_timeout_retries_the_same_work_identity() {
 
     assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
     assert_eq!(runtime.requests().len(), 2);
+    assert_eq!(
+        runtime.attempt_commands(),
+        vec![Some(TurnCommand::Cancel), None]
+    );
     assert_eq!(coordinator.run().model_retries(), 1);
     assert_single_retry_lifecycle(&projections, "start timed out", false);
 }
@@ -887,8 +961,41 @@ async fn model_event_idle_timeout_retries_the_same_work_identity() {
 
     assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
     assert_eq!(runtime.requests().len(), 2);
+    assert_eq!(
+        runtime.attempt_commands(),
+        vec![Some(TurnCommand::Cancel), None]
+    );
     assert_eq!(coordinator.run().model_retries(), 1);
     assert_single_retry_lifecycle(&projections, "event timed out", true);
+}
+
+#[tokio::test]
+async fn persistent_checkpoint_failure_terminates_without_redrive() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = coordinator(runtime.clone());
+    let checkpoint_attempts = Arc::new(AtomicUsize::new(0));
+    let attempts = checkpoint_attempts.clone();
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked_with_checkpoint(
+            control,
+            |_| Ok(()),
+            move |_| {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                Box::pin(async { Err("database unavailable".to_string()) })
+            },
+        )
+        .await
+        .unwrap();
+
+    let ProviderRunBlock::Done(ProviderRunOutcome::Failed(failure)) = block else {
+        panic!("checkpoint failure must terminate the drive");
+    };
+    assert_eq!(failure.kind, ProviderRunFailureKind::ExternalWork);
+    assert!(failure.message.contains("database unavailable"));
+    assert_eq!(checkpoint_attempts.load(Ordering::Relaxed), 1);
+    assert!(runtime.requests().is_empty());
 }
 
 #[tokio::test]
@@ -951,6 +1058,38 @@ async fn stream_without_terminal_event_fails_instead_of_committing_partial_outpu
     };
     assert_eq!(failure.kind, ProviderRunFailureKind::ModelCall);
     assert_eq!(coordinator.run().transcript().len(), 1);
+}
+
+#[tokio::test]
+async fn reasoning_completed_authoritatively_replaces_canonical_reasoning() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![Ok(vec![
+        started("request-reasoning"),
+        Ok(AgentEvent::ReasoningDelta {
+            text: "draft".to_string(),
+        }),
+        Ok(AgentEvent::ReasoningCompleted {
+            text: "final".to_string(),
+            signature: Some("signature".to_string()),
+        }),
+        stopped(StopReason::Completed),
+    ])]));
+    let mut coordinator = coordinator(runtime);
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    let MessageContent::MultiPart(parts) = &coordinator.run().transcript()[1].content else {
+        panic!("expected canonical reasoning content");
+    };
+    assert!(matches!(
+        parts.as_slice(),
+        [ContentPart::Reasoning { text, signature }]
+            if text == "final" && signature.as_deref() == Some("signature")
+    ));
 }
 
 #[tokio::test]

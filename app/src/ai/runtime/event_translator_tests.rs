@@ -45,7 +45,7 @@ fn restored_provider_projection_skips_stream_initialization() {
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
     };
-    let mut projector = ProviderRunResponseProjector::restored(config);
+    let mut projector = ProviderRunResponseProjector::restored(config, true);
     let work_id = galaxy_agent_core::ExternalWorkId {
         run_id: galaxy_agent_core::ProviderRunId::new("run"),
         epoch: galaxy_agent_core::RunEpoch::new(2),
@@ -79,6 +79,56 @@ fn restored_provider_projection_skips_stream_initialization() {
     assert!(matches!(
         actions.actions[0].action,
         Some(client_action::Action::AddMessagesToTask(_))
+    ));
+}
+
+#[test]
+fn restored_uninitialized_projection_replays_init_before_live_delta() {
+    let config = RuntimeResponseConfig {
+        task_id: "task".to_owned(),
+        conversation_id: "conversation".to_owned(),
+        needs_create_task: true,
+        user_query: Some("already persisted".to_owned()),
+        model_id: "model".to_owned(),
+        max_context_tokens: Some(1_000),
+        capabilities: RuntimeCapabilities::provider(),
+        empty_output_message: None,
+    };
+    let mut projector = ProviderRunResponseProjector::restored(config, false);
+    let work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(2),
+    };
+
+    let started = projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            runtime_request_id: "request".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 1,
+        })
+        .unwrap();
+    let delta = projector
+        .project(ProviderRunProjection::ModelEvent {
+            work_id,
+            event: AgentEvent::TextDelta {
+                text: "continued".to_owned(),
+            },
+        })
+        .unwrap();
+
+    assert_eq!(started.len(), 1);
+    assert!(matches!(
+        started[0].r#type,
+        Some(response_event::Type::Init(_))
+    ));
+    assert_eq!(delta.len(), 1);
+    assert!(matches!(
+        delta[0].r#type,
+        Some(response_event::Type::ClientActions(_))
     ));
 }
 
@@ -259,6 +309,127 @@ fn reasoning_uses_the_native_reasoning_message_contract() {
         actions.actions[0].action,
         Some(client_action::Action::AppendToMessageContent(_))
     ));
+}
+
+#[test]
+fn reasoning_completed_authoritatively_replaces_streamed_reasoning() {
+    let mut translator = provider_translator();
+    let streamed = translator
+        .translate(AgentEvent::ReasoningDelta {
+            text: "draft reasoning".to_owned(),
+        })
+        .expect("reasoning delta");
+    let completed = translator
+        .translate(AgentEvent::ReasoningCompleted {
+            text: "authoritative reasoning".to_owned(),
+            signature: Some("signature".to_owned()),
+        })
+        .expect("reasoning completion");
+
+    let Some(response_event::Type::ClientActions(streamed_actions)) = &streamed[1].r#type else {
+        panic!("expected streamed reasoning action");
+    };
+    let Some(client_action::Action::AddMessagesToTask(add)) = &streamed_actions.actions[0].action
+    else {
+        panic!("expected streamed reasoning message");
+    };
+    let message_id = add.messages[0].id.clone();
+    let Some(response_event::Type::ClientActions(completed_actions)) = &completed[0].r#type else {
+        panic!("expected completed reasoning action");
+    };
+    let Some(client_action::Action::UpdateTaskMessage(update)) =
+        &completed_actions.actions[0].action
+    else {
+        panic!("completed reasoning must replace the streamed value");
+    };
+    let message = update.message.as_ref().expect("replacement message");
+    assert_eq!(message.id, message_id);
+    assert!(matches!(
+        &message.message,
+        Some(message::Message::AgentReasoning(reasoning))
+            if reasoning.reasoning == "authoritative reasoning"
+    ));
+    assert_eq!(
+        update.mask.as_ref().expect("replacement mask").paths,
+        ["agent_reasoning.reasoning"]
+    );
+}
+
+#[test]
+fn provider_retry_clears_failed_attempt_output_before_new_messages() {
+    let mut projector = ProviderRunResponseProjector::new(RuntimeResponseConfig {
+        task_id: "task".to_owned(),
+        conversation_id: "conversation".to_owned(),
+        needs_create_task: false,
+        user_query: None,
+        model_id: "model".to_owned(),
+        max_context_tokens: Some(1_000),
+        capabilities: RuntimeCapabilities::provider(),
+        empty_output_message: None,
+    });
+    let work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(1),
+    };
+    projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            runtime_request_id: "request".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 1,
+        })
+        .unwrap();
+    for event in [
+        AgentEvent::TextDelta {
+            text: "failed text".to_owned(),
+        },
+        AgentEvent::ReasoningDelta {
+            text: "failed reasoning".to_owned(),
+        },
+    ] {
+        projector
+            .project(ProviderRunProjection::ModelEvent {
+                work_id: work_id.clone(),
+                event,
+            })
+            .unwrap();
+    }
+    let retry = projector
+        .project(ProviderRunProjection::ModelRetry {
+            work_id,
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            retry_attempt: 1,
+            elapsed_ms: 2,
+            error: galaxy_agent_core::AgentError::new(
+                galaxy_agent_core::AgentErrorKind::Transport,
+                "retry",
+            ),
+        })
+        .unwrap();
+
+    assert_eq!(retry.len(), 2);
+    for event in retry {
+        let Some(response_event::Type::ClientActions(actions)) = event.r#type else {
+            panic!("cleanup must use a client action");
+        };
+        let Some(client_action::Action::UpdateTaskMessage(update)) = &actions.actions[0].action
+        else {
+            panic!("cleanup must replace failed output");
+        };
+        let message = update.message.as_ref().expect("cleanup message");
+        match &message.message {
+            Some(message::Message::AgentOutput(output)) => assert!(output.text.is_empty()),
+            Some(message::Message::AgentReasoning(reasoning)) => {
+                assert!(reasoning.reasoning.is_empty())
+            }
+            _ => panic!("cleanup must target visible text or reasoning"),
+        }
+    }
 }
 
 #[test]

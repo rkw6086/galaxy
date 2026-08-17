@@ -61,6 +61,7 @@ pub mod request_usage_model;
 pub(crate) mod restored_conversations;
 pub(crate) mod runtime;
 pub(crate) mod skills;
+pub(crate) mod tool_diagnostics;
 pub(crate) mod voice;
 pub use agent_tips::*;
 use galaxyui::AppContext;

@@ -489,29 +489,36 @@ impl RunAgentsCardView {
 
         // Re-render when this action finishes or becomes blocked.
         let action_id_for_action_events = action_id.clone();
-        ctx.subscribe_to_model(&action_model, move |me, _, event, ctx| match event {
-            BlocklistAIActionEvent::FinishedAction { action_id, .. }
-                if action_id == &action_id_for_action_events =>
-            {
-                ctx.notify();
+        ctx.subscribe_to_model(&action_model, move |me, _, event, ctx| {
+            if event.conversation_id().is_some_and(|conversation_id| {
+                me.block_model.conversation_id(ctx) != Some(conversation_id)
+            }) {
+                return;
             }
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { action_id, .. }
-                if action_id == &action_id_for_action_events =>
-            {
-                // Normal case: streaming is complete and the action is
-                // ready for user confirmation. Re-render so the card
-                // transitions from the "Configuring agents..." placeholder
-                // to the full confirmation UI.
-                resolve_interactive_defaults(&mut me.state, &*me.block_model, ctx);
-                oc::repopulate_all_pickers(&mut me.state.orch, &me.handles.pickers, ctx);
-                me.refresh_accept_button_state(ctx);
-                me.maybe_auto_open_create_modal(ctx);
-                if let Some(conversation_id) = me.block_model.conversation_id(ctx) {
-                    me.emit_orchestration_entered_once(conversation_id, ctx);
+            match event {
+                BlocklistAIActionEvent::FinishedAction { action_id, .. }
+                    if action_id == &action_id_for_action_events =>
+                {
+                    ctx.notify();
                 }
-                ctx.notify();
+                BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { action_id, .. }
+                    if action_id == &action_id_for_action_events =>
+                {
+                    // Normal case: streaming is complete and the action is
+                    // ready for user confirmation. Re-render so the card
+                    // transitions from the "Configuring agents..." placeholder
+                    // to the full confirmation UI.
+                    resolve_interactive_defaults(&mut me.state, &*me.block_model, ctx);
+                    oc::repopulate_all_pickers(&mut me.state.orch, &me.handles.pickers, ctx);
+                    me.refresh_accept_button_state(ctx);
+                    me.maybe_auto_open_create_modal(ctx);
+                    if let Some(conversation_id) = me.block_model.conversation_id(ctx) {
+                        me.emit_orchestration_entered_once(conversation_id, ctx);
+                    }
+                    ctx.notify();
+                }
+                _ => {}
             }
-            _ => {}
         });
 
         // Repopulate the model picker when available Warp LLMs change.
@@ -713,8 +720,11 @@ impl RunAgentsCardView {
         let request = self.state.to_request();
         self.emit_decision(RunAgentsCardDecision::Accept, ctx);
         let action_id = self.action_id.clone();
+        let Some(conversation_id) = self.block_model.conversation_id(ctx) else {
+            return;
+        };
         self.action_model.update(ctx, |action_model, action_ctx| {
-            action_model.execute_run_agents(&action_id, request, action_ctx);
+            action_model.execute_run_agents(conversation_id, &action_id, request, action_ctx);
         });
     }
 
@@ -806,10 +816,13 @@ impl RunAgentsCardView {
         if self.block_model.is_restored() {
             return;
         }
+        let Some(conversation_id) = self.block_model.conversation_id(ctx) else {
+            return;
+        };
         if matches!(
             self.action_model
                 .as_ref(ctx)
-                .get_action_status(&self.action_id),
+                .get_action_status(conversation_id, &self.action_id),
             Some(AIActionStatus::Finished(_)) | Some(AIActionStatus::RunningAsync)
         ) {
             return;
@@ -1093,9 +1106,13 @@ impl View for RunAgentsCardView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let status = self
-            .action_model
-            .as_ref(app)
-            .get_action_status(&self.action_id);
+            .block_model
+            .conversation_id(app)
+            .and_then(|conversation_id| {
+                self.action_model
+                    .as_ref(app)
+                    .get_action_status(conversation_id, &self.action_id)
+            });
 
         if let Some(AIActionStatus::Finished(result)) = &status {
             if let AIAgentActionResultType::RunAgents(orchestrate_result) = &result.result {
@@ -1208,8 +1225,16 @@ impl TypedActionView for RunAgentsCardView {
             RunAgentsCardViewAction::AcceptWithoutOrchestration => {
                 self.emit_decision(RunAgentsCardDecision::AcceptWithoutOrchestration, ctx);
                 let action_id = self.action_id.clone();
+                let Some(conversation_id) = self.block_model.conversation_id(ctx) else {
+                    return;
+                };
                 self.action_model.update(ctx, |action_model, action_ctx| {
-                    action_model.deny_run_agents(&action_id, String::new(), action_ctx);
+                    action_model.deny_run_agents(
+                        conversation_id,
+                        &action_id,
+                        String::new(),
+                        action_ctx,
+                    );
                 });
             }
             RunAgentsCardViewAction::ToggleAcceptMenu => {
@@ -1537,14 +1562,31 @@ pub(crate) fn format_terminal_state(result: &RunAgentsResult) -> (String, Status
                 .iter()
                 .filter(|a| matches!(a.kind, RunAgentsAgentOutcomeKind::Launched { .. }))
                 .count();
-            if launched == total {
+            let completed = agents
+                .iter()
+                .filter(|a| matches!(a.kind, RunAgentsAgentOutcomeKind::Completed { .. }))
+                .count();
+            let successful = launched + completed;
+            if completed > 0 && completed == total {
+                let label = if total == 1 {
+                    "Completed 1 agent".to_string()
+                } else {
+                    format!("Completed {total} agents")
+                };
+                (label, StatusKind::Success)
+            } else if launched == 0 && completed > 0 {
+                (
+                    format!("Completed {completed} of {total} agents"),
+                    StatusKind::Mixed,
+                )
+            } else if successful == total {
                 let label = if total == 1 {
                     "Spawned 1 agent".to_string()
                 } else {
                     format!("Spawned {total} agents")
                 };
                 (label, StatusKind::Success)
-            } else if launched == 0 {
+            } else if successful == 0 {
                 // Every child failed to launch: surface a terminal failure
                 // rather than the in-progress-looking mixed state.
                 let label = if total == 1 {
@@ -1555,7 +1597,7 @@ pub(crate) fn format_terminal_state(result: &RunAgentsResult) -> (String, Status
                 (label, StatusKind::Failure)
             } else {
                 (
-                    format!("Spawned {launched} of {total} agents"),
+                    format!("Spawned {successful} of {total} agents"),
                     StatusKind::Mixed,
                 )
             }
@@ -1713,7 +1755,8 @@ fn render_run_agents_child_row(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let outcome_conversation_id = outcome.and_then(|outcome| match &outcome.kind {
-        RunAgentsAgentOutcomeKind::Launched { agent_id } => {
+        RunAgentsAgentOutcomeKind::Launched { agent_id }
+        | RunAgentsAgentOutcomeKind::Completed { agent_id, .. } => {
             conversation_id_for_agent_id(agent_id, app)
         }
         RunAgentsAgentOutcomeKind::Failed { .. } => None,
@@ -1756,6 +1799,9 @@ fn render_run_agents_child_row(
         match &outcome.kind {
             RunAgentsAgentOutcomeKind::Launched { .. } => {
                 (ConversationStatus::Success, "Started".to_string())
+            }
+            RunAgentsAgentOutcomeKind::Completed { .. } => {
+                (ConversationStatus::Success, "Completed".to_string())
             }
             RunAgentsAgentOutcomeKind::Failed { error } => (
                 ConversationStatus::Error,

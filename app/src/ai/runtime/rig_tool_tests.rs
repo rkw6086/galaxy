@@ -47,6 +47,26 @@ fn shell_calls_become_domain_actions_without_a_proto_round_trip() {
 }
 
 #[test]
+fn transfer_control_calls_become_domain_actions() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "transfer_shell_command_control_to_user",
+            serde_json::json!({"reason": "The command needs interactive input"}),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        action.action,
+        AIAgentActionType::TransferShellCommandControlToUser { reason }
+            if reason == "The command needs interactive input"
+    ));
+}
+
+#[test]
 fn create_plan_calls_become_document_actions() {
     let action = action_from_tool_call(
         "task-1",
@@ -70,6 +90,227 @@ fn create_plan_calls_become_document_actions() {
     assert_eq!(request.documents.len(), 1);
     assert_eq!(request.documents[0].title, "Duplicate content items");
     assert_eq!(request.documents[0].content, "# Implementation plan");
+}
+
+#[test]
+fn read_files_converts_advertised_inclusive_ranges_to_half_open_ranges() {
+    let action = action_from_tool_call(
+        "task-1",
+        &call(
+            "read_files",
+            serde_json::json!({
+                "files": [{
+                    "path": "/tmp/example.rs",
+                    "line_ranges": [
+                        {"start": 1, "end": 1},
+                        {"start": 10, "end": 25}
+                    ]
+                }]
+            }),
+        ),
+        &SkillPathOrigin::Local,
+        &HashMap::new(),
+    )
+    .unwrap();
+
+    let AIAgentActionType::ReadFiles(request) = action.action else {
+        panic!("expected read-files action");
+    };
+    assert_eq!(request.locations[0].lines, vec![1..2, 10..26]);
+}
+
+#[test]
+fn known_tools_reject_malformed_required_inputs() {
+    let cases = [
+        ("read_files", serde_json::json!({}), "files"),
+        (
+            "read_files",
+            serde_json::json!({"files": "not-an-array"}),
+            "expected an array",
+        ),
+        (
+            "read_files",
+            serde_json::json!({"files": [{"path": "/tmp/a", "line_ranges": [{"start": 0, "end": 1}]}]}),
+            "positive integer",
+        ),
+        (
+            "read_files",
+            serde_json::json!({"files": [{"path": "/tmp/a", "line_ranges": [{"start": 3, "end": 2}]}]}),
+            "greater than or equal",
+        ),
+        (
+            "read_files",
+            serde_json::json!({"files": [{"path": "/tmp/a", "line_ranges": [{"start": 1, "end": u64::MAX}]}]}),
+            "inclusive end is too large",
+        ),
+        (
+            "grep",
+            serde_json::json!({"queries": ["ok", 7]}),
+            "queries[1]",
+        ),
+        (
+            "file_glob",
+            serde_json::json!({"patterns": false}),
+            "expected an array",
+        ),
+        (
+            "search_codebase",
+            serde_json::json!({"query": 42}),
+            "expected a string",
+        ),
+        (
+            "apply_file_diffs",
+            serde_json::json!({"summary": "edit", "diffs": [{"file_path": "/tmp/a", "search": "x"}]}),
+            "replace",
+        ),
+        (
+            "apply_file_diffs",
+            serde_json::json!({"summary": "Nothing to do"}),
+            "at least one diff",
+        ),
+        (
+            "run_shell_command",
+            serde_json::json!({"command": 42}),
+            "expected a string",
+        ),
+        (
+            "run_shell_command",
+            serde_json::json!({"command": "  "}),
+            "non-empty string",
+        ),
+        (
+            "run_shell_command",
+            serde_json::json!({"command": "pwd", "is_read_only": "yes"}),
+            "expected a boolean",
+        ),
+        (
+            "write_to_long_running_shell_command",
+            serde_json::json!({"command_id": "command-1", "input": "yes", "mode": "words"}),
+            "mode",
+        ),
+        (
+            "interrupt_shell_command",
+            serde_json::json!({}),
+            "command_id",
+        ),
+        (
+            "read_shell_command_output",
+            serde_json::json!({"command_id": 12}),
+            "expected a string",
+        ),
+        (
+            "read_shell_command_output",
+            serde_json::json!({"command_id": "command-1", "wait_seconds": 11}),
+            "no greater than",
+        ),
+        (
+            "run_agents",
+            serde_json::json!({"summary": "Investigate", "agent_run_configs": []}),
+            "at least one item",
+        ),
+        (
+            "run_agents",
+            serde_json::json!({"summary": "Investigate", "agent_run_configs": [{"name": "one"}]}),
+            "prompt",
+        ),
+        (
+            "run_agents",
+            serde_json::json!({"summary": "Investigate", "agent_run_configs": [{"name": "one", "prompt": "Inspect"}], "execution_mode": {"type": "other"}}),
+            "execution_mode.type",
+        ),
+        (
+            "run_agents",
+            serde_json::json!({"summary": "Investigate", "agent_run_configs": [{"name": "one", "prompt": "Inspect"}], "skills": [{"skill": "test", "reference_type": "other"}]}),
+            "skills[0].reference_type",
+        ),
+        (
+            "start_agent",
+            serde_json::json!({"name": "worker"}),
+            "prompt",
+        ),
+        (
+            "transfer_shell_command_control_to_user",
+            serde_json::json!({"reason": false}),
+            "expected a string",
+        ),
+        (
+            "wait_for_events",
+            serde_json::json!({"idle_timeout_seconds": -1}),
+            "non-negative",
+        ),
+        (
+            "create_plan",
+            serde_json::json!({"documents": [{"title": "Plan"}]}),
+            "content",
+        ),
+        (
+            "read_skill",
+            serde_json::json!({"skill": "/tmp/SKILL.md", "reference_type": "other"}),
+            "reference_type",
+        ),
+        (
+            "fetch_conversation",
+            serde_json::json!({"conversation_id": null}),
+            "expected a string",
+        ),
+    ];
+
+    for (name, arguments, expected_error) in cases {
+        let error = action_from_tool_call(
+            "task-1",
+            &call(name, arguments),
+            &SkillPathOrigin::Local,
+            &HashMap::new(),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains(expected_error),
+            "{name} error {error:?} did not contain {expected_error:?}"
+        );
+    }
+}
+
+#[test]
+fn known_tools_preserve_legitimate_optional_defaults() {
+    let cases = [
+        ("grep", serde_json::json!({"queries": ["needle"]})),
+        ("file_glob", serde_json::json!({"patterns": ["**/*.rs"]})),
+        (
+            "ask_user_question",
+            serde_json::json!({"question": "Continue?"}),
+        ),
+        (
+            "apply_file_diffs",
+            serde_json::json!({"summary": "Create file", "new_files": [{"file_path": "/tmp/new", "content": ""}]}),
+        ),
+        ("run_shell_command", serde_json::json!({"command": "pwd"})),
+        (
+            "write_to_long_running_shell_command",
+            serde_json::json!({"command_id": "command-1", "input": ""}),
+        ),
+        (
+            "read_shell_command_output",
+            serde_json::json!({"command_id": "command-1"}),
+        ),
+        (
+            "run_agents",
+            serde_json::json!({
+                "summary": "Investigate",
+                "agent_run_configs": [{"name": "worker", "prompt": "Inspect"}]
+            }),
+        ),
+        ("wait_for_events", serde_json::json!({})),
+    ];
+
+    for (name, arguments) in cases {
+        action_from_tool_call(
+            "task-1",
+            &call(name, arguments),
+            &SkillPathOrigin::Local,
+            &HashMap::new(),
+        )
+        .unwrap_or_else(|error| panic!("{name} rejected optional defaults: {error}"));
+    }
 }
 
 #[test]

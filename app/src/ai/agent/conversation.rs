@@ -1930,7 +1930,8 @@ impl AIConversation {
     ) -> String {
         let mut result = Vec::new();
         for exchange in self.all_exchanges() {
-            let formatted_exchange = exchange.format_for_copy(action_model);
+            let formatted_exchange =
+                exchange.format_for_copy_for_conversation(action_model, Some(self.id()));
             if !formatted_exchange.is_empty() {
                 result.push(formatted_exchange);
             }

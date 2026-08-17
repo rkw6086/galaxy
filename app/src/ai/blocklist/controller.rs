@@ -10,7 +10,7 @@ mod pending_response_streams;
 pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,7 +23,8 @@ use futures::channel::oneshot;
 use galaxy_agent_core::{
     turn_control, ExternalWorkId, PendingToolBatch, PendingToolCallState, ProviderRun,
     ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState,
-    ToolLoopGuard, TurnCommand, TurnCommandSender, TurnRequest,
+    StopReason, ToolLoopGuard, ToolResult, ToolResultStatus, TurnCommand, TurnCommandSender,
+    TurnRequest,
 };
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
@@ -630,6 +631,32 @@ enum ProviderCommandResult {
     },
 }
 
+fn convert_provider_tool_batch(
+    action_context: &ProviderActionContext,
+    batch: &PendingToolBatch,
+) -> (Vec<(AIAgentAction, bool)>, Vec<ToolResult>) {
+    let mut actions = Vec::new();
+    let mut invalid_results = Vec::new();
+    for pending in batch
+        .calls
+        .iter()
+        .filter(|pending| pending.state.result().is_none())
+    {
+        match action_context.action_from_tool_call(&pending.call) {
+            Ok(action) => actions.push((
+                action,
+                matches!(pending.state, PendingToolCallState::RecoveryPending),
+            )),
+            Err(message) => invalid_results.push(ToolResult {
+                call_id: pending.call.id.clone(),
+                content: format!("Invalid {} tool input: {message}", pending.call.name),
+                status: ToolResultStatus::Error,
+            }),
+        }
+    }
+    (actions, invalid_results)
+}
+
 struct ActiveProviderRunSlot {
     stream_id: ResponseStreamId,
     response_stream: ModelHandle<ResponseStream>,
@@ -650,6 +677,13 @@ struct ActiveProviderRunSlot {
     monitor_prose_continuations: usize,
 }
 
+struct QueuedProviderRun {
+    slot: ActiveProviderRunSlot,
+    base_provider_config: crate::ai::provider::ProviderConfig,
+    cli_provider_config: crate::ai::provider::ProviderConfig,
+    request_params: api::RequestParams,
+}
+
 #[derive(Clone)]
 struct ActiveProviderRunCheckpoint {
     run: ProviderRun,
@@ -663,6 +697,7 @@ struct ActiveProviderRunCheckpoint {
 struct PreparedRestoredProviderRun {
     snapshot: ActiveProviderRunSnapshot,
     profiles: BTreeMap<String, ProviderRunProfile>,
+    projection_was_initialized: bool,
 }
 
 impl ActiveProviderRunCheckpoint {
@@ -706,6 +741,8 @@ struct ActiveProviderRunSnapshot {
     root_task_id: TaskId,
     did_input_contain_user_query: bool,
     persistence_offset: usize,
+    #[serde(default)]
+    cancellation_reason: Option<CancellationReason>,
     committed_provider_batch: Option<ExternalWorkId>,
     #[serde(default)]
     finished_provider_batch: Option<ExternalWorkId>,
@@ -746,6 +783,7 @@ impl ActiveProviderRunSnapshot {
             root_task_id: slot.root_task_id.clone(),
             did_input_contain_user_query: slot.did_input_contain_user_query,
             persistence_offset: checkpoint.persistence_offset,
+            cancellation_reason: slot.cancellation_reason,
             committed_provider_batch: slot.committed_provider_batch.clone(),
             finished_provider_batch: slot.finished_provider_batch.clone(),
             command_action_refs: slot.command_action_refs.clone(),
@@ -996,9 +1034,23 @@ fn normalize_restored_provider_snapshot(
 fn apply_restored_provider_command_evidence(
     conversation_id: AIConversationId,
     snapshot: &mut ActiveProviderRunSnapshot,
-    evidence: RestoredProviderCommandEvidence,
+    evidence: Option<RestoredProviderCommandEvidence>,
 ) -> Result<(), String> {
     let Some(monitor) = snapshot.command_monitor.as_ref() else {
+        return Ok(());
+    };
+    let Some(evidence) = evidence else {
+        snapshot.pending_monitor_observation = None;
+        snapshot.pending_command_completion = Some(PendingProviderCommandCompletion {
+            block_id: monitor.block_id.clone(),
+            initial_requested_command_action_id: Some(
+                monitor.initial_requested_command_action_id.clone(),
+            ),
+            command: monitor.command.clone(),
+            output: "The monitored command was interrupted while Galaxy was offline; its terminal block is no longer available."
+                .to_owned(),
+            exit_code: 130,
+        });
         return Ok(());
     };
     if evidence.conversation_id != Some(conversation_id)
@@ -1036,6 +1088,20 @@ fn apply_restored_provider_command_evidence(
         }
     }
     Ok(())
+}
+
+fn restored_projection_was_initialized(
+    has_output: bool,
+    has_server_output_id: bool,
+    has_added_messages: bool,
+) -> Result<bool, String> {
+    match (has_output, has_server_output_id, has_added_messages) {
+        (false, false, false) => Ok(false),
+        (true, true, _) => Ok(true),
+        (false, true, _) | (false, false, true) | (true, false, _) => {
+            Err("restored provider projection exchange is partially initialized".to_owned())
+        }
+    }
 }
 
 fn provider_execution_matches_active_work(
@@ -1147,6 +1213,7 @@ fn classify_provider_command_result(
                 command: Some(command.clone()),
             }),
             RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::ExecutionError { .. }
             | RequestCommandOutputResult::Denylisted { .. } => None,
         },
         AIAgentActionResultType::WriteToLongRunningShellCommand(result) => match result {
@@ -1430,7 +1497,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             error: Some(error.message.clone()),
         },
         ProviderRunProjection::ModelEvent { .. } | ProviderRunProjection::ToolBatchReady { .. } => {
-            return None
+            return None;
         }
     };
     Some(lifecycle)
@@ -1535,8 +1602,11 @@ fn provider_run_terminal_remote_log_record(
 }
 
 enum ProviderDriveMessage {
-    Response(warp_multi_agent_api::ResponseEvent),
-    Lifecycle(ProviderLlmLifecycle),
+    Projection {
+        lifecycle: Option<ProviderLlmLifecycle>,
+        events: Vec<warp_multi_agent_api::ResponseEvent>,
+        acknowledgement: oneshot::Sender<Result<(), String>>,
+    },
     Checkpoint {
         checkpoint: ActiveProviderRunCheckpoint,
         acknowledgement: oneshot::Sender<Result<(), String>>,
@@ -1559,6 +1629,7 @@ pub struct BlocklistAIController {
 
     in_flight_response_streams: PendingResponseStreams,
     active_provider_runs: HashMap<AIConversationId, ActiveProviderRunSlot>,
+    queued_provider_runs: HashMap<AIConversationId, VecDeque<QueuedProviderRun>>,
     restoring_provider_runs: HashSet<AIConversationId>,
 
     /// The ID of the terminal surface this controller is associated with.
@@ -2048,6 +2119,7 @@ impl BlocklistAIController {
             terminal_model,
             in_flight_response_streams: PendingResponseStreams::new(),
             active_provider_runs: HashMap::new(),
+            queued_provider_runs: HashMap::new(),
             restoring_provider_runs: HashSet::new(),
             terminal_surface_id,
             should_refresh_available_llms_on_stream_finish: false,
@@ -2606,6 +2678,10 @@ impl BlocklistAIController {
         if self
             .in_flight_response_streams
             .has_active_stream_for_conversation(conversation_id, ctx)
+            && !self
+                .active_provider_runs
+                .get(&conversation_id)
+                .is_some_and(|slot| slot.cancellation_reason.is_some())
             || self
                 .action_model
                 .as_ref(ctx)
@@ -4563,7 +4639,7 @@ impl BlocklistAIController {
             .all_inputs()
             .any(|input| input.is_user_query());
         ctx.subscribe_to_model(&response_stream, move |me, _, event, ctx| {
-            me.handle_response_stream_event(
+            let _ = me.handle_response_stream_event(
                 input_contains_user_query,
                 event,
                 &response_stream_clone,
@@ -4625,15 +4701,24 @@ impl BlocklistAIController {
         } else {
             None
         };
-        self.in_flight_response_streams.register_new_stream(
-            response_stream_id.clone(),
-            conversation_data.id,
-            response_stream.clone(),
-            CancellationReason::FollowUpSubmitted {
-                is_for_same_conversation: true,
-            },
-            ctx,
-        );
+        if provider_configs.is_some()
+            && self
+                .active_provider_runs
+                .contains_key(&conversation_data.id)
+        {
+            self.in_flight_response_streams
+                .register_additional_stream(response_stream_id.clone(), response_stream.clone());
+        } else {
+            self.in_flight_response_streams.register_new_stream(
+                response_stream_id.clone(),
+                conversation_data.id,
+                response_stream.clone(),
+                CancellationReason::FollowUpSubmitted {
+                    is_for_same_conversation: true,
+                },
+                ctx,
+            );
+        }
         if let Some((base_provider_config, cli_provider_config)) = provider_configs {
             let provider_run_id = ProviderRunId::new(format!(
                 "{}:{}",
@@ -4646,37 +4731,50 @@ impl BlocklistAIController {
                 .expect("conversation exists while starting provider run")
                 .get_root_task_id()
                 .clone();
-            self.active_provider_runs.insert(
-                conversation_data.id,
-                ActiveProviderRunSlot {
-                    stream_id: response_stream_id.clone(),
-                    response_stream,
-                    did_input_contain_user_query: input_contains_user_query,
-                    run_id: provider_run_id,
-                    root_task_id,
-                    projection_target: provider_projection_target
-                        .expect("provider projection target was validated"),
-                    run: None,
-                    checkpoint: None,
-                    turn_control: None,
-                    cancellation_reason: None,
-                    committed_provider_batch: None,
-                    finished_provider_batch: None,
-                    command_action_refs: HashMap::new(),
-                    command_monitor: None,
-                    pending_monitor_observation: None,
-                    pending_command_completion: None,
-                    monitor_prose_continuations: 0,
-                },
-            );
-            self.prepare_active_provider_run(
-                conversation_data.id,
-                response_stream_id.clone(),
-                base_provider_config,
-                cli_provider_config,
-                request_params.clone(),
-                ctx,
-            );
+            let slot = ActiveProviderRunSlot {
+                stream_id: response_stream_id.clone(),
+                response_stream,
+                did_input_contain_user_query: input_contains_user_query,
+                run_id: provider_run_id,
+                root_task_id,
+                projection_target: provider_projection_target
+                    .expect("provider projection target was validated"),
+                run: None,
+                checkpoint: None,
+                turn_control: None,
+                cancellation_reason: None,
+                committed_provider_batch: None,
+                finished_provider_batch: None,
+                command_action_refs: HashMap::new(),
+                command_monitor: None,
+                pending_monitor_observation: None,
+                pending_command_completion: None,
+                monitor_prose_continuations: 0,
+            };
+            if self
+                .active_provider_runs
+                .contains_key(&conversation_data.id)
+            {
+                self.queued_provider_runs
+                    .entry(conversation_data.id)
+                    .or_default()
+                    .push_back(QueuedProviderRun {
+                        slot,
+                        base_provider_config,
+                        cli_provider_config,
+                        request_params: request_params.clone(),
+                    });
+            } else {
+                self.active_provider_runs.insert(conversation_data.id, slot);
+                self.prepare_active_provider_run(
+                    conversation_data.id,
+                    response_stream_id.clone(),
+                    base_provider_config,
+                    cli_provider_config,
+                    request_params.clone(),
+                    ctx,
+                );
+            }
         }
 
         // Skip the context reset for a fired queued-prompt row (`is_queued_prompt`): its
@@ -4806,21 +4904,29 @@ impl BlocklistAIController {
                 let Some(task) = conversation.get_task(&snapshot.projection_target.task_id) else {
                     return Err("restored provider projection task is missing".to_string());
                 };
-                if !task
+                let Some(exchange) = task
                     .exchanges()
-                    .any(|exchange| exchange.id == snapshot.projection_target.exchange_id)
-                {
+                    .find(|exchange| exchange.id == snapshot.projection_target.exchange_id)
+                else {
                     return Err(
                         "restored provider projection exchange is missing from its task"
                             .to_string(),
                     );
-                }
-                Ok(())
+                };
+                let output = exchange.output_status.output();
+                restored_projection_was_initialized(
+                    output.is_some(),
+                    output.is_some_and(|output| output.get().server_output_id.is_some()),
+                    !exchange.added_message_ids.is_empty(),
+                )
             });
-        if let Err(error) = history_validation {
-            self.fail_restored_provider_run(conversation_id, error, ctx);
-            return;
-        }
+        let projection_was_initialized = match history_validation {
+            Ok(initialized) => initialized,
+            Err(error) => {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+        };
 
         if let Err(error) = normalize_restored_provider_snapshot(&mut snapshot) {
             self.fail_restored_provider_run(conversation_id, error, ctx);
@@ -4868,7 +4974,11 @@ impl BlocklistAIController {
                         ProviderRunProfile::new(cli_runtime, cli_monitor_request.clone()),
                     );
                 }
-                Ok::<_, anyhow::Error>(PreparedRestoredProviderRun { snapshot, profiles })
+                Ok::<_, anyhow::Error>(PreparedRestoredProviderRun {
+                    snapshot,
+                    profiles,
+                    projection_was_initialized,
+                })
             },
             move |me, result, ctx| {
                 me.handle_prepared_restored_provider_run(conversation_id, result, ctx);
@@ -4886,19 +4996,18 @@ impl BlocklistAIController {
         };
         let evidence = {
             let terminal_model = self.terminal_model.lock();
-            let block = terminal_model
+            terminal_model
                 .block_list()
                 .block_with_id(&monitor.block_id)
-                .ok_or_else(|| "restored provider command block is missing".to_string())?;
-            RestoredProviderCommandEvidence {
-                conversation_id: block.ai_conversation_id(),
-                requested_command_action_id: block.requested_command_action_id().cloned(),
-                cli_task_id: block.cli_subagent_task_id().cloned(),
-                command: block.command_to_string(),
-                state: block.state(),
-                output: block.output_to_string(),
-                exit_code: block.exit_code().value(),
-            }
+                .map(|block| RestoredProviderCommandEvidence {
+                    conversation_id: block.ai_conversation_id(),
+                    requested_command_action_id: block.requested_command_action_id().cloned(),
+                    cli_task_id: block.cli_subagent_task_id().cloned(),
+                    command: block.command_to_string(),
+                    state: block.state(),
+                    output: block.output_to_string(),
+                    exit_code: block.exit_code().value(),
+                })
         };
         apply_restored_provider_command_evidence(conversation_id, snapshot, evidence)
     }
@@ -4930,7 +5039,11 @@ impl BlocklistAIController {
             self.restoring_provider_runs.remove(&conversation_id);
             return;
         }
-        let PreparedRestoredProviderRun { snapshot, profiles } = match result {
+        let PreparedRestoredProviderRun {
+            snapshot,
+            profiles,
+            projection_was_initialized,
+        } = match result {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
@@ -4948,6 +5061,7 @@ impl BlocklistAIController {
             root_task_id,
             did_input_contain_user_query,
             persistence_offset,
+            cancellation_reason,
             committed_provider_batch,
             finished_provider_batch,
             command_action_refs,
@@ -4960,13 +5074,21 @@ impl BlocklistAIController {
         let transcript = provider_run.transcript();
         let offset = persistence_offset.min(transcript.len());
         let messages_sent = Arc::new(std::sync::Mutex::new(transcript[offset..].to_vec()));
-        let coordinator = match ProviderRunCoordinator::new(provider_run, profiles) {
+        let mut coordinator = match ProviderRunCoordinator::new(provider_run, profiles) {
             Ok(coordinator) => coordinator,
             Err(error) => {
                 self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
                 return;
             }
         };
+        if let Some(reason) = cancellation_reason {
+            if !coordinator.run().is_terminal() {
+                if let Err(error) = coordinator.run_mut().cancel(reason.to_string()) {
+                    self.fail_restored_provider_run(conversation_id, error.to_string(), ctx);
+                    return;
+                }
+            }
+        }
         let model = LLMId::from(response_config.model_id.as_str());
         let ai_identifiers = AIIdentifiers {
             client_conversation_id: Some(conversation_id),
@@ -4984,7 +5106,7 @@ impl BlocklistAIController {
         let stream_id = response_stream.as_ref(ctx).id().clone();
         let response_stream_clone = response_stream.clone();
         ctx.subscribe_to_model(&response_stream, move |me, _, event, ctx| {
-            me.handle_response_stream_event(
+            let _ = me.handle_response_stream_event(
                 did_input_contain_user_query,
                 event,
                 &response_stream_clone,
@@ -5032,7 +5154,10 @@ impl BlocklistAIController {
                 projection_target,
                 run: Some(ActiveProviderRun {
                     coordinator,
-                    projector: ProviderRunResponseProjector::restored(response_config.clone()),
+                    projector: ProviderRunResponseProjector::restored(
+                        response_config.clone(),
+                        projection_was_initialized,
+                    ),
                     response_config,
                     action_context,
                     messages_sent,
@@ -5040,7 +5165,7 @@ impl BlocklistAIController {
                 }),
                 checkpoint: None,
                 turn_control: None,
-                cancellation_reason: None,
+                cancellation_reason,
                 committed_provider_batch,
                 finished_provider_batch,
                 command_action_refs,
@@ -5320,26 +5445,29 @@ impl BlocklistAIController {
                 let checkpoint_sender = sender.clone();
                 let result = run
                     .coordinator
-                    .drive_until_blocked_with_checkpoint(
+                    .drive_until_blocked_with_acknowledgements(
                         turn_control,
                         |projection| {
-                            if let Some(lifecycle) = provider_llm_lifecycle(&projection) {
+                            let lifecycle = provider_llm_lifecycle(&projection);
+                            let events = run.projector.project(projection);
+                            let projection_sender = projection_sender.clone();
+                            Box::pin(async move {
+                                let events = events?;
+                                let (acknowledgement, receiver) = oneshot::channel();
                                 projection_sender
-                                    .try_send(ProviderDriveMessage::Lifecycle(lifecycle))
+                                    .send(ProviderDriveMessage::Projection {
+                                        lifecycle,
+                                        events,
+                                        acknowledgement,
+                                    })
+                                    .await
                                     .map_err(|_| {
-                                        "provider lifecycle projection receiver was closed"
-                                            .to_string()
+                                        "provider projection receiver was closed".to_string()
                                     })?;
-                            }
-                            for event in run.projector.project(projection)? {
-                                projection_sender
-                                    .try_send(ProviderDriveMessage::Response(event))
-                                    .map_err(|_| {
-                                        "provider response projection receiver was closed"
-                                            .to_string()
-                                    })?;
-                            }
-                            Ok(())
+                                receiver.await.map_err(|_| {
+                                    "provider projection acknowledgement was dropped".to_string()
+                                })?
+                            })
                         },
                         move |provider_run| {
                             let checkpoint_sender = checkpoint_sender.clone();
@@ -5385,29 +5513,40 @@ impl BlocklistAIController {
             return;
         }
         match message {
-            ProviderDriveMessage::Response(event) => {
+            ProviderDriveMessage::Projection {
+                lifecycle,
+                events,
+                acknowledgement,
+            } => {
                 let response_stream = slot.response_stream.clone();
                 let did_input_contain_user_query = slot.did_input_contain_user_query;
-                let event = ResponseStream::projected_event(event);
-                self.handle_response_stream_event(
-                    did_input_contain_user_query,
-                    &event,
-                    &response_stream,
-                    ctx,
-                );
-            }
-            ProviderDriveMessage::Lifecycle(lifecycle) => {
+                let mut result = Ok(());
+                for event in events {
+                    let event = ResponseStream::projected_event(event);
+                    if let Err(error) = self.handle_response_stream_event(
+                        did_input_contain_user_query,
+                        &event,
+                        &response_stream,
+                        ctx,
+                    ) {
+                        result = Err(error);
+                        break;
+                    }
+                }
                 #[cfg(not(target_family = "wasm"))]
-                remote_logging::log_model_event(
-                    ctx,
-                    provider_llm_lifecycle_remote_log_record(
-                        conversation_id,
-                        stream_id,
-                        &lifecycle,
-                    ),
-                );
+                if let Some(lifecycle) = lifecycle.as_ref() {
+                    remote_logging::log_model_event(
+                        ctx,
+                        provider_llm_lifecycle_remote_log_record(
+                            conversation_id,
+                            stream_id,
+                            lifecycle,
+                        ),
+                    );
+                }
                 #[cfg(target_family = "wasm")]
                 let _ = lifecycle;
+                let _ = acknowledgement.send(result);
             }
             ProviderDriveMessage::Checkpoint {
                 checkpoint,
@@ -5691,35 +5830,60 @@ impl BlocklistAIController {
         batch: PendingToolBatch,
         ctx: &mut ModelContext<Self>,
     ) {
-        let conversion = self
+        let Some(run) = self
             .active_provider_runs
-            .get(&conversation_id)
-            .and_then(|slot| slot.run.as_ref())
-            .map(|run| {
-                batch
-                    .calls
-                    .iter()
-                    .filter(|pending| pending.state.result().is_none())
-                    .map(|pending| {
-                        run.action_context
-                            .action_from_tool_call(&pending.call)
-                            .map(|action| {
-                                (
-                                    action,
-                                    matches!(pending.state, PendingToolCallState::RecoveryPending),
-                                )
-                            })
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            });
-        let converted_actions = match conversion {
-            Some(Ok(actions)) => actions,
-            Some(Err(message)) => {
-                self.fail_active_provider_run(conversation_id, message, ctx);
+            .get_mut(&conversation_id)
+            .and_then(|slot| slot.run.as_mut())
+        else {
+            return;
+        };
+        let (converted_actions, invalid_results) =
+            convert_provider_tool_batch(&run.action_context, &batch);
+        for result in &invalid_results {
+            if let Err(error) = run
+                .coordinator
+                .run_mut()
+                .complete_tool(&batch.work_id, result.clone())
+            {
+                self.fail_active_provider_run(
+                    conversation_id,
+                    format!("failed to record invalid provider tool input: {error}"),
+                    ctx,
+                );
                 return;
             }
-            None => return,
-        };
+        }
+        if converted_actions.is_empty() {
+            if let Err(error) = run.coordinator.run_mut().commit_tool_batch(&batch.work_id) {
+                self.fail_active_provider_run(
+                    conversation_id,
+                    format!("failed to commit invalid provider tool batch: {error}"),
+                    ctx,
+                );
+                return;
+            }
+            if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                self.fail_active_provider_run(
+                    conversation_id,
+                    format!("failed to persist invalid provider tool results: {error}"),
+                    ctx,
+                );
+                return;
+            }
+            self.drive_active_provider_run(conversation_id, ctx);
+            return;
+        }
+        let mut executable_batch = batch.clone();
+        for pending in &mut executable_batch.calls {
+            if let Some(result) = invalid_results
+                .iter()
+                .find(|result| result.call_id == pending.call.id)
+            {
+                pending.state = PendingToolCallState::Resolved {
+                    result: result.clone(),
+                };
+            }
+        }
         let stream_id = self.active_provider_runs[&conversation_id]
             .stream_id
             .clone();
@@ -5806,7 +5970,7 @@ impl BlocklistAIController {
                 actions,
                 recovery_action_ids,
                 conversation_id,
-                &batch,
+                &executable_batch,
                 ctx,
             )
         });
@@ -6038,6 +6202,33 @@ impl BlocklistAIController {
         }
     }
 
+    fn detach_cancelled_provider_command(
+        &mut self,
+        conversation_id: AIConversationId,
+        block_id: &BlockId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let detached = {
+            let mut terminal_model = self.terminal_model.lock();
+            let active_block = terminal_model.block_list_mut().active_block_mut();
+            if active_block.id() == block_id
+                && active_block.ai_conversation_id() == Some(conversation_id)
+                && active_block.is_active_and_long_running()
+            {
+                active_block.set_user_control_with_stop_reason();
+                true
+            } else {
+                false
+            }
+        };
+        self.deactivate_provider_cli_task(conversation_id, block_id, ctx);
+        if !detached {
+            log::warn!(
+                "Could not detach cancelled provider command for conversation {conversation_id:?} block {block_id:?}"
+            );
+        }
+    }
+
     fn handle_provider_actions_finished(
         &mut self,
         conversation_id: AIConversationId,
@@ -6219,7 +6410,7 @@ impl BlocklistAIController {
         let did_input_contain_user_query = slot.did_input_contain_user_query;
         for event in events {
             let event = ResponseStream::projected_event(event);
-            self.handle_response_stream_event(
+            let _ = self.handle_response_stream_event(
                 did_input_contain_user_query,
                 &event,
                 &response_stream,
@@ -6237,9 +6428,35 @@ impl BlocklistAIController {
             ),
         );
         match outcome {
-            ProviderRunOutcome::Completed(_) => {
-                self.finalize_completed_provider_conversation(conversation_id, ctx);
-            }
+            ProviderRunOutcome::Completed(completion) => match completion.stop_reason {
+                StopReason::Completed => {
+                    self.finalize_completed_provider_conversation(conversation_id, ctx);
+                }
+                StopReason::Cancelled => {
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        history_model.update_conversation_status(
+                            self.terminal_surface_id,
+                            conversation_id,
+                            ConversationStatus::Cancelled,
+                            ctx,
+                        );
+                    });
+                }
+                StopReason::MaxTokens
+                | StopReason::ContextWindowExceeded
+                | StopReason::Refusal
+                | StopReason::ToolLoopLimit
+                | StopReason::Other(_) => {
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        history_model.update_conversation_status(
+                            self.terminal_surface_id,
+                            conversation_id,
+                            ConversationStatus::Error,
+                            ctx,
+                        );
+                    });
+                }
+            },
             // Failed outcomes are finalized by the projected InternalError event.
             ProviderRunOutcome::Failed(_) => {}
             ProviderRunOutcome::Cancelled { .. } => {
@@ -6314,6 +6531,13 @@ impl BlocklistAIController {
         response_stream: &ModelHandle<ResponseStream>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if !self
+            .active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| &slot.stream_id == stream_id)
+        {
+            return;
+        }
         if let Err(error) = self.clear_persisted_active_provider_run(conversation_id, ctx) {
             log::error!("Failed to clear persisted provider run during cleanup: {error}");
         }
@@ -6334,6 +6558,38 @@ impl BlocklistAIController {
             request_usage_model.refresh_request_usage_async(ctx);
         });
         self.maybe_refresh_ai_overages(ctx);
+        self.start_next_queued_provider_run(conversation_id, ctx);
+    }
+
+    fn start_next_queued_provider_run(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let next = self
+            .queued_provider_runs
+            .get_mut(&conversation_id)
+            .and_then(VecDeque::pop_front);
+        if self
+            .queued_provider_runs
+            .get(&conversation_id)
+            .is_some_and(VecDeque::is_empty)
+        {
+            self.queued_provider_runs.remove(&conversation_id);
+        }
+        let Some(next) = next else {
+            return;
+        };
+        let stream_id = next.slot.stream_id.clone();
+        self.active_provider_runs.insert(conversation_id, next.slot);
+        self.prepare_active_provider_run(
+            conversation_id,
+            stream_id,
+            next.base_provider_config,
+            next.cli_provider_config,
+            next.request_params,
+            ctx,
+        );
     }
 
     fn cancel_active_provider_run(
@@ -6342,53 +6598,59 @@ impl BlocklistAIController {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
-        let Some(mut slot) = self.active_provider_runs.remove(&conversation_id) else {
+        let cancellation_outcome = reason.conversation_outcome();
+        let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
             return false;
         };
         slot.cancellation_reason = Some(reason);
+        let command_block_id = if matches!(cancellation_outcome, CancellationOutcome::Cancelled) {
+            let monitor = slot.command_monitor.take();
+            if let Some(monitor) = &monitor {
+                slot.command_action_refs
+                    .remove(&monitor.initial_requested_command_action_id);
+            }
+            slot.pending_monitor_observation = None;
+            slot.pending_command_completion = None;
+            monitor.map(|monitor| monitor.block_id)
+        } else {
+            None
+        };
         if let Some(turn_control) = &slot.turn_control {
             let _ = turn_control.try_send(TurnCommand::Cancel);
         }
-        if let Some(mut run) = slot.run.take() {
+        let should_drive = if let Some(run) = slot.run.as_mut() {
             if !run.coordinator.run().is_terminal() {
                 let _ = run.coordinator.run_mut().cancel(reason.to_string());
             }
-            if let Ok(mut messages_sent) = run.messages_sent.lock() {
-                let transcript = run.coordinator.run().transcript();
-                let offset = run.persistence_offset.min(transcript.len());
-                *messages_sent = transcript[offset..].to_vec();
-            }
+            true
+        } else {
+            false
+        };
+
+        // Keep the terminal run and its slot durable until the normal driver path projects the
+        // cancellation and finalizes it through `finish_active_provider_run`.
+        if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+            log::error!("Failed to persist provider cancellation: {error}");
         }
 
         self.action_model.update(ctx, |action_model, ctx| {
             action_model.cancel_all_pending_actions(conversation_id, Some(reason), ctx);
         });
 
-        let cancellation_outcome = reason.conversation_outcome();
         if FeatureFlag::AgentSharedSessions.is_enabled()
             && !matches!(cancellation_outcome, CancellationOutcome::KeepInProgress)
         {
             self.send_cancellation_to_viewers(ctx);
         }
-        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-            history_model.mark_response_stream_cancelled(
-                &slot.stream_id,
-                conversation_id,
-                self.terminal_surface_id,
-                reason,
-                ctx,
-            );
-        });
         if matches!(cancellation_outcome, CancellationOutcome::Cancelled) {
             self.set_input_mode_for_cancellation(ctx);
+            if let Some(block_id) = command_block_id {
+                self.detach_cancelled_provider_command(conversation_id, &block_id, ctx);
+            }
         }
-
-        self.cleanup_active_provider_run(
-            conversation_id,
-            &slot.stream_id,
-            &slot.response_stream,
-            ctx,
-        );
+        if should_drive {
+            self.drive_active_provider_run(conversation_id, ctx);
+        }
         true
     }
 
@@ -6535,7 +6797,7 @@ impl BlocklistAIController {
     ) {
         let stream_clone = stream.clone();
         ctx.subscribe_to_model(&stream, move |me, _, event, ctx| {
-            me.handle_response_stream_event(false, event, &stream_clone, ctx);
+            let _ = me.handle_response_stream_event(false, event, &stream_clone, ctx);
         });
         self.in_flight_response_streams.register_new_stream(
             stream_id,
@@ -6739,7 +7001,7 @@ impl BlocklistAIController {
         event: &ResponseStreamEvent,
         response_stream: &ModelHandle<ResponseStream>,
         ctx: &mut ModelContext<Self>,
-    ) {
+    ) -> Result<(), String> {
         let stream_id = response_stream.as_ref(ctx).id().clone();
 
         match event {
@@ -6749,14 +7011,16 @@ impl BlocklistAIController {
                     .conversation_for_response_stream(&stream_id)
                 else {
                     log::warn!("Could not find conversation for response stream: {stream_id:?}");
-                    return;
+                    return Err(format!(
+                        "could not find conversation for response stream {stream_id:?}"
+                    ));
                 };
                 let Some(event) = event.consume() else {
                     debug_assert!(
                         false,
                         "This model should only have a single subscriber that takes ownership over the event."
                     );
-                    return;
+                    return Err("response stream event was already consumed".to_string());
                 };
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match event {
@@ -6794,7 +7058,7 @@ impl BlocklistAIController {
                             }
                         }
                         let Some(event) = event.r#type else {
-                            return;
+                            return Err("response event did not contain a type".to_string());
                         };
                         match event {
                             warp_multi_agent_api::response_event::Type::Init(init_event) => {
@@ -6909,6 +7173,9 @@ impl BlocklistAIController {
                                     log::error!(
                                         "Failed to apply client actions to conversation: {e:?}"
                                     );
+                                    return Err(format!(
+                                        "failed to apply provider client actions: {e:?}"
+                                    ));
                                 }
                             }
                         }
@@ -6954,7 +7221,9 @@ impl BlocklistAIController {
                             log::warn!(
                                 "Could not find conversation for response stream: {stream_id:?}"
                             );
-                            return;
+                            return Err(format!(
+                                "could not find conversation for response stream {stream_id:?}"
+                            ));
                         };
                         id
                     }
@@ -6980,7 +7249,7 @@ impl BlocklistAIController {
                     })
                 else {
                     log::warn!("Conversation not found.");
-                    return;
+                    return Err("conversation not found for completed response stream".to_string());
                 };
                 #[cfg(not(target_family = "wasm"))]
                 if let Some(metadata) = response_stream.as_ref(ctx).acp_session_metadata() {
@@ -7036,7 +7305,7 @@ impl BlocklistAIController {
                 for new_exchange_id in new_exchange_ids {
                     let Some(exchange) = exchanges.exchange_with_id(new_exchange_id) else {
                         log::warn!("Exchange not found.");
-                        return;
+                        return Err("exchange not found for completed response stream".to_string());
                     };
                     was_passive_request |= exchange.has_passive_request();
                     is_any_exchange_unfinished |= !exchange.output_status.is_finished();
@@ -7328,6 +7597,7 @@ impl BlocklistAIController {
                 self.maybe_refresh_ai_overages(ctx);
             }
         }
+        Ok(())
     }
 
     /// Sets the terminal input state after an AI request is cancelled.

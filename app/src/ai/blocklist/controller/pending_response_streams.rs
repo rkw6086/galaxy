@@ -91,6 +91,14 @@ impl PendingResponseStreams {
         self.streams.insert(stream_id, stream);
     }
 
+    pub fn register_additional_stream(
+        &mut self,
+        stream_id: ResponseStreamId,
+        stream: ModelHandle<ResponseStream>,
+    ) {
+        self.streams.insert(stream_id, stream);
+    }
+
     pub fn cleanup_stream(&mut self, stream_id: &ResponseStreamId) {
         self.streams.remove(stream_id);
     }
@@ -142,9 +150,11 @@ impl PendingResponseStreams {
             for response_stream in streams_to_cancel.into_iter() {
                 log::info!(
                     "Canceling active stream for conversation_id={conversation_id:?}, \
-                     reason={reason}, backtrace=\n{}",
-                    std::backtrace::Backtrace::force_capture()
+                     reason={reason}"
                 );
+                if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
+                    log::debug!("Active stream cancellation backtrace:\n{backtrace}");
+                }
                 response_stream.update(ctx, |stream, ctx| {
                     stream.cancel(reason, conversation_id, ctx)
                 });

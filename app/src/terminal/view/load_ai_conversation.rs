@@ -364,7 +364,9 @@ impl TerminalView {
                             }) => {
                                 if let Some(result) =
                                     self.ai_action_model.read(ctx, |action_model, _| {
-                                        action_model.get_action_result(&action.id).cloned()
+                                        action_model
+                                            .get_action_result(conversation_id, &action.id)
+                                            .cloned()
                                     })
                                 {
                                     if let AIAgentActionResultType::CreateDocuments(
@@ -402,7 +404,9 @@ impl TerminalView {
                             AIAgentActionType::EditDocuments { .. } => {
                                 if let Some(result) =
                                     self.ai_action_model.read(ctx, |action_model, _| {
-                                        action_model.get_action_result(&action.id).cloned()
+                                        action_model
+                                            .get_action_result(conversation_id, &action.id)
+                                            .cloned()
                                     })
                                 {
                                     if let AIAgentActionResultType::EditDocuments(
@@ -449,8 +453,10 @@ impl TerminalView {
 
         for conversation in &conversations {
             self.ai_action_model.update(ctx, |action_model, _ctx| {
-                action_model
-                    .restore_action_results_from_exchanges(exchanges_for_blocklist(conversation));
+                action_model.restore_action_results_from_exchanges(
+                    conversation.id(),
+                    exchanges_for_blocklist(conversation),
+                );
             });
         }
 

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest};
 use ai::agent::orchestration_config::{
@@ -525,12 +527,16 @@ fn completion_slots_are_polled_concurrently_and_preserve_request_order() {
         let (second_sender, second_receiver) = async_channel::bounded(1);
         let slots = vec![
             ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
                 receiver: first_receiver,
                 wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
             }),
             ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(2),
                 receiver: second_receiver,
                 wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
             }),
             ChildSlot::Failed("prelaunch failure".to_string()),
         ];
@@ -557,15 +563,16 @@ fn completion_slots_are_polled_concurrently_and_preserve_request_order() {
         let outcomes = outcomes.await;
 
         assert!(matches!(
-            &outcomes[0],
+            &outcomes[0].outcome,
             RunAgentsAgentOutcomeKind::Failed { error } if error == "first failed"
         ));
         assert!(matches!(
-            &outcomes[1],
-            RunAgentsAgentOutcomeKind::Launched { agent_id } if agent_id == "second-agent"
+            &outcomes[1].outcome,
+            RunAgentsAgentOutcomeKind::Completed { agent_id, output }
+                if agent_id == "second-agent" && output == "done"
         ));
         assert!(matches!(
-            &outcomes[2],
+            &outcomes[2].outcome,
             RunAgentsAgentOutcomeKind::Failed { error } if error == "prelaunch failure"
         ));
     });
@@ -577,8 +584,10 @@ fn completion_wait_ignores_spawn_timeout() {
         let (sender, receiver) = async_channel::bounded(1);
         let completion = Box::pin(resolve_child_slot_with_timeout(
             ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
                 receiver,
                 wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
             }),
             Duration::from_millis(1),
         ));
@@ -598,8 +607,9 @@ fn completion_wait_ignores_spawn_timeout() {
             .unwrap();
 
         assert!(matches!(
-            completion.await,
-            RunAgentsAgentOutcomeKind::Launched { agent_id } if agent_id == "child-agent"
+            completion.await.outcome,
+            RunAgentsAgentOutcomeKind::Completed { agent_id, output }
+                if agent_id == "child-agent" && output == "done"
         ));
     });
 }
@@ -610,18 +620,70 @@ fn startup_wait_retains_spawn_timeout() {
         let (_sender, receiver) = async_channel::bounded(1);
         let outcome = resolve_child_slot_with_timeout(
             ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
                 receiver,
                 wait_policy: StartAgentWaitPolicy::Startup,
+                detached: Arc::new(AtomicBool::new(false)),
             }),
             Duration::from_millis(1),
         )
         .await;
 
+        assert!(outcome.timed_out_request_id.is_some());
+        assert_eq!(
+            outcome.timed_out_request_id,
+            Some(StartAgentRequestId::from_raw_for_test(1))
+        );
         assert!(matches!(
-            outcome,
+            outcome.outcome,
             RunAgentsAgentOutcomeKind::Failed { error }
                 if error.contains("Agent failed to start within")
         ));
+    });
+}
+
+#[test]
+fn startup_timeout_detaches_exact_pending_request() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        let start_agent_executor = state.start_agent_executor;
+        let parent_conversation_id = state.conversation_id;
+        let dispatch = start_agent_executor.update(&mut app, |executor, ctx| {
+            executor.dispatch(
+                AIAgentActionId::from("run-agents-timeout".to_string()),
+                "child".to_string(),
+                "work".to_string(),
+                StartAgentExecutionMode::Remote {
+                    environment_id: "environment".to_string(),
+                    skill_references: Vec::new(),
+                    model_id: "model".to_string(),
+                    computer_use_enabled: false,
+                    worker_host: String::new(),
+                    harness_type: "oz".to_string(),
+                    title: String::new(),
+                    auth_secret_name: None,
+                },
+                None,
+                parent_conversation_id,
+                Some("parent-run".to_string()),
+                ctx,
+            )
+        });
+        let request_id = dispatch.request_id;
+
+        let resolved =
+            resolve_child_slot_with_timeout(ChildSlot::Pending(dispatch), Duration::from_millis(1))
+                .await;
+        let timed_out_request_id = resolved
+            .timed_out_request_id
+            .expect("startup timeout should expose request identity");
+        start_agent_executor.update(&mut app, |executor, _| {
+            assert!(executor.detach_dispatch(timed_out_request_id));
+        });
+
+        start_agent_executor.read(&app, |executor, _| {
+            assert!(!executor.has_pending_dispatch_for_test(request_id));
+        });
     });
 }
 

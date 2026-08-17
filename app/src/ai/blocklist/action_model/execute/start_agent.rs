@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -42,9 +44,24 @@ pub enum StartAgentWaitPolicy {
     Completion,
 }
 
+fn wait_policy_for_execution_mode(mode: &StartAgentExecutionMode) -> StartAgentWaitPolicy {
+    match mode {
+        StartAgentExecutionMode::Local { .. } => StartAgentWaitPolicy::Completion,
+        StartAgentExecutionMode::Remote { .. } => StartAgentWaitPolicy::Startup,
+    }
+}
+
 pub struct StartAgentDispatch {
+    pub request_id: StartAgentRequestId,
     pub receiver: async_channel::Receiver<StartAgentOutcome>,
     pub wait_policy: StartAgentWaitPolicy,
+    pub(super) detached: Arc<AtomicBool>,
+}
+
+impl StartAgentDispatch {
+    pub(super) fn mark_detached(&self) {
+        self.detached.store(true, Ordering::Release);
+    }
 }
 
 fn invalid_local_child_harness_error(harness_type: &str) -> String {
@@ -139,6 +156,7 @@ struct PendingStartAgent {
     /// Set once the child conversation is synchronously created.
     child_conversation_id: Option<AIConversationId>,
     sender: async_channel::Sender<StartAgentOutcome>,
+    detached: Arc<AtomicBool>,
     /// Direct Bedrock/OpenAI parents do not have a server run id or an
     /// orchestration event stream. Keep the tool call open until their local
     /// child finishes, then return the child's output inline.
@@ -176,9 +194,17 @@ impl StartAgentExecutor {
         ctx: &mut ModelContext<Self>,
     ) {
         let child_link_event = {
-            let Some(pending) = self.pending.get_mut(&request_id) else {
+            let Some(pending) = self.pending.get(&request_id) else {
                 return;
             };
+            if pending.detached.load(Ordering::Acquire) {
+                self.pending.remove(&request_id);
+                return;
+            }
+            let pending = self
+                .pending
+                .get_mut(&request_id)
+                .expect("pending request was checked above");
             pending.child_conversation_id = Some(child_conversation_id);
             if let Some(agent_name) = pending.run_agents_child_name.clone() {
                 Some(StartAgentExecutorEvent::RunAgentsChildConversationCreated {
@@ -595,16 +621,13 @@ impl StartAgentExecutor {
             }
         };
 
-        // In local mode (no parent_run_id), block until the child finishes
-        // so the parent model receives the child's output as the tool result.
-        let wait_policy = if parent_run_id.is_none() {
-            StartAgentWaitPolicy::Completion
-        } else {
-            StartAgentWaitPolicy::Startup
-        };
+        // Local children return their completed work; remote children acknowledge startup and
+        // continue through the hosted orchestration lifecycle.
+        let wait_policy = wait_policy_for_execution_mode(&execution_mode);
 
         let (sender, receiver) = async_channel::bounded(1);
         let request_id = self.next_request_id();
+        let detached = Arc::new(AtomicBool::new(false));
         self.pending.insert(
             request_id,
             PendingStartAgent {
@@ -613,6 +636,7 @@ impl StartAgentExecutor {
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
+                detached,
                 wait_policy,
             },
         );
@@ -667,24 +691,23 @@ impl StartAgentExecutor {
         parent_run_id: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) -> StartAgentDispatch {
-        let wait_policy = if parent_run_id.is_none() {
-            StartAgentWaitPolicy::Completion
-        } else {
-            StartAgentWaitPolicy::Startup
-        };
+        let wait_policy = wait_policy_for_execution_mode(&execution_mode);
         let (sender, receiver) = async_channel::bounded(1);
+        let request_id = self.next_request_id();
+        let detached = Arc::new(AtomicBool::new(false));
         if let Some(error) = child_agent_delegation_denial_reason(parent_conversation_id, ctx) {
             let _ = sender.try_send(StartAgentOutcome::Error(error));
             return StartAgentDispatch {
+                request_id,
                 receiver,
                 wait_policy,
+                detached,
             };
         }
 
         let (prompt, execution_mode) =
             normalize_legacy_local_child_harness_command(prompt, execution_mode);
         let prompt = compose_leaf_agent_prompt(&prompt);
-        let request_id = self.next_request_id();
         self.pending.insert(
             request_id,
             PendingStartAgent {
@@ -693,6 +716,7 @@ impl StartAgentExecutor {
                 parent_conversation_id,
                 child_conversation_id: None,
                 sender,
+                detached: detached.clone(),
                 wait_policy,
             },
         );
@@ -708,8 +732,10 @@ impl StartAgentExecutor {
             },
         )));
         StartAgentDispatch {
+            request_id,
             receiver,
             wait_policy,
+            detached,
         }
     }
 
@@ -719,16 +745,12 @@ impl StartAgentExecutor {
         name: String,
         parent_conversation_id: AIConversationId,
         child_conversation_id: AIConversationId,
-        parent_run_id: Option<String>,
+        wait_policy: StartAgentWaitPolicy,
         ctx: &mut ModelContext<Self>,
     ) -> StartAgentDispatch {
-        let wait_policy = if parent_run_id.is_none() {
-            StartAgentWaitPolicy::Completion
-        } else {
-            StartAgentWaitPolicy::Startup
-        };
         let (sender, receiver) = async_channel::bounded(1);
         let request_id = self.next_request_id();
+        let detached = Arc::new(AtomicBool::new(false));
         self.pending.insert(
             request_id,
             PendingStartAgent {
@@ -737,19 +759,54 @@ impl StartAgentExecutor {
                 parent_conversation_id,
                 child_conversation_id: Some(child_conversation_id),
                 sender,
+                detached: detached.clone(),
                 wait_policy,
             },
         );
         self.record_child_conversation(request_id, child_conversation_id, ctx);
         StartAgentDispatch {
+            request_id,
             receiver,
             wait_policy,
+            detached,
         }
     }
 
-    pub fn cancel_dispatches_for_action(&mut self, action_id: &AIAgentActionId) {
-        self.pending
-            .retain(|_, pending| &pending.action_id != action_id);
+    /// Detaches one exact dispatch. If its launch callback is already queued,
+    /// the shared marker prevents that callback from linking a late child.
+    pub fn detach_dispatch(&mut self, request_id: StartAgentRequestId) -> bool {
+        let Some(pending) = self.pending.remove(&request_id) else {
+            return false;
+        };
+        pending.detached.store(true, Ordering::Release);
+        true
+    }
+
+    /// Test-only lookup for request ownership without exposing executor internals.
+    #[cfg(test)]
+    pub fn has_pending_dispatch_for_test(&self, request_id: StartAgentRequestId) -> bool {
+        self.pending.contains_key(&request_id)
+    }
+
+    pub fn cancel_dispatches_for_action(&mut self, action_id: &AIAgentActionId) -> usize {
+        let request_ids = self
+            .pending
+            .iter()
+            .filter_map(|(request_id, pending)| {
+                (&pending.action_id == action_id).then_some(*request_id)
+            })
+            .collect::<Vec<_>>();
+        let detached_count = request_ids.len();
+        for request_id in request_ids {
+            self.detach_dispatch(request_id);
+        }
+        detached_count
+    }
+
+    /// Cancels only the caller's pending tool wait. A child that was already created keeps
+    /// running independently and remains available in conversation history.
+    pub(super) fn cancel_execution(&mut self, action_id: &AIAgentActionId) {
+        self.cancel_dispatches_for_action(action_id);
     }
 
     pub(super) fn preprocess_action(

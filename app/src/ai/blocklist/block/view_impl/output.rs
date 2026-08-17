@@ -56,6 +56,7 @@ use super::{
 };
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::comment::ReviewComment;
+use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::icons::{self, gray_stop_icon, yellow_stop_icon};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
@@ -143,6 +144,7 @@ fn should_render_requested_edit(action_status: Option<&AIActionStatus>) -> bool 
 /// Data required to render the AI block output component.
 #[derive(Copy, Clone)]
 pub(crate) struct Props<'a> {
+    pub(crate) conversation_id: AIConversationId,
     pub(crate) model: &'a dyn AIBlockModel<View = AIBlock>,
     pub(super) state_handles: &'a AIBlockStateHandles,
     pub(super) action_buttons: &'a HashMap<AIAgentActionId, ActionButtons>,
@@ -436,7 +438,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             let is_action_done = props
                                 .action_model
                                 .as_ref(app)
-                                .get_action_status(id)
+                                .get_action_status(props.conversation_id, id)
                                 .as_ref()
                                 .is_some_and(|status| status.is_done());
                             if !is_action_done {
@@ -476,7 +478,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                                 let agent_action_results = props
                                     .action_model
                                     .as_ref(app)
-                                    .get_action_result(id)
+                                    .get_action_result(props.conversation_id, id)
                                     .map(|action_result| action_result.as_ref());
 
                                 // checks if the read file action result is completed and successful.
@@ -565,8 +567,10 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             id,
                             ..
                         }) => {
-                            let action_status =
-                                props.action_model.as_ref(app).get_action_status(id);
+                            let action_status = props
+                                .action_model
+                                .as_ref(app)
+                                .get_action_status(props.conversation_id, id);
 
                             if should_render_requested_edit(action_status.as_ref()) {
                                 if let Some(requested_edit) = props.requested_edits.get(id) {
@@ -656,7 +660,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             let is_action_done = props
                                 .action_model
                                 .as_ref(app)
-                                .get_action_status(id)
+                                .get_action_status(props.conversation_id, id)
                                 .as_ref()
                                 .is_some_and(|status| status.is_done());
                             if !is_action_done {
@@ -1374,7 +1378,13 @@ fn render_runtime_activity(
         }
     }
 
-    Some(render_tool_pane_shell(content.finish(), false, false, app))
+    Some(render_tool_pane_shell(
+        content.finish(),
+        false,
+        is_expanded,
+        false,
+        app,
+    ))
 }
 
 fn should_render_stopped_output(props: Props, app: &AppContext) -> bool {
@@ -1473,7 +1483,10 @@ fn render_search_codebase(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
@@ -1974,7 +1987,10 @@ fn render_read_files(
     parsed_skill: Option<&ai::skills::ParsedSkill>,
     action_index: usize,
 ) -> Box<dyn Element> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let appearance = Appearance::as_ref(app);
     let formatted_files =
         render_read_files_text(props.into(), file_names, app, appearance, action_index);
@@ -2091,7 +2107,10 @@ fn maybe_render_edit_document(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
 
     // Document operations are always auto-executed for now
     if status.as_ref().is_some_and(|status| status.is_blocked()) {
@@ -2101,7 +2120,7 @@ fn maybe_render_edit_document(
     let agent_action_results = props
         .action_model
         .as_ref(app)
-        .get_action_result(id)
+        .get_action_result(props.conversation_id, id)
         .map(|action_result| action_result.as_ref());
 
     let Some(AIAgentActionResult {
@@ -2128,7 +2147,10 @@ fn maybe_render_create_document(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
 
     // Document operations are always auto-executed for now
     if status.as_ref().is_some_and(|status| status.is_blocked()) {
@@ -2138,7 +2160,7 @@ fn maybe_render_create_document(
     let agent_action_results = props
         .action_model
         .as_ref(app)
-        .get_action_result(id)
+        .get_action_result(props.conversation_id, id)
         .map(|action_result| action_result.as_ref());
 
     let Some(AIAgentActionResult {
@@ -2441,7 +2463,7 @@ fn render_suggest_new_conversation(
     let status = props
         .action_model
         .as_ref(app)
-        .get_action_status(action_id)
+        .get_action_status(props.conversation_id, action_id)
         .unwrap_or(AIActionStatus::Finished(Arc::new(AIAgentActionResult {
             result: AIAgentActionResultType::SuggestNewConversation(
                 SuggestNewConversationResult::Cancelled,
@@ -2549,7 +2571,10 @@ fn create_formatted_text_for_grep(
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
-    let action_status = props.action_model.as_ref(app).get_action_status(id);
+    let action_status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let is_cancelled = action_status
         .as_ref()
         .is_some_and(|status| status.is_cancelled());
@@ -2653,7 +2678,10 @@ fn create_formatted_text_for_file_glob(
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
-    let action_status = props.action_model.as_ref(app).get_action_status(id);
+    let action_status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let is_cancelled = action_status
         .as_ref()
         .is_some_and(|status| status.is_cancelled());
@@ -2754,7 +2782,10 @@ fn render_file_retrieval_tool(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut config = RenderableAction::new_with_formatted_text(tool_formatted_text, app);
 
@@ -2871,7 +2902,10 @@ fn render_read_mcp_resource(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut renderable_action = RenderableAction::new(name, app);
 
@@ -2948,11 +2982,14 @@ fn render_upload_artifact(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
     let result = props
         .action_model
         .as_ref(app)
-        .get_action_result(action_id)
+        .get_action_result(props.conversation_id, action_id)
         .and_then(|result| match &result.result {
             AIAgentActionResultType::UploadArtifact(upload_result) => Some(upload_result),
             _ => None,
@@ -3011,7 +3048,7 @@ fn render_use_computer(
     let has_screenshot = props
         .action_model
         .as_ref(app)
-        .get_action_result(action_id)
+        .get_action_result(props.conversation_id, action_id)
         .is_some_and(|result| {
             matches!(
                 &result.result,
@@ -3057,7 +3094,10 @@ fn render_request_computer_use(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut renderable_action = RenderableAction::new(&request.task_summary, app);
 
@@ -3638,7 +3678,13 @@ pub fn action_icon<V: View>(
     app: &AppContext,
 ) -> galaxyui::elements::Icon {
     let appearance = Appearance::as_ref(app);
-    let status = action_model.as_ref(app).get_action_status(action_id);
+    let status = ai_block_model
+        .conversation_id(app)
+        .and_then(|conversation_id| {
+            action_model
+                .as_ref(app)
+                .get_action_status(conversation_id, action_id)
+        });
     match status {
         Some(status) => match status {
             AIActionStatus::Preprocessing => icons::gray_circle_icon(appearance),

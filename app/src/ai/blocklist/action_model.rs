@@ -31,7 +31,7 @@ pub use execute::{
     ReadFileContextResult, RequestFileEditsExecutor, RequestFileEditsFormatKind,
     RequestFileEditsTelemetryEvent, RunAgentsExecutor, RunAgentsExecutorEvent,
     RunAgentsSpawningSnapshot, ShellCommandExecutor, ShellCommandExecutorEvent, StartAgentExecutor,
-    StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
+    StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId, StartAgentWaitPolicy,
 };
 use futures::future::{join_all, BoxFuture};
 use galaxy_agent_core::{
@@ -355,6 +355,45 @@ fn sort_action_results_by_order(
     results.sort_by_key(|result| action_order.get(&result.id).copied().unwrap_or(usize::MAX));
 }
 
+fn action_result_for_conversation<'a>(
+    finished_action_results: &'a HashMap<AIConversationId, Vec<Arc<AIAgentActionResult>>>,
+    provider_finished_action_results: &'a HashMap<
+        (AIConversationId, ExternalWorkId),
+        Vec<Arc<AIAgentActionResult>>,
+    >,
+    past_action_results: &'a HashMap<(AIConversationId, AIAgentActionId), Arc<AIAgentActionResult>>,
+    conversation_id: AIConversationId,
+    action_id: &AIAgentActionId,
+) -> Option<&'a Arc<AIAgentActionResult>> {
+    finished_action_results
+        .get(&conversation_id)
+        .into_iter()
+        .chain(provider_finished_action_results.iter().filter_map(
+            |((result_conversation_id, _), results)| {
+                (*result_conversation_id == conversation_id).then_some(results)
+            },
+        ))
+        .flat_map(|results| results.iter())
+        .find(|result| &result.id == action_id)
+        .or_else(|| past_action_results.get(&(conversation_id, action_id.clone())))
+}
+
+fn pending_action_status(
+    pending_actions: &HashMap<AIConversationId, VecDeque<AIAgentAction>>,
+    running_actions: &HashMap<AIConversationId, RunningActions>,
+    conversation_id: AIConversationId,
+    action_id: &AIAgentActionId,
+    is_view_only: bool,
+) -> Option<AIActionStatus> {
+    let actions = pending_actions.get(&conversation_id)?;
+    let index = actions.iter().position(|action| &action.id == action_id)?;
+    if index == 0 && !is_view_only && !running_actions.contains_key(&conversation_id) {
+        Some(AIActionStatus::Blocked)
+    } else {
+        Some(AIActionStatus::Queued)
+    }
+}
+
 fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bool) -> ToolResult {
     let status = if permission_denied {
         ToolResultStatus::Denied
@@ -588,6 +627,9 @@ fn action_result_failure_summary(result: &AIAgentActionResultType) -> Option<Str
             Some(error.clone())
         }
         AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::ExecutionError { message, .. },
+        ) => Some(message.clone()),
+        AIAgentActionResultType::RequestCommandOutput(
             RequestCommandOutputResult::Completed { .. }
             | RequestCommandOutputResult::CancelledBeforeExecution
             | RequestCommandOutputResult::LongRunningCommandSnapshot { .. },
@@ -734,7 +776,7 @@ pub struct BlocklistAIActionModel {
         HashMap<(AIConversationId, AIAgentActionId), ProviderToolExecutionRef>,
 
     /// Past actions and their corresponding statuses from previous AI exchanges.
-    past_action_results: HashMap<AIAgentActionId, Arc<AIAgentActionResult>>,
+    past_action_results: HashMap<(AIConversationId, AIAgentActionId), Arc<AIAgentActionResult>>,
 
     /// The ID of the terminal view this controller is associated with.
     terminal_view_id: EntityId,
@@ -774,6 +816,7 @@ impl BlocklistAIActionModel {
                 let execution_ref = me.provider_tool_execution_ref(*conversation_id, action_id);
                 ctx.emit(BlocklistAIActionEvent::ExecutingAction {
                     action_id: action_id.clone(),
+                    conversation_id: *conversation_id,
                     execution_ref: execution_ref.clone(),
                 });
                 ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
@@ -863,6 +906,7 @@ impl BlocklistAIActionModel {
         );
         ctx.emit(BlocklistAIActionEvent::ExecutingAction {
             action_id: action_id.clone(),
+            conversation_id,
             execution_ref: self.provider_tool_execution_ref(conversation_id, action_id),
         });
     }
@@ -988,8 +1032,8 @@ impl BlocklistAIActionModel {
             .get(&conversation_id)
             .map(|q| q.len())
             .unwrap_or(0);
-        log::info!(
-            "[tool-debug] try_to_execute_available_actions: conversation={:?}, pending_count={}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_available_actions: conversation={:?}, pending_count={}",
             conversation_id,
             pending_count
         );
@@ -1000,14 +1044,14 @@ impl BlocklistAIActionModel {
                 .and_then(|queue| queue.front())
                 .cloned()
             else {
-                log::info!(
-                    "[tool-debug] try_to_execute_available_actions: no more pending actions"
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_available_actions: no more pending actions"
                 );
                 return;
             };
 
-            log::info!(
-                "[tool-debug] try_to_execute_available_actions: trying action id={:?}, type={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_available_actions: trying action id={:?}, type={:?}",
                 front_action.id,
                 std::mem::discriminant(&front_action.action)
             );
@@ -1019,8 +1063,8 @@ impl BlocklistAIActionModel {
                     current_phase,
                     ctx,
                 ) {
-                    log::info!(
-                        "[tool-debug] try_to_execute_available_actions: cannot start in current phase {:?}",
+                    crate::ai::tool_diagnostics::tool_debug!(
+                        "try_to_execute_available_actions: cannot start in current phase {:?}",
                         current_phase
                     );
                     return;
@@ -1033,12 +1077,12 @@ impl BlocklistAIActionModel {
                 ActionExecutionInitiator::Automatic,
                 ctx,
             ) else {
-                log::info!("[tool-debug] try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
+                crate::ai::tool_diagnostics::tool_debug!("try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
                 return;
             };
 
-            log::info!(
-                "[tool-debug] try_to_execute_available_actions: action started, result={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_available_actions: action started, result={:?}",
                 std::mem::discriminant(&result)
             );
 
@@ -1048,7 +1092,9 @@ impl BlocklistAIActionModel {
                     phase: RunningActionPhase::Serial
                 }
             ) {
-                log::info!("[tool-debug] try_to_execute_available_actions: serial async action, stopping loop");
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_available_actions: serial async action, stopping loop"
+                );
                 return;
             }
         }
@@ -1081,14 +1127,6 @@ impl BlocklistAIActionModel {
         }
     }
 
-    /// Returns all pending actions for all conversations.
-    pub fn get_pending_actions(&self) -> Vec<&AIAgentAction> {
-        self.pending_actions
-            .values()
-            .flat_map(|queue| queue.iter())
-            .collect()
-    }
-
     /// Returns all pending actions for a specific conversation.
     pub fn get_pending_actions_for_conversation(
         &self,
@@ -1106,11 +1144,15 @@ impl BlocklistAIActionModel {
         self.blocked_action_for_conversation(&conversation_id)
     }
 
-    /// Returns a pending action by its ID, searching across all conversations.
-    pub fn get_pending_action_by_id(&self, action_id: &AIAgentActionId) -> Option<&AIAgentAction> {
+    /// Returns a pending action by its ID within the given conversation.
+    pub fn get_pending_action_by_id(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<&AIAgentAction> {
         self.pending_actions
-            .values()
-            .flat_map(|queue| queue.iter())
+            .get(&conversation_id)?
+            .iter()
             .find(|action| &action.id == action_id)
     }
 
@@ -1142,7 +1184,11 @@ impl BlocklistAIActionModel {
         self.running_actions
             .get(&conversation_id)
             .and_then(RunningActions::first_action_id)
-            .and_then(|action_id| self.executor.as_ref(app).async_executing_action(action_id))
+            .and_then(|action_id| {
+                self.executor
+                    .as_ref(app)
+                    .async_executing_action(conversation_id, action_id)
+            })
     }
 
     /// Returns whether there is a pending or running action for the active conversation.
@@ -1194,53 +1240,58 @@ impl BlocklistAIActionModel {
         self.finished_action_results.get(&conversation_id)
     }
 
-    /// Returns the `AIActionStatus` for the action corresponding to the given `id`, if any.
-    pub fn get_action_status(&self, id: &AIAgentActionId) -> Option<AIActionStatus> {
-        for (conversation_id, pending_actions_for_conversation) in &self.pending_actions {
-            for (index, action) in pending_actions_for_conversation.iter().enumerate() {
-                if &action.id != id {
-                    continue;
-                }
-
-                if index == 0
-                    && !self.is_view_only
-                    && !self.running_actions.contains_key(conversation_id)
-                {
-                    return Some(AIActionStatus::Blocked);
-                }
-
-                return Some(AIActionStatus::Queued);
-            }
+    /// Returns the status for an action within the given conversation.
+    pub fn get_action_status(
+        &self,
+        conversation_id: AIConversationId,
+        id: &AIAgentActionId,
+    ) -> Option<AIActionStatus> {
+        if let Some(status) = pending_action_status(
+            &self.pending_actions,
+            &self.running_actions,
+            conversation_id,
+            id,
+            self.is_view_only,
+        ) {
+            return Some(status);
         }
 
         self.running_actions
-            .values()
-            .find(|running| running.contains(id))
+            .get(&conversation_id)
+            .filter(|running| running.contains(id))
             .map(|_| AIActionStatus::RunningAsync)
             .or_else(|| {
-                self.get_action_result(id)
+                self.get_action_result(conversation_id, id)
                     .map(|result| AIActionStatus::Finished(result.clone()))
             })
             .or_else(|| {
                 self.pending_preprocessed_actions
-                    .values()
-                    .any(|preprocessing| preprocessing.contains(id))
+                    .get(&conversation_id)
+                    .is_some_and(|preprocessing| preprocessing.contains(id))
                     .then_some(AIActionStatus::Preprocessing)
             })
     }
 
-    pub fn get_action_result(&self, id: &AIAgentActionId) -> Option<&Arc<AIAgentActionResult>> {
-        // Search through all conversations' finished action results
-        self.finished_action_results
-            .values()
-            .chain(self.provider_finished_action_results.values())
-            .flat_map(|results| results.iter())
-            .find(|result| &result.id == id)
-            .or_else(|| self.past_action_results.get(id))
+    pub fn get_action_result(
+        &self,
+        conversation_id: AIConversationId,
+        id: &AIAgentActionId,
+    ) -> Option<&Arc<AIAgentActionResult>> {
+        action_result_for_conversation(
+            &self.finished_action_results,
+            &self.provider_finished_action_results,
+            &self.past_action_results,
+            conversation_id,
+            id,
+        )
     }
 
     /// Bulk restore action results from a list of exchanges (used when loading conversations from tasks)
-    pub fn restore_action_results_from_exchanges(&mut self, exchanges: Vec<&AIAgentExchange>) {
+    pub fn restore_action_results_from_exchanges(
+        &mut self,
+        conversation_id: AIConversationId,
+        exchanges: Vec<&AIAgentExchange>,
+    ) {
         for exchange in exchanges.iter() {
             for input in &exchange.input {
                 if let AIAgentInput::ActionResult { result, .. } = input {
@@ -1257,7 +1308,7 @@ impl BlocklistAIActionModel {
                         );
                     }
                     self.past_action_results
-                        .insert(result_id, Arc::new(result_to_insert));
+                        .insert((conversation_id, result_id), Arc::new(result_to_insert));
                 }
             }
         }
@@ -1267,18 +1318,16 @@ impl BlocklistAIActionModel {
     /// from the confirmation card.
     pub fn execute_run_agents(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         request: ai::agent::action::RunAgentsRequest,
         ctx: &mut ModelContext<Self>,
     ) {
-        let mut found = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(action) = queue.iter_mut().find(|action| &action.id == action_id) {
-                found = Some((*conv_id, action));
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|queue| queue.iter_mut().find(|action| &action.id == action_id))
+        else {
             log::warn!(
                 "BlocklistAIActionModel::execute_run_agents: no pending action for {action_id:?}"
             );
@@ -1299,20 +1348,19 @@ impl BlocklistAIActionModel {
     /// the time the action becomes blocked on user confirmation.
     pub fn deny_run_agents(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         reason: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        let mut found: Option<(AIConversationId, AIAgentAction)> = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(idx) = queue.iter().position(|a| &a.id == action_id) {
-                if let Some(action) = queue.remove(idx) {
-                    found = Some((*conv_id, action));
-                }
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|queue| {
+                let index = queue.iter().position(|action| &action.id == action_id)?;
+                queue.remove(index)
+            })
+        else {
             log::warn!(
                 "BlocklistAIActionModel::deny_run_agents: no pending action for {action_id:?}"
             );
@@ -1451,6 +1499,7 @@ impl BlocklistAIActionModel {
                 let execution_ref = self.provider_tool_execution_ref(conversation_id, &action.id);
                 ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
                     action_id: action.id.clone(),
+                    conversation_id,
                     execution_ref: execution_ref.clone(),
                 });
                 ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
@@ -1698,14 +1747,14 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        log::info!(
-            "[tool-debug] queue_actions: queuing {} actions for conversation {:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "queue_actions: queuing {} actions for conversation {:?}",
             actions.len(),
             conversation_id
         );
         for (i, action) in actions.iter().enumerate() {
-            log::info!(
-                "[tool-debug] queue_actions:   [{}] id={:?}, type={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "queue_actions:   [{}] id={:?}, type={:?}",
                 i,
                 action.id,
                 std::mem::discriminant(&action.action)
@@ -1856,7 +1905,7 @@ impl BlocklistAIActionModel {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) {
-        let status = self.get_action_status(action_id);
+        let status = self.get_action_status(conversation_id, action_id);
         let permission_denied = is_permission_denial(reason, status.as_ref());
         if self
             .running_actions
@@ -1864,7 +1913,7 @@ impl BlocklistAIActionModel {
             .is_some_and(|running| running.contains(action_id))
         {
             self.executor.update(ctx, |executor, ctx| {
-                executor.cancel_running_async_action(action_id, Some(reason), ctx)
+                executor.cancel_running_async_action(conversation_id, action_id, Some(reason), ctx)
             });
         } else {
             let Some(pending_actions_for_conversation) =
@@ -1933,12 +1982,14 @@ impl BlocklistAIActionModel {
         };
         for action in actions_to_cancel.drain(..).collect_vec() {
             log::info!(
-                "Canceling pending action of type {:?} conversation_id={conversation_id:?} action_id={:?}, reason={:?}, backtrace=\n{}",
+                "Canceling pending action of type {:?} conversation_id={conversation_id:?} action_id={:?}, reason={:?}",
                 AIAgentActionTypeDiscriminants::from(&action.action),
                 action.id,
-                reason,
-                std::backtrace::Backtrace::force_capture()
+                reason
             );
+            if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
+                log::debug!("Pending action cancellation backtrace:\n{backtrace}");
+            }
             self.cancel_pending_action(conversation_id, action, reason, false, ctx);
         }
     }
@@ -2053,7 +2104,7 @@ impl BlocklistAIActionModel {
 
         for result in finished_action_results.iter() {
             self.past_action_results
-                .insert(result.id.clone(), result.clone());
+                .insert((conversation_id, result.id.clone()), result.clone());
         }
         finished_action_results
             .into_iter()
@@ -2091,7 +2142,8 @@ impl BlocklistAIActionModel {
             .remove(&(conversation_id, work_id.clone()))
             .unwrap_or_default();
         for result in results {
-            self.past_action_results.insert(result.id.clone(), result);
+            self.past_action_results
+                .insert((conversation_id, result.id.clone()), result);
         }
     }
 
@@ -2123,33 +2175,28 @@ impl BlocklistAIActionModel {
     /// respective functions.
     pub fn handle_requested_command_accepted(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         command: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Search through all pending conversations to find the action and conversation ID
-        let mut found_conversation_id = None;
-        for (conversation_id, pending_actions_for_conversation) in self.pending_actions.iter_mut() {
-            if let Some(action) = pending_actions_for_conversation
-                .iter_mut()
-                .find(|action| action.id == *action_id)
-            {
-                if let AIAgentActionType::RequestCommandOutput {
-                    command: original_command,
-                    ..
-                } = &mut action.action
-                {
-                    *original_command = command;
-                    found_conversation_id = Some(*conversation_id);
-                    break;
-                }
-            }
-        }
-
-        let Some(conversation_id) = found_conversation_id else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|actions| actions.iter_mut().find(|action| action.id == *action_id))
+        else {
             log::warn!("Ignoring acceptance for non-pending requested command: {action_id:?}");
             return;
         };
+        let AIAgentActionType::RequestCommandOutput {
+            command: original_command,
+            ..
+        } = &mut action.action
+        else {
+            log::warn!("Ignoring acceptance for non-command action: {action_id:?}");
+            return;
+        };
+        *original_command = command;
 
         self.execute_action(action_id, conversation_id, ctx);
     }
@@ -2161,8 +2208,8 @@ impl BlocklistAIActionModel {
         cancellation_reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
     ) {
-        log::info!(
-            "[tool-debug] handle_action_result: action_id={:?}, result_type={:?}, cancellation={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "handle_action_result: action_id={:?}, result_type={:?}, cancellation={:?}",
             action_result.id,
             std::mem::discriminant(&action_result.result),
             cancellation_reason
@@ -2453,11 +2500,13 @@ pub enum BlocklistAIActionEvent {
     /// Emitted when the action with the given ID requires user confirmation to execute.
     ActionBlockedOnUserConfirmation {
         action_id: AIAgentActionId,
+        conversation_id: AIConversationId,
         execution_ref: Option<ProviderToolExecutionRef>,
     },
     /// Emitted when the action with the given ID begins execution.
     ExecutingAction {
         action_id: AIAgentActionId,
+        conversation_id: AIConversationId,
         execution_ref: Option<ProviderToolExecutionRef>,
     },
     /// Emitted when the action with the given ID has finished.
@@ -2494,6 +2543,25 @@ impl BlocklistAIActionEvent {
             BlocklistAIActionEvent::InitProject(action_id) => action_id,
             BlocklistAIActionEvent::ToggleCodeReview(action_id) => action_id,
             BlocklistAIActionEvent::InsertCodeReviewComments { action_id, .. } => action_id,
+        }
+    }
+
+    pub fn conversation_id(&self) -> Option<AIConversationId> {
+        match self {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::ExecutingAction {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::FinishedAction {
+                conversation_id, ..
+            } => Some(*conversation_id),
+            BlocklistAIActionEvent::QueuedAction { .. }
+            | BlocklistAIActionEvent::ToolLifecycle { .. }
+            | BlocklistAIActionEvent::InitProject(_)
+            | BlocklistAIActionEvent::ToggleCodeReview(_)
+            | BlocklistAIActionEvent::InsertCodeReviewComments { .. } => None,
         }
     }
 }

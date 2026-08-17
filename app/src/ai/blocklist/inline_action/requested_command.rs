@@ -412,7 +412,7 @@ impl RequestedCommandView {
 
         let is_finished = action_model
             .as_ref(ctx)
-            .get_action_result(&action_id)
+            .get_action_result(client_ids.conversation_id, &action_id)
             .is_some();
 
         if !is_finished {
@@ -424,16 +424,24 @@ impl RequestedCommandView {
                         ctx.notify();
                     }
                     BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
-                        action_id, ..
-                    } if *action_id == me.action_id => {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id
+                        && *action_id == me.action_id =>
+                    {
                         if me.action_type.is_requested_command() {
                             me.ensure_editor(ctx);
                         }
                         me.set_is_header_expanded(true, ctx);
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::ExecutingAction { action_id, .. }
-                        if *action_id == me.action_id =>
+                    BlocklistAIActionEvent::ExecutingAction {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id
+                        && *action_id == me.action_id =>
                     {
                         // For shared-session viewers, sync the command text from the action when it starts executing.
                         if me.action_model.as_ref(ctx).is_view_only() {
@@ -467,11 +475,15 @@ impl RequestedCommandView {
                         }
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
+                    BlocklistAIActionEvent::FinishedAction {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id => {
                         let Some(action_result) = me
                             .action_model
                             .as_ref(ctx)
-                            .get_action_result(action_id)
+                            .get_action_result(me.client_ids.conversation_id, action_id)
                             .cloned()
                         else {
                             log::info!("Got finished action event without result: {action_id}.");
@@ -724,7 +736,7 @@ impl RequestedCommandView {
     fn is_waiting_for_user_confirmation(&self, app: &AppContext) -> bool {
         self.action_model
             .as_ref(app)
-            .get_action_status(&self.action_id)
+            .get_action_status(self.client_ids.conversation_id, &self.action_id)
             .is_some_and(|status| status.is_blocked())
     }
 
@@ -750,7 +762,9 @@ impl RequestedCommandView {
             let Some(mouse_state_handle) =
                 self.citation_state_handles.get(copied_citation).cloned()
             else {
-                log::warn!("Tried to retrieve mouse state handle for citation, but no mouse state handle exists.");
+                log::warn!(
+                    "Tried to retrieve mouse state handle for citation, but no mouse state handle exists."
+                );
                 return None;
             };
             render_citation(
@@ -1108,7 +1122,7 @@ impl RequestedCommandView {
         let action_status = self
             .action_model
             .as_ref(app)
-            .get_action_status(&self.action_id);
+            .get_action_status(self.client_ids.conversation_id, &self.action_id);
 
         let mut title: Cow<'static, str>;
         let mut font_override = None;
@@ -1457,7 +1471,7 @@ impl View for RequestedCommandView {
         let action_status = self
             .action_model
             .as_ref(app)
-            .get_action_status(&self.action_id);
+            .get_action_status(self.client_ids.conversation_id, &self.action_id);
 
         let is_last_output_message_in_output = self
             .block_model
@@ -1635,6 +1649,7 @@ impl View for RequestedCommandView {
         let container = render_tool_pane_shell(
             content.finish(),
             has_highlighted_border,
+            self.is_header_expanded,
             should_remove_bottom_margin,
             app,
         );

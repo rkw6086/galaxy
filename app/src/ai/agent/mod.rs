@@ -582,6 +582,14 @@ impl AIAgentOutput {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         let mut result = Vec::new();
         let mut last_was_action = false;
 
@@ -612,8 +620,12 @@ impl AIAgentOutput {
                 }
                 AIAgentOutputMessageType::Action(action) => {
                     // Include action results from the action model if available
-                    if let Some(action_model) = action_model {
-                        if let Some(action_result) = action_model.get_action_result(&action.id) {
+                    if let (Some(action_model), Some(conversation_id)) =
+                        (action_model, conversation_id)
+                    {
+                        if let Some(action_result) =
+                            action_model.get_action_result(conversation_id, &action.id)
+                        {
                             result.push(format!("{}", MarkdownActionResult(&action_result.result)));
                             // Add an extra newline after tool call results for readability
                             result.push(String::new());
@@ -1221,6 +1233,9 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 }
                 RequestCommandOutputResult::CancelledBeforeExecution => {
                     write!(f, "\n_Command cancelled_")
+                }
+                RequestCommandOutputResult::ExecutionError { command, message } => {
+                    write!(f, "\n_Command `{command}` was not executed: {message}_")
                 }
                 RequestCommandOutputResult::Denylisted { command } => {
                     write!(
@@ -3226,8 +3241,18 @@ impl AIAgentExchange {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_output_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_output_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         match self.output_status.output() {
-            Some(output) => output.get().format_for_copy(action_model),
+            Some(output) => output
+                .get()
+                .format_for_copy_for_conversation(action_model, conversation_id),
             None => String::new(),
         }
     }
@@ -3239,8 +3264,17 @@ impl AIAgentExchange {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         let input_text = self.format_input_for_copy();
-        let output_text = self.format_output_for_copy(action_model);
+        let output_text =
+            self.format_output_for_copy_for_conversation(action_model, conversation_id);
         let has_user_input = !input_text.is_empty();
         let has_agent_output = !output_text.is_empty();
 

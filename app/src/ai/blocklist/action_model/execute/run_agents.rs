@@ -21,7 +21,7 @@ use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::start_agent::{
     StartAgentDispatch, StartAgentExecutor, StartAgentExecutorEvent, StartAgentOutcome,
-    StartAgentWaitPolicy,
+    StartAgentRequestId, StartAgentWaitPolicy,
 };
 use super::{
     child_agent_delegation_denial_reason, ActionExecution, AnyActionExecution, ExecuteActionInput,
@@ -146,9 +146,12 @@ impl RunAgentsExecutor {
         ctx: &mut ModelContext<Self>,
     ) {
         self.recovery_action_ids.remove(action_id);
-        self.start_agent_executor.update(ctx, |executor, _| {
-            executor.cancel_dispatches_for_action(action_id);
+        let detached_dispatches = self.start_agent_executor.update(ctx, |executor, _| {
+            executor.cancel_dispatches_for_action(action_id)
         });
+        log::info!(
+            "RunAgents cancellation detached {detached_dispatches} pending child dispatch(es) for action {action_id}"
+        );
         if self.pending.remove(action_id).is_some() {
             ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
                 action_id: action_id.clone(),
@@ -163,6 +166,22 @@ impl RunAgentsExecutor {
     ) {
         for agent in agents {
             let RunAgentsAgentOutcomeKind::Launched { agent_id } = &agent.kind else {
+                let RunAgentsAgentOutcomeKind::Completed { agent_id, .. } = &agent.kind else {
+                    continue;
+                };
+                let Some(normalized_name) = normalize_agent_name(&agent.name) else {
+                    continue;
+                };
+                self.launched_agents
+                    .entry(conversation_id)
+                    .or_default()
+                    .insert(
+                        normalized_name,
+                        ExistingLaunchedAgent {
+                            name: agent.name.clone(),
+                            agent_id: agent_id.clone(),
+                        },
+                    );
                 continue;
             };
             let Some(normalized_name) = normalize_agent_name(&agent.name) else {
@@ -372,6 +391,10 @@ impl RunAgentsExecutor {
         );
 
         let mut slots: Vec<ChildSlot> = Vec::with_capacity(agent_run_configs.len());
+        let wait_policy = match &run_execution_mode {
+            RunAgentsExecutionMode::Local => StartAgentWaitPolicy::Completion,
+            RunAgentsExecutionMode::Remote { .. } => StartAgentWaitPolicy::Startup,
+        };
         for cfg in &agent_run_configs {
             let normalized_name = normalize_agent_name(&cfg.name)
                 .expect("validated RunAgents requests have non-empty agent names");
@@ -382,7 +405,7 @@ impl RunAgentsExecutor {
                         cfg.name.clone(),
                         parent_conversation_id,
                         child_conversation_id,
-                        parent_run_id.clone(),
+                        wait_policy,
                         exec_ctx,
                     )
                 });
@@ -485,9 +508,9 @@ impl RunAgentsExecutor {
 
         ctx.spawn(
             async move {
-                let outcomes = join_all(slots.into_iter().map(resolve_child_slot)).await;
+                let resolved_slots = join_all(slots.into_iter().map(resolve_child_slot)).await;
                 #[cfg(not(target_family = "wasm"))]
-                for (slot_index, kind) in outcomes.iter().enumerate() {
+                for (slot_index, resolved) in resolved_slots.iter().enumerate() {
                     log::info!(
                         "RunAgents child launch outcome action_id={} parent_conversation_id={} \
                          agent_name={} slot_index={} outcome={}",
@@ -498,21 +521,32 @@ impl RunAgentsExecutor {
                             .map(String::as_str)
                             .unwrap_or("<unknown>"),
                         slot_index,
-                        run_agents_agent_outcome_kind_label(kind)
+                        run_agents_agent_outcome_kind_label(&resolved.outcome)
                     );
                 }
-                outcomes
+                resolved_slots
             },
-            move |me, outcomes, ctx| {
+            move |me, resolved_slots, ctx| {
                 if !me.is_pending(&action_id_for_aggr) {
                     return;
                 }
+                let timed_out_request_ids = resolved_slots
+                    .iter()
+                    .filter_map(|resolved| resolved.timed_out_request_id)
+                    .collect::<Vec<_>>();
+                if !timed_out_request_ids.is_empty() {
+                    me.start_agent_executor.update(ctx, |executor, _| {
+                        for request_id in timed_out_request_ids {
+                            executor.detach_dispatch(request_id);
+                        }
+                    });
+                }
                 let agents: Vec<RunAgentsAgentOutcome> = agent_run_configs_for_result
                     .iter()
-                    .zip(outcomes)
-                    .map(|(cfg, kind)| RunAgentsAgentOutcome {
+                    .zip(resolved_slots)
+                    .map(|(cfg, resolved)| RunAgentsAgentOutcome {
                         name: cfg.name.clone(),
-                        kind,
+                        kind: resolved.outcome,
                     })
                     .collect();
                 me.record_launched_agents(parent_conversation_id_for_result, &agents);
@@ -526,7 +560,7 @@ impl RunAgentsExecutor {
                         "action_id": action_id_for_aggr.to_string(),
                         "parent_conversation_id": parent_conversation_id_for_result.to_string(),
                         "agent_count": agents.len(),
-                        "launched_count": agents.iter().filter(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Launched { .. })).count(),
+                        "launched_count": agents.iter().filter(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Launched { .. } | RunAgentsAgentOutcomeKind::Completed { .. })).count(),
                         "failed_count": agents.iter().filter(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })).count(),
                         "agents": agents
                             .iter()
@@ -535,6 +569,12 @@ impl RunAgentsExecutor {
                                     "name": agent.name.as_str(),
                                     "status": "launched",
                                     "agent_id": agent_id.as_str(),
+                                }),
+                                RunAgentsAgentOutcomeKind::Completed { agent_id, output } => serde_json::json!({
+                                    "name": agent.name.as_str(),
+                                    "status": "completed",
+                                    "agent_id": agent_id.as_str(),
+                                    "output": output,
                                 }),
                                 RunAgentsAgentOutcomeKind::Failed { error } => serde_json::json!({
                                     "name": agent.name.as_str(),
@@ -723,6 +763,7 @@ fn start_agent_execution_mode_label(mode: &StartAgentExecutionMode) -> &'static 
 fn run_agents_agent_outcome_kind_label(kind: &RunAgentsAgentOutcomeKind) -> &'static str {
     match kind {
         RunAgentsAgentOutcomeKind::Launched { .. } => "launched",
+        RunAgentsAgentOutcomeKind::Completed { .. } => "completed",
         RunAgentsAgentOutcomeKind::Failed { .. } => "failed",
     }
 }
@@ -732,18 +773,30 @@ enum ChildSlot {
     Pending(StartAgentDispatch),
 }
 
-async fn resolve_child_slot(slot: ChildSlot) -> RunAgentsAgentOutcomeKind {
+#[derive(Debug)]
+struct ResolvedChildSlot {
+    outcome: RunAgentsAgentOutcomeKind,
+    timed_out_request_id: Option<StartAgentRequestId>,
+}
+
+async fn resolve_child_slot(slot: ChildSlot) -> ResolvedChildSlot {
     resolve_child_slot_with_timeout(slot, SPAWN_TIMEOUT).await
 }
 
 async fn resolve_child_slot_with_timeout(
     slot: ChildSlot,
     spawn_timeout: Duration,
-) -> RunAgentsAgentOutcomeKind {
+) -> ResolvedChildSlot {
     let dispatch = match slot {
-        ChildSlot::Failed(error) => return RunAgentsAgentOutcomeKind::Failed { error },
+        ChildSlot::Failed(error) => {
+            return ResolvedChildSlot {
+                outcome: RunAgentsAgentOutcomeKind::Failed { error },
+                timed_out_request_id: None,
+            };
+        }
         ChildSlot::Pending(dispatch) => dispatch,
     };
+    let request_id = dispatch.request_id;
 
     let outcome = match dispatch.wait_policy {
         StartAgentWaitPolicy::Completion => dispatch.receiver.recv().await.ok(),
@@ -754,31 +807,41 @@ async fn resolve_child_slot_with_timeout(
             {
                 futures::future::Either::Left((outcome, _)) => outcome.ok(),
                 futures::future::Either::Right((_, _)) => {
+                    dispatch.mark_detached();
                     log::warn!(
                         "Agent spawn timed out after {} seconds",
                         spawn_timeout.as_secs()
                     );
-                    return RunAgentsAgentOutcomeKind::Failed {
-                        error: format!(
-                            "Agent failed to start within {} seconds. \
-                             The harness binary may not be installed.",
-                            spawn_timeout.as_secs()
-                        ),
+                    return ResolvedChildSlot {
+                        outcome: RunAgentsAgentOutcomeKind::Failed {
+                            error: format!(
+                                "Agent failed to start within {} seconds. \
+                                 The harness binary may not be installed.",
+                                spawn_timeout.as_secs()
+                            ),
+                        },
+                        timed_out_request_id: Some(request_id),
                     };
                 }
             }
         }
     };
 
-    match outcome {
-        Some(StartAgentOutcome::Started { agent_id })
-        | Some(StartAgentOutcome::Completed { agent_id, .. }) => {
+    let outcome = match outcome {
+        Some(StartAgentOutcome::Started { agent_id }) => {
             RunAgentsAgentOutcomeKind::Launched { agent_id }
+        }
+        Some(StartAgentOutcome::Completed { agent_id, output }) => {
+            RunAgentsAgentOutcomeKind::Completed { agent_id, output }
         }
         Some(StartAgentOutcome::Error(error)) => RunAgentsAgentOutcomeKind::Failed { error },
         None => RunAgentsAgentOutcomeKind::Failed {
             error: "Child agent was cancelled before completion".to_string(),
         },
+    };
+    ResolvedChildSlot {
+        outcome,
+        timed_out_request_id: None,
     }
 }
 
@@ -967,6 +1030,19 @@ fn existing_launched_agents_for_conversation(
                 };
                 for agent in agents {
                     let RunAgentsAgentOutcomeKind::Launched { agent_id } = &agent.kind else {
+                        let RunAgentsAgentOutcomeKind::Completed { agent_id, .. } = &agent.kind
+                        else {
+                            continue;
+                        };
+                        let Some(normalized_name) = normalize_agent_name(&agent.name) else {
+                            continue;
+                        };
+                        existing_agents.entry(normalized_name).or_insert_with(|| {
+                            ExistingLaunchedAgent {
+                                name: agent.name.clone(),
+                                agent_id: agent_id.clone(),
+                            }
+                        });
                         continue;
                     };
                     let Some(normalized_name) = normalize_agent_name(&agent.name) else {

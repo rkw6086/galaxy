@@ -835,6 +835,16 @@ fn build_system_prompt(
                 .join(", "),
         );
         prompt.push_str(".\nNever invent tool names or parameters. Check command exit codes and tool error results before claiming success.\n");
+        if tools.iter().any(|tool| tool.name == "run_shell_command") {
+            let has_file_tools = tools
+                .iter()
+                .any(|tool| matches!(tool.name.as_str(), "file_glob" | "grep" | "read_files"));
+            if has_file_tools {
+                prompt.push_str(
+                    "Prefer `file_glob`, `grep`, and `read_files` for file discovery, content search, and file reading when they are available. Reserve `run_shell_command` for operations those specialized tools cannot perform; do not use shell `find`, `grep`, `rg`, `cat`, `head`, or `tail` as substitutes.\n",
+                );
+            }
+        }
         if tools.iter().any(|tool| tool.name == "create_plan") {
             prompt.push_str(
                 "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve.\n",

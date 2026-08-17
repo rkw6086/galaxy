@@ -359,6 +359,89 @@ fn parallel_tool_results_commit_atomically_in_original_call_order() {
 }
 
 #[test]
+fn duplicate_tool_start_is_idempotent() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("read", "read_files")], &["read_files"]),
+    );
+
+    run.start_tool(&batch.work_id, "read").unwrap();
+    let started = run.clone();
+    run.start_tool(&batch.work_id, "read").unwrap();
+
+    assert_eq!(run, started);
+}
+
+#[test]
+fn identical_tool_completion_is_idempotent() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("read", "read_files")], &["read_files"]),
+    );
+    let result = successful_result("read", "contents");
+
+    run.complete_tool(&batch.work_id, result.clone()).unwrap();
+    let completed = run.clone();
+    run.complete_tool(&batch.work_id, result).unwrap();
+
+    assert_eq!(run, completed);
+}
+
+#[test]
+fn conflicting_tool_completion_is_rejected_without_mutation() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("read", "read_files")], &["read_files"]),
+    );
+    run.complete_tool(&batch.work_id, successful_result("read", "contents"))
+        .unwrap();
+    let completed = run.clone();
+
+    assert_eq!(
+        run.complete_tool(&batch.work_id, successful_result("read", "different"))
+            .unwrap_err(),
+        ProviderRunProtocolError::DuplicateToolUpdate {
+            call_id: "read".to_string(),
+        }
+    );
+    assert_eq!(run, completed);
+}
+
+#[test]
+fn duplicate_tool_callbacks_do_not_prevent_eventual_batch_completion() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("first", "read_files"),
+                tool_call("second", "grep"),
+            ],
+            &["read_files", "grep"],
+        ),
+    );
+    let first_result = successful_result("first", "one");
+
+    run.start_tool(&batch.work_id, "first").unwrap();
+    run.start_tool(&batch.work_id, "first").unwrap();
+    run.complete_tool(&batch.work_id, first_result.clone())
+        .unwrap();
+    run.complete_tool(&batch.work_id, first_result).unwrap();
+    run.complete_tool(&batch.work_id, successful_result("second", "two"))
+        .unwrap();
+
+    let ProviderRunState::AwaitingTools { batch: completed } = run.state() else {
+        panic!("expected completed tool batch");
+    };
+    assert!(completed.is_complete());
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert_eq!(run.state().phase(), ProviderRunPhase::ReadyToCallModel);
+}
+
+#[test]
 fn exact_batch_submission_rejects_missing_duplicate_and_unknown_results_without_mutation() {
     let mut run = run();
     let batch = accept_tool_turn(

@@ -94,6 +94,25 @@ impl TryFrom<RequestCommandOutputResult> for api::request::input::tool_call_resu
                     },
                 ),
             ),
+            RequestCommandOutputResult::ExecutionError { command, message } => Ok(
+                api::request::input::tool_call_result::Result::RunShellCommand(
+                    #[allow(deprecated)]
+                    api::RunShellCommandResult {
+                        command,
+                        output: Default::default(),
+                        exit_code: Default::default(),
+                        result: Some(api::run_shell_command_result::Result::CommandFinished(
+                            api::ShellCommandFinished {
+                                command_id: String::new(),
+                                output: format!("Command was not executed: {message}"),
+                                exit_code: 1,
+                                start_ts: None,
+                                finish_ts: None,
+                            },
+                        )),
+                    },
+                ),
+            ),
             RequestCommandOutputResult::Denylisted { command } =>
             {
                 #[allow(deprecated)]
@@ -1551,6 +1570,14 @@ impl From<RunAgentsAgentOutcome> for api::run_agents_result::AgentOutcome {
                     api::run_agents_result::LaunchedAgent { agent_id },
                 )
             }
+            // The legacy wire schema has no completed-child shape. Preserve the child identity;
+            // direct-provider history retains the richer local result and output.
+            RunAgentsAgentOutcomeKind::Completed {
+                agent_id,
+                output: _,
+            } => api::run_agents_result::agent_outcome::Result::Launched(
+                api::run_agents_result::LaunchedAgent { agent_id },
+            ),
             RunAgentsAgentOutcomeKind::Failed { error } => {
                 api::run_agents_result::agent_outcome::Result::Failed(
                     api::run_agents_result::FailedAgent { error },

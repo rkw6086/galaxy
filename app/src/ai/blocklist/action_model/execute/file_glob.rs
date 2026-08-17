@@ -108,8 +108,8 @@ impl FileGlobExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!(
-            "[tool-debug] FileGlobExecutor::execute: patterns={:?}, path={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "FileGlobExecutor::execute: patterns={:?}, path={:?}",
             patterns,
             path
         );

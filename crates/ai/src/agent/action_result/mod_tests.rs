@@ -1,7 +1,21 @@
 use super::{
-    AIAgentActionResultType, RunAgentsAgentOutcome, RunAgentsAgentOutcomeKind,
-    RunAgentsLaunchedExecutionMode, RunAgentsResult, StartAgentResult, StartAgentVersion,
+    AIAgentActionResultType, RequestCommandOutputResult, RunAgentsAgentOutcome,
+    RunAgentsAgentOutcomeKind, RunAgentsLaunchedExecutionMode, RunAgentsResult, StartAgentResult,
+    StartAgentVersion,
 };
+
+#[test]
+fn shell_execution_error_is_failed_but_not_cancelled() {
+    let result =
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::ExecutionError {
+            command: "cargo test".to_string(),
+            message: "terminal is busy".to_string(),
+        });
+
+    assert!(result.is_failed());
+    assert!(!result.is_cancelled());
+    assert!(result.model_content().contains("terminal is busy"));
+}
 
 #[test]
 fn deserializes_legacy_start_agent_success_without_version_as_v1() {
@@ -133,4 +147,73 @@ fn run_agents_model_content_serializes_terminal_non_launch_outcomes() {
             .expect("run-agents model content should be valid JSON");
         assert_eq!(content, expected);
     }
+}
+
+#[test]
+fn completed_local_run_agents_preserves_outputs_and_terminal_state() {
+    let result = AIAgentActionResultType::RunAgents(RunAgentsResult::Launched {
+        model_id: "model".to_string(),
+        harness_type: "codex".to_string(),
+        execution_mode: RunAgentsLaunchedExecutionMode::Local,
+        agents: vec![RunAgentsAgentOutcome {
+            name: "research".to_string(),
+            kind: RunAgentsAgentOutcomeKind::Completed {
+                agent_id: "child-1".to_string(),
+                output: "Found the root cause".to_string(),
+            },
+        }],
+    });
+
+    let content: serde_json::Value = serde_json::from_str(&result.model_content()).unwrap();
+    assert_eq!(content["status"], "launched");
+    assert_eq!(content["completion_state"], "children_completed");
+    assert_eq!(content["agents"][0]["status"], "completed");
+    assert_eq!(content["agents"][0]["output"], "Found the root cause");
+    assert!(result.is_successful());
+    assert!(!result.is_failed());
+}
+
+#[test]
+fn all_failed_run_agents_is_failure_but_mixed_batch_is_successful() {
+    let failed = |name: &str, error: &str| RunAgentsAgentOutcome {
+        name: name.to_string(),
+        kind: RunAgentsAgentOutcomeKind::Failed {
+            error: error.to_string(),
+        },
+    };
+    let result = AIAgentActionResultType::RunAgents(RunAgentsResult::Launched {
+        model_id: "model".to_string(),
+        harness_type: "codex".to_string(),
+        execution_mode: RunAgentsLaunchedExecutionMode::Local,
+        agents: vec![failed("one", "first error"), failed("two", "second error")],
+    });
+
+    let content: serde_json::Value = serde_json::from_str(&result.model_content()).unwrap();
+    assert_eq!(content["status"], "failure");
+    assert_eq!(content["agents"][0]["error"], "first error");
+    assert_eq!(content["agents"][1]["error"], "second error");
+    assert!(result.is_failed());
+    assert!(!result.is_successful());
+
+    let mixed = AIAgentActionResultType::RunAgents(RunAgentsResult::Launched {
+        model_id: "model".to_string(),
+        harness_type: "codex".to_string(),
+        execution_mode: RunAgentsLaunchedExecutionMode::Local,
+        agents: vec![
+            failed("one", "first error"),
+            RunAgentsAgentOutcome {
+                name: "two".to_string(),
+                kind: RunAgentsAgentOutcomeKind::Completed {
+                    agent_id: "child-2".to_string(),
+                    output: "useful output".to_string(),
+                },
+            },
+        ],
+    });
+    let mixed_content: serde_json::Value = serde_json::from_str(&mixed.model_content()).unwrap();
+    assert_eq!(mixed_content["status"], "launched");
+    assert_eq!(mixed_content["agents"][0]["error"], "first error");
+    assert_eq!(mixed_content["agents"][1]["output"], "useful output");
+    assert!(mixed.is_successful());
+    assert!(!mixed.is_failed());
 }

@@ -178,8 +178,10 @@ impl TerminalView {
 
         let mut result = Vec::new();
         for exchange in conversation.root_task_exchanges() {
-            let formatted_exchange =
-                exchange.format_for_copy(Some(self.ai_action_model.as_ref(ctx)));
+            let formatted_exchange = exchange.format_for_copy_for_conversation(
+                Some(self.ai_action_model.as_ref(ctx)),
+                Some(conversation_id),
+            );
             if !formatted_exchange.is_empty() {
                 result.push(formatted_exchange);
             }

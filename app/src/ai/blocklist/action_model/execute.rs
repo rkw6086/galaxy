@@ -74,6 +74,7 @@ use serde::{Deserialize, Serialize};
 pub use shell_command::{ShellCommandExecutor, ShellCommandExecutorEvent};
 pub use start_agent::{
     StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
+    StartAgentWaitPolicy,
 };
 pub use suggest_new_conversation::NewConversationDecision;
 use suggest_new_conversation::SuggestNewConversationExecutor;
@@ -245,9 +246,36 @@ pub(super) enum TryExecuteResult {
 #[derive(Clone)]
 struct AsyncExecutingAction {
     action: AIAgentAction,
-    /// The conversation this action belongs to so cancellation and follow-up scheduling remain
-    /// scoped even when several conversations have async actions in flight.
-    conversation_id: AIConversationId,
+}
+
+type AsyncExecutingActionKey = (AIConversationId, AIAgentActionId);
+
+#[derive(Default)]
+struct AsyncExecutingActions(
+    std::collections::HashMap<AsyncExecutingActionKey, AsyncExecutingAction>,
+);
+
+impl AsyncExecutingActions {
+    fn insert(&mut self, conversation_id: AIConversationId, running: AsyncExecutingAction) {
+        self.0
+            .insert((conversation_id, running.action.id.clone()), running);
+    }
+
+    fn get(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<&AsyncExecutingAction> {
+        self.0.get(&(conversation_id, action_id.clone()))
+    }
+
+    fn remove(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<AsyncExecutingAction> {
+        self.0.remove(&(conversation_id, action_id.clone()))
+    }
 }
 
 impl AsyncExecutingAction {
@@ -286,10 +314,8 @@ pub struct BlocklistAIActionExecutor {
     send_message_executor: ModelHandle<SendMessageToAgentExecutor>,
     ask_user_question_executor: ModelHandle<AskUserQuestionExecutor>,
     wait_for_events_executor: ModelHandle<WaitForEventsExecutor>,
-    /// The actions currently executing asynchronously, keyed by action ID.
-    /// We track them per action rather than as a single slot so multiple actions from the same
-    /// parallel phase can complete independently.
-    async_executing_actions: std::collections::HashMap<AIAgentActionId, AsyncExecutingAction>,
+    /// The actions currently executing asynchronously, scoped by conversation and action ID.
+    async_executing_actions: AsyncExecutingActions,
     restored_action_ids: HashSet<AIAgentActionId>,
 
     /// Reference to the terminal model for checking session sharing state.
@@ -390,9 +416,13 @@ impl BlocklistAIActionExecutor {
         }
     }
 
-    pub fn async_executing_action(&self, action_id: &AIAgentActionId) -> Option<&AIAgentAction> {
+    pub fn async_executing_action(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<&AIAgentAction> {
         self.async_executing_actions
-            .get(action_id)
+            .get(conversation_id, action_id)
             .map(|running| &running.action)
     }
 
@@ -408,13 +438,16 @@ impl BlocklistAIActionExecutor {
     }
 
     pub(super) fn has_running_ask_user_question(&self, conversation_id: AIConversationId) -> bool {
-        self.async_executing_actions.values().any(|running| {
-            running.conversation_id == conversation_id
-                && matches!(
-                    running.action.action,
-                    AIAgentActionType::AskUserQuestion { .. }
-                )
-        })
+        self.async_executing_actions
+            .0
+            .iter()
+            .any(|((running_conversation_id, _), running)| {
+                *running_conversation_id == conversation_id
+                    && matches!(
+                        running.action.action,
+                        AIAgentActionType::AskUserQuestion { .. }
+                    )
+            })
     }
 
     /// Returns the action_id of any running WaitForEvents action for the
@@ -424,10 +457,9 @@ impl BlocklistAIActionExecutor {
         &self,
         conversation_id: AIConversationId,
     ) -> Option<AIAgentActionId> {
-        self.async_executing_actions
-            .iter()
-            .find_map(|(action_id, running)| {
-                if running.conversation_id == conversation_id
+        self.async_executing_actions.0.iter().find_map(
+            |((running_conversation_id, action_id), running)| {
+                if *running_conversation_id == conversation_id
                     && matches!(
                         running.action.action,
                         AIAgentActionType::WaitForEvents { .. }
@@ -437,7 +469,8 @@ impl BlocklistAIActionExecutor {
                 } else {
                     None
                 }
-            })
+            },
+        )
     }
 
     pub fn shell_command_executor(&self) -> &ModelHandle<ShellCommandExecutor> {
@@ -642,8 +675,8 @@ impl BlocklistAIActionExecutor {
         is_user_initiated: bool,
         ctx: &mut ModelContext<Self>,
     ) -> TryExecuteResult {
-        log::info!(
-            "[tool-debug] try_to_execute_action: action_id={:?}, type={:?}, is_user_initiated={}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_action: action_id={:?}, type={:?}, is_user_initiated={}",
             action.id,
             std::mem::discriminant(&action.action),
             is_user_initiated
@@ -651,7 +684,9 @@ impl BlocklistAIActionExecutor {
 
         // We should never actually execute actions in view-only mode.
         if self.is_shared_session_viewer() {
-            log::info!("[tool-debug] try_to_execute_action: BLOCKED - shared session viewer mode");
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_action: BLOCKED - shared session viewer mode"
+            );
             return TryExecuteResult::NotExecuted {
                 reason: NotExecutedReason::WaitingOnSharer,
                 action: Box::new(action),
@@ -664,8 +699,8 @@ impl BlocklistAIActionExecutor {
         };
         let can_auto_execute = self.should_autoexecute(input, ctx);
         let is_agent_autonomous = AppExecutionMode::as_ref(ctx).is_autonomous();
-        log::info!(
-            "[tool-debug] try_to_execute_action: can_auto_execute={}, is_agent_autonomous={}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_action: can_auto_execute={}, is_agent_autonomous={}",
             can_auto_execute,
             is_agent_autonomous
         );
@@ -677,8 +712,8 @@ impl BlocklistAIActionExecutor {
             || can_auto_execute
             || (is_agent_autonomous && action.action.is_request_command_output()));
         if needs_confirmation {
-            log::info!(
-                "[tool-debug] try_to_execute_action: NEEDS CONFIRMATION - action_id={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_action: NEEDS CONFIRMATION - action_id={:?}",
                 action.id
             );
             return TryExecuteResult::NotExecuted {
@@ -713,8 +748,8 @@ impl BlocklistAIActionExecutor {
             }
         }
 
-        log::info!(
-            "[tool-debug] try_to_execute_action: EXECUTING action_id={:?}, type={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_action: EXECUTING action_id={:?}, type={:?}",
             action.id,
             std::mem::discriminant(&action.action)
         );
@@ -870,8 +905,8 @@ impl BlocklistAIActionExecutor {
         };
 
         let action_id = action_clone.id.clone();
-        log::info!(
-            "[tool-debug] try_to_execute_action: execution result type={:?} for action_id={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_action: execution result type={:?} for action_id={:?}",
             match &execution {
                 AnyActionExecution::NotReady => "NotReady",
                 AnyActionExecution::InvalidAction => "InvalidAction",
@@ -882,8 +917,8 @@ impl BlocklistAIActionExecutor {
         );
         match execution {
             AnyActionExecution::NotReady => {
-                log::info!(
-                    "[tool-debug] try_to_execute_action: NOT READY - action_id={:?}",
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_action: NOT READY - action_id={:?}",
                     action_id
                 );
                 TryExecuteResult::NotExecuted {
@@ -893,7 +928,7 @@ impl BlocklistAIActionExecutor {
             }
             AnyActionExecution::InvalidAction => {
                 log::error!(
-                    "[tool-debug] try_to_execute_action: INVALID ACTION - action_id={:?}",
+                    "try_to_execute_action: invalid action, action_id={:?}",
                     action_id
                 );
                 debug_assert!(false, "Tried to execute AIAgentAction with wrong executor.");
@@ -907,10 +942,9 @@ impl BlocklistAIActionExecutor {
                 on_complete,
             } => {
                 self.async_executing_actions.insert(
-                    action_id.clone(),
+                    conversation_id,
                     AsyncExecutingAction {
                         action: action_clone,
-                        conversation_id,
                     },
                 );
                 if !is_restored {
@@ -919,15 +953,21 @@ impl BlocklistAIActionExecutor {
                         conversation_id,
                     });
                 }
-                log::info!("[tool-debug] try_to_execute_action: spawning ASYNC execution for action_id={:?}", action_id);
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_action: spawning ASYNC execution for action_id={:?}",
+                    action_id
+                );
                 ctx.spawn(execute_future, move |me, result, ctx| {
-                    let Some(running) = me.async_executing_actions.remove(&action_id) else {
-                        log::warn!("[tool-debug] try_to_execute_action: async action completed but not found in executing map, action_id={:?}", action_id);
+                    let Some(running) = me
+                        .async_executing_actions
+                        .remove(conversation_id, &action_id)
+                    else {
+                        log::warn!("try_to_execute_action: async action completed but not found in executing map, conversation_id={conversation_id}, action_id={action_id:?}");
                         return;
                     };
                     let result = on_complete(result, ctx);
-                    log::info!(
-                        "[tool-debug] try_to_execute_action: ASYNC action COMPLETED action_id={:?}, result_type={:?}",
+                    crate::ai::tool_diagnostics::tool_debug!(
+                        "try_to_execute_action: ASYNC action COMPLETED action_id={:?}, result_type={:?}",
                         action_id,
                         std::mem::discriminant(&result)
                     );
@@ -937,7 +977,7 @@ impl BlocklistAIActionExecutor {
                             task_id: running.action.task_id,
                             result,
                         }),
-                        conversation_id: running.conversation_id,
+                        conversation_id,
                         cancellation_reason: None,
                     });
                 });
@@ -981,6 +1021,7 @@ impl BlocklistAIActionExecutor {
 
     pub fn cancel_running_async_action(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
@@ -989,13 +1030,42 @@ impl BlocklistAIActionExecutor {
         if self.is_shared_session_viewer() {
             return;
         }
-        if let Some(running) = self.async_executing_actions.remove(action_id) {
+        if self
+            .async_executing_actions
+            .get(conversation_id, action_id)
+            .is_some_and(|running| {
+                matches!(
+                    running.action.action,
+                    AIAgentActionType::RequestCommandOutput { .. }
+                )
+            })
+        {
+            let termination_requested = self.shell_command_executor.update(ctx, |executor, ctx| {
+                executor.cancel_execution(action_id, ctx)
+            });
+            if termination_requested {
+                // Keep the action in flight until block completion proves the process stopped.
+                // Its normal async completion will report the actual terminal exit status.
+                return;
+            }
+        }
+        if let Some(running) = self
+            .async_executing_actions
+            .remove(conversation_id, action_id)
+        {
             let action_kind = AIAgentActionTypeDiscriminants::from(&running.action.action);
             log::info!(
-                "Canceling running async action of type {action_kind:?} action_id={action_id:?}, reason={reason:?}, backtrace=\n{}",
-                std::backtrace::Backtrace::force_capture()
+                "Canceling running async action of type {action_kind:?} action_id={action_id:?}, reason={reason:?}"
             );
-            if running.is_shell_command_action() {
+            if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
+                log::debug!("Running action cancellation backtrace:\n{backtrace}");
+            }
+            if running.is_shell_command_action()
+                && !matches!(
+                    running.action.action,
+                    AIAgentActionType::RequestCommandOutput { .. }
+                )
+            {
                 self.shell_command_executor.update(ctx, |executor, ctx| {
                     executor.cancel_execution(&running.action.id, ctx);
                 });
@@ -1006,6 +1076,10 @@ impl BlocklistAIActionExecutor {
             } else if matches!(running.action.action, AIAgentActionType::RunAgents(..)) {
                 self.run_agents_executor.update(ctx, |executor, ctx| {
                     executor.cancel_execution(&running.action.id, ctx);
+                });
+            } else if matches!(running.action.action, AIAgentActionType::StartAgent { .. }) {
+                self.start_agent_executor.update(ctx, |executor, _| {
+                    executor.cancel_execution(&running.action.id);
                 });
             } else if let AIAgentActionType::WaitForEvents { tool_call_id, .. } =
                 &running.action.action
@@ -1023,7 +1097,7 @@ impl BlocklistAIActionExecutor {
                     task_id: running.action.task_id,
                     result: running.action.action.cancelled_result(),
                 }),
-                conversation_id: running.conversation_id,
+                conversation_id,
                 cancellation_reason: reason,
             });
         }
@@ -1037,13 +1111,14 @@ impl BlocklistAIActionExecutor {
     ) {
         let action_ids = self
             .async_executing_actions
+            .0
             .iter()
-            .filter_map(|(action_id, running)| {
-                (running.conversation_id == conversation_id).then_some(action_id.clone())
+            .filter_map(|((running_conversation_id, action_id), _)| {
+                (*running_conversation_id == conversation_id).then_some(action_id.clone())
             })
             .collect::<Vec<_>>();
         for action_id in action_ids {
-            self.cancel_running_async_action(&action_id, reason, ctx);
+            self.cancel_running_async_action(conversation_id, &action_id, reason, ctx);
         }
     }
 
@@ -1491,6 +1566,95 @@ async fn read_file_as_binary(file_path: &std::path::Path) -> Result<Vec<u8>, Fil
     }
 
     async_fs::read(file_path).await.map_err(FileLoadError::from)
+}
+
+#[cfg(test)]
+mod async_executing_action_tests {
+    use super::*;
+    use crate::ai::agent::task::TaskId;
+
+    fn action(id: &str, task_id: &str) -> AIAgentAction {
+        AIAgentAction {
+            id: AIAgentActionId::from(id.to_owned()),
+            action: AIAgentActionType::InitProject,
+            task_id: TaskId::new(task_id.to_owned()),
+            requires_result: true,
+            tool_name: Some("init_project".to_owned()),
+        }
+    }
+
+    #[test]
+    fn duplicate_action_ids_can_execute_concurrently_in_different_conversations() {
+        let first_conversation = AIConversationId::new();
+        let second_conversation = AIConversationId::new();
+        let duplicate_id = AIAgentActionId::from("duplicate".to_owned());
+        let mut running = AsyncExecutingActions::default();
+
+        running.insert(
+            first_conversation,
+            AsyncExecutingAction {
+                action: action("duplicate", "first-task"),
+            },
+        );
+        running.insert(
+            second_conversation,
+            AsyncExecutingAction {
+                action: action("duplicate", "second-task"),
+            },
+        );
+
+        assert_eq!(running.0.len(), 2);
+        assert_eq!(
+            running
+                .get(first_conversation, &duplicate_id)
+                .unwrap()
+                .action
+                .task_id,
+            TaskId::new("first-task".to_owned())
+        );
+        assert_eq!(
+            running
+                .get(second_conversation, &duplicate_id)
+                .unwrap()
+                .action
+                .task_id,
+            TaskId::new("second-task".to_owned())
+        );
+    }
+
+    #[test]
+    fn duplicate_action_completion_and_cancellation_remove_only_the_matching_conversation() {
+        let first_conversation = AIConversationId::new();
+        let second_conversation = AIConversationId::new();
+        let duplicate_id = AIAgentActionId::from("duplicate".to_owned());
+        let mut running = AsyncExecutingActions::default();
+        running.insert(
+            first_conversation,
+            AsyncExecutingAction {
+                action: action("duplicate", "first-task"),
+            },
+        );
+        running.insert(
+            second_conversation,
+            AsyncExecutingAction {
+                action: action("duplicate", "second-task"),
+            },
+        );
+
+        let completed = running.remove(first_conversation, &duplicate_id).unwrap();
+        assert_eq!(
+            completed.action.task_id,
+            TaskId::new("first-task".to_owned())
+        );
+        assert!(running.get(second_conversation, &duplicate_id).is_some());
+
+        let cancelled = running.remove(second_conversation, &duplicate_id).unwrap();
+        assert_eq!(
+            cancelled.action.task_id,
+            TaskId::new("second-task".to_owned())
+        );
+        assert!(running.0.is_empty());
+    }
 }
 
 #[cfg(all(test, feature = "local_fs"))]

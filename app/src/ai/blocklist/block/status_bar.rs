@@ -328,10 +328,27 @@ impl BlocklistAIStatusBar {
             },
         );
 
-        ctx.subscribe_to_model(&action_model, |_, _, event, ctx| match event {
-            BlocklistAIActionEvent::ExecutingAction { .. }
-            | BlocklistAIActionEvent::FinishedAction { .. } => ctx.notify(),
-            _ => (),
+        ctx.subscribe_to_model(&action_model, |me, _, event, ctx| match event {
+            BlocklistAIActionEvent::ExecutingAction {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::FinishedAction {
+                conversation_id, ..
+            } if me
+                .active_exchange_model
+                .as_ref()
+                .is_some_and(|model| model.conversation_id(ctx) == Some(*conversation_id)) =>
+            {
+                ctx.notify();
+            }
+            BlocklistAIActionEvent::QueuedAction { .. }
+            | BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. }
+            | BlocklistAIActionEvent::ExecutingAction { .. }
+            | BlocklistAIActionEvent::FinishedAction { .. }
+            | BlocklistAIActionEvent::ToolLifecycle { .. }
+            | BlocklistAIActionEvent::InitProject(_)
+            | BlocklistAIActionEvent::ToggleCodeReview(_)
+            | BlocklistAIActionEvent::InsertCodeReviewComments { .. } => {}
         });
         ctx.subscribe_to_model(model_event_dispatcher, |me, _, event, ctx| match event {
             ModelEvent::AfterBlockStarted { block_id, .. } => {

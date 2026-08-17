@@ -62,9 +62,12 @@ impl ProviderRunResponseProjector {
         }
     }
 
-    pub(crate) fn restored(config: RuntimeResponseConfig) -> Self {
+    pub(crate) fn restored(
+        config: RuntimeResponseConfig,
+        projection_was_initialized: bool,
+    ) -> Self {
         Self {
-            translator: RuntimeResponseTranslator::restored(config),
+            translator: RuntimeResponseTranslator::restored(config, projection_was_initialized),
             has_started_model_turn: false,
             finished: false,
         }
@@ -88,9 +91,11 @@ impl ProviderRunResponseProjector {
                 })
             }
             ProviderRunProjection::ModelEvent { event, .. } => self.translator.translate(event),
+            ProviderRunProjection::ModelRetry { .. } => {
+                Ok(self.translator.discard_failed_turn_output())
+            }
             ProviderRunProjection::ModelTurnRequested { .. }
             | ProviderRunProjection::ModelTurnFinished { .. }
-            | ProviderRunProjection::ModelRetry { .. }
             | ProviderRunProjection::ToolBatchReady { .. } => Ok(Vec::new()),
         }
     }
@@ -130,8 +135,15 @@ impl RuntimeResponseTranslator {
         Self::with_initialization(config, false)
     }
 
-    pub(crate) fn restored(config: RuntimeResponseConfig) -> Self {
-        Self::with_initialization(config, true)
+    pub(crate) fn restored(
+        mut config: RuntimeResponseConfig,
+        projection_was_initialized: bool,
+    ) -> Self {
+        // The task and exchange already exist in restored history. If its output was never
+        // initialized, replay only the stream Init rather than duplicating task/input messages.
+        config.needs_create_task = false;
+        config.user_query = None;
+        Self::with_initialization(config, projection_was_initialized)
     }
 
     fn with_initialization(config: RuntimeResponseConfig, initialized: bool) -> Self {
@@ -143,7 +155,7 @@ impl RuntimeResponseTranslator {
             reasoning_message_id: None,
             activity_message_ids: HashMap::new(),
             activities: HashMap::new(),
-            has_visible_output: initialized,
+            has_visible_output: false,
             usage: Usage::default(),
             context_usage: None,
         }
@@ -163,9 +175,7 @@ impl RuntimeResponseTranslator {
             }
             AgentEvent::ReasoningCompleted { text, .. } => {
                 self.initialize(&mut events);
-                if self.reasoning_message_id.is_none() && !text.is_empty() {
-                    self.add_or_append_reasoning(&text, &mut events);
-                }
+                self.complete_reasoning(&text, &mut events);
             }
             AgentEvent::RuntimeActivityUpdated { activity } => {
                 if self.config.capabilities.host_tool_execution {
@@ -244,6 +254,25 @@ impl RuntimeResponseTranslator {
         self.reasoning_message_id = None;
     }
 
+    fn discard_failed_turn_output(&mut self) -> Vec<ResponseEvent> {
+        let mut events = Vec::new();
+        if let Some(message_id) = self.text_message_id.take() {
+            events.push(build_replace_text_message(
+                &self.config.task_id,
+                &message_id,
+                "",
+            ));
+        }
+        if let Some(message_id) = self.reasoning_message_id.take() {
+            events.push(build_replace_reasoning_message(
+                &self.config.task_id,
+                &message_id,
+                "",
+            ));
+        }
+        events
+    }
+
     pub(crate) fn set_task_id(&mut self, task_id: impl Into<String>) {
         let task_id = task_id.into();
         if self.config.task_id == task_id {
@@ -312,6 +341,18 @@ impl RuntimeResponseTranslator {
                 false,
             ));
             self.reasoning_message_id = Some(message_id);
+        }
+    }
+
+    fn complete_reasoning(&mut self, text: &str, events: &mut Vec<ResponseEvent>) {
+        if let Some(message_id) = &self.reasoning_message_id {
+            events.push(build_replace_reasoning_message(
+                &self.config.task_id,
+                message_id,
+                text,
+            ));
+        } else if !text.is_empty() {
+            self.add_or_append_reasoning(text, events);
         }
     }
 
@@ -439,6 +480,58 @@ fn build_reasoning_message(
         })
     };
     runtime_client_action(action)
+}
+
+fn build_replace_reasoning_message(task_id: &str, message_id: &str, text: &str) -> ResponseEvent {
+    let message = api::Message {
+        id: message_id.to_owned(),
+        task_id: task_id.to_owned(),
+        request_id: String::new(),
+        timestamp: None,
+        server_message_data: String::new(),
+        citations: Vec::new(),
+        fetched_memories: Vec::new(),
+        message: Some(api::message::Message::AgentReasoning(
+            api::message::AgentReasoning {
+                reasoning: text.to_owned(),
+                finished_duration: None,
+            },
+        )),
+    };
+    runtime_client_action(api::client_action::Action::UpdateTaskMessage(
+        api::client_action::UpdateTaskMessage {
+            task_id: task_id.to_owned(),
+            message: Some(message),
+            mask: Some(prost_types::FieldMask {
+                paths: vec!["agent_reasoning.reasoning".to_owned()],
+            }),
+        },
+    ))
+}
+
+fn build_replace_text_message(task_id: &str, message_id: &str, text: &str) -> ResponseEvent {
+    runtime_client_action(api::client_action::Action::UpdateTaskMessage(
+        api::client_action::UpdateTaskMessage {
+            task_id: task_id.to_owned(),
+            message: Some(api::Message {
+                id: message_id.to_owned(),
+                task_id: task_id.to_owned(),
+                request_id: String::new(),
+                timestamp: None,
+                server_message_data: String::new(),
+                citations: Vec::new(),
+                fetched_memories: Vec::new(),
+                message: Some(api::message::Message::AgentOutput(
+                    api::message::AgentOutput {
+                        text: text.to_owned(),
+                    },
+                )),
+            }),
+            mask: Some(prost_types::FieldMask {
+                paths: vec!["agent_output.text".to_owned()],
+            }),
+        },
+    ))
 }
 
 fn runtime_activity_fallback_text(activity: &RuntimeActivity) -> String {

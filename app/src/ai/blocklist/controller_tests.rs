@@ -25,6 +25,7 @@ use crate::ai::agent::{
     WriteToLongRunningShellCommandResult,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+use crate::ai::blocklist::action_model::StartAgentWaitPolicy;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, PendingAttachment, PendingFile, RequestInput,
     ResponseStream, ResponseStreamId, StartAgentExecutor,
@@ -265,6 +266,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         root_task_id: task_id,
         did_input_contain_user_query: true,
         persistence_offset: 0,
+        cancellation_reason: None,
         committed_provider_batch: None,
         finished_provider_batch: None,
         command_action_refs: HashMap::new(),
@@ -273,6 +275,278 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         pending_command_completion: None,
         monitor_prose_continuations: 0,
     }
+}
+
+#[test]
+fn provider_snapshot_persists_cancellation_reason() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    snapshot.cancellation_reason = Some(CancellationReason::ManuallyCancelled);
+
+    let restored = super::ActiveProviderRunSnapshot::parse(
+        &serde_json::to_string(&snapshot).expect("cancellation snapshot should serialize"),
+    )
+    .expect("cancellation snapshot should parse");
+
+    assert_eq!(
+        restored.cancellation_reason,
+        Some(CancellationReason::ManuallyCancelled)
+    );
+    assert!(!restored.run.is_terminal());
+}
+
+#[test]
+fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let terminal_surface_id = terminal.id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    history_model.start_new_conversation(
+                        terminal_surface_id,
+                        false,
+                        false,
+                        false,
+                        ctx,
+                    )
+                });
+            let snapshot = provider_snapshot(conversation_id);
+            let stream_id = ResponseStreamId::new_for_test();
+            let response_stream =
+                ctx.add_model(|_| ResponseStream::new_for_test(stream_id.clone()));
+            let checkpoint = super::ActiveProviderRunCheckpoint {
+                run: snapshot.run.clone(),
+                base_request: snapshot.base_request.clone(),
+                cli_monitor_request: snapshot.cli_monitor_request.clone(),
+                response_config: snapshot.response_config.clone(),
+                action_context: snapshot.action_context.clone(),
+                persistence_offset: snapshot.persistence_offset,
+            };
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_runs.insert(
+                    conversation_id,
+                    super::ActiveProviderRunSlot {
+                        stream_id,
+                        response_stream,
+                        did_input_contain_user_query: snapshot.did_input_contain_user_query,
+                        run_id: snapshot.run.id().clone(),
+                        root_task_id: snapshot.root_task_id,
+                        projection_target: snapshot.projection_target,
+                        run: None,
+                        checkpoint: Some(checkpoint),
+                        turn_control: None,
+                        cancellation_reason: None,
+                        committed_provider_batch: None,
+                        finished_provider_batch: None,
+                        command_action_refs: HashMap::new(),
+                        command_monitor: None,
+                        pending_monitor_observation: None,
+                        pending_command_completion: None,
+                        monitor_prose_continuations: 0,
+                    },
+                );
+
+                assert!(controller.cancel_active_provider_run(
+                    conversation_id,
+                    CancellationReason::ManuallyCancelled,
+                    ctx,
+                ));
+                assert_eq!(
+                    controller
+                        .active_provider_runs
+                        .get(&conversation_id)
+                        .and_then(|slot| slot.cancellation_reason),
+                    Some(CancellationReason::ManuallyCancelled)
+                );
+            });
+
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .expect("cancelled provider conversation should remain durable");
+            let persisted = super::ActiveProviderRunSnapshot::parse(
+                conversation
+                    .active_provider_run_json()
+                    .expect("cancelled provider run should remain checkpointed"),
+            )
+            .expect("persisted cancellation should parse");
+            assert_eq!(
+                persisted.cancellation_reason,
+                Some(CancellationReason::ManuallyCancelled)
+            );
+            assert_eq!(conversation.status(), &ConversationStatus::InProgress);
+        });
+    });
+}
+
+#[test]
+fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let terminal_surface_id = terminal.id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    history_model.start_new_conversation(
+                        terminal_surface_id,
+                        false,
+                        false,
+                        false,
+                        ctx,
+                    )
+                });
+            let mut old_snapshot = provider_snapshot(conversation_id);
+            start_snapshot_tool(&mut old_snapshot, "old-tool");
+            assert!(matches!(
+                old_snapshot.run.state(),
+                ProviderRunState::AwaitingTools { .. }
+            ));
+
+            let old_stream_id = ResponseStreamId::new_for_test();
+            let old_response_stream =
+                ctx.add_model(|_| ResponseStream::new_for_test(old_stream_id.clone()));
+            let new_stream_id = ResponseStreamId::new_for_test();
+            let new_response_stream =
+                ctx.add_model(|_| ResponseStream::new_for_test(new_stream_id.clone()));
+            let new_snapshot = provider_snapshot(conversation_id);
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.active_provider_runs.insert(
+                    conversation_id,
+                    super::ActiveProviderRunSlot {
+                        stream_id: old_stream_id.clone(),
+                        response_stream: old_response_stream.clone(),
+                        did_input_contain_user_query: true,
+                        run_id: old_snapshot.run.id().clone(),
+                        root_task_id: old_snapshot.root_task_id.clone(),
+                        projection_target: old_snapshot.projection_target.clone(),
+                        run: None,
+                        checkpoint: Some(super::ActiveProviderRunCheckpoint {
+                            run: old_snapshot.run.clone(),
+                            base_request: old_snapshot.base_request.clone(),
+                            cli_monitor_request: old_snapshot.cli_monitor_request.clone(),
+                            response_config: old_snapshot.response_config.clone(),
+                            action_context: old_snapshot.action_context.clone(),
+                            persistence_offset: old_snapshot.persistence_offset,
+                        }),
+                        turn_control: None,
+                        cancellation_reason: Some(CancellationReason::FollowUpSubmitted {
+                            is_for_same_conversation: true,
+                        }),
+                        committed_provider_batch: None,
+                        finished_provider_batch: None,
+                        command_action_refs: HashMap::new(),
+                        command_monitor: None,
+                        pending_monitor_observation: None,
+                        pending_command_completion: None,
+                        monitor_prose_continuations: 0,
+                    },
+                );
+                controller
+                    .queued_provider_runs
+                    .entry(conversation_id)
+                    .or_default()
+                    .push_back(super::QueuedProviderRun {
+                        slot: super::ActiveProviderRunSlot {
+                            stream_id: new_stream_id.clone(),
+                            response_stream: new_response_stream,
+                            did_input_contain_user_query: true,
+                            run_id: new_snapshot.run.id().clone(),
+                            root_task_id: new_snapshot.root_task_id,
+                            projection_target: new_snapshot.projection_target,
+                            run: None,
+                            checkpoint: None,
+                            turn_control: None,
+                            cancellation_reason: None,
+                            committed_provider_batch: None,
+                            finished_provider_batch: None,
+                            command_action_refs: HashMap::new(),
+                            command_monitor: None,
+                            pending_monitor_observation: None,
+                            pending_command_completion: None,
+                            monitor_prose_continuations: 0,
+                        },
+                        base_provider_config: crate::ai::provider::ProviderConfig::None,
+                        cli_provider_config: crate::ai::provider::ProviderConfig::None,
+                        request_params: crate::ai::agent::api::RequestParams::new_for_test(),
+                    });
+
+                assert_eq!(
+                    controller.active_provider_runs[&conversation_id].stream_id,
+                    old_stream_id
+                );
+                controller.cleanup_active_provider_run(
+                    conversation_id,
+                    &old_stream_id,
+                    &old_response_stream,
+                    ctx,
+                );
+                assert_eq!(
+                    controller.active_provider_runs[&conversation_id].stream_id,
+                    new_stream_id
+                );
+                assert!(!controller
+                    .queued_provider_runs
+                    .contains_key(&conversation_id));
+
+                // A delayed callback from the old generation cannot remove its replacement.
+                controller.cleanup_active_provider_run(
+                    conversation_id,
+                    &old_stream_id,
+                    &old_response_stream,
+                    ctx,
+                );
+                assert_eq!(
+                    controller.active_provider_runs[&conversation_id].stream_id,
+                    new_stream_id
+                );
+            });
+        });
+    });
+}
+
+#[test]
+fn cancelled_provider_command_detaches_running_process_to_user() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |terminal, ctx| {
+            let conversation_id = AIConversationId::new();
+            let task_id = TaskId::new("provider-command-monitor".to_owned());
+            let block_id = {
+                let mut terminal_model = terminal.model.lock();
+                terminal_model.simulate_long_running_block("sleep 100", "running");
+                let active_block = terminal_model.block_list_mut().active_block_mut();
+                active_block.set_is_agent_tagged_in(true);
+                active_block
+                    .set_agent_interaction_mode_for_agent_monitored_command(
+                        &task_id,
+                        conversation_id,
+                    )
+                    .expect("command should become agent monitored");
+                active_block.id().clone()
+            };
+
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                controller.detach_cancelled_provider_command(conversation_id, &block_id, ctx);
+            });
+
+            let terminal_model = terminal.model.lock();
+            let active_block = terminal_model.block_list().active_block();
+            assert!(!active_block.is_agent_in_control());
+            assert!(active_block
+                .long_running_control_state()
+                .and_then(|state| state.user_take_over_reason())
+                .is_some_and(|reason| reason.is_stop()));
+            assert!(active_block.is_active_and_long_running());
+        });
+    });
 }
 
 fn start_snapshot_tool(
@@ -303,6 +577,105 @@ fn start_snapshot_tool(
         panic!("expected provider tool batch");
     };
     batch.work_id
+}
+
+#[test]
+fn malformed_provider_tool_inputs_become_correlated_errors_without_dropping_valid_calls() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let Some(ProviderRunStep::CallModel(call)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider model call");
+    };
+    snapshot
+        .run
+        .accept_model_turn(
+            &call.work_id,
+            CompletedModelTurn {
+                assistant_content: vec![],
+                tool_calls: vec![
+                    ToolCall {
+                        id: "bad-read".to_owned(),
+                        name: "read_files".to_owned(),
+                        arguments: serde_json::json!({"files": "not-an-array"}),
+                    },
+                    ToolCall {
+                        id: "good-grep".to_owned(),
+                        name: "grep".to_owned(),
+                        arguments: serde_json::json!({"queries": ["ProviderRun"]}),
+                    },
+                ],
+                usage: Usage::default(),
+                stop_reason: StopReason::Completed,
+                advertised_tools: BTreeSet::from(["grep".to_owned(), "read_files".to_owned()]),
+            },
+        )
+        .unwrap();
+    let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider tool batch");
+    };
+
+    let (actions, errors) = super::convert_provider_tool_batch(&snapshot.action_context, &batch);
+
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].0.id.to_string(), "good-grep");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].call_id, "bad-read");
+    assert_eq!(errors[0].status, galaxy_agent_core::ToolResultStatus::Error);
+    assert!(errors[0].content.contains("expected an array"));
+}
+
+#[test]
+fn malformed_provider_tool_error_can_be_committed_and_run_continues() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let Some(ProviderRunStep::CallModel(call)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider model call");
+    };
+    snapshot
+        .run
+        .accept_model_turn(
+            &call.work_id,
+            CompletedModelTurn {
+                assistant_content: vec![],
+                tool_calls: vec![ToolCall {
+                    id: "bad-read".to_owned(),
+                    name: "read_files".to_owned(),
+                    arguments: serde_json::json!({}),
+                }],
+                usage: Usage::default(),
+                stop_reason: StopReason::Completed,
+                advertised_tools: BTreeSet::from(["read_files".to_owned()]),
+            },
+        )
+        .unwrap();
+    let Some(ProviderRunStep::DispatchTools(batch)) = snapshot.run.next_step().unwrap() else {
+        panic!("expected provider tool batch");
+    };
+    let (actions, errors) = super::convert_provider_tool_batch(&snapshot.action_context, &batch);
+    assert!(actions.is_empty());
+
+    snapshot
+        .run
+        .complete_tool(&batch.work_id, errors[0].clone())
+        .unwrap();
+    snapshot.run.commit_tool_batch(&batch.work_id).unwrap();
+
+    assert!(matches!(
+        snapshot.run.state(),
+        ProviderRunState::ReadyToCallModel
+    ));
+    let MessageContent::MultiPart(parts) = &snapshot.run.transcript().last().unwrap().content
+    else {
+        panic!("expected correlated tool result");
+    };
+    assert!(matches!(
+        &parts[0],
+        ContentPart::ToolResult {
+            tool_use_id,
+            is_error: true,
+            ..
+        } if tool_use_id == "bad-read"
+    ));
 }
 
 fn attach_snapshot_command_monitor(
@@ -548,7 +921,7 @@ fn restored_active_command_rebuilds_monitor_observation() {
     super::apply_restored_provider_command_evidence(
         conversation_id,
         &mut snapshot,
-        super::RestoredProviderCommandEvidence {
+        Some(super::RestoredProviderCommandEvidence {
             conversation_id: Some(conversation_id),
             requested_command_action_id: Some(action_id),
             cli_task_id: Some(cli_task_id.clone()),
@@ -556,7 +929,7 @@ fn restored_active_command_rebuilds_monitor_observation() {
             state: BlockState::Executing,
             output: "running".to_owned(),
             exit_code: 0,
-        },
+        }),
     )
     .unwrap();
 
@@ -582,7 +955,7 @@ fn restored_completed_command_rebuilds_exact_completion_evidence() {
     super::apply_restored_provider_command_evidence(
         conversation_id,
         &mut snapshot,
-        super::RestoredProviderCommandEvidence {
+        Some(super::RestoredProviderCommandEvidence {
             conversation_id: Some(conversation_id),
             requested_command_action_id: Some(action_id.clone()),
             cli_task_id: Some(cli_task_id),
@@ -590,7 +963,7 @@ fn restored_completed_command_rebuilds_exact_completion_evidence() {
             state: BlockState::DoneWithExecution,
             output: "done".to_owned(),
             exit_code: 17,
-        },
+        }),
     )
     .unwrap();
 
@@ -609,6 +982,78 @@ fn restored_completed_command_rebuilds_exact_completion_evidence() {
 }
 
 #[test]
+fn restored_missing_command_block_becomes_interrupted_completion_evidence() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let (action_id, block_id, _) = attach_snapshot_command_monitor(&mut snapshot, conversation_id);
+    snapshot.pending_monitor_observation = Some(super::PendingProviderMonitorObservation {
+        block_id: block_id.clone(),
+        cli_task_id: TaskId::new("stale-cli-task".to_owned()),
+    });
+
+    super::apply_restored_provider_command_evidence(conversation_id, &mut snapshot, None).unwrap();
+
+    assert!(snapshot.pending_monitor_observation.is_none());
+    let completion = snapshot
+        .pending_command_completion
+        .expect("missing terminal block should become interrupted-command evidence");
+    assert_eq!(completion.block_id, block_id);
+    assert_eq!(
+        completion.initial_requested_command_action_id,
+        Some(action_id)
+    );
+    assert_eq!(completion.command, "sleep 10");
+    assert_eq!(completion.exit_code, 130);
+    assert!(completion.output.contains("interrupted"));
+}
+
+#[test]
+fn restored_evidence_is_ignored_without_a_command_monitor() {
+    let conversation_id = AIConversationId::new();
+    let mut snapshot = provider_snapshot(conversation_id);
+    let evidence = super::RestoredProviderCommandEvidence {
+        conversation_id: Some(conversation_id),
+        requested_command_action_id: None,
+        cli_task_id: None,
+        command: "sleep 10".to_owned(),
+        state: BlockState::Executing,
+        output: "running".to_owned(),
+        exit_code: 0,
+    };
+
+    super::apply_restored_provider_command_evidence(conversation_id, &mut snapshot, Some(evidence))
+        .unwrap();
+    assert!(snapshot.pending_monitor_observation.is_none());
+    assert!(snapshot.pending_command_completion.is_none());
+}
+
+#[test]
+fn restored_projection_accepts_empty_or_complete_and_rejects_partial_state() {
+    assert_eq!(
+        super::restored_projection_was_initialized(false, false, false).unwrap(),
+        false
+    );
+    assert_eq!(
+        super::restored_projection_was_initialized(true, true, false).unwrap(),
+        true
+    );
+    assert_eq!(
+        super::restored_projection_was_initialized(true, true, true).unwrap(),
+        true
+    );
+    for state in [
+        (false, false, true),
+        (false, true, false),
+        (true, false, false),
+    ] {
+        assert_eq!(
+            super::restored_projection_was_initialized(state.0, state.1, state.2).unwrap_err(),
+            "restored provider projection exchange is partially initialized"
+        );
+    }
+}
+
+#[test]
 fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
     let conversation_id = AIConversationId::new();
     let mut snapshot = provider_snapshot(conversation_id);
@@ -619,7 +1064,7 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
         super::apply_restored_provider_command_evidence(
             conversation_id,
             &mut snapshot,
-            super::RestoredProviderCommandEvidence {
+            Some(super::RestoredProviderCommandEvidence {
                 conversation_id: Some(AIConversationId::new()),
                 requested_command_action_id: Some(action_id.clone()),
                 cli_task_id: Some(cli_task_id.clone()),
@@ -627,7 +1072,7 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
                 state: BlockState::Executing,
                 output: String::new(),
                 exit_code: 0,
-            },
+            }),
         )
         .unwrap_err(),
         "restored provider command block identity does not match"
@@ -636,7 +1081,7 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
         super::apply_restored_provider_command_evidence(
             conversation_id,
             &mut snapshot,
-            super::RestoredProviderCommandEvidence {
+            Some(super::RestoredProviderCommandEvidence {
                 conversation_id: Some(conversation_id),
                 requested_command_action_id: Some(action_id),
                 cli_task_id: Some(cli_task_id),
@@ -644,7 +1089,7 @@ fn restored_command_rejects_mismatched_or_invalid_terminal_evidence() {
                 state: BlockState::Background,
                 output: String::new(),
                 exit_code: 0,
-            },
+            }),
         )
         .unwrap_err(),
         "restored provider command block has an invalid state"
@@ -2042,7 +2487,7 @@ fn completed_provider_run_with_prior_action_resolves_child_completion_wait() {
                 "child".to_owned(),
                 parent_conversation_id,
                 child_conversation_id,
-                None,
+                StartAgentWaitPolicy::Completion,
                 ctx,
             )
         });

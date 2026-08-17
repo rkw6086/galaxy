@@ -327,6 +327,16 @@ mod format_terminal_state_tests {
         }
     }
 
+    fn completed(name: &str, agent_id: &str) -> RunAgentsAgentOutcome {
+        RunAgentsAgentOutcome {
+            name: name.to_string(),
+            kind: RunAgentsAgentOutcomeKind::Completed {
+                agent_id: agent_id.to_string(),
+                output: format!("{name} output"),
+            },
+        }
+    }
+
     fn launched_result(agents: Vec<RunAgentsAgentOutcome>) -> RunAgentsResult {
         RunAgentsResult::Launched {
             model_id: "auto".to_string(),
@@ -365,6 +375,30 @@ mod format_terminal_state_tests {
         ]);
         let (label, kind) = format_terminal_state(&result);
         assert_eq!(label, "Spawned 2 of 3 agents");
+        assert!(matches!(kind, StatusKind::Mixed));
+    }
+
+    #[test]
+    fn all_completed_uses_completed_label_and_success_status() {
+        let result = launched_result(vec![
+            completed("a", "a-1"),
+            completed("b", "a-2"),
+            completed("c", "a-3"),
+        ]);
+        let (label, kind) = format_terminal_state(&result);
+        assert_eq!(label, "Completed 3 agents");
+        assert!(matches!(kind, StatusKind::Success));
+    }
+
+    #[test]
+    fn mixed_completed_and_failed_uses_completed_label_and_mixed_status() {
+        let result = launched_result(vec![
+            completed("a", "a-1"),
+            failed("b", "boom"),
+            completed("c", "a-3"),
+        ]);
+        let (label, kind) = format_terminal_state(&result);
+        assert_eq!(label, "Completed 2 of 3 agents");
         assert!(matches!(kind, StatusKind::Mixed));
     }
 
