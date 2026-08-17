@@ -1788,6 +1788,60 @@ fn fresh_cloud_mode_setup_enters_agent_view_when_view_pending() {
 }
 
 #[test]
+fn legacy_cloud_mode_waiting_for_session_keeps_input_visible() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+        let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
+        let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(false);
+        let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(false);
+
+        let terminal = add_window_with_cloud_mode_terminal(&mut app);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.model
+                .lock()
+                .set_shared_session_status(SharedSessionStatus::ViewPending);
+            view.enter_ambient_agent_setup(Some("write the tests".to_string()), ctx);
+            view.ambient_agent_view_model()
+                .expect("cloud mode terminal should have ambient model")
+                .update(ctx, |model, ctx| {
+                    model.spawn_agent_with_request(
+                        SpawnAgentRequest {
+                            prompt: Some("write the tests".to_string()),
+                            mode: UserQueryMode::Normal,
+                            config: None,
+                            title: None,
+                            team: None,
+                            agent_identity_uid: None,
+                            skill: None,
+                            attachments: vec![],
+                            interactive: None,
+                            parent_run_id: None,
+                            runtime_skills: vec![],
+                            referenced_attachments: vec![],
+                            conversation_id: None,
+                            initial_snapshot_token: None,
+                            snapshot_disabled: None,
+                            orchestration_handoff: None,
+                        },
+                        ctx,
+                    );
+                });
+
+            let model = view.model.lock();
+            assert!(ambient_agent::is_cloud_agent_pre_first_exchange(
+                view.ambient_agent_view_model.as_ref(),
+                &view.agent_view_controller,
+                &model,
+                ctx,
+            ));
+            assert!(view.is_input_box_visible(&model, ctx));
+        });
+    });
+}
+
+#[test]
 fn shared_third_party_viewer_sync_enters_agent_view_and_retags_existing_block() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
@@ -5482,6 +5536,57 @@ fn inline_agent_view_exits_when_tagged_in_long_running_command_is_tagged_out() {
             let active_block = model.block_list().active_block();
             assert!(!active_block.is_agent_tagged_in());
             assert!(!view.is_input_box_visible(&model, ctx));
+        });
+    })
+}
+
+#[test]
+fn agent_view_keeps_input_visible_for_agent_requested_and_blocked_commands() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |view, ctx| {
+            let conversation_id = view.agent_view_controller().update(ctx, |controller, ctx| {
+                controller
+                    .try_enter_agent_view(
+                        None,
+                        AgentViewEntryOrigin::Input {
+                            was_prompt_autodetected: false,
+                        },
+                        ctx,
+                    )
+                    .expect("should enter agent view")
+            });
+            bootstrap_with_long_running_block(view);
+            set_active_block_agent_driving(view, conversation_id);
+
+            {
+                let model = view.model.lock();
+                let active_block = model.block_list().active_block();
+                assert!(active_block.is_agent_driving_command());
+                assert!(view.is_input_box_visible(&model, ctx));
+            }
+
+            let task_id = TaskId::new("test-cli-subagent".to_owned());
+            view.model
+                .lock()
+                .block_list_mut()
+                .active_block_mut()
+                .set_agent_interaction_mode_for_agent_monitored_command(&task_id, conversation_id)
+                .expect("agent-requested command should become monitored");
+            view.model
+                .lock()
+                .block_list_mut()
+                .active_block_mut()
+                .update_is_agent_blocked(true);
+
+            let model = view.model.lock();
+            let active_block = model.block_list().active_block();
+            assert!(active_block.is_agent_blocked());
+            assert!(view.is_input_box_visible(&model, ctx));
         });
     })
 }

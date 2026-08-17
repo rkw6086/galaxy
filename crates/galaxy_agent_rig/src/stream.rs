@@ -22,16 +22,23 @@ where
     let control_future = initial_control.receive().fuse();
     futures::pin_mut!(stream_future, control_future);
 
-    let mut rig_stream = futures::select_biased! {
+    let stream_result = futures::select_biased! {
         command = control_future => match command {
             Ok(TurnCommand::Cancel) => {
                 return Ok(stopped_before_stream(runtime_request_id));
             }
-            Ok(TurnCommand::Steer { .. }) | Err(_) => {
-                stream_future.await.map_err(map_completion_error)?
-            }
+            Ok(TurnCommand::Steer { .. }) | Err(_) => stream_future.await,
         },
-        result = stream_future => result.map_err(map_completion_error)?,
+        result = stream_future => result,
+    };
+    let mut rig_stream = match stream_result {
+        Ok(stream) => stream,
+        Err(error) => {
+            if let Some(reason) = completion_error_stop_reason(&error) {
+                return Ok(stopped_with_reason(runtime_request_id, reason));
+            }
+            return Err(map_completion_error(error));
+        }
     };
 
     let events = async_stream::stream! {
@@ -156,16 +163,23 @@ where
     let control_future = initial_control.receive().fuse();
     futures::pin_mut!(completion_future, control_future);
 
-    let response = futures::select_biased! {
+    let completion_result = futures::select_biased! {
         command = control_future => match command {
             Ok(TurnCommand::Cancel) => {
                 return Ok(stopped_before_stream(runtime_request_id));
             }
-            Ok(TurnCommand::Steer { .. }) | Err(_) => {
-                completion_future.await.map_err(map_completion_error)?
-            }
+            Ok(TurnCommand::Steer { .. }) | Err(_) => completion_future.await,
         },
-        result = completion_future => result.map_err(map_completion_error)?,
+        result = completion_future => result,
+    };
+    let response = match completion_result {
+        Ok(response) => response,
+        Err(error) => {
+            if let Some(reason) = completion_error_stop_reason(&error) {
+                return Ok(stopped_with_reason(runtime_request_id, reason));
+            }
+            return Err(map_completion_error(error));
+        }
     };
 
     let events = async_stream::stream! {
@@ -230,11 +244,13 @@ fn domain_tool_call(tool_call: rig_core::message::ToolCall) -> ToolCall {
 }
 
 fn stopped_before_stream(runtime_request_id: String) -> AgentEventStream {
+    stopped_with_reason(runtime_request_id, StopReason::Cancelled)
+}
+
+fn stopped_with_reason(runtime_request_id: String, reason: StopReason) -> AgentEventStream {
     Box::pin(futures::stream::iter([
         Ok(AgentEvent::TurnStarted { runtime_request_id }),
-        Ok(AgentEvent::TurnStopped {
-            reason: StopReason::Cancelled,
-        }),
+        Ok(AgentEvent::TurnStopped { reason }),
     ]))
 }
 
@@ -248,6 +264,10 @@ pub(crate) fn map_usage(usage: rig_core::completion::Usage) -> Usage {
 }
 
 pub(crate) fn completion_error_stop_reason(error: &CompletionError) -> Option<StopReason> {
+    if completion_error_indicates_context_window_exceeded(error) {
+        return Some(StopReason::ContextWindowExceeded);
+    }
+
     match error {
         // rig-bedrock 0.40 currently surfaces Bedrock's MaxTokens stop as a
         // provider error. Normalize it here so the UI sees the same semantic
@@ -259,28 +279,74 @@ pub(crate) fn completion_error_stop_reason(error: &CompletionError) -> Option<St
     }
 }
 
+fn completion_error_indicates_context_window_exceeded(error: &CompletionError) -> bool {
+    if let Ok(Some(value)) = error.provider_response_json()
+        && json_value_indicates_context_window_exceeded(&value)
+    {
+        return true;
+    }
+
+    error
+        .provider_response_body()
+        .is_some_and(text_indicates_context_window_exceeded)
+        || text_indicates_context_window_exceeded(&error.to_string())
+}
+
+fn json_value_indicates_context_window_exceeded(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(text) => text_indicates_context_window_exceeded(text),
+        serde_json::Value::Array(values) => values
+            .iter()
+            .any(json_value_indicates_context_window_exceeded),
+        serde_json::Value::Object(map) => map
+            .values()
+            .any(json_value_indicates_context_window_exceeded),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            false
+        }
+    }
+}
+
+fn text_indicates_context_window_exceeded(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    normalized.contains("modelcontextwindowexceeded")
+        || normalized.contains("context_length_exceeded")
+        || normalized.contains("context window")
+        || normalized.contains("context length")
+        || normalized.contains("too many tokens")
+        || normalized.contains("maximum context")
+        || normalized.contains("input is too long")
+        || (normalized.contains("input exceeds") && normalized.contains("context"))
+        || normalized.contains("exceeds the context")
+}
+
 fn map_completion_error(error: CompletionError) -> AgentError {
+    let is_context_window_exceeded = completion_error_indicates_context_window_exceeded(&error);
     let status = error
         .provider_response_status()
         .map(|status| status.as_u16());
-    let kind = match status {
-        Some(401 | 403) => AgentErrorKind::Authentication,
-        Some(429) => AgentErrorKind::RateLimited,
-        Some(400 | 404 | 413 | 422) => AgentErrorKind::InvalidRequest,
-        Some(500..=599) => AgentErrorKind::Provider,
-        Some(_) => AgentErrorKind::Provider,
-        None => match &error {
-            CompletionError::HttpError(_)
-            | CompletionError::UrlError(_)
-            | CompletionError::RequestError(_) => AgentErrorKind::Transport,
-            CompletionError::JsonError(_) | CompletionError::ResponseError(_) => {
-                AgentErrorKind::Protocol
-            }
-            CompletionError::ProviderError(_) | CompletionError::ProviderResponse(_) => {
-                AgentErrorKind::Provider
-            }
-            _ => AgentErrorKind::Provider,
-        },
+    let kind = if is_context_window_exceeded {
+        AgentErrorKind::ContextWindowExceeded
+    } else {
+        match status {
+            Some(401 | 403) => AgentErrorKind::Authentication,
+            Some(429) => AgentErrorKind::RateLimited,
+            Some(400 | 404 | 413 | 422) => AgentErrorKind::InvalidRequest,
+            Some(500..=599) => AgentErrorKind::Provider,
+            Some(_) => AgentErrorKind::Provider,
+            None => match &error {
+                CompletionError::HttpError(_)
+                | CompletionError::UrlError(_)
+                | CompletionError::RequestError(_) => AgentErrorKind::Transport,
+                CompletionError::JsonError(_) | CompletionError::ResponseError(_) => {
+                    AgentErrorKind::Protocol
+                }
+                CompletionError::ProviderError(_) | CompletionError::ProviderResponse(_) => {
+                    AgentErrorKind::Provider
+                }
+                _ => AgentErrorKind::Provider,
+            },
+        }
     };
     let mut mapped = AgentError::new(kind, error.to_string());
     mapped.recoverable = matches!(
@@ -292,7 +358,10 @@ fn map_completion_error(error: CompletionError) -> AgentError {
 
 #[cfg(test)]
 mod tests {
-    use super::domain_tool_call;
+    use galaxy_agent_core::{AgentErrorKind, StopReason};
+    use rig_core::completion::CompletionError;
+
+    use super::{completion_error_stop_reason, domain_tool_call, map_completion_error};
 
     #[test]
     fn domain_tool_call_prefers_responses_call_id() {
@@ -325,5 +394,38 @@ mod tests {
 
         assert_eq!(call.id, "fc_item_123");
         assert_eq!(call.name, "read_files");
+    }
+
+    #[test]
+    fn provider_context_window_error_maps_to_semantic_stop_reason_and_kind() {
+        let status = rig_core::http_client::Response::builder()
+            .status(400)
+            .body(())
+            .unwrap()
+            .status();
+        let error = CompletionError::from_http_response(
+            status,
+            r#"{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","code":"400"}}"#,
+        );
+
+        assert_eq!(
+            completion_error_stop_reason(&error),
+            Some(StopReason::ContextWindowExceeded)
+        );
+        let mapped = map_completion_error(error);
+        assert_eq!(mapped.kind, AgentErrorKind::ContextWindowExceeded);
+        assert!(!mapped.recoverable);
+    }
+
+    #[test]
+    fn provider_context_length_string_maps_to_semantic_stop_reason() {
+        let error = CompletionError::ProviderError(
+            "context_length_exceeded: maximum context length is 128000 tokens".to_string(),
+        );
+
+        assert_eq!(
+            completion_error_stop_reason(&error),
+            Some(StopReason::ContextWindowExceeded)
+        );
     }
 }

@@ -8367,21 +8367,6 @@ impl TerminalView {
             return false;
         }
 
-        // In cloud agent conversations, once the shared session is ready but before the first
-        // agent exchange arrives, we hide the interactive input view. A non-interactive footer is
-        // rendered instead (see `TerminalView::render`).
-        if !FeatureFlag::CloudModeSetupV2.is_enabled()
-            && !FeatureFlag::HandoffCloudCloud.is_enabled()
-            && ambient_agent::is_cloud_agent_pre_first_exchange(
-                self.ambient_agent_view_model.as_ref(),
-                &self.agent_view_controller,
-                model,
-                app,
-            )
-        {
-            return false;
-        }
-
         if self.has_active_init_project(app) && self.is_last_block_init_step(app) {
             return false;
         }
@@ -8417,23 +8402,28 @@ impl TerminalView {
             }
         }
 
-        let active_ai_block = self.active_ai_block(app);
-        if active_ai_block.is_some_and(|ai_block| {
-            let ai_block = ai_block.as_ref(app);
-            ai_block.is_blocked_on_user_confirmation(app)
-                || ai_block.has_expanded_running_commands(app)
-        }) {
-            return false;
-        }
-
         let active_command_block = model.block_list().active_block();
         let is_active_and_long_running = active_command_block.is_active_and_long_running();
         let is_oz_env_startup_command = active_command_block.is_oz_environment_startup_command();
         let is_running_in_band_command =
             model.block_list().is_writing_or_executing_in_band_command();
+        let has_active_long_running_agent_interaction = active_command_block
+            .is_agent_driving_command()
+            || active_command_block.is_agent_tagged_in();
+        let is_agent_view_active = FeatureFlag::AgentView.is_enabled()
+            && self.agent_view_controller.as_ref(app).is_active();
 
-        let has_active_long_running_agent_interaction =
-            active_command_block.is_agent_monitoring() || active_command_block.is_agent_tagged_in();
+        let active_ai_block = self.active_ai_block(app);
+        if !is_agent_view_active
+            && !has_active_long_running_agent_interaction
+            && active_ai_block.is_some_and(|ai_block| {
+                let ai_block = ai_block.as_ref(app);
+                ai_block.is_blocked_on_user_confirmation(app)
+                    || ai_block.has_expanded_running_commands(app)
+            })
+        {
+            return false;
+        }
 
         if (active_ai_block.is_none() || has_active_long_running_agent_interaction)
             && is_active_and_long_running
@@ -8441,11 +8431,9 @@ impl TerminalView {
             && !is_running_in_band_command
             && model.block_list().is_bootstrapped()
         {
-            // Show the input if:
-            // * The agent is control of the active, long running block, so long as the agent is not blocked.
-            // * OR the user has 'tagged in' the agent.
-            return (active_command_block.is_agent_in_control()
-                && !active_command_block.is_agent_blocked())
+            // Keep the agent prompt available while the agent owns, starts, or waits on
+            // a long-running command; hide it for user-owned commands unless tagged in.
+            return active_command_block.is_agent_driving_command()
                 || active_command_block.is_agent_tagged_in();
         }
 
