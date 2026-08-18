@@ -3727,11 +3727,12 @@ impl AIBlock {
                     self.requested_commands_to_auto_collapse.remove(action_id);
                 }
 
-                // The terminal block remains the source of command output, but is hidden while
-                // the inline pane owns the expanded body so the content cannot detach below it.
+                // Requested-command output is rendered by the inline pane whenever it is
+                // expanded. Keep the backing terminal block hidden in both states so collapsing
+                // the pane does not move the output to the bottom of the conversation.
                 ctx.emit(AIBlockEvent::UpdateInlineActionVisibility {
                     action_id: action_id.clone(),
-                    is_visible: !*is_expanded,
+                    is_visible: false,
                 });
                 ctx.notify();
             }
