@@ -8730,6 +8730,47 @@ impl TerminalView {
         }
     }
 
+    /// Returns the conversation shown by AgentView when it has work that Ctrl+C should stop.
+    /// The latest exchange can already be complete while a provider run, child agent, or command
+    /// monitor is still alive, so looking only at the status bar's active exchange is insufficient.
+    fn active_agent_conversation_to_cancel(
+        &self,
+        has_input_buffer: bool,
+        ctx: &AppContext,
+    ) -> Option<AIConversationId> {
+        if !FeatureFlag::AgentView.is_enabled()
+            || !self.agent_view_controller.as_ref(ctx).is_active()
+        {
+            return None;
+        }
+
+        let conversation_id = self
+            .agent_view_controller
+            .as_ref(ctx)
+            .agent_view_state()
+            .active_conversation_id()
+            .or_else(|| {
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .active_conversation(self.view_id)
+                    .map(|conversation| conversation.id())
+            })?;
+
+        let conversation_has_progress = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| {
+                conversation.status().is_in_progress()
+                    && (conversation.exchange_count() > 0 || has_input_buffer)
+            });
+        let command_is_monitored = {
+            let model = self.model.lock();
+            let active_block = model.block_list().active_block();
+            active_block.is_active_and_long_running()
+                && active_block.ai_conversation_id() == Some(conversation_id)
+        };
+
+        (conversation_has_progress || command_is_monitored).then_some(conversation_id)
+    }
+
     fn user_write_ctrl_c_to_pty(&mut self, ctx: &mut ViewContext<Self>) {
         self.write_user_bytes_to_pty(vec![escape_sequences::C0::ETX], ctx);
     }
@@ -8754,15 +8795,32 @@ impl TerminalView {
 
         if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(ctx).is_active()
         {
+            if let Some(conversation_id) =
+                self.active_agent_conversation_to_cancel(cleared_buffer_len > 0, ctx)
+            {
+                self.agent_view_controller.update(ctx, |controller, ctx| {
+                    controller.clear_pending_exit_confirmation(ctx);
+                });
+                // Cancel by conversation identity. This remains reliable when the latest exchange
+                // has completed but a provider run, child agent, or command monitor is active.
+                let command_is_for_conversation = {
+                    let model = self.model.lock();
+                    let active_block = model.block_list().active_block();
+                    active_block.is_active_and_long_running()
+                        && active_block.ai_conversation_id() == Some(conversation_id)
+                };
+                if command_is_for_conversation {
+                    self.stop_local_agent_conversation(conversation_id, ctx);
+                } else {
+                    self.cancel_active_conversation_via_status_bar(ctx);
+                }
+                return;
+            }
+
             if cleared_buffer_len > 0 {
                 self.agent_view_controller.update(ctx, |controller, ctx| {
                     controller.clear_pending_exit_confirmation(ctx);
                 });
-                // Also cancel any in-progress conversation so that Ctrl+C while
-                // composing a message (or after submitting when the buffer hasn't
-                // cleared yet) properly stops the agent query and returns the
-                // terminal to a ready state.
-                self.cancel_active_conversation_via_status_bar(ctx);
                 return;
             }
 
@@ -9013,9 +9071,23 @@ impl TerminalView {
             });
         }
 
+        let conversation_id = self
+            .agent_view_controller
+            .as_ref(ctx)
+            .agent_view_state()
+            .active_conversation_id()
+            .or_else(|| {
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .active_conversation(self.view_id)
+                    .map(|conversation| conversation.id())
+            });
         let status_bar = self.input.as_ref(ctx).agent_status_bar().clone();
         status_bar.update(ctx, |status_bar, ctx| {
-            status_bar.handle_ctrl_c(ctx);
+            if let Some(conversation_id) = conversation_id {
+                status_bar.handle_ctrl_c_for_conversation(conversation_id, ctx);
+            } else {
+                status_bar.handle_ctrl_c(ctx);
+            }
         });
     }
 

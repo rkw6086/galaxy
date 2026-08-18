@@ -2941,10 +2941,7 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         self.send_user_query_in_conversation_internal(
-            "The command is still running. Continue monitoring now: call `read_shell_command_output` \
-             with the existing command ID instead of replying with a status message. If the user's \
-             explicit stop condition is met, call `interrupt_shell_command` immediately."
-                .to_owned(),
+            Self::cli_monitor_nudge_message().to_owned(),
             conversation_id,
             None,
             RunningCommandDetection::Detect,
@@ -2954,6 +2951,10 @@ impl BlocklistAIController {
             /*queued_query_id*/ None,
             ctx,
         );
+    }
+
+    pub(crate) fn cli_monitor_nudge_message() -> &'static str {
+        "The command is still running. Please check its latest output and keep monitoring it."
     }
 
     #[allow(clippy::too_many_arguments)]

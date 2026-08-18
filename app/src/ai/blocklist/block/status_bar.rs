@@ -476,6 +476,31 @@ impl BlocklistAIStatusBar {
         ctx.notify();
     }
 
+    /// Handles Ctrl+C for a conversation even when its latest exchange has already
+    /// completed but a child agent or another orchestration task is still running.
+    pub fn handle_ctrl_c_for_conversation(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let active_exchange_matches = self
+            .active_exchange_model
+            .as_ref()
+            .and_then(|model| model.conversation_id(ctx))
+            == Some(conversation_id);
+        if active_exchange_matches {
+            self.handle_ctrl_c(ctx);
+        } else {
+            self.controller.update(ctx, |controller, ctx| {
+                controller.cancel_conversation_progress(
+                    conversation_id,
+                    CancellationReason::ManuallyCancelled,
+                    ctx,
+                );
+            });
+        }
+    }
+
     pub fn notify_and_notify_children(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.notify();
         self.agent_message_bar.update(ctx, |_, ctx| ctx.notify());

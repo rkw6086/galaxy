@@ -494,18 +494,22 @@ impl CLISubagentView {
             .and_then(|conversation| conversation.get_task(&self.task_id))
             .map(|task| {
                 task.exchanges()
-                    .flat_map(|exchange| exchange.input.iter().cloned())
+                    .flat_map(|exchange| exchange.input.iter())
+                    .filter_map(|input| {
+                        matches!(input, AIAgentInput::UserQuery { .. }).then(|| input.clone())
+                    })
+                    .last()
+                    .into_iter()
                     .collect()
             })
             .unwrap_or_else(|| self.model.inputs_to_render(app).to_vec())
     }
 
-    /// Builds the visible CLI transcript across every exchange in the monitor task.
+    /// Builds the compact visible transcript for the monitor task.
     ///
-    /// User queries and assistant text remain visible across automatic polling exchanges. Internal
-    /// `ActionResult` inputs remain absent because input rendering still explicitly accepts only
-    /// `UserQuery`. Historical tool activity is omitted to avoid a growing stack of repeated poll
-    /// cards; only the newest exchange's live action is retained.
+    /// The latest user query and the newest assistant text remain visible while historical tool
+    /// activity is omitted to avoid a growing stack of repeated poll cards. Only the newest
+    /// exchange's live action is retained.
     fn task_output_to_render(&self, app: &AppContext) -> AIAgentOutput {
         let Some(task) = BlocklistAIHistoryModel::as_ref(app)
             .conversation(&self.conversation_id)
@@ -529,18 +533,16 @@ impl CLISubagentView {
                 continue;
             };
             let output = output.get();
-            visible_output.messages.extend(
-                output
-                    .messages
-                    .iter()
-                    .filter(|message| {
-                        should_retain_task_output_message(
-                            &message.message,
-                            exchange.id == last_exchange_id,
-                        )
-                    })
-                    .cloned(),
-            );
+            for message in output.messages.iter().filter(|message| {
+                should_retain_task_output_message(&message.message, exchange.id == last_exchange_id)
+            }) {
+                if matches!(message.message, AIAgentOutputMessageType::Text(_)) {
+                    visible_output.messages.retain(|existing| {
+                        !matches!(existing.message, AIAgentOutputMessageType::Text(_))
+                    });
+                }
+                visible_output.messages.push(message.clone());
+            }
         }
         visible_output
     }

@@ -3692,7 +3692,10 @@ impl AIBlock {
                 self.cancel_action(action_id, ctx);
                 self.yield_requested_action_focus_if_focused(&view, ctx);
             }
-            RequestedCommandViewEvent::UpdatedExpansionState { is_expanded } => {
+            RequestedCommandViewEvent::UpdatedExpansionState {
+                is_expanded,
+                is_user_initiated,
+            } => {
                 // We only care about expansion state updates when the command
                 // is running or finished (i.e. when it has a block).
                 let action_status = self
@@ -3715,15 +3718,20 @@ impl AIBlock {
                 // If the requested command is being expanded, we don't need to auto-expand anymore.
                 if *is_expanded {
                     self.abort_auto_expand_requested_command_timer();
-                } else {
+                    if *is_user_initiated {
+                        self.requested_commands_to_auto_collapse.remove(action_id);
+                    }
+                } else if *is_user_initiated {
                     // Remove requested command from list of requested commands to auto-collapse if the user manually collapses it.
                     // In the edge-case where the user then manually expands the requested command, we won't auto-collapse it again.
                     self.requested_commands_to_auto_collapse.remove(action_id);
                 }
 
+                // The terminal block remains the source of command output, but is hidden while
+                // the inline pane owns the expanded body so the content cannot detach below it.
                 ctx.emit(AIBlockEvent::UpdateInlineActionVisibility {
                     action_id: action_id.clone(),
-                    is_visible: *is_expanded,
+                    is_visible: !*is_expanded,
                 });
                 ctx.notify();
             }

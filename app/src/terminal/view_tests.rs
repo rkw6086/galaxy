@@ -6025,6 +6025,55 @@ fn ctrl_c_buffer_clear_then_exit_requires_three_presses_in_agent_view() {
 }
 
 #[test]
+fn ctrl_c_with_nonempty_agent_input_cancels_active_conversation() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        FeatureFlag::AgentView.set_enabled(true);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        let conversation_id = terminal.update(&mut app, |view, ctx| {
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(view.view_id, false, false, false, ctx)
+                });
+            let stream_id = ResponseStreamId::new_for_test();
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history
+                    .conversation_mut(&conversation_id)
+                    .expect("conversation should exist")
+                    .append_reassigned_exchange(
+                        &stream_id,
+                        exchange_with_inputs(vec![]),
+                        view.view_id,
+                        ctx,
+                    )
+                    .expect("exchange should append");
+            });
+            conversation_id
+        });
+
+        terminal.update(&mut app, |view, ctx| {
+            view.handle_input_event(
+                &InputEvent::CtrlC {
+                    cleared_buffer_len: 4,
+                },
+                ctx,
+            );
+        });
+
+        terminal.read(&app, |_, ctx| {
+            assert_eq!(
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .map(|conversation| conversation.status()),
+                Some(&ConversationStatus::Cancelled),
+                "Ctrl+C must cancel the agent instead of only clearing its draft"
+            );
+        });
+    })
+}
+
+#[test]
 fn terminal_action_ctrl_c_exit_agent_view_requires_confirmation() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);

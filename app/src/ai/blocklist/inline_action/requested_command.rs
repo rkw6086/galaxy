@@ -7,10 +7,12 @@ use std::sync::Arc;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::Icon;
 use galaxy_editor::render::element::VerticalExpansionBehavior;
+use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{
-    Align, Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-    Expanded, Flex, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentElement, Radius,
-    ScrollbarWidth, SelectableArea, SelectionHandle, Stack, Text,
+    Align, Border, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Container,
+    CornerRadius, CrossAxisAlignment, Expanded, Fill, Flex, MainAxisSize, MouseStateHandle,
+    NewScrollable, OffsetPositioning, ParentElement, Radius, ScrollbarWidth, SelectableArea,
+    SelectionHandle, Stack, Text,
 };
 use galaxyui::keymap::{Context, EditableBinding, FixedBinding, Keystroke};
 use galaxyui::ui_components::components::UiComponent as _;
@@ -42,6 +44,7 @@ use crate::ai::blocklist::inline_action::inline_action_header::{
     ExpandedConfig, HeaderConfig, InteractionMode, RightClickConfig,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
+use crate::ai::blocklist::inline_action::requested_action::render_requested_action_body_text;
 use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
@@ -259,7 +262,10 @@ pub enum RequestedCommandViewEvent {
     Accepted,
     EnableAutoexecuteMode,
     Rejected,
-    UpdatedExpansionState { is_expanded: bool },
+    UpdatedExpansionState {
+        is_expanded: bool,
+        is_user_initiated: bool,
+    },
     TextSelected,
     CopiedEmptyText,
     EditorFocused,
@@ -319,7 +325,10 @@ pub struct RequestedCommandView {
 
     // Header expansion state components
     is_header_expanded: bool,
+    // User expansion must survive execution and completion; only automatic expansion is transient.
+    is_user_expanded: bool,
     header_mouse_state: MouseStateHandle,
+    output_scroll_state: ClippedScrollStateHandle,
     is_editing: bool,
 
     // A requested command can either be copied directly off of one citation (such as a Warp Drive
@@ -433,7 +442,7 @@ impl RequestedCommandView {
                         if me.action_type.is_requested_command() {
                             me.ensure_editor(ctx);
                         }
-                        me.set_is_header_expanded(true, ctx);
+                        me.set_is_header_expanded(true, false, ctx);
                         ctx.notify();
                     }
                     BlocklistAIActionEvent::ExecutingAction {
@@ -470,8 +479,8 @@ impl RequestedCommandView {
 
                         me.destroy_editor();
 
-                        if me.is_header_expanded {
-                            me.set_is_header_expanded(false, ctx);
+                        if me.is_header_expanded && !me.is_user_expanded {
+                            me.set_is_header_expanded(false, false, ctx);
                         }
                         ctx.notify();
                     }
@@ -512,8 +521,8 @@ impl RequestedCommandView {
                                         .is_none_or(|block| block.finished())
                                     {
                                         drop(terminal_model);
-                                        if me.is_header_expanded {
-                                            me.set_is_header_expanded(false, ctx);
+                                        if me.is_header_expanded && !me.is_user_expanded {
+                                            me.set_is_header_expanded(false, false, ctx);
                                         }
                                     }
                                 }
@@ -576,7 +585,9 @@ impl RequestedCommandView {
             is_editing: false,
             autonomy_setting_speedbump,
             is_header_expanded: false,
+            is_user_expanded: false,
             header_mouse_state: Default::default(),
+            output_scroll_state: ClippedScrollStateHandle::new(),
             copied_from_citation: None,
             derived_from_citations: Default::default(),
             citation_state_handles: Default::default(),
@@ -680,14 +691,23 @@ impl RequestedCommandView {
         }
     }
 
-    fn set_is_header_expanded(&mut self, value: bool, ctx: &mut ViewContext<Self>) {
+    fn set_is_header_expanded(
+        &mut self,
+        value: bool,
+        is_user_initiated: bool,
+        ctx: &mut ViewContext<Self>,
+    ) {
         if value == self.is_header_expanded {
             return;
         }
         self.is_header_expanded = value;
+        if is_user_initiated {
+            self.is_user_expanded = value;
+        }
 
         ctx.emit(RequestedCommandViewEvent::UpdatedExpansionState {
             is_expanded: self.is_header_expanded,
+            is_user_initiated,
         });
         ctx.notify();
     }
@@ -1525,10 +1545,34 @@ impl View for RequestedCommandView {
             && self.action_type.is_mcp_tool()
             && !self.command_text.is_empty();
 
+        // Requested command blocks are hidden terminal blocks. Keep their output in this pane
+        // instead of revealing the terminal block below the pane when the header is expanded.
+        let command_output = if self.is_header_expanded && self.action_type.is_requested_command() {
+            let terminal_model = self.terminal_model.lock();
+            terminal_model
+                .block_list()
+                .block_for_ai_action_id(&self.action_id)
+                .map(|block| {
+                    let (command, output) = block.command_and_output_with_secret_obfuscated(false);
+                    if output.is_empty() {
+                        command
+                    } else {
+                        format!("{command}\n\n{output}")
+                    }
+                })
+                .filter(|output| !output.is_empty())
+        } else {
+            None
+        };
+        let should_render_command_output = command_output.is_some();
+
         let has_citations_footer =
             !self.derived_from_citations.is_empty() && !self.block_model.status(app).is_streaming();
         let header_element = self.render_header(
-            !should_render_editor && !should_render_mcp_content && !has_citations_footer,
+            !should_render_editor
+                && !should_render_mcp_content
+                && !should_render_command_output
+                && !has_citations_footer,
             app,
         );
 
@@ -1602,6 +1646,37 @@ impl View for RequestedCommandView {
 
             content.add_child(
                 Container::new(selectable_text)
+                    .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
+                    .with_vertical_padding(REQUESTED_COMMAND_BODY_VERTICAL_PADDING)
+                    .with_background(theme.background())
+                    .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
+                    .finish(),
+            );
+        }
+
+        if let Some(output) = command_output {
+            let output_text = render_requested_action_body_text(
+                output.as_str().into(),
+                appearance.monospace_font_family(),
+                app,
+            )
+            .finish();
+            let scrollable = NewScrollable::vertical(
+                SingleAxisConfig::Clipped {
+                    handle: self.output_scroll_state.clone(),
+                    child: output_text,
+                },
+                Fill::None,
+                Fill::None,
+                Fill::None,
+            )
+            .with_propagate_mousewheel_if_not_handled(true)
+            .finish();
+            let output_body = ConstrainedBox::new(scrollable)
+                .with_max_height(320.)
+                .finish();
+            content.add_child(
+                Container::new(output_body)
                     .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
                     .with_vertical_padding(REQUESTED_COMMAND_BODY_VERTICAL_PADDING)
                     .with_background(theme.background())
@@ -1725,7 +1800,7 @@ impl TypedActionView for RequestedCommandView {
                 }
             }
             RequestedCommandViewAction::ToggleExpanded => {
-                self.set_is_header_expanded(!self.is_header_expanded, ctx)
+                self.set_is_header_expanded(!self.is_header_expanded, true, ctx)
             }
             RequestedCommandViewAction::OpenActiveAgentProfileEditor => {
                 ctx.emit(RequestedCommandViewEvent::OpenActiveAgentProfileEditor)
@@ -1764,13 +1839,13 @@ impl RequestedCommand {
 
     pub fn force_expand(&self, ctx: &mut impl UpdateView) {
         self.view.update(ctx, |command, ctx| {
-            command.set_is_header_expanded(true, ctx);
+            command.set_is_header_expanded(true, false, ctx);
         })
     }
 
     pub fn force_collapse(&self, ctx: &mut impl UpdateView) {
         self.view.update(ctx, |command, ctx| {
-            command.set_is_header_expanded(false, ctx);
+            command.set_is_header_expanded(false, false, ctx);
         })
     }
 }

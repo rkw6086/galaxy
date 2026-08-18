@@ -453,7 +453,7 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
     assert!(prompt.contains("next assistant output MUST be a tool call"));
     assert!(prompt.contains("alternate screen containing `(END)` is `less`"));
     assert!(prompt.contains("`write_to_long_running_shell_command` with input `q` and mode `raw`"));
-    assert!(prompt.contains("Do not end a still-running monitor turn with prose"));
+    assert!(prompt.contains("The next response must be a tool call, not a progress update"));
     assert!(prepared
         .request
         .tools
