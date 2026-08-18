@@ -577,7 +577,7 @@ struct RestoredProviderCommandEvidence {
     exit_code: i32,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct PendingProviderCommandCompletion {
     block_id: BlockId,
     initial_requested_command_action_id: Option<AIAgentActionId>,
@@ -716,6 +716,36 @@ struct QueuedProviderRunsOnlySnapshot {
     #[serde(default)]
     abandoned_generation: Option<AbandonedProviderGenerationSnapshot>,
     queued_follow_ups: Vec<QueuedProviderRunSnapshot>,
+}
+
+fn validate_queued_provider_run_snapshots(
+    active_run_id: Option<&ProviderRunId>,
+    active_projection_target: Option<&ProviderProjectionTarget>,
+    snapshots: &[QueuedProviderRunSnapshot],
+) -> Result<(), String> {
+    let mut run_ids = HashSet::with_capacity(snapshots.len());
+    let mut projection_targets = Vec::with_capacity(snapshots.len());
+    for snapshot in snapshots {
+        if snapshot.run_id.as_str().is_empty() {
+            return Err("queued provider run ID must not be empty".to_string());
+        }
+        if active_run_id.is_some_and(|run_id| run_id == &snapshot.run_id) {
+            return Err("queued provider run reuses active generation run ID".to_string());
+        }
+        if !run_ids.insert(snapshot.run_id.clone()) {
+            return Err("duplicate queued provider run ID".to_string());
+        }
+        if active_projection_target.is_some_and(|target| target == &snapshot.projection_target) {
+            return Err(
+                "queued provider run reuses active generation projection target".to_string(),
+            );
+        }
+        if projection_targets.contains(&snapshot.projection_target) {
+            return Err("duplicate queued provider projection target".to_string());
+        }
+        projection_targets.push(snapshot.projection_target.clone());
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -1703,6 +1733,8 @@ pub struct BlocklistAIController {
     active_provider_runs: HashMap<AIConversationId, ActiveProviderRunSlot>,
     queued_provider_runs: HashMap<AIConversationId, VecDeque<QueuedProviderRun>>,
     restoring_provider_runs: HashSet<AIConversationId>,
+    restoring_provider_command_completions:
+        HashMap<AIConversationId, PendingProviderCommandCompletion>,
 
     /// The ID of the terminal surface this controller is associated with.
     terminal_surface_id: EntityId,
@@ -2193,6 +2225,7 @@ impl BlocklistAIController {
             active_provider_runs: HashMap::new(),
             queued_provider_runs: HashMap::new(),
             restoring_provider_runs: HashSet::new(),
+            restoring_provider_command_completions: HashMap::new(),
             terminal_surface_id,
             should_refresh_available_llms_on_stream_finish: false,
             shared_session_state: shared_session::SharedSessionState::default(),
