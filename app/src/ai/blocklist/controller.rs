@@ -6319,16 +6319,27 @@ impl BlocklistAIController {
         };
         slot.turn_control = None;
         let cancellation_reason = slot.cancellation_reason;
+        // A cancellation reason is set as soon as the user cancels, but the coordinator may
+        // already have reached its terminal `Done` outcome (e.g. the in-flight model turn was
+        // cancelled and the run transitioned straight to `Cancelled`). In that case we must fall
+        // through to the normal `Done` handling below so `finish_active_provider_run` runs and
+        // frees this conversation's slot. Otherwise this would unconditionally re-drive an
+        // already-terminal run: `next_step()` immediately returns `Done` again, which lands back
+        // here and loops forever, so `active_provider_runs` never empties and any follow-up
+        // queued behind this generation (see `start_next_queued_provider_run`) never starts.
+        let reached_terminal_outcome = matches!(result, Ok(ProviderRunBlock::Done(_)));
         if let Some(reason) = cancellation_reason {
-            if !run.coordinator.run().is_terminal() {
-                let _ = run.coordinator.run_mut().cancel(reason.to_string());
+            if !reached_terminal_outcome {
+                if !run.coordinator.run().is_terminal() {
+                    let _ = run.coordinator.run_mut().cancel(reason.to_string());
+                }
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    log::error!("Failed to persist cancelled provider run: {error}");
+                }
+                self.drive_active_provider_run(conversation_id, ctx);
+                return;
             }
-            slot.run = Some(run);
-            if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
-                log::error!("Failed to persist cancelled provider run: {error}");
-            }
-            self.drive_active_provider_run(conversation_id, ctx);
-            return;
         }
         let block = match result {
             Ok(block) => block,
