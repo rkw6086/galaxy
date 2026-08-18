@@ -3839,7 +3839,7 @@ impl TerminalView {
                 });
                 ctx.emit(Event::SummarizationCancelDialogToggled { is_open: *is_open });
             }
-            BlocklistAIStatusBarEvent::Stop => me.ctrl_c(ctx),
+            BlocklistAIStatusBarEvent::Stop => me.cancel_active_conversation_via_status_bar(ctx),
         });
         if let Some(ambient_agent_view_model) = ambient_agent_view_model.as_ref() {
             ctx.subscribe_to_model(ambient_agent_view_model, |me, _, event, ctx| {
@@ -8679,6 +8679,10 @@ impl TerminalView {
             .ai_controller
             .as_ref(ctx)
             .has_active_stream_for_conversation(conversation_id, ctx);
+        let had_active_provider_run = self
+            .ai_controller
+            .as_ref(ctx)
+            .has_active_provider_run(conversation_id);
 
         self.ai_controller.update(ctx, |controller, ctx| {
             controller.cancel_conversation_progress(
@@ -8687,6 +8691,12 @@ impl TerminalView {
                 ctx,
             );
         });
+
+        if !had_active_stream && !had_active_provider_run {
+            log::debug!(
+                "Stop agent requested for {conversation_id:?}, but no provider run or response stream was visible"
+            );
+        }
 
         let visible_conversation_id = self
             .agent_view_controller
@@ -8767,8 +8777,13 @@ impl TerminalView {
             active_block.is_active_and_long_running()
                 && active_block.ai_conversation_id() == Some(conversation_id)
         };
+        let provider_run_is_active = self
+            .ai_controller
+            .as_ref(ctx)
+            .has_active_provider_run(conversation_id);
 
-        (conversation_has_progress || command_is_monitored).then_some(conversation_id)
+        (conversation_has_progress || command_is_monitored || provider_run_is_active)
+            .then_some(conversation_id)
     }
 
     fn user_write_ctrl_c_to_pty(&mut self, ctx: &mut ViewContext<Self>) {
@@ -9081,13 +9096,19 @@ impl TerminalView {
                     .active_conversation(self.view_id)
                     .map(|conversation| conversation.id())
             });
-        let status_bar = self.input.as_ref(ctx).agent_status_bar().clone();
-        status_bar.update(ctx, |status_bar, ctx| {
-            if let Some(conversation_id) = conversation_id {
-                status_bar.handle_ctrl_c_for_conversation(conversation_id, ctx);
-            } else {
-                status_bar.handle_ctrl_c(ctx);
-            }
+        let Some(conversation_id) = conversation_id else {
+            log::debug!("Stop agent requested, but AgentView has no active conversation identity");
+            return;
+        };
+        // The status bar model can be stale or absent after the latest exchange completes. Clear
+        // its activity UI immediately, then cancel through the controller's authoritative identity.
+        self.input.update(ctx, |input, ctx| {
+            input.agent_status_bar().update(ctx, |status_bar, ctx| {
+                status_bar.cancel_conversation_for_terminal(conversation_id, ctx);
+            });
+            // The cancellation synchronously updates conversation status in the history model;
+            // refresh the placeholder after that transition so it cannot remain on "Steer...".
+            input.set_zero_state_hint_text(ctx);
         });
     }
 

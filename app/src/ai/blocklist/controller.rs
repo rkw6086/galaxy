@@ -7285,7 +7285,8 @@ impl BlocklistAIController {
                 .try_cancel_stream(stream_id, reason, ctx)
     }
 
-    pub(super) fn has_active_provider_run(&self, conversation_id: AIConversationId) -> bool {
+    /// Returns whether the durable provider lifecycle still owns work for this conversation.
+    pub fn has_active_provider_run(&self, conversation_id: AIConversationId) -> bool {
         self.active_provider_runs.contains_key(&conversation_id)
     }
 
@@ -7526,31 +7527,39 @@ impl BlocklistAIController {
                 action_model.cancel_all_pending_actions(conversation_id, Some(reason), ctx);
             });
             self.set_input_mode_for_cancellation(ctx);
+        }
 
-            // Force-cancel all streaming exchanges and set the conversation status to
-            // Cancelled. This handles the case where a query gets stuck (e.g. a subagent
-            // hangs or the stream ended unexpectedly without proper cleanup) and repeated
-            // Ctrl+C presses cannot resolve it. Without this, the conversation remains
-            // InProgress indefinitely, hiding the input box and blocking user interaction.
-            if !reason.is_follow_up_for_same_conversation() {
-                let history_model = BlocklistAIHistoryModel::handle(ctx);
-                if history_model
-                    .as_ref(ctx)
-                    .conversation(&conversation_id)
-                    .is_some_and(|c| c.status().is_in_progress())
-                {
-                    let terminal_view_id = self.terminal_surface_id;
-                    history_model.update(ctx, |history_model, ctx| {
-                        if let Some(conversation) = history_model.conversation_mut(&conversation_id)
-                        {
-                            conversation.force_cancel_all_streaming_exchanges(
-                                terminal_view_id,
-                                reason,
-                                ctx,
-                            );
-                        }
-                    });
-                }
+        // Cancellation must immediately leave the conversation in a terminal UI state even when
+        // a provider run or response stream was found above. Those paths finish asynchronously;
+        // waiting for their callbacks leaves the input in "Steer the running agent" mode.
+        if !reason.is_follow_up_for_same_conversation()
+            && matches!(
+                reason.conversation_outcome(),
+                CancellationOutcome::Cancelled
+            )
+        {
+            let history_model = BlocklistAIHistoryModel::handle(ctx);
+            if history_model
+                .as_ref(ctx)
+                .conversation(&conversation_id)
+                .is_some_and(|conversation| conversation.status().is_in_progress())
+            {
+                let terminal_view_id = self.terminal_surface_id;
+                history_model.update(ctx, |history_model, ctx| {
+                    if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                        conversation.force_cancel_all_streaming_exchanges(
+                            terminal_view_id,
+                            reason,
+                            ctx,
+                        );
+                    }
+                    history_model.update_conversation_status(
+                        terminal_view_id,
+                        conversation_id,
+                        ConversationStatus::Cancelled,
+                        ctx,
+                    );
+                });
             }
         }
     }

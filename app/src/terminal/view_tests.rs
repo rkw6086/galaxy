@@ -30,6 +30,7 @@ use crate::ai::blocklist::agent_view::{
     ExitAgentViewError,
 };
 use crate::ai::blocklist::block::cli_controller::UserTakeOverReason;
+use crate::ai::blocklist::block::status_bar::BlocklistAIStatusBarAction;
 use crate::ai::blocklist::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, InputConfig, InputType, ResponseStream,
     ResponseStreamId,
@@ -5642,6 +5643,58 @@ fn ctrl_c_after_stop_takeover_cancels_conversation() {
                 .conversation(&conversation_id)
                 .expect("conversation should exist");
             assert_eq!(conversation.status(), &ConversationStatus::Cancelled);
+        });
+    })
+}
+
+#[test]
+fn status_bar_stop_cancels_conversation_after_exchange_finishes() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        FeatureFlag::AgentView.set_enabled(true);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        let conversation_id = terminal.update(&mut app, |view, ctx| {
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(view.view_id, false, false, false, ctx)
+                });
+            let stream_id = ResponseStreamId::new_for_test();
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history
+                    .conversation_mut(&conversation_id)
+                    .expect("conversation should exist")
+                    .append_reassigned_exchange(
+                        &stream_id,
+                        exchange_with_inputs(vec![]),
+                        view.view_id,
+                        ctx,
+                    )
+                    .expect("exchange should append");
+            });
+            let stream = ctx.add_model(|_| ResponseStream::new_for_test(stream_id.clone()));
+            view.ai_controller.update(ctx, |controller, ctx| {
+                controller.register_mock_stream_for_test(stream_id, conversation_id, stream, ctx);
+            });
+            conversation_id
+        });
+
+        terminal.update(&mut app, |view, ctx| {
+            view.input.update(ctx, |input, ctx| {
+                input.agent_status_bar().update(ctx, |status_bar, ctx| {
+                    status_bar.handle_action(&BlocklistAIStatusBarAction::Stop, ctx);
+                });
+            });
+        });
+
+        terminal.read(&app, |_, ctx| {
+            assert_eq!(
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .status(),
+                &ConversationStatus::Cancelled
+            );
         });
     })
 }

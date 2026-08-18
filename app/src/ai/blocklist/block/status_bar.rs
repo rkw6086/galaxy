@@ -125,6 +125,7 @@ pub struct BlocklistAIStatusBar {
     /// The random loading message chosen for the current conversation run, stable across
     /// re-renders and tool-call follow-up exchanges.
     warping_message: Option<&'static str>,
+    warping_message_ticks: u8,
     /// Handle for the periodic timer that updates the warping elapsed timer UI.
     warping_timer_handle: Option<SpawnedFutureHandle>,
 
@@ -319,7 +320,7 @@ impl BlocklistAIStatusBar {
             &summarization_cancel_dialog,
             |me, _, event, ctx| match event {
                 SummarizationCancelDialogEvent::ConfirmCancel => {
-                    me.cancel_active_request_or_action(ctx);
+                    me.cancel_active_request_or_action(None, ctx);
                     me.close_summarization_cancel_dialog(ctx);
                 }
                 SummarizationCancelDialogEvent::Continue => {
@@ -431,6 +432,7 @@ impl BlocklistAIStatusBar {
             last_read_refresh_handle: None,
             warping_start_time: None,
             warping_message: None,
+            warping_message_ticks: 0,
             warping_timer_handle: None,
             ambient_agent_view_model,
             current_tip: None,
@@ -451,18 +453,17 @@ impl BlocklistAIStatusBar {
     }
 
     pub fn handle_ctrl_c(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(model) = self.active_exchange_model.as_ref() else {
-            return;
-        };
-
         // Show confirmation dialog if summarization is active and feature flag enabled
         if FeatureFlag::SummarizationCancellationConfirmation.is_enabled()
-            && model.is_conversation_summarization_active(ctx)
+            && self
+                .active_exchange_model
+                .as_ref()
+                .is_some_and(|model| model.is_conversation_summarization_active(ctx))
         {
             // If the dialog is already open, treat Ctrl-C as confirm-cancel
             if self.is_summarization_cancel_dialog_open {
                 // Confirm cancel the running/pending action/request, then close the dialog overlay.
-                self.cancel_active_request_or_action(ctx);
+                self.cancel_active_request_or_action(None, ctx);
                 self.close_summarization_cancel_dialog(ctx);
                 return;
             }
@@ -472,7 +473,7 @@ impl BlocklistAIStatusBar {
         }
 
         // If summarization isn't active, fall back to canceling the running request/action directly
-        self.cancel_active_request_or_action(ctx);
+        self.cancel_active_request_or_action(None, ctx);
         ctx.notify();
     }
 
@@ -488,17 +489,48 @@ impl BlocklistAIStatusBar {
             .as_ref()
             .and_then(|model| model.conversation_id(ctx))
             == Some(conversation_id);
-        if active_exchange_matches {
+        if active_exchange_matches
+            && FeatureFlag::SummarizationCancellationConfirmation.is_enabled()
+            && self
+                .active_exchange_model
+                .as_ref()
+                .is_some_and(|model| model.is_conversation_summarization_active(ctx))
+        {
             self.handle_ctrl_c(ctx);
         } else {
-            self.controller.update(ctx, |controller, ctx| {
-                controller.cancel_conversation_progress(
-                    conversation_id,
-                    CancellationReason::ManuallyCancelled,
-                    ctx,
-                );
-            });
+            self.cancel_active_request_or_action(Some(conversation_id), ctx);
         }
+    }
+
+    /// Cancels a conversation by identity and immediately clears status-bar activity UI.
+    /// This path is used by the terminal-level Stop/Ctrl+C handler because the status bar's
+    /// rendered exchange may already be stale while provider work is still running.
+    pub fn cancel_conversation_for_terminal(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.is_summarization_cancel_dialog_open = false;
+        self.stop_summarization_timer();
+        self.stop_warping_timer();
+        self.stop_last_read_timer();
+        if self.active_exchange_model.as_ref().is_some_and(|model| {
+            model
+                .conversation(ctx)
+                .is_some_and(|conversation| conversation.id() == conversation_id)
+        }) {
+            self.active_exchange_model = None;
+        }
+        self.latest_response_stream_id = None;
+        self.agent_message_bar.update(ctx, |_, ctx| ctx.notify());
+        self.controller.update(ctx, |controller, ctx| {
+            controller.cancel_conversation_progress(
+                conversation_id,
+                CancellationReason::ManuallyCancelled,
+                ctx,
+            );
+        });
+        ctx.notify();
     }
 
     pub fn notify_and_notify_children(&mut self, ctx: &mut ViewContext<Self>) {
@@ -516,6 +548,9 @@ impl BlocklistAIStatusBar {
         let conversation = history_model.conversation(&conversation_id);
         let exchange =
             conversation.and_then(|conversation| conversation.exchange_with_id(exchange_id));
+        let conversation_is_in_progress = conversation
+            .as_ref()
+            .is_some_and(|conversation| conversation.status().is_in_progress());
 
         if self.active_exchange_model.as_ref().is_none_or(|model| {
             model.exchange_id(ctx).is_none_or(|id| id != exchange_id)
@@ -549,7 +584,11 @@ impl BlocklistAIStatusBar {
                 });
             self.is_summarization_cancel_dialog_open = false;
             self.stop_summarization_timer();
-            self.start_warping_timer(ctx);
+            if conversation_is_in_progress {
+                self.start_warping_timer(ctx);
+            } else {
+                self.stop_warping_timer();
+            }
 
             if FeatureFlag::AgentTips.is_enabled() {
                 self.update_agent_tip(ctx);
@@ -596,20 +635,8 @@ impl BlocklistAIStatusBar {
             AIBlockOutputStatus::Pending | AIBlockOutputStatus::Failed { .. } => (),
         }
 
-        // An exchange finishing does not necessarily mean the logical run is complete: tool calls
-        // can execute and append a follow-up exchange. Conversation status is the authoritative
-        // lifecycle signal, so preserve the timer and phrase while it remains in progress.
-        // Placed after the match so `model` (which borrows self.active_exchange_model) is no longer
-        // used, avoiding borrow conflicts with &mut self.
         if is_finished {
-            let conversation_is_in_progress = self
-                .active_exchange_model
-                .as_ref()
-                .and_then(|model| model.conversation(ctx))
-                .is_some_and(|conversation| conversation.status().is_in_progress());
-            if !conversation_is_in_progress {
-                self.stop_warping_timer();
-            }
+            self.stop_warping_timer();
         }
 
         ctx.notify();
@@ -661,11 +688,22 @@ impl BlocklistAIStatusBar {
     /// Cancels either the in-flight request stream or a pending/running action if present.
     /// If neither is found but the conversation is still in progress (e.g., a subagent is running),
     /// cancels the entire conversation's progress.
-    fn cancel_active_request_or_action(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(model) = self.active_exchange_model.as_ref() else {
-            return;
-        };
-        if model.status(ctx).is_streaming() {
+    fn cancel_active_request_or_action(
+        &mut self,
+        conversation_id: Option<AIConversationId>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let model_conversation_id = self
+            .active_exchange_model
+            .as_ref()
+            .and_then(|model| model.conversation_id(ctx));
+        let conversation_id = conversation_id.or(model_conversation_id);
+
+        if self
+            .active_exchange_model
+            .as_ref()
+            .is_some_and(|model| model.status(ctx).is_streaming())
+        {
             if let Some(response_stream_id) = self.latest_response_stream_id.as_ref() {
                 self.controller.update(ctx, |controller, ctx| {
                     controller.cancel_request(
@@ -674,49 +712,49 @@ impl BlocklistAIStatusBar {
                         ctx,
                     );
                 });
+                return;
             }
+        }
+
+        let Some(conversation_id) = conversation_id else {
+            return;
+        };
+        let actions = self
+            .active_exchange_model
+            .as_ref()
+            .and_then(|model| model.status(ctx).output_to_render())
+            .map(|output| {
+                output
+                    .get()
+                    .actions()
+                    .map(|action| action.id.clone())
+                    .collect::<HashSet<_>>()
+            });
+        if let Some(active_action_id) = self
+            .action_model
+            .as_ref(ctx)
+            .get_pending_or_running_action_id(ctx)
+            .filter(|id| actions.as_ref().is_some_and(|actions| actions.contains(id)))
+            .cloned()
+        {
+            self.action_model.update(ctx, |action_model, ctx| {
+                action_model.cancel_action_with_id(
+                    conversation_id,
+                    &active_action_id,
+                    CancellationReason::ManuallyCancelled,
+                    ctx,
+                );
+            });
         } else {
-            let Some(conversation_id) = model.conversation_id(ctx) else {
-                return;
-            };
-            let Some(output) = model.status(ctx).output_to_render() else {
-                return;
-            };
-            let actions = output
-                .get()
-                .actions()
-                .map(|action| action.id.clone())
-                .collect::<HashSet<_>>();
-            if let Some(active_action_id) = self
-                .action_model
-                .as_ref(ctx)
-                .get_pending_or_running_action_id(ctx)
-                .filter(|id| actions.contains(id))
-                .cloned()
-            {
-                self.action_model.update(ctx, |action_model, ctx| {
-                    action_model.cancel_action_with_id(
-                        conversation_id,
-                        &active_action_id,
-                        CancellationReason::ManuallyCancelled,
-                        ctx,
-                    );
-                });
-            } else if model
-                .conversation(ctx)
-                .is_some_and(|c| c.status().is_in_progress())
-            {
-                // No streaming request or pending action, but conversation is still in progress.
-                // This happens when a subagent (e.g., computer use or advice) is running.
-                // Cancel the entire conversation's progress.
-                self.controller.update(ctx, |controller, ctx| {
-                    controller.cancel_conversation_progress(
-                        conversation_id,
-                        CancellationReason::ManuallyCancelled,
-                        ctx,
-                    );
-                });
-            }
+            // The exchange can be complete or absent while a provider run/subagent remains
+            // active. Cancel by conversation identity so neither UI model is authoritative.
+            self.controller.update(ctx, |controller, ctx| {
+                controller.cancel_conversation_progress(
+                    conversation_id,
+                    CancellationReason::ManuallyCancelled,
+                    ctx,
+                );
+            });
         }
     }
 
@@ -764,6 +802,7 @@ impl BlocklistAIStatusBar {
         self.warping_start_time.get_or_insert_with(Instant::now);
         self.warping_message
             .get_or_insert_with(random_load_output_message);
+        self.warping_message_ticks = 0;
         // Don't start a new timer if one is already running
         if self.warping_timer_handle.is_some() {
             return;
@@ -775,6 +814,11 @@ impl BlocklistAIStatusBar {
             |me, _, ctx| {
                 me.warping_timer_handle = None;
                 if me.warping_start_time.is_some() {
+                    me.warping_message_ticks = me.warping_message_ticks.saturating_add(1);
+                    if me.warping_message_ticks >= 5 {
+                        me.warping_message_ticks = 0;
+                        me.warping_message = Some(random_load_output_message());
+                    }
                     ctx.notify();
                     me.restart_warping_timer(ctx);
                 }
@@ -795,6 +839,11 @@ impl BlocklistAIStatusBar {
             |me, _, ctx| {
                 me.warping_timer_handle = None;
                 if me.warping_start_time.is_some() {
+                    me.warping_message_ticks = me.warping_message_ticks.saturating_add(1);
+                    if me.warping_message_ticks >= 5 {
+                        me.warping_message_ticks = 0;
+                        me.warping_message = Some(random_load_output_message());
+                    }
                     ctx.notify();
                     me.restart_warping_timer(ctx);
                 }
@@ -807,6 +856,7 @@ impl BlocklistAIStatusBar {
     fn stop_warping_timer(&mut self) {
         self.warping_start_time = None;
         self.warping_message = None;
+        self.warping_message_ticks = 0;
         if let Some(handle) = self.warping_timer_handle.take() {
             handle.abort();
         }
