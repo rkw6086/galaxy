@@ -112,46 +112,46 @@ const DRACULA_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
     AnsiColor::from_u32(0x8BE9FDFF),
     AnsiColor::from_u32(0xFFFFFFFF),
 );
-const SAMSUNG_DARK_NORMAL_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x1C1E25FF),
-    AnsiColor::from_u32(0xF05767FF),
-    AnsiColor::from_u32(0x4FB37FFF),
-    AnsiColor::from_u32(0xE2B44FFF),
-    AnsiColor::from_u32(0x3E6FF4FF),
-    AnsiColor::from_u32(0xA680F2FF),
-    AnsiColor::from_u32(0x4EAEDCFF),
-    AnsiColor::from_u32(0xE9ECF3FF),
+const GALAXY_DARK_NORMAL_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x444B61FF),
+    AnsiColor::from_u32(0xF27A86FF),
+    AnsiColor::from_u32(0x68C093FF),
+    AnsiColor::from_u32(0xDFB968FF),
+    AnsiColor::from_u32(0x7396FFFF),
+    AnsiColor::from_u32(0xC184F4FF),
+    AnsiColor::from_u32(0x62C2D1FF),
+    AnsiColor::from_u32(0xDDE1EDFF),
 );
-const SAMSUNG_DARK_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0x343944FF),
-    AnsiColor::from_u32(0xFF7D8BFF),
-    AnsiColor::from_u32(0x73C99CFF),
-    AnsiColor::from_u32(0xF0C971FF),
-    AnsiColor::from_u32(0x5F8EFFFF),
-    AnsiColor::from_u32(0xB99CFFFF),
-    AnsiColor::from_u32(0x70C5EBFF),
-    AnsiColor::from_u32(0xFFFFFFFF),
+const GALAXY_DARK_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x707A93FF),
+    AnsiColor::from_u32(0xFF99A3FF),
+    AnsiColor::from_u32(0x86D6ADFF),
+    AnsiColor::from_u32(0xF0D184FF),
+    AnsiColor::from_u32(0x9EB7FFFF),
+    AnsiColor::from_u32(0xD8A8FFFF),
+    AnsiColor::from_u32(0x83D8E4FF),
+    AnsiColor::from_u32(0xFCFBFFFF),
 );
 
-const SAMSUNG_LIGHT_NORMAL_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0xD8DEE8FF),
-    AnsiColor::from_u32(0xB93E4DFF),
-    AnsiColor::from_u32(0x2D8C5DFF),
-    AnsiColor::from_u32(0xA87D2EFF),
-    AnsiColor::from_u32(0x0056D8FF),
-    AnsiColor::from_u32(0x7858C7FF),
-    AnsiColor::from_u32(0x2D7EA4FF),
-    AnsiColor::from_u32(0x1A1F2BFF),
+const GALAXY_DAY_NORMAL_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x50566BFF),
+    AnsiColor::from_u32(0xB94E64FF),
+    AnsiColor::from_u32(0x2F8060FF),
+    AnsiColor::from_u32(0x89682AFF),
+    AnsiColor::from_u32(0x435FC8FF),
+    AnsiColor::from_u32(0x8154A8FF),
+    AnsiColor::from_u32(0x2F7D8BFF),
+    AnsiColor::from_u32(0xD0D5E2FF),
 );
-const SAMSUNG_LIGHT_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
-    AnsiColor::from_u32(0xC4CDDCFF),
-    AnsiColor::from_u32(0xD35765FF),
-    AnsiColor::from_u32(0x3FA472FF),
-    AnsiColor::from_u32(0xC2983FFF),
-    AnsiColor::from_u32(0x2674F4FF),
-    AnsiColor::from_u32(0x9372DEFF),
-    AnsiColor::from_u32(0x4297C1FF),
-    AnsiColor::from_u32(0x04080FFF),
+const GALAXY_DAY_BRIGHT_COLORS: AnsiColors = AnsiColors::new(
+    AnsiColor::from_u32(0x6F778EFF),
+    AnsiColor::from_u32(0xD06374FF),
+    AnsiColor::from_u32(0x43966FFF),
+    AnsiColor::from_u32(0xA17C35FF),
+    AnsiColor::from_u32(0x607ADEFF),
+    AnsiColor::from_u32(0x9B6EBFFF),
+    AnsiColor::from_u32(0x4693A1FF),
+    AnsiColor::from_u32(0xF7F7FBFF),
 );
 
 const PHENOMENON_NORMAL_COLORS: AnsiColors = AnsiColors::new(
@@ -299,12 +299,12 @@ pub(super) fn adeberry_colors() -> TerminalColors {
     TerminalColors::new(ADEBERRY_NORMAL_COLORS, ADEBERRY_BRIGHT_COLORS)
 }
 
-pub(super) fn samsung_dark_colors() -> TerminalColors {
-    TerminalColors::new(SAMSUNG_DARK_NORMAL_COLORS, SAMSUNG_DARK_BRIGHT_COLORS)
+pub(super) fn galaxy_dark_colors() -> TerminalColors {
+    TerminalColors::new(GALAXY_DARK_NORMAL_COLORS, GALAXY_DARK_BRIGHT_COLORS)
 }
 
-pub(super) fn samsung_light_colors() -> TerminalColors {
-    TerminalColors::new(SAMSUNG_LIGHT_NORMAL_COLORS, SAMSUNG_LIGHT_BRIGHT_COLORS)
+pub(super) fn galaxy_day_colors() -> TerminalColors {
+    TerminalColors::new(GALAXY_DAY_NORMAL_COLORS, GALAXY_DAY_BRIGHT_COLORS)
 }
 
 /// Default bundled themes
@@ -663,29 +663,41 @@ pub(super) fn adeberry() -> GalaxyTheme {
     )
 }
 
-pub(super) fn samsung_dark() -> GalaxyTheme {
+pub(super) fn galaxy_dark() -> GalaxyTheme {
     GalaxyTheme::new(
-        Fill::Solid(ColorU::from_u32(0x0C0F16FF)),
-        ColorU::from_u32(0xEEF2FAFF),
-        Fill::Solid(ColorU::from_u32(0x1F6FFFFF)),
+        Fill::VerticalGradient(VerticalGradient::new(
+            ColorU::from_u32(0x252A46FF),
+            ColorU::from_u32(0x171925FF),
+        )),
+        ColorU::from_u32(0xF4F3FBFF),
+        Fill::HorizontalGradient(HorizontalGradient::new(
+            ColorU::from_u32(0x6F8BFFFF),
+            ColorU::from_u32(0xAE74E6FF),
+        )),
         None,
         Some(Details::Darker),
-        samsung_dark_colors(),
+        galaxy_dark_colors(),
         None,
-        Some("Samsung Dark".to_string()),
+        Some("Galaxy Dark".to_string()),
     )
 }
 
-pub(super) fn samsung_light() -> GalaxyTheme {
+pub(super) fn galaxy_day() -> GalaxyTheme {
     GalaxyTheme::new(
-        Fill::Solid(ColorU::from_u32(0xF7F9FCFF)),
-        ColorU::from_u32(0x10131BFF),
-        Fill::Solid(ColorU::from_u32(0x034AE5FF)),
+        Fill::VerticalGradient(VerticalGradient::new(
+            ColorU::from_u32(0xECECF4FF),
+            ColorU::from_u32(0xD6DCE8FF),
+        )),
+        ColorU::from_u32(0x29283AFF),
+        Fill::HorizontalGradient(HorizontalGradient::new(
+            ColorU::from_u32(0x5168D6FF),
+            ColorU::from_u32(0x8C64B8FF),
+        )),
         None,
         Some(Details::Lighter),
-        samsung_light_colors(),
+        galaxy_day_colors(),
         None,
-        Some("Samsung Light".to_string()),
+        Some("Galaxy Day".to_string()),
     )
 }
 pub(super) fn received_referral_reward() -> GalaxyTheme {

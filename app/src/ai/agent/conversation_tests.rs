@@ -107,6 +107,15 @@ fn restored_conversation_with_queries(queries: &[&str]) -> AIConversation {
 }
 
 #[test]
+fn agent_backend_does_not_change_after_successful_output() {
+    let mut conversation = restored_conversation_with_queries(&["Review this repository"]);
+
+    assert!(!conversation
+        .set_agent_backend_if_no_output(AgentBackend::Acp(AcpConversationData::default())));
+    assert_eq!(conversation.agent_backend(), &AgentBackend::Provider);
+}
+
+#[test]
 fn latest_user_query_returns_latest_non_empty_user_query() {
     let conversation =
         restored_conversation_with_queries(&["write unit tests", "fix the failing test"]);
@@ -185,6 +194,19 @@ fn restored_conversation_defaults_autoexecute_override_when_not_persisted() {
 }
 
 #[test]
+fn restored_conversation_retains_active_provider_run_json() {
+    let snapshot = r#"{"version":1,"run":{"state":"awaiting_model"}}"#;
+    let conversation_data = AgentConversationData {
+        active_provider_run_json: Some(snapshot.to_string()),
+        ..Default::default()
+    };
+
+    let conversation = restored_conversation(Some(conversation_data));
+
+    assert_eq!(conversation.active_provider_run_json(), Some(snapshot));
+}
+
+#[test]
 fn restored_conversation_uses_persisted_last_event_sequence() {
     let conversation_data: AgentConversationData =
         serde_json::from_str(r#"{"server_conversation_token":null,"last_event_sequence":42}"#)
@@ -219,6 +241,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
         false,
         false,
         AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: None,
@@ -229,6 +252,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
     assert_eq!(
         acp_conversation.agent_backend(),
         &AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),
@@ -247,6 +271,7 @@ fn acp_session_id_is_updated_only_for_acp_conversations() {
 #[test]
 fn restored_conversation_uses_persisted_acp_backend() {
     let backend = AgentBackend::Acp(AcpConversationData {
+        provider_id: "provider-1".to_string(),
         agent_id: "codex-acp".to_string(),
         launch_fingerprint: "launch-123".to_string(),
         session_id: Some("session-123".to_string()),

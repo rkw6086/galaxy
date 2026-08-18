@@ -12,7 +12,9 @@ use crate::ai::execution_profiles::{
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::{Revision, ServerAIExecutionProfile, ServerMetadata, ServerPermissions};
+use crate::cloud_object::{
+    Owner, Revision, ServerAIExecutionProfile, ServerMetadata, ServerPermissions,
+};
 use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ServerId, SyncId};
@@ -63,6 +65,13 @@ fn apply_onboarding_settings_preserves_existing_cloud_profile_on_existing_user_l
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
+        app.add_singleton_model(|ctx| {
+            crate::local_object_repository::LocalObjectRepository::new(
+                None,
+                Some(Owner::mock_current_user()),
+                ctx,
+            )
+        });
         app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);
@@ -184,6 +193,9 @@ fn apply_onboarding_settings_gates_third_party_ai_on_account() {
         app.add_singleton_model(TeamTesterStatus::mock);
         app.add_singleton_model(UpdateManager::mock);
         app.add_singleton_model(CloudModel::mock);
+        app.add_singleton_model(|ctx| {
+            crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+        });
         app.add_singleton_model(|_| TemplatableMCPServerManager::default());
         app.add_singleton_model(PrivacySettings::mock);
         app.add_singleton_model(UserWorkspaces::default_mock);

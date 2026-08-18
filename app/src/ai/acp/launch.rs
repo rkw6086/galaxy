@@ -1,10 +1,21 @@
-use galaxy_acp::{AcpAgentPreset, AcpLaunchConfig, CODEX_ACP_NPM_VERSION, OPENCODE_NPM_VERSION};
+use galaxy_acp::{
+    resolve_known_acp_agent, AcpAgentPreset, AcpLaunchConfig, CODEX_ACP_NPM_VERSION,
+    OPENCODE_NPM_VERSION,
+};
 use sha2::{Digest as _, Sha256};
 
 use crate::persistence::model::AcpConversationData;
 
 pub(crate) fn acp_model_id(agent_id: &str) -> String {
     format!("acp:{}", agent_id.trim().to_ascii_lowercase())
+}
+
+pub(crate) fn acp_provider_model_id(provider_id: &str, agent_id: &str) -> String {
+    format!(
+        "acp:{}:{}",
+        provider_id.trim().to_ascii_lowercase(),
+        agent_id.trim().to_ascii_lowercase()
+    )
 }
 
 pub(crate) fn acp_selection_model_id(
@@ -21,6 +32,21 @@ pub(crate) fn acp_selection_model_id(
     } else {
         format!("{}:{suffix}", acp_model_id(agent_id))
     }
+}
+
+pub(crate) fn acp_provider_selection_identity(
+    provider_id: &str,
+    agent_id: &str,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> String {
+    let mut identity = acp_provider_model_id(provider_id, agent_id);
+    for (key, value) in values {
+        identity.push(':');
+        identity.push_str(key);
+        identity.push('=');
+        identity.push_str(&canonical_json_value(value));
+    }
+    identity
 }
 
 pub(crate) fn acp_selection_identity(
@@ -53,7 +79,7 @@ fn canonical_json_value(value: &serde_json::Value) -> String {
         ),
         serde_json::Value::Object(values) => {
             let mut entries = values.iter().collect::<Vec<_>>();
-            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            entries.sort_by_key(|(key, _)| *key);
             format!(
                 "{{{}}}",
                 entries
@@ -215,9 +241,11 @@ pub(crate) fn resolve_acp_launch(
     match agent_id.trim().to_ascii_lowercase().as_str() {
         "codex" => AcpAgentPreset::Codex.resolve_launch_config(),
         "opencode" => AcpAgentPreset::OpenCode.resolve_launch_config(),
-        unknown => Err(format!(
-            "Unknown ACP agent preset {unknown:?}; choose \"codex\" or \"opencode\", or configure a custom ACP executable"
-        )),
+        _ => resolve_known_acp_agent(agent_id).map_err(|error| {
+            format!(
+                "{error} Configure a custom ACP executable if this client uses a different command."
+            )
+        }),
     }
 }
 

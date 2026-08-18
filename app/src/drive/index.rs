@@ -68,6 +68,7 @@ use crate::drive::panel::DrivePanelAction;
 use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions};
 use crate::env_vars::CloudEnvVarCollection;
 use crate::features::FeatureFlag;
+use crate::local_object_repository::{local_owner, LocalObjectRepository};
 use crate::menu::{Event, Menu, MenuItem, MenuItemFields};
 use crate::network::NetworkStatus;
 use crate::notebooks::CloudNotebookModel;
@@ -1061,6 +1062,12 @@ impl DriveIndex {
 
     fn is_online(&self, app: &AppContext) -> bool {
         NetworkStatus::as_ref(app).is_online()
+    }
+
+    fn is_local_folder(folder_id: &SyncId, app: &AppContext) -> bool {
+        CloudModel::as_ref(app)
+            .get_folder(folder_id)
+            .is_some_and(|folder| folder.permissions.owner == local_owner())
     }
 
     pub fn scroll_item_into_view(&mut self, item_id: WarpDriveItemId, ctx: &mut ViewContext<Self>) {
@@ -3329,9 +3336,15 @@ impl DriveIndex {
         match new_location {
             CloudObjectLocation::Space(space) => self.open_section_of_space(space),
             CloudObjectLocation::Folder(folder_id) => {
-                cloud_model.update(ctx, |cloud_model, ctx| {
-                    cloud_model.open_folder(folder_id, ctx);
-                });
+                if Self::is_local_folder(&folder_id, ctx) {
+                    LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                        repository.open_folder(folder_id, ctx);
+                    });
+                } else {
+                    cloud_model.update(ctx, |cloud_model, ctx| {
+                        cloud_model.open_folder(folder_id, ctx);
+                    });
+                }
             }
             // If location is the trash, then the above move_[object]_to_location call already trashed the object
             CloudObjectLocation::Trash => {}
@@ -3507,9 +3520,15 @@ impl DriveIndex {
             if !new_name.is_empty() {
                 self.reset_menus(ctx);
 
-                UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                    update_manager.rename_folder(folder_id, new_name, ctx);
-                });
+                if Self::is_local_folder(&folder_id, ctx) {
+                    LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                        repository.update_folder_name(folder_id, new_name, ctx);
+                    });
+                } else {
+                    UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                        update_manager.rename_folder(folder_id, new_name, ctx);
+                    });
+                }
 
                 self.cloud_object_naming_dialog.close(ctx);
                 ctx.notify();
@@ -3522,9 +3541,36 @@ impl DriveIndex {
         cloud_object_type_and_id: CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.trash_object(cloud_object_type_and_id, ctx);
-        });
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_notebook_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_workflow_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_env_var_collection_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(id) if Self::is_local_folder(&id, ctx) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_folder_trashed(id, true, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {
+                UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                    update_manager.trash_object(cloud_object_type_and_id, ctx);
+                });
+            }
+        }
         self.reset_menus(ctx);
         ctx.notify();
     }
@@ -3534,6 +3580,45 @@ impl DriveIndex {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_notebook_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_workflow_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_env_var_collection_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Folder(id) if Self::is_local_folder(id, ctx) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.set_folder_trashed(*id, false, ctx);
+                });
+                self.reset_menus(ctx);
+                ctx.notify();
+                return;
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {}
+        }
+
         // Check if object being untrashed is in team space, if it is, then check
         // corresponding object limits for that team.
         if let Some(space) =
@@ -3663,9 +3748,36 @@ impl DriveIndex {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
-        UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-            update_manager.delete_object_by_user(*cloud_object_type_and_id, ctx);
-        });
+        match cloud_object_type_and_id {
+            CloudObjectTypeAndId::Notebook(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_notebook(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Workflow(id) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_workflow(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::GenericStringObject {
+                object_type: GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection),
+                id,
+            } => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_env_var_collection(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(id) if Self::is_local_folder(id, ctx) => {
+                LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                    repository.delete_folder(*id, ctx);
+                });
+            }
+            CloudObjectTypeAndId::Folder(_) | CloudObjectTypeAndId::GenericStringObject { .. } => {
+                UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
+                    update_manager.delete_object_by_user(*cloud_object_type_and_id, ctx);
+                });
+            }
+        }
         self.reset_menus(ctx);
         ctx.notify();
     }
@@ -5012,14 +5124,35 @@ impl DriveIndex {
                         }
                     }
                     CloudObjectTypeAndId::Folder(id) => {
-                        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| match key {
-                            DriveIndexAction::EnterKey => {
-                                cloud_model.toggle_folder_open(*id, ctx);
-                            }
-                            DriveIndexAction::LeftArrowKey => cloud_model.close_folder(*id, ctx),
-                            DriveIndexAction::RightArrowKey => cloud_model.open_folder(*id, ctx),
-                            _ => {}
-                        });
+                        if Self::is_local_folder(id, ctx) {
+                            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                                match key {
+                                    DriveIndexAction::EnterKey => {
+                                        repository.toggle_folder_open(*id, ctx);
+                                    }
+                                    DriveIndexAction::LeftArrowKey => {
+                                        repository.close_folder(*id, ctx)
+                                    }
+                                    DriveIndexAction::RightArrowKey => {
+                                        repository.open_folder(*id, ctx)
+                                    }
+                                    _ => {}
+                                }
+                            });
+                        } else {
+                            CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| match key {
+                                DriveIndexAction::EnterKey => {
+                                    cloud_model.toggle_folder_open(*id, ctx);
+                                }
+                                DriveIndexAction::LeftArrowKey => {
+                                    cloud_model.close_folder(*id, ctx)
+                                }
+                                DriveIndexAction::RightArrowKey => {
+                                    cloud_model.open_folder(*id, ctx)
+                                }
+                                _ => {}
+                            });
+                        }
                     }
                     CloudObjectTypeAndId::GenericStringObject { object_type, id: _ } => {
                         if let GenericStringObjectFormat::Json(JsonObjectType::EnvVarCollection) =
@@ -5480,14 +5613,36 @@ impl TypedActionView for DriveIndex {
                         ctx,
                     );
                 }
-                CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                    cloud_model.toggle_folder_open(*id, ctx);
-                });
+                if Self::is_local_folder(id, ctx) {
+                    LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                        repository.toggle_folder_open(*id, ctx);
+                    });
+                } else {
+                    CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+                        cloud_model.toggle_folder_open(*id, ctx);
+                    });
+                }
             }
             DriveIndexAction::CollapseAllInLocation(location) => {
-                CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
-                    cloud_model.collapse_all_in_location(*location, self.index_variant, ctx);
-                });
+                if let CloudObjectLocation::Folder(folder_id) = location {
+                    if Self::is_local_folder(folder_id, ctx) {
+                        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                            repository.collapse_local_folders_in_location(*location, ctx);
+                        });
+                    } else {
+                        CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+                            cloud_model.collapse_all_in_location(
+                                *location,
+                                self.index_variant,
+                                ctx,
+                            );
+                        });
+                    }
+                } else {
+                    CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
+                        cloud_model.collapse_all_in_location(*location, self.index_variant, ctx);
+                    });
+                }
             }
             DriveIndexAction::TrashObject {
                 cloud_object_type_and_id,

@@ -9,6 +9,7 @@ use super::{
 #[test]
 fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
     let source = AgentBackend::Acp(AcpConversationData {
+        provider_id: "provider-1".to_owned(),
         agent_id: "codex".to_owned(),
         launch_fingerprint: "launch-123".to_owned(),
         session_id: Some("shared-session".to_owned()),
@@ -21,6 +22,7 @@ fn acp_backend_fork_keeps_agent_identity_but_clears_session() {
     assert_eq!(
         source.for_fork(),
         AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_owned(),
             agent_id: "codex".to_owned(),
             launch_fingerprint: "launch-123".to_owned(),
             session_id: None,
@@ -135,6 +137,7 @@ fn is_restorable_accepts_empty_and_single_task_conversations() {
 fn agent_conversation_data_roundtrips_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -180,9 +183,35 @@ fn agent_conversation_data_defaults_legacy_rows_to_provider_backend() {
 }
 
 #[test]
+fn agent_conversation_data_defaults_legacy_rows_without_provider_run_snapshot() {
+    let data: AgentConversationData = serde_json::from_str(r#"{"server_conversation_token":null}"#)
+        .expect("legacy rows must deserialize");
+
+    assert_eq!(data.active_provider_run_json, None);
+}
+
+#[test]
+fn agent_conversation_data_roundtrips_provider_run_snapshot() {
+    let snapshot = r#"{"version":1,"run_id":"run-1"}"#;
+    let data = AgentConversationData {
+        active_provider_run_json: Some(snapshot.to_string()),
+        ..Default::default()
+    };
+
+    let json = serde_json::to_string(&data).expect("serialize");
+    let roundtripped: AgentConversationData = serde_json::from_str(&json).expect("deserialize");
+
+    assert_eq!(
+        roundtripped.active_provider_run_json.as_deref(),
+        Some(snapshot)
+    );
+}
+
+#[test]
 fn agent_conversation_data_roundtrips_acp_backend() {
     let data = AgentConversationData {
         agent_backend: AgentBackend::Acp(AcpConversationData {
+            provider_id: "provider-1".to_string(),
             agent_id: "codex-acp".to_string(),
             launch_fingerprint: "launch-123".to_string(),
             session_id: Some("session-123".to_string()),
@@ -211,6 +240,7 @@ fn agent_conversation_data_omits_default_provider_backend() {
 fn agent_conversation_data_roundtrips_remote_child_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -238,6 +268,7 @@ fn agent_conversation_data_roundtrips_remote_child_marker() {
 fn agent_conversation_data_roundtrips_optimistic_root_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -277,6 +308,7 @@ fn agent_conversation_data_deserializes_legacy_payload_without_last_event_sequen
 fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -306,6 +338,7 @@ fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
 fn agent_conversation_data_roundtrips_pinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -333,6 +366,7 @@ fn agent_conversation_data_roundtrips_pinned() {
 fn agent_conversation_data_skips_serializing_unpinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        active_provider_run_json: None,
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,

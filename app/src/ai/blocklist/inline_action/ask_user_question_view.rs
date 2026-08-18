@@ -782,7 +782,11 @@ impl AskUserQuestionView {
         };
 
         ctx.subscribe_to_model(&action_model, |me, _, event, ctx| {
-            if event.action_id() != me.action_id() {
+            if event.action_id() != me.action_id()
+                || event
+                    .conversation_id()
+                    .is_some_and(|conversation_id| conversation_id != me.conversation_id)
+            {
                 return;
             }
 
@@ -879,7 +883,8 @@ impl AskUserQuestionView {
     /// conversations still render deterministically.
     fn action_status(&self, app: &AppContext) -> Option<AIActionStatus> {
         let action_model = self.action_model.as_ref(app);
-        if let Some(status) = action_model.get_action_status(self.action_id()) {
+        if let Some(status) = action_model.get_action_status(self.conversation_id, self.action_id())
+        {
             return Some(status);
         }
 

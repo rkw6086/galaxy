@@ -1,11 +1,13 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use galaxy_core::command::ExitCode;
 use warp_multi_agent_api as api;
 
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionResult, AIAgentActionResultType, AIAgentContext, ImageContext,
-    TransferShellCommandControlToUserResult,
+    AIAgentActionResult, AIAgentActionResultType, AIAgentContext, AIAgentInput, ImageContext,
+    RunningCommand, TransferShellCommandControlToUserResult, UserQueryMode,
 };
 use crate::terminal::model::block::BlockId;
 
@@ -130,6 +132,84 @@ fn git_context_deserializes_legacy_string_pull_request_number() {
         .pull_request
         .expect("expected pull request context");
     assert_eq!(pull_request.number, 42);
+}
+
+#[test]
+fn command_completion_assessment_converts_to_primary_cli_query() {
+    let block_id = BlockId::from("completed-block".to_string());
+    let converted = super::convert_input(vec![AIAgentInput::CommandCompletionAssessment {
+        prompt: "Summarize whether the command succeeded.".to_string(),
+        context: Arc::from([AIAgentContext::SelectedText("root context".to_string())]),
+        completed_command: RunningCommand {
+            command: "cargo test -p galaxy".to_string(),
+            block_id: block_id.clone(),
+            grid_contents: "test result: ok".to_string(),
+            cursor: "cursor".to_string(),
+            requested_command_id: Some("run-call".to_string().into()),
+            is_alt_screen_active: true,
+        },
+    }])
+    .unwrap();
+
+    let Some(api::request::input::Type::UserInputs(inputs)) = converted.r#type else {
+        panic!("expected user inputs");
+    };
+    let Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(query)) =
+        inputs.inputs[0].input.as_ref()
+    else {
+        panic!("expected CLI agent query");
+    };
+    let user_query = query
+        .user_query
+        .as_ref()
+        .expect("expected assessment prompt");
+    assert_eq!(user_query.query, "Summarize whether the command succeeded.");
+    assert_eq!(user_query.intended_agent(), api::AgentType::Primary);
+    let command = query
+        .running_command
+        .as_ref()
+        .expect("expected completed command");
+    assert_eq!(command.command, "cargo test -p galaxy");
+    let snapshot = command.snapshot.as_ref().expect("expected final snapshot");
+    assert_eq!(snapshot.command_id, block_id.as_str());
+    assert_eq!(snapshot.output, "test result: ok");
+    assert_eq!(snapshot.cursor, "cursor");
+    assert!(snapshot.is_alt_screen_active);
+    assert_eq!(query.run_shell_command_tool_call_id, "run-call");
+
+    let active = super::convert_input(vec![AIAgentInput::UserQuery {
+        query: "Keep monitoring.".to_string(),
+        context: Arc::from([]),
+        static_query_type: None,
+        referenced_attachments: Default::default(),
+        user_query_mode: UserQueryMode::Normal,
+        running_command: Some(RunningCommand {
+            command: "cargo test -p galaxy".to_string(),
+            block_id,
+            grid_contents: "still running".to_string(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        }),
+        intended_agent: None,
+    }])
+    .unwrap();
+    let Some(api::request::input::Type::UserInputs(inputs)) = active.r#type else {
+        panic!("expected active user inputs");
+    };
+    let Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(query)) =
+        inputs.inputs[0].input.as_ref()
+    else {
+        panic!("expected active CLI agent query");
+    };
+    assert_eq!(
+        query
+            .user_query
+            .as_ref()
+            .expect("expected active monitor prompt")
+            .intended_agent(),
+        api::AgentType::Cli
+    );
 }
 
 #[test]

@@ -2,16 +2,19 @@ use std::path::PathBuf;
 
 use ai::agent::action::AskUserQuestionType;
 use ai::skills::{SkillPathOrigin, SkillReference};
+use galaxy_agent_core::{RuntimeActivity, RuntimeActivityStatus};
 use warp_multi_agent_api as api;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 
 use super::{
-    convert_api_question, ConversionParams, ConvertAPIMessageToClientOutputMessage,
-    MaybeAIAgentOutputMessage,
+    convert_api_question, user_inputs_from_messages, ConversionParams,
+    ConvertAPIMessageToClientOutputMessage, MaybeAIAgentOutputMessage,
 };
+use crate::ai::agent::api::mark_internal_command_completion_assessment;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionType, AIAgentOutputMessageType, LifecycleEventType, StartAgentExecutionMode,
+    runtime_activity, AIAgentActionType, AIAgentInput, AIAgentOutputMessageType,
+    LifecycleEventType, StartAgentExecutionMode,
 };
 
 fn start_agent_tool_call_message(
@@ -616,6 +619,36 @@ fn converts_local_start_agent_v2_with_harness_type() {
 }
 
 #[test]
+fn internal_command_completion_assessment_is_not_restored_as_shared_user_input() {
+    let mut hidden_assessment = api::Message {
+        id: "hidden-assessment".to_string(),
+        task_id: "task".to_string(),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: "[Completed command: cargo test]".to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    mark_internal_command_completion_assessment(&mut hidden_assessment);
+    let visible_query = api::Message {
+        id: "visible-query".to_string(),
+        task_id: "task".to_string(),
+        message: Some(api::message::Message::UserQuery(api::message::UserQuery {
+            query: "What changed?".to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+
+    let inputs = user_inputs_from_messages(&[hidden_assessment, visible_query]);
+    assert_eq!(inputs.len(), 1);
+    assert!(matches!(
+        &inputs[0],
+        AIAgentInput::UserQuery { query, .. } if query == "What changed?"
+    ));
+}
+
+#[test]
 fn transfer_control_tool_call_converts_to_action_message() {
     let task_id = TaskId::new("task".to_string());
     let reason = "Please finish the interactive flow".to_string();
@@ -664,4 +697,46 @@ fn transfer_control_tool_call_converts_to_action_message() {
             panic!("Expected transfer-control tool call to produce a client action")
         }
     }
+}
+
+#[test]
+fn structured_runtime_activity_converts_to_display_only_output() {
+    let activity = RuntimeActivity {
+        id: "tool-1".to_owned(),
+        title: "List directories".to_owned(),
+        status: Some(RuntimeActivityStatus::Completed),
+        output: Some("payments\nrecords_v2".to_owned()),
+    };
+    let task_id = TaskId::new("task".to_owned());
+    let message = api::Message {
+        fetched_memories: Vec::new(),
+        id: "message".to_owned(),
+        task_id: "task".to_owned(),
+        server_message_data: runtime_activity::encode(&activity).expect("metadata"),
+        citations: Vec::new(),
+        message: Some(api::message::Message::AgentOutput(
+            api::message::AgentOutput {
+                text: "fallback text".to_owned(),
+            },
+        )),
+        request_id: "request".to_owned(),
+        timestamp: None,
+    };
+
+    let converted = message
+        .to_client_output_message(ConversionParams {
+            task_id: &task_id,
+            current_todo_list: None,
+            active_code_review: None,
+            skill_path_origin: &SkillPathOrigin::Local,
+        })
+        .expect("conversion");
+
+    let MaybeAIAgentOutputMessage::Message(output) = converted else {
+        panic!("expected display output");
+    };
+    assert_eq!(
+        output.message,
+        AIAgentOutputMessageType::RuntimeActivity(activity)
+    );
 }

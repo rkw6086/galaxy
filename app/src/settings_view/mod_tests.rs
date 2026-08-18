@@ -34,6 +34,30 @@ fn ai_subpages_are_classified_and_map_to_their_backing_pages() {
 }
 
 #[test]
+fn provider_subpages_are_classified_and_map_to_ai_backing_page() {
+    assert_eq!(
+        SettingsSection::provider_subpages(),
+        &[
+            SettingsSection::ProviderOpenAI,
+            SettingsSection::ProviderLiteLLM,
+            SettingsSection::ProviderChatGPTSubscription,
+            SettingsSection::ProviderBedrock,
+            SettingsSection::ProviderACP,
+        ]
+    );
+    for section in SettingsSection::provider_subpages() {
+        assert!(section.is_provider_subpage());
+        assert!(section.is_subpage());
+        assert_eq!(
+            section.parent_page_section(),
+            SettingsSection::AI,
+            "{section:?} should use the AI backing page"
+        );
+    }
+    assert!(!SettingsSection::AI.is_provider_subpage());
+}
+
+#[test]
 fn code_subpages_are_classified_and_map_to_code() {
     assert_eq!(
         SettingsSection::code_subpages(),
@@ -86,9 +110,15 @@ fn current_settings_display_names_round_trip() {
             SettingsSection::ThirdPartyCLIAgents,
             "Third party CLI agents",
         ),
-        (SettingsSection::Bedrock, "AWS Bedrock"),
-        (SettingsSection::OpenAI, "OpenAI / LiteLLM"),
         (SettingsSection::Experiments, "Experiments"),
+        (SettingsSection::ProviderOpenAI, "OpenAI"),
+        (SettingsSection::ProviderLiteLLM, "LiteLLM"),
+        (
+            SettingsSection::ProviderChatGPTSubscription,
+            "ChatGPT Subscription",
+        ),
+        (SettingsSection::ProviderBedrock, "Bedrock"),
+        (SettingsSection::ProviderACP, "ACP"),
         (SettingsSection::CodeIndexing, "Indexing and projects"),
         (
             SettingsSection::EditorAndCodeReview,
@@ -111,8 +141,23 @@ fn legacy_settings_names_remain_parseable() {
         ("AgentProfiles", SettingsSection::AgentProfiles),
         ("AgentMCPServers", SettingsSection::AgentMCPServers),
         ("ThirdPartyCLIAgents", SettingsSection::ThirdPartyCLIAgents),
-        ("Bedrock", SettingsSection::Bedrock),
-        ("OpenAI", SettingsSection::OpenAI),
+        ("AWS Bedrock", SettingsSection::ProviderBedrock),
+        ("Bedrock", SettingsSection::ProviderBedrock),
+        ("OpenAI / LiteLLM", SettingsSection::ProviderLiteLLM),
+        ("LiteLLM", SettingsSection::ProviderLiteLLM),
+        ("OpenAI", SettingsSection::ProviderOpenAI),
+        ("Models", SettingsSection::ProviderOpenAI),
+        ("Agent runtimes", SettingsSection::ProviderOpenAI),
+        (
+            "ChatGPTSubscription",
+            SettingsSection::ProviderChatGPTSubscription,
+        ),
+        (
+            "ChatGPT Subscription",
+            SettingsSection::ProviderChatGPTSubscription,
+        ),
+        ("Agent Client Protocol", SettingsSection::ProviderACP),
+        ("ACP", SettingsSection::ProviderACP),
         ("CodeIndexing", SettingsSection::CodeIndexing),
         ("EditorAndCodeReview", SettingsSection::EditorAndCodeReview),
     ] {
@@ -134,6 +179,10 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Agents",
             SettingsSection::ai_subpages().to_vec(),
+        )),
+        SettingsNavItem::Umbrella(SettingsUmbrella::new(
+            "Providers",
+            SettingsSection::provider_subpages().to_vec(),
         )),
         SettingsNavItem::Umbrella(SettingsUmbrella::new(
             "Code",
@@ -162,7 +211,7 @@ fn collapsed_umbrellas_each_form_one_navigation_stop() {
     let nav_items = realistic_nav_items();
     let stops = build_nav_stops(&nav_items, |_| true);
 
-    assert_eq!(stops.len(), 10);
+    assert_eq!(stops.len(), 11);
     assert_eq!(
         stops[0],
         NavStop::CollapsedUmbrella {
@@ -175,12 +224,20 @@ fn collapsed_umbrellas_each_form_one_navigation_stop() {
         stops[1],
         NavStop::CollapsedUmbrella {
             nav_index: 1,
+            first_subpage: SettingsSection::ProviderOpenAI,
+            last_subpage: SettingsSection::ProviderACP,
+        }
+    );
+    assert_eq!(
+        stops[2],
+        NavStop::CollapsedUmbrella {
+            nav_index: 2,
             first_subpage: SettingsSection::CodeIndexing,
             last_subpage: SettingsSection::EditorAndCodeReview,
         }
     );
-    assert_eq!(stops[2], NavStop::Section(SettingsSection::Appearance));
-    assert_eq!(stops[9], NavStop::Section(SettingsSection::Scripting));
+    assert_eq!(stops[3], NavStop::Section(SettingsSection::Appearance));
+    assert_eq!(stops[10], NavStop::Section(SettingsSection::Scripting));
 }
 
 #[test]
@@ -203,8 +260,8 @@ fn expanded_umbrella_has_one_stop_per_visible_subpage() {
         stops[expected_ai_sections.len()],
         NavStop::CollapsedUmbrella {
             nav_index: 1,
-            first_subpage: SettingsSection::CodeIndexing,
-            last_subpage: SettingsSection::EditorAndCodeReview,
+            first_subpage: SettingsSection::ProviderOpenAI,
+            last_subpage: SettingsSection::ProviderACP,
         }
     );
 }
@@ -215,7 +272,7 @@ fn collapsed_umbrella_uses_first_and_last_visible_subpages() {
     let stops = build_nav_stops(&nav_items, |section| {
         !matches!(
             section,
-            SettingsSection::WarpAgent | SettingsSection::OpenAI | SettingsSection::Experiments
+            SettingsSection::WarpAgent | SettingsSection::Models | SettingsSection::Experiments
         )
     });
 
@@ -224,7 +281,7 @@ fn collapsed_umbrella_uses_first_and_last_visible_subpages() {
         NavStop::CollapsedUmbrella {
             nav_index: 0,
             first_subpage: SettingsSection::AgentProfiles,
-            last_subpage: SettingsSection::Bedrock,
+            last_subpage: SettingsSection::ThirdPartyCLIAgents,
         }
     );
 }
@@ -240,6 +297,9 @@ fn umbrella_without_visible_subpages_is_skipped() {
     assert!(stops
         .iter()
         .any(|stop| matches!(stop, NavStop::CollapsedUmbrella { nav_index: 1, .. })));
+    assert!(stops
+        .iter()
+        .any(|stop| matches!(stop, NavStop::CollapsedUmbrella { nav_index: 2, .. })));
 }
 
 #[test]
@@ -259,15 +319,19 @@ fn current_stop_matches_sections_and_collapsed_umbrella_children() {
 
     assert_eq!(
         current_stop_index(&stops, &nav_items, SettingsSection::Appearance),
-        Some(2)
+        Some(3)
     );
     assert_eq!(
         current_stop_index(&stops, &nav_items, SettingsSection::Knowledge),
         Some(0)
     );
     assert_eq!(
-        current_stop_index(&stops, &nav_items, SettingsSection::CodeIndexing),
+        current_stop_index(&stops, &nav_items, SettingsSection::ProviderLiteLLM),
         Some(1)
+    );
+    assert_eq!(
+        current_stop_index(&stops, &nav_items, SettingsSection::CodeIndexing),
+        Some(2)
     );
 }
 
@@ -351,6 +415,6 @@ fn cycling_leaves_an_expanded_umbrella_after_its_last_subpage() {
             SettingsSection::Experiments,
             CycleDirection::Down,
         ),
-        SettingsSection::CodeIndexing
+        SettingsSection::ProviderOpenAI
     );
 }

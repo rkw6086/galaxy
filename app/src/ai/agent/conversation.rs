@@ -229,6 +229,9 @@ pub struct AIConversation {
     /// Runtime responsible for executing this conversation.
     agent_backend: AgentBackend,
 
+    /// Opaque, versioned snapshot of the active direct-provider run.
+    active_provider_run_json: Option<String>,
+
     /// The server-generated unique "token" for this conversation.
     ///
     /// This must be roundtripped to the server when sending follow-ups within a given conversation.
@@ -380,6 +383,7 @@ impl AIConversation {
             has_opened_code_review: false,
             conversation_usage_metadata: ConversationUsageMetadata::default(),
             agent_backend,
+            active_provider_run_json: None,
             server_conversation_token: None,
             task_id: None,
             forked_from_server_conversation_token: None,
@@ -539,6 +543,7 @@ impl AIConversation {
 
         let (
             agent_backend,
+            active_provider_run_json,
             server_conversation_token,
             forked_from_server_conversation_token,
             conversation_usage_metadata,
@@ -589,6 +594,7 @@ impl AIConversation {
             };
             (
                 data.agent_backend,
+                data.active_provider_run_json,
                 server_conversation_token,
                 forked_from_server_conversation_token,
                 conversation_usage_metadata,
@@ -609,6 +615,7 @@ impl AIConversation {
         } else {
             (
                 AgentBackend::default(),
+                None,
                 None,
                 None,
                 ConversationUsageMetadata::default(),
@@ -663,6 +670,7 @@ impl AIConversation {
             has_opened_code_review: false,
             conversation_usage_metadata,
             agent_backend,
+            active_provider_run_json,
             server_conversation_token,
             task_id: run_id.as_deref().and_then(|id| id.parse().ok()),
             forked_from_server_conversation_token,
@@ -703,6 +711,35 @@ impl AIConversation {
 
     pub fn agent_backend(&self) -> &AgentBackend {
         &self.agent_backend
+    }
+
+    pub(crate) fn active_provider_run_json(&self) -> Option<&str> {
+        self.active_provider_run_json.as_deref()
+    }
+
+    pub(crate) fn set_active_provider_run_json(&mut self, snapshot: Option<String>) {
+        self.active_provider_run_json = snapshot;
+    }
+
+    /// Updates the backend of a conversation that has not produced agent output.
+    ///
+    /// Provider failures without output are safe to retry through a newly enabled runtime. Once
+    /// any exchange has produced output, the backend remains stable so provider-native and
+    /// ACP-owned histories are never mixed.
+    pub(crate) fn set_agent_backend_if_no_output(&mut self, agent_backend: AgentBackend) -> bool {
+        let can_change_backend = self.all_exchanges().iter().all(|exchange| {
+            matches!(
+                &exchange.output_status,
+                AIAgentOutputStatus::Finished {
+                    finished_output: FinishedAIAgentOutput::Error { output: None, .. }
+                }
+            )
+        });
+        if !can_change_backend && self.agent_backend != agent_backend {
+            return false;
+        }
+        self.agent_backend = agent_backend;
+        true
     }
 
     /// Records a resumable ACP session ID.
@@ -1893,7 +1930,8 @@ impl AIConversation {
     ) -> String {
         let mut result = Vec::new();
         for exchange in self.all_exchanges() {
-            let formatted_exchange = exchange.format_for_copy(action_model);
+            let formatted_exchange =
+                exchange.format_for_copy_for_conversation(action_model, Some(self.id()));
             if !formatted_exchange.is_empty() {
                 result.push(formatted_exchange);
             }
@@ -1971,19 +2009,23 @@ impl AIConversation {
             .sum()
     }
 
-    pub fn contains_action(&self, action_id: &AIAgentActionId) -> bool {
-        self.task_store.tasks().any(|task| {
-            task.exchanges()
-            .any(|exchange| {
-                let Some(output) = exchange.output_status.output()
-                else {
-                    return false;
-                };
-                output.get().messages.iter().any(|step| {
-                    matches!(step, AIAgentOutputMessage{ message: AIAgentOutputMessageType::Action(AIAgentAction { id, .. }), .. } if id == action_id)
+    pub fn action(&self, action_id: &AIAgentActionId) -> Option<AIAgentAction> {
+        self.task_store.tasks().find_map(|task| {
+            task.exchanges().find_map(|exchange| {
+                let output = exchange.output_status.output()?;
+                output.get().messages.iter().find_map(|step| match step {
+                    AIAgentOutputMessage {
+                        message: AIAgentOutputMessageType::Action(action),
+                        ..
+                    } if &action.id == action_id => Some(action.clone()),
+                    AIAgentOutputMessage { .. } => None,
                 })
             })
         })
+    }
+
+    pub fn contains_action(&self, action_id: &AIAgentActionId) -> bool {
+        self.action(action_id).is_some()
     }
 
     /// Returns the exchange ID that contains the given action ID, if any.
@@ -2085,6 +2127,81 @@ impl AIConversation {
                 response_stream_id: Some(stream_id.clone()),
             });
         }
+        Ok(())
+    }
+
+    /// Reopens an exact restored exchange for continued provider projection.
+    ///
+    /// This only restores the process-local stream association; it never adds input or provider
+    /// history, so the persisted provider run remains the sole continuation source of truth.
+    pub(crate) fn provider_projection_target(
+        &self,
+        response_stream_id: &ResponseStreamId,
+    ) -> Option<(TaskId, AIAgentExchangeId)> {
+        let mut exchanges = self
+            .added_exchanges_by_response
+            .get(response_stream_id)?
+            .iter();
+        let target = exchanges.next()?;
+        exchanges
+            .next()
+            .is_none()
+            .then(|| (target.task_id.clone(), target.exchange_id))
+    }
+
+    pub(crate) fn rebind_provider_projection(
+        &mut self,
+        task_id: &TaskId,
+        exchange_id: AIAgentExchangeId,
+        response_stream_id: ResponseStreamId,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<(), UpdateConversationError> {
+        let Some(task) = self.task_store.get(task_id) else {
+            return Err(UpdateConversationError::TaskNotFound);
+        };
+        if !task.exchanges().any(|exchange| exchange.id == exchange_id) {
+            return if self.exchange_with_id(exchange_id).is_some() {
+                Err(UpdateConversationError::ExchangeTaskMismatch)
+            } else {
+                Err(UpdateConversationError::ExchangeNotFound)
+            };
+        }
+        if self
+            .added_exchanges_by_response
+            .contains_key(&response_stream_id)
+        {
+            return Err(UpdateConversationError::ResponseStreamAlreadyBound);
+        }
+
+        let exchange = self.get_exchange_to_update(exchange_id)?;
+        let previous_status = std::mem::replace(
+            &mut exchange.output_status,
+            AIAgentOutputStatus::Streaming { output: None },
+        );
+        let output = match previous_status {
+            AIAgentOutputStatus::Streaming { output } => output,
+            AIAgentOutputStatus::Finished { finished_output } => match finished_output {
+                FinishedAIAgentOutput::Cancelled { output, .. }
+                | FinishedAIAgentOutput::Error { output, .. } => output,
+                FinishedAIAgentOutput::Success { output } => Some(output),
+            },
+        };
+        exchange.output_status = AIAgentOutputStatus::Streaming { output };
+        exchange.finish_time = None;
+        self.added_exchanges_by_response.insert(
+            response_stream_id,
+            Vec1::new(AddedExchange {
+                task_id: task_id.clone(),
+                exchange_id,
+            }),
+        );
+        ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            exchange_id,
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden: self.hidden_exchanges.contains(&exchange_id),
+        });
         Ok(())
     }
 
@@ -2225,6 +2342,100 @@ impl AIConversation {
         let run_id = Some(init_event.run_id).filter(|s| !s.is_empty());
         self.task_id = run_id.as_deref().and_then(|id| id.parse().ok());
         Ok(())
+    }
+
+    pub fn apply_domain_tool_proposal(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        terminal_surface_id: EntityId,
+        action: AIAgentAction,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<(), UpdateConversationError> {
+        if self.contains_action(&action.id) {
+            return Ok(());
+        }
+        let exchange_id = self.ensure_response_exchange_for_task(
+            stream_id,
+            &action.task_id,
+            terminal_surface_id,
+            ctx,
+        )?;
+        let message_id = MessageId::new(action.id.to_string());
+        let exchange = self.get_exchange_to_update(exchange_id)?;
+        match &exchange.output_status {
+            AIAgentOutputStatus::Streaming {
+                output: Some(output),
+            } => output
+                .get_mut()
+                .messages
+                .push(AIAgentOutputMessage::action(message_id, action)),
+            AIAgentOutputStatus::Streaming { output: None } => {
+                return Err(UpdateConversationError::OutputNeverInitialized);
+            }
+            AIAgentOutputStatus::Finished { .. } => {
+                return Err(UpdateConversationError::OutputAlreadyFinished);
+            }
+        }
+        ctx.emit(BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            exchange_id,
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden: self.hidden_exchanges.contains(&exchange_id),
+        });
+        Ok(())
+    }
+
+    fn ensure_response_exchange_for_task(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        task_id: &TaskId,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> Result<AIAgentExchangeId, UpdateConversationError> {
+        let added_exchanges = self
+            .added_exchanges_by_response
+            .get(stream_id)
+            .ok_or(UpdateConversationError::NoPendingRequest)?;
+        if let Some(exchange_id) = added_exchanges
+            .iter()
+            .find_map(|added| (added.task_id == *task_id).then_some(added.exchange_id))
+        {
+            return Ok(exchange_id);
+        }
+
+        // Direct-provider command monitoring can switch tasks within one response stream. A
+        // tool-first monitor turn needs an exchange before any message event can create it.
+        let source_exchange = added_exchanges.last().clone();
+        let existing_exchange = self
+            .task_store
+            .get(&source_exchange.task_id)
+            .ok_or(UpdateConversationError::TaskNotFound)?
+            .exchange(source_exchange.exchange_id)
+            .cloned()
+            .ok_or(UpdateConversationError::ExchangeNotFound)?;
+        let mut task = self
+            .task_store
+            .remove(task_id)
+            .ok_or(UpdateConversationError::TaskNotFound)?;
+        let exchange_id = task.append_new_exchange(&existing_exchange);
+        self.task_store.insert(task);
+        self.added_exchanges_by_response
+            .get_mut(stream_id)
+            .ok_or(UpdateConversationError::NoPendingRequest)?
+            .push(AddedExchange {
+                task_id: task_id.clone(),
+                exchange_id,
+            });
+        let is_hidden = self.hidden_exchanges.contains(&exchange_id);
+        ctx.emit(BlocklistAIHistoryEvent::AppendedExchange {
+            response_stream_id: Some(stream_id.clone()),
+            exchange_id,
+            task_id: task_id.clone(),
+            terminal_surface_id,
+            conversation_id: self.id,
+            is_hidden,
+        });
+        Ok(exchange_id)
     }
 
     pub fn update_cost_and_usage_for_request(
@@ -3824,6 +4035,7 @@ impl AIConversation {
                 .collect(),
             conversation_data: AgentConversationData {
                 agent_backend: self.agent_backend.clone(),
+                active_provider_run_json: self.active_provider_run_json.clone(),
                 server_conversation_token: self
                     .server_conversation_token
                     .clone()
@@ -4701,6 +4913,10 @@ fn cleanup_conversation_search_temp_dir(
 pub enum UpdateConversationError {
     #[error("Exchange not found.")]
     ExchangeNotFound,
+    #[error("Exchange does not belong to the persisted task.")]
+    ExchangeTaskMismatch,
+    #[error("Response stream is already bound to an exchange.")]
+    ResponseStreamAlreadyBound,
     #[error("Could not update task: {0:?}")]
     UpdateTask(#[from] UpdateTaskError),
     #[error("Could not update upgrade optimistic task for server task: {0:?}")]

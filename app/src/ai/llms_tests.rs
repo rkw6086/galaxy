@@ -10,7 +10,10 @@ use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
-use crate::settings::{OpenAIModelConfig, OpenAIProviderConfig};
+use crate::settings::{
+    AcpAgentSettings, AcpConfigOptionSettings, AcpConfigValueSettings, AcpProviderConfig,
+    BedrockModelConfig, OpenAIModelConfig, OpenAIProviderConfig, OpenAIProviderKind,
+};
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::workspaces::team_tester::TeamTesterStatus;
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -137,4 +140,793 @@ fn llm_info_round_trip_serializes_and_deserializes() {
         serde_json::from_str(&serialized).expect("should deserialize after round trip");
 
     assert_eq!(info, round_tripped);
+}
+
+fn openai_model(model_id: &str) -> OpenAIModelConfig {
+    OpenAIModelConfig {
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        vision_supported: false,
+        context_size: 200_000,
+        max_input_tokens: None,
+        max_output_tokens: None,
+        provider: None,
+        use_rig: false,
+        supports_system_messages: None,
+        capability_overrides: std::collections::HashMap::new(),
+        reasoning_efforts: Vec::new(),
+        enabled: true,
+    }
+}
+
+fn bedrock_model(model_id: &str) -> BedrockModelConfig {
+    BedrockModelConfig {
+        model_id: model_id.to_string(),
+        display_name: model_id.to_string(),
+        vision_supported: false,
+        use_rig: true,
+    }
+}
+
+fn acp_select_option(
+    id: &str,
+    category: &str,
+    current_value: &str,
+    values: &[(&str, &str)],
+) -> AcpConfigOptionSettings {
+    AcpConfigOptionSettings {
+        id: id.to_owned(),
+        name: id.to_owned(),
+        description: None,
+        category: Some(category.to_owned()),
+        kind: "select".to_owned(),
+        current_value: serde_json::json!(current_value),
+        options: values
+            .iter()
+            .map(|(value, name)| AcpConfigValueSettings {
+                value: serde_json::json!(value),
+                name: (*name).to_owned(),
+                description: None,
+            })
+            .collect(),
+    }
+}
+
+fn acp_agent(
+    id: &str,
+    name: &str,
+    config_options: Vec<AcpConfigOptionSettings>,
+) -> AcpAgentSettings {
+    AcpAgentSettings {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        version: None,
+        description: None,
+        icon_url: None,
+        capabilities: Vec::new(),
+        config_options,
+        discovery_timestamp: None,
+        discovery_source: None,
+        discovery_error: None,
+    }
+}
+
+fn empty_preferences() -> LLMPreferences {
+    LLMPreferences {
+        models_by_feature: ModelsByFeature::default(),
+        last_update: None,
+        base_llm_for_terminal_view: HashMap::new(),
+        custom_llms: Vec::new(),
+        custom_model_routers: Vec::new(),
+        openai_provider_routing: HashMap::new(),
+        fetched_openai_models: Vec::new(),
+        chatgpt_subscription_models_refresh_in_flight: false,
+        acp_selections: HashMap::new(),
+    }
+}
+
+#[test]
+fn bedrock_and_openai_provider_models_coexist_in_picker() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .openai_enabled
+                .set_value(true, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .openai_providers
+                .set_value(
+                    vec![OpenAIProviderConfig {
+                        kind: OpenAIProviderKind::OpenAI,
+                        enabled: true,
+                        name: "OpenAI Test".to_owned(),
+                        base_url: "https://api.openai.test/v1".to_owned(),
+                        api_key: Some("test-key".to_owned()),
+                        project_id: None,
+                        location: None,
+                        models: vec![openai_model("gpt-test")],
+                    }],
+                    ctx,
+                )
+                .expect("OpenAI providers should update");
+            settings
+                .bedrock_enabled
+                .set_value(true, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .bedrock_models
+                .set_value(vec![bedrock_model("anthropic.claude-test")], ctx)
+                .expect("Bedrock models should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_openai_models(ctx);
+            preferences.inject_bedrock_models(ctx);
+        });
+
+        let agent_models = &preferences.models_by_feature.agent_mode.choices;
+        assert!(
+            agent_models
+                .iter()
+                .any(|model| model.id.as_str() == "gpt-test"
+                    && model.provider == LLMProvider::LiteLLM)
+        );
+        assert!(agent_models.iter().any(|model| {
+            model.id.as_str() == "anthropic.claude-test" && model.provider == LLMProvider::Bedrock
+        }));
+        assert!(preferences
+            .openai_client_config_for_model("gpt-test")
+            .is_some());
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_openai_models(ctx);
+        });
+
+        let agent_models = &preferences.models_by_feature.agent_mode.choices;
+        assert!(
+            agent_models
+                .iter()
+                .any(|model| model.id.as_str() == "gpt-test"
+                    && model.provider == LLMProvider::LiteLLM)
+        );
+        assert!(agent_models.iter().any(|model| {
+            model.id.as_str() == "anthropic.claude-test" && model.provider == LLMProvider::Bedrock
+        }));
+        assert!(preferences
+            .openai_client_config_for_model("gpt-test")
+            .is_some());
+    });
+}
+
+#[test]
+fn provider_discovery_preserves_local_model_overrides() {
+    let mut existing = openai_model("codex-gpt-5.6-sol-xhigh");
+    existing.display_name = "My Codex".to_string();
+    existing.context_size = 100_000;
+    existing.provider = Some("openai".to_string());
+    existing.use_rig = true;
+    // Even stale or incorrect endpoint metadata must not opt ChatGPT-backed
+    // Codex models back into the system role.
+    existing.supports_system_messages = Some(true);
+
+    let mut discovered = openai_model("codex-gpt-5.6-sol-xhigh");
+    discovered.display_name = "Codex from endpoint".to_string();
+    discovered.context_size = 400_000;
+    discovered.max_output_tokens = Some(32_000);
+    discovered.supports_system_messages = Some(true);
+
+    let merged = merge_discovered_provider_models(&[existing], vec![discovered]);
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].display_name, "My Codex");
+    assert_eq!(merged[0].context_size, 400_000);
+    assert_eq!(merged[0].max_output_tokens, Some(32_000));
+    assert!(merged[0].use_rig);
+    assert_eq!(merged[0].supports_system_messages, Some(false));
+    assert_eq!(merged[0].provider.as_deref(), Some("openai"));
+}
+
+#[test]
+fn codex_models_reject_system_messages_even_with_stale_true_metadata() {
+    let mut model = openai_model("codex-gpt-5.6-sol-xhigh");
+    model.supports_system_messages = Some(true);
+
+    assert!(!model.supports_system_messages());
+}
+
+#[test]
+fn acp_models_are_injected_only_while_acp_is_enabled() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agents
+                .set_value(
+                    vec![AcpAgentSettings {
+                        id: "codex".to_owned(),
+                        name: "Codex".to_owned(),
+                        version: None,
+                        description: None,
+                        icon_url: None,
+                        capabilities: Vec::new(),
+                        config_options: vec![AcpConfigOptionSettings {
+                            id: "model".to_owned(),
+                            name: "Model".to_owned(),
+                            description: None,
+                            category: Some("model".to_owned()),
+                            kind: "select".to_owned(),
+                            current_value: serde_json::json!("gpt-test"),
+                            options: vec![AcpConfigValueSettings {
+                                value: serde_json::json!("gpt-test"),
+                                name: "GPT Test".to_owned(),
+                                description: None,
+                            }],
+                        }],
+                        discovery_timestamp: None,
+                        discovery_source: None,
+                        discovery_error: None,
+                    }],
+                    ctx,
+                )
+                .expect("ACP agents should update");
+        });
+
+        let mut preferences = LLMPreferences {
+            models_by_feature: ModelsByFeature::default(),
+            last_update: None,
+            base_llm_for_terminal_view: HashMap::new(),
+            custom_llms: Vec::new(),
+            custom_model_routers: Vec::new(),
+            openai_provider_routing: HashMap::new(),
+            fetched_openai_models: Vec::new(),
+            chatgpt_subscription_models_refresh_in_flight: false,
+            acp_selections: HashMap::new(),
+        };
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        assert_eq!(preferences.acp_selections.len(), 1);
+        assert_eq!(
+            preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .filter(|model| model.id.as_str().starts_with("acp:"))
+                .count(),
+            1
+        );
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        assert!(preferences.acp_selections.is_empty());
+        assert!(preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .all(|model| !model.id.as_str().starts_with("acp:")));
+    });
+}
+
+#[test]
+fn acp_is_selectable_before_protocol_model_discovery_completes() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agent_id
+                .set_value("opencode".to_owned(), ctx)
+                .expect("ACP agent should update");
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_agents
+                .set_value(Vec::new(), ctx)
+                .expect("ACP discovery cache should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_acp_models(ctx);
+        });
+
+        let models = &preferences.models_by_feature.agent_mode.choices;
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].display_name, "OpenCode");
+        assert_eq!(models[0].provider, LLMProvider::Acp);
+        assert_eq!(
+            preferences
+                .acp_selections
+                .get(&models[0].id)
+                .map(|selection| selection.agent_id.as_str()),
+            Some("opencode")
+        );
+        assert!(preferences.has_any_provider_models());
+    });
+}
+
+#[test]
+fn acp_models_expand_reasoning_levels_for_only_the_configured_agent() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agent_id
+                .set_value("opencode".to_owned(), ctx)
+                .expect("ACP agent should update");
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_agents
+                .set_value(
+                    vec![
+                        acp_agent(
+                            "codex",
+                            "Codex",
+                            vec![acp_select_option(
+                                "model",
+                                "model",
+                                "stale-model",
+                                &[("stale-model", "Stale Model")],
+                            )],
+                        ),
+                        acp_agent(
+                            "opencode",
+                            "OpenCode",
+                            vec![
+                                acp_select_option(
+                                    "model",
+                                    "model",
+                                    "gpt-test",
+                                    &[("gpt-test", "GPT Test")],
+                                ),
+                                acp_select_option(
+                                    "mode",
+                                    "mode",
+                                    "read-only",
+                                    &[("read-only", "Read-only")],
+                                ),
+                                acp_select_option(
+                                    "thought_level",
+                                    "thought_level",
+                                    "xhigh",
+                                    &[("high", "High"), ("xhigh", "Xhigh")],
+                                ),
+                            ],
+                        ),
+                    ],
+                    ctx,
+                )
+                .expect("ACP agents should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_acp_models(ctx);
+        });
+
+        let models = &preferences.models_by_feature.agent_mode.choices;
+        assert_eq!(models.len(), 2);
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.display_name.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["GPT Test (High) · OpenCode", "GPT Test (Xhigh) · OpenCode"])
+        );
+        assert!(models.iter().all(|model| {
+            model.provider == LLMProvider::Acp && !model.display_name.contains("Read-only")
+        }));
+        assert!(preferences.acp_selections.values().all(|selection| {
+            selection.agent_id == "opencode"
+                && selection.config_values.get("mode") == Some(&serde_json::json!("read-only"))
+        }));
+    });
+}
+
+#[test]
+fn acp_models_are_scoped_to_each_configured_provider() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let config_options = vec![acp_select_option(
+            "model",
+            "model",
+            "gpt-test",
+            &[("gpt-test", "GPT Test")],
+        )];
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_providers
+                .set_value(
+                    vec![
+                        AcpProviderConfig {
+                            id: "work".to_owned(),
+                            enabled: true,
+                            name: "Codex Work".to_owned(),
+                            agent_id: "codex".to_owned(),
+                            command: String::new(),
+                            args: Vec::new(),
+                            config_options: config_options.clone(),
+                        },
+                        AcpProviderConfig {
+                            id: "personal".to_owned(),
+                            enabled: true,
+                            name: "Codex Personal".to_owned(),
+                            agent_id: "codex".to_owned(),
+                            command: String::new(),
+                            args: Vec::new(),
+                            config_options,
+                        },
+                    ],
+                    ctx,
+                )
+                .expect("ACP providers should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+
+        let models = preferences
+            .models_by_feature
+            .agent_mode
+            .choices
+            .iter()
+            .filter(|model| model.provider == LLMProvider::Acp)
+            .collect::<Vec<_>>();
+        assert_eq!(models.len(), 2);
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.display_name.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["GPT Test · Codex Work", "GPT Test · Codex Personal"])
+        );
+        assert_eq!(
+            preferences
+                .acp_selections
+                .values()
+                .map(|selection| selection.provider_id.as_str())
+                .collect::<HashSet<_>>(),
+            HashSet::from(["work", "personal"])
+        );
+    });
+}
+
+#[test]
+fn acp_bedrock_models_are_hidden_while_bedrock_is_disabled() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+            settings
+                .acp_agent_id
+                .set_value("opencode".to_owned(), ctx)
+                .expect("ACP agent should update");
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_agents
+                .set_value(
+                    vec![acp_agent(
+                        "opencode",
+                        "OpenCode",
+                        vec![acp_select_option(
+                            "model",
+                            "model",
+                            "openai/gpt-test",
+                            &[
+                                ("amazon-bedrock/claude-test", "Bedrock Claude"),
+                                ("openai/gpt-test", "GPT Test"),
+                            ],
+                        )],
+                    )],
+                    ctx,
+                )
+                .expect("ACP agents should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_acp_models(ctx);
+        });
+        assert_eq!(preferences.models_by_feature.agent_mode.choices.len(), 1);
+        assert_eq!(
+            preferences.models_by_feature.agent_mode.choices[0].display_name,
+            "GPT Test · OpenCode"
+        );
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(true, ctx)
+                .expect("Bedrock setting should update");
+        });
+        app.read(|ctx| preferences.inject_acp_models(ctx));
+        assert_eq!(preferences.models_by_feature.agent_mode.choices.len(), 2);
+    });
+}
+
+#[test]
+fn disabled_providers_do_not_leave_models_in_the_runtime_inventory() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .openai_enabled
+                .set_value(false, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| {
+            preferences.inject_bedrock_models(ctx);
+            preferences.inject_openai_models(ctx);
+        });
+
+        assert!(preferences.models_by_feature.agent_mode.choices.is_empty());
+        assert!(preferences.models_by_feature.coding.choices.is_empty());
+        assert!(preferences
+            .models_by_feature
+            .cli_agent
+            .as_ref()
+            .is_none_or(|models| models.choices.is_empty()));
+    });
+}
+
+#[test]
+fn chatgpt_reasoning_modes_route_with_catalog_context_metadata() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let provider = crate::settings::ai::default_chatgpt_provider();
+        let configured_model = |model_id: &str| {
+            provider
+                .models
+                .iter()
+                .find(|model| model.model_id == model_id)
+                .expect("ChatGPT model should be configured")
+        };
+
+        let gpt_54 = configured_model("gpt-5.4");
+        assert_eq!(gpt_54.context_size, 1_000_000);
+        assert_eq!(gpt_54.max_input_tokens, Some(950_000));
+        let gpt_56_sol = configured_model("gpt-5.6-sol");
+        assert_eq!(gpt_56_sol.context_size, 272_000);
+        assert_eq!(gpt_56_sol.max_input_tokens, Some(258_400));
+        let uncached_model = configured_model("gpt-5.4-pro");
+        assert_eq!(uncached_model.context_size, 200_000);
+        assert_eq!(uncached_model.max_input_tokens, None);
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+            settings
+                .openai_enabled
+                .set_value(true, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .openai_models
+                .set_value(Vec::new(), ctx)
+                .expect("OpenAI model setting should update");
+            settings
+                .openai_providers
+                .set_value(vec![provider], ctx)
+                .expect("OpenAI provider setting should update");
+        });
+
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+
+        let model_info = |model_id: &str| {
+            preferences
+                .models_by_feature
+                .agent_mode
+                .choices
+                .iter()
+                .find(|model| model.id.as_str() == model_id)
+                .expect("ChatGPT model should be available")
+        };
+        let assert_fixed_context = |model_id: &str, expected: u32| {
+            let context_window = &model_info(model_id).context_window;
+            assert!(!context_window.is_configurable);
+            assert_eq!(context_window.min, expected);
+            assert_eq!(context_window.max, expected);
+            assert_eq!(context_window.default_max, expected);
+        };
+
+        let mode_id = "gpt-5.4::reasoning::high";
+        let mode = model_info(mode_id);
+        assert_eq!(mode.reasoning_level.as_deref(), Some("high"));
+        assert_fixed_context(mode_id, 950_000);
+        let routing = preferences
+            .openai_client_config_for_model(mode_id)
+            .expect("reasoning mode should have a routing entry");
+        assert_eq!(routing.model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(routing.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(routing.max_input_tokens, Some(950_000));
+
+        let ultra_id = "gpt-5.6-sol::reasoning::ultra";
+        assert_fixed_context(ultra_id, 258_400);
+        let ultra_routing = preferences
+            .openai_client_config_for_model(ultra_id)
+            .expect("GPT-5.6 Sol ultra mode should have a routing entry");
+        assert_eq!(ultra_routing.model.as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(ultra_routing.reasoning_effort.as_deref(), Some("ultra"));
+        assert_eq!(ultra_routing.max_input_tokens, Some(258_400));
+
+        let uncached_id = "gpt-5.4-pro";
+        assert_fixed_context(uncached_id, 200_000);
+        let uncached_routing = preferences
+            .openai_client_config_for_model(uncached_id)
+            .expect("GPT-5.4 Pro should have a routing entry");
+        assert_eq!(uncached_routing.max_input_tokens, Some(200_000));
+    });
+}
+
+#[test]
+fn provider_discovery_enables_rig_for_new_models_and_keeps_manual_models() {
+    let manual = openai_model("manual-model");
+    let discovered = openai_model("codex-gpt-new");
+
+    let merged = merge_discovered_provider_models(&[manual], vec![discovered]);
+
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0].model_id, "codex-gpt-new");
+    assert!(merged[0].use_rig);
+    assert_eq!(merged[0].supports_system_messages, Some(false));
+    assert_eq!(merged[1].model_id, "manual-model");
+}
+
+#[test]
+fn codex_release_json_yields_client_version() {
+    let release = serde_json::json!({
+        "tag_name": "rust-v0.147.0",
+        "name": "0.147.0"
+    });
+
+    assert_eq!(
+        codex_client_version_from_release_json(&release).as_deref(),
+        Some("0.147.0")
+    );
+}
+
+#[test]
+fn chatgpt_codex_models_parse_visible_catalog_entries() {
+    let body = serde_json::json!({
+        "models": [
+            {
+                "slug": "gpt-5.6-sol",
+                "display_name": "GPT-5.6-Sol",
+                "visibility": "list",
+                "context_window": 272000,
+                "max_context_window": 272000,
+                "effective_context_window_percent": 95,
+                "input_modalities": ["text", "image"],
+                "supported_reasoning_levels": [
+                    {"effort": "low", "description": "Fast"},
+                    {"effort": "xhigh", "description": "Deep"},
+                    {"effort": "ultra", "description": "Delegated"}
+                ]
+            },
+            {
+                "slug": "hidden",
+                "display_name": "Hidden",
+                "visibility": "hide",
+                "context_window": 128000,
+                "input_modalities": ["text"],
+                "supported_reasoning_levels": []
+            },
+            {
+                "slug": "gpt-text-only",
+                "display_name": "GPT Text Only",
+                "visibility": "list",
+                "max_context_window": 128000,
+                "effective_context_window_percent": 90,
+                "input_modalities": ["text"],
+                "supported_reasoning_levels": [{"effort": "medium"}]
+            }
+        ]
+    });
+
+    let models = chatgpt_models_from_codex_response(&body);
+
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].model_id, "gpt-5.6-sol");
+    assert_eq!(models[0].display_name, "GPT-5.6-Sol");
+    assert!(models[0].vision_supported);
+    assert_eq!(models[0].context_size, 272_000);
+    assert_eq!(models[0].max_input_tokens, Some(258_400));
+    assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
+    assert!(models[0].use_rig);
+    assert_eq!(models[0].provider.as_deref(), Some("openai"));
+    assert_eq!(models[0].supports_system_messages, Some(true));
+
+    assert_eq!(models[1].model_id, "gpt-text-only");
+    assert!(!models[1].vision_supported);
+    assert_eq!(models[1].context_size, 128_000);
+    assert_eq!(models[1].max_input_tokens, Some(115_200));
+}
+
+#[test]
+fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
+    let mut existing = openai_model("gpt-5.6-sol");
+    existing.enabled = false;
+    existing.use_rig = false;
+    existing.capability_overrides.insert(
+        "vision".to_string(),
+        crate::settings::ModelCapabilityOverride::Unsupported,
+    );
+    let stale = openai_model("stale-model");
+
+    let mut discovered = openai_model("gpt-5.6-sol");
+    discovered.display_name = "GPT-5.6-Sol".to_string();
+    discovered.vision_supported = true;
+    discovered.use_rig = true;
+
+    let merged = merge_discovered_chatgpt_subscription_models(&[existing, stale], vec![discovered]);
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].model_id, "gpt-5.6-sol");
+    assert!(!merged[0].enabled);
+    assert!(!merged[0].use_rig);
+    assert_eq!(
+        merged[0].capability_override("vision"),
+        crate::settings::ModelCapabilityOverride::Unsupported
+    );
 }

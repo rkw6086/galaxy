@@ -16,12 +16,13 @@ use ai::agent::action::{
 };
 use ai::agent::file_locations::group_file_contexts_for_display;
 use ai::skills::{ParsedSkill, SkillReference};
+use galaxy_agent_core::{RuntimeActivity, RuntimeActivityStatus};
 use galaxy_core::channel::ChannelState;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use galaxyui::elements::new_scrollable::SingleAxisConfig;
 use galaxyui::elements::{
-    Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
+    Align, Border, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Empty, Expanded, Fill, Flex, FormattedTextElement, Hoverable,
     MainAxisAlignment, MainAxisSize, NewScrollable, OffsetPositioning, ParentAnchor, ParentElement,
     ParentOffsetBounds, Radius, Shrinkable, Stack, Text, Wrap,
@@ -55,6 +56,7 @@ use super::{
 };
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::comment::ReviewComment;
+use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::icons::{self, gray_stop_icon, yellow_stop_icon};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
@@ -84,18 +86,22 @@ use crate::ai::blocklist::inline_action::ask_user_question_view::AskUserQuestion
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
 use crate::ai::blocklist::inline_action::create_or_edit_document::CreateOrEditDocumentAction;
 use crate::ai::blocklist::inline_action::inline_action_header::{
-    HeaderConfig, InteractionMode, INLINE_ACTION_HEADER_VERTICAL_PADDING,
+    ExpandedConfig, HeaderConfig, InteractionMode, INLINE_ACTION_HEADER_VERTICAL_PADDING,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
 use crate::ai::blocklist::inline_action::inline_action_icons::{self, icon_size};
 use crate::ai::blocklist::inline_action::requested_action::{
     render_requested_action_body_text, render_requested_action_row_for_text, RenderableAction,
 };
-use crate::ai::blocklist::inline_action::requested_command::RequestedCommand;
+use crate::ai::blocklist::inline_action::requested_command::{
+    format_command_text, RequestedCommand, REQUESTED_COMMAND_BODY_VERTICAL_PADDING,
+    VIEWING_COMMAND_DETAIL_MESSAGE,
+};
 use crate::ai::blocklist::inline_action::run_agents_card_view::RunAgentsCardView;
 use crate::ai::blocklist::inline_action::search_codebase::SearchCodebaseView;
 use crate::ai::blocklist::inline_action::suggested_unit_tests::SuggestedUnitTestsView;
 use crate::ai::blocklist::inline_action::summarization::SummarizationView;
+use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::inline_action::web_fetch::WebFetchView;
 use crate::ai::blocklist::inline_action::web_search::WebSearchView;
 use crate::ai::blocklist::keyboard_navigable_buttons::KeyboardNavigableButtons;
@@ -131,9 +137,14 @@ use crate::{AIAgentTodoList, FeatureFlag};
 
 const BLOCKED_ACTION_MESSAGE_FOR_UPLOADING_ARTIFACT: &str = "Grant access to upload this artifact?";
 
+fn should_render_requested_edit(action_status: Option<&AIActionStatus>) -> bool {
+    !action_status.is_some_and(AIActionStatus::is_preprocessing)
+}
+
 /// Data required to render the AI block output component.
 #[derive(Copy, Clone)]
 pub(crate) struct Props<'a> {
+    pub(crate) conversation_id: AIConversationId,
     pub(crate) model: &'a dyn AIBlockModel<View = AIBlock>,
     pub(super) state_handles: &'a AIBlockStateHandles,
     pub(super) action_buttons: &'a HashMap<AIAgentActionId, ActionButtons>,
@@ -400,6 +411,21 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                         } if !are_all_text_sections_empty(sections) => {
                             text_section_index += sections.len();
                         }
+                        AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                            if !matches!(
+                                activity.status,
+                                Some(RuntimeActivityStatus::Completed)
+                                    | Some(RuntimeActivityStatus::Failed)
+                            ) {
+                                should_render_footer = false;
+                                should_render_suggestions = false;
+                            }
+                            if let Some(rendered_activity) =
+                                render_runtime_activity(output_message, activity, props, app)
+                            {
+                                output_items.add_child(rendered_activity);
+                            }
+                        }
                         AIAgentOutputMessageType::Action(AIAgentAction {
                             action: AIAgentActionType::RequestCommandOutput { .. },
                             id,
@@ -412,7 +438,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             let is_action_done = props
                                 .action_model
                                 .as_ref(app)
-                                .get_action_status(id)
+                                .get_action_status(props.conversation_id, id)
                                 .as_ref()
                                 .is_some_and(|status| status.is_done());
                             if !is_action_done {
@@ -452,7 +478,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                                 let agent_action_results = props
                                     .action_model
                                     .as_ref(app)
-                                    .get_action_result(id)
+                                    .get_action_result(props.conversation_id, id)
                                     .map(|action_result| action_result.as_ref());
 
                                 // checks if the read file action result is completed and successful.
@@ -541,13 +567,12 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             id,
                             ..
                         }) => {
-                            let action_status =
-                                props.action_model.as_ref(app).get_action_status(id);
+                            let action_status = props
+                                .action_model
+                                .as_ref(app)
+                                .get_action_status(props.conversation_id, id);
 
-                            let is_preprocessing = action_status
-                                .clone()
-                                .is_some_and(|status| status.is_preprocessing());
-                            if !is_preprocessing && !status.is_streaming() {
+                            if should_render_requested_edit(action_status.as_ref()) {
                                 if let Some(requested_edit) = props.requested_edits.get(id) {
                                     // Don't render the requested edit if the diffs are empty for passive code diffs.
                                     if request_type.is_passive_code_diff()
@@ -635,7 +660,7 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
                             let is_action_done = props
                                 .action_model
                                 .as_ref(app)
-                                .get_action_status(id)
+                                .get_action_status(props.conversation_id, id)
                                 .as_ref()
                                 .is_some_and(|status| status.is_done());
                             if !is_action_done {
@@ -1262,6 +1287,106 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
     output_items.finish()
 }
 
+fn render_runtime_activity(
+    output_message: &AIAgentOutputMessage,
+    activity: &RuntimeActivity,
+    props: Props,
+    app: &AppContext,
+) -> Option<Box<dyn Element>> {
+    let state = props.collapsible_block_states.get(&output_message.id)?;
+    let appearance = Appearance::as_ref(app);
+    let theme = appearance.theme();
+    let output = activity
+        .output
+        .as_deref()
+        .filter(|output| !output.is_empty());
+    let is_expanded = matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Expanded { .. }
+    );
+    let icon = match activity.status.as_ref() {
+        Some(RuntimeActivityStatus::Pending) => icons::pending_icon(appearance),
+        Some(RuntimeActivityStatus::InProgress) => icons::yellow_running_icon(appearance),
+        Some(RuntimeActivityStatus::Completed) => inline_action_icons::green_check_icon(appearance),
+        Some(RuntimeActivityStatus::Failed) => inline_action_icons::red_x_icon(appearance),
+        Some(RuntimeActivityStatus::Other(_)) | None => icons::gray_circle_icon(appearance),
+    };
+    let title = if is_expanded {
+        VIEWING_COMMAND_DETAIL_MESSAGE.to_owned()
+    } else {
+        format_command_text(&activity.title)
+    };
+    let mut header = HeaderConfig::new(title, app)
+        .with_selectable_text()
+        .with_icon(icon)
+        .with_corner_radius_override(if is_expanded && output.is_some() {
+            CornerRadius::with_top(Radius::Pixels(8.))
+        } else {
+            CornerRadius::with_all(Radius::Pixels(8.))
+        });
+    if !is_expanded {
+        header = header.with_font_family(appearance.monospace_font_family());
+    }
+    if output.is_some() {
+        let message_id = output_message.id.clone();
+        let command = activity.title.clone();
+        let expansion =
+            ExpandedConfig::new(is_expanded, state.expansion_toggle_mouse_state.clone())
+                .with_toggle_callback(move |ctx| {
+                    ctx.dispatch_typed_action(AIBlockAction::ToggleCollapsibleBlockExpanded(
+                        message_id.clone(),
+                    ));
+                })
+                .with_right_click_callback(move |ctx| {
+                    ctx.dispatch_typed_action(AIBlockAction::StoreRightClickedCommand {
+                        command: command.clone(),
+                    });
+                });
+        header = header.with_interaction_mode(InteractionMode::ManuallyExpandable(expansion));
+    }
+
+    let mut content = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_child(Clipped::new(header.render(app)).finish());
+
+    if let Some(output) = output {
+        let body = render_requested_action_body_text(
+            output.into(),
+            appearance.monospace_font_family(),
+            app,
+        )
+        .finish();
+        let is_streaming = matches!(
+            activity.status,
+            Some(RuntimeActivityStatus::Pending | RuntimeActivityStatus::InProgress)
+        );
+        if let Some(scrollable) = render_scrollable_collapsible_content(
+            &output_message.id,
+            state,
+            body,
+            is_streaming,
+            320.,
+        ) {
+            content.add_child(
+                Container::new(scrollable)
+                    .with_horizontal_padding(INLINE_ACTION_HORIZONTAL_PADDING)
+                    .with_vertical_padding(REQUESTED_COMMAND_BODY_VERTICAL_PADDING)
+                    .with_background(theme.background())
+                    .with_corner_radius(CornerRadius::with_bottom(Radius::Pixels(8.)))
+                    .finish(),
+            );
+        }
+    }
+
+    Some(render_tool_pane_shell(
+        content.finish(),
+        false,
+        is_expanded,
+        false,
+        app,
+    ))
+}
+
 fn should_render_stopped_output(props: Props, app: &AppContext) -> bool {
     if FeatureFlag::AgentView.is_enabled() {
         return false;
@@ -1358,7 +1483,10 @@ fn render_search_codebase(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
@@ -1859,7 +1987,10 @@ fn render_read_files(
     parsed_skill: Option<&ai::skills::ParsedSkill>,
     action_index: usize,
 ) -> Box<dyn Element> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let appearance = Appearance::as_ref(app);
     let formatted_files =
         render_read_files_text(props.into(), file_names, app, appearance, action_index);
@@ -1976,7 +2107,10 @@ fn maybe_render_edit_document(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
 
     // Document operations are always auto-executed for now
     if status.as_ref().is_some_and(|status| status.is_blocked()) {
@@ -1986,7 +2120,7 @@ fn maybe_render_edit_document(
     let agent_action_results = props
         .action_model
         .as_ref(app)
-        .get_action_result(id)
+        .get_action_result(props.conversation_id, id)
         .map(|action_result| action_result.as_ref());
 
     let Some(AIAgentActionResult {
@@ -2013,7 +2147,10 @@ fn maybe_render_create_document(
     id: &AIAgentActionId,
     app: &AppContext,
 ) -> Option<Box<dyn Element>> {
-    let status = props.action_model.as_ref(app).get_action_status(id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
 
     // Document operations are always auto-executed for now
     if status.as_ref().is_some_and(|status| status.is_blocked()) {
@@ -2023,7 +2160,7 @@ fn maybe_render_create_document(
     let agent_action_results = props
         .action_model
         .as_ref(app)
-        .get_action_result(id)
+        .get_action_result(props.conversation_id, id)
         .map(|action_result| action_result.as_ref());
 
     let Some(AIAgentActionResult {
@@ -2326,7 +2463,7 @@ fn render_suggest_new_conversation(
     let status = props
         .action_model
         .as_ref(app)
-        .get_action_status(action_id)
+        .get_action_status(props.conversation_id, action_id)
         .unwrap_or(AIActionStatus::Finished(Arc::new(AIAgentActionResult {
             result: AIAgentActionResultType::SuggestNewConversation(
                 SuggestNewConversationResult::Cancelled,
@@ -2434,7 +2571,10 @@ fn create_formatted_text_for_grep(
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
-    let action_status = props.action_model.as_ref(app).get_action_status(id);
+    let action_status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let is_cancelled = action_status
         .as_ref()
         .is_some_and(|status| status.is_cancelled());
@@ -2538,7 +2678,10 @@ fn create_formatted_text_for_file_glob(
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
 
-    let action_status = props.action_model.as_ref(app).get_action_status(id);
+    let action_status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, id);
     let is_cancelled = action_status
         .as_ref()
         .is_some_and(|status| status.is_cancelled());
@@ -2639,7 +2782,10 @@ fn render_file_retrieval_tool(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut config = RenderableAction::new_with_formatted_text(tool_formatted_text, app);
 
@@ -2756,7 +2902,10 @@ fn render_read_mcp_resource(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut renderable_action = RenderableAction::new(name, app);
 
@@ -2833,11 +2982,14 @@ fn render_upload_artifact(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
     let result = props
         .action_model
         .as_ref(app)
-        .get_action_result(action_id)
+        .get_action_result(props.conversation_id, action_id)
         .and_then(|result| match &result.result {
             AIAgentActionResultType::UploadArtifact(upload_result) => Some(upload_result),
             _ => None,
@@ -2896,7 +3048,7 @@ fn render_use_computer(
     let has_screenshot = props
         .action_model
         .as_ref(app)
-        .get_action_result(action_id)
+        .get_action_result(props.conversation_id, action_id)
         .is_some_and(|result| {
             matches!(
                 &result.result,
@@ -2942,7 +3094,10 @@ fn render_request_computer_use(
     app: &AppContext,
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     let mut renderable_action = RenderableAction::new(&request.task_summary, app);
 
@@ -3523,7 +3678,13 @@ pub fn action_icon<V: View>(
     app: &AppContext,
 ) -> galaxyui::elements::Icon {
     let appearance = Appearance::as_ref(app);
-    let status = action_model.as_ref(app).get_action_status(action_id);
+    let status = ai_block_model
+        .conversation_id(app)
+        .and_then(|conversation_id| {
+            action_model
+                .as_ref(app)
+                .get_action_status(conversation_id, action_id)
+        });
     match status {
         Some(status) => match status {
             AIActionStatus::Preprocessing => icons::gray_circle_icon(appearance),

@@ -19,6 +19,7 @@ use crate::auth::{AuthStateProvider, UserUid};
 use crate::channel::{Channel, ChannelState};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObjectEventEntrypoint, ObjectType, Owner, Space};
+use crate::local_object_repository::local_owner;
 use crate::pricing::PricingInfoModel;
 use crate::report_error;
 use crate::server::experiments::{ServerExperiment, ServerExperiments, ServerExperimentsEvent};
@@ -673,6 +674,12 @@ impl UserWorkspaces {
     // Returns a Vec of the user's active spaces, based on their
     // team membership. Includes the "Personal Space" by default.
     pub fn all_user_spaces(&self, ctx: &AppContext) -> Vec<Space> {
+        // Galaxy's OSS channel is local-first. It has no authenticated cloud
+        // identity or shared drive, so never expose the legacy shared space.
+        if ChannelState::channel().is_local_first() {
+            return vec![Space::Personal];
+        }
+
         if AuthStateProvider::as_ref(ctx)
             .get()
             .is_user_web_anonymous_user()
@@ -695,8 +702,12 @@ impl UserWorkspaces {
     }
 
     // Returns the [`Owner`] for the user's personal drive. If the user is not authenticated, this
-    // returns `None`.
+    // returns the stable local owner in local-first channels.
     pub fn personal_drive(&self, ctx: &AppContext) -> Option<Owner> {
+        if ChannelState::channel().is_local_first() {
+            return Some(local_owner());
+        }
+
         // Return the authenticated user's ID if available, otherwise provide a
         // synthetic local owner so cloud objects (rules, etc.) can be created and
         // stored locally without requiring Warp authentication.
@@ -724,8 +735,24 @@ impl UserWorkspaces {
     // Maps an [`Owner`] into a [`Space`], based on the user's team memberships.
     // This is always possible, as unknown owners imply the shared space.
     pub fn owner_to_space(&self, owner: Owner, ctx: &AppContext) -> Space {
+        if ChannelState::channel().is_local_first() {
+            return if owner == local_owner() {
+                Space::Personal
+            } else {
+                Space::Shared
+            };
+        }
+
         match owner {
             Owner::User { user_uid } => {
+                if matches!(
+                    local_owner(),
+                    Owner::User {
+                        user_uid: local_uid
+                    } if local_uid == user_uid
+                ) {
+                    return Space::Personal;
+                }
                 if !FeatureFlag::SharedWithMe.is_enabled() {
                     return Space::Personal;
                 }

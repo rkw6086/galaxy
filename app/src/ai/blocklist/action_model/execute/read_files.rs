@@ -91,8 +91,8 @@ impl ReadFilesExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!(
-            "[tool-debug] ReadFilesExecutor::execute: {} files requested",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "ReadFilesExecutor::execute: {} files requested",
             locations.len()
         );
 

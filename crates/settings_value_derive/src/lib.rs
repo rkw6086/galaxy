@@ -1,8 +1,9 @@
 //! Proc macro for `#[derive(SettingsValue)]`.
 //!
 //! Generates `SettingsValue` implementations:
-//! - **Enums**: variant names are converted to snake_case. Data-carrying
-//!   variants recursively call `to_file_value` on their inner data.
+//! - **Enums**: variant names are converted to snake_case, Serde aliases are
+//!   accepted while reading, and data-carrying variants recursively call
+//!   `to_file_value` on their inner data.
 //! - **Structs**: each field is serialized/deserialized by recursively calling
 //!   the trait methods. Field names use the Rust identifier (already snake_case)
 //!   unless overridden by `#[serde(rename = "...")]`.
@@ -22,6 +23,8 @@ use syn::{Data, DeriveInput, Fields, Lit, Meta, MetaNameValue, parse_macro_input
 /// Unit variants are serialized as snake_case JSON strings.  Data-carrying
 /// variants (tuple or struct) are serialized as a single-key JSON object
 /// `{ "snake_case_variant": <recursive value> }`.
+/// `#[serde(alias = "...")]` names are accepted during deserialization and
+/// normalized to the same snake_case file format.
 ///
 /// # Structs
 ///
@@ -123,12 +126,16 @@ pub fn derive_settings_value(input: TokenStream) -> TokenStream {
                 let variant_ident = &variant.ident;
                 let cfg_attrs = get_cfg_attrs(&variant.attrs);
                 let file_name = file_variant_name(variant_ident, &variant.attrs, container_rename_all.as_deref());
+                let file_aliases = get_serde_aliases(&variant.attrs)
+                    .into_iter()
+                    .map(|alias| alias.to_case(Case::Snake))
+                    .collect::<Vec<_>>();
 
                 match &variant.fields {
                     Fields::Unit => {
                         quote! {
                             #(#cfg_attrs)*
-                            serde_json::Value::String(s) if s == #file_name => {
+                            serde_json::Value::String(s) if s == #file_name #(|| s == #file_aliases)* => {
                                 Some(#name::#variant_ident)
                             }
                         }
@@ -137,8 +144,12 @@ pub fn derive_settings_value(input: TokenStream) -> TokenStream {
                         let ty = &fields.unnamed.first().unwrap().ty;
                         quote! {
                             #(#cfg_attrs)*
-                            serde_json::Value::Object(obj) if obj.contains_key(#file_name) => {
-                                let inner_val = obj.get(#file_name)?;
+                            serde_json::Value::Object(obj)
+                                if obj.contains_key(#file_name) #(|| obj.contains_key(#file_aliases))* =>
+                            {
+                                let inner_val = [#file_name, #(#file_aliases),*]
+                                    .iter()
+                                    .find_map(|key| obj.get(*key))?;
                                 let inner = <#ty as ::settings_value::SettingsValue>::from_file_value(inner_val)?;
                                 Some(#name::#variant_ident(inner))
                             }
@@ -153,8 +164,13 @@ pub fn derive_settings_value(input: TokenStream) -> TokenStream {
                             .collect();
                         quote! {
                             #(#cfg_attrs)*
-                            serde_json::Value::Object(obj) if obj.contains_key(#file_name) => {
-                                let arr = obj.get(#file_name)?.as_array()?;
+                            serde_json::Value::Object(obj)
+                                if obj.contains_key(#file_name) #(|| obj.contains_key(#file_aliases))* =>
+                            {
+                                let arr = [#file_name, #(#file_aliases),*]
+                                    .iter()
+                                    .find_map(|key| obj.get(*key))?
+                                    .as_array()?;
                                 Some(#name::#variant_ident(
                                     #(
                                         <#field_types as ::settings_value::SettingsValue>::from_file_value(arr.get(#field_indices)?)?
@@ -178,8 +194,13 @@ pub fn derive_settings_value(input: TokenStream) -> TokenStream {
                             .collect();
                         quote! {
                             #(#cfg_attrs)*
-                            serde_json::Value::Object(obj) if obj.contains_key(#file_name) => {
-                                let inner_obj = obj.get(#file_name)?.as_object()?;
+                            serde_json::Value::Object(obj)
+                                if obj.contains_key(#file_name) #(|| obj.contains_key(#file_aliases))* =>
+                            {
+                                let inner_obj = [#file_name, #(#file_aliases),*]
+                                    .iter()
+                                    .find_map(|key| obj.get(*key))?
+                                    .as_object()?;
                                 Some(#name::#variant_ident {
                                     #(
                                         #field_idents: <#field_types as ::settings_value::SettingsValue>::from_file_value(inner_obj.get(#field_keys)?)?,
@@ -424,6 +445,33 @@ fn get_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
         }
     }
     None
+}
+
+/// Reads every `#[serde(alias = "...")]` from field/variant attributes.
+fn get_serde_aliases(attrs: &[syn::Attribute]) -> Vec<String> {
+    let mut aliases = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("serde") {
+            continue;
+        }
+        if let Ok(nested) = attr
+            .parse_args_with(syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated)
+        {
+            for meta in &nested {
+                if let Meta::NameValue(MetaNameValue {
+                    path,
+                    value: syn::Expr::Lit(expr_lit),
+                    ..
+                }) = meta
+                    && path.is_ident("alias")
+                    && let Lit::Str(s) = &expr_lit.lit
+                {
+                    aliases.push(s.value());
+                }
+            }
+        }
+    }
+    aliases
 }
 
 /// Reads `#[serde(rename_all = "...")]` from container attributes.

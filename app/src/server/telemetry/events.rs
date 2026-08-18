@@ -1021,6 +1021,7 @@ pub enum InputUXChangeOrigin {
 #[derive(Clone, Debug, Serialize)]
 pub enum AIAgentInput {
     UserQuery { query: String },
+    CommandCompletionAssessment,
     AutoCodeDiffQuery { query: String },
     ResumeConversation,
     InitProjectRules { display_query: Option<String> },
@@ -1044,6 +1045,9 @@ impl From<FullAIAgentInput> for AIAgentInput {
     fn from(input: FullAIAgentInput) -> Self {
         match input {
             FullAIAgentInput::UserQuery { query, .. } => Self::UserQuery { query },
+            FullAIAgentInput::CommandCompletionAssessment { .. } => {
+                Self::CommandCompletionAssessment
+            }
             FullAIAgentInput::AutoCodeDiffQuery { query, .. } => Self::AutoCodeDiffQuery { query },
             FullAIAgentInput::ResumeConversation { .. } => Self::ResumeConversation,
             FullAIAgentInput::InitProjectRules { display_query, .. } => {

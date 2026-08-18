@@ -828,12 +828,21 @@ pub struct BedrockModelConfig {
     #[serde(default)]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
+    #[serde(default)]
+    #[schemars(
+        description = "Route this model through Galaxy's Rig Bedrock runtime. Disabled by default while compatibility validation is in progress."
+    )]
+    pub use_rig: bool,
 }
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
 
 fn default_context_size() -> u32 {
     200_000
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 /// Configuration for a single OpenAI-compatible (LiteLLM) model.
@@ -874,19 +883,132 @@ pub struct OpenAIModelConfig {
         description = "Optional provider hint (e.g. anthropic, openai, google) for icon display."
     )]
     pub provider: Option<String>,
+    #[serde(default)]
+    #[schemars(
+        description = "Route this model through Galaxy's Rig runtime. This is an opt-in migration path."
+    )]
+    pub use_rig: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Whether this endpoint accepts system-role messages. Set false for ChatGPT-backed LiteLLM models that reject them."
+    )]
+    pub supports_system_messages: Option<bool>,
+    /// Per-model capability overrides. Missing entries mean Auto: use provider
+    /// metadata when available and allow the request path to determine support.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[schemars(
+        description = "Optional per-capability overrides: auto, supported, or unsupported."
+    )]
+    pub capability_overrides: HashMap<String, ModelCapabilityOverride>,
+    #[serde(default)]
+    #[schemars(
+        description = "Reasoning effort modes supported by this model when using the ChatGPT subscription provider."
+    )]
+    pub reasoning_efforts: Vec<String>,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this model is enabled for the model picker.")]
+    pub enabled: bool,
 }
 
 impl settings_value::SettingsValue for OpenAIModelConfig {}
 
-/// Configuration for a single OpenAI-compatible provider endpoint.
-///
-/// Multiple providers can be configured simultaneously (e.g. LiteLLM for cloud models,
-/// Ollama for local models, etc.). Each provider has its own endpoint, credentials, and model list.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
-#[schemars(
-    description = "Configuration for an OpenAI-compatible provider endpoint (e.g. LiteLLM, Ollama, vLLM)."
+impl OpenAIModelConfig {
+    pub fn capability_override(&self, capability: &str) -> ModelCapabilityOverride {
+        self.capability_overrides
+            .get(capability)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn effective_vision_supported(&self) -> bool {
+        match self.capability_override("vision") {
+            ModelCapabilityOverride::Auto => self.vision_supported,
+            ModelCapabilityOverride::Supported => true,
+            ModelCapabilityOverride::Unsupported => false,
+        }
+    }
+
+    pub fn supports_system_messages(&self) -> bool {
+        if self.capability_override("system_messages") == ModelCapabilityOverride::Unsupported {
+            return false;
+        }
+        if self.model_id.starts_with("codex-gpt-") {
+            return false;
+        }
+        match self.capability_override("system_messages") {
+            ModelCapabilityOverride::Supported => true,
+            ModelCapabilityOverride::Auto => self.supports_system_messages.unwrap_or(true),
+            ModelCapabilityOverride::Unsupported => false,
+        }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
 )]
+#[serde(rename_all = "snake_case")]
+pub enum ModelCapabilityOverride {
+    #[default]
+    Auto,
+    Supported,
+    Unsupported,
+}
+
+impl ModelCapabilityOverride {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Supported,
+            Self::Supported => Self::Unsupported,
+            Self::Unsupported => Self::Auto,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Supported => "On",
+            Self::Unsupported => "Off",
+        }
+    }
+}
+
+/// The protocol and authentication used by an OpenAI model provider.
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAIProviderKind {
+    /// OpenAI's native Chat Completions API.
+    #[serde(rename = "openai", alias = "open_ai")]
+    OpenAI,
+    /// A LiteLLM endpoint using the OpenAI-compatible API plus LiteLLM metadata APIs.
+    #[serde(rename = "litellm", alias = "openai_compatible")]
+    #[default]
+    LiteLLM,
+    /// The ChatGPT subscription backend, authenticated with ChatGPT OAuth.
+    ChatGPTSubscription,
+    /// Anthropic's native Messages API.
+    Anthropic,
+    /// Google's Gemini API.
+    Gemini,
+    /// Google's Gemini models hosted through Vertex AI.
+    #[serde(rename = "vertex_ai", alias = "vertex_a_i")]
+    VertexAI,
+}
+
+/// Configuration for a single direct model provider endpoint.
+///
+/// Multiple providers can be configured simultaneously. Each provider has its own endpoint,
+/// credentials, and model list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(description = "Configuration for a direct model provider endpoint.")]
 pub struct OpenAIProviderConfig {
+    #[serde(default)]
+    #[schemars(description = "Provider protocol and authentication kind.")]
+    pub kind: OpenAIProviderKind,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this provider is enabled for AI requests.")]
+    pub enabled: bool,
     #[schemars(description = "Display name for this provider (shown in model picker).")]
     pub name: String,
     #[schemars(description = "Base URL for the OpenAI-compatible API endpoint.")]
@@ -895,11 +1017,217 @@ pub struct OpenAIProviderConfig {
     #[schemars(description = "API key for this endpoint (optional if the proxy handles auth).")]
     pub api_key: Option<String>,
     #[serde(default)]
+    #[schemars(description = "Google Cloud project ID for Vertex AI providers.")]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    #[schemars(description = "Google Cloud location for Vertex AI providers.")]
+    pub location: Option<String>,
+    #[serde(default)]
     #[schemars(description = "Models available from this provider.")]
     pub models: Vec<OpenAIModelConfig>,
 }
 
 impl settings_value::SettingsValue for OpenAIProviderConfig {}
+
+const INITIAL_LITELLM_BASE_URL: &str = "https://ai.ryserve.net/v1";
+const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
+
+fn default_acp_agent_id() -> String {
+    "codex".to_string()
+}
+
+fn default_remote_logging_endpoint() -> String {
+    "https://logging.ryserve.net/api/logs".to_string()
+}
+
+fn default_remote_logging_model_payload_max_chars() -> usize {
+    100_000
+}
+
+fn acp_agent_display_name(agent_id: &str) -> String {
+    galaxy_acp::known_acp_agents()
+        .iter()
+        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id.trim()))
+        .map(|agent| agent.name.to_string())
+        .unwrap_or_else(|| agent_id.trim().to_string())
+}
+
+/// Configuration for a single Agent Client Protocol provider connection.
+///
+/// ACP agents own their own model, login, session, and tool loop. Galaxy stores
+/// enough connection metadata to launch the configured local agent and route
+/// discovered model/mode entries back to the right connection.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[schemars(description = "Configuration for an Agent Client Protocol provider connection.")]
+pub struct AcpProviderConfig {
+    #[serde(default)]
+    #[schemars(description = "Stable local identifier for this ACP connection.")]
+    pub id: String,
+    #[serde(default = "default_enabled")]
+    #[schemars(description = "Whether this ACP connection is enabled for agent requests.")]
+    pub enabled: bool,
+    #[serde(default)]
+    #[schemars(description = "Display name for this ACP connection.")]
+    pub name: String,
+    #[serde(default = "default_acp_agent_id")]
+    #[schemars(description = "Identifier for the local Agent Client Protocol agent preset.")]
+    pub agent_id: String,
+    #[serde(default)]
+    #[schemars(description = "Executable used to launch this ACP agent.")]
+    pub command: String,
+    #[serde(default)]
+    #[schemars(description = "Arguments passed to this ACP agent executable.")]
+    pub args: Vec<String>,
+    #[serde(default)]
+    #[schemars(
+        description = "Model, mode, and thought-level options discovered from this ACP agent."
+    )]
+    pub config_options: Vec<AcpConfigOptionSettings>,
+}
+
+impl AcpProviderConfig {
+    pub(crate) fn new(
+        name: String,
+        agent_id: String,
+        command: String,
+        args: Vec<String>,
+        config_options: Vec<AcpConfigOptionSettings>,
+    ) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            enabled: true,
+            name,
+            agent_id,
+            command,
+            args,
+            config_options,
+        }
+    }
+
+    pub(crate) fn display_name(&self) -> String {
+        let name = self.name.trim();
+        if name.is_empty() || name == "ACP agent runtime" {
+            acp_agent_display_name(self.agent_id.trim())
+        } else {
+            name.to_string()
+        }
+    }
+}
+
+impl settings_value::SettingsValue for AcpProviderConfig {}
+
+fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
+    // Fallback catalog used before the first successful Codex model discovery.
+    // Once discovery succeeds, the saved ChatGPT subscription catalog is treated
+    // as backend-owned so removed models do not get reintroduced on startup.
+    [
+        (
+            "gpt-5.6-sol",
+            "GPT-5.6 Sol",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
+        ),
+        (
+            "gpt-5.6-terra",
+            "GPT-5.6 Terra",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
+        ),
+        (
+            "gpt-5.6-luna",
+            "GPT-5.6 Luna",
+            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
+            272_000,
+            Some(258_400),
+        ),
+        (
+            "gpt-5.4",
+            "GPT-5.4",
+            vec!["low", "medium", "high", "xhigh"],
+            1_000_000,
+            Some(950_000),
+        ),
+        (
+            "gpt-5.4-pro",
+            "GPT-5.4 Pro",
+            vec!["medium", "high", "xhigh"],
+            default_context_size(),
+            None,
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(model_id, display_name, reasoning_efforts, context_size, max_input_tokens)| {
+            OpenAIModelConfig {
+                model_id: model_id.to_string(),
+                display_name: display_name.to_string(),
+                // ChatGPT's subscription backend accepts image input for its chat
+                // models, but it does not expose a public capability discovery
+                // endpoint. Keep this explicit catalog in sync with that contract
+                // so the model picker does not hide vision context.
+                vision_supported: true,
+                context_size,
+                max_input_tokens,
+                max_output_tokens: None,
+                provider: Some("openai".to_string()),
+                use_rig: true,
+                supports_system_messages: Some(true),
+                capability_overrides: HashMap::new(),
+                reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
+                enabled: true,
+            }
+        },
+    )
+    .collect()
+}
+
+pub(crate) fn default_chatgpt_provider() -> OpenAIProviderConfig {
+    OpenAIProviderConfig {
+        kind: OpenAIProviderKind::ChatGPTSubscription,
+        enabled: true,
+        name: "ChatGPT Subscription".to_string(),
+        base_url: String::new(),
+        api_key: None,
+        project_id: None,
+        location: None,
+        models: default_chatgpt_models(),
+    }
+}
+
+fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
+    vec![
+        OpenAIProviderConfig {
+            kind: OpenAIProviderKind::LiteLLM,
+            enabled: true,
+            name: "LiteLLM (ai.ryserve.net)".to_string(),
+            base_url: INITIAL_LITELLM_BASE_URL.to_string(),
+            // Credentials are deliberately never committed. Set this locally in
+            // ~/.galaxy/settings.toml before sending a request.
+            api_key: None,
+            project_id: None,
+            location: None,
+            models: vec![OpenAIModelConfig {
+                model_id: INITIAL_RIG_MODEL_ID.to_string(),
+                display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
+                // Auto capability detection is optimistic for modern
+                // multimodal-compatible endpoints; users can override it per model.
+                vision_supported: true,
+                context_size: default_context_size(),
+                max_input_tokens: None,
+                max_output_tokens: None,
+                provider: Some("openai".to_string()),
+                use_rig: true,
+                supports_system_messages: Some(false),
+                capability_overrides: HashMap::new(),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
+            }],
+        },
+        default_chatgpt_provider(),
+    ]
+}
 
 /// Cached metadata and runtime session options for an ACP agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
@@ -1301,6 +1629,17 @@ define_settings_group!(AISettings, settings: [
         description: "Identifier for the local Agent Client Protocol agent preset.",
         feature_flag: FeatureFlag::AgentClientProtocol,
     }
+    // Friendly name shown for the configured ACP provider card.
+    acp_connection_name: AcpConnectionName {
+        type: String,
+        default: "ACP agent runtime".to_string(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.connection_name",
+        description: "Friendly name for the configured ACP agent runtime.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
     // Executable used to launch the configured local ACP agent.
     acp_agent_command: AcpAgentCommand {
         type: String,
@@ -1321,6 +1660,17 @@ define_settings_group!(AISettings, settings: [
         private: false,
         toml_path: "ai.acp.agent_args",
         description: "Arguments passed to the local Agent Client Protocol agent executable.",
+        feature_flag: FeatureFlag::AgentClientProtocol,
+    }
+    // Configured local ACP provider connections.
+    acp_providers: AcpProviders {
+        type: Vec<AcpProviderConfig>,
+        default: Vec::new(),
+        supported_platforms: SupportedPlatforms::OR(SupportedPlatforms::MAC.into(), SupportedPlatforms::LINUX.into()),
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.acp.providers",
+        description: "Configured Agent Client Protocol provider connections.",
         feature_flag: FeatureFlag::AgentClientProtocol,
     }
     // Cached ACP registry and runtime discovery data. Values are refreshed when the agent is queried.
@@ -1346,6 +1696,16 @@ define_settings_group!(AISettings, settings: [
     }
     // Authentication method for Bedrock: "profile", "static_keys", or "sso".
     bedrock_auth_method: BedrockAuthMethod,
+    // Friendly name shown for the configured Bedrock provider card.
+    bedrock_connection_name: BedrockConnectionName {
+        type: String,
+        default: "AWS Bedrock".to_string(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.bedrock.connection_name",
+        description: "Friendly name for the configured AWS Bedrock connection.",
+    }
     // AWS profile name to use when auth_method is Profile or SSO.
     bedrock_profile: BedrockProfile {
         type: String,
@@ -1376,7 +1736,7 @@ define_settings_group!(AISettings, settings: [
         toml_path: "ai.bedrock.cross_region_inference",
         description: "Whether to automatically add cross-region inference prefixes to model IDs.",
     }
-    // Custom Bedrock model configurations.
+    // Cached Bedrock models that passed foundation-model availability checks.
     bedrock_models: BedrockModels {
         type: Vec<BedrockModelConfig>,
         default: Vec::new(),
@@ -1384,7 +1744,7 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.bedrock.models",
-        description: "Custom AWS Bedrock model configurations.",
+        description: "AWS Bedrock models discovered as authorized and available in the configured region.",
     }
     // Whether to automatically run the login command when Bedrock credentials expire.
     bedrock_auto_login: BedrockAutoLogin {
@@ -1447,7 +1807,7 @@ define_settings_group!(AISettings, settings: [
     // Whether the OpenAI-compatible (LiteLLM) provider is enabled.
     openai_enabled: OpenAIEnabled {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
@@ -1498,12 +1858,65 @@ define_settings_group!(AISettings, settings: [
     // Each provider has its own name, base_url, api_key, and model list.
     openai_providers: OpenAIProviders {
         type: Vec<OpenAIProviderConfig>,
-        default: Vec::new(),
+        default: default_openai_providers(),
         supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        // Provider entries may contain API keys, so the complete setting must
+        // remain local even when preference sync is enabled.
+        sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.providers",
         description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",
+    }
+    // Whether to send opt-in AI diagnostics to a remote logging endpoint.
+    remote_logging_enabled: RemoteLoggingEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.enabled",
+        description: "Whether to send opt-in AI diagnostics to the configured remote logger.",
+    }
+    // Endpoint for opt-in AI diagnostics. May be either the logger base URL or the full /api/logs URL.
+    remote_logging_endpoint: RemoteLoggingEndpoint {
+        type: String,
+        default: default_remote_logging_endpoint(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.endpoint",
+        description: "Remote logging endpoint for opt-in AI diagnostics.",
+    }
+    // API key used to write opt-in AI diagnostics to the remote logger. Kept local only.
+    remote_logging_api_key: RemoteLoggingApiKey {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.api_key",
+        description: "API key used to write opt-in AI diagnostics to the remote logger.",
+    }
+    // Whether to include raw model request and response payloads in opt-in AI diagnostics.
+    // This can include prompts, model output, tool arguments, and file contents.
+    remote_logging_log_model_payloads: RemoteLoggingLogModelPayloads {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.log_model_payloads",
+        description: "Whether opt-in AI diagnostics include raw model request and response payloads.",
+    }
+    // Maximum number of trailing characters kept for each raw model payload log.
+    remote_logging_model_payload_max_chars: RemoteLoggingModelPayloadMaxChars {
+        type: usize,
+        default: default_remote_logging_model_payload_max_chars(),
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "ai.remote_logging.model_payload_max_chars",
+        description: "Maximum number of trailing characters to send for each raw model payload diagnostic event.",
     }
     // Whether or not the user wants agent mode requests to use their saved rules.
     memory_enabled: MemoryEnabled {
@@ -2041,9 +2454,82 @@ impl AISettings {
 
     pub fn is_any_ai_enabled(&self, app: &AppContext) -> bool {
         // Galaxy does not require Warp authentication for AI.
-        // AI is enabled as long as the user hasn't explicitly disabled it
-        // and there's no org policy blocking it.
-        *self.is_any_ai_enabled && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+        // AI is enabled only when the user hasn't explicitly disabled it, at least one local
+        // runtime is enabled, and there's no org policy blocking it.
+        *self.is_any_ai_enabled
+            && self.has_enabled_ai_runtime()
+            && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+    }
+
+    pub(crate) fn configured_acp_providers(&self) -> Vec<AcpProviderConfig> {
+        let providers = self
+            .acp_providers
+            .value()
+            .iter()
+            .filter(|provider| !provider.agent_id.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        if !providers.is_empty() {
+            return providers;
+        }
+
+        self.legacy_acp_provider().into_iter().collect()
+    }
+
+    pub(crate) fn enabled_acp_providers(&self) -> Vec<AcpProviderConfig> {
+        if !*self.acp_enabled.value() {
+            return Vec::new();
+        }
+        self.configured_acp_providers()
+            .into_iter()
+            .filter(|provider| provider.enabled)
+            .collect()
+    }
+
+    pub(crate) fn enabled_acp_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<AcpProviderConfig> {
+        self.enabled_acp_providers()
+            .into_iter()
+            .find(|provider| provider.id == provider_id)
+    }
+
+    pub(crate) fn legacy_acp_provider(&self) -> Option<AcpProviderConfig> {
+        if !*self.acp_enabled.value() {
+            return None;
+        }
+        let agent_id = self.acp_agent_id.value().trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+        let config_options = self
+            .acp_agents
+            .value()
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
+            .map(|agent| agent.config_options.clone())
+            .unwrap_or_default();
+        Some(AcpProviderConfig {
+            id: "legacy".to_string(),
+            enabled: true,
+            name: self.acp_connection_name.value().clone(),
+            agent_id: agent_id.to_string(),
+            command: self.acp_agent_command.value().clone(),
+            args: self.acp_agent_args.value().clone(),
+            config_options,
+        })
+    }
+
+    /// Returns whether Galaxy has a local model provider or agent runtime enabled.
+    pub fn has_enabled_ai_runtime(&self) -> bool {
+        *self.bedrock_enabled.value()
+            || *self.openai_enabled.value()
+            || (cfg!(unix)
+                && FeatureFlag::AgentClientProtocol.is_enabled()
+                && *self.acp_enabled.value())
     }
 
     pub fn default_session_mode(&self, app: &AppContext) -> DefaultSessionMode {

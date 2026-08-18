@@ -7,10 +7,10 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AuthMethod, AuthMethodAgent, AuthMethodId, ContentBlock, ContentChunk, InitializeResponse,
-    McpServer, McpServerStdio, SessionConfigOption, SessionConfigOptionValue,
-    SessionConfigSelectOption, SessionId, SessionUpdate, TextContent, ToolCall, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
+    AuthMethod, AuthMethodAgent, AuthMethodId, ContentBlock, ContentChunk, ImageContent,
+    InitializeResponse, McpServer, McpServerStdio, PromptCapabilities, SessionConfigOption,
+    SessionConfigOptionValue, SessionConfigSelectOption, SessionId, SessionUpdate, TextContent,
+    ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, UsageUpdate,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 
@@ -98,6 +98,21 @@ fn turn_validation_rejects_relative_mcp_commands() {
         request.validate(),
         Err(AcpRuntimeError::InvalidTurn(_))
     ));
+}
+
+#[test]
+fn prompt_media_uses_capabilities_advertised_by_the_connected_agent() {
+    let prompt = vec![ContentBlock::Image(ImageContent::new(
+        "aW1hZ2U=",
+        "image/png",
+    ))];
+
+    let error = validate_prompt_capabilities(&prompt, &PromptCapabilities::default())
+        .expect_err("image capability is required");
+    assert!(error.to_string().contains("image prompt support"));
+
+    validate_prompt_capabilities(&prompt, &PromptCapabilities::new().image(true))
+        .expect("advertised image support");
 }
 
 #[test]
@@ -308,6 +323,24 @@ fn tool_and_usage_updates_are_visible_events() {
             used: 400,
             size: 200_000,
             cost: None,
+        })
+    );
+}
+
+#[test]
+fn terminal_command_from_raw_input_becomes_the_visible_title() {
+    let tool = event_from_session_update(SessionUpdate::ToolCall(
+        ToolCall::new("tool-1", "shell")
+            .raw_input(serde_json::json!({ "cmd": "git status --short" })),
+    ));
+
+    assert_eq!(
+        tool,
+        Some(AcpEvent::ToolCall {
+            id: "tool-1".into(),
+            title: "git status --short".to_owned(),
+            status: ToolCallStatus::Pending,
+            output: None,
         })
     );
 }

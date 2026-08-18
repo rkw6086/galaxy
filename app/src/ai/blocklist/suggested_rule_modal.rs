@@ -15,26 +15,19 @@ use warpui::{
 };
 
 use crate::ai::agent::SuggestedRule;
-use crate::ai::facts::{AIFact, AIMemory, CloudAIFactModel};
-use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::Owner;
-use crate::drive::CloudObjectTypeAndId;
+use crate::ai::facts::{AIFact, AIMemory};
+use crate::cloud_object::CloudObject;
 use crate::editor::{
     EditorOptions, EditorView, EnterAction, EnterSettings, Event as EditorEvent, InteractionState,
     PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
+use crate::local_object_repository::{LocalObjectRepository, LocalObjectRepositoryEvent};
 use crate::modal::{Modal, ModalEvent};
-use crate::network::NetworkStatus;
 use crate::send_telemetry_from_ctx;
-use crate::server::cloud_objects::update_manager::{
-    ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
-};
 use crate::server::ids::SyncId;
 use crate::server::telemetry::TelemetryEvent;
 use crate::ui_components::blended_colors;
 use crate::view_components::action_button::{ActionButton, PrimaryTheme};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const HEADER_TEXT: &str = "Suggested rule";
 const MAX_EDITOR_HEIGHT: f32 = 240.;
@@ -218,7 +211,6 @@ pub struct SuggestedRuleAndId {
 
 struct SuggestedRuleView {
     rule_and_id: Option<SuggestedRuleAndId>,
-    owner: Option<Owner>,
     is_saved: bool,
     current_editor: EditorType,
     name_editor: ViewHandle<EditorView>,
@@ -230,31 +222,11 @@ struct SuggestedRuleView {
 
 impl SuggestedRuleView {
     fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let update_manager = UpdateManager::handle(ctx);
-        ctx.subscribe_to_model(&update_manager, |me, _, event, ctx| {
-            me.handle_update_manager_event(event, ctx);
-        });
-
-        let cloud_model = CloudModel::handle(ctx);
-        ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| {
-            me.handle_cloud_model_event(event, ctx);
-        });
-
-        let owner = UserWorkspaces::as_ref(ctx).personal_drive(ctx);
-
-        let network_status = NetworkStatus::handle(ctx);
-        ctx.subscribe_to_model(&network_status, |me, _, _event, ctx| {
-            let is_edit_allowed = me.is_edit_allowed(ctx);
-            let tooltip = if !is_edit_allowed {
-                Some("Editing is disabled while offline.".to_string())
-            } else {
-                None
-            };
-            me.edit_button.update(ctx, |edit_button, ctx| {
-                edit_button.set_disabled(!is_edit_allowed, ctx);
-                edit_button.set_tooltip(tooltip, ctx);
-            });
-            ctx.notify();
+        let local_objects = LocalObjectRepository::handle(ctx);
+        ctx.subscribe_to_model(&local_objects, |me, _, event, ctx| {
+            if matches!(event, LocalObjectRepositoryEvent::Rules) {
+                me.handle_rules_changed(ctx);
+            }
         });
 
         let appearance = Appearance::as_ref(ctx);
@@ -319,7 +291,6 @@ impl SuggestedRuleView {
 
         Self {
             rule_and_id: None,
-            owner,
             is_saved: false,
             current_editor: EditorType::Name,
             name_editor,
@@ -339,15 +310,6 @@ impl SuggestedRuleView {
         self.reset_rule(ctx);
         ctx.focus_self();
         ctx.notify();
-    }
-
-    pub fn is_edit_allowed(&self, ctx: &mut ViewContext<Self>) -> bool {
-        let Some(SuggestedRuleAndId { sync_id, .. }) = &self.rule_and_id else {
-            return false;
-        };
-
-        let is_online = NetworkStatus::as_ref(ctx).is_online();
-        is_online || sync_id.into_server().is_none()
     }
 
     fn handle_editor_event(&mut self, event: &EditorEvent, ctx: &mut ViewContext<Self>) {
@@ -398,62 +360,17 @@ impl SuggestedRuleView {
         }
     }
 
-    fn handle_update_manager_event(
-        &mut self,
-        event: &UpdateManagerEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let UpdateManagerEvent::ObjectOperationComplete { result } = event else {
+    fn handle_rules_changed(&mut self, ctx: &mut ViewContext<Self>) {
+        let Some(rule_and_id) = &self.rule_and_id else {
             return;
         };
-
-        if let (ObjectOperation::Create { .. }, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
+        if LocalObjectRepository::as_ref(ctx)
+            .rule(&rule_and_id.sync_id, ctx)
+            .is_some()
         {
-            if let Some(rule_and_id) = &self.rule_and_id {
-                if rule_and_id.sync_id.into_client() == result.client_id {
-                    if let Some(server_id) = result.server_id {
-                        self.rule_and_id = Some(SuggestedRuleAndId {
-                            rule: rule_and_id.rule.clone(),
-                            sync_id: SyncId::ServerId(server_id),
-                        });
-                        // Reload the rule from the cloud model.
-                        self.load_rule(ctx);
-                    }
-                }
-            }
-        }
-    }
-
-    fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            CloudModelEvent::ObjectUpdated {
-                type_and_id: CloudObjectTypeAndId::GenericStringObject { id, .. },
-                ..
-            } => {
-                if let Some(rule_and_id) = &self.rule_and_id {
-                    if rule_and_id.sync_id.into_client() == id.into_client() {
-                        self.load_rule(ctx);
-                    }
-                }
-            }
-            CloudModelEvent::ObjectTrashed {
-                type_and_id: CloudObjectTypeAndId::GenericStringObject { id, .. },
-                ..
-            }
-            | CloudModelEvent::ObjectDeleted {
-                type_and_id: CloudObjectTypeAndId::GenericStringObject { id, .. },
-                ..
-            } => {
-                // If the rule has been deleted, then we should reset the rule such that
-                // the suggestion can be added again.
-                if let Some(rule_and_id) = &self.rule_and_id {
-                    if rule_and_id.sync_id == *id {
-                        self.reset_rule(ctx);
-                    }
-                }
-            }
-            _ => {}
+            self.load_rule(ctx);
+        } else if self.is_saved {
+            self.reset_rule(ctx);
         }
     }
 
@@ -481,17 +398,13 @@ impl SuggestedRuleView {
         ctx.notify();
     }
 
-    /// Fetches the rule from the cloud model, and updates the UI to reflect that.
+    /// Fetches the rule from the local repository, and updates the UI to reflect that.
     fn load_rule(&mut self, ctx: &mut ViewContext<Self>) {
         let Some(SuggestedRuleAndId { sync_id, .. }) = &self.rule_and_id else {
             return;
         };
 
-        let cloud_model = CloudModel::handle(ctx);
-        if let Some(rule) = cloud_model
-            .as_ref(ctx)
-            .get_object_of_type::<GenericStringObjectId, CloudAIFactModel>(sync_id)
-        {
+        if let Some(rule) = LocalObjectRepository::as_ref(ctx).rule(sync_id, ctx) {
             let AIFact::Memory(AIMemory { name, content, .. }) = rule.model().string_model.clone();
             self.name_editor.update(ctx, |name_editor, ctx| {
                 name_editor.set_buffer_text(&name.unwrap_or("Untitled".to_string()), ctx);
@@ -509,27 +422,21 @@ impl SuggestedRuleView {
             return;
         };
 
-        // Add rule as a WD object.
-        let update_manager = UpdateManager::handle(ctx);
         let name = if self.name_editor.as_ref(ctx).buffer_text(ctx).is_empty() {
             None
         } else {
             Some(self.name_editor.as_ref(ctx).buffer_text(ctx).clone())
         };
         let content = self.content_editor.as_ref(ctx).buffer_text(ctx);
-        if let Some(owner) = self.owner {
-            let ai_fact = AIFact::Memory(AIMemory {
-                is_autogenerated: false,
-                name,
-                content,
-                suggested_logging_id: Some(rule.logging_id.clone()),
-            });
-            update_manager.update(ctx, |update_manager, ctx| {
-                if let Some(client_id) = sync_id.into_client() {
-                    update_manager.create_ai_fact(ai_fact, client_id, owner, ctx);
-                }
-            });
-        }
+        let ai_fact = AIFact::Memory(AIMemory {
+            is_autogenerated: false,
+            name,
+            content,
+            suggested_logging_id: Some(rule.logging_id.clone()),
+        });
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.create_rule_with_id(sync_id, ai_fact, ctx);
+        });
         self.on_add_rule(ctx);
         ctx.emit(SuggestedRuleDialogEvent::AddNewRule { rule });
     }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Context;
 use galaxyui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle};
 use url::Url;
 
@@ -14,12 +13,12 @@ use crate::app_state::{LeafContents, NotebookPaneSnapshot};
 use crate::cloud_object::Space;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::{CloudObjectTypeAndId, OpenGalaxyDriveObjectSettings};
+use crate::local_object_repository::local_owner;
 use crate::notebooks::link::{LinkEvent, NotebookLinks};
 use crate::notebooks::manager::{NotebookManager, NotebookSource};
 use crate::notebooks::notebook::{NotebookEvent, NotebookView};
 use crate::server::ids::SyncId;
 use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub struct NotebookPane {
     view: ViewHandle<PaneView<NotebookView>>,
@@ -51,9 +50,7 @@ impl NotebookPane {
             Some(id) => NotebookSource::Existing(id),
             None => NotebookSource::New {
                 title: None,
-                owner: UserWorkspaces::as_ref(ctx)
-                    .personal_drive(ctx)
-                    .context("personal drive unavailable")?,
+                owner: local_owner(),
                 initial_folder_id: None,
             },
         };

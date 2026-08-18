@@ -104,6 +104,54 @@ fn collapsed_initializer_starts_collapsed() {
 }
 
 #[test]
+fn completed_runtime_activity_stays_collapsed_until_opened() {
+    let mut state = CollapsibleElementState::collapsed();
+
+    state.sync_runtime_activity(false, true, true);
+
+    assert!(matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Collapsed
+    ));
+}
+
+#[test]
+fn streaming_runtime_activity_expands_when_output_arrives() {
+    let mut state = CollapsibleElementState::collapsed();
+
+    state.sync_runtime_activity(true, false, true);
+    assert!(matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Expanded {
+            is_finished: false,
+            scroll_pinned_to_bottom: true
+        }
+    ));
+
+    state.sync_runtime_activity(false, true, true);
+    assert!(matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Expanded {
+            is_finished: true,
+            scroll_pinned_to_bottom: false
+        }
+    ));
+}
+
+#[test]
+fn manually_collapsed_streaming_runtime_activity_stays_collapsed() {
+    let mut state = CollapsibleElementState::default();
+    state.toggle_expansion();
+
+    state.sync_runtime_activity(true, false, true);
+
+    assert!(matches!(
+        state.expansion_state,
+        CollapsibleExpansionState::Collapsed
+    ));
+}
+
+#[test]
 fn orchestration_show_and_collapse_collapses_after_finish() {
     let mut state = default_collapsible_state_for_orchestration_message(
         OrchestrationMessageDisplayMode::ShowAndCollapse,

@@ -681,6 +681,11 @@ pub enum Event {
         flavor: ToastFlavor,
         pane_id: Option<PaneId>,
     },
+    ShowDeleteConversationConfirmationDialog {
+        conversation_id: AIConversationId,
+        conversation_title: String,
+        terminal_view_id: Option<EntityId>,
+    },
     SignupAnonymousUser {
         entrypoint: AnonymousUserSignupEntrypoint,
     },

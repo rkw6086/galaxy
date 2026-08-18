@@ -45,6 +45,7 @@ impl View for ContextWindowView {
                     .iter()
                     .map(|p| match p {
                         ContentPart::Text(t) => t.len(),
+                        ContentPart::Reasoning { text, .. } => text.len(),
                         ContentPart::Image { .. } => 6_400,
                         ContentPart::ToolUse { input, .. } => input.to_string().len(),
                         ContentPart::ToolResult { content, .. } => content.len(),
@@ -111,6 +112,14 @@ impl View for ContextWindowView {
                         match p {
                             ContentPart::Text(t) => {
                                 out.push_str(&format!("[Part {} Text] {}\n", pi, t));
+                            }
+                            ContentPart::Reasoning { text, signature } => {
+                                out.push_str(&format!(
+                                    "[Part {} Reasoning] signed={}\n{}\n",
+                                    pi,
+                                    signature.is_some(),
+                                    text
+                                ));
                             }
                             ContentPart::Image { data, mime_type } => {
                                 out.push_str(&format!(

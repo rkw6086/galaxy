@@ -25,15 +25,8 @@ use galaxyui::{AppContext, SingletonEntity};
 use itertools::Itertools;
 pub use user_uid::UserUid;
 
-use crate::ai::agent_conversations_model::AgentConversationsModel;
-use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;
-use crate::ai::blocklist::BlocklistAIHistoryModel;
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
 use crate::ai_assistant::requests::REQUEST_LIMIT_INFO_CACHE_KEY;
-use crate::cloud_object::model::persistence::CloudModel;
 use crate::code::editor_management::{CodeEditorStatus, CodeEditorSummary};
-use crate::env_vars::manager::EnvVarCollectionManager;
-use crate::notebooks::manager::NotebookManager;
 use crate::palette::PaletteMode;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::sync_queue::SyncQueue;
@@ -45,12 +38,10 @@ use crate::settings::{
 };
 use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
-use crate::workflows::manager::WorkflowManager;
 use crate::workspace::{Workspace, WorkspaceAction};
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::{
-    focus_running_window_and_show_native_modal, persistence, report_if_error,
-    send_telemetry_sync_from_app_ctx, GlobalResourceHandlesProvider,
+    focus_running_window_and_show_native_modal, report_if_error, send_telemetry_sync_from_app_ctx,
 };
 
 #[allow(dead_code)]
@@ -66,9 +57,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
         .long_running_cmds
         .len();
     let num_shared_sessions = crate::session_management::num_shared_sessions(app);
-    let num_unsaved_objects =
-        CloudModel::as_ref(app).num_unsaved_objects_to_warn_about_before_quitting();
-
     let code_editors = CodeEditorStatus::all_editors(app).collect_vec();
     let code_editor_summary = CodeEditorSummary::new(&code_editors);
 
@@ -78,10 +66,7 @@ pub fn maybe_log_out(app: &mut AppContext) {
         .show_warning_before_quitting
         .value();
     if show_warning_before_log_out
-        && (num_long_running_commands > 0
-            || num_shared_sessions > 0
-            || num_unsaved_objects > 0
-            || num_unsaved_files > 0)
+        && (num_long_running_commands > 0 || num_shared_sessions > 0 || num_unsaved_files > 0)
     {
         send_telemetry_sync_from_app_ctx!(TelemetryEvent::LogOutModalShown, app);
         let mut button_data = vec![ModalButton::for_app("Yes, log out", |ctx| {
@@ -140,18 +125,6 @@ pub fn maybe_log_out(app: &mut AppContext) {
             info_text_vec.push(format!("You have {num_shared_sessions} shared {plural}."));
         }
 
-        if num_unsaved_objects > 0 {
-            let plural = if num_unsaved_objects > 1 {
-                "objects"
-            } else {
-                "object"
-            };
-            info_text_vec.push(format!(
-                "You have {num_unsaved_objects} unsynced Galaxy Drive {plural}. \
-            Logging out will cause you to lose the {plural}."
-            ));
-        }
-
         if num_unsaved_files > 0 {
             let plural = if num_unsaved_files > 1 {
                 "files"
@@ -198,7 +171,7 @@ pub fn maybe_log_out(app: &mut AppContext) {
     }
 }
 
-// Log out the user, clears workspace state, stops running processes, and deletes database.
+// Log out of inherited account services without deleting Galaxy's local data.
 pub fn log_out(app: &mut AppContext) {
     send_telemetry_sync_from_app_ctx!(TelemetryEvent::LogOut, app);
 
@@ -206,29 +179,8 @@ pub fn log_out(app: &mut AppContext) {
         index_manager.reset_codebase_indexing(ctx);
     });
 
-    let global_resource_handles = GlobalResourceHandlesProvider::as_ref(app).get();
-
-    // As part of Logout v0, we remove sqlite3 so sessions and cloud objects don't persist between accounts.
-    // TODO: Implement per-user scoping of sqlite3.
-    persistence::remove(&global_resource_handles.model_event_sender);
-
     AuthManager::handle(app).update(app, |auth_manager, ctx| {
         auth_manager.log_out(ctx);
-    });
-    AIExecutionProfilesModel::handle(app).update(app, |ai_execution_profiles_model, _| {
-        ai_execution_profiles_model.reset();
-    });
-    BlocklistAIHistoryModel::handle(app).update(app, |history_model, _| {
-        history_model.reset();
-    });
-    OrchestrationPillBarModel::handle(app).update(app, |pill_bar_model, _| {
-        pill_bar_model.reset();
-    });
-    AgentConversationsModel::handle(app).update(app, |agent_conversations_model, _| {
-        agent_conversations_model.reset();
-    });
-    CloudModel::handle(app).update(app, |cloud_model, _| {
-        cloud_model.reset();
     });
     // Clear the sync queue so that we don't try to sync the old user's objects to the new user.
     SyncQueue::handle(app).update(app, |sync_queue, _| {
@@ -243,9 +195,6 @@ pub fn log_out(app: &mut AppContext) {
         manager.stop_polling_for_workspace_metadata_updates();
     });
     remove_cloud_persisted_settings(app);
-    NotebookManager::handle(app).update(app, |manager, _| manager.reset());
-    EnvVarCollectionManager::handle(app).update(app, |manager, _| manager.reset());
-    WorkflowManager::handle(app).update(app, |manager, _| manager.reset());
 
     // Stop and leave all shared sessions
     SharedSessionManager::handle(app).update(app, |manager, ctx| {

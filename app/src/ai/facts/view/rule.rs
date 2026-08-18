@@ -20,35 +20,27 @@ use warpui::{
     ViewHandle,
 };
 
-use super::{
-    is_delete_allowed, is_edit_allowed, is_syncing, style, AIFact, CloudAIFact, CloudAIFactModel,
-};
+use super::{is_delete_allowed, is_edit_allowed, style};
 use crate::ai::facts::predefined_rules::{
     is_predefined_rule, predefined_rule_index, PREDEFINED_RULES,
 };
-use crate::ai::facts::AIMemory;
-use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::{
-    CloudObject, GenericStringObjectFormat, JsonObjectType, Owner, Revision,
-};
-use crate::drive::CloudObjectTypeAndId;
+use crate::ai::facts::{AIFact, AIMemory};
+use crate::cloud_object::CloudObject;
 use crate::editor::{
     EditorView, Event as EditorEvent, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions,
     TextOptions,
 };
-use crate::network::NetworkStatus;
+use crate::local_object_repository::{
+    LocalObjectRepository, LocalObjectRepositoryEvent, LocalRule,
+};
 use crate::search_bar::SearchBar;
-use crate::server::cloud_objects::update_manager::{UpdateManager, UpdateManagerEvent};
-use crate::server::ids::{ClientId, SyncId};
-use crate::server::sync_queue::SyncQueue;
+use crate::server::ids::SyncId;
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::ui_components::icons::Icon;
 use crate::util::path::display_path_with_host;
 use crate::view_components::action_button::{ActionButton, NakedTheme};
 use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 pub const HEADER_TEXT: &str = "Rules";
 const DESCRIPTION_TEXT: &str = "Rules enhance the agent by providing structured guidelines that help maintain consistency, enforce best practices, and adapt to specific workflows, including codebases or broader tasks.";
@@ -94,14 +86,12 @@ pub enum RuleViewAction {
 #[derive(Default, Debug, Clone)]
 pub struct MouseStateHandles {
     pub hover: MouseStateHandle,
-    pub sync_status_hover: MouseStateHandle,
-    pub sync_status_icon: MouseStateHandle,
     pub delete_hover: MouseStateHandle,
 }
 
 #[derive(Debug, Clone)]
-struct CloudRuleRow {
-    fact: CloudAIFact,
+struct LocalRuleRow {
+    fact: LocalRule,
     mouse_states: MouseStateHandles,
 }
 
@@ -117,7 +107,7 @@ struct FileBackedRow {
 
 #[derive(Debug, Clone)]
 enum RuleRow {
-    Global(Box<CloudRuleRow>),
+    Global(Box<LocalRuleRow>),
     FileBacked(FileBackedRow),
 }
 
@@ -156,10 +146,9 @@ impl RuleRow {
 }
 
 pub struct RuleView {
-    owner: Option<Owner>,
-    cloud_global_rules: Vec<CloudRuleRow>,
+    local_global_rules: Vec<LocalRuleRow>,
     /// File-based global rules (e.g. `~/.agents/AGENTS.md`). Surfaced in the
-    /// Global tab alongside cloud rules. Sourced from
+    /// Global tab alongside local rules. Sourced from
     /// `ProjectContextModel::global_rule_paths()`.
     file_backed_global_rules: Vec<FileBackedRow>,
     project_rules: Vec<FileBackedRow>,
@@ -176,22 +165,12 @@ pub struct RuleView {
 
 impl RuleView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let update_manager = UpdateManager::handle(ctx);
-        ctx.subscribe_to_model(&update_manager, |me, _, event, ctx| {
-            me.handle_update_manager_event(event, ctx);
+        let local_objects = LocalObjectRepository::handle(ctx);
+        ctx.subscribe_to_model(&local_objects, |me, _, event, ctx| {
+            if matches!(event, LocalObjectRepositoryEvent::Rules) {
+                me.fetch_ai_rules(ctx);
+            }
         });
-
-        let cloud_model = CloudModel::handle(ctx);
-        ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| {
-            me.handle_cloud_model_event(event, ctx);
-        });
-
-        let network_status = NetworkStatus::handle(ctx);
-        ctx.subscribe_to_model(&network_status, |_me, _, _event, ctx| {
-            ctx.notify();
-        });
-
-        let owner = UserWorkspaces::as_ref(ctx).personal_drive(ctx);
 
         ctx.subscribe_to_model(&AISettings::handle(ctx), |_, _, event, ctx| {
             if matches!(
@@ -203,17 +182,11 @@ impl RuleView {
             }
         });
 
-        let ai_rules: Vec<CloudAIFact> = {
-            let cloud_model = CloudModel::handle(ctx);
-            cloud_model
-                .as_ref(ctx)
-                .get_all_objects_of_type::<GenericStringObjectId, CloudAIFactModel>()
-                .cloned()
-                .collect()
-        };
-        let ai_rules: Vec<CloudRuleRow> = ai_rules
+        let ai_rules: Vec<LocalRuleRow> = local_objects
+            .as_ref(ctx)
+            .rules(ctx)
             .into_iter()
-            .map(|fact| CloudRuleRow {
+            .map(|fact| LocalRuleRow {
                 fact,
                 mouse_states: Default::default(),
             })
@@ -323,28 +296,24 @@ impl RuleView {
         // Also re-seed if the flag was set but rules are empty (e.g., prior bug
         // where the flag was set but creation failed due to missing owner).
         if ai_rules.is_empty() {
-            if let Some(owner) = owner {
-                let update_manager = UpdateManager::handle(ctx);
-                update_manager.update(ctx, |update_manager, ctx| {
-                    for rule in PREDEFINED_RULES {
-                        let ai_fact = AIFact::Memory(AIMemory {
-                            is_autogenerated: false,
-                            name: Some(rule.name.to_string()),
-                            content: rule.content.to_string(),
-                            suggested_logging_id: None,
-                        });
-                        update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
-                    }
-                });
-            }
+            local_objects.update(ctx, |repository, ctx| {
+                for rule in PREDEFINED_RULES {
+                    let ai_fact = AIFact::Memory(AIMemory {
+                        is_autogenerated: false,
+                        name: Some(rule.name.to_string()),
+                        content: rule.content.to_string(),
+                        suggested_logging_id: None,
+                    });
+                    repository.create_rule(ai_fact, ctx);
+                }
+            });
             AISettings::handle(ctx).update(ctx, |settings, ctx| {
                 settings.mark_predefined_rules_seeded(ctx);
             });
         }
 
         Self {
-            owner,
-            cloud_global_rules: ai_rules,
+            local_global_rules: ai_rules,
             file_backed_global_rules,
             project_rules,
             search_editor,
@@ -359,45 +328,15 @@ impl RuleView {
         }
     }
 
-    fn handle_update_manager_event(
-        &mut self,
-        event: &UpdateManagerEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if let UpdateManagerEvent::ObjectOperationComplete { .. } = event {
-            self.fetch_ai_rules(ctx);
-        }
-    }
-
-    fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ViewContext<Self>) {
-        match event {
-            CloudModelEvent::ObjectUpdated { .. }
-            | CloudModelEvent::ObjectTrashed { .. }
-            | CloudModelEvent::ObjectUntrashed { .. }
-            | CloudModelEvent::ObjectCreated { .. }
-            | CloudModelEvent::ObjectDeleted { .. } => {
-                self.fetch_ai_rules(ctx);
-            }
-            _ => {}
-        }
-    }
-
     fn handle_search_editor_event(&mut self, _event: &EditorEvent, ctx: &mut ViewContext<Self>) {
         ctx.notify();
     }
 
     fn fetch_ai_rules(&mut self, ctx: &mut ViewContext<Self>) {
-        let ai_rules: Vec<CloudAIFact> = {
-            let cloud_model = CloudModel::handle(ctx);
-            cloud_model
-                .as_ref(ctx)
-                .get_all_objects_of_type::<GenericStringObjectId, CloudAIFactModel>()
-                .cloned()
-                .collect()
-        };
-        let mut rows: Vec<CloudRuleRow> = ai_rules
+        let mut rows: Vec<LocalRuleRow> = LocalObjectRepository::as_ref(ctx)
+            .rules(ctx)
             .into_iter()
-            .map(|ai_fact| CloudRuleRow {
+            .map(|ai_fact| LocalRuleRow {
                 fact: ai_fact,
                 mouse_states: Default::default(),
             })
@@ -425,7 +364,7 @@ impl RuleView {
             }
         });
 
-        self.cloud_global_rules = rows;
+        self.local_global_rules = rows;
         ctx.notify();
     }
 
@@ -437,7 +376,7 @@ impl RuleView {
     fn get_filtered_rules(&self) -> Vec<RuleRow> {
         match self.current_scope {
             RuleScope::Global => self
-                .cloud_global_rules
+                .local_global_rules
                 .iter()
                 .cloned()
                 .map(|rule| RuleRow::Global(Box::new(rule)))
@@ -463,18 +402,15 @@ impl RuleView {
         content: String,
         ctx: &mut ViewContext<Self>,
     ) {
-        let update_manager = UpdateManager::handle(ctx);
-        if let Some(owner) = self.owner {
-            let ai_fact = AIFact::Memory(AIMemory {
-                is_autogenerated: false,
-                name,
-                content,
-                suggested_logging_id: None,
-            });
-            update_manager.update(ctx, |update_manager, ctx| {
-                update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
-            });
-        }
+        let ai_fact = AIFact::Memory(AIMemory {
+            is_autogenerated: false,
+            name,
+            content,
+            suggested_logging_id: None,
+        });
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.create_rule(ai_fact, ctx);
+        });
     }
 
     pub fn edit_ai_rule(
@@ -482,12 +418,10 @@ impl RuleView {
         name: Option<String>,
         content: String,
         sync_id: SyncId,
-        revision_ts: Option<Revision>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let update_manager = UpdateManager::handle(ctx);
-        let (is_autogenerated, suggested_logging_id) = CloudModel::as_ref(ctx)
-            .get_object_of_type::<GenericStringObjectId, CloudAIFactModel>(&sync_id)
+        let (is_autogenerated, suggested_logging_id) = LocalObjectRepository::as_ref(ctx)
+            .rule(&sync_id, ctx)
             .map(|ai_fact| {
                 let AIFact::Memory(AIMemory {
                     is_autogenerated,
@@ -497,55 +431,40 @@ impl RuleView {
                 (is_autogenerated, suggested_logging_id)
             })
             .unwrap_or((false, None));
-        update_manager.update(ctx, |update_manager, ctx| {
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
             let ai_fact = AIFact::Memory(AIMemory {
                 is_autogenerated,
                 name,
                 content,
                 suggested_logging_id,
             });
-            update_manager.update_ai_fact(ai_fact, sync_id, revision_ts, ctx);
+            repository.update_rule(sync_id, ai_fact, ctx);
         });
     }
 
     pub fn delete_ai_rule(&mut self, id: SyncId, ctx: &mut ViewContext<Self>) {
-        let update_manager = UpdateManager::handle(ctx);
-        update_manager.update(ctx, |update_manager, ctx| {
-            update_manager.delete_object_by_user(
-                CloudObjectTypeAndId::GenericStringObject {
-                    object_type: GenericStringObjectFormat::Json(JsonObjectType::AIFact),
-                    id,
-                },
-                ctx,
-            );
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+            repository.delete_rule(id, ctx);
         });
     }
 
     pub fn add_predefined_rules(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(owner) = self.owner else {
-            return;
-        };
-
         // Build a map of existing system-defined rules by name for update detection
-        let existing_system_rules: std::collections::HashMap<String, (SyncId, Option<Revision>)> =
-            self.cloud_global_rules
-                .iter()
-                .filter_map(|row| {
-                    let AIFact::Memory(AIMemory { ref name, .. }) = row.fact.model().string_model;
-                    let name = name.as_deref().unwrap_or_default();
-                    if is_predefined_rule(name) {
-                        Some((
-                            name.to_string(),
-                            (row.fact.sync_id(), row.fact.metadata().revision.clone()),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+        let existing_system_rules: std::collections::HashMap<String, SyncId> = self
+            .local_global_rules
+            .iter()
+            .filter_map(|row| {
+                let AIFact::Memory(AIMemory { ref name, .. }) = row.fact.model().string_model;
+                let name = name.as_deref().unwrap_or_default();
+                if is_predefined_rule(name) {
+                    Some((name.to_string(), row.fact.sync_id()))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        let update_manager = UpdateManager::handle(ctx);
-        update_manager.update(ctx, |update_manager, ctx| {
+        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
             for rule in PREDEFINED_RULES {
                 let ai_fact = AIFact::Memory(AIMemory {
                     is_autogenerated: false,
@@ -554,10 +473,10 @@ impl RuleView {
                     suggested_logging_id: None,
                 });
 
-                if let Some((sync_id, revision)) = existing_system_rules.get(rule.name) {
-                    update_manager.update_ai_fact(ai_fact, *sync_id, revision.clone(), ctx);
+                if let Some(sync_id) = existing_system_rules.get(rule.name) {
+                    repository.update_rule(*sync_id, ai_fact, ctx);
                 } else {
-                    update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
+                    repository.create_rule(ai_fact, ctx);
                 }
             }
         });
@@ -784,42 +703,6 @@ impl RuleView {
             .finish()
     }
 
-    fn render_sync_status_icon(
-        &self,
-        ai_row: CloudRuleRow,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Option<Box<dyn Element>> {
-        // Don't show icon if the syncing is in progress.
-        if is_syncing(ai_row.fact.clone(), app) {
-            return None;
-        }
-
-        let item = ai_row.fact.to_warp_drive_item(appearance)?;
-        let icon = item.sync_status_icon(
-            SyncQueue::as_ref(app).is_dequeueing(),
-            ai_row.mouse_states.sync_status_icon.clone(),
-            appearance,
-        )?;
-
-        Some(
-            Hoverable::new(ai_row.mouse_states.sync_status_hover.clone(), |state| {
-                let mut container = Container::new(icon)
-                    .with_border(Border::all(1.))
-                    .with_uniform_padding(4.);
-                if state.is_hovered() {
-                    container = container
-                        .with_background(appearance.theme().surface_2())
-                        .with_border(
-                            Border::all(1.).with_border_fill(appearance.theme().surface_3()),
-                        );
-                }
-                container.with_margin_right(style::ROW_ICON_MARGIN).finish()
-            })
-            .finish(),
-        )
-    }
-
     fn render_file_backed_row(
         &self,
         project_row: FileBackedRow,
@@ -877,9 +760,8 @@ impl RuleView {
 
     fn render_global_rule_row(
         &self,
-        ai_row: CloudRuleRow,
+        ai_row: LocalRuleRow,
         appearance: &Appearance,
-        app: &AppContext,
     ) -> Box<dyn Element> {
         let AIFact::Memory(AIMemory { name, content, .. }) =
             ai_row.fact.model().string_model.clone();
@@ -929,15 +811,9 @@ impl RuleView {
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
 
-        if let Some(sync_status_icon) =
-            self.render_sync_status_icon(ai_row.clone(), appearance, app)
-        {
-            row.add_child(sync_status_icon);
-        }
-
         row.add_child(Expanded::new(1., fact_text).finish());
 
-        if is_delete_allowed(ai_row.fact.clone(), app) {
+        if is_delete_allowed() {
             let delete_sync_id = ai_row.fact.sync_id();
             let delete_button = Hoverable::new(ai_row.mouse_states.delete_hover.clone(), |state| {
                 let mut container = Container::new(
@@ -993,7 +869,7 @@ impl RuleView {
                 .finish()
         });
 
-        if is_edit_allowed(ai_row.fact.clone(), app) {
+        if is_edit_allowed() {
             hoverable = hoverable
                 .with_cursor(Cursor::PointingHand)
                 .with_defer_events_to_children()
@@ -1028,7 +904,7 @@ impl RuleView {
         for row in filtered_rules {
             let row = match row {
                 RuleRow::Global(global_row) => {
-                    Some(self.render_global_rule_row(*global_row, appearance, app))
+                    Some(self.render_global_rule_row(*global_row, appearance))
                 }
                 RuleRow::FileBacked(file_row) => {
                     self.render_file_backed_row(file_row, appearance, app)

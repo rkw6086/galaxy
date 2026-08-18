@@ -11,11 +11,22 @@ use watcher::HomeDirectoryWatcher;
 
 use super::{
     format_upload_artifact_text, parsed_skill_for_common_locations, read_skill_display_text,
+    should_render_requested_edit,
 };
 use crate::ai::agent::UploadArtifactResult;
+use crate::ai::blocklist::action_model::AIActionStatus;
 use crate::ai::skills::SkillManager;
 use crate::settings::AISettings;
 use crate::warp_managed_paths_watcher::WarpManagedPathsWatcher;
+
+#[test]
+fn requested_edits_render_as_soon_as_preprocessing_finishes() {
+    assert!(!should_render_requested_edit(Some(
+        &AIActionStatus::Preprocessing
+    )));
+    assert!(should_render_requested_edit(Some(&AIActionStatus::Blocked)));
+    assert!(should_render_requested_edit(None));
+}
 
 #[test]
 fn format_upload_artifact_text_includes_request_details() {

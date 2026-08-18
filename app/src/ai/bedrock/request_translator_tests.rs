@@ -5,6 +5,7 @@ use super::{
     convert_proto_message_for_test, extract_new_input_messages, extract_system_prompt,
     extract_tools, inject_input_messages_into_task, sanitize_messages_for_bedrock,
 };
+use crate::ai::agent::api::is_internal_command_completion_assessment;
 use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 
 #[test]
@@ -99,6 +100,7 @@ fn advertised_tools_follow_client_capabilities_and_include_local_subagents() {
         vec![
             "run_shell_command",
             "read_files",
+            "run_agents",
             "start_agent",
             "recall_tool_history"
         ]
@@ -236,6 +238,117 @@ fn plan_mode_prompt_prohibits_mutation() {
     assert!(prompt.contains("do not edit files"));
 }
 
+fn completed_command_request() -> api::Request {
+    api::Request {
+        task_context: Some(api::request::TaskContext {
+            tasks: vec![api::Task {
+                id: "root-task".to_string(),
+                ..Default::default()
+            }],
+        }),
+        input: Some(api::request::Input {
+            r#type: Some(api::request::input::Type::UserInputs(
+                api::request::input::UserInputs {
+                    inputs: vec![api::request::input::user_inputs::UserInput {
+                        input: Some(
+                            api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                                api::request::input::CliAgentUserQuery {
+                                    user_query: Some(api::request::input::UserQuery {
+                                        query: "Report the final outcome.".to_string(),
+                                        intended_agent: api::AgentType::Primary.into(),
+                                        ..Default::default()
+                                    }),
+                                    running_command: Some(api::RunningShellCommand {
+                                        command: "cargo test -p galaxy".to_string(),
+                                        snapshot: Some(api::LongRunningShellCommandSnapshot {
+                                            command_id: "completed-block-123".to_string(),
+                                            output: "test result: ok".to_string(),
+                                            cursor: "cursor".to_string(),
+                                            ..Default::default()
+                                        }),
+                                    }),
+                                    ..Default::default()
+                                },
+                            ),
+                        ),
+                    }],
+                },
+            )),
+            ..Default::default()
+        }),
+        settings: Some(api::request::Settings {
+            supported_tools: vec![
+                api::ToolType::RunShellCommand.into(),
+                api::ToolType::ReadFiles.into(),
+                api::ToolType::CallMcpTool.into(),
+            ],
+            supported_cli_agent_tools: vec![api::ToolType::ReadShellCommandOutput.into()],
+            ..Default::default()
+        }),
+        mcp_context: Some(api::request::McpContext {
+            servers: vec![api::request::mcp_context::McpServer {
+                id: "server-id".to_string(),
+                name: "test-server".to_string(),
+                description: String::new(),
+                resources: Vec::new(),
+                tools: vec![api::request::mcp_context::McpTool {
+                    name: "echo".to_string(),
+                    description: "Echo input".to_string(),
+                    input_schema: None,
+                }],
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn completed_command_assessment_is_tool_free_and_persists_hidden_provider_history() {
+    let mut request = completed_command_request();
+
+    let messages = extract_new_input_messages(&request);
+    assert_eq!(messages.len(), 1);
+    assert!(matches!(
+        &messages[0].content,
+        MessageContent::Text(text)
+            if text.contains("[Completed command: cargo test -p galaxy]")
+                && text.contains("[Command ID: completed-block-123]")
+                && text.contains("[Final terminal output:\ntest result: ok")
+                && text.contains("Report the final outcome.")
+    ));
+
+    let prompt = extract_system_prompt(&request, &[]).expect("system prompt");
+    assert!(prompt.contains("## Completed Command Assessment"));
+    assert!(prompt.contains("No tools are available for this request"));
+    assert!(!prompt.contains("## Running Command Monitor"));
+    assert!(!prompt.contains("next assistant output MUST be a tool call"));
+    assert!(extract_tools(&request).is_empty());
+
+    inject_input_messages_into_task(&mut request);
+    let persisted = &request.task_context.as_ref().expect("task context").tasks[0].messages;
+    assert_eq!(persisted.len(), 1);
+    assert!(is_internal_command_completion_assessment(&persisted[0]));
+    assert!(matches!(
+        persisted[0].message.as_ref(),
+        Some(api::message::Message::UserQuery(query))
+            if query.query.contains("[Completed command: cargo test -p galaxy]")
+                && query.query.contains("[Command ID: completed-block-123]")
+                && query.query.contains("[Final terminal output:\ntest result: ok")
+                && query.query.contains("Report the final outcome.")
+    ));
+
+    let restored = convert_proto_message_for_test(&persisted[0])
+        .expect("hidden assessment should remain in provider history");
+    assert_eq!(restored.role, MessageRole::User);
+    assert!(matches!(
+        restored.content,
+        MessageContent::Text(text)
+            if text.contains("[Completed command: cargo test -p galaxy]")
+                && text.contains("Report the final outcome.")
+    ));
+}
+
 #[test]
 fn running_command_turn_gets_monitor_prompt_and_cli_tools() {
     let request = api::Request {
@@ -299,6 +412,10 @@ fn running_command_turn_gets_monitor_prompt_and_cli_tools() {
     assert!(prompt.contains("command ID"));
     assert!(prompt.contains("read_shell_command_output"));
     assert!(prompt.contains("interrupt_shell_command"));
+    assert!(prompt.contains("next assistant output MUST be a tool call"));
+    assert!(prompt.contains("alternate screen containing `(END)` is `less`"));
+    assert!(prompt.contains("`write_to_long_running_shell_command` with input `q` and mode `raw`"));
+    assert!(prompt.contains("Do not end a still-running monitor turn with prose"));
     assert!(prompt.contains("Never try to encode Ctrl+C"));
     assert!(!prompt.contains("- Use `run_shell_command`"));
 

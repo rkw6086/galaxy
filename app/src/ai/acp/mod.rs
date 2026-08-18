@@ -7,17 +7,17 @@
 mod launch;
 mod permissions;
 mod prompt;
-mod response_translator;
 mod runtime_model;
 mod transport;
 
 pub(crate) use launch::{
-    acp_launch_fingerprint, acp_model_id, acp_selection_identity, acp_selection_model_id,
-    resolve_acp_launch, validate_acp_dispatch, validate_acp_launch_identity,
+    acp_launch_fingerprint, acp_model_id, acp_provider_selection_identity, acp_selection_identity,
+    acp_selection_model_id, resolve_acp_launch, validate_acp_dispatch,
+    validate_acp_launch_identity,
 };
 pub(crate) use permissions::resolve_acp_permissions;
 pub(crate) use runtime_model::{AcpDiscoveryState, AcpRuntimeModel};
 pub(crate) use transport::{
-    acp_output_stream, acp_startup_error_stream, galaxy_mcp_server, AcpSessionHandleSlot,
-    AcpSessionMetadata, AcpSteeringRequest, GalaxyMcpTarget,
+    acp_output_stream, acp_startup_error_stream, galaxy_mcp_server, AcpSessionMetadata,
+    AcpTurnControlSlot, GalaxyMcpTarget,
 };

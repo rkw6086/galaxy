@@ -10,6 +10,7 @@ use crate::ai::llms::LLMModelHost;
 use crate::auth::AuthManager;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::features::FeatureFlag;
+use crate::local_object_repository::local_owner;
 use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::ClientId;
@@ -94,6 +95,39 @@ fn initialize_app_with_auth(
     TeamTesterStatus::handle(app).update(app, |team_tester, ctx| {
         team_tester.initiate_data_pollers(false, ctx);
     });
+}
+
+#[test]
+fn oss_exposes_only_local_personal_space() {
+    App::test((), |mut app| async move {
+        app.add_singleton_model(|ctx| {
+            UserWorkspaces::mock(
+                Arc::new(MockTeamClient::new()),
+                Arc::new(MockWorkspaceClient::new()),
+                vec![],
+                ctx,
+            )
+        });
+
+        app.read(|ctx| {
+            let user_workspaces = UserWorkspaces::as_ref(ctx);
+            assert_eq!(user_workspaces.all_user_spaces(ctx), vec![Space::Personal]);
+            assert_eq!(user_workspaces.personal_drive(ctx), Some(local_owner()));
+            assert_eq!(
+                user_workspaces.space_to_owner(Space::Personal, ctx),
+                Some(local_owner())
+            );
+            assert_eq!(
+                user_workspaces.owner_to_space(
+                    Owner::User {
+                        user_uid: UserUid::new("legacy-cloud-user"),
+                    },
+                    ctx,
+                ),
+                Space::Shared
+            );
+        });
+    })
 }
 
 #[test]

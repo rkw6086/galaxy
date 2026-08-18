@@ -316,6 +316,38 @@ impl CloudModel {
         self.objects_by_id.insert(id.uid(), Box::new(object));
     }
 
+    /// Inserts or replaces an object whose source of truth is local persistence.
+    ///
+    /// This is the compatibility seam used while local object types are moved out
+    /// of the legacy cloud model. It deliberately skips server revision and sync
+    /// queue behavior while continuing to notify readers that have not migrated
+    /// to [`LocalObjectRepository`](crate::local_object_repository::LocalObjectRepository).
+    pub fn upsert_local_object<K, M>(
+        &mut self,
+        object: GenericCloudObject<K, M>,
+        ctx: &mut ModelContext<Self>,
+    ) where
+        K: HashableId + ToServerId + std::fmt::Debug + Into<String> + Clone + 'static,
+        M: CloudModelType<IdType = K, CloudObjectType = GenericCloudObject<K, M>> + 'static,
+    {
+        let id = object.id;
+        let type_and_id = object.cloud_object_type_and_id();
+        let replaced = self
+            .objects_by_id
+            .insert(id.uid(), Box::new(object))
+            .is_some();
+
+        if replaced {
+            ctx.emit(CloudModelEvent::ObjectUpdated {
+                type_and_id,
+                source: UpdateSource::Local,
+            });
+        } else {
+            ctx.emit(CloudModelEvent::ObjectCreated { type_and_id });
+        }
+        ctx.notify();
+    }
+
     pub fn delete_objects_by_id(
         &mut self,
         uids: Vec<ObjectUid>,

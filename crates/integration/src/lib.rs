@@ -1,4 +1,5 @@
 mod builder;
+pub mod rig_test_mcp_server;
 mod step;
 
 pub mod test;

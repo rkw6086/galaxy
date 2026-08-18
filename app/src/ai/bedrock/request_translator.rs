@@ -7,6 +7,7 @@ use warp_multi_agent_api as api;
 use super::convert::{
     ContentPart, ConversationMessage, MessageContent, MessageRole, ToolDefinition,
 };
+use crate::ai::agent::api::mark_internal_command_completion_assessment;
 
 /// Command-monitor turns must wake often enough to react to steering and user-specified deadlines.
 ///
@@ -91,32 +92,11 @@ pub fn extract_new_input_messages(request: &api::Request) -> Vec<ConversationMes
                     ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text =
-                                    if let Some(running_cmd) = &cli_query.running_command {
-                                        let mut context =
-                                            format!("[Running command: {}]\n", running_cmd.command);
-                                        if let Some(snapshot) = &running_cmd.snapshot {
-                                            if !snapshot.command_id.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Command ID: {}]\n",
-                                                    snapshot.command_id
-                                                ));
-                                            }
-                                            if !snapshot.output.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Terminal output:\n{}\n]\n",
-                                                    snapshot.output
-                                                ));
-                                            }
-                                        }
-                                        context.push_str(&user_query.query);
-                                        context
-                                    } else {
-                                        user_query.query.clone()
-                                    };
                                 user_queries.push(ConversationMessage {
                                     role: MessageRole::User,
-                                    content: MessageContent::Text(query_text),
+                                    content: MessageContent::Text(cli_query_text(
+                                        cli_query, user_query,
+                                    )),
                                 });
                             }
                         }
@@ -565,24 +545,7 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                     ) => {
                         if let Some(user_query) = &cli_query.user_query {
                             if !user_query.query.is_empty() {
-                                let query_text =
-                                    if let Some(running_cmd) = &cli_query.running_command {
-                                        let mut context =
-                                            format!("[Running command: {}]\n", running_cmd.command);
-                                        if let Some(snapshot) = &running_cmd.snapshot {
-                                            if !snapshot.output.is_empty() {
-                                                context.push_str(&format!(
-                                                    "[Terminal output:\n{}\n]\n",
-                                                    snapshot.output
-                                                ));
-                                            }
-                                        }
-                                        context.push_str(&user_query.query);
-                                        context
-                                    } else {
-                                        user_query.query.clone()
-                                    };
-                                results.push(api::Message {
+                                let mut message = api::Message {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     task_id: task_id.clone(),
                                     request_id: String::new(),
@@ -592,11 +555,15 @@ fn extract_input_messages(request: &api::Request) -> Vec<api::Message> {
                                     fetched_memories: vec![],
                                     message: Some(api::message::Message::UserQuery(
                                         api::message::UserQuery {
-                                            query: query_text,
+                                            query: cli_query_text(cli_query, user_query),
                                             ..Default::default()
                                         },
                                     )),
-                                });
+                                };
+                                if cli_query_is_completed_assessment(cli_query) {
+                                    mark_internal_command_completion_assessment(&mut message);
+                                }
+                                results.push(message);
                             }
                         }
                     }
@@ -750,6 +717,7 @@ fn persist_input_images_on_latest_user_message(
                 Some(api::input_context::Image { data, mime_type })
             }
             Some(ContentPart::Text(_))
+            | Some(ContentPart::Reasoning { .. })
             | Some(ContentPart::ToolUse { .. })
             | Some(ContentPart::ToolResult { .. })
             | None => None,
@@ -873,11 +841,17 @@ fn is_pure_tool_result(content: &MessageContent) -> bool {
 fn strip_tool_result_parts(content: &mut MessageContent) {
     if let MessageContent::MultiPart(parts) = content {
         parts.retain(|p| !matches!(p, ContentPart::ToolResult { .. }));
-        if parts.len() == 1 && !matches!(parts.first(), Some(ContentPart::Image { .. })) {
+        if parts.len() == 1
+            && !matches!(
+                parts.first(),
+                Some(ContentPart::Image { .. } | ContentPart::Reasoning { .. })
+            )
+        {
             let part = parts.remove(0);
             *content = match part {
                 ContentPart::Text(t) => MessageContent::Text(t),
                 ContentPart::Image { .. } => unreachable!(),
+                ContentPart::Reasoning { .. } => unreachable!(),
                 ContentPart::ToolUse {
                     tool_use_id,
                     name,
@@ -916,11 +890,17 @@ fn strip_orphaned_tool_result_parts(
                 ContentPart::ToolResult { tool_use_id, .. } => valid_ids.contains(tool_use_id),
                 _ => true,
             });
-            if parts.len() == 1 && !matches!(parts.first(), Some(ContentPart::Image { .. })) {
+            if parts.len() == 1
+                && !matches!(
+                    parts.first(),
+                    Some(ContentPart::Image { .. } | ContentPart::Reasoning { .. })
+                )
+            {
                 let part = parts.remove(0);
                 *content = match part {
                     ContentPart::Text(t) => MessageContent::Text(t),
                     ContentPart::Image { .. } => unreachable!(),
+                    ContentPart::Reasoning { .. } => unreachable!(),
                     ContentPart::ToolUse {
                         tool_use_id,
                         name,
@@ -1222,12 +1202,57 @@ fn collect_tool_result_ids(content: &MessageContent, ids: &mut std::collections:
     }
 }
 
+fn cli_query_is_completed_assessment(cli_query: &api::request::input::CliAgentUserQuery) -> bool {
+    cli_query
+        .user_query
+        .as_ref()
+        .is_some_and(|query| query.intended_agent() == api::AgentType::Primary)
+}
+
+fn cli_query_text(
+    cli_query: &api::request::input::CliAgentUserQuery,
+    user_query: &api::request::input::UserQuery,
+) -> String {
+    let Some(command) = &cli_query.running_command else {
+        return user_query.query.clone();
+    };
+    let completed = cli_query_is_completed_assessment(cli_query);
+    let mut context = format!(
+        "[{}: {}]\n",
+        if completed {
+            "Completed command"
+        } else {
+            "Running command"
+        },
+        command.command
+    );
+    if let Some(snapshot) = &command.snapshot {
+        if !snapshot.command_id.is_empty() {
+            context.push_str(&format!("[Command ID: {}]\n", snapshot.command_id));
+        }
+        if !snapshot.output.is_empty() {
+            context.push_str(&format!(
+                "[{}:\n{}\n]\n",
+                if completed {
+                    "Final terminal output"
+                } else {
+                    "Terminal output"
+                },
+                snapshot.output
+            ));
+        }
+    }
+    context.push_str(&user_query.query);
+    context
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgentMode {
     Normal,
     Plan,
     Orchestrate,
     Cli,
+    CompletedCommandAssessment,
 }
 
 fn request_agent_mode(request: &api::Request) -> AgentMode {
@@ -1238,6 +1263,17 @@ fn request_agent_mode(request: &api::Request) -> AgentMode {
     else {
         return AgentMode::Normal;
     };
+
+    if user_inputs.inputs.iter().any(|user_input| {
+        matches!(
+            &user_input.input,
+            Some(api::request::input::user_inputs::user_input::Input::CliAgentUserQuery(
+                cli_query
+            )) if cli_query_is_completed_assessment(cli_query)
+        )
+    }) {
+        return AgentMode::CompletedCommandAssessment;
+    }
 
     let mut mode = AgentMode::Normal;
     for user_input in &user_inputs.inputs {
@@ -1483,16 +1519,31 @@ pub fn extract_system_prompt(
                 "This turn concerns a running or just-finished shell command. Act as its dedicated \
                  monitor while still following the user's steering messages. Use the command ID from \
                  the running-command context or tool result for every read/write operation. If the \
-                 result says the command finished, report its outcome and stop polling. Otherwise, \
-                 poll with `read_shell_command_output` and use short delays. Never choose a poll \
-                 interval that crosses a user-specified deadline or stop condition. When an explicit \
-                 stop condition is met, call `interrupt_shell_command` immediately, then poll briefly \
-                 to verify the outcome. Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or \
-                 `\\u0003` through `write_to_long_running_shell_command`; that tool is only for actual \
-                 process input. Never start a duplicate command merely to check its state, and never \
-                 report completion while a result says it is still running. If user interaction is \
-                 the right next step and the transfer tool is available, transfer control with a \
-                 clear reason.\n\n",
+                 result says the command finished, report its outcome and stop polling. If it says the \
+                 command is still running, the next assistant output MUST be a tool call. Use \
+                 `read_shell_command_output` with a short delay for normal progress. If the snapshot \
+                 clearly shows an interactive pager or editor, do not keep polling: an alternate screen \
+                 containing `(END)` is `less`, so call `write_to_long_running_shell_command` with input \
+                 `q` and mode `raw`; for a clearly identified Vim screen, send input `:q` with mode \
+                 `line`. Poll briefly after sending quit input to verify the outcome. Call \
+                 `interrupt_shell_command` immediately when the user's explicit stop condition is met. \
+                 Do not end a still-running monitor turn with prose, a status message, or a request for \
+                 the user to say continue. Never choose a poll interval that crosses a user-specified \
+                 deadline or stop condition. After an interrupt, poll briefly to verify the outcome. \
+                 Never try to encode Ctrl+C as `C-c`, `^C`, `\\x03`, or `\\u0003` through \
+                 `write_to_long_running_shell_command`; that tool is only for actual process input. \
+                 Never start a duplicate command merely to check its state, and never report completion \
+                 while a result says it is still running. If user interaction is the right next step and \
+                 the transfer tool is available, transfer control with a clear reason.\n\n",
+            );
+        }
+        AgentMode::CompletedCommandAssessment => {
+            prompt.push_str("## Completed Command Assessment\n");
+            prompt.push_str(
+                "The monitored command has finished. Use its command, command ID, final terminal \
+                 output, and the assessment instruction in the latest hidden input to provide the \
+                 final user-facing outcome. Do not continue polling, request more terminal output, \
+                 or call tools.\n\n",
             );
         }
     }
@@ -1543,6 +1594,10 @@ pub fn extract_system_prompt(
 }
 
 pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
+    if request_agent_mode(request) == AgentMode::CompletedCommandAssessment {
+        return Vec::new();
+    }
+
     let mut tools = default_tool_definitions();
     let mut seen_names: std::collections::HashSet<String> =
         tools.iter().map(|t| t.name.clone()).collect();
@@ -1604,10 +1659,12 @@ pub fn extract_tools(request: &api::Request) -> Vec<ToolDefinition> {
 
 fn supported_tool_types(request: &api::Request) -> Option<HashSet<api::ToolType>> {
     let settings = request.settings.as_ref()?;
-    let raw_tools = if request_agent_mode(request) == AgentMode::Cli {
-        &settings.supported_cli_agent_tools
-    } else {
-        &settings.supported_tools
+    let raw_tools = match request_agent_mode(request) {
+        AgentMode::Cli => &settings.supported_cli_agent_tools,
+        AgentMode::Normal
+        | AgentMode::Plan
+        | AgentMode::Orchestrate
+        | AgentMode::CompletedCommandAssessment => &settings.supported_tools,
     };
     Some(
         raw_tools
@@ -1617,7 +1674,7 @@ fn supported_tool_types(request: &api::Request) -> Option<HashSet<api::ToolType>
     )
 }
 
-fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> bool {
+pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> bool {
     use api::ToolType;
 
     let has = |tool| supported.contains(&tool);
@@ -1639,7 +1696,7 @@ fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolType>) -> boo
         "read_plan" | "read_notebook" => has(ToolType::ReadDocuments),
         "create_plan" | "create_notebook" => has(ToolType::CreateDocuments),
         "edit_plan" | "edit_notebook" => has(ToolType::EditDocuments),
-        "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
+        "run_agents" | "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
         "ask_user_question" => has(ToolType::AskUserQuestion),
         "read_skill" => has(ToolType::ReadSkill),
         "fetch_conversation" => has(ToolType::FetchConversation),
@@ -1841,7 +1898,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "create_plan".to_string(),
-            description: "Create a new plan document in Galaxy Drive's Plans folder. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes.".to_string(),
+            description: "Create a new plan document in Galaxy Drive's Plans folder. When the user asks to create a plan for review, use this tool after completing the necessary research instead of only returning plan prose. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1892,6 +1949,68 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                     "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to notebooks" }
                 },
                 "required": ["diffs"]
+            }),
+        },
+        ToolDefinition {
+            name: "run_agents".to_string(),
+            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and inherit the parent model. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "summary": { "type": "string", "description": "Brief explanation of why child agents help with this task" },
+                    "base_prompt": { "type": "string", "default": "", "description": "Instructions prepended to every child prompt" },
+                    "skills": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "skill": { "type": "string" },
+                                "reference_type": { "type": "string", "enum": ["path", "bundled"] }
+                            },
+                            "required": ["skill", "reference_type"]
+                        }
+                    },
+                    "model_id": { "type": "string", "default": "", "description": "Optional child model override; empty inherits the parent model" },
+                    "harness_type": { "type": "string", "default": "", "description": "Optional harness identifier; empty selects the embedded local child runtime" },
+                    "execution_mode": {
+                        "type": "object",
+                        "properties": {
+                            "type": { "type": "string", "enum": ["local", "remote"], "default": "local" },
+                            "environment_id": { "type": "string", "default": "" },
+                            "worker_host": { "type": "string", "default": "" },
+                            "computer_use_enabled": { "type": "boolean", "default": false }
+                        }
+                    },
+                    "agent_run_configs": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string", "description": "Unique child name" },
+                                "prompt": { "type": "string", "default": "", "description": "Child-specific instructions" },
+                                "title": { "type": "string", "default": "", "description": "Optional display title" }
+                            },
+                            "required": ["name", "prompt"]
+                        }
+                    },
+                    "plan_id": { "type": "string", "default": "", "description": "Optional associated plan document ID" }
+                },
+                "required": ["summary", "agent_run_configs"]
+            }),
+        },
+        ToolDefinition {
+            name: "wait_for_events".to_string(),
+            description: "Yield after starting child agents or other asynchronous work. Use this when you are waiting for child-agent updates instead of repeating the same investigation yourself.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "idle_timeout_seconds": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Optional idle timeout. 0 lets Galaxy choose the default."
+                    }
+                }
             }),
         },
         ToolDefinition {
@@ -2380,10 +2499,12 @@ fn long_running_command_content(snapshot: &api::LongRunningShellCommandSnapshot)
     };
     format!(
         "Command is still running.\nCommand ID: {}\nCurrent terminal output:\n{}\n\
-         Continue monitoring with `read_shell_command_output` using command_id `{}`. \
-         Use `write_to_long_running_shell_command` with the same command_id only if input is \
-         required. If the user's explicit stop condition is met, use `interrupt_shell_command` \
-         with the same command_id. Do not report the command as complete while it is still running.",
+         The next assistant output MUST be a tool call: continue monitoring with \
+         `read_shell_command_output` using command_id `{}` and a short wait. Use \
+         `write_to_long_running_shell_command` with the same command_id only if input is required. \
+         If the user's explicit stop condition is met, use `interrupt_shell_command` immediately \
+         with the same command_id. Do not end this turn with prose or report the command as complete \
+         while it is still running.",
         snapshot.command_id, output, snapshot.command_id
     )
 }

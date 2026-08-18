@@ -14,6 +14,7 @@ use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::llms::LLMPreferences;
 use crate::ai::openai::client::{OpenAIClient, OpenAIClientConfig};
 use crate::ai::provider::ProviderConfig;
+use crate::settings::OpenAIProviderKind;
 use crate::AISettings;
 
 /// Maximum default iterations if the setting is somehow zero.
@@ -163,11 +164,20 @@ impl CrosscheckReviewer {
             let llm_prefs = LLMPreferences::as_ref(ctx);
             if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
                 return ProviderConfig::OpenAI(OpenAIClientConfig {
+                    kind: client_config.kind,
                     base_url: client_config.base_url.clone(),
                     api_key: client_config.api_key.clone(),
-                    model: Some(model_id.to_string()),
+                    project_id: client_config.project_id.clone(),
+                    location: client_config.location.clone(),
+                    model: client_config
+                        .model
+                        .clone()
+                        .or_else(|| Some(model_id.to_string())),
+                    reasoning_effort: client_config.reasoning_effort.clone(),
                     max_input_tokens: client_config.max_input_tokens,
                     max_output_tokens: Some(REVIEWER_MAX_OUTPUT_TOKENS),
+                    use_rig: client_config.use_rig,
+                    supports_system_messages: client_config.supports_system_messages,
                 });
             }
         }
@@ -184,6 +194,7 @@ impl CrosscheckReviewer {
                 secret_access_key: settings.bedrock_secret_access_key.value().clone(),
                 session_token: None,
                 cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+                use_rig: false,
             };
 
             if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
@@ -214,6 +225,26 @@ impl CrosscheckReviewer {
         provider_config: ProviderConfig,
     ) -> Result<String, String> {
         match provider_config {
+            ProviderConfig::OpenAI(config)
+                if config.kind == OpenAIProviderKind::ChatGPTSubscription =>
+            {
+                let runtime = galaxy_agent_rig::ChatGPTSubscriptionRuntime::new(
+                    galaxy_agent_rig::ChatGPTSubscriptionRuntimeConfig {
+                        model: config.model.unwrap_or(model_id),
+                        reasoning_effort: config.reasoning_effort,
+                        max_output_tokens: Some(u64::from(REVIEWER_MAX_OUTPUT_TOKENS)),
+                        auth_file: None,
+                    },
+                );
+                runtime
+                    .complete_text(
+                        prompt::CROSSCHECK_REVIEWER_SYSTEM_PROMPT.to_string(),
+                        format!(
+                            "Please review the following agent output:\n\n---\n\n{agent_output}"
+                        ),
+                    )
+                    .await
+            }
             ProviderConfig::OpenAI(config) => {
                 Self::invoke_via_openai(agent_output, model_id, config).await
             }

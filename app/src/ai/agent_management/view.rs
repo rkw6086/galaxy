@@ -1078,7 +1078,7 @@ impl AgentManagementView {
         open_action: Option<WorkspaceAction>,
         copy_link_url: Option<String>,
     ) -> ActionButtonsConfig {
-        if let Some(task_id) = entry.identity.ambient_agent_task_id {
+        let mut config = if let Some(task_id) = entry.identity.ambient_agent_task_id {
             ActionButtonsConfig::for_task(
                 task_id,
                 &entry.display.status,
@@ -1093,7 +1093,15 @@ impl AgentManagementView {
                 copy_link_url,
                 ..Default::default()
             }
+        };
+
+        if !entry.capabilities.can_delete
+            || !entry.display.status.to_conversation_status().is_done()
+        {
+            config.delete_conversation_id = None;
         }
+
+        config
     }
 
     fn handle_action_buttons_event(
@@ -1172,6 +1180,18 @@ impl AgentManagementView {
 
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(link.clone()));
+            }
+            AgentDetailsButtonEvent::DeleteConversation { conversation_id } => {
+                let model = AgentConversationsModel::as_ref(ctx);
+                let conversation_title = model
+                    .get_entry_by_id(item_id, ctx)
+                    .map(|entry| entry.display.title)
+                    .unwrap_or_else(|| "Conversation".to_string());
+                ctx.emit(AgentManagementViewEvent::ShowDeleteConfirmationDialog {
+                    conversation_id: *conversation_id,
+                    conversation_title,
+                    terminal_view_id: None,
+                });
             }
         }
     }
@@ -1393,6 +1413,16 @@ impl AgentManagementView {
             ConversationDetailsPanelEvent::OpenPlanNotebook { notebook_uid } => {
                 ctx.emit(AgentManagementViewEvent::OpenPlanNotebook {
                     notebook_uid: *notebook_uid,
+                });
+            }
+            ConversationDetailsPanelEvent::ShowDeleteConfirmationDialog {
+                conversation_id,
+                conversation_title,
+            } => {
+                ctx.emit(AgentManagementViewEvent::ShowDeleteConfirmationDialog {
+                    conversation_id: *conversation_id,
+                    conversation_title: conversation_title.clone(),
+                    terminal_view_id: None,
                 });
             }
         }
@@ -2232,7 +2262,14 @@ pub enum AgentManagementViewAction {
 
 pub enum AgentManagementViewEvent {
     OpenNewTabAndRunWorkflow(Box<WorkflowType>),
-    OpenPlanNotebook { notebook_uid: NotebookId },
+    OpenPlanNotebook {
+        notebook_uid: NotebookId,
+    },
+    ShowDeleteConfirmationDialog {
+        conversation_id: AIConversationId,
+        conversation_title: String,
+        terminal_view_id: Option<galaxyui::EntityId>,
+    },
 }
 
 impl TypedActionView for AgentManagementView {

@@ -460,41 +460,12 @@ fn ensure_owner_only_file(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn remove(sender: SyncSender<ModelEvent>) {
-    // Instruct the writer thread to remove the database and pause processing
-    // events.
-    // Ideally, we'd drop any other events in the channel, but it's not worth the complexity right
-    // now. Having the writer thread remove the database file prevents race conditions if the
-    // thread is in the middle of another update.
-    report_if_error!(sender
-        .send(ModelEvent::PauseAndRemoveDatabase)
-        .context("Error requesting database deletion"));
-}
-
-pub(super) fn reconstruct(sender: SyncSender<ModelEvent>) {
-    report_if_error!(sender
-        .send(ModelEvent::ReconstructAndResume)
-        .context("Error resuming SQLite thread"));
-}
-
-fn reconstruct_database(path: &Path) -> Result<SqliteConnection> {
-    // If the DB still exists, logout might have failed. However, it's more likely that something
-    // else wrote to it before the user logged back in.
-    if std::fs::metadata(path).is_ok() {
-        log::info!("Reconstructing database, but it already exists");
-    }
-
-    // Always reinitialize DB - setup_database will only create it if it doesn't exist.
-    setup_database(path)
-}
-
 fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<WriterHandles> {
     let (tx, rx) = std::sync::mpsc::sync_channel(CHANNEL_SIZE);
     let mut current_conn = conn;
     let handle = thread::Builder::new()
         .name("SQLite Writer".into())
         .spawn(move || {
-            let mut paused = false;
             loop {
                 let events = match rx.recv() {
                     Ok(event) => {
@@ -515,38 +486,11 @@ fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<Writer
 
                 for event in events {
                     match event {
-                        ModelEvent::ReconstructAndResume => {
-                            match reconstruct_database(&database_path) {
-                                Ok(conn) => {
-                                    current_conn = conn;
-                                    paused = false;
-                                    log::info!("SQLite Writer is resumed");
-                                }
-                                Err(err) => {
-                                    report_db_error("reconstruction", err, &database_path);
-                                }
-                            }
-                        }
-                        ModelEvent::PauseAndRemoveDatabase => {
-                            paused = true;
-                            log::info!("SQLite Writer is paused");
-
-                            if let Err(err) = std::fs::remove_file(&database_path) {
-                                report_error!(anyhow::Error::new(err)
-                                    .context("Error removing SQLite database"));
-                            } else {
-                                log::info!("Removed SQLite database");
-                            }
-                        }
                         ModelEvent::Terminate => {
                             log::info!("Shutting down SQLite writer thread");
                             return;
                         }
                         event => {
-                            if paused {
-                                log::info!("Ignoring event as SQLite Writer is on pause");
-                                continue;
-                            }
                             if let Err(err) = handle_model_event(event, &mut current_conn) {
                                 report_db_error("Model", err, &database_path);
                             }
@@ -560,14 +504,10 @@ fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<Writer
 
 /// Handles a single [`ModelEvent`] by dispatching to an event-specific function.
 /// Events which affect the SQLite writer event loop _must_ instead be handled by the event loop itself:
-/// * [`ModelEvent::PauseAndRemoveDatabase`]
-/// * [`ModelEvent::ReconstructAndResume`]
 /// * [`ModelEvent::Terminate`]
 fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> anyhow::Result<()> {
     match event {
-        ModelEvent::PauseAndRemoveDatabase
-        | ModelEvent::ReconstructAndResume
-        | ModelEvent::Terminate => {
+        ModelEvent::Terminate => {
             panic!("Unhandled control-flow event {event:?}");
         }
         ModelEvent::SaveBlock(BlockCompleted {

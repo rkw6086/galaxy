@@ -5,7 +5,7 @@ use galaxyui::{Entity, ModelContext, SingletonEntity};
 use super::nodes::{self, FileId};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObjectEventEntrypoint, Owner};
-use crate::drive::folders::FolderId;
+use crate::local_object_repository::{local_owner, LocalObjectRepository};
 use crate::notebooks::CloudNotebookModel;
 use crate::server::cloud_objects::update_manager::{
     InitiatedBy, ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
@@ -94,31 +94,40 @@ impl FileCompletionCounter {
 
 pub(super) struct ImportQueue {
     queue: Vec<ImportQueueArgs>,
-    client_to_server_id: HashMap<ClientId, Option<FolderId>>,
+    client_to_folder_id: HashMap<ClientId, Option<SyncId>>,
     client_to_node_folder_id: HashMap<ClientId, nodes::FolderId>,
     file_completion: FileCompletionCounter,
+    remote_subscription_initialized: bool,
 }
 
 impl ImportQueue {
-    pub fn new(ctx: &mut ModelContext<Self>) -> Self {
+    pub fn new() -> Self {
+        Self {
+            queue: Vec::new(),
+            client_to_folder_id: HashMap::default(),
+            file_completion: Default::default(),
+            client_to_node_folder_id: HashMap::default(),
+            remote_subscription_initialized: false,
+        }
+    }
+
+    fn ensure_remote_subscription(&mut self, ctx: &mut ModelContext<Self>) {
+        if self.remote_subscription_initialized {
+            return;
+        }
+
         let update_manager = UpdateManager::handle(ctx);
         ctx.subscribe_to_model(&update_manager, |me, _, event, ctx| {
             me.handle_update_manager_event(event, ctx);
         });
-
-        Self {
-            queue: Vec::new(),
-            client_to_server_id: HashMap::default(),
-            file_completion: Default::default(),
-            client_to_node_folder_id: HashMap::default(),
-        }
+        self.remote_subscription_initialized = true;
     }
 
     // Whether all dependencies of an item has been sync-ed.
     fn dependency_synced(&self, item: &ImportQueueArgs) -> bool {
         match &item.parent_id {
             ParentId::FolderToUpload(id) => self
-                .client_to_server_id
+                .client_to_folder_id
                 .get(id)
                 .map(|item| item.is_some())
                 .unwrap_or(false),
@@ -128,6 +137,11 @@ impl ImportQueue {
 
     // Enqueue a new request to the import queue.
     pub fn enqueue(&mut self, arg: ImportQueueArgs, ctx: &mut ModelContext<Self>) {
+        let is_local = arg.owner == local_owner();
+        if !is_local {
+            self.ensure_remote_subscription(ctx);
+        }
+
         // Update internal tracker of the object.
         match &arg.content {
             RequestContent::Folder {
@@ -135,17 +149,23 @@ impl ImportQueue {
                 folder_id,
                 ..
             } => {
-                self.client_to_server_id.insert(*client_id, None);
+                self.client_to_folder_id.insert(*client_id, None);
                 self.client_to_node_folder_id.insert(*client_id, *folder_id);
             }
             RequestContent::Notebook {
                 client_id, file_id, ..
-            } => self.file_completion.add_entry(*client_id, *file_id),
+            } => {
+                if !is_local {
+                    self.file_completion.add_entry(*client_id, *file_id);
+                }
+            }
             RequestContent::Workflow {
                 workflows, file_id, ..
             } => {
-                for (_, client_id) in workflows {
-                    self.file_completion.add_entry(*client_id, *file_id);
+                if !is_local {
+                    for (_, client_id) in workflows {
+                        self.file_completion.add_entry(*client_id, *file_id);
+                    }
                 }
             }
         }
@@ -167,31 +187,47 @@ impl ImportQueue {
         {
             let dequeued_item = self.queue.remove(idx);
             let parent_id = match dequeued_item.parent_id {
-                ParentId::FolderToUpload(client_id) => Some(SyncId::ServerId(
-                    self.client_to_server_id
+                ParentId::FolderToUpload(client_id) => Some(
+                    self.client_to_folder_id
                         .get(&client_id)
                         .expect("Client id entry should exist")
-                        .expect("Server id entry should exist")
-                        .into(),
-                )),
+                        .expect("Folder id entry should exist"),
+                ),
                 ParentId::InitialFolder(folder_id) => folder_id,
             };
 
+            let is_local = dequeued_item.owner == local_owner();
             match dequeued_item.content {
                 RequestContent::Folder {
                     name, client_id, ..
                 } => {
-                    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                        update_manager.create_folder(
-                            name,
-                            dequeued_item.owner,
-                            client_id,
-                            parent_id,
-                            false,
-                            InitiatedBy::User,
-                            ctx,
-                        );
-                    });
+                    if is_local {
+                        let local_id = SyncId::ClientId(client_id);
+                        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                            repository.create_folder_with_id(local_id, name, parent_id, ctx);
+                        });
+                        self.client_to_folder_id.insert(client_id, Some(local_id));
+                        ctx.emit(ImportQueueEvent::FolderCompleted {
+                            folder_id: self
+                                .client_to_node_folder_id
+                                .get(&client_id)
+                                .copied()
+                                .expect("Folder node id should exist"),
+                            server_id: Some(local_id.uid()),
+                        });
+                    } else {
+                        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                            update_manager.create_folder(
+                                name,
+                                dequeued_item.owner,
+                                client_id,
+                                parent_id,
+                                false,
+                                InitiatedBy::User,
+                                ctx,
+                            );
+                        });
+                    }
                 }
                 RequestContent::Notebook {
                     title,
@@ -199,56 +235,104 @@ impl ImportQueue {
                     client_id,
                     file_id,
                 } => {
-                    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                        update_manager.create_notebook(
-                            client_id,
-                            dequeued_item.owner,
-                            parent_id,
-                            CloudNotebookModel {
-                                title,
-                                data,
-                                ai_document_id: None,
-                                conversation_id: None,
-                            },
-                            CloudObjectEventEntrypoint::ImportModal,
-                            false,
-                            ctx,
-                        );
-                    });
-                    ctx.emit(ImportQueueEvent::FileSavedLocally(file_id));
+                    if is_local {
+                        let local_id = SyncId::ClientId(client_id);
+                        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                            repository.create_notebook_with_id(
+                                local_id,
+                                parent_id,
+                                CloudNotebookModel {
+                                    title,
+                                    data,
+                                    ai_document_id: None,
+                                    conversation_id: None,
+                                },
+                                ctx,
+                            );
+                        });
+                        ctx.emit(ImportQueueEvent::FileCompleted {
+                            file_id,
+                            server_id: Some(local_id.uid()),
+                        });
+                    } else {
+                        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                            update_manager.create_notebook(
+                                client_id,
+                                dequeued_item.owner,
+                                parent_id,
+                                CloudNotebookModel {
+                                    title,
+                                    data,
+                                    ai_document_id: None,
+                                    conversation_id: None,
+                                },
+                                CloudObjectEventEntrypoint::ImportModal,
+                                false,
+                                ctx,
+                            );
+                        });
+                        ctx.emit(ImportQueueEvent::FileSavedLocally(file_id));
+                    }
                 }
                 RequestContent::Workflow {
                     workflows,
                     workflow_enums,
                     file_id,
                 } => {
-                    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                        // Create any new workflow enums
-                        for (client_id, workflow_enum) in workflow_enums {
-                            update_manager.create_workflow_enum(
-                                workflow_enum,
-                                dequeued_item.owner,
-                                client_id,
-                                CloudObjectEventEntrypoint::ImportModal,
-                                false,
-                                ctx,
-                            );
-                        }
+                    if is_local {
+                        let local_object_id = workflows
+                            .first()
+                            .map(|(_, client_id)| SyncId::ClientId(*client_id).uid());
+                        LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                            for (client_id, workflow_enum) in workflow_enums {
+                                repository.create_workflow_enum_with_id(
+                                    SyncId::ClientId(client_id),
+                                    workflow_enum,
+                                    ctx,
+                                );
+                            }
+                            for (workflow, client_id) in workflows {
+                                repository.create_workflow_with_id(
+                                    SyncId::ClientId(client_id),
+                                    parent_id,
+                                    workflow,
+                                    ctx,
+                                );
+                            }
+                        });
+                        ctx.emit(ImportQueueEvent::FileCompleted {
+                            file_id,
+                            server_id: local_object_id,
+                        });
+                    } else {
+                        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                            // Create any new workflow enums
+                            for (client_id, workflow_enum) in workflow_enums {
+                                update_manager.create_workflow_enum(
+                                    workflow_enum,
+                                    dequeued_item.owner,
+                                    client_id,
+                                    CloudObjectEventEntrypoint::ImportModal,
+                                    false,
+                                    ctx,
+                                );
+                            }
 
-                        // Create the workflow
-                        for (workflow, client_id) in workflows {
-                            update_manager.create_workflow(
-                                workflow,
-                                dequeued_item.owner,
-                                parent_id,
-                                client_id,
-                                CloudObjectEventEntrypoint::ImportModal,
-                                false,
-                                ctx,
-                            );
-                        }
-                    });
-                    ctx.emit(ImportQueueEvent::FileSavedLocally(file_id));
+                            // Create the workflow
+                            for (workflow, client_id) in workflows {
+                                update_manager.create_workflow(
+                                    workflow,
+                                    dequeued_item.owner,
+                                    parent_id,
+                                    client_id,
+                                    CloudObjectEventEntrypoint::ImportModal,
+                                    false,
+                                    ctx,
+                                );
+                            }
+                        });
+                        ctx.emit(ImportQueueEvent::FileSavedLocally(file_id));
+                    }
                 }
             }
             self.dequeue(ctx);
@@ -294,14 +378,14 @@ impl ImportQueue {
 
             let Some(folder_id) = cloud_model
                 .get_folder_by_uid(&result.server_id.expect("Expect id").uid())
-                .and_then(|folder| folder.id.into_server())
+                .map(|folder| folder.id)
             else {
                 return;
             };
 
-            let replaced = match self.client_to_server_id.get_mut(&client_id) {
+            let replaced = match self.client_to_folder_id.get_mut(&client_id) {
                 Some(value) if value.is_none() => {
-                    *value = Some(folder_id.into());
+                    *value = Some(folder_id);
                     true
                 }
                 _ => false,
@@ -323,3 +407,7 @@ impl ImportQueue {
 impl Entity for ImportQueue {
     type Event = ImportQueueEvent;
 }
+
+#[cfg(test)]
+#[path = "queue_tests.rs"]
+mod tests;

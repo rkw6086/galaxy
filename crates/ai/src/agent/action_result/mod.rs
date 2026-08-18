@@ -135,6 +135,226 @@ impl AIAgentActionResultType {
             _ => None,
         }
     }
+
+    /// Returns the authoritative result content to send back to a model.
+    ///
+    /// `Display` is intentionally concise for UI summaries, so content-bearing
+    /// results must not use it directly when constructing the next model turn.
+    pub fn model_content(&self) -> String {
+        match self {
+            Self::RequestCommandOutput(result) => match result {
+                RequestCommandOutputResult::Completed {
+                    command,
+                    output,
+                    exit_code,
+                    ..
+                } => command_result_content(Some(command), output, exit_code.value()),
+                RequestCommandOutputResult::LongRunningCommandSnapshot {
+                    block_id,
+                    command,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    ..
+                } => shell_snapshot_content(
+                    block_id,
+                    Some(command),
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    None,
+                ),
+                RequestCommandOutputResult::CancelledBeforeExecution
+                | RequestCommandOutputResult::ExecutionError { .. }
+                | RequestCommandOutputResult::Denylisted { .. } => result.to_string(),
+            },
+            Self::WriteToLongRunningShellCommand(result) => match result {
+                WriteToLongRunningShellCommandResult::Snapshot {
+                    block_id,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => shell_snapshot_content(
+                    block_id,
+                    None,
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    Some(*is_preempted),
+                ),
+                WriteToLongRunningShellCommandResult::CommandFinished {
+                    output, exit_code, ..
+                } => command_result_content(None, output, exit_code.value()),
+                WriteToLongRunningShellCommandResult::Cancelled
+                | WriteToLongRunningShellCommandResult::Error(_) => result.to_string(),
+            },
+            Self::ReadFiles(result) => match result {
+                ReadFilesResult::Success { files } => file_contexts_content(files),
+                ReadFilesResult::Error(_) | ReadFilesResult::Cancelled => result.to_string(),
+            },
+            Self::SearchCodebase(result) => match result {
+                SearchCodebaseResult::Success { files } => file_contexts_content(files),
+                SearchCodebaseResult::Failed { .. } | SearchCodebaseResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::ReadSkill(result) => match result {
+                ReadSkillResult::Success { content } => file_context_content(content),
+                ReadSkillResult::Error(_) | ReadSkillResult::Cancelled => result.to_string(),
+            },
+            Self::ReadDocuments(result) => match result {
+                ReadDocumentsResult::Success { documents } => document_contexts_content(documents),
+                ReadDocumentsResult::Error(_) | ReadDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::EditDocuments(result) => match result {
+                EditDocumentsResult::Success { updated_documents } => {
+                    document_contexts_content(updated_documents)
+                }
+                EditDocumentsResult::Error(_) | EditDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::CreateDocuments(result) => match result {
+                CreateDocumentsResult::Success { created_documents } => {
+                    document_contexts_content(created_documents)
+                }
+                CreateDocumentsResult::Error(_) | CreateDocumentsResult::Cancelled => {
+                    result.to_string()
+                }
+            },
+            Self::ReadShellCommandOutput(result) => match result {
+                ReadShellCommandOutputResult::CommandFinished {
+                    command,
+                    output,
+                    exit_code,
+                    ..
+                } => command_result_content(Some(command), output, exit_code.value()),
+                ReadShellCommandOutputResult::LongRunningCommandSnapshot {
+                    block_id,
+                    command,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => shell_snapshot_content(
+                    block_id,
+                    Some(command),
+                    grid_contents,
+                    cursor,
+                    *is_alt_screen_active,
+                    Some(*is_preempted),
+                ),
+                ReadShellCommandOutputResult::Cancelled
+                | ReadShellCommandOutputResult::Error(_) => result.to_string(),
+            },
+            Self::TransferShellCommandControlToUser(result) => match result {
+                TransferShellCommandControlToUserResult::Snapshot {
+                    block_id,
+                    grid_contents,
+                    cursor,
+                    is_alt_screen_active,
+                    is_preempted,
+                    ..
+                } => format!(
+                    "{}\nControl has been transferred to the user. Do not write to the command until control is returned.",
+                    shell_snapshot_content(
+                        block_id,
+                        None,
+                        grid_contents,
+                        cursor,
+                        *is_alt_screen_active,
+                        Some(*is_preempted),
+                    )
+                ),
+                TransferShellCommandControlToUserResult::CommandFinished {
+                    output, exit_code, ..
+                } => command_result_content(None, output, exit_code.value()),
+                TransferShellCommandControlToUserResult::Cancelled
+                | TransferShellCommandControlToUserResult::Error(_) => result.to_string(),
+            },
+            Self::RequestFileEdits(_)
+            | Self::UploadArtifact(_)
+            | Self::Grep(_)
+            | Self::FileGlob(_)
+            | Self::FileGlobV2(_)
+            | Self::ReadMCPResource(_)
+            | Self::CallMCPTool(_)
+            | Self::SuggestNewConversation(_)
+            | Self::SuggestPrompt(_)
+            | Self::OpenCodeReview
+            | Self::InitProject
+            | Self::UseComputer(_)
+            | Self::InsertReviewComments(_)
+            | Self::RequestComputerUse(_)
+            | Self::FetchConversation(_)
+            | Self::StartAgent(_)
+            | Self::SendMessageToAgent(_)
+            | Self::AskUserQuestion(_)
+            | Self::WaitForEvents(_) => self.to_string(),
+            Self::RunAgents(result) => result.model_content(),
+        }
+    }
+}
+
+fn command_result_content(command: Option<&str>, output: &str, exit_code: i32) -> String {
+    let command = command
+        .map(|command| format!("Command: {command}\n"))
+        .unwrap_or_default();
+    let output = if output.is_empty() {
+        "(no output)"
+    } else {
+        output
+    };
+    format!("{command}Command finished with exit code {exit_code}.\nOutput:\n{output}")
+}
+
+fn shell_snapshot_content(
+    block_id: &BlockId,
+    command: Option<&str>,
+    grid_contents: &str,
+    cursor: &str,
+    is_alt_screen_active: bool,
+    is_preempted: Option<bool>,
+) -> String {
+    let command = command
+        .map(|command| format!("Command: {command}\n"))
+        .unwrap_or_default();
+    let preempted = is_preempted
+        .map(|is_preempted| format!("\nPreempted: {is_preempted}"))
+        .unwrap_or_default();
+    format!(
+        "{command}Command is still running.\nCommand ID: {block_id}\nCurrent output:\n{grid_contents}\nCursor: {cursor}\nAlt screen active: {is_alt_screen_active}{preempted}\nThe next assistant output MUST be a tool call: continue monitoring with `read_shell_command_output` using command_id `{block_id}` and a short wait. If the user's explicit stop condition is met, call `interrupt_shell_command` immediately. Do not end this turn with prose or report completion while the command is still running."
+    )
+}
+
+fn file_contexts_content(files: &[FileContext]) -> String {
+    files
+        .iter()
+        .map(file_context_content)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn file_context_content(file: &FileContext) -> String {
+    match &file.content {
+        AnyFileContent::StringContent(content) => format!("{file}:\n{content}"),
+        AnyFileContent::BinaryContent(content) => {
+            format!("{file}:\n[binary file, {} bytes]", content.len())
+        }
+    }
+}
+
+fn document_contexts_content(documents: &[DocumentContext]) -> String {
+    documents
+        .iter()
+        .map(|document| format!("{document}:\n{}", document.content))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[cfg(test)]
@@ -199,6 +419,8 @@ pub enum RequestCommandOutputResult {
     /// A running command canceled via ctrl-c
     /// would have Completed result with exit code 130.
     CancelledBeforeExecution,
+    /// The command could not start because the terminal was unavailable for execution.
+    ExecutionError { command: String, message: String },
     /// The command was denied because it was present on the denylist.
     Denylisted { command: String },
 }
@@ -208,14 +430,16 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { exit_code, .. } => exit_code.was_successful(),
             Self::LongRunningCommandSnapshot { .. } => true,
-            Self::CancelledBeforeExecution | Self::Denylisted { .. } => false,
+            Self::CancelledBeforeExecution
+            | Self::ExecutionError { .. }
+            | Self::Denylisted { .. } => false,
         }
     }
 
     pub fn failed(&self) -> bool {
         match self {
             Self::Completed { exit_code, .. } => !exit_code.was_successful(),
-            Self::Denylisted { .. } => true,
+            Self::ExecutionError { .. } | Self::Denylisted { .. } => true,
             Self::CancelledBeforeExecution | Self::LongRunningCommandSnapshot { .. } => false,
         }
     }
@@ -225,6 +449,7 @@ impl RequestCommandOutputResult {
         match self {
             Self::Completed { command, .. }
             | Self::LongRunningCommandSnapshot { command, .. }
+            | Self::ExecutionError { command, .. }
             | Self::Denylisted { command } => command.clone(),
             Self::CancelledBeforeExecution => "cancelled".to_string(),
         }
@@ -253,6 +478,9 @@ impl Display for RequestCommandOutputResult {
             }
             RequestCommandOutputResult::CancelledBeforeExecution => {
                 write!(f, "Command output cancelled")
+            }
+            RequestCommandOutputResult::ExecutionError { command, message } => {
+                write!(f, "Command '{command}' could not be executed: {message}")
             }
             RequestCommandOutputResult::Denylisted { .. } => {
                 write!(f, "Command output was on denylist")
@@ -823,7 +1051,9 @@ impl AIAgentActionResultType {
                 | TransferShellCommandControlToUserResult::CommandFinished { .. },
             ) => true,
             Self::AskUserQuestion(AskUserQuestionResult::Success { .. }) => true,
-            Self::RunAgents(RunAgentsResult::Launched { .. }) => true,
+            Self::RunAgents(RunAgentsResult::Launched { agents, .. }) => agents
+                .iter()
+                .any(|agent| !matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })),
             Self::WaitForEvents(WaitForEventsResult::Completed) => true,
             _ => false,
         }
@@ -856,6 +1086,12 @@ impl AIAgentActionResultType {
             )
             | Self::RunAgents(RunAgentsResult::Failure { .. } | RunAgentsResult::Denied { .. }) => {
                 true
+            }
+            Self::RunAgents(RunAgentsResult::Launched { agents, .. }) => {
+                !agents.is_empty()
+                    && agents
+                        .iter()
+                        .all(|agent| matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. }))
             }
             _ => false,
         }
@@ -1366,8 +1602,9 @@ impl Display for StartAgentResult {
 /// interceptor can synthesize the marker on the next outbound input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunAgentsResult {
-    /// Orchestration launched. Carries the resolved configuration and one
-    /// `AgentOutcome` per `agent_run_configs[]` entry, in input order.
+    /// Orchestration launch completed. Carries the resolved configuration
+    /// and one launch `AgentOutcome` per `agent_run_configs[]` entry, in input
+    /// order. A launched child agent may still be running.
     Launched {
         model_id: String,
         harness_type: String,
@@ -1407,7 +1644,96 @@ pub struct RunAgentsAgentOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RunAgentsAgentOutcomeKind {
     Launched { agent_id: String },
+    Completed { agent_id: String, output: String },
     Failed { error: String },
+}
+
+impl RunAgentsResult {
+    fn model_content(&self) -> String {
+        let value = match self {
+            Self::Launched {
+                model_id,
+                harness_type,
+                execution_mode,
+                agents,
+            } => {
+                let execution_mode = match execution_mode {
+                    RunAgentsLaunchedExecutionMode::Local => serde_json::json!({
+                        "type": "local",
+                    }),
+                    RunAgentsLaunchedExecutionMode::Remote {
+                        environment_id,
+                        worker_host,
+                        computer_use_enabled,
+                    } => serde_json::json!({
+                        "type": "remote",
+                        "environment_id": environment_id,
+                        "worker_host": worker_host,
+                        "computer_use_enabled": computer_use_enabled,
+                    }),
+                };
+                let children_completed = agents.iter().all(|agent| {
+                    matches!(
+                        agent.kind,
+                        RunAgentsAgentOutcomeKind::Completed { .. }
+                            | RunAgentsAgentOutcomeKind::Failed { .. }
+                    )
+                });
+                let all_failed = !agents.is_empty()
+                    && agents.iter().all(|agent| {
+                        matches!(agent.kind, RunAgentsAgentOutcomeKind::Failed { .. })
+                    });
+                let agents = agents
+                    .iter()
+                    .map(|agent| match &agent.kind {
+                        RunAgentsAgentOutcomeKind::Launched { agent_id } => serde_json::json!({
+                            "name": agent.name,
+                            "status": "launched",
+                            "agent_id": agent_id,
+                        }),
+                        RunAgentsAgentOutcomeKind::Completed { agent_id, output } => {
+                            serde_json::json!({
+                                "name": agent.name,
+                                "status": "completed",
+                                "agent_id": agent_id,
+                                "output": output,
+                            })
+                        }
+                        RunAgentsAgentOutcomeKind::Failed { error } => serde_json::json!({
+                            "name": agent.name,
+                            "status": "failed",
+                            "error": error,
+                        }),
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "status": if all_failed { "failure" } else { "launched" },
+                    "completion_state": if children_completed { "children_completed" } else { "children_running" },
+                    "instruction": if children_completed {
+                        "Child agents reached terminal states. Use their structured outputs and errors to complete the task."
+                    } else {
+                        "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results."
+                    },
+                    "model_id": model_id,
+                    "harness_type": harness_type,
+                    "execution_mode": execution_mode,
+                    "agents": agents,
+                })
+            }
+            Self::Denied { reason } => serde_json::json!({
+                "status": "denied",
+                "reason": reason,
+            }),
+            Self::Failure { error } => serde_json::json!({
+                "status": "failure",
+                "error": error,
+            }),
+            Self::Cancelled => serde_json::json!({
+                "status": "cancelled",
+            }),
+        };
+        value.to_string()
+    }
 }
 
 impl Display for RunAgentsResult {
@@ -1416,7 +1742,13 @@ impl Display for RunAgentsResult {
             RunAgentsResult::Launched { agents, .. } => {
                 let launched = agents
                     .iter()
-                    .filter(|a| matches!(a.kind, RunAgentsAgentOutcomeKind::Launched { .. }))
+                    .filter(|a| {
+                        matches!(
+                            a.kind,
+                            RunAgentsAgentOutcomeKind::Launched { .. }
+                                | RunAgentsAgentOutcomeKind::Completed { .. }
+                        )
+                    })
                     .count();
                 write!(
                     f,

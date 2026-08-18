@@ -107,6 +107,47 @@ fn has_pending_user_query_block(view: &TerminalView) -> bool {
 }
 
 #[test]
+fn automatic_command_monitor_start_is_deduplicated_per_block() {
+    let mut pending_starts = HashSet::new();
+    let block_id = BlockId::new();
+
+    assert!(super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+    assert!(!super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+
+    pending_starts.remove(&block_id);
+    assert!(super::register_command_monitor_start(
+        &mut pending_starts,
+        &block_id
+    ));
+}
+
+#[test]
+fn command_monitor_start_status_handles_timer_races() {
+    assert_eq!(
+        super::command_monitor_start_status(true, true, true, true),
+        super::CommandMonitorStartStatus::AlreadyMonitoring
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, false, true, false),
+        super::CommandMonitorStartStatus::WaitingForThreshold
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, true, false, false),
+        super::CommandMonitorStartStatus::Ready
+    );
+    assert_eq!(
+        super::command_monitor_start_status(false, false, false, false),
+        super::CommandMonitorStartStatus::NoLongerEligible
+    );
+}
+
+#[test]
 fn agent_view_lifecycle_updates_input_mode() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
@@ -1742,6 +1783,60 @@ fn fresh_cloud_mode_setup_enters_agent_view_when_view_pending() {
 
             assert!(view.agent_view_controller().as_ref(ctx).is_active());
             assert_eq!(view.input().as_ref(ctx).buffer_text(ctx), "write the tests");
+        });
+    });
+}
+
+#[test]
+fn legacy_cloud_mode_waiting_for_session_keeps_input_visible() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+        let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
+        let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(false);
+        let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(false);
+
+        let terminal = add_window_with_cloud_mode_terminal(&mut app);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.model
+                .lock()
+                .set_shared_session_status(SharedSessionStatus::ViewPending);
+            view.enter_ambient_agent_setup(Some("write the tests".to_string()), ctx);
+            view.ambient_agent_view_model()
+                .expect("cloud mode terminal should have ambient model")
+                .update(ctx, |model, ctx| {
+                    model.spawn_agent_with_request(
+                        SpawnAgentRequest {
+                            prompt: Some("write the tests".to_string()),
+                            mode: UserQueryMode::Normal,
+                            config: None,
+                            title: None,
+                            team: None,
+                            agent_identity_uid: None,
+                            skill: None,
+                            attachments: vec![],
+                            interactive: None,
+                            parent_run_id: None,
+                            runtime_skills: vec![],
+                            referenced_attachments: vec![],
+                            conversation_id: None,
+                            initial_snapshot_token: None,
+                            snapshot_disabled: None,
+                            orchestration_handoff: None,
+                        },
+                        ctx,
+                    );
+                });
+
+            let model = view.model.lock();
+            assert!(ambient_agent::is_cloud_agent_pre_first_exchange(
+                view.ambient_agent_view_model.as_ref(),
+                &view.agent_view_controller,
+                &model,
+                ctx,
+            ));
+            assert!(view.is_input_box_visible(&model, ctx));
         });
     });
 }
@@ -5441,6 +5536,57 @@ fn inline_agent_view_exits_when_tagged_in_long_running_command_is_tagged_out() {
             let active_block = model.block_list().active_block();
             assert!(!active_block.is_agent_tagged_in());
             assert!(!view.is_input_box_visible(&model, ctx));
+        });
+    })
+}
+
+#[test]
+fn agent_view_keeps_input_visible_for_agent_requested_and_blocked_commands() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |view, ctx| {
+            let conversation_id = view.agent_view_controller().update(ctx, |controller, ctx| {
+                controller
+                    .try_enter_agent_view(
+                        None,
+                        AgentViewEntryOrigin::Input {
+                            was_prompt_autodetected: false,
+                        },
+                        ctx,
+                    )
+                    .expect("should enter agent view")
+            });
+            bootstrap_with_long_running_block(view);
+            set_active_block_agent_driving(view, conversation_id);
+
+            {
+                let model = view.model.lock();
+                let active_block = model.block_list().active_block();
+                assert!(active_block.is_agent_driving_command());
+                assert!(view.is_input_box_visible(&model, ctx));
+            }
+
+            let task_id = TaskId::new("test-cli-subagent".to_owned());
+            view.model
+                .lock()
+                .block_list_mut()
+                .active_block_mut()
+                .set_agent_interaction_mode_for_agent_monitored_command(&task_id, conversation_id)
+                .expect("agent-requested command should become monitored");
+            view.model
+                .lock()
+                .block_list_mut()
+                .active_block_mut()
+                .update_is_agent_blocked(true);
+
+            let model = view.model.lock();
+            let active_block = model.block_list().active_block();
+            assert!(active_block.is_agent_blocked());
+            assert!(view.is_input_box_visible(&model, ctx));
         });
     })
 }

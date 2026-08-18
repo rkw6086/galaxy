@@ -17,7 +17,7 @@ use crate::ui_components::icons::Icon;
 /// User-visible display name for a [`Harness`].
 pub fn display_name(harness: Harness) -> &'static str {
     match harness {
-        Harness::Oz => "Warp",
+        Harness::Oz => "Galaxy",
         Harness::Claude => "Claude Code",
         Harness::OpenCode => "OpenCode",
         Harness::Gemini => "Gemini CLI",
@@ -94,3 +94,7 @@ impl PartialEq<Harness> for AIAgentHarness {
         Harness::from(*self) == *other
     }
 }
+
+#[cfg(test)]
+#[path = "harness_display_tests.rs"]
+mod tests;

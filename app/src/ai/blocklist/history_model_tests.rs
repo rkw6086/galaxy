@@ -21,8 +21,10 @@ use crate::ai::agent::conversation::{
     ServerAIConversationMetadata,
 };
 use crate::ai::agent::{
-    AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus, FinishedAIAgentOutput,
-    RenderableAIError, Shared, TransientNetworkErrorKind, UserQueryMode,
+    AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentExchange, AIAgentExchangeId,
+    AIAgentInput, AIAgentOutput, AIAgentOutputMessage, AIAgentOutputMessageType,
+    AIAgentOutputStatus, AIAgentText, AIAgentTextSection, AgentOutputText, FinishedAIAgentOutput,
+    MessageId, RenderableAIError, RunningCommand, Shared, TransientNetworkErrorKind, UserQueryMode,
 };
 use crate::ai::ambient_agents::{
     conversation_output_status_from_conversation, AmbientAgentTaskId, AmbientConversationStatus,
@@ -78,12 +80,89 @@ fn acp_enabled_with_empty_command_selects_codex_backend() {
             assert_eq!(
                 conversation.agent_backend(),
                 &AgentBackend::Acp(AcpConversationData {
+                    provider_id: "legacy".to_string(),
                     agent_id: "codex".to_string(),
                     launch_fingerprint: crate::ai::acp::acp_launch_fingerprint("codex", "", &[]),
                     session_id: None,
                     config_values: Default::default(),
                 })
             );
+        });
+    });
+}
+
+#[test]
+fn enabling_acp_refreshes_a_provider_conversation_with_only_failed_output() {
+    let _acp_flag = FeatureFlag::AgentClientProtocol.override_enabled(true);
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let conversation_id = history_model.update(&mut app, |model, ctx| {
+            model.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        history_model.read(&app, |model, _| {
+            assert_eq!(
+                model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .agent_backend(),
+                &AgentBackend::Provider
+            );
+        });
+        history_model.update(&mut app, |model, _| {
+            let now = Local::now();
+            model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .append_root_exchange_for_test(AIAgentExchange {
+                    id: AIAgentExchangeId::new(),
+                    input: Vec::new(),
+                    output_status: AIAgentOutputStatus::Finished {
+                        finished_output: FinishedAIAgentOutput::Error {
+                            output: None,
+                            error: RenderableAIError::other("No AI provider configured", true),
+                        },
+                    },
+                    added_message_ids: HashSet::new(),
+                    start_time: now,
+                    finish_time: Some(now),
+                    time_to_first_token_ms: None,
+                    working_directory: None,
+                    model_id: LLMId::from("none"),
+                    request_cost: None,
+                    coding_model_id: LLMId::from("none"),
+                    cli_agent_model_id: LLMId::from("none"),
+                    computer_use_model_id: LLMId::from("none"),
+                    response_initiator: None,
+                });
+        });
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+        });
+        history_model.update(&mut app, |model, ctx| {
+            model.refresh_conversation_backend_without_output(conversation_id, ctx);
+        });
+
+        history_model.read(&app, |model, _| {
+            assert!(matches!(
+                model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .agent_backend(),
+                AgentBackend::Acp(_)
+            ));
         });
     });
 }
@@ -145,6 +224,101 @@ fn repeated_command_steering_reuses_the_active_cli_subtask() {
 }
 
 #[test]
+fn provider_tool_proposal_creates_exchange_for_tool_first_cli_turn() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let stream_id = ResponseStreamId::new_for_test();
+        let action_id = AIAgentActionId::from("monitor-tool-call".to_owned());
+
+        let (conversation_id, cli_task_id, action) =
+            history_model.update(&mut app, |model, ctx| {
+                let conversation_id =
+                    model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+                let root_task_id = model
+                    .conversation(&conversation_id)
+                    .expect("conversation should exist")
+                    .get_root_task_id()
+                    .clone();
+                model
+                    .update_conversation_for_new_request_input(
+                        RequestInput {
+                            conversation_id,
+                            input_messages: HashMap::from([(root_task_id, Vec::new())]),
+                            working_directory: None,
+                            model_id: LLMId::from("test-model"),
+                            coding_model_id: LLMId::from("test-coding-model"),
+                            cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                            computer_use_model_id: LLMId::from("test-computer-use-model"),
+                            shared_session_response_initiator: None,
+                            request_start_ts: Local::now(),
+                            supported_tools_override: None,
+                        },
+                        stream_id.clone(),
+                        terminal_view_id,
+                        ctx,
+                    )
+                    .expect("root response exchange should be recorded");
+                model.initialize_output_for_response_stream(
+                    &stream_id,
+                    conversation_id,
+                    terminal_view_id,
+                    warp_multi_agent_api::response_event::StreamInit {
+                        request_id: "provider-request".to_owned(),
+                        conversation_id: "provider-conversation".to_owned(),
+                        run_id: "provider-run".to_owned(),
+                    },
+                    ctx,
+                );
+                let cli_task_id = model
+                    .create_cli_subagent_task_for_conversation(
+                        BlockId::new(),
+                        conversation_id,
+                        terminal_view_id,
+                        ctx,
+                    )
+                    .expect("CLI subtask should be created");
+                let action = AIAgentAction {
+                    id: action_id.clone(),
+                    task_id: cli_task_id.clone(),
+                    action: AIAgentActionType::FileGlob {
+                        patterns: vec!["*.rs".to_owned()],
+                        path: None,
+                    },
+                    requires_result: true,
+                    tool_name: Some("file_glob".to_owned()),
+                };
+                model
+                    .apply_domain_tool_proposal(
+                        &stream_id,
+                        conversation_id,
+                        terminal_view_id,
+                        action.clone(),
+                        ctx,
+                    )
+                    .expect("tool-first CLI proposal should attach to a lazy exchange");
+                (conversation_id, cli_task_id, action)
+            });
+
+        history_model.read(&app, |model, _| {
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            let cli_task = conversation
+                .get_task(&cli_task_id)
+                .expect("CLI subtask should exist");
+            assert_eq!(cli_task.exchanges_len(), 1);
+            assert_eq!(
+                conversation.exchange_id_for_action(&action.id),
+                cli_task.last_exchange().map(|exchange| exchange.id)
+            );
+            assert!(conversation.contains_action(&action.id));
+        });
+    });
+}
+
+#[test]
 fn deactivating_cli_subtask_clears_activity_without_deleting_task() {
     App::test((), |mut app| async move {
         initialize_history_persistence_for_tests(&mut app);
@@ -188,6 +362,125 @@ fn deactivating_cli_subtask_clears_activity_without_deleting_task() {
             assert!(
                 conversation.get_task(&task_id).is_some(),
                 "deactivation must preserve the direct-provider task"
+            );
+        });
+    });
+}
+
+#[test]
+fn completed_command_assessment_survives_cli_subtask_deactivation_on_root() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let terminal_view_id = EntityId::new();
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let block_id = BlockId::new();
+        let assessment_output = "The command completed successfully.";
+
+        history_model.update(&mut app, |model, ctx| {
+            let conversation_id =
+                model.start_new_conversation(terminal_view_id, false, false, false, ctx);
+            let cli_task_id = model
+                .create_cli_subagent_task_for_conversation(
+                    block_id.clone(),
+                    conversation_id,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("CLI subtask should be created");
+
+            let monitor_exchange =
+                create_exchange_with_query("Check the command status.", Local::now(), None);
+            let monitor_exchange_id = monitor_exchange.id;
+            let conversation = model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist");
+            conversation
+                .append_task_exchange_for_test(
+                    &cli_task_id,
+                    monitor_exchange,
+                    terminal_view_id,
+                    ctx,
+                )
+                .expect("monitor exchange should be appended to the CLI task");
+
+            let now = Local::now();
+            let assessment_exchange = AIAgentExchange {
+                id: AIAgentExchangeId::new(),
+                input: vec![AIAgentInput::CommandCompletionAssessment {
+                    prompt: "Assess the completed command.".to_string(),
+                    context: Arc::from([]),
+                    completed_command: RunningCommand {
+                        command: "cargo test -p galaxy".to_string(),
+                        block_id: block_id.clone(),
+                        grid_contents: "test result: ok".to_string(),
+                        cursor: String::new(),
+                        requested_command_id: None,
+                        is_alt_screen_active: false,
+                    },
+                }],
+                output_status: AIAgentOutputStatus::Finished {
+                    finished_output: FinishedAIAgentOutput::Success {
+                        output: Shared::new(AIAgentOutput {
+                            messages: vec![AIAgentOutputMessage {
+                                id: MessageId::new("assessment-output".to_string()),
+                                message: AIAgentOutputMessageType::Text(AIAgentText {
+                                    sections: vec![AIAgentTextSection::PlainText {
+                                        text: AgentOutputText::from(assessment_output.to_string()),
+                                    }],
+                                }),
+                                citations: vec![],
+                            }],
+                            ..Default::default()
+                        }),
+                    },
+                },
+                added_message_ids: HashSet::new(),
+                start_time: now,
+                finish_time: Some(now),
+                time_to_first_token_ms: None,
+                working_directory: None,
+                model_id: LLMId::from("test-model"),
+                request_cost: None,
+                coding_model_id: LLMId::from("test-coding-model"),
+                cli_agent_model_id: LLMId::from("test-cli-agent-model"),
+                computer_use_model_id: LLMId::from("test-computer-use-model"),
+                response_initiator: None,
+            };
+            let assessment_exchange_id = assessment_exchange.id;
+            model
+                .conversation_mut(&conversation_id)
+                .expect("conversation should exist")
+                .append_root_exchange_for_test(assessment_exchange);
+
+            model
+                .deactivate_cli_subagent_task_for_conversation(&block_id, conversation_id)
+                .expect("CLI subtask should deactivate");
+
+            let conversation = model
+                .conversation(&conversation_id)
+                .expect("conversation should still exist");
+            assert!(!conversation.has_active_subagent());
+            let cli_task = conversation
+                .get_task(&cli_task_id)
+                .expect("CLI task should be retained after deactivation");
+            assert_eq!(cli_task.exchanges_len(), 1);
+            assert_eq!(
+                cli_task.last_exchange().map(|exchange| exchange.id),
+                Some(monitor_exchange_id)
+            );
+
+            let root_exchange = conversation
+                .latest_visible_exchange()
+                .expect("root assessment output should remain visible");
+            assert_eq!(root_exchange.id, assessment_exchange_id);
+            assert!(matches!(
+                root_exchange.input.as_slice(),
+                [AIAgentInput::CommandCompletionAssessment { .. }]
+            ));
+            assert!(root_exchange.input[0].display_query().is_none());
+            assert_eq!(
+                root_exchange.format_output_for_copy(None),
+                assessment_output
             );
         });
     });

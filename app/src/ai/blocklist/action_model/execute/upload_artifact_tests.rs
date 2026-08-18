@@ -62,6 +62,9 @@ fn initialize_upload_artifact_test(
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+    });
     app.add_singleton_model(|_| TemplatableMCPServerManager::default());
     app.add_singleton_model(UserWorkspaces::default_mock);
     let profiles = app.add_singleton_model(|ctx| {

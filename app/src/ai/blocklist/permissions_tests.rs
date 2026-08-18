@@ -74,6 +74,9 @@ fn initialize_permissions_test_with_mode(
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+    });
     app.add_singleton_model(|_| TemplatableMCPServerManager::default());
     let profile_model = app.add_singleton_model(|ctx| {
         AIExecutionProfilesModel::new(&LaunchMode::new_for_unit_test(), ctx)

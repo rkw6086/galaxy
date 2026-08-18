@@ -1079,6 +1079,7 @@ impl View for AIBlock {
 
         contents.add_child(output::render(
             output::Props {
+                conversation_id: self.client_ids.conversation_id,
                 model: self.model.as_ref(),
                 state_handles: &self.state_handles,
                 action_buttons: &self.action_buttons,
@@ -1375,6 +1376,7 @@ impl AIAgentInput {
                 app,
             )),
             AIAgentInput::UserQuery { .. }
+            | AIAgentInput::CommandCompletionAssessment { .. }
             | AIAgentInput::AutoCodeDiffQuery { .. }
             | AIAgentInput::ResumeConversation { .. }
             | AIAgentInput::InitProjectRules { .. }

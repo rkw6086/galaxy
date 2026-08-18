@@ -23,6 +23,7 @@ use crate::ai::agent::api::convert_from::{
     convert_user_query_mode, ConversionParams, ConvertAPIMessageToClientOutputMessage,
     MaybeAIAgentOutputMessage,
 };
+use crate::ai::agent::api::is_internal_command_completion_assessment;
 use crate::ai::agent::conversation::{
     update_todo_list_from_todo_op, AIConversation, AIConversationId, ServerAIConversationMetadata,
 };
@@ -72,6 +73,7 @@ pub fn convert_conversation_data_to_ai_conversation(
     let agent_conversation_data = match restoration_mode {
         RestorationMode::Fork => AgentConversationData {
             agent_backend: Default::default(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: usage_metadata,
             reverted_action_ids: None,
@@ -95,6 +97,7 @@ pub fn convert_conversation_data_to_ai_conversation(
         },
         RestorationMode::Continue => AgentConversationData {
             agent_backend: Default::default(),
+            active_provider_run_json: None,
             server_conversation_token: Some(
                 metadata.server_conversation_token.as_str().to_string(),
             ),
@@ -389,17 +392,21 @@ impl ConvertToExchanges for &api::Task {
 
             let added_message_as_exchange_input = match message {
                 api::message::Message::UserQuery(user_query) => {
-                    // Add user query as input
-                    current_inputs.push(AIAgentInput::UserQuery {
+                    if is_internal_command_completion_assessment(api_message) {
+                        false
+                    } else {
+                        // Add user query as input
+                        current_inputs.push(AIAgentInput::UserQuery {
                         query: user_query.query.clone(),
                         context: convert_input_context(user_query.context.as_ref()),
                         static_query_type: None,
                         referenced_attachments: HashMap::new(),
                         user_query_mode: convert_user_query_mode(user_query.mode.as_ref()),
                         running_command: None,
-                        intended_agent: Some(user_query.intended_agent()),
-                    });
-                    true
+                            intended_agent: Some(user_query.intended_agent()),
+                        });
+                        true
+                    }
                 }
                 api::message::Message::SystemQuery(query) => {
                     let Some(query_type) = &query.r#type else {

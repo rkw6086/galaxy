@@ -36,13 +36,13 @@ use crate::ai::blocklist::block::cli_controller::{
 use crate::ai::blocklist::block::view_impl::output::action_icon;
 use crate::ai::blocklist::block::view_impl::{
     render_autonomy_checkbox_setting_speedbump_footer, render_citation, render_citation_chips,
-    CONTENT_HORIZONTAL_PADDING, CONTENT_ITEM_VERTICAL_MARGIN,
 };
 use crate::ai::blocklist::block::{AIBlockAction, AutonomySettingSpeedbump};
 use crate::ai::blocklist::inline_action::inline_action_header::{
     ExpandedConfig, HeaderConfig, InteractionMode, RightClickConfig,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
+use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
     AIBlock, BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIHistoryModel,
@@ -412,19 +412,23 @@ impl RequestedCommandView {
 
         let is_finished = action_model
             .as_ref(ctx)
-            .get_action_result(&action_id)
+            .get_action_result(client_ids.conversation_id, &action_id)
             .is_some();
 
         if !is_finished {
             ctx.subscribe_to_model(action_model, |me, _, event, ctx| {
                 match event {
-                    BlocklistAIActionEvent::QueuedAction(action_id)
+                    BlocklistAIActionEvent::QueuedAction { action_id, .. }
                         if *action_id == me.action_id =>
                     {
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(action_id)
-                        if *action_id == me.action_id =>
+                    BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id
+                        && *action_id == me.action_id =>
                     {
                         if me.action_type.is_requested_command() {
                             me.ensure_editor(ctx);
@@ -432,8 +436,12 @@ impl RequestedCommandView {
                         me.set_is_header_expanded(true, ctx);
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::ExecutingAction(action_id)
-                        if *action_id == me.action_id =>
+                    BlocklistAIActionEvent::ExecutingAction {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id
+                        && *action_id == me.action_id =>
                     {
                         // For shared-session viewers, sync the command text from the action when it starts executing.
                         if me.action_model.as_ref(ctx).is_view_only() {
@@ -467,11 +475,15 @@ impl RequestedCommandView {
                         }
                         ctx.notify();
                     }
-                    BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
+                    BlocklistAIActionEvent::FinishedAction {
+                        action_id,
+                        conversation_id,
+                        ..
+                    } if *conversation_id == me.client_ids.conversation_id => {
                         let Some(action_result) = me
                             .action_model
                             .as_ref(ctx)
-                            .get_action_result(action_id)
+                            .get_action_result(me.client_ids.conversation_id, action_id)
                             .cloned()
                         else {
                             log::info!("Got finished action event without result: {action_id}.");
@@ -724,7 +736,7 @@ impl RequestedCommandView {
     fn is_waiting_for_user_confirmation(&self, app: &AppContext) -> bool {
         self.action_model
             .as_ref(app)
-            .get_action_status(&self.action_id)
+            .get_action_status(self.client_ids.conversation_id, &self.action_id)
             .is_some_and(|status| status.is_blocked())
     }
 
@@ -750,7 +762,9 @@ impl RequestedCommandView {
             let Some(mouse_state_handle) =
                 self.citation_state_handles.get(copied_citation).cloned()
             else {
-                log::warn!("Tried to retrieve mouse state handle for citation, but no mouse state handle exists.");
+                log::warn!(
+                    "Tried to retrieve mouse state handle for citation, but no mouse state handle exists."
+                );
                 return None;
             };
             render_citation(
@@ -1108,7 +1122,7 @@ impl RequestedCommandView {
         let action_status = self
             .action_model
             .as_ref(app)
-            .get_action_status(&self.action_id);
+            .get_action_status(self.client_ids.conversation_id, &self.action_id);
 
         let mut title: Cow<'static, str>;
         let mut font_override = None;
@@ -1457,7 +1471,7 @@ impl View for RequestedCommandView {
         let action_status = self
             .action_model
             .as_ref(app)
-            .get_action_status(&self.action_id);
+            .get_action_status(self.client_ids.conversation_id, &self.action_id);
 
         let is_last_output_message_in_output = self
             .block_model
@@ -1600,14 +1614,9 @@ impl View for RequestedCommandView {
             content.add_child(Clipped::new(footer).finish());
         }
 
-        let border_color = if action_status
+        let has_highlighted_border = action_status
             .as_ref()
-            .is_some_and(|status| status.is_blocked())
-        {
-            theme.accent()
-        } else {
-            theme.surface_2()
-        };
+            .is_some_and(|status| status.is_blocked());
 
         // If the requested command is expanded above a terminal block or
         // the next exchange flows directly after, remove bottom margin for
@@ -1637,21 +1646,13 @@ impl View for RequestedCommandView {
                     }))
                 && !is_input_pinned_to_top);
 
-        let container = Container::new(content.finish())
-            .with_margin_left(if action_status.is_some_and(|status| status.is_blocked()) {
-                CONTENT_HORIZONTAL_PADDING
-            } else {
-                CONTENT_HORIZONTAL_PADDING + icon_size(app) + 16.
-            })
-            .with_margin_right(CONTENT_HORIZONTAL_PADDING)
-            .with_margin_bottom(if should_remove_bottom_margin {
-                0.
-            } else {
-                CONTENT_ITEM_VERTICAL_MARGIN
-            })
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(8.)))
-            .with_border(Border::all(1.).with_border_fill(border_color))
-            .finish();
+        let container = render_tool_pane_shell(
+            content.finish(),
+            has_highlighted_border,
+            self.is_header_expanded,
+            should_remove_bottom_margin,
+            app,
+        );
 
         let mut root_stack = Stack::new();
         root_stack.add_child(container);

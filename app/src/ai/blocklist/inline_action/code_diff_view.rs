@@ -366,7 +366,7 @@ pub enum CodeDiffState {
     /// The diff is received, but is queued for interaction behind another action.
     Queued,
     /// The user is reviewing (and possibly editing) the code diff.
-    /// Unlike requested commands, a [`CodeDiffView`] is only created upon stream completion.
+    /// The view is created as soon as the requested edit is present in streaming output.
     WaitingForUser,
     /// If the payload is some, the code diff was accepted but the individual file changes have not
     /// been fully computed and saved yet. We cache the accepted diff state to collect unified diffs
@@ -695,12 +695,26 @@ impl CodeDiffView {
             session_platform,
             ctx,
         );
+        let action_id = (*action_id).clone();
 
         ctx.subscribe_to_model(
             &action_model,
             move |me, action_model, event, ctx| match event {
-                BlocklistAIActionEvent::FinishedAction { action_id, .. } if !me.is_complete() => {
-                    match action_model.as_ref(ctx).get_action_status(&me.action_id) {
+                BlocklistAIActionEvent::FinishedAction {
+                    action_id: event_action_id,
+                    conversation_id: event_conversation_id,
+                    ..
+                } if !me.is_complete()
+                    && *event_action_id == me.action_id
+                    && me.identifiers.client_conversation_id == Some(*event_conversation_id) =>
+                {
+                    let Some(conversation_id) = me.identifiers.client_conversation_id else {
+                        return;
+                    };
+                    match action_model
+                        .as_ref(ctx)
+                        .get_action_status(conversation_id, &me.action_id)
+                    {
                         Some(AIActionStatus::Blocked) => {
                             me.state = CodeDiffState::WaitingForUser;
                             ctx.notify();

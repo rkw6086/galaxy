@@ -175,30 +175,32 @@ impl OrchestrationEditState {
             self.model_id.clear();
         }
     }
+
     pub fn from_run_agents_fields(
         model_id: &str,
         harness_type: &str,
         execution_mode: &RunAgentsExecutionMode,
     ) -> Self {
-        Self {
+        let execution_mode = match execution_mode {
+            RunAgentsExecutionMode::Local | RunAgentsExecutionMode::Remote { .. } => {
+                RunAgentsExecutionMode::Local
+            }
+        };
+        let mut state = Self {
             model_id: model_id.to_string(),
             harness_type: harness_type.to_string(),
-            execution_mode: execution_mode.clone(),
+            execution_mode,
             auth_secret_selection: AuthSecretSelection::Unset,
-        }
+        };
+        state.sanitize_for_local_execution();
+        state
     }
 
     pub fn from_orchestration_config(config: &OrchestrationConfig) -> Self {
         let execution_mode = match &config.execution_mode {
-            OrchestrationExecutionMode::Local => RunAgentsExecutionMode::Local,
-            OrchestrationExecutionMode::Remote {
-                environment_id,
-                worker_host,
-            } => RunAgentsExecutionMode::Remote {
-                environment_id: environment_id.clone(),
-                worker_host: worker_host.clone(),
-                computer_use_enabled: false,
-            },
+            OrchestrationExecutionMode::Local | OrchestrationExecutionMode::Remote { .. } => {
+                RunAgentsExecutionMode::Local
+            }
         };
         let mut state = Self {
             model_id: config.model_id.clone(),
@@ -206,30 +208,17 @@ impl OrchestrationEditState {
             execution_mode,
             auth_secret_selection: AuthSecretSelection::Unset,
         };
-        if matches!(state.execution_mode, RunAgentsExecutionMode::Local) {
-            state.sanitize_for_local_execution();
-        }
+        state.sanitize_for_local_execution();
         state
     }
 
-    /// Toggle Local ↔ Cloud. Resets OpenCode to Oz when switching
-    /// to Cloud (unsupported combination).
+    /// Galaxy only supports local child agents, so any mode selection is normalized to Local.
     pub fn toggle_execution_mode_to_remote(&mut self, is_remote: bool) {
         if is_remote {
-            if self.harness_type.eq_ignore_ascii_case("opencode") {
-                self.harness_type = "oz".to_string();
-            }
-            if !self.execution_mode.is_remote() {
-                self.execution_mode = RunAgentsExecutionMode::Remote {
-                    environment_id: String::new(),
-                    worker_host: ORCHESTRATION_WARP_WORKER_HOST.to_string(),
-                    computer_use_enabled: false,
-                };
-            }
-        } else {
-            self.execution_mode = RunAgentsExecutionMode::Local;
-            self.sanitize_for_local_execution();
+            log::warn!("Ignoring remote orchestration selection because Galaxy is local-only");
         }
+        self.execution_mode = RunAgentsExecutionMode::Local;
+        self.sanitize_for_local_execution();
     }
 
     pub fn set_environment_id(&mut self, environment_id: String) {
@@ -251,27 +240,17 @@ impl OrchestrationEditState {
     }
 
     /// Returns `Some(reason)` if Accept / Apply must be disabled.
-    /// Hard blocks: OpenCode + Cloud, and product-disabled local harnesses.
     pub fn accept_disabled_reason(&self) -> Option<&'static str> {
         match &self.execution_mode {
             RunAgentsExecutionMode::Local => Harness::parse_local_child_harness(&self.harness_type)
                 .and_then(local_harness_product_disabled_message),
-            RunAgentsExecutionMode::Remote { .. }
-                if self.harness_type.eq_ignore_ascii_case("opencode") =>
-            {
-                Some(
-                    "OpenCode is not supported on Cloud yet. Switch to Local or pick a different harness.",
-                )
+            RunAgentsExecutionMode::Remote { .. } => {
+                Some("Galaxy only supports local child-agent orchestration.")
             }
-            RunAgentsExecutionMode::Remote { .. } => None,
         }
     }
 
-    /// Fills in empty fields from the approved orchestration config.
-    /// When the LLM omits harness/model/execution_mode to inherit from
-    /// the active config, the raw request arrives with defaults (empty
-    /// harness, empty model, Local mode). This resolves those to the
-    /// config values so the UI shows the intended settings.
+    /// Fills empty model and harness fields from the approved config while keeping execution local.
     pub fn resolve_from_config(&mut self, config: &OrchestrationConfig) {
         if self.harness_type.is_empty() && !config.harness_type.is_empty() {
             self.harness_type = config.harness_type.clone();
@@ -279,67 +258,24 @@ impl OrchestrationEditState {
         if self.model_id.is_empty() && !config.model_id.is_empty() {
             self.model_id = config.model_id.clone();
         }
-        if !self.execution_mode.is_remote() && config.execution_mode.is_remote() {
-            self.execution_mode = Self::from_orchestration_config(config).execution_mode;
-        }
-        if matches!(self.execution_mode, RunAgentsExecutionMode::Local) {
-            self.sanitize_for_local_execution();
-        }
+        self.execution_mode = RunAgentsExecutionMode::Local;
+        self.sanitize_for_local_execution();
     }
 
-    /// Unconditionally overrides model, harness, and execution mode
-    /// from the approved orchestration config. The plan config is the
-    /// user-approved source of truth — the LLM's run_agents call may
-    /// omit or set these differently, but the config always wins.
-    ///
-    /// `computer_use_enabled` is preserved from the current state when
-    /// both sides are Remote, since it is a per-call flag set by the LLM.
+    /// Applies the approved model and harness while keeping execution local.
     pub fn override_from_approved_config(&mut self, config: &OrchestrationConfig) {
         self.model_id = config.model_id.clone();
         self.harness_type = config.harness_type.clone();
-
-        let preserve_computer_use = match (&self.execution_mode, &config.execution_mode) {
-            (
-                RunAgentsExecutionMode::Remote {
-                    computer_use_enabled,
-                    ..
-                },
-                OrchestrationExecutionMode::Remote { .. },
-            ) => Some(*computer_use_enabled),
-            _ => None,
-        };
-
-        self.execution_mode = Self::from_orchestration_config(config).execution_mode;
-
-        if let (
-            Some(cue),
-            RunAgentsExecutionMode::Remote {
-                computer_use_enabled,
-                ..
-            },
-        ) = (preserve_computer_use, &mut self.execution_mode)
-        {
-            *computer_use_enabled = cue;
-        }
+        self.execution_mode = RunAgentsExecutionMode::Local;
+        self.sanitize_for_local_execution();
     }
 
-    /// Converts to a native `OrchestrationConfig` for storage / match.
+    /// Converts to a local-only native `OrchestrationConfig` for storage / match.
     pub fn to_orchestration_config(&self) -> OrchestrationConfig {
-        let execution_mode = match &self.execution_mode {
-            RunAgentsExecutionMode::Local => OrchestrationExecutionMode::Local,
-            RunAgentsExecutionMode::Remote {
-                environment_id,
-                worker_host,
-                ..
-            } => OrchestrationExecutionMode::Remote {
-                environment_id: environment_id.clone(),
-                worker_host: worker_host.clone(),
-            },
-        };
         OrchestrationConfig {
             model_id: self.model_id.clone(),
             harness_type: self.harness_type.clone(),
-            execution_mode,
+            execution_mode: OrchestrationExecutionMode::Local,
         }
     }
 }
@@ -360,7 +296,6 @@ pub struct OrchestrationPickerHandles<A: OrchestrationControlAction> {
     /// auth-secret types.
     pub auth_secret_picker: Option<ViewHandle<Dropdown<A>>>,
     pub local_toggle: MouseStateHandle,
-    pub cloud_toggle: MouseStateHandle,
 }
 
 impl<A: OrchestrationControlAction> Default for OrchestrationPickerHandles<A> {
@@ -372,7 +307,6 @@ impl<A: OrchestrationControlAction> Default for OrchestrationPickerHandles<A> {
             host_picker: None,
             auth_secret_picker: None,
             local_toggle: MouseStateHandle::default(),
-            cloud_toggle: MouseStateHandle::default(),
         }
     }
 }
@@ -1805,7 +1739,6 @@ impl Element for AdaptivePickerRow {
 // ── Render helpers ──────────────────────────────────────────────────
 
 pub fn render_mode_toggle<A: OrchestrationControlAction>(
-    is_remote: bool,
     handles: &OrchestrationPickerHandles<A>,
     appearance: &Appearance,
     active_segment_bg: Option<Fill>,
@@ -1822,17 +1755,9 @@ pub fn render_mode_toggle<A: OrchestrationControlAction>(
 
     let local_segment = render_segment_button::<A>(
         "Local",
-        !is_remote,
+        true,
         A::execution_mode_toggled(false),
         handles.local_toggle.clone(),
-        appearance,
-        active_segment_bg,
-    );
-    let cloud_segment = render_segment_button::<A>(
-        "Cloud",
-        is_remote,
-        A::execution_mode_toggled(true),
-        handles.cloud_toggle.clone(),
         appearance,
         active_segment_bg,
     );
@@ -1842,7 +1767,6 @@ pub fn render_mode_toggle<A: OrchestrationControlAction>(
         .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
         .with_main_axis_alignment(MainAxisAlignment::Start)
         .with_main_axis_size(MainAxisSize::Max)
-        .with_child(Expanded::new(1.0, cloud_segment).finish())
         .with_child(Expanded::new(1.0, local_segment).finish())
         .finish();
     let segmented_control = Container::new(segments_row)

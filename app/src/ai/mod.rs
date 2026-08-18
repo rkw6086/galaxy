@@ -24,6 +24,8 @@ pub mod bedrock;
 pub(crate) mod bedrock_credentials;
 pub(crate) mod block_context;
 pub(crate) mod blocklist;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod chatgpt_auth;
 #[cfg(any(feature = "local_fs", not(target_family = "wasm")))]
 pub(crate) mod codebase_auto_indexing;
 pub mod control_code_parser;
@@ -53,9 +55,13 @@ pub mod provider;
 #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
 pub(crate) mod remote_agent_context;
 pub(crate) mod remote_context_files;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod remote_logging;
 pub mod request_usage_model;
 pub(crate) mod restored_conversations;
+pub(crate) mod runtime;
 pub(crate) mod skills;
+pub(crate) mod tool_diagnostics;
 pub(crate) mod voice;
 pub use agent_tips::*;
 use galaxyui::AppContext;
@@ -79,6 +85,8 @@ pub(crate) use ai::paths;
 pub fn init(app: &mut AppContext) {
     #[cfg(not(target_family = "wasm"))]
     app.add_singleton_model(acp::AcpRuntimeModel::new);
+    #[cfg(not(target_family = "wasm"))]
+    app.add_singleton_model(|_| chatgpt_auth::ChatGPTAuthModel::new());
     blocklist::keyboard_navigable_buttons::init(app);
     blocklist::block::number_shortcut_buttons::init(app);
     blocklist::toggleable_items::init(app);

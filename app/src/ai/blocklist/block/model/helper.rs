@@ -149,7 +149,11 @@ impl<T: ?Sized + AIBlockModel> AIBlockModelHelper for T {
         let output = output.get();
         output.messages.iter().find_map(|message| {
             if let AIAgentOutputMessageType::Action(action) = &message.message {
-                if let Some(status) = action_model.as_ref(app).get_action_status(&action.id) {
+                if let Some(status) = self.conversation_id(app).and_then(|conversation_id| {
+                    action_model
+                        .as_ref(app)
+                        .get_action_status(conversation_id, &action.id)
+                }) {
                     return status.is_blocked().then_some(action.clone());
                 }
             }

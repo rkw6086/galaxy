@@ -14,13 +14,14 @@ pub use convert_from::{
     MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError,
 };
 use futures_lite::Stream;
+use galaxy_agent_core::ToolResult;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::{AppContext, EntityId, SingletonEntity as _};
 use mcp::TemplatableMCPServerInfo;
-pub use r#impl::generate_multi_agent_output;
+pub(crate) use r#impl::prepare_direct_provider_params;
 use serde::Serialize;
 
 use super::{AIAgentInput, MCPContext, MCPServer, RequestMetadata, Suggestions};
@@ -35,6 +36,21 @@ use crate::server::server_api::AIApiError;
 use crate::settings::AISettings;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::workspaces::user_workspaces::UserWorkspaces;
+
+const INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA: &str =
+    "galaxy:internal-command-completion-assessment:v1";
+
+pub(crate) fn mark_internal_command_completion_assessment(
+    message: &mut warp_multi_agent_api::Message,
+) {
+    message.server_message_data = INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA.to_string();
+}
+
+pub(crate) fn is_internal_command_completion_assessment(
+    message: &warp_multi_agent_api::Message,
+) -> bool {
+    message.server_message_data == INTERNAL_COMMAND_COMPLETION_ASSESSMENT_MESSAGE_DATA
+}
 
 /// Unique, server-generated conversation-scoped token to be roundtripped to the API when sending
 /// requests that follow-up within a given conversation.
@@ -96,6 +112,8 @@ pub struct RequestParams {
     /// locally so ACP-provided Galaxy tools can be pinned to the exact pane.
     pub terminal_view_id: Option<EntityId>,
     pub input: Vec<AIAgentInput>,
+    /// Normalized action results appended to direct-provider run history.
+    pub tool_results: Vec<ToolResult>,
     pub conversation_token: Option<ServerConversationToken>,
     pub forked_from_conversation_token: Option<ServerConversationToken>,
     pub ambient_agent_task_id: Option<AmbientAgentTaskId>,
@@ -133,43 +151,54 @@ pub struct RequestParams {
     pub research_agent_enabled: bool,
     pub orchestration_enabled: bool,
     pub supported_tools_override: Option<Vec<warp_multi_agent_api::ToolType>>,
-    /// The root task ID for the conversation — needed for direct Bedrock streaming
-    /// since optimistic tasks don't appear in the proto task_context.
+    /// The root task ID used to anchor direct-provider projection when optimistic tasks are not
+    /// present in the proto task context.
     pub root_task_id: Option<String>,
     /// The conversation ID of the parent agent that spawned this child agent, if any.
     pub parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
     pub agent_name: Option<String>,
-    /// Full Bedrock conversation history for direct Bedrock calls.
-    /// When present, the Bedrock path uses this instead of extracting from task_context.
-    pub bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    /// Provider-neutral conversation history for direct model calls.
+    pub message_history: Vec<crate::ai::provider::types::ConversationMessage>,
     /// Progressive summary of older conversation history. Prepended as the first
-    /// message pair in the messages array sent to Bedrock.
-    pub bedrock_progressive_summary: Option<String>,
+    /// message pair in the messages array sent to the model.
+    pub progressive_summary: Option<String>,
     /// Archived tool_use/tool_result pairs from previous summarization drains.
-    /// Passed to the Bedrock translator so `recall_tool_history` can search archived
-    /// results even after they've been summarized away from live history.
-    pub bedrock_tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
-    /// Populated by the Bedrock path after building the message list.
-    /// Contains the full messages sent (old history + new input) so the controller
-    /// can store them back into the conversation for the next request cycle.
-    pub bedrock_messages_sent:
-        std::sync::Arc<std::sync::Mutex<Vec<crate::ai::bedrock::convert::ConversationMessage>>>,
+    /// Kept separately so `recall_tool_history` can search archived results even after
+    /// they've been summarized away from live history.
+    pub tool_result_archive: Vec<crate::ai::provider::types::ConversationMessage>,
+    /// Populated while preparing a direct-provider run with the durable transcript that the
+    /// controller persists for restoration and future turns.
+    pub messages_sent:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::ai::provider::types::ConversationMessage>>>,
     /// Global rules (name, content) from the local CloudModel (AIFact/AIMemory).
     /// Injected into the system prompt when `is_memory_enabled` is true.
     pub global_rules: Vec<(String, String)>,
 }
 
-pub type Event = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
+/// Response event projected into the local conversation controller.
+#[derive(Debug)]
+pub enum StreamEvent {
+    Response(warp_multi_agent_api::ResponseEvent),
+}
+
+pub type Event = Result<StreamEvent, Arc<AIApiError>>;
+pub type LegacyEvent = Result<warp_multi_agent_api::ResponseEvent, Arc<AIApiError>>;
 
 #[cfg(not(target_family = "wasm"))]
 pub type ResponseStream = Pin<Box<dyn Stream<Item = Event> + Send + 'static>>;
+
+#[cfg(not(target_family = "wasm"))]
+pub type LegacyResponseStream = Pin<Box<dyn Stream<Item = LegacyEvent> + Send + 'static>>;
 
 // The WASM version of this type has no bound on `Send`, which is an unnecessary bound when
 // targeting wasm because the browser is single-threaded (and we don't leverage WebWorkers for async
 // execution in WoW).
 #[cfg(target_family = "wasm")]
 pub type ResponseStream = Pin<Box<dyn Stream<Item = Event>>>;
+
+#[cfg(target_family = "wasm")]
+pub type LegacyResponseStream = Pin<Box<dyn Stream<Item = LegacyEvent>>>;
 
 #[derive(Debug, Clone)]
 pub struct ConversationData {
@@ -187,6 +216,7 @@ impl RequestParams {
         Self {
             terminal_view_id: None,
             input: vec![],
+            tool_results: vec![],
             conversation_token: None,
             forked_from_conversation_token: None,
             ambient_agent_task_id: None,
@@ -218,10 +248,10 @@ impl RequestParams {
             parent_agent_id: None,
             agent_name: None,
             root_task_id: None,
-            bedrock_message_history: vec![],
-            bedrock_progressive_summary: None,
-            bedrock_tool_result_archive: vec![],
-            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+            message_history: vec![],
+            progressive_summary: None,
+            tool_result_archive: vec![],
+            messages_sent: std::sync::Arc::new(std::sync::Mutex::new(vec![])),
             global_rules: vec![],
         }
     }
@@ -391,6 +421,7 @@ impl RequestParams {
         Self {
             terminal_view_id,
             input: request_input.all_inputs().cloned().collect(),
+            tool_results: Vec::new(),
             conversation_token: conversation.server_conversation_token,
             forked_from_conversation_token: conversation.forked_from_conversation_token,
             ambient_agent_task_id: conversation.ambient_agent_task_id,
@@ -426,10 +457,10 @@ impl RequestParams {
                 .map(|id| id.to_string()),
             parent_agent_id: None,
             agent_name: None,
-            bedrock_message_history: Vec::new(),
-            bedrock_progressive_summary: None,
-            bedrock_tool_result_archive: Vec::new(),
-            bedrock_messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            message_history: Vec::new(),
+            progressive_summary: None,
+            tool_result_archive: Vec::new(),
+            messages_sent: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             global_rules: if is_memory_enabled {
                 Self::load_global_rules(app)
             } else {

@@ -49,6 +49,7 @@ use crate::util::openable_file_type::FileTarget;
 use crate::util::openable_file_type::{
     is_markdown_file, resolve_file_target_with_editor_choice, EditorLayout,
 };
+use crate::workspace::delete_conversation_confirmation_dialog::DeleteConversationTarget;
 use crate::workspace::view::conversation_list::view::{
     ConversationListView, Event as ConversationListViewEvent,
 };
@@ -96,6 +97,9 @@ pub enum LeftPanelEvent {
         conversation_id: AIConversationId,
         conversation_title: String,
         terminal_view_id: Option<galaxyui::EntityId>,
+    },
+    ShowBulkDeleteConfirmationDialog {
+        conversations: Vec<DeleteConversationTarget>,
     },
 }
 
@@ -234,6 +238,11 @@ impl LeftPanelView {
                     conversation_id: *conversation_id,
                     conversation_title: conversation_title.clone(),
                     terminal_view_id: *terminal_view_id,
+                });
+            }
+            ConversationListViewEvent::ShowBulkDeleteConfirmationDialog { conversations } => {
+                ctx.emit(LeftPanelEvent::ShowBulkDeleteConfirmationDialog {
+                    conversations: conversations.clone(),
                 });
             }
         });

@@ -237,8 +237,8 @@ impl GrepExecutor {
         else {
             return ActionExecution::InvalidAction;
         };
-        log::info!(
-            "[tool-debug] GrepExecutor::execute: queries={:?}, path={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "GrepExecutor::execute: queries={:?}, path={:?}",
             queries,
             path
         );

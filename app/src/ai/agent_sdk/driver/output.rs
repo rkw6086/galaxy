@@ -26,6 +26,7 @@ pub mod text {
     pub fn format_input<W: Write>(input: &AIAgentInput, w: &mut W) -> io::Result<()> {
         match input {
             AIAgentInput::UserQuery { .. }
+            | AIAgentInput::CommandCompletionAssessment { .. }
             | AIAgentInput::AutoCodeDiffQuery { .. }
             | AIAgentInput::CreateNewProject { .. }
             | AIAgentInput::CloneRepository { .. }
@@ -59,6 +60,9 @@ pub mod text {
                     }
                     RequestCommandOutputResult::CancelledBeforeExecution => {
                         writeln!(w, "{CANCELLED_MESSAGE}")
+                    }
+                    RequestCommandOutputResult::ExecutionError { command, message } => {
+                        writeln!(w, "Command `{command}` was not executed: {message}")
                     }
                     RequestCommandOutputResult::Denylisted { .. } => {
                         writeln!(
@@ -432,6 +436,12 @@ pub mod text {
                     AIAgentActionType::RunAgents(_) => (),
                     AIAgentActionType::WaitForEvents { .. } => (),
                 },
+                AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                    writeln!(w, "{}", activity.title)?;
+                    if let Some(output) = &activity.output {
+                        writeln!(w, "{output}")?;
+                    }
+                }
                 AIAgentOutputMessageType::TodoOperation(operation) => match operation {
                     TodoOperation::UpdateTodos { todos } => {
                         writeln!(w, "Updated TODO list:")?;
@@ -779,6 +789,7 @@ pub mod json {
             match input {
                 // Do not include the user query, since it's already provided as input to the agent.
                 AIAgentInput::UserQuery { .. }
+                | AIAgentInput::CommandCompletionAssessment { .. }
                 | AIAgentInput::AutoCodeDiffQuery { .. }
                 | AIAgentInput::CreateNewProject { .. }
                 | AIAgentInput::CloneRepository { .. }
@@ -820,6 +831,11 @@ pub mod json {
                     }
                     RequestCommandOutputResult::CancelledBeforeExecution => {
                         Some(JsonMessage::ToolCanceled)
+                    }
+                    RequestCommandOutputResult::ExecutionError { message, .. } => {
+                        Some(JsonMessage::ToolError {
+                            error: Cow::Borrowed(message),
+                        })
                     }
                     RequestCommandOutputResult::Denylisted { .. } => Some(JsonMessage::ToolError {
                         error: Cow::Borrowed(
@@ -1144,7 +1160,8 @@ pub mod json {
                     })
                 }
                 AIAgentOutputMessageType::MessagesReceivedFromAgents { .. }
-                | AIAgentOutputMessageType::EventsFromAgents { .. } => None,
+                | AIAgentOutputMessageType::EventsFromAgents { .. }
+                | AIAgentOutputMessageType::RuntimeActivity(_) => None,
             }
         }
     }

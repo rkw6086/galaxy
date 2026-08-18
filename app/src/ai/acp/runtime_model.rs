@@ -86,17 +86,12 @@ impl AcpRuntimeModel {
         Ok(manager)
     }
 
-    pub(crate) fn discovery_config(settings: &AISettings) -> Result<AcpManagerConfig, String> {
-        let agent_id = if settings.acp_agent_id.value().trim().is_empty() {
-            "codex"
-        } else {
-            settings.acp_agent_id.value().trim()
-        };
-        let launch = crate::ai::acp::resolve_acp_launch(
-            agent_id,
-            settings.acp_agent_command.value(),
-            settings.acp_agent_args.value(),
-        )?;
+    pub(crate) fn discovery_config_for_values(
+        agent_id: &str,
+        command: &str,
+        args: &[String],
+    ) -> Result<AcpManagerConfig, String> {
+        let launch = crate::ai::acp::resolve_acp_launch(agent_id, command, args)?;
         Ok(AcpManagerConfig::new(launch))
     }
 
@@ -164,10 +159,8 @@ impl AcpRuntimeModel {
     ) -> BTreeMap<String, serde_json::Value> {
         options
             .iter()
-            .filter_map(|option| {
-                (!option.current_value.is_null())
-                    .then(|| (option.id.clone(), option.current_value.clone()))
-            })
+            .filter(|option| !option.current_value.is_null())
+            .map(|option| (option.id.clone(), option.current_value.clone()))
             .collect()
     }
 

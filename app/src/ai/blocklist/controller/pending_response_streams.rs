@@ -52,11 +52,15 @@ impl PendingResponseStreams {
             .collect()
     }
 
-    /// Attempts to inject a plain-text follow-up into the active ACP turn.
+    pub fn has_stream(&self, stream_id: &ResponseStreamId) -> bool {
+        self.streams.contains_key(stream_id)
+    }
+
+    /// Attempts to inject a plain-text follow-up into an active steerable runtime.
     ///
     /// Returning `None` leaves the caller free to use the normal
     /// cancel-and-queue path without dropping the user's message.
-    pub fn try_steer_acp_stream_for_conversation(
+    pub fn try_steer_runtime_for_conversation(
         &self,
         conversation_id: AIConversationId,
         display_text: String,
@@ -71,7 +75,7 @@ impl PendingResponseStreams {
         let model_id = stream.as_ref(app).llm_id().clone();
         stream
             .as_ref(app)
-            .try_steer_acp(display_text)
+            .try_steer_runtime(display_text)
             .then(|| (stream_id.clone(), model_id))
     }
 
@@ -84,6 +88,14 @@ impl PendingResponseStreams {
         ctx: &mut ModelContext<BlocklistAIController>,
     ) {
         self.try_cancel_streams_for_conversation(conversation_id, reason, ctx);
+        self.streams.insert(stream_id, stream);
+    }
+
+    pub fn register_additional_stream(
+        &mut self,
+        stream_id: ResponseStreamId,
+        stream: ModelHandle<ResponseStream>,
+    ) {
         self.streams.insert(stream_id, stream);
     }
 
@@ -136,11 +148,13 @@ impl PendingResponseStreams {
             false
         } else {
             for response_stream in streams_to_cancel.into_iter() {
-                log::info!(
+                crate::ai::tool_diagnostics::tool_debug!(
                     "Canceling active stream for conversation_id={conversation_id:?}, \
-                     reason={reason}, backtrace=\n{}",
-                    std::backtrace::Backtrace::force_capture()
+                     reason={reason}"
                 );
+                if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
+                    log::debug!("Active stream cancellation backtrace:\n{backtrace}");
+                }
                 response_stream.update(ctx, |stream, ctx| {
                     stream.cancel(reason, conversation_id, ctx)
                 });

@@ -16,16 +16,18 @@ use warp_multi_agent_api as api;
 use crate::ai::agent::api::convert_conversation::{
     convert_input_context, convert_tool_call_result_to_input,
 };
+use crate::ai::agent::api::is_internal_command_completion_assessment;
 use crate::ai::agent::comment::CodeReview;
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::util::parse_markdown_into_text_and_code_sections;
 use crate::ai::agent::{
-    AIAgentAction, AIAgentActionType, AIAgentAttachment, AIAgentCitation, AIAgentInput,
-    AIAgentOutputMessage, AIAgentText, AIAgentTodo, ArtifactCreatedData, CloneRepositoryURL,
-    MessageId, RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest,
-    StartAgentExecutionMode, SubagentCall, SubagentType, SuggestedAgentModeWorkflow, SuggestedRule,
-    Suggestions, SummarizationType, TodoOperation, UserQueryMode, WebFetchStatus, WebSearchStatus,
+    runtime_activity, AIAgentAction, AIAgentActionType, AIAgentAttachment, AIAgentCitation,
+    AIAgentInput, AIAgentOutputMessage, AIAgentText, AIAgentTodo, ArtifactCreatedData,
+    CloneRepositoryURL, MessageId, RunAgentsAgentRunConfig, RunAgentsExecutionMode,
+    RunAgentsRequest, StartAgentExecutionMode, SubagentCall, SubagentType,
+    SuggestedAgentModeWorkflow, SuggestedRule, Suggestions, SummarizationType, TodoOperation,
+    UserQueryMode, WebFetchStatus, WebSearchStatus,
 };
 use crate::ai::artifact_download::sanitized_basename;
 use crate::ai::document::ai_document_model::{AIDocumentId, AIDocumentVersion};
@@ -272,10 +274,18 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
             .collect::<Result<Vec<AIAgentCitation>, UnknownCitationTypeError>>()?;
 
         match message {
-            api::message::Message::AgentOutput(output) => Ok(MaybeAIAgentOutputMessage::Message(
-                AIAgentOutputMessage::text(MessageId::new(self.id), output.into())
-                    .with_citations(citations),
-            )),
+            api::message::Message::AgentOutput(output) => {
+                let message = if let Some(activity) =
+                    runtime_activity::decode(&self.server_message_data)
+                {
+                    AIAgentOutputMessage::runtime_activity(MessageId::new(self.id), activity)
+                } else {
+                    AIAgentOutputMessage::text(MessageId::new(self.id), output.into())
+                };
+                Ok(MaybeAIAgentOutputMessage::Message(
+                    message.with_citations(citations),
+                ))
+            }
             api::message::Message::AgentReasoning(reasoning) => {
                 let duration = reasoning
                     .finished_duration
@@ -948,6 +958,9 @@ pub fn user_inputs_from_messages(messages: &[api::Message]) -> Vec<AIAgentInput>
         let Some(inner) = &m.message else { continue };
         match inner {
             api::message::Message::UserQuery(uq) => {
+                if is_internal_command_completion_assessment(m) {
+                    continue;
+                }
                 let context = convert_input_context(uq.context.as_ref());
                 let referenced_attachments = uq
                     .referenced_attachments

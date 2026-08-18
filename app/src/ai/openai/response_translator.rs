@@ -3,14 +3,15 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use futures::Stream;
+use galaxy_agent_core::{recall_tool_history, ToolHistoryQuery};
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
-use crate::ai::agent::api::Event;
+use crate::ai::agent::api::LegacyEvent;
 use crate::ai::bedrock::response_translator::{
-    build_create_task, build_stream_init, context_window_for_model, recall_from_history,
+    build_create_task, build_stream_init, context_window_for_model,
 };
 use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use crate::server::server_api::AIApiError;
@@ -33,20 +34,20 @@ pub struct OpenAIStreamContext {
     pub tool_result_archive: Vec<ConversationMessage>,
 }
 
-struct StreamUsage {
-    input_tokens: i32,
-    output_tokens: i32,
-    cache_read_tokens: i32,
-    cache_write_tokens: i32,
-    cost_in_cents: f32,
-    model_id: String,
-    max_context_tokens: Option<u32>,
+pub(crate) struct StreamUsage {
+    pub(crate) input_tokens: i32,
+    pub(crate) output_tokens: i32,
+    pub(crate) cache_read_tokens: i32,
+    pub(crate) cache_write_tokens: i32,
+    pub(crate) cost_in_cents: f32,
+    pub(crate) model_id: String,
+    pub(crate) max_context_tokens: Option<u32>,
 }
 
 pub fn openai_stream_to_response_events(
     byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
     context: OpenAIStreamContext,
-) -> BoxStream<'static, Event> {
+) -> BoxStream<'static, LegacyEvent> {
     use futures::StreamExt;
 
     let OpenAIStreamContext {
@@ -276,13 +277,15 @@ pub fn openai_stream_to_response_events(
                     .and_then(|value| value.as_u64())
                     .unwrap_or(0) as usize;
                 let recall_result = match messages_sent.lock() {
-                    Ok(sent) => recall_from_history(
+                    Ok(sent) => recall_tool_history(
                         &sent,
                         &tool_result_archive,
-                        search_query,
-                        tool_name_filter,
-                        tool_use_id,
-                        offset,
+                        ToolHistoryQuery {
+                            search_query,
+                            tool_name: tool_name_filter,
+                            tool_use_id,
+                            offset_from_end: offset,
+                        },
                     ),
                     Err(_) => "Error: could not access conversation history.".to_string(),
                 };
@@ -533,7 +536,10 @@ fn build_tool_call_message(
     )
 }
 
-fn build_stream_finished(reason: stream_finished::Reason, usage: StreamUsage) -> ResponseEvent {
+pub(crate) fn build_stream_finished(
+    reason: stream_finished::Reason,
+    usage: StreamUsage,
+) -> ResponseEvent {
     let StreamUsage {
         input_tokens,
         output_tokens,
@@ -673,6 +679,8 @@ const KNOWN_TOOLS: &[&str] = &[
     "read_documents",
     "create_documents",
     "edit_documents",
+    "run_agents",
+    "wait_for_events",
     "start_agent",
     "ask_user_question",
     "read_skill",

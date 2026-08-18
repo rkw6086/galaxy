@@ -40,39 +40,54 @@ Environment variables:
 - Set `GALAXY_BEDROCK_DIAGNOSTICS=1` to enable Bedrock diagnostic output, including:
   - `Error_<timestamp>.txt` snapshot files written to the repository root on request/stream failures (includes the serialized Bedrock context window, tool definitions, protobuf request debug payload, captured Bedrock diagnostic lines, and log tails)
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
+- Set `GALAXY_TOOL_DIAGNOSTICS=1` to enable verbose local tool queue/execution debug logs and cancellation backtraces. These diagnostics are disabled during routine operation.
 
 ### AI Provider Architecture
 
-Galaxy supports multiple AI backends via a **provider dispatch pattern**. Provider selection
-is controlled by settings (`ai.openai.enabled` takes priority over `ai.bedrock.enabled`).
+Galaxy supports session-owned ACP backends and direct model providers. Direct-provider selection is
+controlled by settings (`ai.openai.enabled` takes priority over `ai.bedrock.enabled`), but provider
+configuration never selects lifecycle ownership.
 
 ```
-Provider dispatch: response_stream.rs → resolve_provider_config() → ProviderConfig enum
-                                       ↓ Bedrock          ↓ OpenAI
-                              bedrock/translator.rs    openai/translator.rs
+Direct provider: controller.rs → prepare_provider_run() → ProviderRunCoordinator
+                                                        ↓ one model call per turn
+                                                 AgentRuntime implementation
+                                                        ↓ tool batch
+                                                 correlated action execution
+                                                        ↓ committed results
+                                                   next ProviderRun turn
+
+ACP: controller.rs → ResponseStream → acp_output_stream (session-owned lifecycle)
 ```
 
-**Shared types** in `app/src/ai/provider/`:
+**Durable direct-provider run**:
+- `crates/galaxy_agent_core/src/provider_run.rs` — Serializable `ProviderRun` state machine, run/epoch identity, bounded model retries, ordered tool batches, cancellation, and terminal outcomes
+- `app/src/ai/runtime/provider_run_coordinator.rs` — Drives one-turn `AgentRuntime` calls, validates model events, projects output, and commits exact tool lifecycle events
+- `app/src/ai/runtime/rig.rs` — Builds base/CLI request profiles and resolves the configured one-turn runtime; it does not own follow-through
+- `app/src/ai/runtime/rig_request.rs` — Converts controller request state into provider-neutral `TurnRequest` history, tools, prompts, and MCP aliases
+- `app/src/ai/runtime/event_translator.rs` — Projects provider-neutral runtime events into Warp response events for UI/history compatibility
+- `app/src/ai/blocklist/controller.rs` — Retains active runs, correlates actions by `(conversation_id, run_id, epoch, call_id)`, monitors commands, persists checkpoints, and restores interrupted runs
+- `app/src/ai/blocklist/controller/response_stream.rs` — Owns ACP transport and shared UI/history projection only; it must not drive direct-provider retries or follow-up turns
+
+**Shared provider types** in `app/src/ai/provider/`:
 - `types.rs` — `ConversationMessage`, `MessageRole`, `MessageContent`, `ContentPart`, `ToolDefinition`
 - `mod.rs` — `ProviderConfig` enum (Bedrock | OpenAI | None)
 
 **Bedrock provider** in `app/src/ai/bedrock/`:
-- `translator.rs` — Orchestrator: takes `api::Request` + config, returns `ResponseStream`
-- `request_translator.rs` — Converts Warp proto → Bedrock SDK types (messages, system prompt, tools, sanitization)
-- `response_translator.rs` — Converts Bedrock stream events → Warp proto `ResponseEvent`s
-- `convert.rs` — Re-exports shared types + Bedrock SDK type builders
-- `client.rs` — AWS SDK client construction and `converse_stream` call
+- `runtime.rs` — Native one-call `AgentRuntime` over `ConverseStream`, including cancellation, reasoning signatures, token usage, and stop/error classification
+- `request_translator.rs` — Shared Bedrock message sanitization and tool definitions
+- `response_translator.rs` — Compatibility conversion helpers used by tests and background flows
+- `convert.rs` — Bedrock request construction and prompt-caching behavior
+- `client.rs` — AWS SDK client construction, runtime creation, and independent background streaming calls
 - `models.rs` — Model registry and cross-region inference prefix logic
 - `discovery.rs` — AWS profile listing and model discovery (STS identity check + ListFoundationModels)
 - `diagnostic.rs` — Debug logging (enabled via `GALAXY_BEDROCK_DIAGNOSTICS=1`)
 - `external_config.rs` — Fallback config from Claude Code/OpenCode settings
 
-**OpenAI/LiteLLM provider** in `app/src/ai/openai/`:
-- `translator.rs` — Orchestrator: same pattern as Bedrock, targets OpenAI chat completions API
-- `client.rs` — `reqwest`-based HTTP client for `POST /v1/chat/completions` with streaming
-- `convert.rs` — `ConversationMessage` → OpenAI JSON format (system/user/assistant/tool roles, function calling)
-- `request_translator.rs` — OpenAI-specific message sanitization (lighter than Bedrock's strict alternation rules)
-- `response_translator.rs` — SSE stream parser → Warp proto `ResponseEvent`s
+**OpenAI-compatible providers**:
+- Direct turns use one-call runtimes from `galaxy_agent_rig` selected in `app/src/ai/runtime/rig.rs` for OpenAI/LiteLLM, ChatGPT subscription, Anthropic, Gemini, and Vertex AI
+- `app/src/ai/openai/request_translator.rs` sanitizes provider-neutral history for OpenAI-compatible APIs
+- `app/src/ai/openai/client.rs`, `convert.rs`, and `response_translator.rs` remain compatibility/background transport helpers, not lifecycle owners
 
 **Provider settings** (in settings TOML):
 - `ai.bedrock.enabled` — Use AWS Bedrock directly (default: true)
@@ -117,17 +132,38 @@ context_size = 128000
 - Provider name shown as the description label in the model picker; icon shows OpenAI logo for all OpenAI-compatible providers
 
 Key invariants:
-- Known tools are in `KNOWN_TOOLS` constant in `response_translator.rs`
-- Tool definitions are built via `tool_definition_for_name()` in `convert_request.rs`; includes `recall_tool_history` for retrieving past tool results
-- Unknown/hallucinated tool calls are caught in the stream, paired with synthetic error results, and now emit a visible `AgentOutput` text message to the UI
-- `recall_tool_history` is handled inline in the response translator (synthetic result from `messages_sent`)
-- Tool result archive: before progressive summarization drains messages, `ConversationMessage::archive_tool_results()` extracts all tool_use/tool_result pairs into a separate `tool_result_archive` vec. `recall_tool_history` searches both live history + archived results, and supports a `tool_use_id` parameter for exact ID lookup
-- Prompt caching uses three cache points: system prompt, conversation history (second-to-last message), tool config
+- Every direct-provider `AgentRuntime::start_turn` performs exactly one model call; only `ProviderRun` may schedule another turn or retry
+- Direct-provider model calls allow 120 seconds for stream startup and 300 seconds between stream events; either timeout is a recoverable transport failure that enters the existing bounded retry lifecycle with the same work identity
+- Direct-provider remote telemetry records requested, started, retry-scheduled, and finished model-turn phases with explicit `llm_finished` state; root `provider_run_finished` records distinguish clean completion from failure or cancellation and mark the response stream terminal
+- `use_rig` and provider selection may choose request/transport details but must never choose lifecycle ownership
+- Direct-provider output may be projected through `ResponseStream`, but provider progress must not depend on response-stream result draining or `AfterStreamFinished`
+- Direct-provider `RequestFileEdits` views must register from streaming output before provider-run completion; preprocessing results must survive delayed view registration, and `NotReady` retries must remain automatic rather than emitting a synthetic user permission decision
+- A clean direct-provider `ProviderRunOutcome::Completed` explicitly finalizes the conversation as `Success` after terminal output projection, even if earlier turns added tool actions; child-completion waits rely on that status
+- Provider actions and results must correlate by `(conversation_id, run_id, epoch, call_id)`; stale or duplicate callbacks must not advance a run
+- Action status/result lookups and archived results are keyed by `(conversation_id, action_id)`; callers must supply the owning conversation and must not fall back to a global action-ID search
+- Action blocked/executing/finished events carry `conversation_id`; UI subscribers must match it, and CLI shell-control mutations must also match the active block's requested-command action ID
+- Active provider runs must checkpoint before external work, persist without credentials, validate deserialized run invariants before normalization or runtime construction, normalize unsafe restored states, and reconcile command state before continuing; cancellation intent stays checkpointed until the terminal outcome is projected and `finish_active_provider_run` performs cleanup
+- A restored `AwaitingModel` checkpoint has an uncertain remote outcome and must terminate as an explicit restore failure rather than replaying the call; known recoverable failures observed in-process retain the bounded model-retry lifecycle
+- Same-conversation direct-provider follow-ups queue behind the cancelling generation; the old run keeps the active slot until terminal projection and cleanup, queued intent is checkpointed without credentials for restart recovery, and queued-only restore validates provider ownership and terminalizes the abandoned unprepared exchange from its persisted projection/stream identity before starting the successor; the next generation rebuilds provider history after cleanup so it includes the old generation's final committed output, and stale callbacks are ignored by stream identity
+- Known tools are in `KNOWN_TOOLS` in `response_translator.rs`; definitions are built by `tool_definition_for_name()` in `convert_request.rs`
+- Direct-provider normal and plan turns must advertise `read_plan`, `create_plan`, and `edit_plan` when the matching document capabilities are enabled; plan-creation requests should call `create_plan` after research rather than only returning prose
+- Unknown or invalid tool calls receive one correlated synthetic error result and a visible `AgentOutput` message; the durable run owns any continuation
+- `recall_tool_history` is an inline completed tool batch. `ProviderRun` commits its synthetic result and starts a bounded next turn without routing it through client action execution
+- `recall_tool_history` excludes earlier calls to itself; archived tool results remain searchable by query or exact `tool_use_id`
+- Before progressive summarization drains messages, `ConversationMessage::archive_tool_results()` moves tool-use/result pairs into `tool_result_archive`
+- Bedrock prompt caching uses three cache points: system prompt, second-to-last history message, and tool configuration
 - `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`
-- `inject_input_messages_into_task()` and `extract_user_query_text()` ensure user queries persist for session restore
-- The stream emits a `UserQuery` proto message at the start of each response for conversation title
-- Progressive summary (if present) is prepended to the messages array as a user/assistant pair in `translator.rs`
-- Loop prevention guardrail in `controller.rs` detects repeated tool failures (3+ identical) and injects corrective instructions
+- Progressive summaries are prepended to provider requests as a user/assistant pair; background summarization remains independent of the active provider run
+- Loop prevention in `controller.rs` detects repeated tool failures (3+ identical) and injects a corrective instruction
+- Direct-provider long-running shell follow-ups retain CLI tasks as UI projections while command monitoring and completion stay owned by the same provider run
+- A direct-provider command completion is only queued when the terminal reports it; the CLI task remains active until the provider run applies that completion at a safe boundary and deactivates it
+- Provider command ownership is resolved from the active slot or its durable snapshot by block/action identity; completion arriving during restore is persisted into that snapshot and must never fall back to the legacy assessment path
+- Direct-provider completed-command assessments are hidden, tool-free root-task turns whose output and hidden input survive CLI-task deactivation and restoration
+- ACP remains a separate session-owned runtime; direct-provider cleanup must not move ACP lifecycle into `ProviderRun`
+- Orchestrated child conversations are leaf workers: nested `RunAgents` and legacy `StartAgent` calls are rejected before autonomy or permission bypasses, and child requests do not advertise delegation tools
+- Direct-provider `RunAgents` remains pending until every local child reaches `Success`, `Error`, or `Cancelled`, or is removed/deleted; recoverable `Blocked`, `TransientError`, and `WaitingForEvents` states remain pending, and the hosted 30-second startup timeout must not apply to these completion waits
+- `StartAgentWaitPolicy` is selected from child execution mode, not parent `run_id`: local children wait for completion and only remote/hosted children use startup acknowledgement
+- Hosted `RunAgents` startup timeouts detach the exact `StartAgentRequestId`; late launch callbacks must not register the child after the timeout result, while children linked before cancellation remain independently running
 
 ### Platform Setup
 - `./script/bootstrap` - Platform-specific setup plus common agent skill installation from `skills-lock.json`; prompts for project/global when an install or update is needed unless a target flag or environment override is provided.
@@ -335,9 +371,9 @@ Behavior:
 
 ### Appearance Settings Notes
 
-- Samsung-inspired built-in themes are available as `SamsungDark` and `SamsungLight`.
+- Galaxy's built-in brand themes are available as `GalaxyDark` and `GalaxyDay`.
 - UI font selection is persisted in `appearance.text.ui_font_name` and uses an empty string as the system-default sentinel.
-- The one-click Samsung brand preset is implemented in `app/src/settings_view/appearance_page.rs` and applies:
-  - Samsung dark/light theme mapping
+- The one-click Galaxy brand preset is implemented in `app/src/settings_view/appearance_page.rs` and applies:
+  - Galaxy Dark/Day system theme mapping
   - terminal + AI font defaults
-  - a best-available Samsung-style UI font fallback
+  - the bundled, SIL Open Font License-licensed Roboto UI font

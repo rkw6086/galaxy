@@ -2,12 +2,19 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use ai::api_keys::ApiKeyManager;
 pub use ai::LLMId;
+#[cfg(not(target_family = "wasm"))]
+use galaxy_agent_rig::{
+    discover_anthropic_models, discover_gemini_models, validate_vertex_ai_credentials,
+    vertex_ai_model_catalog, RigModelInfo,
+};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::user_preferences::GetUserPreferences;
+use galaxyui::r#async::Timer;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use parking_lot::FairMutex;
 use serde::{de, Deserialize, Serialize};
@@ -16,13 +23,17 @@ use warp_multi_agent_api as api;
 
 use super::custom_model_routers::{self, CustomModelRouter, ModelConfigError};
 use super::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::acp::acp_selection_identity;
-use crate::ai::bedrock::models::get_effective_models;
+use crate::ai::acp::{acp_launch_fingerprint, acp_provider_selection_identity};
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::AuthStateProvider;
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
+#[cfg(not(target_family = "wasm"))]
+use crate::persistence::model::{AcpConversationData, AgentBackend};
 use crate::server::server_api::ServerApiProvider;
-use crate::settings::{AcpAgentSettings, BedrockModelConfig, OpenAIModelConfig};
+use crate::settings::{
+    AcpConfigValueSettings, AcpProviderConfig, BedrockModelConfig, OpenAIModelConfig,
+    OpenAIProviderConfig, OpenAIProviderKind,
+};
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
@@ -34,12 +45,10 @@ pub fn is_using_api_key_for_provider(_provider: &LLMProvider, _app: &AppContext)
     false
 }
 
-pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, app: &AppContext) -> bool {
-    UserWorkspaces::as_ref(app).is_bedrock_enabled(app)
-        && llm
-            .host_configs
-            .get(&LLMModelHost::AwsBedrock)
-            .is_some_and(|config| config.enabled)
+pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, _app: &AppContext) -> bool {
+    llm.host_configs
+        .get(&LLMModelHost::AwsBedrock)
+        .is_some_and(|config| config.enabled)
 }
 
 /// Key for cached LLM metadata in user preferences.
@@ -48,6 +57,10 @@ pub fn should_show_bedrock_icon_for_model(llm: &LLMInfo, app: &AppContext) -> bo
 /// but was migrated to store a full [`ModelsByFeature`].
 pub const MODELS_BY_FEATURE_CACHE_KEY: &str = "AvailableLLMs";
 const CUSTOM_ENDPOINT_USAGE_FALLBACK_LABEL: &str = "Custom endpoint";
+const CHATGPT_CODEX_MODELS_URL: &str = "https://chatgpt.com/backend-api/codex/models";
+const CODEX_LATEST_RELEASE_URL: &str = "https://api.github.com/repos/openai/codex/releases/latest";
+const CHATGPT_SUBSCRIPTION_MODELS_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
+const DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE: u32 = 200_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LLMUsageMetadata {
@@ -112,6 +125,8 @@ pub enum LLMProvider {
     Bedrock,
     /// Models served through an OpenAI-compatible proxy (e.g. LiteLLM).
     LiteLLM,
+    /// Models selected and executed by an Agent Client Protocol runtime.
+    Acp,
     Unknown,
 }
 
@@ -124,6 +139,7 @@ impl LLMProvider {
             LLMProvider::Google => Some(Icon::GeminiLogo),
             LLMProvider::Bedrock => Some(Icon::BedrockLogo),
             LLMProvider::LiteLLM => Some(Icon::OpenAILogo),
+            LLMProvider::Acp => Some(Icon::Terminal),
             LLMProvider::Xai => None,
             LLMProvider::Unknown => None,
         }
@@ -138,6 +154,7 @@ impl LLMProvider {
             LLMProvider::Xai => "xAI",
             LLMProvider::Bedrock => "AWS Bedrock",
             LLMProvider::LiteLLM => "LiteLLM",
+            LLMProvider::Acp => "ACP",
             LLMProvider::Unknown => "this provider",
         }
     }
@@ -421,7 +438,7 @@ impl AvailableLLMs {
                     request_multiplier: 1,
                     credit_multiplier: None,
                 },
-                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
+                description: Some("Enable an AI runtime in Models settings".to_string()),
                 disable_reason: Some(DisableReason::Unavailable),
                 vision_supported: false,
                 spec: None,
@@ -496,7 +513,7 @@ fn default_computer_use_llms() -> AvailableLLMs {
             },
             description: None,
             disable_reason: None,
-            vision_supported: true,
+            vision_supported: false,
             spec: None,
             provider: LLMProvider::Unknown,
             host_configs: HashMap::new(),
@@ -524,7 +541,7 @@ impl Default for ModelsByFeature {
                     request_multiplier: 1,
                     credit_multiplier: None,
                 },
-                description: Some("Enable Bedrock or OpenAI/LiteLLM in settings".to_string()),
+                description: Some("Enable an AI runtime in Models settings".to_string()),
                 disable_reason: None,
                 vision_supported: false,
                 spec: None,
@@ -578,7 +595,18 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
     #[cfg(not(target_family = "wasm"))]
-    acp_selections: HashMap<LLMId, BTreeMap<String, serde_json::Value>>,
+    chatgpt_subscription_models_refresh_in_flight: bool,
+    #[cfg(not(target_family = "wasm"))]
+    acp_selections: HashMap<LLMId, AcpModelSelection>,
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AcpModelSelection {
+    pub(crate) provider_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) launch_fingerprint: String,
+    pub(crate) config_values: BTreeMap<String, serde_json::Value>,
 }
 
 impl LLMPreferences {
@@ -591,6 +619,7 @@ impl LLMPreferences {
             } = event
             {
                 me.refresh_authed_models(ctx);
+                me.refresh_chatgpt_subscription_models(ctx);
             }
         });
 
@@ -601,6 +630,7 @@ impl LLMPreferences {
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| {
             if let AuthManagerEvent::AuthComplete = event {
                 me.refresh_authed_models(ctx);
+                me.refresh_chatgpt_subscription_models(ctx);
             }
         });
 
@@ -639,12 +669,15 @@ impl LLMPreferences {
                 event,
                 AISettingsChangedEvent::BedrockEnabled { .. }
                     | AISettingsChangedEvent::OpenAIEnabled { .. }
+                    | AISettingsChangedEvent::AcpEnabled { .. }
                     | AISettingsChangedEvent::OpenAIBaseUrl { .. }
                     | AISettingsChangedEvent::OpenAIApiKey { .. }
                     | AISettingsChangedEvent::OpenAIModels { .. }
                     | AISettingsChangedEvent::OpenAIProviders { .. }
+                    | AISettingsChangedEvent::AcpProviders { .. }
                     | AISettingsChangedEvent::AcpAgents { .. }
                     | AISettingsChangedEvent::AcpAgentId { .. }
+                    | AISettingsChangedEvent::BedrockModels { .. }
             ) {
                 me.inject_bedrock_models(ctx);
                 me.inject_openai_models(ctx);
@@ -655,6 +688,11 @@ impl LLMPreferences {
                         | AISettingsChangedEvent::OpenAIApiKey { .. }
                 ) {
                     me.fetch_openai_models_from_endpoint(ctx);
+                }
+                if matches!(event, AISettingsChangedEvent::BedrockEnabled { .. })
+                    && *AISettings::as_ref(ctx).bedrock_enabled.value()
+                {
+                    me.refresh_bedrock_models(ctx);
                 }
                 // Safety: ensure the default model is still present in choices.
                 // If all provider models were removed, the default_id would dangle.
@@ -677,6 +715,8 @@ impl LLMPreferences {
             #[cfg(not(target_family = "wasm"))]
             fetched_openai_models: Vec::new(),
             #[cfg(not(target_family = "wasm"))]
+            chatgpt_subscription_models_refresh_in_flight: false,
+            #[cfg(not(target_family = "wasm"))]
             acp_selections: HashMap::new(),
         };
 
@@ -695,63 +735,108 @@ impl LLMPreferences {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            Self::ensure_default_models_in_settings(ctx);
-            me.inject_bedrock_models(ctx);
+            Self::ensure_default_chatgpt_models_in_settings(ctx);
+            me.refresh_bedrock_models(ctx);
             me.inject_openai_models(ctx);
+            me.ensure_default_model_present();
             me.fetch_openai_models_from_endpoint(ctx);
+            me.refresh_chatgpt_subscription_models(ctx);
+            me.schedule_chatgpt_subscription_model_refresh(ctx);
         }
 
         me
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn ensure_default_models_in_settings(ctx: &mut ModelContext<Self>) {
-        use crate::ai::bedrock::models::DEFAULT_BEDROCK_MODELS;
+    fn ensure_default_chatgpt_models_in_settings(ctx: &mut ModelContext<Self>) {
+        let mut providers = AISettings::as_ref(ctx).openai_providers.value().clone();
+        let default_chatgpt_models = crate::settings::ai::default_chatgpt_provider().models;
+        let mut providers_changed = false;
+        for provider in &mut providers {
+            if provider.kind != OpenAIProviderKind::ChatGPTSubscription {
+                continue;
+            }
 
-        let settings = AISettings::as_ref(ctx);
-        let mut current_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
+            if provider.models.is_empty() {
+                provider.models = default_chatgpt_models.clone();
+                providers_changed = true;
+                continue;
+            }
 
-        let existing_ids: std::collections::HashSet<String> =
-            current_models.iter().map(|m| m.model_id.clone()).collect();
-
-        let mut added = false;
-        for default in DEFAULT_BEDROCK_MODELS {
-            if !existing_ids.contains(default.model_id as &str) {
-                current_models.push(BedrockModelConfig {
-                    model_id: default.model_id.to_string(),
-                    display_name: default.display_name.to_string(),
-                    vision_supported: default.vision_supported,
-                });
-                added = true;
+            for model in &mut provider.models {
+                if !model.reasoning_efforts.is_empty() {
+                    continue;
+                }
+                if let Some(default_model) = default_chatgpt_models
+                    .iter()
+                    .find(|default_model| default_model.model_id == model.model_id)
+                {
+                    if !default_model.reasoning_efforts.is_empty() {
+                        model.reasoning_efforts = default_model.reasoning_efforts.clone();
+                        providers_changed = true;
+                    }
+                }
             }
         }
-
-        if added {
-            log::info!(
-                "[bedrock] Added missing default models to settings — now {} total",
-                current_models.len()
-            );
+        if providers_changed {
             AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                let _ = settings.bedrock_models.set_value(current_models, ctx);
+                let _ = settings.openai_providers.set_value(providers, ctx);
             });
         }
     }
 
     #[cfg(not(target_family = "wasm"))]
+    fn refresh_bedrock_models(&mut self, ctx: &mut ModelContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.bedrock_enabled.value() {
+            return;
+        }
+        let config = crate::ai::bedrock::client::BedrockClientConfig {
+            auth_method: *settings.bedrock_auth_method.value(),
+            profile: settings.bedrock_profile.value().clone(),
+            region: settings.bedrock_region.value().clone(),
+            access_key_id: settings.bedrock_access_key_id.value().clone(),
+            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
+            session_token: None,
+            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
+            use_rig: false,
+        };
+
+        let _ = ctx.spawn(
+            async move { crate::ai::bedrock::discovery::discover_available_models(config).await },
+            |me, result, ctx| match result {
+                Ok(models) => {
+                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                        if let Err(error) = settings.bedrock_models.set_value(models, ctx) {
+                            log::warn!("[bedrock] Failed to persist discovered models: {error}");
+                        }
+                    });
+                    me.inject_bedrock_models(ctx);
+                    me.ensure_default_model_present();
+                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+                }
+                Err(error) => {
+                    log::debug!("[bedrock] Startup model discovery unavailable: {error}");
+                }
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
     fn inject_bedrock_models(&mut self, ctx: &AppContext) {
-        // Strip both existing Bedrock models and placeholder Unknown models.
+        // Remove only previously injected Bedrock entries. Other enabled provider
+        // sections (OpenAI/LiteLLM, ChatGPT subscription, ACP) must remain
+        // available in the shared model picker.
         self.models_by_feature
             .agent_mode
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
+            .retain(|m| m.provider != LLMProvider::Bedrock);
         self.models_by_feature
             .coding
             .choices
-            .retain(|m| m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown);
+            .retain(|m| m.provider != LLMProvider::Bedrock);
         if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-            cli.choices.retain(|m| {
-                m.provider != LLMProvider::Bedrock && m.provider != LLMProvider::Unknown
-            });
+            cli.choices.retain(|m| m.provider != LLMProvider::Bedrock);
         }
 
         let settings = AISettings::as_ref(ctx);
@@ -759,7 +844,9 @@ impl LLMPreferences {
             return;
         }
 
-        let user_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
+        // Bedrock models are populated only by the control-plane discovery
+        // flow. Never fall back to a static catalog or external config here.
+        let discovered_models: Vec<BedrockModelConfig> = settings.bedrock_models.value().clone();
         let region = settings.bedrock_region.value().clone();
         let cross_region = *settings.bedrock_cross_region_inference.value();
 
@@ -768,7 +855,7 @@ impl LLMPreferences {
         let external_config = ExternalBedrockConfig::load();
         let require_1h_cache = external_config.enable_prompt_caching_1h;
 
-        let mut effective = get_effective_models(&user_models);
+        let mut effective = discovered_models;
 
         // Filter out models that don't support 1-hour caching if required
         if require_1h_cache {
@@ -934,8 +1021,17 @@ impl LLMPreferences {
             return;
         }
 
-        let mut provider_entries: Vec<(String, String, Option<String>, Vec<OpenAIModelConfig>)> =
-            Vec::new();
+        type OpenAIProviderEntry = (
+            String,
+            OpenAIProviderKind,
+            bool,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Vec<OpenAIModelConfig>,
+        );
+        let mut provider_entries: Vec<OpenAIProviderEntry> = Vec::new();
 
         let configured_models = settings.openai_models.value().clone();
         let single_provider_models = if configured_models.is_empty() {
@@ -959,7 +1055,16 @@ impl LLMPreferences {
             } else {
                 "LiteLLM".to_string()
             };
-            provider_entries.push((name, base_url, api_key, single_provider_models));
+            provider_entries.push((
+                name,
+                OpenAIProviderKind::LiteLLM,
+                true,
+                base_url,
+                api_key,
+                None,
+                None,
+                single_provider_models,
+            ));
         }
 
         provider_entries.extend(
@@ -968,13 +1073,36 @@ impl LLMPreferences {
                 .value()
                 .iter()
                 .filter_map(|provider| {
-                    if provider.base_url.trim().is_empty() || provider.models.is_empty() {
+                    let missing_credentials = match provider.kind {
+                        OpenAIProviderKind::OpenAI => {
+                            provider.base_url.trim().is_empty()
+                                || provider
+                                    .api_key
+                                    .as_deref()
+                                    .is_none_or(|key| key.trim().is_empty())
+                        }
+                        OpenAIProviderKind::LiteLLM => provider.base_url.trim().is_empty(),
+                        OpenAIProviderKind::Anthropic | OpenAIProviderKind::Gemini => provider
+                            .api_key
+                            .as_deref()
+                            .is_none_or(|key| key.trim().is_empty()),
+                        OpenAIProviderKind::VertexAI => provider
+                            .project_id
+                            .as_deref()
+                            .is_none_or(|project| project.trim().is_empty()),
+                        OpenAIProviderKind::ChatGPTSubscription => false,
+                    };
+                    if !provider.enabled || missing_credentials || provider.models.is_empty() {
                         return None;
                     }
                     Some((
                         provider.name.clone(),
+                        provider.kind,
+                        provider.enabled,
                         provider.base_url.clone(),
                         provider.api_key.clone(),
+                        provider.project_id.clone(),
+                        provider.location.clone(),
                         provider.models.clone(),
                     ))
                 }),
@@ -986,56 +1114,106 @@ impl LLMPreferences {
 
         let mut total_injected = 0;
         let mut seen_model_ids: HashSet<String> = HashSet::new();
-        for (provider_name, base_url, api_key, models) in provider_entries {
+        for (
+            provider_name,
+            provider_kind,
+            provider_enabled,
+            base_url,
+            api_key,
+            provider_project_id,
+            provider_location,
+            models,
+        ) in provider_entries
+        {
+            if !provider_enabled {
+                continue;
+            }
             for model in &models {
+                if !model.enabled {
+                    continue;
+                }
                 if !seen_model_ids.insert(model.model_id.clone()) {
                     continue;
                 }
 
-                // Register the routing entry
-                let client_config = OpenAIClientConfig {
-                    base_url: base_url.clone(),
-                    api_key: api_key.clone(),
-                    model: None, // filled per-request from model_id
-                    max_input_tokens: Some(openai_model_context_size(model)),
-                    max_output_tokens: model.max_output_tokens,
-                };
-                self.openai_provider_routing
-                    .insert(model.model_id.clone(), client_config);
+                let reasoning_efforts: Vec<Option<&String>> =
+                    if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
+                        // Keep the base model as the provider-default mode, then expose each
+                        // explicitly supported effort as a separate selectable variant.
+                        std::iter::once(None)
+                            .chain(model.reasoning_efforts.iter().map(Some))
+                            .collect()
+                    } else {
+                        vec![None]
+                    };
 
-                let llm_info = LLMInfo {
-                    id: LLMId::from(model.model_id.as_str()),
-                    display_name: model.display_name.clone(),
-                    base_model_name: model.display_name.clone(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: Some(provider_name.clone()),
-                    disable_reason: None,
-                    vision_supported: model.vision_supported,
-                    spec: None,
-                    provider: LLMProvider::LiteLLM,
-                    host_configs: HashMap::from([(
-                        LLMModelHost::DirectApi,
-                        RoutingHostConfig {
-                            enabled: true,
-                            model_routing_host: LLMModelHost::DirectApi,
+                for reasoning_effort in reasoning_efforts {
+                    let reasoning_effort = reasoning_effort.cloned();
+                    let model_key = reasoning_effort.as_deref().map_or_else(
+                        || model.model_id.clone(),
+                        |effort| openai_model_variant_id(&model.model_id, effort),
+                    );
+
+                    // Register the routing entry. Reasoning variants keep the provider's
+                    // actual model ID while using their synthetic key only for selection.
+                    let client_config = OpenAIClientConfig {
+                        kind: provider_kind,
+                        base_url: base_url.clone(),
+                        api_key: api_key.clone(),
+                        project_id: provider_project_id.clone(),
+                        location: provider_location.clone(),
+                        model: Some(model.model_id.clone()),
+                        reasoning_effort: reasoning_effort.clone(),
+                        max_input_tokens: Some(openai_model_context_size(model)),
+                        max_output_tokens: model.max_output_tokens,
+                        use_rig: model.use_rig
+                            || !matches!(
+                                provider_kind,
+                                OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM
+                            ),
+                        supports_system_messages: model.supports_system_messages(),
+                    };
+                    self.openai_provider_routing
+                        .insert(model_key.clone(), client_config);
+
+                    let display_name = reasoning_effort.as_deref().map_or_else(
+                        || model.display_name.clone(),
+                        |effort| format!("{} ({effort})", model.display_name),
+                    );
+                    let llm_info = LLMInfo {
+                        id: LLMId::from(model_key.as_str()),
+                        display_name,
+                        base_model_name: model.display_name.clone(),
+                        reasoning_level: reasoning_effort,
+                        usage_metadata: LLMUsageMetadata {
+                            request_multiplier: 1,
+                            credit_multiplier: None,
                         },
-                    )]),
-                    discount_percentage: None,
-                    context_window: openai_model_context_window(model),
-                };
-                self.models_by_feature
-                    .agent_mode
-                    .choices
-                    .push(llm_info.clone());
-                self.models_by_feature.coding.choices.push(llm_info.clone());
-                if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-                    cli.choices.push(llm_info);
+                        description: Some(provider_name.clone()),
+                        disable_reason: None,
+                        vision_supported: model.effective_vision_supported(),
+                        spec: None,
+                        provider: LLMProvider::LiteLLM,
+                        host_configs: HashMap::from([(
+                            LLMModelHost::DirectApi,
+                            RoutingHostConfig {
+                                enabled: true,
+                                model_routing_host: LLMModelHost::DirectApi,
+                            },
+                        )]),
+                        discount_percentage: None,
+                        context_window: openai_model_context_window(model),
+                    };
+                    self.models_by_feature
+                        .agent_mode
+                        .choices
+                        .push(llm_info.clone());
+                    self.models_by_feature.coding.choices.push(llm_info.clone());
+                    if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+                        cli.choices.push(llm_info);
+                    }
+                    total_injected += 1;
                 }
-                total_injected += 1;
             }
         }
 
@@ -1044,95 +1222,222 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     fn inject_acp_models(&mut self, ctx: &AppContext) {
+        let previous_acp_model_ids = self.acp_selections.keys().cloned().collect::<HashSet<_>>();
+        let remove_previous_acp_models = |choices: &mut Vec<LLMInfo>| {
+            choices.retain(|model| !previous_acp_model_ids.contains(&model.id));
+        };
+        remove_previous_acp_models(&mut self.models_by_feature.agent_mode.choices);
+        remove_previous_acp_models(&mut self.models_by_feature.coding.choices);
+        if let Some(cli) = &mut self.models_by_feature.cli_agent {
+            remove_previous_acp_models(&mut cli.choices);
+        }
         self.acp_selections.clear();
         let settings = AISettings::as_ref(ctx);
-        for agent in settings.acp_agents.value() {
-            let model_option = agent
-                .config_options
-                .iter()
-                .find(|option| option.category.as_deref() == Some("model"));
-            let Some(model_option) = model_option else {
-                continue;
-            };
-            let secondary = agent.config_options.iter().filter(|option| {
-                matches!(
-                    option.category.as_deref(),
-                    Some("mode") | Some("thought_level")
-                )
-            });
-            for value in &model_option.options {
-                let suffix = secondary
-                    .clone()
-                    .filter_map(|option| {
-                        option
-                            .options
-                            .iter()
-                            .find(|value| value.value == option.current_value)
-                            .or_else(|| option.options.first())
-                            .map(|value| value.name.clone())
-                    })
-                    .collect::<Vec<_>>();
-                let display_name = if suffix.is_empty() {
-                    value.name.clone()
-                } else {
-                    format!("{} ({})", value.name, suffix.join(", "))
-                };
-                let mut selection =
-                    crate::ai::acp::AcpRuntimeModel::current_config_values(&agent.config_options);
-                selection.insert(model_option.id.clone(), value.value.clone());
-                let id = acp_selection_identity(&agent.id, &selection);
-                let llm_id = LLMId::from(id.as_str());
-                self.acp_selections.insert(llm_id.clone(), selection);
-                let info = LLMInfo {
-                    id: llm_id,
-                    display_name,
-                    base_model_name: value.name.clone(),
-                    reasoning_level: None,
-                    usage_metadata: LLMUsageMetadata {
-                        request_multiplier: 1,
-                        credit_multiplier: None,
-                    },
-                    description: Some(agent.name.clone()),
-                    disable_reason: None,
-                    vision_supported: false,
-                    spec: None,
-                    provider: LLMProvider::Unknown,
-                    host_configs: HashMap::new(),
-                    discount_percentage: None,
-                    context_window: LLMContextWindow::default(),
-                };
-                self.models_by_feature.agent_mode.choices.push(info.clone());
-                self.models_by_feature.coding.choices.push(info.clone());
-                if let Some(ref mut cli) = self.models_by_feature.cli_agent {
-                    cli.choices.push(info);
+        let providers = settings.enabled_acp_providers();
+        if providers.is_empty() {
+            return;
+        }
+        let bedrock_enabled = *settings.bedrock_enabled.value();
+        for provider in providers {
+            self.inject_acp_provider_models(&provider, bedrock_enabled);
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn inject_acp_provider_models(&mut self, provider: &AcpProviderConfig, bedrock_enabled: bool) {
+        let agent_id = provider.agent_id.trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+        let agent_name = acp_agent_display_name(agent_id);
+        if provider.config_options.is_empty() {
+            self.push_acp_model(provider, &agent_name, &agent_name, BTreeMap::new(), None);
+            return;
+        }
+
+        let model_option = provider
+            .config_options
+            .iter()
+            .find(|option| option.category.as_deref() == Some("model"));
+        let Some(model_option) = model_option else {
+            let selection =
+                crate::ai::acp::AcpRuntimeModel::current_config_values(&provider.config_options);
+            self.push_acp_model(provider, &agent_name, &agent_name, selection, None);
+            return;
+        };
+        let reasoning_option = provider
+            .config_options
+            .iter()
+            .find(|option| option.category.as_deref() == Some("thought_level"));
+        for value in model_option
+            .options
+            .iter()
+            .filter(|value| acp_model_is_enabled(&value.value, bedrock_enabled))
+        {
+            let mut selection =
+                crate::ai::acp::AcpRuntimeModel::current_config_values(&provider.config_options);
+            selection.insert(model_option.id.clone(), value.value.clone());
+            if let Some(reasoning_option) =
+                reasoning_option.filter(|option| !option.options.is_empty())
+            {
+                for reasoning in &reasoning_option.options {
+                    let mut selection = selection.clone();
+                    selection.insert(reasoning_option.id.clone(), reasoning.value.clone());
+                    self.push_acp_model(
+                        provider,
+                        &value.name,
+                        &value.name,
+                        selection,
+                        Some(reasoning),
+                    );
                 }
+            } else {
+                self.push_acp_model(provider, &value.name, &value.name, selection, None);
             }
         }
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn acp_selection_for_model(
-        &self,
-        model_id: &LLMId,
-    ) -> Option<&BTreeMap<String, serde_json::Value>> {
-        self.acp_selections.get(model_id)
+    fn push_acp_model(
+        &mut self,
+        provider: &AcpProviderConfig,
+        display_name: &str,
+        base_model_name: &str,
+        selection: BTreeMap<String, serde_json::Value>,
+        reasoning: Option<&AcpConfigValueSettings>,
+    ) {
+        let display_name = reasoning.map_or_else(
+            || display_name.to_owned(),
+            |reasoning| format!("{display_name} ({})", reasoning.name),
+        );
+        let provider_name = provider.display_name();
+        let display_name = if display_name.eq_ignore_ascii_case(&provider_name) {
+            display_name
+        } else {
+            format!("{display_name} · {provider_name}")
+        };
+        let agent_id = provider.agent_id.trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+        let id = acp_provider_selection_identity(&provider.id, agent_id, &selection);
+        let llm_id = LLMId::from(id.as_str());
+        self.acp_selections.insert(
+            llm_id.clone(),
+            AcpModelSelection {
+                provider_id: provider.id.clone(),
+                agent_id: agent_id.to_owned(),
+                launch_fingerprint: acp_launch_fingerprint(
+                    agent_id,
+                    &provider.command,
+                    &provider.args,
+                ),
+                config_values: selection,
+            },
+        );
+        let info = LLMInfo {
+            id: llm_id,
+            display_name,
+            base_model_name: base_model_name.to_owned(),
+            reasoning_level: reasoning.map(|reasoning| reasoning.name.clone()),
+            usage_metadata: LLMUsageMetadata {
+                request_multiplier: 1,
+                credit_multiplier: None,
+            },
+            description: Some("ACP".to_string()),
+            disable_reason: None,
+            vision_supported: false,
+            spec: None,
+            provider: LLMProvider::Acp,
+            host_configs: HashMap::new(),
+            discount_percentage: None,
+            context_window: LLMContextWindow::default(),
+        };
+        self.models_by_feature.agent_mode.choices.push(info.clone());
+        self.models_by_feature.coding.choices.push(info.clone());
+        if let Some(ref mut cli) = self.models_by_feature.cli_agent {
+            cli.choices.push(info);
+        }
     }
 
     #[cfg(not(target_family = "wasm"))]
-    pub fn selected_acp_config_for_agent(
+    pub(crate) fn acp_runtime_selection_for_model(
         &self,
-        agent_name: &str,
+        model_id: &LLMId,
+    ) -> Option<&AcpModelSelection> {
+        self.acp_selections.get(model_id)
+    }
+
+    /// Resolves the runtime that owns the active model for a terminal surface.
+    ///
+    /// ACP is an execution backend, not a global lock on Agent Mode. Selecting
+    /// an ACP-advertised model routes the conversation to that ACP agent, while
+    /// selecting a Rig/provider model routes it through Galaxy's provider path.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn agent_backend_for_active_model(
+        &self,
+        terminal_view_id: Option<EntityId>,
         ctx: &AppContext,
-    ) -> Option<BTreeMap<String, serde_json::Value>> {
-        let profile = AIExecutionProfilesModel::as_ref(ctx).active_profile(None, ctx);
-        let model_id = profile.data().base_model.as_ref()?;
-        let model = self.models_by_feature.agent_mode.info_for_id(model_id)?;
-        model
-            .description
-            .as_deref()
-            .is_some_and(|name| name.eq_ignore_ascii_case(agent_name))
-            .then(|| self.acp_selections.get(model_id).cloned())
-            .flatten()
+    ) -> AgentBackend {
+        if !cfg!(unix) || !FeatureFlag::AgentClientProtocol.is_enabled() {
+            return AgentBackend::Provider;
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.acp_enabled.value() {
+            return AgentBackend::Provider;
+        }
+
+        let active_model = self.get_active_base_model(ctx, terminal_view_id);
+        if let Some(selection) = self.acp_runtime_selection_for_model(&active_model.id) {
+            return AgentBackend::Acp(AcpConversationData {
+                provider_id: selection.provider_id.clone(),
+                agent_id: selection.agent_id.clone(),
+                launch_fingerprint: selection.launch_fingerprint.clone(),
+                session_id: None,
+                config_values: selection.config_values.clone(),
+            });
+        }
+
+        if active_model.id.as_str() != "none" {
+            return AgentBackend::Provider;
+        }
+
+        // ACP remains a valid runtime even before discovery has returned a
+        // model option (and for agents that do not expose model selection at
+        // all). A discovered model catalog with no enabled entries must not
+        // fall back to its disabled current model, though.
+        let providers = settings.enabled_acp_providers();
+        let [provider] = providers.as_slice() else {
+            return AgentBackend::Provider;
+        };
+        if provider
+            .config_options
+            .iter()
+            .any(|option| option.category.as_deref() == Some("model"))
+        {
+            return AgentBackend::Provider;
+        }
+        let agent_id = provider.agent_id.trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+
+        AgentBackend::Acp(AcpConversationData {
+            provider_id: provider.id.clone(),
+            agent_id: agent_id.to_owned(),
+            launch_fingerprint: acp_launch_fingerprint(agent_id, &provider.command, &provider.args),
+            session_id: None,
+            config_values: crate::ai::acp::AcpRuntimeModel::current_config_values(
+                &provider.config_options,
+            ),
+        })
     }
 
     /// Ensures the default model ID in each feature's choices still points to
@@ -1230,6 +1535,312 @@ impl LLMPreferences {
                 }
             },
         );
+    }
+
+    /// Explicitly refreshes the models for one entry in the OpenAI-compatible
+    /// provider registry. Unlike the legacy endpoint refresh, this is only
+    /// called from a user action so configured remote endpoints are never
+    /// contacted merely because Galaxy started.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn fetch_openai_provider_models(
+        &mut self,
+        provider_index: usize,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.openai_enabled.value() {
+            return;
+        }
+
+        let Some(provider) = settings
+            .openai_providers
+            .value()
+            .get(provider_index)
+            .cloned()
+        else {
+            return;
+        };
+        if provider.kind != OpenAIProviderKind::ChatGPTSubscription
+            && provider.base_url.trim().is_empty()
+        {
+            return;
+        }
+
+        let provider_kind = provider.kind;
+        let requested_base_url = provider.base_url;
+        let requested_provider_kind = provider_kind;
+        let api_key = provider.api_key.filter(|key| !key.is_empty());
+        let request_base_url = requested_base_url.clone();
+
+        let _ = ctx.spawn(
+            async move {
+                if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
+                    return match Self::discover_chatgpt_subscription_models().await {
+                        Ok(models) => models,
+                        Err(error) => {
+                            log::warn!(
+                                "[chatgpt/models] Failed to discover ChatGPT subscription models: {error}"
+                            );
+                            Vec::new()
+                        }
+                    };
+                }
+
+                let base = request_base_url.trim_end_matches('/');
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                    .unwrap_or_default();
+
+                if provider_kind == OpenAIProviderKind::LiteLLM {
+                    if let Some(models) =
+                        fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
+                    {
+                        return models;
+                    }
+                }
+
+                fetch_from_openai_models(base, api_key.as_deref(), &client).await
+            },
+            move |_, discovered_models, ctx| {
+                if discovered_models.is_empty() {
+                    return;
+                }
+
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    let Some(provider) = providers.get_mut(provider_index) else {
+                        return;
+                    };
+
+                    // Do not apply a response to an entry that was edited or
+                    // reordered while its discovery request was in flight.
+                    if provider.kind != requested_provider_kind
+                        || provider.base_url != requested_base_url
+                    {
+                        return;
+                    }
+
+                    provider.models = if provider.kind == OpenAIProviderKind::ChatGPTSubscription {
+                        merge_discovered_chatgpt_subscription_models(
+                            &provider.models,
+                            discovered_models,
+                        )
+                    } else {
+                        merge_discovered_provider_models(&provider.models, discovered_models)
+                    };
+                    if let Err(err) = settings.openai_providers.set_value(providers, ctx) {
+                        report_error!(err.context("Failed to persist discovered provider models"));
+                    }
+                });
+            },
+        );
+    }
+
+    /// Discovers models for a provider draft without persisting or injecting it.
+    ///
+    /// The provider setup view uses this to keep configuration changes atomic
+    /// until the user clicks Save.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) async fn discover_openai_provider_models(
+        provider: OpenAIProviderConfig,
+    ) -> Result<Vec<OpenAIModelConfig>, String> {
+        if provider.kind == OpenAIProviderKind::ChatGPTSubscription {
+            return Self::discover_chatgpt_subscription_models().await;
+        }
+
+        let native_models = match provider.kind {
+            OpenAIProviderKind::Anthropic => {
+                let api_key = provider
+                    .api_key
+                    .as_deref()
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or_else(|| {
+                        "Enter an Anthropic API key before testing the connection.".to_string()
+                    })?;
+                Some(discover_anthropic_models(api_key).await?)
+            }
+            OpenAIProviderKind::Gemini => {
+                let api_key = provider
+                    .api_key
+                    .as_deref()
+                    .filter(|key| !key.trim().is_empty())
+                    .ok_or_else(|| {
+                        "Enter a Gemini API key before testing the connection.".to_string()
+                    })?;
+                Some(discover_gemini_models(api_key).await?)
+            }
+            OpenAIProviderKind::VertexAI => {
+                if provider
+                    .project_id
+                    .as_deref()
+                    .is_none_or(|project| project.trim().is_empty())
+                {
+                    return Err(
+                        "Enter a Google Cloud project ID before testing the connection."
+                            .to_string(),
+                    );
+                }
+                validate_vertex_ai_credentials(
+                    provider.project_id.as_deref().unwrap_or_default(),
+                    provider.location.as_deref().unwrap_or("global"),
+                )?;
+                Some(vertex_ai_model_catalog())
+            }
+            OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM => None,
+            OpenAIProviderKind::ChatGPTSubscription => {
+                unreachable!("ChatGPT subscription discovery is handled before native discovery")
+            }
+        };
+
+        if let Some(models) = native_models {
+            if models.is_empty() {
+                return Err("The provider responded, but no models were found.".to_string());
+            }
+            return Ok(Self::rig_models_to_openai_models(models));
+        }
+
+        if provider.base_url.trim().is_empty() {
+            return Err("Enter a provider URL before testing the connection.".to_string());
+        }
+
+        let base_url = provider.base_url.trim_end_matches('/').to_string();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|error| format!("Could not create the provider client: {error}"))?;
+        let api_key = provider.api_key.as_deref().filter(|key| !key.is_empty());
+
+        let models = if provider.kind == OpenAIProviderKind::LiteLLM {
+            if let Some(models) = fetch_from_litellm_model_info(&base_url, api_key, &client).await {
+                models
+            } else {
+                fetch_from_openai_models(&base_url, api_key, &client).await
+            }
+        } else {
+            fetch_from_openai_models(&base_url, api_key, &client).await
+        };
+
+        if models.is_empty() {
+            let endpoint_description = if provider.kind == OpenAIProviderKind::LiteLLM {
+                "/model/info or /models"
+            } else {
+                "/models"
+            };
+            return Err(format!(
+                "The provider responded, but no models were found at {endpoint_description}."
+            ));
+        }
+
+        Ok(models)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn schedule_chatgpt_subscription_model_refresh(&self, ctx: &mut ModelContext<Self>) {
+        let _ = ctx.spawn(
+            async move {
+                Timer::after(CHATGPT_SUBSCRIPTION_MODELS_REFRESH_INTERVAL).await;
+            },
+            |me, _, ctx| {
+                me.refresh_chatgpt_subscription_models(ctx);
+                me.schedule_chatgpt_subscription_model_refresh(ctx);
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn refresh_chatgpt_subscription_models(&mut self, ctx: &mut ModelContext<Self>) {
+        if self.chatgpt_subscription_models_refresh_in_flight {
+            return;
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.openai_enabled.value()
+            || !settings.openai_providers.value().iter().any(|provider| {
+                provider.enabled && provider.kind == OpenAIProviderKind::ChatGPTSubscription
+            })
+        {
+            return;
+        }
+
+        self.chatgpt_subscription_models_refresh_in_flight = true;
+        let _ = ctx.spawn(
+            async { Self::discover_chatgpt_subscription_models().await },
+            |me, result, ctx| {
+                me.chatgpt_subscription_models_refresh_in_flight = false;
+                let discovered_models = match result {
+                    Ok(models) => models,
+                    Err(error) => {
+                        log::warn!(
+                            "[chatgpt/models] Failed to refresh ChatGPT subscription models: {error}"
+                        );
+                        return;
+                    }
+                };
+
+                if discovered_models.is_empty() {
+                    return;
+                }
+
+                AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                    let mut providers = settings.openai_providers.value().clone();
+                    let mut changed = false;
+                    for provider in &mut providers {
+                        if provider.kind != OpenAIProviderKind::ChatGPTSubscription {
+                            continue;
+                        }
+                        provider.models = merge_discovered_chatgpt_subscription_models(
+                            &provider.models,
+                            discovered_models.clone(),
+                        );
+                        changed = true;
+                    }
+                    if changed {
+                        if let Err(err) = settings.openai_providers.set_value(providers, ctx) {
+                            report_error!(
+                                err.context("Failed to persist ChatGPT subscription models")
+                            );
+                        }
+                    }
+                });
+
+                me.inject_openai_models(ctx);
+                me.ensure_default_model_present();
+                ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            },
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn discover_chatgpt_subscription_models() -> Result<Vec<OpenAIModelConfig>, String> {
+        let credentials = crate::ai::chatgpt_auth::load_or_import_auth_credentials()?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| format!("Could not create the ChatGPT model client: {error}"))?;
+        let client_version = fetch_latest_codex_client_version(&client).await?;
+        fetch_from_chatgpt_codex_models(&client_version, credentials, &client).await
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn rig_models_to_openai_models(models: Vec<RigModelInfo>) -> Vec<OpenAIModelConfig> {
+        models
+            .into_iter()
+            .map(|model| OpenAIModelConfig {
+                model_id: model.id,
+                display_name: model.display_name,
+                vision_supported: true,
+                context_size: model.context_size.unwrap_or(128_000),
+                max_input_tokens: model.context_size,
+                max_output_tokens: None,
+                provider: None,
+                use_rig: true,
+                supports_system_messages: Some(true),
+                capability_overrides: std::collections::HashMap::new(),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
+            })
+            .collect()
     }
 
     /// Returns the `LLMInfo` for the base LLM to be used for an Agent Mode request.
@@ -1848,6 +2459,16 @@ impl LLMPreferences {
         log::debug!("[llm] Server model update ignored — using local providers only");
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_models_by_feature_for_test(
+        &mut self,
+        models_by_feature: ModelsByFeature,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.models_by_feature = models_by_feature;
+        ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+    }
+
     /// Disabled — Galaxy does not accept model updates from Warp's server.
     fn on_server_update(&mut self, _update: ModelsByFeature, _ctx: &mut ModelContext<Self>) {
         log::debug!("[llm] Server model update ignored — using local providers only");
@@ -1974,6 +2595,23 @@ impl Entity for LLMPreferences {
 
 impl SingletonEntity for LLMPreferences {}
 
+#[cfg(not(target_family = "wasm"))]
+fn acp_agent_display_name(agent_id: &str) -> String {
+    match agent_id.to_ascii_lowercase().as_str() {
+        "codex" => "Codex".to_owned(),
+        "opencode" => "OpenCode".to_owned(),
+        _ => agent_id.to_owned(),
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn acp_model_is_enabled(value: &serde_json::Value, bedrock_enabled: bool) -> bool {
+    bedrock_enabled
+        || !value
+            .as_str()
+            .is_some_and(|model_id| model_id.starts_with("amazon-bedrock/"))
+}
+
 fn get_new_agent_mode_choices(
     old_config: &AvailableLLMs,
     new_config: &AvailableLLMs,
@@ -1992,6 +2630,96 @@ fn openai_model_context_size(model: &OpenAIModelConfig) -> u32 {
     model.max_input_tokens.unwrap_or(model.context_size)
 }
 
+/// Merges endpoint metadata into a provider's configured models without
+/// discarding local routing choices or manually configured models.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn merge_discovered_provider_models(
+    existing_models: &[OpenAIModelConfig],
+    discovered_models: Vec<OpenAIModelConfig>,
+) -> Vec<OpenAIModelConfig> {
+    let mut merged = Vec::with_capacity(discovered_models.len() + existing_models.len());
+    let mut discovered_ids = HashSet::new();
+
+    for mut discovered in discovered_models {
+        if !discovered_ids.insert(discovered.model_id.clone()) {
+            continue;
+        }
+
+        if let Some(existing) = existing_models
+            .iter()
+            .find(|model| model.model_id == discovered.model_id)
+        {
+            discovered.display_name = existing.display_name.clone();
+            discovered.enabled = existing.enabled;
+            discovered.use_rig = existing.use_rig;
+            if existing.supports_system_messages.is_some() {
+                discovered.supports_system_messages = existing.supports_system_messages;
+            }
+            if discovered.provider.is_none() {
+                discovered.provider = existing.provider.clone();
+            }
+        } else {
+            discovered.use_rig = true;
+        }
+        if discovered.model_id.starts_with("codex-gpt-") {
+            discovered.supports_system_messages = Some(false);
+        }
+
+        merged.push(discovered);
+    }
+
+    merged.extend(
+        existing_models
+            .iter()
+            .filter(|model| !discovered_ids.contains(&model.model_id))
+            .cloned(),
+    );
+    merged
+}
+
+/// Merges ChatGPT subscription model metadata as a backend-owned catalog.
+///
+/// Unlike generic OpenAI-compatible providers, ChatGPT subscription models come
+/// from Codex's first-party model catalog. Models omitted from a successful
+/// refresh should stop appearing in Galaxy unless they are rediscovered later.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn merge_discovered_chatgpt_subscription_models(
+    existing_models: &[OpenAIModelConfig],
+    discovered_models: Vec<OpenAIModelConfig>,
+) -> Vec<OpenAIModelConfig> {
+    let mut merged = Vec::with_capacity(discovered_models.len());
+    let mut discovered_ids = HashSet::new();
+
+    for mut discovered in discovered_models {
+        if !discovered_ids.insert(discovered.model_id.clone()) {
+            continue;
+        }
+
+        if let Some(existing) = existing_models
+            .iter()
+            .find(|model| model.model_id == discovered.model_id)
+        {
+            discovered.enabled = existing.enabled;
+            discovered.use_rig = existing.use_rig;
+            if existing.supports_system_messages.is_some() {
+                discovered.supports_system_messages = existing.supports_system_messages;
+            }
+            for (key, value) in &existing.capability_overrides {
+                discovered.capability_overrides.insert(key.clone(), *value);
+            }
+        }
+
+        merged.push(discovered);
+    }
+
+    merged
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn openai_model_variant_id(model_id: &str, reasoning_effort: &str) -> String {
+    format!("{model_id}::reasoning::{reasoning_effort}")
+}
+
 #[cfg(not(target_family = "wasm"))]
 fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
     let context_size = openai_model_context_size(model);
@@ -2001,6 +2729,191 @@ fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
         max: context_size,
         default_max: context_size,
     }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn u32_from_json_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
+    keys.iter()
+        .find_map(|key| value[*key].as_u64())
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn normalize_codex_release_version(version: &str) -> Option<String> {
+    let version = version.trim();
+    let version = version
+        .strip_prefix("rust-v")
+        .or_else(|| version.strip_prefix('v'))
+        .unwrap_or(version);
+    if version.is_empty()
+        || !version
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_digit())
+        || !version.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '+')
+        })
+    {
+        return None;
+    }
+    Some(version.to_string())
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn codex_client_version_from_release_json(body: &serde_json::Value) -> Option<String> {
+    body["tag_name"]
+        .as_str()
+        .and_then(normalize_codex_release_version)
+        .or_else(|| {
+            body["name"]
+                .as_str()
+                .and_then(normalize_codex_release_version)
+        })
+}
+
+#[cfg(not(target_family = "wasm"))]
+async fn fetch_latest_codex_client_version(client: &reqwest::Client) -> Result<String, String> {
+    let response = client
+        .get(CODEX_LATEST_RELEASE_URL)
+        .header(reqwest::header::USER_AGENT, "Galaxy")
+        .send()
+        .await
+        .map_err(|error| format!("Could not fetch the latest Codex release: {error}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Could not fetch the latest Codex release: HTTP {}",
+            response.status()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Could not parse the latest Codex release: {error}"))?;
+    codex_client_version_from_release_json(&body)
+        .ok_or_else(|| "The latest Codex release did not include a usable version.".to_string())
+}
+
+#[cfg(not(target_family = "wasm"))]
+async fn fetch_from_chatgpt_codex_models(
+    client_version: &str,
+    credentials: crate::ai::chatgpt_auth::ChatGPTAuthCredentials,
+    client: &reqwest::Client,
+) -> Result<Vec<OpenAIModelConfig>, String> {
+    let mut request = client
+        .get(CHATGPT_CODEX_MODELS_URL)
+        .query(&[("client_version", client_version)])
+        .header(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", credentials.access_token),
+        )
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::USER_AGENT, "Galaxy");
+    if let Some(account_id) = credentials.account_id {
+        request = request.header("ChatGPT-Account-ID", account_id);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("Could not fetch ChatGPT subscription models: {error}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "ChatGPT model discovery failed: HTTP {status} {}",
+            body.chars().take(500).collect::<String>()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Could not parse ChatGPT subscription models: {error}"))?;
+    let models = chatgpt_models_from_codex_response(&body);
+    if models.is_empty() {
+        return Err("ChatGPT model discovery returned no visible models.".to_string());
+    }
+    log::info!(
+        "[chatgpt/models] Fetched {} model(s) from Codex models endpoint using client_version={client_version}",
+        models.len()
+    );
+    Ok(models)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIModelConfig> {
+    let Some(models) = body["models"].as_array() else {
+        return Vec::new();
+    };
+
+    models
+        .iter()
+        .filter_map(|model| {
+            if model["visibility"].as_str() != Some("list") {
+                return None;
+            }
+
+            let model_id = model["slug"].as_str()?.trim();
+            if model_id.is_empty() {
+                return None;
+            }
+
+            let context_size = u32_from_json_any(model, &["context_window", "max_context_window"])
+                .unwrap_or(DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE);
+            let effective_context_percent = model["effective_context_window_percent"]
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(100);
+            let max_input_tokens = Some(
+                context_size
+                    .checked_mul(effective_context_percent)
+                    .map(|tokens| tokens / 100)
+                    .unwrap_or(context_size),
+            );
+
+            let vision_supported = model["input_modalities"]
+                .as_array()
+                .map(|modalities| {
+                    modalities
+                        .iter()
+                        .any(|modality| modality.as_str() == Some("image"))
+                })
+                .unwrap_or(true);
+            let reasoning_efforts = model["supported_reasoning_levels"]
+                .as_array()
+                .map(|levels| {
+                    levels
+                        .iter()
+                        .filter_map(|level| level["effort"].as_str())
+                        .filter(|effort| !effort.trim().is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            Some(OpenAIModelConfig {
+                model_id: model_id.to_string(),
+                display_name: model["display_name"]
+                    .as_str()
+                    .filter(|display_name| !display_name.trim().is_empty())
+                    .unwrap_or(model_id)
+                    .to_string(),
+                vision_supported,
+                context_size,
+                max_input_tokens,
+                max_output_tokens: None,
+                provider: Some("openai".to_string()),
+                use_rig: true,
+                supports_system_messages: Some(true),
+                capability_overrides: std::collections::HashMap::new(),
+                reasoning_efforts,
+                enabled: true,
+            })
+        })
+        .collect()
 }
 
 /// Fetches model metadata from LiteLLM's `/model/info` endpoint which returns rich
@@ -2064,7 +2977,7 @@ async fn fetch_from_litellm_model_info(
                 .and_then(|v| u32::try_from(v).ok());
             let context_size = max_input_tokens.unwrap_or(200_000);
 
-            let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(false);
+            let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(true);
 
             let display_name = model_name.replace(['-', '_'], " ");
             let display_name = display_name
@@ -2115,6 +3028,15 @@ async fn fetch_from_litellm_model_info(
                 max_input_tokens,
                 max_output_tokens,
                 provider,
+                use_rig: false,
+                supports_system_messages: if model_name.starts_with("codex-gpt-") {
+                    Some(false)
+                } else {
+                    model_info["supports_system_messages"].as_bool()
+                },
+                capability_overrides: std::collections::HashMap::new(),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
             })
         })
         .collect();
@@ -2231,11 +3153,20 @@ async fn fetch_from_openai_models(
                 vision_supported: m["supports_vision"]
                     .as_bool()
                     .or_else(|| m["vision_support"].as_bool())
-                    .unwrap_or(false),
+                    .unwrap_or(true),
                 context_size,
                 max_input_tokens,
                 max_output_tokens,
                 provider,
+                use_rig: false,
+                supports_system_messages: if id.starts_with("codex-gpt-") {
+                    Some(false)
+                } else {
+                    m["supports_system_messages"].as_bool()
+                },
+                capability_overrides: std::collections::HashMap::new(),
+                reasoning_efforts: Vec::new(),
+                enabled: true,
             })
         })
         .collect();

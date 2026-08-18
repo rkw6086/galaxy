@@ -85,35 +85,6 @@ pub fn initialize(
     }
 }
 
-// Remove sqlite database as part of Logout v0.
-// TODO: Implement per user scoping of sqlite.
-#[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-pub fn remove(sender: &Option<SyncSender<ModelEvent>>) {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "local_fs")] {
-            if let Some(sender) = sender.clone() {
-                sqlite::remove(sender);
-            }
-        } else {
-            log::info!("Local filesystem persistence is not enabled.");
-        }
-    }
-}
-
-// Reconstruct sqlite database as part of Logout v0.
-#[cfg_attr(not(feature = "local_fs"), allow(unused_variables))]
-pub fn reconstruct(sender: &Option<SyncSender<ModelEvent>>) {
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "local_fs")] {
-            if let Some(sender) = sender.clone() {
-                sqlite::reconstruct(sender);
-            }
-        } else {
-            log::info!("Local filesystem persistence is not enabled.");
-        }
-    }
-}
-
 /// Holds interfaces to the writer thread.
 pub struct WriterHandles {
     pub handle: JoinHandle<()>,
@@ -175,12 +146,10 @@ impl Entity for PersistenceWriter {
 
 impl SingletonEntity for PersistenceWriter {}
 
-/// TODO: all of this data should eventually be indexed by user_id so that
-/// the logged in user sees the data for their user (and if another user logs in,
-/// they see their respective data). To do this, we can simply return a mapping
-/// of user ID->SqliteData and get the respective AppState after the user logs in.
+/// Data restored from Galaxy's local application database.
 ///
-/// For now, to address the global scoping here, we clear all persisted data on logout.
+/// This data belongs to the local installation rather than an inherited Warp
+/// account, so logging out of a legacy account must not clear it.
 pub struct PersistedData {
     /// Session restoration data
     pub app_state: AppState,
@@ -299,12 +268,6 @@ pub enum ModelEvent {
     SaveExperiments {
         experiments: Vec<ServerExperiment>,
     },
-    // `PauseAndRemoveDatabase` and `ReconstructAndResume` are used to pause and resume the writer thread.
-    // These are employed as part of Logout v0 to ensure that the writer thread
-    // does not continue writing to the DB after the user has logged out and the DB is deleted.
-    PauseAndRemoveDatabase,
-    #[cfg(feature = "local_fs")]
-    ReconstructAndResume,
     InsertObjectAction {
         object_action: ObjectAction,
     },

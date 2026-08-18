@@ -16161,12 +16161,11 @@ impl View for Input {
                     ambient_agent_model.as_ref(app).should_show_status_footer()
                 });
 
-        if FeatureFlag::CloudMode.is_enabled() && should_show_status_footer {
-            self.render_ambient_agent_status_footer(app)
-        } else if FeatureFlag::AgentView.is_enabled()
-            && self.agent_view_controller.as_ref(app).is_active()
+        if FeatureFlag::AgentView.is_enabled() && self.agent_view_controller.as_ref(app).is_active()
         {
             self.render_agent_input(app)
+        } else if FeatureFlag::CloudMode.is_enabled() && should_show_status_footer {
+            self.render_ambient_agent_status_footer(app)
         } else if FeatureFlag::AgentView.is_enabled()
             && !self.agent_view_controller.as_ref(app).is_active()
             && !should_render_ps1_prompt(&self.model.lock(), app)

@@ -1,17 +1,22 @@
+use std::collections::HashSet;
 use std::ops::Range;
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use chrono::Local;
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use warp_multi_agent_api::{FileContent, FileContentLineRange};
 
 use crate::ai::agent::{
-    AIAgentContext, AIAgentOutput, AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentText,
+    AIAgentContext, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutput,
+    AIAgentOutputMessage, AIAgentOutputMessageType, AIAgentOutputStatus, AIAgentText,
     AIAgentTextSection, AgentOutputImage, AgentOutputImageLayout, AgentOutputMermaidDiagram,
     AnyFileContent, FileContext, FormattedTextWrapper, MessageId, ProgrammingLanguage,
-    RenderableAIError, TransientNetworkErrorKind,
+    RenderableAIError, RunningCommand, TransientNetworkErrorKind,
 };
+use crate::ai::llms::LLMId;
 use crate::server::server_api::AIApiError;
+use crate::terminal::model::block::BlockId;
 use crate::terminal::shell::ShellType;
 
 fn to_range(range: Range<u32>) -> Option<FileContentLineRange> {
@@ -19,6 +24,51 @@ fn to_range(range: Range<u32>) -> Option<FileContentLineRange> {
         start: range.start,
         end: range.end,
     })
+}
+
+#[test]
+fn command_completion_assessment_stays_hidden_from_user_transcript() {
+    let context: Arc<[AIAgentContext]> =
+        Arc::from([AIAgentContext::SelectedText("relevant context".to_string())]);
+    let input = AIAgentInput::CommandCompletionAssessment {
+        prompt: "Report the final result.".to_string(),
+        context: context.clone(),
+        completed_command: RunningCommand {
+            command: "cargo test -p galaxy".to_string(),
+            block_id: BlockId::from("completed-command".to_string()),
+            grid_contents: "test result: ok".to_string(),
+            cursor: String::new(),
+            requested_command_id: None,
+            is_alt_screen_active: false,
+        },
+    };
+
+    assert_eq!(input.display_query(), None);
+    assert!(!input.is_user_query());
+    assert!(!input.is_passive_request());
+    assert_eq!(input.context(), Some(context.as_ref()));
+    assert_eq!(input.attachments(), None);
+
+    let now = Local::now();
+    let exchange = AIAgentExchange {
+        id: AIAgentExchangeId::new(),
+        input: vec![input],
+        output_status: AIAgentOutputStatus::Streaming { output: None },
+        added_message_ids: HashSet::new(),
+        start_time: now,
+        finish_time: None,
+        time_to_first_token_ms: None,
+        working_directory: None,
+        model_id: LLMId::from("test-model"),
+        request_cost: None,
+        coding_model_id: LLMId::from("test-model"),
+        cli_agent_model_id: LLMId::from("test-model"),
+        computer_use_model_id: LLMId::from("test-model"),
+        response_initiator: None,
+    };
+    assert_eq!(exchange.format_input_for_copy(), "");
+    assert_eq!(exchange.format_for_copy(None), "");
+    assert!(!exchange.has_user_query());
 }
 
 #[test]

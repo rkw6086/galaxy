@@ -2,8 +2,36 @@ use std::collections::HashMap;
 
 use ai::agent::action_result::AnyFileContent;
 use ai::agent::FileLocations;
+use ai::diff_validation::DiffType;
 
-use super::updated_file_contexts_from_editor_buffers;
+use super::{
+    updated_file_contexts_from_editor_buffers, AIAgentActionId, DiffSessionType, FileDiff,
+    PendingAppliedDiffs,
+};
+
+#[test]
+fn applied_diffs_survive_until_delayed_view_registration() {
+    let action_id = AIAgentActionId::from("file-edit".to_string());
+    let mut pending = PendingAppliedDiffs::default();
+    pending.buffer(
+        action_id.clone(),
+        vec![FileDiff::new(
+            "before".to_string(),
+            "/workspace/src/main.rs".to_string(),
+            DiffType::update(vec![], None),
+        )],
+        DiffSessionType::Local,
+    );
+
+    let (diffs, session_type) = pending
+        .take(&action_id)
+        .expect("buffered diffs should remain available for registration");
+    assert_eq!(diffs.len(), 1);
+    assert_eq!(diffs[0].base.content, "before");
+    assert_eq!(diffs[0].base.file_path, "/workspace/src/main.rs");
+    assert!(matches!(session_type, DiffSessionType::Local));
+    assert!(pending.take(&action_id).is_none());
+}
 
 #[test]
 fn updated_file_contexts_from_editor_buffers_returns_changed_lines_with_context() {

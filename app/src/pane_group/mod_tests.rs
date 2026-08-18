@@ -131,6 +131,9 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(|_| SystemStats::new());
     app.add_singleton_model(SyncQueue::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+    });
     app.add_singleton_model(UserWorkspaces::default_mock);
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(TeamUpdateManager::mock);
@@ -383,6 +386,7 @@ fn persisted_remote_child_conversation(
             conversation_id: conversation_id.to_string(),
             conversation_data: serde_json::to_string(&AgentConversationData {
                 agent_backend: Default::default(),
+                active_provider_run_json: None,
                 server_conversation_token: Some("restored-child-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

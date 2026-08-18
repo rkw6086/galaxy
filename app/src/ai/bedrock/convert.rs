@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use aws_sdk_bedrockruntime::types::{
     CachePointBlock, CachePointType, CacheTtl, ContentBlock, ConversationRole, ImageBlock,
     ImageFormat, ImageSource, InferenceConfiguration, Message as BedrockMessage,
-    SystemContentBlock, Tool, ToolConfiguration, ToolInputSchema, ToolResultBlock,
-    ToolResultContentBlock, ToolResultStatus, ToolSpecification, ToolUseBlock,
+    ReasoningContentBlock, ReasoningTextBlock, SystemContentBlock, Tool, ToolConfiguration,
+    ToolInputSchema, ToolResultBlock, ToolResultContentBlock, ToolResultStatus, ToolSpecification,
+    ToolUseBlock,
 };
 use aws_smithy_types::{Blob, Document};
 use serde_json::Value as JsonValue;
@@ -148,6 +149,15 @@ fn convert_messages(
                 .into_iter()
                 .map(|part| match part {
                     ContentPart::Text(text) => ContentBlock::Text(text),
+                    ContentPart::Reasoning { text, signature } => {
+                        ContentBlock::ReasoningContent(ReasoningContentBlock::ReasoningText(
+                            ReasoningTextBlock::builder()
+                                .text(text)
+                                .set_signature(signature)
+                                .build()
+                                .expect("valid reasoning text block"),
+                        ))
+                    }
                     ContentPart::Image { data, mime_type } => image_content_block(data, &mime_type),
                     ContentPart::ToolUse {
                         tool_use_id,

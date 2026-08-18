@@ -5,13 +5,15 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::config::Region;
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
+use galaxy_agent_core::AgentError;
 
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
-use crate::ai::agent::api::ResponseStream;
+use super::runtime::BedrockAgentRuntime;
+use crate::ai::agent::api::LegacyResponseStream;
 use crate::settings::ai::BedrockAuthMethod;
 
 fn strip_context_marker(model_id: &str) -> String {
@@ -38,6 +40,7 @@ pub struct BedrockClientConfig {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub cross_region_inference: bool,
+    pub use_rig: bool,
 }
 
 impl BedrockClientConfig {
@@ -141,8 +144,8 @@ impl BedrockClient {
             match provider.provide_credentials().await {
                 Ok(creds) => {
                     log::info!(
-                        "[bedrock] Resolved AWS credentials successfully: access_key_id={:?}, has_session_token={}, expiry={:?}",
-                        creds.access_key_id(),
+                        "[bedrock] Resolved AWS credentials successfully: has_access_key_id={}, has_session_token={}, expiry={:?}",
+                        !creds.access_key_id().is_empty(),
                         creds.session_token().is_some(),
                         creds.expiry(),
                     );
@@ -168,6 +171,23 @@ impl BedrockClient {
         })
     }
 
+    pub(crate) fn agent_runtime(
+        &self,
+        model: String,
+        cross_region_inference: bool,
+        max_output_tokens: Option<u64>,
+        caching_config: CachingConfig,
+    ) -> Result<BedrockAgentRuntime, AgentError> {
+        BedrockAgentRuntime::new(
+            self.runtime_client.clone(),
+            model,
+            self.region.clone(),
+            cross_region_inference,
+            max_output_tokens,
+            caching_config,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn converse_stream(
         &self,
@@ -185,7 +205,7 @@ impl BedrockClient {
         diagnostic_logger: Option<Arc<BedrockDiagnosticLogger>>,
         messages_sent: Arc<Mutex<Vec<ConversationMessage>>>,
         tool_result_archive: Vec<ConversationMessage>,
-    ) -> Result<ResponseStream, BedrockError> {
+    ) -> Result<LegacyResponseStream, BedrockError> {
         let base_model_id = strip_context_marker(model_id);
         let effective_model_id = if cross_region_inference {
             apply_cross_region_prefix(&base_model_id, &self.region)

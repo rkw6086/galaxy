@@ -31,9 +31,13 @@ pub use execute::{
     ReadFileContextResult, RequestFileEditsExecutor, RequestFileEditsFormatKind,
     RequestFileEditsTelemetryEvent, RunAgentsExecutor, RunAgentsExecutorEvent,
     RunAgentsSpawningSnapshot, ShellCommandExecutor, ShellCommandExecutorEvent, StartAgentExecutor,
-    StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId,
+    StartAgentExecutorEvent, StartAgentRequest, StartAgentRequestId, StartAgentWaitPolicy,
 };
 use futures::future::{join_all, BoxFuture};
+use galaxy_agent_core::{
+    ExternalWorkId, PendingToolBatch, PermissionDecision, PermissionKind, PermissionRequest,
+    ToolEvent, ToolResult, ToolResultStatus,
+};
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use itertools::Itertools;
 use parking_lot::FairMutex;
@@ -53,10 +57,22 @@ use crate::ai::agent::{
     CancellationOutcome, CancellationReason, CreateDocumentsResult, EditDocumentsResult,
     RequestCommandOutputResult,
 };
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::agent::{
+    AskUserQuestionResult, CallMCPToolResult, FetchConversationResult, FileGlobResult,
+    FileGlobV2Result, GrepResult, InsertReviewCommentsResult, ReadDocumentsResult, ReadFilesResult,
+    ReadMCPResourceResult, ReadShellCommandOutputResult, ReadSkillResult, RequestComputerUseResult,
+    RequestFileEditsResult, RunAgentsResult, SearchCodebaseResult, SendMessageToAgentResult,
+    StartAgentResult, TransferShellCommandControlToUserResult, UploadArtifactResult,
+    UseComputerResult, WriteToLongRunningShellCommandResult,
+};
 use crate::ai::ai_document_view::DEFAULT_PLANNING_DOCUMENT_TITLE;
 use crate::ai::blocklist::action_model::execute::suggest_new_conversation::SuggestNewConversationExecutor;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
+use crate::ai::runtime::ProviderToolExecutionRef;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::TerminalModel;
@@ -158,6 +174,70 @@ struct RunningActions {
     action_ids: Vec<AIAgentActionId>,
 }
 
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub(super) enum ProviderActionQueueError {
+    #[error("provider action set mismatch: expected {expected:?}, received {received:?}")]
+    ActionSetMismatch {
+        expected: Vec<String>,
+        received: Vec<String>,
+    },
+    #[error("provider action '{call_id}' is already correlated to active work")]
+    ExistingCorrelation { call_id: String },
+}
+
+type ProviderActionCorrelation = (
+    (AIConversationId, AIAgentActionId),
+    ProviderToolExecutionRef,
+);
+
+type ActionExecutionKey = (AIConversationId, AIAgentActionId);
+
+#[derive(Default)]
+struct NotReadyActionTracker {
+    actions: HashSet<ActionExecutionKey>,
+}
+
+impl NotReadyActionTracker {
+    fn should_retry(&self, conversation_id: AIConversationId, action_id: &AIAgentActionId) -> bool {
+        self.actions.contains(&(conversation_id, action_id.clone()))
+    }
+
+    fn update_after_attempt(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: AIAgentActionId,
+        reason: NotExecutedReason,
+        initiator: ActionExecutionInitiator,
+    ) {
+        let key = (conversation_id, action_id);
+        match (reason, initiator) {
+            (NotExecutedReason::NotReady, ActionExecutionInitiator::Automatic) => {
+                self.actions.insert(key);
+            }
+            (NotExecutedReason::NotReady, ActionExecutionInitiator::User)
+            | (NotExecutedReason::NeedsConfirmation | NotExecutedReason::WaitingOnSharer, _) => {
+                self.actions.remove(&key);
+            }
+        }
+    }
+
+    fn clear(&mut self, conversation_id: AIConversationId, action_id: &AIAgentActionId) {
+        self.actions.remove(&(conversation_id, action_id.clone()));
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ActionExecutionInitiator {
+    Automatic,
+    User,
+}
+
+impl ActionExecutionInitiator {
+    fn is_user_initiated(self) -> bool {
+        matches!(self, Self::User)
+    }
+}
+
 impl RunningActions {
     fn new(phase: RunningActionPhase, action_id: AIAgentActionId) -> Self {
         Self {
@@ -210,6 +290,453 @@ fn can_start_action_with_current_phase(
     }
 }
 
+fn permission_request_id(action_id: &AIAgentActionId) -> String {
+    format!("permission:{action_id}")
+}
+
+fn permission_denied_tool_event(action: &AIAgentAction) -> ToolEvent {
+    ToolEvent::PermissionResolved {
+        request_id: permission_request_id(&action.id),
+        call_id: action.id.to_string(),
+        decision: PermissionDecision::Denied {
+            reason: Some("Permission denied by the user.".to_string()),
+        },
+    }
+}
+
+fn should_emit_tool_completion(is_provider_owned: bool, permission_denied: bool) -> bool {
+    !is_provider_owned || !permission_denied
+}
+
+fn is_permission_denial(reason: CancellationReason, status: Option<&AIActionStatus>) -> bool {
+    matches!(reason, CancellationReason::ManuallyCancelled)
+        && matches!(status, Some(AIActionStatus::Blocked))
+}
+
+fn permission_kind_for_action(action: &AIAgentActionType) -> PermissionKind {
+    match action {
+        AIAgentActionType::ReadFiles(_)
+        | AIAgentActionType::SearchCodebase(_)
+        | AIAgentActionType::Grep { .. }
+        | AIAgentActionType::FileGlob { .. }
+        | AIAgentActionType::FileGlobV2 { .. }
+        | AIAgentActionType::ReadMCPResource { .. }
+        | AIAgentActionType::ReadDocuments(_)
+        | AIAgentActionType::ReadSkill(_)
+        | AIAgentActionType::FetchConversation { .. }
+        | AIAgentActionType::WaitForEvents { .. } => PermissionKind::Read,
+        AIAgentActionType::RequestFileEdits { .. }
+        | AIAgentActionType::EditDocuments(_)
+        | AIAgentActionType::CreateDocuments(_)
+        | AIAgentActionType::InitProject
+        | AIAgentActionType::InsertCodeReviewComments { .. } => PermissionKind::Write,
+        AIAgentActionType::RequestCommandOutput { .. }
+        | AIAgentActionType::WriteToLongRunningShellCommand { .. }
+        | AIAgentActionType::ReadShellCommandOutput { .. }
+        | AIAgentActionType::UseComputer(_)
+        | AIAgentActionType::RequestComputerUse(_)
+        | AIAgentActionType::TransferShellCommandControlToUser { .. }
+        | AIAgentActionType::OpenCodeReview => PermissionKind::Execute,
+        AIAgentActionType::UploadArtifact(_) => PermissionKind::Network,
+        AIAgentActionType::CallMCPTool { .. }
+        | AIAgentActionType::SuggestNewConversation { .. }
+        | AIAgentActionType::SuggestPrompt(_)
+        | AIAgentActionType::StartAgent { .. }
+        | AIAgentActionType::SendMessageToAgent { .. }
+        | AIAgentActionType::AskUserQuestion { .. }
+        | AIAgentActionType::RunAgents(_) => PermissionKind::ExternalTool,
+    }
+}
+
+fn sort_action_results_by_order(
+    results: &mut [Arc<AIAgentActionResult>],
+    action_order: &HashMap<AIAgentActionId, usize>,
+) {
+    results.sort_by_key(|result| action_order.get(&result.id).copied().unwrap_or(usize::MAX));
+}
+
+fn action_result_for_conversation<'a>(
+    finished_action_results: &'a HashMap<AIConversationId, Vec<Arc<AIAgentActionResult>>>,
+    provider_finished_action_results: &'a HashMap<
+        (AIConversationId, ExternalWorkId),
+        Vec<Arc<AIAgentActionResult>>,
+    >,
+    past_action_results: &'a HashMap<(AIConversationId, AIAgentActionId), Arc<AIAgentActionResult>>,
+    conversation_id: AIConversationId,
+    action_id: &AIAgentActionId,
+) -> Option<&'a Arc<AIAgentActionResult>> {
+    finished_action_results
+        .get(&conversation_id)
+        .into_iter()
+        .chain(provider_finished_action_results.iter().filter_map(
+            |((result_conversation_id, _), results)| {
+                (*result_conversation_id == conversation_id).then_some(results)
+            },
+        ))
+        .flat_map(|results| results.iter())
+        .find(|result| &result.id == action_id)
+        .or_else(|| past_action_results.get(&(conversation_id, action_id.clone())))
+}
+
+fn pending_action_status(
+    pending_actions: &HashMap<AIConversationId, VecDeque<AIAgentAction>>,
+    running_actions: &HashMap<AIConversationId, RunningActions>,
+    conversation_id: AIConversationId,
+    action_id: &AIAgentActionId,
+    is_view_only: bool,
+) -> Option<AIActionStatus> {
+    let actions = pending_actions.get(&conversation_id)?;
+    let index = actions.iter().position(|action| &action.id == action_id)?;
+    if index == 0 && !is_view_only && !running_actions.contains_key(&conversation_id) {
+        Some(AIActionStatus::Blocked)
+    } else {
+        Some(AIActionStatus::Queued)
+    }
+}
+
+fn domain_tool_result(action_result: &AIAgentActionResult, permission_denied: bool) -> ToolResult {
+    let status = if permission_denied {
+        ToolResultStatus::Denied
+    } else if action_result.result.is_cancelled() {
+        ToolResultStatus::Cancelled
+    } else if action_result.result.is_failed() {
+        ToolResultStatus::Error
+    } else {
+        ToolResultStatus::Success
+    };
+    let content = action_result.result.model_content();
+    let content = if permission_denied {
+        format!("Permission denied by the user. {content}")
+    } else {
+        content
+    };
+    ToolResult {
+        call_id: action_result.id.to_string(),
+        content,
+        status,
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_tool_name(action: &AIAgentAction) -> String {
+    action
+        .tool_name
+        .clone()
+        .unwrap_or_else(|| format!("{:?}", AIAgentActionTypeDiscriminants::from(&action.action)))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_type_name(result: &AIAgentActionResultType) -> &'static str {
+    match result {
+        AIAgentActionResultType::RequestCommandOutput(_) => "RequestCommandOutput",
+        AIAgentActionResultType::WriteToLongRunningShellCommand(_) => {
+            "WriteToLongRunningShellCommand"
+        }
+        AIAgentActionResultType::RequestFileEdits(_) => "RequestFileEdits",
+        AIAgentActionResultType::ReadFiles(_) => "ReadFiles",
+        AIAgentActionResultType::UploadArtifact(_) => "UploadArtifact",
+        AIAgentActionResultType::SearchCodebase(_) => "SearchCodebase",
+        AIAgentActionResultType::Grep(_) => "Grep",
+        AIAgentActionResultType::FileGlob(_) => "FileGlob",
+        AIAgentActionResultType::FileGlobV2(_) => "FileGlobV2",
+        AIAgentActionResultType::ReadMCPResource(_) => "ReadMCPResource",
+        AIAgentActionResultType::CallMCPTool(_) => "CallMCPTool",
+        AIAgentActionResultType::ReadSkill(_) => "ReadSkill",
+        AIAgentActionResultType::SuggestNewConversation(_) => "SuggestNewConversation",
+        AIAgentActionResultType::SuggestPrompt(_) => "SuggestPrompt",
+        AIAgentActionResultType::OpenCodeReview => "OpenCodeReview",
+        AIAgentActionResultType::InsertReviewComments(_) => "InsertReviewComments",
+        AIAgentActionResultType::InitProject => "InitProject",
+        AIAgentActionResultType::ReadDocuments(_) => "ReadDocuments",
+        AIAgentActionResultType::EditDocuments(_) => "EditDocuments",
+        AIAgentActionResultType::CreateDocuments(_) => "CreateDocuments",
+        AIAgentActionResultType::ReadShellCommandOutput(_) => "ReadShellCommandOutput",
+        AIAgentActionResultType::UseComputer(_) => "UseComputer",
+        AIAgentActionResultType::RequestComputerUse(_) => "RequestComputerUse",
+        AIAgentActionResultType::FetchConversation(_) => "FetchConversation",
+        AIAgentActionResultType::StartAgent(_) => "StartAgent",
+        AIAgentActionResultType::SendMessageToAgent(_) => "SendMessageToAgent",
+        AIAgentActionResultType::TransferShellCommandControlToUser(_) => {
+            "TransferShellCommandControlToUser"
+        }
+        AIAgentActionResultType::AskUserQuestion(_) => "AskUserQuestion",
+        AIAgentActionResultType::RunAgents(_) => "RunAgents",
+        AIAgentActionResultType::WaitForEvents(_) => "WaitForEvents",
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_status(result: &AIAgentActionResultType) -> &'static str {
+    if action_result_is_success_for_remote_log(result) {
+        "success"
+    } else if result.is_failed() || action_result_failure_summary(result).is_some() {
+        "error"
+    } else if result.is_cancelled() {
+        "cancelled"
+    } else {
+        "unknown"
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_is_success_for_remote_log(result: &AIAgentActionResultType) -> bool {
+    if result.is_successful() {
+        return true;
+    }
+
+    match result {
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Snapshot { .. },
+        ) => true,
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::CommandFinished { exit_code, .. },
+        ) => exit_code.was_successful(),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Cancelled
+            | WriteToLongRunningShellCommandResult::Error(_),
+        )
+        | AIAgentActionResultType::RequestCommandOutput(_)
+        | AIAgentActionResultType::RequestFileEdits(_)
+        | AIAgentActionResultType::ReadFiles(_)
+        | AIAgentActionResultType::UploadArtifact(_)
+        | AIAgentActionResultType::SearchCodebase(_)
+        | AIAgentActionResultType::Grep(_)
+        | AIAgentActionResultType::FileGlob(_)
+        | AIAgentActionResultType::FileGlobV2(_)
+        | AIAgentActionResultType::ReadMCPResource(_)
+        | AIAgentActionResultType::CallMCPTool(_)
+        | AIAgentActionResultType::ReadSkill(_)
+        | AIAgentActionResultType::SuggestNewConversation(_)
+        | AIAgentActionResultType::SuggestPrompt(_)
+        | AIAgentActionResultType::OpenCodeReview
+        | AIAgentActionResultType::InsertReviewComments(_)
+        | AIAgentActionResultType::InitProject
+        | AIAgentActionResultType::ReadDocuments(_)
+        | AIAgentActionResultType::EditDocuments(_)
+        | AIAgentActionResultType::CreateDocuments(_)
+        | AIAgentActionResultType::ReadShellCommandOutput(_)
+        | AIAgentActionResultType::UseComputer(_)
+        | AIAgentActionResultType::RequestComputerUse(_)
+        | AIAgentActionResultType::FetchConversation(_)
+        | AIAgentActionResultType::StartAgent(_)
+        | AIAgentActionResultType::SendMessageToAgent(_)
+        | AIAgentActionResultType::TransferShellCommandControlToUser(_)
+        | AIAgentActionResultType::AskUserQuestion(_)
+        | AIAgentActionResultType::RunAgents(_)
+        | AIAgentActionResultType::WaitForEvents(_) => false,
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_log_level(result: &AIAgentActionResultType) -> RemoteLogLevel {
+    if result.is_failed() || action_result_failure_summary(result).is_some() {
+        RemoteLogLevel::Error
+    } else if result.is_cancelled() {
+        RemoteLogLevel::Warn
+    } else {
+        RemoteLogLevel::Info
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_error_summary(result: &AIAgentActionResultType) -> Option<String> {
+    if let Some(summary) = action_result_failure_summary(result) {
+        Some(remote_logging::sanitize_error(summary))
+    } else if result.is_cancelled() {
+        Some(format!("{} cancelled", action_result_type_name(result)))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn action_result_failure_summary(result: &AIAgentActionResultType) -> Option<String> {
+    match result {
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::Completed {
+            exit_code,
+            ..
+        }) if !exit_code.was_successful() => {
+            Some(format!("command exited with code {}", exit_code.value()))
+        }
+        AIAgentActionResultType::RequestCommandOutput(RequestCommandOutputResult::Denylisted {
+            ..
+        }) => Some("command was denylisted".to_string()),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "long-running shell command exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Error(error),
+        ) => Some(format!("{error:?}")),
+        AIAgentActionResultType::RequestFileEdits(
+            RequestFileEditsResult::DiffApplicationFailed { error },
+        ) => Some(error.clone()),
+        AIAgentActionResultType::ReadFiles(ReadFilesResult::Error(error))
+        | AIAgentActionResultType::UploadArtifact(UploadArtifactResult::Error(error))
+        | AIAgentActionResultType::Grep(GrepResult::Error(error))
+        | AIAgentActionResultType::FileGlob(FileGlobResult::Error(error))
+        | AIAgentActionResultType::FileGlobV2(FileGlobV2Result::Error(error))
+        | AIAgentActionResultType::ReadMCPResource(ReadMCPResourceResult::Error(error))
+        | AIAgentActionResultType::CallMCPTool(CallMCPToolResult::Error(error))
+        | AIAgentActionResultType::ReadSkill(ReadSkillResult::Error(error))
+        | AIAgentActionResultType::ReadDocuments(ReadDocumentsResult::Error(error))
+        | AIAgentActionResultType::EditDocuments(EditDocumentsResult::Error(error))
+        | AIAgentActionResultType::CreateDocuments(CreateDocumentsResult::Error(error))
+        | AIAgentActionResultType::UseComputer(UseComputerResult::Error(error))
+        | AIAgentActionResultType::RequestComputerUse(RequestComputerUseResult::Error(error))
+        | AIAgentActionResultType::FetchConversation(FetchConversationResult::Error(error))
+        | AIAgentActionResultType::SendMessageToAgent(SendMessageToAgentResult::Error(error))
+        | AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Error(error)) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::SearchCodebase(SearchCodebaseResult::Failed {
+            reason,
+            message,
+        }) => Some(format!("{reason:?}: {message}")),
+        AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "shell command output exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::ReadShellCommandOutput(ReadShellCommandOutputResult::Error(
+            error,
+        )) => Some(format!("{error:?}")),
+        AIAgentActionResultType::InsertReviewComments(InsertReviewCommentsResult::Error {
+            message,
+            ..
+        }) => Some(message.clone()),
+        AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, .. }) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::CommandFinished { exit_code, .. },
+        ) if !exit_code.was_successful() => Some(format!(
+            "transferred shell command exited with code {}",
+            exit_code.value()
+        )),
+        AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Error(error),
+        ) => Some(format!("{error:?}")),
+        AIAgentActionResultType::RunAgents(RunAgentsResult::Denied { reason }) => {
+            Some(reason.clone())
+        }
+        AIAgentActionResultType::RunAgents(RunAgentsResult::Failure { error }) => {
+            Some(error.clone())
+        }
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::ExecutionError { message, .. },
+        ) => Some(message.clone()),
+        AIAgentActionResultType::RequestCommandOutput(
+            RequestCommandOutputResult::Completed { .. }
+            | RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::LongRunningCommandSnapshot { .. },
+        )
+        | AIAgentActionResultType::WriteToLongRunningShellCommand(
+            WriteToLongRunningShellCommandResult::Cancelled
+            | WriteToLongRunningShellCommandResult::CommandFinished { .. }
+            | WriteToLongRunningShellCommandResult::Snapshot { .. },
+        )
+        | AIAgentActionResultType::RequestFileEdits(
+            RequestFileEditsResult::Cancelled | RequestFileEditsResult::Success { .. },
+        )
+        | AIAgentActionResultType::ReadFiles(
+            ReadFilesResult::Success { .. } | ReadFilesResult::Cancelled,
+        )
+        | AIAgentActionResultType::UploadArtifact(
+            UploadArtifactResult::Success { .. } | UploadArtifactResult::Cancelled,
+        )
+        | AIAgentActionResultType::SearchCodebase(
+            SearchCodebaseResult::Success { .. } | SearchCodebaseResult::Cancelled,
+        )
+        | AIAgentActionResultType::Grep(GrepResult::Success { .. } | GrepResult::Cancelled)
+        | AIAgentActionResultType::FileGlob(
+            FileGlobResult::Success { .. } | FileGlobResult::Cancelled,
+        )
+        | AIAgentActionResultType::FileGlobV2(
+            FileGlobV2Result::Success { .. } | FileGlobV2Result::Cancelled,
+        )
+        | AIAgentActionResultType::ReadMCPResource(
+            ReadMCPResourceResult::Success { .. } | ReadMCPResourceResult::Cancelled,
+        )
+        | AIAgentActionResultType::CallMCPTool(
+            CallMCPToolResult::Success { .. } | CallMCPToolResult::Cancelled,
+        )
+        | AIAgentActionResultType::ReadSkill(
+            ReadSkillResult::Success { .. } | ReadSkillResult::Cancelled,
+        )
+        | AIAgentActionResultType::SuggestNewConversation(_)
+        | AIAgentActionResultType::SuggestPrompt(_)
+        | AIAgentActionResultType::OpenCodeReview
+        | AIAgentActionResultType::InsertReviewComments(
+            InsertReviewCommentsResult::Success { .. } | InsertReviewCommentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::InitProject
+        | AIAgentActionResultType::ReadDocuments(
+            ReadDocumentsResult::Success { .. } | ReadDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::EditDocuments(
+            EditDocumentsResult::Success { .. } | EditDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::CreateDocuments(
+            CreateDocumentsResult::Success { .. } | CreateDocumentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::ReadShellCommandOutput(
+            ReadShellCommandOutputResult::Cancelled
+            | ReadShellCommandOutputResult::CommandFinished { .. }
+            | ReadShellCommandOutputResult::LongRunningCommandSnapshot { .. },
+        )
+        | AIAgentActionResultType::UseComputer(
+            UseComputerResult::Success(_) | UseComputerResult::Cancelled,
+        )
+        | AIAgentActionResultType::RequestComputerUse(
+            RequestComputerUseResult::Approved { .. } | RequestComputerUseResult::Cancelled,
+        )
+        | AIAgentActionResultType::FetchConversation(
+            FetchConversationResult::Success { .. } | FetchConversationResult::Cancelled,
+        )
+        | AIAgentActionResultType::StartAgent(
+            StartAgentResult::Success { .. } | StartAgentResult::Cancelled { .. },
+        )
+        | AIAgentActionResultType::SendMessageToAgent(
+            SendMessageToAgentResult::Success { .. } | SendMessageToAgentResult::Cancelled,
+        )
+        | AIAgentActionResultType::TransferShellCommandControlToUser(
+            TransferShellCommandControlToUserResult::Cancelled
+            | TransferShellCommandControlToUserResult::CommandFinished { .. }
+            | TransferShellCommandControlToUserResult::Snapshot { .. },
+        )
+        | AIAgentActionResultType::AskUserQuestion(
+            AskUserQuestionResult::Success { .. }
+            | AskUserQuestionResult::Cancelled
+            | AskUserQuestionResult::SkippedByAutoApprove { .. },
+        )
+        | AIAgentActionResultType::RunAgents(
+            RunAgentsResult::Launched { .. } | RunAgentsResult::Cancelled,
+        )
+        | AIAgentActionResultType::WaitForEvents(_) => None,
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn log_tool_event(
+    ctx: &mut ModelContext<BlocklistAIActionModel>,
+    level: RemoteLogLevel,
+    message: &str,
+    context: serde_json::Value,
+) {
+    remote_logging::log_model_event(
+        ctx,
+        RemoteLogRecord {
+            level,
+            message: message.to_string(),
+            context,
+        },
+    );
+}
+
 pub struct BlocklistAIActionModel {
     executor: ModelHandle<BlocklistAIActionExecutor>,
 
@@ -224,14 +751,32 @@ pub struct BlocklistAIActionModel {
     /// Map from conversation ID to actions received in the most recent AI output that are finished.
     finished_action_results: HashMap<AIConversationId, Vec<Arc<AIAgentActionResult>>>,
 
+    /// Provider-neutral results for the same finished actions. Rig consumes these directly rather
+    /// than reconstructing them from the legacy request protobuf.
+    finished_tool_results: HashMap<AIConversationId, Vec<ToolResult>>,
+
+    /// Provider-owned action results retained until their exact tool batch is fully committed.
+    provider_finished_action_results:
+        HashMap<(AIConversationId, ExternalWorkId), Vec<Arc<AIAgentActionResult>>>,
+
     /// Original order for the current batch of actions.
     ///
     /// We maintain this so that even though we might process actions in parallel,
     /// we can still order the results consistently.
     action_order: HashMap<AIConversationId, HashMap<AIAgentActionId, usize>>,
 
+    /// Permission-card rejections whose cancelled action result must not emit a second provider event.
+    denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
+
+    /// Actions parked because their executor-specific UI or state was not ready yet.
+    not_ready_actions: NotReadyActionTracker,
+
+    /// Durable provider work identity for actions owned by an active provider run.
+    provider_tool_executions:
+        HashMap<(AIConversationId, AIAgentActionId), ProviderToolExecutionRef>,
+
     /// Past actions and their corresponding statuses from previous AI exchanges.
-    past_action_results: HashMap<AIAgentActionId, Arc<AIAgentActionResult>>,
+    past_action_results: HashMap<(AIConversationId, AIAgentActionId), Arc<AIAgentActionResult>>,
 
     /// The ID of the terminal view this controller is associated with.
     terminal_view_id: EntityId,
@@ -264,8 +809,23 @@ impl BlocklistAIActionModel {
             )
         });
         ctx.subscribe_to_model(&executor, move |me, _, event, ctx| match event {
-            BlocklistAIActionExecutorEvent::ExecutingAction { action_id } => {
-                ctx.emit(BlocklistAIActionEvent::ExecutingAction(action_id.clone()));
+            BlocklistAIActionExecutorEvent::ExecutingAction {
+                action_id,
+                conversation_id,
+            } => {
+                let execution_ref = me.provider_tool_execution_ref(*conversation_id, action_id);
+                ctx.emit(BlocklistAIActionEvent::ExecutingAction {
+                    action_id: action_id.clone(),
+                    conversation_id: *conversation_id,
+                    execution_ref: execution_ref.clone(),
+                });
+                ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                    action_id: action_id.clone(),
+                    execution_ref,
+                    event: ToolEvent::Started {
+                        call_id: action_id.to_string(),
+                    },
+                });
             }
             BlocklistAIActionExecutorEvent::FinishedAction {
                 result,
@@ -298,10 +858,15 @@ impl BlocklistAIActionModel {
         Self {
             pending_actions: Default::default(),
             finished_action_results: Default::default(),
+            finished_tool_results: Default::default(),
+            provider_finished_action_results: Default::default(),
             executor,
             past_action_results: HashMap::new(),
             running_actions: Default::default(),
             action_order: Default::default(),
+            denied_permissions: Default::default(),
+            not_ready_actions: Default::default(),
+            provider_tool_executions: Default::default(),
             terminal_view_id,
             pending_preprocessed_actions: Default::default(),
             is_view_only: false,
@@ -339,7 +904,11 @@ impl BlocklistAIActionModel {
             action_id.clone(),
             RunningActionPhase::Serial,
         );
-        ctx.emit(BlocklistAIActionEvent::ExecutingAction(action_id.clone()));
+        ctx.emit(BlocklistAIActionEvent::ExecutingAction {
+            action_id: action_id.clone(),
+            conversation_id,
+            execution_ref: self.provider_tool_execution_ref(conversation_id, action_id),
+        });
     }
 
     /// Returns true if the action model is operating in view-only mode (used for shared-session viewers).
@@ -463,8 +1032,8 @@ impl BlocklistAIActionModel {
             .get(&conversation_id)
             .map(|q| q.len())
             .unwrap_or(0);
-        log::info!(
-            "[tool-debug] try_to_execute_available_actions: conversation={:?}, pending_count={}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "try_to_execute_available_actions: conversation={:?}, pending_count={}",
             conversation_id,
             pending_count
         );
@@ -475,14 +1044,14 @@ impl BlocklistAIActionModel {
                 .and_then(|queue| queue.front())
                 .cloned()
             else {
-                log::info!(
-                    "[tool-debug] try_to_execute_available_actions: no more pending actions"
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_available_actions: no more pending actions"
                 );
                 return;
             };
 
-            log::info!(
-                "[tool-debug] try_to_execute_available_actions: trying action id={:?}, type={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_available_actions: trying action id={:?}, type={:?}",
                 front_action.id,
                 std::mem::discriminant(&front_action.action)
             );
@@ -494,23 +1063,26 @@ impl BlocklistAIActionModel {
                     current_phase,
                     ctx,
                 ) {
-                    log::info!(
-                        "[tool-debug] try_to_execute_available_actions: cannot start in current phase {:?}",
+                    crate::ai::tool_diagnostics::tool_debug!(
+                        "try_to_execute_available_actions: cannot start in current phase {:?}",
                         current_phase
                     );
                     return;
                 }
             }
 
-            let Some(result) =
-                self.start_pending_action_by_id(&front_action.id, conversation_id, false, ctx)
-            else {
-                log::info!("[tool-debug] try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
+            let Some(result) = self.start_pending_action_by_id(
+                &front_action.id,
+                conversation_id,
+                ActionExecutionInitiator::Automatic,
+                ctx,
+            ) else {
+                crate::ai::tool_diagnostics::tool_debug!("try_to_execute_available_actions: start_pending_action_by_id returned None (blocked)");
                 return;
             };
 
-            log::info!(
-                "[tool-debug] try_to_execute_available_actions: action started, result={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "try_to_execute_available_actions: action started, result={:?}",
                 std::mem::discriminant(&result)
             );
 
@@ -520,7 +1092,9 @@ impl BlocklistAIActionModel {
                     phase: RunningActionPhase::Serial
                 }
             ) {
-                log::info!("[tool-debug] try_to_execute_available_actions: serial async action, stopping loop");
+                crate::ai::tool_diagnostics::tool_debug!(
+                    "try_to_execute_available_actions: serial async action, stopping loop"
+                );
                 return;
             }
         }
@@ -529,19 +1103,28 @@ impl BlocklistAIActionModel {
     fn sort_finished_results(&mut self, conversation_id: AIConversationId) {
         if let Some(action_order) = self.action_order.get(&conversation_id) {
             if let Some(finished_results) = self.finished_action_results.get_mut(&conversation_id) {
-                finished_results.sort_by_key(|result| {
-                    action_order.get(&result.id).copied().unwrap_or(usize::MAX)
+                sort_action_results_by_order(finished_results, action_order);
+            }
+            for ((finished_conversation_id, _), finished_results) in
+                &mut self.provider_finished_action_results
+            {
+                if *finished_conversation_id == conversation_id {
+                    sort_action_results_by_order(finished_results, action_order);
+                }
+            }
+            if let Some(tool_results) = self.finished_tool_results.get_mut(&conversation_id) {
+                let tool_order = action_order
+                    .iter()
+                    .map(|(id, index)| (id.to_string(), *index))
+                    .collect::<HashMap<_, _>>();
+                tool_results.sort_by_key(|result| {
+                    tool_order
+                        .get(&result.call_id)
+                        .copied()
+                        .unwrap_or(usize::MAX)
                 });
             }
         }
-    }
-
-    /// Returns all pending actions for all conversations.
-    pub fn get_pending_actions(&self) -> Vec<&AIAgentAction> {
-        self.pending_actions
-            .values()
-            .flat_map(|queue| queue.iter())
-            .collect()
     }
 
     /// Returns all pending actions for a specific conversation.
@@ -561,11 +1144,15 @@ impl BlocklistAIActionModel {
         self.blocked_action_for_conversation(&conversation_id)
     }
 
-    /// Returns a pending action by its ID, searching across all conversations.
-    pub fn get_pending_action_by_id(&self, action_id: &AIAgentActionId) -> Option<&AIAgentAction> {
+    /// Returns a pending action by its ID within the given conversation.
+    pub fn get_pending_action_by_id(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<&AIAgentAction> {
         self.pending_actions
-            .values()
-            .flat_map(|queue| queue.iter())
+            .get(&conversation_id)?
+            .iter()
             .find(|action| &action.id == action_id)
     }
 
@@ -597,7 +1184,11 @@ impl BlocklistAIActionModel {
         self.running_actions
             .get(&conversation_id)
             .and_then(RunningActions::first_action_id)
-            .and_then(|action_id| self.executor.as_ref(app).async_executing_action(action_id))
+            .and_then(|action_id| {
+                self.executor
+                    .as_ref(app)
+                    .async_executing_action(conversation_id, action_id)
+            })
     }
 
     /// Returns whether there is a pending or running action for the active conversation.
@@ -623,6 +1214,24 @@ impl BlocklistAIActionModel {
         has_pending || has_running
     }
 
+    pub fn has_unresolved_ask_user_question_for_conversation(
+        &self,
+        conversation_id: AIConversationId,
+        app: &AppContext,
+    ) -> bool {
+        self.pending_actions
+            .get(&conversation_id)
+            .is_some_and(|queue| {
+                queue.iter().any(|action| {
+                    matches!(action.action, AIAgentActionType::AskUserQuestion { .. })
+                })
+            })
+            || self
+                .executor
+                .as_ref(app)
+                .has_running_ask_user_question(conversation_id)
+    }
+
     /// Returns finished action results received from the most recent AI output for the active conversation.
     pub fn get_finished_action_results(
         &self,
@@ -631,52 +1240,58 @@ impl BlocklistAIActionModel {
         self.finished_action_results.get(&conversation_id)
     }
 
-    /// Returns the `AIActionStatus` for the action corresponding to the given `id`, if any.
-    pub fn get_action_status(&self, id: &AIAgentActionId) -> Option<AIActionStatus> {
-        for (conversation_id, pending_actions_for_conversation) in &self.pending_actions {
-            for (index, action) in pending_actions_for_conversation.iter().enumerate() {
-                if &action.id != id {
-                    continue;
-                }
-
-                if index == 0
-                    && !self.is_view_only
-                    && !self.running_actions.contains_key(conversation_id)
-                {
-                    return Some(AIActionStatus::Blocked);
-                }
-
-                return Some(AIActionStatus::Queued);
-            }
+    /// Returns the status for an action within the given conversation.
+    pub fn get_action_status(
+        &self,
+        conversation_id: AIConversationId,
+        id: &AIAgentActionId,
+    ) -> Option<AIActionStatus> {
+        if let Some(status) = pending_action_status(
+            &self.pending_actions,
+            &self.running_actions,
+            conversation_id,
+            id,
+            self.is_view_only,
+        ) {
+            return Some(status);
         }
 
         self.running_actions
-            .values()
-            .find(|running| running.contains(id))
+            .get(&conversation_id)
+            .filter(|running| running.contains(id))
             .map(|_| AIActionStatus::RunningAsync)
             .or_else(|| {
-                self.get_action_result(id)
+                self.get_action_result(conversation_id, id)
                     .map(|result| AIActionStatus::Finished(result.clone()))
             })
             .or_else(|| {
                 self.pending_preprocessed_actions
-                    .values()
-                    .any(|preprocessing| preprocessing.contains(id))
+                    .get(&conversation_id)
+                    .is_some_and(|preprocessing| preprocessing.contains(id))
                     .then_some(AIActionStatus::Preprocessing)
             })
     }
 
-    pub fn get_action_result(&self, id: &AIAgentActionId) -> Option<&Arc<AIAgentActionResult>> {
-        // Search through all conversations' finished action results
-        self.finished_action_results
-            .values()
-            .flat_map(|results| results.iter())
-            .find(|result| &result.id == id)
-            .or_else(|| self.past_action_results.get(id))
+    pub fn get_action_result(
+        &self,
+        conversation_id: AIConversationId,
+        id: &AIAgentActionId,
+    ) -> Option<&Arc<AIAgentActionResult>> {
+        action_result_for_conversation(
+            &self.finished_action_results,
+            &self.provider_finished_action_results,
+            &self.past_action_results,
+            conversation_id,
+            id,
+        )
     }
 
     /// Bulk restore action results from a list of exchanges (used when loading conversations from tasks)
-    pub fn restore_action_results_from_exchanges(&mut self, exchanges: Vec<&AIAgentExchange>) {
+    pub fn restore_action_results_from_exchanges(
+        &mut self,
+        conversation_id: AIConversationId,
+        exchanges: Vec<&AIAgentExchange>,
+    ) {
         for exchange in exchanges.iter() {
             for input in &exchange.input {
                 if let AIAgentInput::ActionResult { result, .. } = input {
@@ -693,7 +1308,7 @@ impl BlocklistAIActionModel {
                         );
                     }
                     self.past_action_results
-                        .insert(result_id, Arc::new(result_to_insert));
+                        .insert((conversation_id, result_id), Arc::new(result_to_insert));
                 }
             }
         }
@@ -703,18 +1318,16 @@ impl BlocklistAIActionModel {
     /// from the confirmation card.
     pub fn execute_run_agents(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         request: ai::agent::action::RunAgentsRequest,
         ctx: &mut ModelContext<Self>,
     ) {
-        let mut found = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(action) = queue.iter_mut().find(|action| &action.id == action_id) {
-                found = Some((*conv_id, action));
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|queue| queue.iter_mut().find(|action| &action.id == action_id))
+        else {
             log::warn!(
                 "BlocklistAIActionModel::execute_run_agents: no pending action for {action_id:?}"
             );
@@ -735,25 +1348,25 @@ impl BlocklistAIActionModel {
     /// the time the action becomes blocked on user confirmation.
     pub fn deny_run_agents(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         reason: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        let mut found: Option<(AIConversationId, AIAgentAction)> = None;
-        for (conv_id, queue) in self.pending_actions.iter_mut() {
-            if let Some(idx) = queue.iter().position(|a| &a.id == action_id) {
-                if let Some(action) = queue.remove(idx) {
-                    found = Some((*conv_id, action));
-                }
-                break;
-            }
-        }
-        let Some((conversation_id, action)) = found else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|queue| {
+                let index = queue.iter().position(|action| &action.id == action_id)?;
+                queue.remove(index)
+            })
+        else {
             log::warn!(
                 "BlocklistAIActionModel::deny_run_agents: no pending action for {action_id:?}"
             );
             return;
         };
+        self.resolve_permission_denial(conversation_id, &action, ctx);
         let result = Arc::new(AIAgentActionResult {
             id: action.id,
             task_id: action.task_id,
@@ -780,7 +1393,12 @@ impl BlocklistAIActionModel {
         };
 
         if self
-            .start_pending_action_by_id(&pending_action_id, conversation_id, true, ctx)
+            .start_pending_action_by_id(
+                &pending_action_id,
+                conversation_id,
+                ActionExecutionInitiator::User,
+                ctx,
+            )
             .is_some_and(|result| matches!(result, StartedAction::Sync))
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
@@ -795,7 +1413,39 @@ impl BlocklistAIActionModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if self
-            .start_pending_action_by_id(action_id, conversation_id, true, ctx)
+            .start_pending_action_by_id(
+                action_id,
+                conversation_id,
+                ActionExecutionInitiator::User,
+                ctx,
+            )
+            .is_some_and(|result| matches!(result, StartedAction::Sync))
+        {
+            self.try_to_execute_available_actions(conversation_id, ctx);
+        }
+    }
+
+    /// Retries an action only when a prior automatic attempt found its executor not ready.
+    pub(super) fn retry_not_ready_action(
+        &mut self,
+        action_id: &AIAgentActionId,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if !self
+            .not_ready_actions
+            .should_retry(conversation_id, action_id)
+        {
+            return;
+        }
+
+        if self
+            .start_pending_action_by_id(
+                action_id,
+                conversation_id,
+                ActionExecutionInitiator::Automatic,
+                ctx,
+            )
             .is_some_and(|result| matches!(result, StartedAction::Sync))
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
@@ -829,21 +1479,70 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if reason.needs_confirmation() {
-            ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(
-                action.id.clone(),
-            ));
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
-                let blocked_action_user_friendly_str = action.action.user_friendly_name();
-                history_model.update_conversation_status(
-                    self.terminal_view_id,
-                    conversation_id,
-                    ConversationStatus::Blocked {
-                        blocked_action: format!("{blocked_action_user_friendly_str:?}"),
-                    },
+        match reason {
+            NotExecutedReason::NeedsConfirmation => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
                     ctx,
+                    RemoteLogLevel::Info,
+                    "Tool permission requested",
+                    serde_json::json!({
+                        "event": "tool_permission_requested",
+                        "conversation_id": conversation_id.to_string(),
+                        "action_id": action.id.to_string(),
+                        "task_id": action.task_id.to_string(),
+                        "tool_name": action_tool_name(action),
+                        "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                        "reason": format!("{reason:?}"),
+                    }),
                 );
-            });
+                let execution_ref = self.provider_tool_execution_ref(conversation_id, &action.id);
+                ctx.emit(BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                    action_id: action.id.clone(),
+                    conversation_id,
+                    execution_ref: execution_ref.clone(),
+                });
+                ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                    action_id: action.id.clone(),
+                    execution_ref,
+                    event: ToolEvent::PermissionRequested {
+                        request: PermissionRequest {
+                            id: permission_request_id(&action.id),
+                            call_id: action.id.to_string(),
+                            kind: permission_kind_for_action(&action.action),
+                            reason: Some(action.action.user_friendly_name()),
+                        },
+                    },
+                });
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                    let blocked_action_user_friendly_str = action.action.user_friendly_name();
+                    history_model.update_conversation_status(
+                        self.terminal_view_id,
+                        conversation_id,
+                        ConversationStatus::Blocked {
+                            blocked_action: format!("{blocked_action_user_friendly_str:?}"),
+                        },
+                        ctx,
+                    );
+                });
+            }
+            NotExecutedReason::NotReady => {
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Warn,
+                    "Tool execution deferred",
+                    serde_json::json!({
+                        "event": "tool_execution_not_ready",
+                        "conversation_id": conversation_id.to_string(),
+                        "action_id": action.id.to_string(),
+                        "task_id": action.task_id.to_string(),
+                        "tool_name": action_tool_name(action),
+                        "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                    }),
+                );
+            }
+            NotExecutedReason::WaitingOnSharer => {}
         }
     }
 
@@ -876,9 +1575,10 @@ impl BlocklistAIActionModel {
         &mut self,
         action_id: &AIAgentActionId,
         conversation_id: AIConversationId,
-        is_user_initiated: bool,
+        initiator: ActionExecutionInitiator,
         ctx: &mut ModelContext<Self>,
     ) -> Option<StartedAction> {
+        let is_user_initiated = initiator.is_user_initiated();
         if is_user_initiated && self.running_actions.contains_key(&conversation_id) {
             // User-driven approvals still execute one action at a time so that interactive
             // confirmations do not overlap in the UI.
@@ -897,6 +1597,37 @@ impl BlocklistAIActionModel {
 
         let action_id = action.id.clone();
         let phase = self.action_phase_for_action(&action, ctx);
+        #[cfg(not(target_family = "wasm"))]
+        let remote_log_action_context = serde_json::json!({
+            "conversation_id": conversation_id.to_string(),
+            "action_id": action_id.to_string(),
+            "task_id": action.task_id.to_string(),
+            "tool_name": action_tool_name(&action),
+            "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+            "phase": format!("{phase:?}"),
+        });
+        if is_user_initiated {
+            #[cfg(not(target_family = "wasm"))]
+            log_tool_event(
+                ctx,
+                RemoteLogLevel::Info,
+                "Tool permission resolved",
+                serde_json::json!({
+                    "event": "tool_permission_resolved",
+                    "decision": "allow_once",
+                    "tool": remote_log_action_context,
+                }),
+            );
+            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                action_id: action_id.clone(),
+                execution_ref: self.provider_tool_execution_ref(conversation_id, &action_id),
+                event: ToolEvent::PermissionResolved {
+                    request_id: permission_request_id(&action_id),
+                    call_id: action_id.to_string(),
+                    decision: PermissionDecision::AllowOnce,
+                },
+            });
+        }
         // WaitForEvents owns its own status transition; skip the default
         // in-progress update.
         let is_wait_for_events = matches!(action.action, AIAgentActionType::WaitForEvents { .. });
@@ -906,6 +1637,18 @@ impl BlocklistAIActionModel {
 
         match execute_result {
             TryExecuteResult::ExecutedAsync => {
+                self.not_ready_actions.clear(conversation_id, &action_id);
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Info,
+                    "Tool execution started",
+                    serde_json::json!({
+                        "event": "tool_execution_started",
+                        "initiated_by": if is_user_initiated { "user" } else { "auto" },
+                        "tool": remote_log_action_context,
+                    }),
+                );
                 if !is_wait_for_events {
                     self.update_conversation_in_progress_status(conversation_id, ctx);
                 }
@@ -913,12 +1656,30 @@ impl BlocklistAIActionModel {
                 Some(StartedAction::Async { phase })
             }
             TryExecuteResult::ExecutedSync => {
+                self.not_ready_actions.clear(conversation_id, &action_id);
+                #[cfg(not(target_family = "wasm"))]
+                log_tool_event(
+                    ctx,
+                    RemoteLogLevel::Info,
+                    "Tool execution started",
+                    serde_json::json!({
+                        "event": "tool_execution_started",
+                        "initiated_by": if is_user_initiated { "user" } else { "auto" },
+                        "tool": remote_log_action_context,
+                    }),
+                );
                 if !is_wait_for_events {
                     self.update_conversation_in_progress_status(conversation_id, ctx);
                 }
                 Some(StartedAction::Sync)
             }
             TryExecuteResult::NotExecuted { reason, action } => {
+                self.not_ready_actions.update_after_attempt(
+                    conversation_id,
+                    action_id,
+                    reason,
+                    initiator,
+                );
                 self.pending_actions
                     .entry(conversation_id)
                     .or_default()
@@ -940,6 +1701,44 @@ impl BlocklistAIActionModel {
         })
     }
 
+    fn provider_tool_execution_ref(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> Option<ProviderToolExecutionRef> {
+        self.provider_tool_executions
+            .get(&(conversation_id, action_id.clone()))
+            .cloned()
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn queue_provider_actions(
+        &mut self,
+        actions: Vec<AIAgentAction>,
+        recovery_action_ids: HashSet<AIAgentActionId>,
+        conversation_id: AIConversationId,
+        batch: &PendingToolBatch,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), ProviderActionQueueError> {
+        let refs = provider_action_correlations(&actions, conversation_id, batch)?;
+        for ((_, action_id), _) in &refs {
+            if self
+                .provider_tool_executions
+                .contains_key(&(conversation_id, action_id.clone()))
+            {
+                return Err(ProviderActionQueueError::ExistingCorrelation {
+                    call_id: action_id.to_string(),
+                });
+            }
+        }
+        self.provider_tool_executions.extend(refs);
+        self.executor.update(ctx, |executor, ctx| {
+            executor.mark_restored_actions(conversation_id, &recovery_action_ids, ctx);
+        });
+        self.queue_actions(actions, conversation_id, ctx);
+        Ok(())
+    }
+
     /// Queues the `actions` in the given iterator for the given conversation,
     /// to be dispatched in the order in which they appear in the iterator.
     pub(super) fn queue_actions(
@@ -948,19 +1747,42 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        log::info!(
-            "[tool-debug] queue_actions: queuing {} actions for conversation {:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "queue_actions: queuing {} actions for conversation {:?}",
             actions.len(),
             conversation_id
         );
         for (i, action) in actions.iter().enumerate() {
-            log::info!(
-                "[tool-debug] queue_actions:   [{}] id={:?}, type={:?}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "queue_actions:   [{}] id={:?}, type={:?}",
                 i,
                 action.id,
                 std::mem::discriminant(&action.action)
             );
         }
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            RemoteLogLevel::Info,
+            "Tools queued",
+            serde_json::json!({
+                "event": "tools_queued",
+                "conversation_id": conversation_id.to_string(),
+                "tool_count": actions.len(),
+                "tools": actions
+                    .iter()
+                    .map(|action| {
+                        serde_json::json!({
+                            "action_id": action.id.to_string(),
+                            "task_id": action.task_id.to_string(),
+                            "tool_name": action_tool_name(action),
+                            "requires_result": action.requires_result,
+                            "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            }),
+        );
         self.action_order.insert(
             conversation_id,
             actions
@@ -1009,11 +1831,18 @@ impl BlocklistAIActionModel {
             // as otherwise tools get stuck in a pending state on the viewer's side of things. This check
             // must be scoped to the current conversation as some providers generate tool call IDs that
             // only unique within a conversation.
-            if self
+            let has_finished_result = self
                 .finished_action_results
                 .get(&conversation_id)
-                .is_some_and(|results| results.iter().any(|r| r.id == action_id))
-            {
+                .is_some_and(|results| results.iter().any(|result| result.id == action_id))
+                || self
+                    .provider_finished_action_results
+                    .iter()
+                    .filter(|((finished_conversation_id, _), _)| {
+                        *finished_conversation_id == conversation_id
+                    })
+                    .any(|(_, results)| results.iter().any(|result| result.id == action_id));
+            if has_finished_result {
                 continue;
             }
 
@@ -1033,7 +1862,10 @@ impl BlocklistAIActionModel {
                 .entry(conversation_id)
                 .or_default()
                 .push_back(action);
-            ctx.emit(BlocklistAIActionEvent::QueuedAction(action_id));
+            ctx.emit(BlocklistAIActionEvent::QueuedAction {
+                execution_ref: self.provider_tool_execution_ref(conversation_id, &action_id),
+                action_id,
+            });
         }
         self.try_to_execute_available_actions(conversation_id, ctx);
     }
@@ -1073,13 +1905,15 @@ impl BlocklistAIActionModel {
         reason: CancellationReason,
         ctx: &mut ModelContext<Self>,
     ) {
+        let status = self.get_action_status(conversation_id, action_id);
+        let permission_denied = is_permission_denial(reason, status.as_ref());
         if self
             .running_actions
             .get(&conversation_id)
             .is_some_and(|running| running.contains(action_id))
         {
             self.executor.update(ctx, |executor, ctx| {
-                executor.cancel_running_async_action(action_id, Some(reason), ctx)
+                executor.cancel_running_async_action(conversation_id, action_id, Some(reason), ctx)
             });
         } else {
             let Some(pending_actions_for_conversation) =
@@ -1092,7 +1926,13 @@ impl BlocklistAIActionModel {
                 .find_position(|action| action.id == *action_id)
             {
                 if let Some(action) = pending_actions_for_conversation.remove(idx) {
-                    self.cancel_pending_action(conversation_id, action, Some(reason), ctx);
+                    self.cancel_pending_action(
+                        conversation_id,
+                        action,
+                        Some(reason),
+                        permission_denied,
+                        ctx,
+                    );
                 }
             }
         }
@@ -1129,18 +1969,28 @@ impl BlocklistAIActionModel {
             executor.cancel_all_running_async_actions_for_conversation(conversation_id, reason, ctx)
         });
 
+        if let Some(preprocessing) = self.pending_preprocessed_actions.remove(&conversation_id) {
+            self.provider_tool_executions
+                .retain(|(correlated_conversation_id, action_id), _| {
+                    *correlated_conversation_id != conversation_id
+                        || !preprocessing.contains(action_id)
+                });
+        }
+
         let Some(actions_to_cancel) = self.pending_actions.get_mut(&conversation_id) else {
             return;
         };
         for action in actions_to_cancel.drain(..).collect_vec() {
-            log::info!(
-                "Canceling pending action of type {:?} conversation_id={conversation_id:?} action_id={:?}, reason={:?}, backtrace=\n{}",
+            crate::ai::tool_diagnostics::tool_debug!(
+                "Canceling pending action of type {:?} conversation_id={conversation_id:?} action_id={:?}, reason={:?}",
                 AIAgentActionTypeDiscriminants::from(&action.action),
                 action.id,
-                reason,
-                std::backtrace::Backtrace::force_capture()
+                reason
             );
-            self.cancel_pending_action(conversation_id, action, reason, ctx);
+            if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
+                log::debug!("Pending action cancellation backtrace:\n{backtrace}");
+            }
+            self.cancel_pending_action(conversation_id, action, reason, false, ctx);
         }
     }
 
@@ -1172,13 +2022,48 @@ impl BlocklistAIActionModel {
         to_drain
     }
 
+    fn resolve_permission_denial(
+        &mut self,
+        conversation_id: AIConversationId,
+        pending_action: &AIAgentAction,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.denied_permissions
+            .insert((conversation_id, pending_action.id.clone()));
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            RemoteLogLevel::Warn,
+            "Tool permission resolved",
+            serde_json::json!({
+                "event": "tool_permission_resolved",
+                "decision": "denied",
+                "conversation_id": conversation_id.to_string(),
+                "action_id": pending_action.id.to_string(),
+                "task_id": pending_action.task_id.to_string(),
+                "tool_name": action_tool_name(pending_action),
+                "permission_kind": format!("{:?}", permission_kind_for_action(&pending_action.action)),
+            }),
+        );
+        ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+            action_id: pending_action.id.clone(),
+            execution_ref: self.provider_tool_execution_ref(conversation_id, &pending_action.id),
+            event: permission_denied_tool_event(pending_action),
+        });
+    }
+
     fn cancel_pending_action(
         &mut self,
         conversation_id: AIConversationId,
         pending_action: AIAgentAction,
         reason: Option<CancellationReason>,
+        permission_denied: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        if permission_denied {
+            self.resolve_permission_denial(conversation_id, &pending_action, ctx);
+        }
+
         if matches!(
             pending_action.action,
             AIAgentActionType::RequestComputerUse(_)
@@ -1219,7 +2104,7 @@ impl BlocklistAIActionModel {
 
         for result in finished_action_results.iter() {
             self.past_action_results
-                .insert(result.id.clone(), result.clone());
+                .insert((conversation_id, result.id.clone()), result.clone());
         }
         finished_action_results
             .into_iter()
@@ -1227,10 +2112,62 @@ impl BlocklistAIActionModel {
             .collect_vec()
     }
 
+    pub(super) fn drain_finished_tool_results(
+        &mut self,
+        conversation_id: AIConversationId,
+    ) -> Vec<ToolResult> {
+        self.finished_tool_results
+            .remove(&conversation_id)
+            .unwrap_or_default()
+    }
+
+    pub(super) fn provider_finished_action_results(
+        &self,
+        conversation_id: AIConversationId,
+        work_id: &ExternalWorkId,
+    ) -> Vec<Arc<AIAgentActionResult>> {
+        self.provider_finished_action_results
+            .get(&(conversation_id, work_id.clone()))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(super) fn archive_provider_finished_action_results(
+        &mut self,
+        conversation_id: AIConversationId,
+        work_id: &ExternalWorkId,
+    ) {
+        let results = self
+            .provider_finished_action_results
+            .remove(&(conversation_id, work_id.clone()))
+            .unwrap_or_default();
+        for result in results {
+            self.past_action_results
+                .insert((conversation_id, result.id.clone()), result);
+        }
+    }
+
     /// Clears finished action results for a conversation. Used when reverting.
     pub(super) fn clear_finished_action_results(&mut self, conversation_id: AIConversationId) {
         self.action_order.remove(&conversation_id);
         self.finished_action_results.remove(&conversation_id);
+        self.finished_tool_results.remove(&conversation_id);
+        self.provider_finished_action_results
+            .retain(|(finished_conversation_id, _), _| {
+                *finished_conversation_id != conversation_id
+            });
+    }
+
+    #[cfg(test)]
+    pub(super) fn push_pending_action_for_test(
+        &mut self,
+        conversation_id: AIConversationId,
+        action: AIAgentAction,
+    ) {
+        self.pending_actions
+            .entry(conversation_id)
+            .or_default()
+            .push_back(action);
     }
 
     /// The control flow for initiating cancellations across suggested plans, requested commands,
@@ -1238,33 +2175,28 @@ impl BlocklistAIActionModel {
     /// respective functions.
     pub fn handle_requested_command_accepted(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         command: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Search through all pending conversations to find the action and conversation ID
-        let mut found_conversation_id = None;
-        for (conversation_id, pending_actions_for_conversation) in self.pending_actions.iter_mut() {
-            if let Some(action) = pending_actions_for_conversation
-                .iter_mut()
-                .find(|action| action.id == *action_id)
-            {
-                if let AIAgentActionType::RequestCommandOutput {
-                    command: original_command,
-                    ..
-                } = &mut action.action
-                {
-                    *original_command = command;
-                    found_conversation_id = Some(*conversation_id);
-                    break;
-                }
-            }
-        }
-
-        let Some(conversation_id) = found_conversation_id else {
+        let Some(action) = self
+            .pending_actions
+            .get_mut(&conversation_id)
+            .and_then(|actions| actions.iter_mut().find(|action| action.id == *action_id))
+        else {
             log::warn!("Ignoring acceptance for non-pending requested command: {action_id:?}");
             return;
         };
+        let AIAgentActionType::RequestCommandOutput {
+            command: original_command,
+            ..
+        } = &mut action.action
+        else {
+            log::warn!("Ignoring acceptance for non-command action: {action_id:?}");
+            return;
+        };
+        *original_command = command;
 
         self.execute_action(action_id, conversation_id, ctx);
     }
@@ -1276,12 +2208,14 @@ impl BlocklistAIActionModel {
         cancellation_reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
     ) {
-        log::info!(
-            "[tool-debug] handle_action_result: action_id={:?}, result_type={:?}, cancellation={:?}",
+        crate::ai::tool_diagnostics::tool_debug!(
+            "handle_action_result: action_id={:?}, result_type={:?}, cancellation={:?}",
             action_result.id,
             std::mem::discriminant(&action_result.result),
             cancellation_reason
         );
+        self.not_ready_actions
+            .clear(conversation_id, &action_result.id);
         let should_remove_entry =
             self.running_actions
                 .get_mut(&conversation_id)
@@ -1308,14 +2242,78 @@ impl BlocklistAIActionModel {
             )
         ) {
             for action in self.drain_pending_request_command_actions(conversation_id) {
-                self.cancel_pending_action(conversation_id, action, cancellation_reason, ctx);
+                self.cancel_pending_action(
+                    conversation_id,
+                    action,
+                    cancellation_reason,
+                    false,
+                    ctx,
+                );
             }
         }
 
-        self.finished_action_results
-            .entry(conversation_id)
-            .or_default()
-            .push(action_result);
+        let execution_ref = self
+            .provider_tool_executions
+            .remove(&(conversation_id, action_result.id.clone()));
+        let permission_denied = self
+            .denied_permissions
+            .remove(&(conversation_id, action_result.id.clone()));
+        let tool_result = domain_tool_result(&action_result, permission_denied);
+        if execution_ref.is_none() {
+            self.finished_tool_results
+                .entry(conversation_id)
+                .or_default()
+                .push(tool_result.clone());
+        }
+        #[cfg(not(target_family = "wasm"))]
+        log_tool_event(
+            ctx,
+            if permission_denied {
+                RemoteLogLevel::Warn
+            } else {
+                action_result_log_level(&action_result.result)
+            },
+            "Tool execution completed",
+            serde_json::json!({
+                "event": "tool_execution_completed",
+                "conversation_id": conversation_id.to_string(),
+                "action_id": action_result.id.to_string(),
+                "task_id": action_result.task_id.to_string(),
+                "result_type": action_result_type_name(&action_result.result),
+                "status": if permission_denied {
+                    "denied"
+                } else {
+                    action_result_status(&action_result.result)
+                },
+                "tool_result_status": format!("{:?}", tool_result.status),
+                "permission_denied": permission_denied,
+                "cancellation_reason": cancellation_reason.map(|reason| format!("{reason:?}")),
+                "error": action_result_error_summary(&action_result.result),
+            }),
+        );
+        // Permission denial completes provider-owned calls when the permission decision is
+        // applied, so emitting a second correlated completion would violate exactly-once delivery.
+        if should_emit_tool_completion(execution_ref.is_some(), permission_denied) {
+            ctx.emit(BlocklistAIActionEvent::ToolLifecycle {
+                action_id: action_result.id.clone(),
+                execution_ref: execution_ref.clone(),
+                event: ToolEvent::Completed {
+                    result: tool_result,
+                },
+            });
+        }
+
+        if let Some(execution_ref) = &execution_ref {
+            self.provider_finished_action_results
+                .entry((conversation_id, execution_ref.work_id()))
+                .or_default()
+                .push(action_result);
+        } else {
+            self.finished_action_results
+                .entry(conversation_id)
+                .or_default()
+                .push(action_result);
+        }
 
         if self
             .running_actions
@@ -1348,6 +2346,7 @@ impl BlocklistAIActionModel {
             action_id,
             conversation_id,
             cancellation_reason,
+            execution_ref: execution_ref.clone(),
         });
 
         if self
@@ -1361,8 +2360,10 @@ impl BlocklistAIActionModel {
             // completion (no cancellation reason) is resolved by the controller's
             // follow-up handling. Stamping here for any of those would clobber the real
             // status and message.
-            if cancellation_reason
-                .is_some_and(|r| matches!(r.conversation_outcome(), CancellationOutcome::Cancelled))
+            if execution_ref.is_none()
+                && cancellation_reason.is_some_and(|r| {
+                    matches!(r.conversation_outcome(), CancellationOutcome::Cancelled)
+                })
             {
                 BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
                     // Treat action result as authoritative for determining status.
@@ -1470,19 +2471,66 @@ impl BlocklistAIActionModel {
     }
 }
 
+fn provider_action_correlations(
+    actions: &[AIAgentAction],
+    conversation_id: AIConversationId,
+    batch: &PendingToolBatch,
+) -> Result<Vec<ProviderActionCorrelation>, ProviderActionQueueError> {
+    let expected = batch.unresolved_call_ids();
+    let received = actions
+        .iter()
+        .map(|action| action.id.to_string())
+        .collect::<Vec<_>>();
+    if expected != received {
+        return Err(ProviderActionQueueError::ActionSetMismatch { expected, received });
+    }
+
+    Ok(actions
+        .iter()
+        .map(|action| {
+            (
+                (conversation_id, action.id.clone()),
+                ProviderToolExecutionRef::new(
+                    conversation_id,
+                    &batch.work_id,
+                    action.id.to_string(),
+                ),
+            )
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone)]
 pub enum BlocklistAIActionEvent {
     /// Emitted when the action with the given ID is enqueued for execution.
-    QueuedAction(AIAgentActionId),
+    QueuedAction {
+        action_id: AIAgentActionId,
+        execution_ref: Option<ProviderToolExecutionRef>,
+    },
     /// Emitted when the action with the given ID requires user confirmation to execute.
-    ActionBlockedOnUserConfirmation(AIAgentActionId),
+    ActionBlockedOnUserConfirmation {
+        action_id: AIAgentActionId,
+        conversation_id: AIConversationId,
+        execution_ref: Option<ProviderToolExecutionRef>,
+    },
     /// Emitted when the action with the given ID begins execution.
-    ExecutingAction(AIAgentActionId),
+    ExecutingAction {
+        action_id: AIAgentActionId,
+        conversation_id: AIConversationId,
+        execution_ref: Option<ProviderToolExecutionRef>,
+    },
     /// Emitted when the action with the given ID has finished.
     FinishedAction {
         action_id: AIAgentActionId,
         conversation_id: AIConversationId,
         cancellation_reason: Option<CancellationReason>,
+        execution_ref: Option<ProviderToolExecutionRef>,
+    },
+    /// Provider-neutral permission and execution lifecycle event for runtime consumers.
+    ToolLifecycle {
+        action_id: AIAgentActionId,
+        execution_ref: Option<ProviderToolExecutionRef>,
+        event: ToolEvent,
     },
     InitProject(AIAgentActionId),
     ToggleCodeReview(AIAgentActionId),
@@ -1497,13 +2545,33 @@ pub enum BlocklistAIActionEvent {
 impl BlocklistAIActionEvent {
     pub fn action_id(&self) -> &AIAgentActionId {
         match self {
-            BlocklistAIActionEvent::QueuedAction(action_id) => action_id,
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(action_id) => action_id,
-            BlocklistAIActionEvent::ExecutingAction(action_id) => action_id,
-            BlocklistAIActionEvent::FinishedAction { action_id, .. } => action_id,
+            BlocklistAIActionEvent::QueuedAction { action_id, .. }
+            | BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { action_id, .. }
+            | BlocklistAIActionEvent::ExecutingAction { action_id, .. }
+            | BlocklistAIActionEvent::FinishedAction { action_id, .. } => action_id,
+            BlocklistAIActionEvent::ToolLifecycle { action_id, .. } => action_id,
             BlocklistAIActionEvent::InitProject(action_id) => action_id,
             BlocklistAIActionEvent::ToggleCodeReview(action_id) => action_id,
             BlocklistAIActionEvent::InsertCodeReviewComments { action_id, .. } => action_id,
+        }
+    }
+
+    pub fn conversation_id(&self) -> Option<AIConversationId> {
+        match self {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::ExecutingAction {
+                conversation_id, ..
+            }
+            | BlocklistAIActionEvent::FinishedAction {
+                conversation_id, ..
+            } => Some(*conversation_id),
+            BlocklistAIActionEvent::QueuedAction { .. }
+            | BlocklistAIActionEvent::ToolLifecycle { .. }
+            | BlocklistAIActionEvent::InitProject(_)
+            | BlocklistAIActionEvent::ToggleCodeReview(_)
+            | BlocklistAIActionEvent::InsertCodeReviewComments { .. } => None,
         }
     }
 }

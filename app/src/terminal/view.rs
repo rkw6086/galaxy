@@ -734,6 +734,38 @@ const COMMAND_AUTO_MONITOR_DELAY: Duration = Duration::from_secs(3);
 const COMMAND_MONITOR_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const COMMAND_MONITOR_FORCE_REFRESH_RETRIES: u8 = 20;
 
+fn register_command_monitor_start(
+    pending_starts: &mut HashSet<BlockId>,
+    block_id: &BlockId,
+) -> bool {
+    pending_starts.insert(block_id.clone())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandMonitorStartStatus {
+    AlreadyMonitoring,
+    Ready,
+    WaitingForThreshold,
+    NoLongerEligible,
+}
+
+fn command_monitor_start_status(
+    is_agent_monitoring: bool,
+    is_active_and_long_running: bool,
+    is_executing: bool,
+    is_command_grid_active: bool,
+) -> CommandMonitorStartStatus {
+    if is_agent_monitoring {
+        CommandMonitorStartStatus::AlreadyMonitoring
+    } else if is_active_and_long_running {
+        CommandMonitorStartStatus::Ready
+    } else if is_executing || is_command_grid_active {
+        CommandMonitorStartStatus::WaitingForThreshold
+    } else {
+        CommandMonitorStartStatus::NoLongerEligible
+    }
+}
+
 #[derive(Default)]
 pub struct ControlMasterErrorBannerState {
     /// Whether or not the control master error banner is currently visible to
@@ -1790,6 +1822,11 @@ pub enum Event {
     OpenShareSessionModal {
         open_source: SharedSessionActionSource,
     },
+    ShowDeleteConversationConfirmationDialog {
+        conversation_id: AIConversationId,
+        conversation_title: String,
+        terminal_view_id: Option<EntityId>,
+    },
     OpenShareSessionDeniedModal,
     /// Used to focus and bring this session to the foreground.
     FocusSession,
@@ -2667,6 +2704,10 @@ pub struct TerminalView {
     /// Whether we've already emitted a chrome refresh for the active block after it crossed the
     /// long-running threshold. Reset when the active command starts and finishes.
     did_notify_long_running: bool,
+
+    /// Blocks with an automatic monitor-start timer already scheduled. Keeping this registry on
+    /// the terminal view prevents duplicate command-start events from creating competing timers.
+    pending_command_monitor_starts: HashSet<BlockId>,
 
     /// This field is an "&&" combination of two other pieces of state:
     ///   1. Whether this View (or one of its children) is the focused View.
@@ -4270,6 +4311,16 @@ impl TerminalView {
                     let object_uid = SyncId::from(*notebook_uid).uid();
                     ctx.emit(Event::OpenGalaxyDriveObjectInPane(object_uid));
                 }
+                ConversationDetailsPanelEvent::ShowDeleteConfirmationDialog {
+                    conversation_id,
+                    conversation_title,
+                } => {
+                    ctx.emit(Event::ShowDeleteConversationConfirmationDialog {
+                        conversation_id: *conversation_id,
+                        conversation_title: conversation_title.clone(),
+                        terminal_view_id: Some(ctx.view_id()),
+                    });
+                }
             }
         });
 
@@ -4347,6 +4398,7 @@ impl TerminalView {
             view_id: ctx.view_id(),
             current_state: TerminalViewStateChange::default(),
             did_notify_long_running: false,
+            pending_command_monitor_starts: HashSet::new(),
             is_focused_and_active: true,
             current_prompt,
             model_event_sender,
@@ -6646,6 +6698,7 @@ impl TerminalView {
                 conversation_id,
                 initial_requested_command_action_id,
             } => {
+                self.pending_command_monitor_starts.remove(block_id);
                 let subagent_view = ctx.add_typed_action_view(|ctx| {
                     CLISubagentView::new(
                         block_id.clone(),
@@ -6755,6 +6808,7 @@ impl TerminalView {
                 conversation_id,
                 ..
             } => {
+                self.pending_command_monitor_starts.remove(block_id);
                 self.cli_subagent_views.remove(block_id);
 
                 // The command ended — drop any LRC-scoped auto-queue override so the
@@ -6876,13 +6930,7 @@ impl TerminalView {
         }
 
         self.ai_controller.update(ctx, |controller, ctx| {
-            controller.resume_conversation(
-                *conversation_id,
-                /*can_attempt_resume_on_error*/ true,
-                /*is_auto_resume_after_error*/ false,
-                vec![],
-                ctx,
-            );
+            controller.resume_conversation(*conversation_id, vec![], ctx);
         });
     }
 
@@ -7206,8 +7254,22 @@ impl TerminalView {
         event: &BlocklistAIActionEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        let event_matches_active_conversation = || {
+            let Some(event_conversation_id) = event.conversation_id() else {
+                return true;
+            };
+            self.model
+                .lock()
+                .block_list()
+                .active_block()
+                .ai_conversation_id()
+                == Some(event_conversation_id)
+        };
         match event {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(_) => {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation { .. } => {
+                if !event_matches_active_conversation() {
+                    return;
+                }
                 let is_agent_in_control = self
                     .model
                     .lock()
@@ -7218,15 +7280,21 @@ impl TerminalView {
                     self.redetermine_terminal_focus(ctx);
                 }
             }
-            BlocklistAIActionEvent::ExecutingAction(..) => {
-                self.redetermine_terminal_focus(ctx);
+            BlocklistAIActionEvent::ExecutingAction { .. } => {
+                if event_matches_active_conversation() {
+                    self.redetermine_terminal_focus(ctx);
+                }
                 ctx.notify();
             }
-            BlocklistAIActionEvent::FinishedAction { action_id, .. } => {
+            BlocklistAIActionEvent::FinishedAction {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 // Refresh git line changes when files are potentially updated by an action
                 let action_result = action_model
                     .as_ref(ctx)
-                    .get_action_result(action_id)
+                    .get_action_result(*conversation_id, action_id)
                     .cloned();
 
                 let maybe_modified_files = action_result
@@ -7324,7 +7392,8 @@ impl TerminalView {
                     );
                 }
             }
-            BlocklistAIActionEvent::QueuedAction(_) => {}
+            BlocklistAIActionEvent::QueuedAction { .. }
+            | BlocklistAIActionEvent::ToolLifecycle { .. } => {}
         }
     }
 
@@ -7397,6 +7466,10 @@ impl TerminalView {
     }
 
     fn schedule_command_monitor_start(&mut self, block_id: BlockId, ctx: &mut ViewContext<Self>) {
+        if !register_command_monitor_start(&mut self.pending_command_monitor_starts, &block_id) {
+            return;
+        }
+
         self.schedule_command_monitor_start_after(
             block_id,
             COMMAND_AUTO_MONITOR_DELAY,
@@ -7413,59 +7486,66 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         ctx.spawn(Timer::after(delay), move |me, _, ctx| {
-            let (needs_monitor, waiting_for_threshold) = {
+            let status = {
                 let model = me.model.lock();
                 let Some(block) = model.block_list().block_with_id(&block_id) else {
                     return;
                 };
-                if block.is_agent_monitoring() {
-                    (false, false)
-                } else if block.is_active_and_long_running() {
-                    (true, false)
-                } else {
-                    (
-                        false,
-                        block.is_executing() || block.is_command_grid_active(),
-                    )
-                }
+                command_monitor_start_status(
+                    block.is_agent_monitoring(),
+                    block.is_active_and_long_running(),
+                    block.is_executing(),
+                    block.is_command_grid_active(),
+                )
             };
-            if !needs_monitor {
-                if waiting_for_threshold && remaining_force_refresh_retries > 0 {
+
+            match status {
+                CommandMonitorStartStatus::WaitingForThreshold
+                    if remaining_force_refresh_retries > 0 =>
+                {
                     me.schedule_command_monitor_start_after(
                         block_id,
                         COMMAND_MONITOR_RETRY_INTERVAL,
                         remaining_force_refresh_retries - 1,
                         ctx,
                     );
-                } else if waiting_for_threshold {
+                }
+                CommandMonitorStartStatus::WaitingForThreshold => {
+                    me.pending_command_monitor_starts.remove(&block_id);
                     log::warn!(
                         "Command block {block_id:?} never reached the long-running threshold; \
                              automatic command monitoring was not started"
                     );
                 }
-                return;
-            }
-
-            let refresh_requested = me.cli_subagent_controller.update(ctx, |controller, ctx| {
-                controller.request_force_refresh(&block_id, ctx)
-            });
-            if refresh_requested {
-                log::info!(
-                    "Requested an immediate command snapshot to start monitoring block \
-                         {block_id:?}"
-                );
-            } else if remaining_force_refresh_retries > 0 {
-                me.schedule_command_monitor_start_after(
-                    block_id,
-                    COMMAND_MONITOR_RETRY_INTERVAL,
-                    remaining_force_refresh_retries - 1,
-                    ctx,
-                );
-            } else {
-                log::warn!(
-                    "Could not find the pending shell action for long-running block \
-                         {block_id:?}; automatic command monitoring was not started"
-                );
+                CommandMonitorStartStatus::AlreadyMonitoring
+                | CommandMonitorStartStatus::NoLongerEligible => {
+                    me.pending_command_monitor_starts.remove(&block_id);
+                }
+                CommandMonitorStartStatus::Ready => {
+                    let refresh_requested =
+                        me.cli_subagent_controller.update(ctx, |controller, ctx| {
+                            controller.request_force_refresh(&block_id, ctx)
+                        });
+                    if refresh_requested {
+                        log::info!(
+                            "Requested an immediate command snapshot to start monitoring block \
+                             {block_id:?}"
+                        );
+                    } else if remaining_force_refresh_retries > 0 {
+                        me.schedule_command_monitor_start_after(
+                            block_id,
+                            COMMAND_MONITOR_RETRY_INTERVAL,
+                            remaining_force_refresh_retries - 1,
+                            ctx,
+                        );
+                    } else {
+                        me.pending_command_monitor_starts.remove(&block_id);
+                        log::warn!(
+                            "Could not find the pending shell action for long-running block \
+                             {block_id:?}; automatic command monitoring was not started"
+                        );
+                    }
+                }
             }
         });
     }
@@ -7584,7 +7664,11 @@ impl TerminalView {
                 drop(model);
 
                 self.cli_subagent_controller.update(ctx, |controller, _| {
-                    controller.track_requested_command(&block_id, action_id);
+                    controller.track_requested_command(
+                        &block_id,
+                        parent_conversation_id,
+                        action_id,
+                    );
                 });
 
                 ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
@@ -7612,10 +7696,23 @@ impl TerminalView {
             ShellCommandExecutorEvent::WriteToPty { input, mode } => {
                 self.write_agent_bytes_to_pty(input.to_vec(), mode, ctx);
             }
-            ShellCommandExecutorEvent::CancelExecution => {
+            ShellCommandExecutorEvent::CancelExecution { action_id } => {
                 // We need to manually invoke ctrl-c to terminate the running command because the
                 // user's ctrl-c was directed to the AIBlock instead of the command's shell block.
-                self.ctrl_c(ctx);
+                let is_exact_active_command = self
+                    .model
+                    .lock()
+                    .block_list()
+                    .active_block()
+                    .requested_command_action_id()
+                    .is_some_and(|requested_id| requested_id == action_id);
+                if is_exact_active_command {
+                    self.ctrl_c(ctx);
+                } else {
+                    log::warn!(
+                        "Refusing to interrupt active terminal command for stale requested action {action_id}"
+                    );
+                }
             }
             ShellCommandExecutorEvent::TransferControlToUser { reason, .. } => {
                 // Transfer control of the long-running command to the user.
@@ -7644,6 +7741,9 @@ impl TerminalView {
             StartAgentExecutorEvent::DirectProviderChildConversationCreated { .. } => {
                 // AI blocks subscribe directly to this executor event so the
                 // StartAgent card can render its live child transcript.
+            }
+            StartAgentExecutorEvent::RunAgentsChildConversationCreated { .. } => {
+                // RunAgentsExecutor forwards this linkage to its owning card.
             }
             StartAgentExecutorEvent::CleanupFailedChildLaunch { conversation_id } => {
                 // The child failed at launch and never started a server-side
@@ -8304,21 +8404,6 @@ impl TerminalView {
             return false;
         }
 
-        // In cloud agent conversations, once the shared session is ready but before the first
-        // agent exchange arrives, we hide the interactive input view. A non-interactive footer is
-        // rendered instead (see `TerminalView::render`).
-        if !FeatureFlag::CloudModeSetupV2.is_enabled()
-            && !FeatureFlag::HandoffCloudCloud.is_enabled()
-            && ambient_agent::is_cloud_agent_pre_first_exchange(
-                self.ambient_agent_view_model.as_ref(),
-                &self.agent_view_controller,
-                model,
-                app,
-            )
-        {
-            return false;
-        }
-
         if self.has_active_init_project(app) && self.is_last_block_init_step(app) {
             return false;
         }
@@ -8354,23 +8439,28 @@ impl TerminalView {
             }
         }
 
-        let active_ai_block = self.active_ai_block(app);
-        if active_ai_block.is_some_and(|ai_block| {
-            let ai_block = ai_block.as_ref(app);
-            ai_block.is_blocked_on_user_confirmation(app)
-                || ai_block.has_expanded_running_commands(app)
-        }) {
-            return false;
-        }
-
         let active_command_block = model.block_list().active_block();
         let is_active_and_long_running = active_command_block.is_active_and_long_running();
         let is_oz_env_startup_command = active_command_block.is_oz_environment_startup_command();
         let is_running_in_band_command =
             model.block_list().is_writing_or_executing_in_band_command();
+        let has_active_long_running_agent_interaction = active_command_block
+            .is_agent_driving_command()
+            || active_command_block.is_agent_tagged_in();
+        let is_agent_view_active = FeatureFlag::AgentView.is_enabled()
+            && self.agent_view_controller.as_ref(app).is_active();
 
-        let has_active_long_running_agent_interaction =
-            active_command_block.is_agent_monitoring() || active_command_block.is_agent_tagged_in();
+        let active_ai_block = self.active_ai_block(app);
+        if !is_agent_view_active
+            && !has_active_long_running_agent_interaction
+            && active_ai_block.is_some_and(|ai_block| {
+                let ai_block = ai_block.as_ref(app);
+                ai_block.is_blocked_on_user_confirmation(app)
+                    || ai_block.has_expanded_running_commands(app)
+            })
+        {
+            return false;
+        }
 
         if (active_ai_block.is_none() || has_active_long_running_agent_interaction)
             && is_active_and_long_running
@@ -8378,11 +8468,9 @@ impl TerminalView {
             && !is_running_in_band_command
             && model.block_list().is_bootstrapped()
         {
-            // Show the input if:
-            // * The agent is control of the active, long running block, so long as the agent is not blocked.
-            // * OR the user has 'tagged in' the agent.
-            return (active_command_block.is_agent_in_control()
-                && !active_command_block.is_agent_blocked())
+            // Keep the agent prompt available while the agent owns, starts, or waits on
+            // a long-running command; hide it for user-owned commands unless tagged in.
+            return active_command_block.is_agent_driving_command()
                 || active_command_block.is_agent_tagged_in();
         }
 
@@ -11102,13 +11190,7 @@ impl TerminalView {
             };
 
             self.ai_controller.update(ctx, |controller, ctx| {
-                controller.resume_conversation(
-                    conversation_id,
-                    /*can_attempt_resume_on_error*/ true,
-                    /*is_auto_resume_after_error*/ false,
-                    resume_context,
-                    ctx,
-                );
+                controller.resume_conversation(conversation_id, resume_context, ctx);
             });
         }
 
@@ -11718,6 +11800,7 @@ impl TerminalView {
                 ctx.request_user_attention();
             }
             ModelEvent::Exit { reason } => {
+                self.pending_command_monitor_starts.clear();
                 if !self.manual_pty_shutdown_requested {
                     if let Some(conversation_id) = self.maybe_send_agent_exited_shell_telemetry(ctx)
                     {
@@ -11763,6 +11846,8 @@ impl TerminalView {
                 }
             }
             ModelEvent::BlockCompleted(block_completed_event) => {
+                self.pending_command_monitor_starts
+                    .remove(&block_completed_event.block_id);
                 record_trace_event!("command_execution:block_completed");
                 end_trace_after_next!("window:redraw:end");
                 let block_completed_event_clone = block_completed_event.clone();
@@ -26239,6 +26324,10 @@ impl TypedActionView for TerminalView {
                 "Execute rewind to before this point in the AI conversation.".to_owned(),
                 GalaxyA11yRole::ButtonRole,
             )),
+            RequestDeleteCurrentConversation => Custom(AccessibilityContent::new_without_help(
+                "Show confirmation dialog to delete this conversation.".to_owned(),
+                GalaxyA11yRole::ButtonRole,
+            )),
             SelectAIAttachedBlock(_) => Custom(AccessibilityContent::new_without_help(
                 "Click on a block attached as context to this AI query.".to_owned(),
                 GalaxyA11yRole::ButtonRole,
@@ -26480,6 +26569,23 @@ impl TypedActionView for TerminalView {
                         conversation_id
                     );
                 }
+            }
+            RequestDeleteCurrentConversation => {
+                let Some(conversation_id) = self.active_conversation_id(ctx).or_else(|| {
+                    self.ai_context_model
+                        .as_ref(ctx)
+                        .selected_conversation_id(ctx)
+                }) else {
+                    return;
+                };
+                let conversation_title = self
+                    .selected_conversation_display_title(ctx)
+                    .unwrap_or_else(|| "Conversation".to_string());
+                ctx.emit(Event::ShowDeleteConversationConfirmationDialog {
+                    conversation_id,
+                    conversation_title,
+                    terminal_view_id: Some(ctx.view_id()),
+                });
             }
             CloseContextMenu => self.close_context_menu(ctx, true),
             Paste => self.paste(false, ctx),

@@ -168,6 +168,15 @@ fn build_local_codex_child_command_quotes_the_prompt() {
 }
 
 #[test]
+fn local_harness_commands_preserve_leaf_worker_contract() {
+    let prompt = "You are a leaf worker. Do not launch additional agents.";
+
+    assert!(local_claude_child_prompt(prompt).contains(prompt));
+    assert!(build_local_codex_child_command(prompt).contains(prompt));
+    assert!(build_local_opencode_child_command(prompt).contains(prompt));
+}
+
+#[test]
 fn local_child_task_config_records_supported_third_party_harnesses() {
     for harness in [Harness::Claude, Harness::OpenCode, Harness::Codex] {
         assert_eq!(

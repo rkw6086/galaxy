@@ -12,9 +12,9 @@ fn main() -> Result<()> {
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
-            app_id: AppId::new("com", "samsung", "Galaxy"),
+            app_id: AppId::new("com", "galaxy", "Galaxy"),
             logfile_name: "galaxy.log".into(),
-            server_config: WarpServerConfig::production(),
+            server_config: WarpServerConfig::disabled(),
             oz_config: OzConfig::production(),
             telemetry_config: None,
             autoupdate_config: None,
@@ -51,7 +51,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleExecutable</key>
     <string>galaxy-oss</string>
     <key>CFBundleIdentifier</key>
-    <string>samsung.galaxy.GalaxyOss</string>
+    <string>com.galaxy.GalaxyOss</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -67,9 +67,9 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>UIDesignRequiresCompatibility</key>
     <true/>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxyai</string></array></dict></array>
+    <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxy</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026, Samsung Electronics Co., Ltd.</string>
+    <string>© 2026, Galaxy Project</string>
     <key>NSDockTilePlugIn</key>
     <string>GalaxyDockTilePlugin.docktileplugin</string>
     </dict>

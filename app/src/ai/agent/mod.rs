@@ -7,6 +7,7 @@ pub(crate) mod comment;
 pub(crate) mod icons;
 pub(crate) mod linearization;
 pub(crate) mod redaction;
+pub(crate) mod runtime_activity;
 pub(crate) mod task;
 mod task_store;
 pub(super) mod telemetry;
@@ -27,6 +28,7 @@ use ai::skills::ParsedSkill;
 use chrono::{DateTime, Local, TimeDelta};
 use comment::ReviewComment;
 use derivative::Derivative;
+use galaxy_agent_core::RuntimeActivity;
 use galaxy_core::channel::ChannelState;
 use galaxy_core::features::FeatureFlag;
 use markdown_parser::{parse_markdown, FormattedTable, FormattedText, FormattedTextInline};
@@ -580,6 +582,14 @@ impl AIAgentOutput {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         let mut result = Vec::new();
         let mut last_was_action = false;
 
@@ -610,14 +620,25 @@ impl AIAgentOutput {
                 }
                 AIAgentOutputMessageType::Action(action) => {
                     // Include action results from the action model if available
-                    if let Some(action_model) = action_model {
-                        if let Some(action_result) = action_model.get_action_result(&action.id) {
+                    if let (Some(action_model), Some(conversation_id)) =
+                        (action_model, conversation_id)
+                    {
+                        if let Some(action_result) =
+                            action_model.get_action_result(conversation_id, &action.id)
+                        {
                             result.push(format!("{}", MarkdownActionResult(&action_result.result)));
                             // Add an extra newline after tool call results for readability
                             result.push(String::new());
                             last_was_action = true;
                         }
                     }
+                }
+                AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                    result.push(activity.title.clone());
+                    if let Some(output) = &activity.output {
+                        result.push(output.clone());
+                    }
+                    last_was_action = true;
                 }
                 AIAgentOutputMessageType::TodoOperation(operation) => {
                     result.push(format!("{operation}"));
@@ -1213,6 +1234,9 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 RequestCommandOutputResult::CancelledBeforeExecution => {
                     write!(f, "\n_Command cancelled_")
                 }
+                RequestCommandOutputResult::ExecutionError { command, message } => {
+                    write!(f, "\n_Command `{command}` was not executed: {message}_")
+                }
                 RequestCommandOutputResult::Denylisted { command } => {
                     write!(
                         f,
@@ -1805,6 +1829,10 @@ pub enum AIAgentOutputMessageType {
         token_count: Option<u32>,
     },
     Subagent(SubagentCall),
+    /// Display-only activity executed and owned by an external agent runtime.
+    /// Unlike [`AIAgentOutputMessageType::Action`], Galaxy must never dispatch
+    /// this activity through its action executor.
+    RuntimeActivity(RuntimeActivity),
     Action(AIAgentAction),
     TodoOperation(TodoOperation),
     WebSearch(WebSearchStatus),
@@ -1972,6 +2000,12 @@ impl Display for AIAgentOutputMessage {
                 }
             }
             AIAgentOutputMessageType::Action(action) => write!(f, "Action: {action}")?,
+            AIAgentOutputMessageType::RuntimeActivity(activity) => {
+                write!(f, "Runtime activity: {}", activity.title)?;
+                if let Some(output) = &activity.output {
+                    write!(f, "\n{output}")?;
+                }
+            }
             AIAgentOutputMessageType::TodoOperation(todo) => write!(f, "Todo: {todo}")?,
             AIAgentOutputMessageType::Subagent(subagent) => write!(f, "Subagent: {subagent}")?,
             AIAgentOutputMessageType::WebSearch(status) => match status {
@@ -2040,6 +2074,14 @@ impl AIAgentOutputMessage {
         Self {
             id,
             message: AIAgentOutputMessageType::Action(action),
+            citations: vec![],
+        }
+    }
+
+    pub fn runtime_activity(id: MessageId, activity: RuntimeActivity) -> Self {
+        Self {
+            id,
+            message: AIAgentOutputMessageType::RuntimeActivity(activity),
             citations: vec![],
         }
     }
@@ -2678,6 +2720,13 @@ pub enum AIAgentInput {
         intended_agent: Option<AgentType>,
     },
 
+    /// A hidden system turn that asks for the final assessment of a completed command.
+    CommandCompletionAssessment {
+        prompt: String,
+        context: Arc<[AIAgentContext]>,
+        completed_command: RunningCommand,
+    },
+
     AutoCodeDiffQuery {
         query: String,
         context: Arc<[AIAgentContext]>,
@@ -2842,6 +2891,9 @@ impl Display for AIAgentInput {
             Self::UserQuery { .. } => {
                 write!(f, "UserQuery: {}", self.display_query().unwrap_or_default())
             }
+            Self::CommandCompletionAssessment { .. } => {
+                write!(f, "CommandCompletionAssessment")
+            }
             Self::AutoCodeDiffQuery { query, .. } => {
                 write!(f, "AutoCodeDiffQuery: {query}")
             }
@@ -2930,7 +2982,8 @@ impl AIAgentInput {
                 suggestion: PassiveSuggestionResultType::Prompt { prompt },
                 ..
             } => Some(prompt.clone()),
-            Self::AutoCodeDiffQuery { .. }
+            Self::CommandCompletionAssessment { .. }
+            | Self::AutoCodeDiffQuery { .. }
             | Self::ActionResult { .. }
             | Self::TriggerPassiveSuggestion { .. }
             | Self::ResumeConversation { .. }
@@ -3021,6 +3074,7 @@ impl AIAgentInput {
     pub fn context(&self) -> Option<&[AIAgentContext]> {
         match self {
             Self::UserQuery { context, .. }
+            | Self::CommandCompletionAssessment { context, .. }
             | Self::ActionResult { context, .. }
             | Self::AutoCodeDiffQuery { context, .. }
             | Self::ResumeConversation { context, .. }
@@ -3054,7 +3108,8 @@ impl AIAgentInput {
                 Some(res)
             }
             Self::TriggerPassiveSuggestion { attachments, .. } => Some(attachments.clone()),
-            Self::ActionResult { .. }
+            Self::CommandCompletionAssessment { .. }
+            | Self::ActionResult { .. }
             | Self::AutoCodeDiffQuery { .. }
             | Self::ResumeConversation { .. }
             | Self::InitProjectRules { .. }
@@ -3186,8 +3241,18 @@ impl AIAgentExchange {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_output_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_output_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         match self.output_status.output() {
-            Some(output) => output.get().format_for_copy(action_model),
+            Some(output) => output
+                .get()
+                .format_for_copy_for_conversation(action_model, conversation_id),
             None => String::new(),
         }
     }
@@ -3199,8 +3264,17 @@ impl AIAgentExchange {
         &self,
         action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
     ) -> String {
+        self.format_for_copy_for_conversation(action_model, None)
+    }
+
+    pub fn format_for_copy_for_conversation(
+        &self,
+        action_model: Option<&crate::ai::blocklist::BlocklistAIActionModel>,
+        conversation_id: Option<conversation::AIConversationId>,
+    ) -> String {
         let input_text = self.format_input_for_copy();
-        let output_text = self.format_output_for_copy(action_model);
+        let output_text =
+            self.format_output_for_copy_for_conversation(action_model, conversation_id);
         let has_user_input = !input_text.is_empty();
         let has_agent_output = !output_text.is_empty();
 

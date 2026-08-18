@@ -11,7 +11,6 @@ use warpui::r#async::SpawnedFutureHandle;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::super::controller::{BlocklistAIController, BlocklistAIControllerEvent};
-use crate::ai::agent::api::generate_multi_agent_output;
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::{
     AIIdentifiers, FileContext, PassiveCodeDiffEntry, PassiveSuggestionTrigger,
@@ -486,7 +485,7 @@ async fn extract_suggestion_from_stream(
     let mut client_actions: Vec<api::ClientAction> = Vec::new();
     let mut server_request_token: Option<String> = None;
     while let Some(event) = stream.next().await {
-        let Ok(response_event) = event else {
+        let Ok(crate::ai::agent::api::StreamEvent::Response(response_event)) = event else {
             continue;
         };
         match response_event.r#type {

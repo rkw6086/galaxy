@@ -16,7 +16,7 @@ fn main() -> Result<()> {
         ChannelConfig {
             app_id: AppId::new("dev", "warp", "WarpTui"),
             logfile_name: "warp-tui.log".into(),
-            server_config: WarpServerConfig::production(),
+            server_config: WarpServerConfig::disabled(),
             oz_config: OzConfig::production(),
             telemetry_config: None,
             autoupdate_config: None,

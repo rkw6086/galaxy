@@ -4,7 +4,7 @@ use std::time::Duration;
 use super::*;
 
 #[test]
-fn codex_preset_is_version_pinned() {
+fn codex_preset_uses_the_adapter_with_npx() {
     let launch = AcpAgentPreset::Codex.launch_config();
 
     assert_eq!(launch.command, PathBuf::from("npx"));
@@ -48,7 +48,7 @@ fn opencode_preset_is_version_pinned() {
 }
 
 #[test]
-fn resolved_opencode_prefers_the_native_executable() {
+fn resolved_opencode_uses_npx_for_the_npm_adapter() {
     let launch = AcpAgentPreset::OpenCode
         .resolve_launch_config_with(|command| match command {
             "opencode" => Some(PathBuf::from("/opt/bin/opencode")),
@@ -57,24 +57,39 @@ fn resolved_opencode_prefers_the_native_executable() {
         })
         .unwrap();
 
-    assert_eq!(launch.command, PathBuf::from("/opt/bin/opencode"));
-    assert_eq!(launch.args, vec!["acp"]);
+    assert_eq!(launch.command, PathBuf::from("/opt/bin/npx"));
+    assert_eq!(
+        launch.args,
+        vec![
+            "--yes".to_owned(),
+            format!("opencode-ai@{OPENCODE_NPM_VERSION}"),
+            "acp".to_owned()
+        ]
+    );
 }
 
 #[test]
-fn resolved_codex_falls_back_to_bun_compatibility_mode() {
-    let resolve = |command: &str| (command == "bunx").then(|| PathBuf::from("/opt/bin/bunx"));
+fn resolved_codex_uses_npx_adapter_and_local_cli() {
+    let resolve = |command: &str| match command {
+        "npx" => Some(PathBuf::from("/opt/bin/npx")),
+        "codex" => Some(PathBuf::from("/opt/homebrew/bin/codex")),
+        _ => None,
+    };
     let codex = AcpAgentPreset::Codex
         .resolve_launch_config_with(resolve)
         .unwrap();
 
-    assert_eq!(codex.command, PathBuf::from("/opt/bin/bunx"));
+    assert_eq!(codex.command, PathBuf::from("/opt/bin/npx"));
     assert_eq!(
         codex.args,
         vec![
-            "--bun".to_owned(),
+            "--yes".to_owned(),
             format!("@agentclientprotocol/codex-acp@{CODEX_ACP_NPM_VERSION}")
         ]
+    );
+    assert_eq!(
+        codex.env.get("CODEX_PATH").map(String::as_str),
+        Some("/opt/homebrew/bin/codex")
     );
     assert_eq!(
         codex.env.get("INITIAL_AGENT_MODE").map(String::as_str),
@@ -90,19 +105,45 @@ fn resolved_codex_falls_back_to_bun_compatibility_mode() {
 }
 
 #[test]
+fn resolved_codex_falls_back_to_local_adapter_without_npx() {
+    let resolve = |command: &str| match command {
+        "codex" => Some(PathBuf::from("/opt/homebrew/bin/codex")),
+        "codex-acp" => Some(PathBuf::from("/opt/bin/codex-acp")),
+        _ => None,
+    };
+    let codex = AcpAgentPreset::Codex
+        .resolve_launch_config_with(resolve)
+        .unwrap();
+
+    assert_eq!(codex.command, PathBuf::from("/opt/bin/codex-acp"));
+    assert!(codex.args.is_empty());
+    assert_eq!(
+        codex.env.get("CODEX_PATH").map(String::as_str),
+        Some("/opt/homebrew/bin/codex")
+    );
+}
+
+#[test]
 fn resolved_presets_explain_missing_launchers() {
     let error = AcpAgentPreset::Codex
         .resolve_launch_config_with(|_| None)
         .unwrap_err();
 
-    assert!(error.contains("requires npx or bunx"));
+    assert!(error.contains("requires the locally installed codex CLI"));
 
     let opencode_error = AcpAgentPreset::OpenCode
         .resolve_launch_config_with(|command| {
             (command == "bunx").then(|| PathBuf::from("/opt/bin/bunx"))
         })
         .unwrap_err();
-    assert!(opencode_error.contains("requires the opencode executable or npx"));
+    assert!(opencode_error.contains("requires npx"));
+
+    let codex_adapter_error = AcpAgentPreset::Codex
+        .resolve_launch_config_with(|command| {
+            (command == "codex").then(|| PathBuf::from("/opt/homebrew/bin/codex"))
+        })
+        .unwrap_err();
+    assert!(codex_adapter_error.contains("requires either a local codex-acp executable or npx"));
 }
 
 #[test]

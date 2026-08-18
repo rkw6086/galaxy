@@ -47,6 +47,17 @@ pub(crate) fn redact_inputs(inputs: &mut [AIAgentInput]) {
                     redact_secrets(&mut running_command.cursor);
                 }
             }
+            AIAgentInput::CommandCompletionAssessment {
+                prompt,
+                context,
+                completed_command,
+            } => {
+                redact_secrets(prompt);
+                redact_context(Arc::make_mut(context));
+                redact_secrets(&mut completed_command.command);
+                redact_secrets(&mut completed_command.grid_contents);
+                redact_secrets(&mut completed_command.cursor);
+            }
             AIAgentInput::AutoCodeDiffQuery { query, context, .. } => {
                 redact_secrets(query);
                 redact_context(Arc::make_mut(context));

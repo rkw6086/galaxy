@@ -112,8 +112,9 @@ const MIN_FONT_SIZE: usize = 1;
 const MAX_FONT_SIZE: usize = 120;
 const MIN_LINE_SPACING: f32 = 0.1;
 const MAX_LINE_SPACING: f32 = 5.;
-const SAMSUNG_BRAND_THEME_DARK: ThemeKind = ThemeKind::SamsungDark;
-const SAMSUNG_BRAND_THEME_LIGHT: ThemeKind = ThemeKind::SamsungLight;
+const GALAXY_BRAND_THEME_DARK: ThemeKind = ThemeKind::GalaxyDark;
+const GALAXY_BRAND_THEME_DAY: ThemeKind = ThemeKind::GalaxyDay;
+const GALAXY_UI_FONT_NAME: &str = "Roboto";
 
 const INPUT_MODE_DROPDOWN_WIDTH: f32 = 225.;
 
@@ -504,7 +505,7 @@ pub enum AppearancePageAction {
     SetFontFamily(String),
     SetUIFontFamily(String),
     SetAIFontFamily(String),
-    ApplySamsungBrandPreset,
+    ApplyGalaxyBrandPreset,
     SetThinStrokes(ThinStrokes),
     SetInputMode {
         new_mode: InputMode,
@@ -770,7 +771,7 @@ impl TypedActionView for AppearanceSettingsPageView {
                 });
                 ctx.notify();
             }
-            ApplySamsungBrandPreset => self.apply_samsung_brand_preset(ctx),
+            ApplyGalaxyBrandPreset => self.apply_galaxy_brand_preset(ctx),
         }
     }
 }
@@ -2177,6 +2178,14 @@ impl AppearanceSettingsPageView {
             );
         }
 
+        // Roboto is bundled with Galaxy and is the UI face used by the Galaxy preset.
+        if let Some(family_id) = ctx.font_cache().family_id_for_name(GALAXY_UI_FONT_NAME) {
+            self.available_families.insert(
+                String::from(GALAXY_UI_FONT_NAME),
+                (Some(family_id), FontType::Any),
+            );
+        }
+
         self.update_font_dropdown(ctx);
     }
 
@@ -2225,42 +2234,21 @@ impl AppearanceSettingsPageView {
         });
     }
 
-    fn resolve_samsung_ui_font_name(&self) -> String {
-        const SAMSUNG_UI_FONT_CANDIDATES: &[&str] = &[
-            "SamsungOne",
-            "Samsung One",
-            "One UI Sans",
-            "Inter",
-            "Helvetica Neue",
-            "Arial",
-        ];
-        SAMSUNG_UI_FONT_CANDIDATES
-            .iter()
-            .find_map(|candidate| {
-                self.available_families
-                    .keys()
-                    .find(|name| name.eq_ignore_ascii_case(candidate))
-                    .cloned()
-            })
-            .unwrap_or_else(|| DEFAULT_UI_FONT_NAME.to_string())
-    }
-
-    pub fn apply_samsung_brand_preset(&mut self, ctx: &mut ViewContext<Self>) {
+    pub fn apply_galaxy_brand_preset(&mut self, ctx: &mut ViewContext<Self>) {
         ThemeSettings::handle(ctx).update(ctx, |theme_settings, ctx| {
             report_if_error!(theme_settings
                 .theme_kind
-                .set_value(SAMSUNG_BRAND_THEME_DARK, ctx));
+                .set_value(GALAXY_BRAND_THEME_DARK, ctx));
             report_if_error!(theme_settings.selected_system_themes.set_value(
                 SelectedSystemThemes {
-                    light: SAMSUNG_BRAND_THEME_LIGHT,
-                    dark: SAMSUNG_BRAND_THEME_DARK,
+                    light: GALAXY_BRAND_THEME_DAY,
+                    dark: GALAXY_BRAND_THEME_DARK,
                 },
                 ctx,
             ));
             report_if_error!(theme_settings.use_system_theme.set_value(true, ctx));
         });
 
-        let ui_font_name = self.resolve_samsung_ui_font_name();
         FontSettings::handle(ctx).update(ctx, |font_settings, ctx| {
             report_if_error!(font_settings
                 .monospace_font_name
@@ -2273,7 +2261,7 @@ impl AppearanceSettingsPageView {
                 .set_value(true, ctx));
             report_if_error!(font_settings
                 .ui_font_name
-                .set_value(ui_font_name.clone(), ctx));
+                .set_value(GALAXY_UI_FONT_NAME.to_string(), ctx));
         });
 
         self.update_font_dropdown(ctx);
@@ -4100,7 +4088,7 @@ impl SettingsWidget for BrandPresetWidget {
     type View = AppearanceSettingsPageView;
 
     fn search_terms(&self) -> &str {
-        "samsung brand preset one-click"
+        "galaxy brand preset one-click"
     }
 
     fn render(
@@ -4113,7 +4101,7 @@ impl SettingsWidget for BrandPresetWidget {
             let border_width = if hover_state.is_hovered() { 1.0 } else { 0.0 };
             Container::new(
                 Text::new(
-                    "Apply Samsung-style preset",
+                    "Apply Galaxy preset",
                     appearance.ui_font_family(),
                     appearance.ui_font_size(),
                 )
@@ -4131,7 +4119,7 @@ impl SettingsWidget for BrandPresetWidget {
         })
         .with_cursor(Cursor::PointingHand)
         .on_click(move |ctx, _, _| {
-            ctx.dispatch_typed_action(AppearancePageAction::ApplySamsungBrandPreset);
+            ctx.dispatch_typed_action(AppearancePageAction::ApplyGalaxyBrandPreset);
         })
         .finish();
 
@@ -4142,7 +4130,7 @@ impl SettingsWidget for BrandPresetWidget {
             ToggleState::Enabled,
             appearance,
             button,
-            Some("Apply Samsung-inspired themes and font defaults.".to_string()),
+            Some("Apply Galaxy Dark and Galaxy Day with the bundled Roboto UI font.".to_string()),
         )
     }
 }

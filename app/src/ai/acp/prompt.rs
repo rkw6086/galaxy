@@ -1,4 +1,5 @@
-use galaxy_acp::{ContentBlock, ImageContent, TextContent};
+use base64::Engine as _;
+use galaxy_agent_core::{ContentPart, MessageContent};
 
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{AIAgentAttachment, AIAgentContext, AIAgentInput, MarkdownActionResult};
@@ -24,7 +25,7 @@ pub(super) struct GalaxyTerminalTools {
 pub(super) fn prompt_content(
     params: &RequestParams,
     terminal_tools: GalaxyTerminalTools,
-) -> Result<Vec<ContentBlock>, String> {
+) -> Result<MessageContent, String> {
     let visible_query = params
         .input
         .iter()
@@ -41,12 +42,15 @@ pub(super) fn prompt_content(
             for item in context {
                 match item {
                     AIAgentContext::Image(image) => {
-                        let mut file_name = image.file_name.clone();
-                        params.redact_text_for_model(&mut file_name);
-                        images.push(ContentBlock::Image(
-                            ImageContent::new(image.data.clone(), image.mime_type.clone())
-                                .uri(format!("attachment://{file_name}")),
-                        ));
+                        let data = base64::engine::general_purpose::STANDARD
+                            .decode(&image.data)
+                            .map_err(|error| {
+                                format!("failed to decode ACP image attachment: {error}")
+                            })?;
+                        images.push(ContentPart::Image {
+                            data,
+                            mime_type: image.mime_type.clone(),
+                        });
                     }
                     AIAgentContext::SelectedText(text) => {
                         hidden_context.push(format!("Selected text:\n{text}"));
@@ -115,9 +119,14 @@ pub(super) fn prompt_content(
     }
     params.redact_text_for_model(&mut text);
 
-    let mut prompt = vec![ContentBlock::Text(TextContent::new(text))];
-    prompt.extend(images);
-    Ok(prompt)
+    if images.is_empty() {
+        Ok(MessageContent::Text(text))
+    } else {
+        let mut parts = Vec::with_capacity(images.len() + 1);
+        parts.push(ContentPart::Text(text));
+        parts.extend(images);
+        Ok(MessageContent::MultiPart(parts))
+    }
 }
 
 fn append_hidden_input(
@@ -144,6 +153,25 @@ fn append_hidden_input(
             ));
         }
         AIAgentInput::UserQuery { .. } | AIAgentInput::CreateNewProject { .. } => {}
+        AIAgentInput::CommandCompletionAssessment {
+            prompt,
+            completed_command,
+            ..
+        } => {
+            hidden_context.push(format!(
+                "A monitored command has completed.\n\
+                 Command: {}\n\
+                 Galaxy block_id: {}\n\
+                 Final output:\n{}\n\n{}",
+                completed_command.command,
+                completed_command.block_id,
+                tail_chars(
+                    &completed_command.grid_contents,
+                    MAX_RUNNING_COMMAND_OUTPUT_CHARS
+                ),
+                prompt,
+            ));
+        }
         AIAgentInput::AutoCodeDiffQuery { query, .. } => {
             hidden_context.push(format!(
                 "Galaxy system request: create a code diff.\n{query}"

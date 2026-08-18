@@ -346,6 +346,140 @@ fn test_toolbar_command_map_roundtrip() {
 }
 
 #[test]
+fn initial_litellm_provider_maps_codex_model_to_rig_without_a_committed_key() {
+    let providers = default_openai_providers();
+
+    assert_eq!(providers.len(), 2);
+    let provider = &providers[0];
+    assert_eq!(provider.kind, OpenAIProviderKind::LiteLLM);
+    assert_eq!(provider.base_url, INITIAL_LITELLM_BASE_URL);
+    assert_eq!(provider.api_key, None);
+    assert_eq!(provider.models.len(), 1);
+    let model = &provider.models[0];
+    assert_eq!(model.model_id, INITIAL_RIG_MODEL_ID);
+    assert!(model.use_rig);
+    assert_eq!(model.supports_system_messages, Some(false));
+    assert!(!model.supports_system_messages());
+
+    let chatgpt = &providers[1];
+    assert_eq!(chatgpt.kind, OpenAIProviderKind::ChatGPTSubscription);
+    assert_eq!(chatgpt.name, "ChatGPT Subscription");
+    assert!(chatgpt.base_url.is_empty());
+    assert!(chatgpt.api_key.is_none());
+    assert!(chatgpt
+        .models
+        .iter()
+        .any(|model| model.model_id == "gpt-5.4-pro"));
+
+    let sol = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-sol")
+        .expect("GPT-5.6 Sol should be in the ChatGPT catalog");
+    assert_eq!(sol.reasoning_efforts.len(), 6);
+    assert!(sol.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(sol.reasoning_efforts.iter().any(|effort| effort == "ultra"));
+
+    let luna = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-luna")
+        .expect("GPT-5.6 Luna should be in the ChatGPT catalog");
+    assert!(luna.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(luna
+        .reasoning_efforts
+        .iter()
+        .any(|effort| effort == "ultra"));
+
+    let terra = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.6-terra")
+        .expect("GPT-5.6 Terra should be in the ChatGPT catalog");
+    assert!(terra.reasoning_efforts.iter().any(|effort| effort == "max"));
+    assert!(terra
+        .reasoning_efforts
+        .iter()
+        .any(|effort| effort == "ultra"));
+
+    let gpt_54 = chatgpt
+        .models
+        .iter()
+        .find(|model| model.model_id == "gpt-5.4")
+        .expect("GPT-5.4 should be in the ChatGPT catalog");
+    assert_eq!(
+        gpt_54.reasoning_efforts,
+        vec!["low", "medium", "high", "xhigh"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn native_provider_settings_roundtrip_with_vertex_configuration() {
+    let provider: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "kind": "vertex_ai",
+        "enabled": true,
+        "name": "Vertex production",
+        "base_url": "",
+        "project_id": "galaxy-project",
+        "location": "us-central1",
+        "models": []
+    }))
+    .expect("Vertex provider settings should deserialize");
+
+    assert_eq!(provider.kind, OpenAIProviderKind::VertexAI);
+    assert_eq!(provider.project_id.as_deref(), Some("galaxy-project"));
+    assert_eq!(provider.location.as_deref(), Some("us-central1"));
+
+    let legacy: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "name": "Legacy provider",
+        "base_url": "http://localhost:4000/v1",
+        "models": []
+    }))
+    .expect("Legacy provider settings should remain compatible");
+    assert_eq!(legacy.kind, OpenAIProviderKind::LiteLLM);
+    assert_eq!(legacy.project_id, None);
+    assert_eq!(legacy.location, None);
+
+    let legacy_openai_compatible: OpenAIProviderConfig =
+        serde_json::from_value(serde_json::json!({
+            "kind": "openai_compatible",
+            "name": "Legacy LiteLLM provider",
+            "base_url": "http://localhost:4000/v1",
+            "models": []
+        }))
+        .expect("Legacy OpenAI-compatible provider settings should deserialize");
+    assert_eq!(legacy_openai_compatible.kind, OpenAIProviderKind::LiteLLM);
+
+    let native_openai: OpenAIProviderConfig = serde_json::from_value(serde_json::json!({
+        "kind": "openai",
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-test",
+        "models": []
+    }))
+    .expect("Native OpenAI provider settings should deserialize");
+    assert_eq!(native_openai.kind, OpenAIProviderKind::OpenAI);
+}
+
+#[test]
+fn codex_litellm_model_infers_missing_system_message_capability() {
+    let mut model = default_openai_providers().remove(0).models.remove(0);
+    model.supports_system_messages = None;
+
+    assert!(!model.supports_system_messages());
+
+    model.model_id = "gpt-4o".to_string();
+    assert!(model.supports_system_messages());
+
+    model.model_id = INITIAL_RIG_MODEL_ID.to_string();
+    model.supports_system_messages = Some(true);
+    assert!(model.supports_system_messages());
+}
+
+#[test]
 fn test_toolbar_command_map_matched_agent() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
@@ -387,6 +521,47 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
 
         AISettings::handle(&app).read(&app, |settings, ctx| {
             assert!(settings.is_orchestration_enabled(ctx));
+        });
+    });
+}
+
+#[test]
+fn ai_is_disabled_without_an_enabled_runtime() {
+    let _acp_flag = FeatureFlag::AgentClientProtocol.override_enabled(true);
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        add_ai_enablement_dependencies_for_test(&mut app);
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_enabled
+                .set_value(false, ctx)
+                .expect("Bedrock setting should update");
+            settings
+                .openai_enabled
+                .set_value(false, ctx)
+                .expect("OpenAI setting should update");
+            settings
+                .acp_enabled
+                .set_value(false, ctx)
+                .expect("ACP setting should update");
+        });
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(!settings.has_enabled_ai_runtime());
+            assert!(!settings.is_any_ai_enabled(ctx));
+        });
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .acp_enabled
+                .set_value(true, ctx)
+                .expect("ACP setting should update");
+        });
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(settings.has_enabled_ai_runtime());
+            assert!(settings.is_any_ai_enabled(ctx));
         });
     });
 }

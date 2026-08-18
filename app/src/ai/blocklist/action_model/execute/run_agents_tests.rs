@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use ai::agent::action::{RunAgentsAgentRunConfig, RunAgentsExecutionMode, RunAgentsRequest};
 use ai::agent::orchestration_config::{
@@ -91,6 +93,15 @@ fn persist_plan_config_with_harness(
     });
 }
 
+fn mark_conversation_as_child(app: &mut App, conversation_id: AIConversationId) {
+    BlocklistAIHistoryModel::handle(app).update(app, |history, _ctx| {
+        history
+            .conversation_mut(&conversation_id)
+            .expect("conversation should exist")
+            .set_parent_agent_id("parent-agent".to_string());
+    });
+}
+
 #[test]
 fn should_autoexecute_duplicate_launched_agent_denial() {
     App::test((), |mut app| async move {
@@ -162,6 +173,522 @@ fn execute_denies_duplicate_launched_agent() {
     });
 }
 
+#[test]
+fn execute_denies_run_agents_from_child_conversation() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        mark_conversation_as_child(&mut app, state.conversation_id);
+        let action = remote_run_agents_action("oz");
+
+        let should_autoexecute = state.executor.update(&mut app, |executor, ctx| {
+            executor.should_autoexecute(
+                ExecuteActionInput {
+                    action: &action,
+                    conversation_id: state.conversation_id,
+                },
+                ctx,
+            )
+        });
+        assert!(
+            should_autoexecute,
+            "the denial should not require user approval"
+        );
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("leaf workers")
+        ));
+    });
+}
+
+#[test]
+fn autonomous_mode_still_denies_run_agents_from_child_conversation() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        mark_conversation_as_child(&mut app, state.conversation_id);
+        let action = remote_run_agents_action("oz");
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("leaf workers")
+        ));
+    });
+}
+
+#[test]
+fn execute_denies_mixed_batch_containing_launched_agent() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        state.executor.update(&mut app, |executor, _ctx| {
+            executor.record_launched_agents(
+                state.conversation_id,
+                &[RunAgentsAgentOutcome {
+                    name: "child".to_string(),
+                    kind: RunAgentsAgentOutcomeKind::Launched {
+                        agent_id: "agent-123".to_string(),
+                    },
+                }],
+            );
+        });
+        let mut action = remote_run_agents_action("oz");
+        let AIAgentActionType::RunAgents(request) = &mut action.action else {
+            panic!("expected run_agents action");
+        };
+        request.agent_run_configs.push(RunAgentsAgentRunConfig {
+            name: "new-child".to_string(),
+            prompt: "Do separate work".to_string(),
+            title: String::new(),
+        });
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+
+        assert!(matches!(
+            execution,
+            AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(
+                RunAgentsResult::Denied { reason }
+            )) if reason.contains("child (agent-123)")
+        ));
+    });
+}
+
+#[test]
+fn validate_request_rejects_blank_and_duplicate_agent_names() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+    normalize_request_for_local_execution(&mut request);
+    request.agent_run_configs[0].name = "   ".to_string();
+    assert_eq!(
+        validate_request(&request),
+        Err("orchestrate: agent names must not be empty".to_string())
+    );
+
+    request.agent_run_configs[0].name = "Child".to_string();
+    request.agent_run_configs.push(RunAgentsAgentRunConfig {
+        name: " child ".to_string(),
+        prompt: "Do separate work".to_string(),
+        title: String::new(),
+    });
+    assert_eq!(
+        validate_request(&request),
+        Err("orchestrate: duplicate agent name 'child' in the same batch".to_string())
+    );
+}
+
+#[test]
+fn validate_request_allows_unique_sibling_names() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+    normalize_request_for_local_execution(&mut request);
+    request.agent_run_configs.push(RunAgentsAgentRunConfig {
+        name: "second-child".to_string(),
+        prompt: "Do separate work".to_string(),
+        title: String::new(),
+    });
+
+    assert_eq!(validate_request(&request), Ok(()));
+}
+
+#[test]
+fn local_normalization_clears_remote_only_fields_and_disabled_harness() {
+    let AIAgentActionType::RunAgents(mut request) = remote_run_agents_action("codex").action else {
+        panic!("expected run_agents action");
+    };
+    request.model_id = "gpt-5".to_string();
+    request.harness_auth_secret_name = Some("remote-secret".to_string());
+
+    normalize_request_for_local_execution(&mut request);
+
+    assert!(matches!(
+        request.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
+    assert_eq!(request.harness_type, "oz");
+    assert_eq!(request.model_id, "");
+    assert_eq!(request.harness_auth_secret_name, None);
+    assert_eq!(validate_request(&request), Ok(()));
+}
+
+#[test]
+fn validate_request_rejects_remote_dispatch() {
+    let AIAgentActionType::RunAgents(request) = remote_run_agents_action("oz").action else {
+        panic!("expected run_agents action");
+    };
+
+    assert_eq!(
+        validate_request(&request),
+        Err("Galaxy only supports local child-agent orchestration.".to_string())
+    );
+}
+
+#[test]
+fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_child() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        let terminal_view_id = EntityId::new();
+        let history = BlocklistAIHistoryModel::handle(&app);
+        let existing_child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        let captured = subscribe_to_start_agent_requests(&mut app, &state.start_agent_executor);
+        let mut action = remote_run_agents_action("oz");
+        let AIAgentActionType::RunAgents(request) = &mut action.action else {
+            panic!("expected run_agents action");
+        };
+        request.agent_run_configs.push(RunAgentsAgentRunConfig {
+            name: "missing-child".to_string(),
+            prompt: "Do separate work".to_string(),
+            title: String::new(),
+        });
+        state.executor.update(&mut app, |executor, _| {
+            executor
+                .mark_recovery_actions(state.conversation_id, &HashSet::from([action.id.clone()]));
+        });
+
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async recovery execution");
+        };
+        let missing_request = captured.read(&app, |captured, _| {
+            assert_eq!(captured.0.len(), 1);
+            assert_eq!(captured.0[0].name, "missing-child");
+            captured.0[0].clone()
+        });
+
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(
+                terminal_view_id,
+                existing_child_id,
+                crate::ai::agent::conversation::ConversationStatus::Success,
+                ctx,
+            );
+        });
+        let missing_child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "missing-child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        history.update(&mut app, |history, ctx| {
+            history.record_new_conversation_request_complete(
+                missing_request.id,
+                missing_child_id,
+                ctx,
+            );
+            history.update_conversation_status(
+                terminal_view_id,
+                missing_child_id,
+                crate::ai::agent::conversation::ConversationStatus::Success,
+                ctx,
+            );
+        });
+
+        let async_result = execute_future.await;
+        let result = app.update(|ctx| on_complete(async_result, ctx));
+        let AIAgentActionResultType::RunAgents(RunAgentsResult::Launched { agents, .. }) = result
+        else {
+            panic!("expected recovered RunAgents result");
+        };
+        assert_eq!(agents.len(), 2);
+        assert!(matches!(
+            &agents[0].kind,
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
+                if agent_id == &existing_child_id.to_string()
+        ));
+        assert!(matches!(
+            &agents[1].kind,
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
+                if agent_id == &missing_child_id.to_string()
+        ));
+    });
+}
+
+#[test]
+fn cancelling_recovered_run_agents_keeps_persisted_child_running() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::Sdk);
+        let terminal_view_id = EntityId::new();
+        let history = BlocklistAIHistoryModel::handle(&app);
+        let child_id = history.update(&mut app, |history, ctx| {
+            history.start_new_child_conversation(
+                terminal_view_id,
+                "child".to_string(),
+                state.conversation_id,
+                None,
+                ctx,
+            )
+        });
+        let action = remote_run_agents_action("oz");
+        state.executor.update(&mut app, |executor, _| {
+            executor
+                .mark_recovery_actions(state.conversation_id, &HashSet::from([action.id.clone()]));
+        });
+        let execution = state.executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: state.conversation_id,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let AnyActionExecution::Async {
+            execute_future,
+            on_complete,
+        } = execution
+        else {
+            panic!("expected async recovery execution");
+        };
+
+        state.executor.update(&mut app, |executor, ctx| {
+            executor.cancel_execution(state.conversation_id, &action.id, ctx);
+        });
+        let async_result = execute_future.await;
+        let result = app.update(|ctx| on_complete(async_result, ctx));
+        assert!(matches!(
+            result,
+            AIAgentActionResultType::RunAgents(RunAgentsResult::Cancelled)
+        ));
+        history.read(&app, |history, _| {
+            assert!(matches!(
+                history.conversation(&child_id).map(|child| child.status()),
+                Some(crate::ai::agent::conversation::ConversationStatus::InProgress)
+            ));
+        });
+    });
+}
+
+#[test]
+fn completion_slots_are_polled_concurrently_and_preserve_request_order() {
+    App::test((), |_app| async move {
+        let (first_sender, first_receiver) = async_channel::bounded(1);
+        let (second_sender, second_receiver) = async_channel::bounded(1);
+        let slots = vec![
+            ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
+                receiver: first_receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
+            }),
+            ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(2),
+                receiver: second_receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
+            }),
+            ChildSlot::Failed("prelaunch failure".to_string()),
+        ];
+        let mut outcomes =
+            Box::pin(join_all(slots.into_iter().map(|slot| {
+                resolve_child_slot_with_timeout(slot, Duration::from_millis(1))
+            })));
+
+        second_sender
+            .try_send(StartAgentOutcome::Completed {
+                agent_id: "second-agent".to_string(),
+                output: "done".to_string(),
+            })
+            .unwrap();
+        assert!(futures::poll!(&mut outcomes).is_pending());
+        assert!(
+            !second_sender.is_full(),
+            "join_all should poll and drain the second slot while the first is pending"
+        );
+
+        first_sender
+            .try_send(StartAgentOutcome::Error("first failed".to_string()))
+            .unwrap();
+        let outcomes = outcomes.await;
+
+        assert!(matches!(
+            &outcomes[0].outcome,
+            RunAgentsAgentOutcomeKind::Failed { error } if error == "first failed"
+        ));
+        assert!(matches!(
+            &outcomes[1].outcome,
+            RunAgentsAgentOutcomeKind::Completed { agent_id, output }
+                if agent_id == "second-agent" && output == "done"
+        ));
+        assert!(matches!(
+            &outcomes[2].outcome,
+            RunAgentsAgentOutcomeKind::Failed { error } if error == "prelaunch failure"
+        ));
+    });
+}
+
+#[test]
+fn completion_wait_ignores_spawn_timeout() {
+    App::test((), |_app| async move {
+        let (sender, receiver) = async_channel::bounded(1);
+        let completion = Box::pin(resolve_child_slot_with_timeout(
+            ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
+                receiver,
+                wait_policy: StartAgentWaitPolicy::Completion,
+                detached: Arc::new(AtomicBool::new(false)),
+            }),
+            Duration::from_millis(1),
+        ));
+        let wait = warpui::r#async::Timer::after(Duration::from_millis(20));
+
+        let completion = match futures::future::select(completion, Box::pin(wait)).await {
+            futures::future::Either::Left((outcome, _)) => {
+                panic!("completion wait unexpectedly resolved before child completion: {outcome:?}")
+            }
+            futures::future::Either::Right((_, completion)) => completion,
+        };
+        sender
+            .try_send(StartAgentOutcome::Completed {
+                agent_id: "child-agent".to_string(),
+                output: "done".to_string(),
+            })
+            .unwrap();
+
+        assert!(matches!(
+            completion.await.outcome,
+            RunAgentsAgentOutcomeKind::Completed { agent_id, output }
+                if agent_id == "child-agent" && output == "done"
+        ));
+    });
+}
+
+#[test]
+fn startup_wait_retains_spawn_timeout() {
+    App::test((), |_app| async move {
+        let (_sender, receiver) = async_channel::bounded(1);
+        let outcome = resolve_child_slot_with_timeout(
+            ChildSlot::Pending(StartAgentDispatch {
+                request_id: StartAgentRequestId::from_raw_for_test(1),
+                receiver,
+                wait_policy: StartAgentWaitPolicy::Startup,
+                detached: Arc::new(AtomicBool::new(false)),
+            }),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        assert!(outcome.timed_out_request_id.is_some());
+        assert_eq!(
+            outcome.timed_out_request_id,
+            Some(StartAgentRequestId::from_raw_for_test(1))
+        );
+        assert!(matches!(
+            outcome.outcome,
+            RunAgentsAgentOutcomeKind::Failed { error }
+                if error.contains("Agent failed to start within")
+        ));
+    });
+}
+
+#[test]
+fn startup_timeout_detaches_exact_pending_request() {
+    App::test((), |mut app| async move {
+        let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
+        let start_agent_executor = state.start_agent_executor;
+        let parent_conversation_id = state.conversation_id;
+        let dispatch = start_agent_executor.update(&mut app, |executor, ctx| {
+            executor.dispatch(
+                AIAgentActionId::from("run-agents-timeout".to_string()),
+                "child".to_string(),
+                "work".to_string(),
+                StartAgentExecutionMode::Remote {
+                    environment_id: "environment".to_string(),
+                    skill_references: Vec::new(),
+                    model_id: "model".to_string(),
+                    computer_use_enabled: false,
+                    worker_host: String::new(),
+                    harness_type: "oz".to_string(),
+                    title: String::new(),
+                    auth_secret_name: None,
+                },
+                None,
+                parent_conversation_id,
+                Some("parent-run".to_string()),
+                ctx,
+            )
+        });
+        let request_id = dispatch.request_id;
+
+        let resolved =
+            resolve_child_slot_with_timeout(ChildSlot::Pending(dispatch), Duration::from_millis(1))
+                .await;
+        let timed_out_request_id = resolved
+            .timed_out_request_id
+            .expect("startup timeout should expose request identity");
+        start_agent_executor.update(&mut app, |executor, _| {
+            assert!(executor.detach_dispatch(timed_out_request_id));
+        });
+
+        start_agent_executor.read(&app, |executor, _| {
+            assert!(!executor.has_pending_dispatch_for_test(request_id));
+        });
+    });
+}
+
 fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTestState {
     initialize_settings_for_tests_with_mode(app, mode, false);
     let global_resource_handles = GlobalResourceHandles::mock(app);
@@ -178,6 +705,9 @@ fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTe
     app.add_singleton_model(TeamTesterStatus::mock);
     app.add_singleton_model(UpdateManager::mock);
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(None, None, ctx)
+    });
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(|_| AIDocumentModel::new_for_test());
     app.add_singleton_model(|_| TemplatableMCPServerManager::default());
@@ -190,8 +720,9 @@ fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTe
         history_model.start_new_conversation(terminal_view_id, false, false, false, ctx)
     });
     let start_agent_executor = app.add_model(StartAgentExecutor::new);
-    let executor =
-        app.add_model(|_| RunAgentsExecutor::new(start_agent_executor.clone(), terminal_view_id));
+    let executor = app.add_model(|ctx| {
+        RunAgentsExecutor::new(start_agent_executor.clone(), terminal_view_id, ctx)
+    });
 
     RunAgentsTestState {
         conversation_id,
@@ -321,7 +852,7 @@ fn should_autoexecute_when_plan_has_approved_orchestration_config() {
 }
 
 #[test]
-fn should_not_autoexecute_approved_remote_non_warp_plan_without_default_auth_secret() {
+fn approved_remote_plan_is_normalized_and_can_autoexecute_locally() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         persist_plan_config_with_harness(
@@ -343,7 +874,7 @@ fn should_not_autoexecute_approved_remote_non_warp_plan_without_default_auth_sec
             )
         });
 
-        assert!(!should_autoexecute);
+        assert!(should_autoexecute);
     });
 }
 
@@ -561,9 +1092,9 @@ fn cancel_during_plan_publication_does_not_dispatch_children() {
         // The action is awaiting plan publication, so it's pending but no children dispatched yet.
         assert!(matches!(execution, AnyActionExecution::Async { .. }));
         state.executor.update(&mut app, |executor, ctx| {
-            assert!(executor.is_pending(&action_id));
-            executor.cancel_execution(&action_id, ctx);
-            assert!(!executor.is_pending(&action_id));
+            assert!(executor.is_pending(state.conversation_id, &action_id));
+            executor.cancel_execution(state.conversation_id, &action_id, ctx);
+            assert!(!executor.is_pending(state.conversation_id, &action_id));
         });
 
         // Finish publishing the plan, which resolves the wait the dispatch was blocked on.
@@ -617,7 +1148,7 @@ fn should_not_autoexecute_without_approved_plan_or_always_allow_profile() {
 }
 
 #[test]
-fn execute_denies_remote_non_warp_harness_without_default_auth_secret() {
+fn execute_normalizes_remote_non_oz_harness_without_requiring_remote_auth() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         let action = remote_run_agents_action("codex");
@@ -634,21 +1165,12 @@ fn execute_denies_remote_non_warp_harness_without_default_auth_secret() {
                 .into()
         });
 
-        let AnyActionExecution::Sync(AIAgentActionResultType::RunAgents(RunAgentsResult::Denied {
-            reason,
-        })) = execution
-        else {
-            panic!("expected synchronous run_agents denial");
-        };
-        assert_eq!(
-            reason,
-            "Cloud child agents using this harness require an API key before they can run."
-        );
+        assert!(matches!(execution, AnyActionExecution::Async { .. }));
     });
 }
 
 #[test]
-fn should_autoexecute_remote_non_warp_harness_with_always_allow_even_without_default_auth_secret() {
+fn normalized_remote_non_oz_harness_autoexecutes_with_always_allow() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);
@@ -669,7 +1191,7 @@ fn should_autoexecute_remote_non_warp_harness_with_always_allow_even_without_def
 }
 
 #[test]
-fn should_autoexecute_remote_non_warp_harness_with_default_auth_secret() {
+fn normalized_remote_non_oz_harness_ignores_default_auth_secret() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);
@@ -691,7 +1213,7 @@ fn should_autoexecute_remote_non_warp_harness_with_default_auth_secret() {
 }
 
 #[test]
-fn should_autoexecute_remote_warp_harness_without_default_auth_secret() {
+fn normalized_remote_oz_harness_autoexecutes_without_default_auth_secret() {
     App::test((), |mut app| async move {
         let state = initialize_run_agents_test(&mut app, ExecutionMode::App);
         set_run_agents_permission(&mut app, RunAgentsPermission::AlwaysAllow);

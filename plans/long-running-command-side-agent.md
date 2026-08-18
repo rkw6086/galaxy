@@ -168,11 +168,12 @@ Files:
 
 Tasks:
 
-- Add a terminal-view-scoped monitor registry keyed by command/block ID.
+- [x] Add a terminal-view-scoped monitor registry keyed by command/block ID.
 - Replace the current one-off delayed input-lock check with a monitor-start event or extend the existing event with a long-running transition.
 - Capture command metadata and snapshots without holding `TerminalModel` locks across async work.
-- Add cancellation/completion cleanup paths.
-- Add focused unit tests for timer race cases and duplicate monitor prevention.
+- [x] Add cancellation/completion cleanup paths.
+- [x] Add focused unit tests for timer race cases.
+- [x] Add deterministic unit coverage for duplicate monitor registration and cleanup.
 
 ### Phase 3: Side-agent conversation creation
 
@@ -206,6 +207,8 @@ Tasks:
 - Build the initial structured monitoring prompt.
 - Reuse `RunningCommand` and shell snapshot conversion where possible.
 - Add throttled snapshot updates.
+- [x] If a monitor turn finishes with a still-running command but no polling tool call, issue one
+  bounded continuation nudge; reset that guard after a real snapshot/action result.
 - Add explicit completion/cancellation summaries.
 - Redact secrets using the existing input redaction path before sending snapshots to the side agent.
 
@@ -263,5 +266,8 @@ Manual verification:
 4. Run a command with no output but successful completion: side agent does not claim failure prematurely and receives the final exit code.
 5. Run a command that exits non-zero: side agent identifies failure and main agent receives the summary.
 6. Run a simulated database lock/wait: side agent flags suspicious lack of progress with uncertainty.
-7. Trigger a provider budget limit on the thinking model: coding model is tried once.
-8. Trigger limits on both profile models: clear rate-limit message is shown and no crash occurs.
+7. Run `count_forever() { i=0; while :; do i=$((i+1)); printf 'tick=%d\\n' "$i"; sleep 1; done; }; count_forever`
+   and ask the monitor to stop it at tick 50; verify it continues polling after each snapshot and
+   interrupts the original process at the requested point.
+8. Trigger a provider budget limit on the thinking model: coding model is tried once.
+9. Trigger limits on both profile models: clear rate-limit message is shown and no crash occurs.

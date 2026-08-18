@@ -420,7 +420,10 @@ pub(super) fn render_send_message(
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
     let orchestrator_agent_id = props
         .model
         .conversation(app)
@@ -564,7 +567,10 @@ pub(super) fn render_start_agent(
 ) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
-    let status = props.action_model.as_ref(app).get_action_status(action_id);
+    let status = props
+        .action_model
+        .as_ref(app)
+        .get_action_status(props.conversation_id, action_id);
 
     if let Some(AIActionStatus::Finished(result)) = &status {
         let AIAgentActionResultType::StartAgent(result) = &result.result else {

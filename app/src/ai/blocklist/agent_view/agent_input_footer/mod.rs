@@ -1405,6 +1405,7 @@ impl AgentInputFooter {
     ) -> Option<Box<dyn Element>> {
         if !item.available_in().is_available_for_cli()
             || !item.available_to_session_viewer(shared_status, false)
+            || !item.is_available(app)
         {
             return None;
         }
@@ -2016,6 +2017,7 @@ impl AgentInputFooter {
                 });
         if !item.available_in().is_available_for_agent_view()
             || !item.available_to_session_viewer(shared_status, is_cloud_mode)
+            || !item.is_available(app)
         {
             return None;
         }

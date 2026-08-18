@@ -469,6 +469,7 @@ impl OrchestrationEventService {
                     | AIAgentOutputMessageType::Reasoning { .. }
                     | AIAgentOutputMessageType::Summarization { .. }
                     | AIAgentOutputMessageType::Subagent(_)
+                    | AIAgentOutputMessageType::RuntimeActivity(_)
                     | AIAgentOutputMessageType::Action(_)
                     | AIAgentOutputMessageType::TodoOperation(_)
                     | AIAgentOutputMessageType::WebSearch(_)

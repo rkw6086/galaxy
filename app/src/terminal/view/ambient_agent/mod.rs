@@ -139,7 +139,7 @@ pub fn create_cloud_mode_view(
 
 /// Returns `true` when a cloud agent shared session is in any pre-first-exchange phase —
 /// either still spawning (loading screen) or running setup commands before the first
-/// agent turn. In this state, we hide the interactive input and render a loading footer.
+/// agent turn.
 pub fn is_cloud_agent_pre_first_exchange(
     ambient_agent_view_model: Option<&ModelHandle<AmbientAgentViewModel>>,
     agent_view_controller: &ModelHandle<AgentViewController>,

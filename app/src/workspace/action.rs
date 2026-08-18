@@ -44,6 +44,7 @@ use crate::terminal::view::inline_banner::ZeroStatePromptSuggestionType;
 use crate::themes::theme::AnsiColorIdentifier;
 use crate::themes::theme_chooser::ThemeChooserMode;
 use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+use crate::workspace::delete_conversation_confirmation_dialog::DeleteConversationTarget;
 use crate::workspace::tab_group::TabGroupId;
 use crate::workspace::PaneViewLocator;
 
@@ -794,6 +795,10 @@ pub enum WorkspaceAction {
         conversation_id: AIConversationId,
         terminal_view_id: Option<EntityId>,
     },
+    /// Execute the actual deletion of multiple conversations after confirmation
+    ExecuteDeleteConversations {
+        conversations: Vec<DeleteConversationTarget>,
+    },
     /// Open the canonical ambient agent conversation pane and attach it to a live session.
     OpenOrAttachAmbientAgentConversation {
         session_id: SessionId,
@@ -1167,6 +1172,7 @@ impl WorkspaceAction {
             | ShowRewindConfirmationDialog { .. }
             | ExecuteRewindAIConversation { .. }
             | ExecuteDeleteConversation { .. }
+            | ExecuteDeleteConversations { .. }
             | OpenOrAttachAmbientAgentConversation { .. }
             | OpenConversationTranscriptViewer { .. }
             | OpenLightbox { .. }

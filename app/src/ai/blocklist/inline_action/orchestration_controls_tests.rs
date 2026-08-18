@@ -6,18 +6,6 @@ use super::{
     OrchestrationEditState,
 };
 
-fn remote_claude_state() -> OrchestrationEditState {
-    OrchestrationEditState::from_run_agents_fields(
-        "sonnet",
-        "claude",
-        &RunAgentsExecutionMode::Remote {
-            environment_id: "env-1".to_string(),
-            worker_host: "warp".to_string(),
-            computer_use_enabled: false,
-        },
-    )
-}
-
 fn local_config(harness_type: &str, model_id: &str) -> OrchestrationConfig {
     OrchestrationConfig {
         model_id: model_id.to_string(),
@@ -26,10 +14,44 @@ fn local_config(harness_type: &str, model_id: &str) -> OrchestrationConfig {
     }
 }
 
+fn remote_config(harness_type: &str, model_id: &str) -> OrchestrationConfig {
+    OrchestrationConfig {
+        model_id: model_id.to_string(),
+        harness_type: harness_type.to_string(),
+        execution_mode: OrchestrationExecutionMode::Remote {
+            environment_id: "env-1".to_string(),
+            worker_host: "warp".to_string(),
+        },
+    }
+}
+
+fn remote_mode() -> RunAgentsExecutionMode {
+    RunAgentsExecutionMode::Remote {
+        environment_id: "env-1".to_string(),
+        worker_host: "warp".to_string(),
+        computer_use_enabled: true,
+    }
+}
+
 #[test]
-fn from_orchestration_config_preserves_local_claude() {
+fn run_agents_remote_mode_is_normalized_to_local() {
+    let state = OrchestrationEditState::from_run_agents_fields("sonnet", "claude", &remote_mode());
+
+    assert_eq!(state.harness_type, "claude");
+    assert_eq!(state.model_id, "sonnet");
+    assert!(matches!(
+        state.execution_mode,
+        RunAgentsExecutionMode::Local
+    ));
+    assert!(should_show_harness_picker(&state));
+    assert!(!should_show_auth_secret_picker(&state));
+}
+
+#[test]
+fn remote_orchestration_config_is_normalized_to_local() {
     let state =
-        OrchestrationEditState::from_orchestration_config(&local_config("claude", "sonnet"));
+        OrchestrationEditState::from_orchestration_config(&remote_config("claude", "sonnet"));
+
     assert_eq!(state.harness_type, "claude");
     assert_eq!(state.model_id, "sonnet");
     assert!(matches!(
@@ -39,66 +61,24 @@ fn from_orchestration_config_preserves_local_claude() {
 }
 
 #[test]
-fn harness_picker_stays_visible_for_local_mode() {
-    let state = OrchestrationEditState::from_run_agents_fields(
+fn remote_toggle_remains_local() {
+    let mut state = OrchestrationEditState::from_run_agents_fields(
         "auto",
         "oz",
         &RunAgentsExecutionMode::Local,
     );
-    assert!(should_show_harness_picker(&state));
-}
 
-#[test]
-fn harness_picker_stays_visible_for_remote_mode() {
-    let state = OrchestrationEditState::from_run_agents_fields(
-        "auto",
-        "oz",
-        &RunAgentsExecutionMode::Remote {
-            environment_id: "env-1".to_string(),
-            worker_host: "warp".to_string(),
-            computer_use_enabled: false,
-        },
-    );
+    state.toggle_execution_mode_to_remote(true);
 
-    assert!(should_show_harness_picker(&state));
-}
-
-#[test]
-fn from_orchestration_config_preserves_remote_claude() {
-    let state = OrchestrationEditState::from_orchestration_config(&OrchestrationConfig {
-        model_id: "sonnet".to_string(),
-        harness_type: "claude".to_string(),
-        execution_mode: OrchestrationExecutionMode::Remote {
-            environment_id: "env-1".to_string(),
-            worker_host: "warp".to_string(),
-        },
-    });
-
-    assert_eq!(state.harness_type, "claude");
-    assert_eq!(state.model_id, "sonnet");
     assert!(matches!(
         state.execution_mode,
-        RunAgentsExecutionMode::Remote {
-            ref environment_id,
-            ref worker_host,
-            computer_use_enabled: false,
-        } if environment_id == "env-1" && worker_host == "warp"
+        RunAgentsExecutionMode::Local
     ));
 }
 
 #[test]
-fn toggle_to_local_sanitizes_disabled_codex() {
-    let mut state = OrchestrationEditState::from_run_agents_fields(
-        "gpt-5",
-        "codex",
-        &RunAgentsExecutionMode::Remote {
-            environment_id: "env-1".to_string(),
-            worker_host: "warp".to_string(),
-            computer_use_enabled: false,
-        },
-    );
-
-    state.toggle_execution_mode_to_remote(false);
+fn local_normalization_sanitizes_disabled_harnesses() {
+    let state = OrchestrationEditState::from_run_agents_fields("gpt-5", "codex", &remote_mode());
 
     assert_eq!(state.harness_type, "oz");
     assert_eq!(state.model_id, "");
@@ -109,18 +89,11 @@ fn toggle_to_local_sanitizes_disabled_codex() {
 }
 
 #[test]
-fn toggle_to_local_preserves_claude() {
-    let mut state = OrchestrationEditState::from_run_agents_fields(
-        "sonnet",
-        "claude",
-        &RunAgentsExecutionMode::Remote {
-            environment_id: "env-1".to_string(),
-            worker_host: "warp".to_string(),
-            computer_use_enabled: false,
-        },
-    );
+fn resolve_from_remote_config_inherits_fields_but_stays_local() {
+    let mut state =
+        OrchestrationEditState::from_run_agents_fields("", "", &RunAgentsExecutionMode::Local);
 
-    state.toggle_execution_mode_to_remote(false);
+    state.resolve_from_config(&remote_config("claude", "sonnet"));
 
     assert_eq!(state.harness_type, "claude");
     assert_eq!(state.model_id, "sonnet");
@@ -131,26 +104,20 @@ fn toggle_to_local_preserves_claude() {
 }
 
 #[test]
-fn accept_disabled_reason_allows_local_claude_product() {
-    let state = OrchestrationEditState::from_run_agents_fields(
-        "auto",
-        "claude",
-        &RunAgentsExecutionMode::Local,
-    );
-    assert_eq!(state.accept_disabled_reason(), None);
-}
+fn approved_remote_config_override_stays_local() {
+    let mut state = OrchestrationEditState::from_run_agents_fields("auto", "oz", &remote_mode());
 
-#[test]
-fn resolve_from_config_preserves_local_claude() {
-    let mut state =
-        OrchestrationEditState::from_run_agents_fields("", "", &RunAgentsExecutionMode::Local);
+    state.override_from_approved_config(&remote_config("claude", "sonnet"));
 
-    state.resolve_from_config(&local_config("claude", "sonnet"));
     assert_eq!(state.harness_type, "claude");
     assert_eq!(state.model_id, "sonnet");
     assert!(matches!(
         state.execution_mode,
         RunAgentsExecutionMode::Local
+    ));
+    assert!(matches!(
+        state.to_orchestration_config().execution_mode,
+        OrchestrationExecutionMode::Local
     ));
 }
 
@@ -163,32 +130,29 @@ fn resolve_from_config_sanitizes_disabled_local_codex() {
 
     assert_eq!(state.harness_type, "oz");
     assert_eq!(state.model_id, "");
-    assert!(matches!(
-        state.execution_mode,
-        RunAgentsExecutionMode::Local
-    ));
+    assert_eq!(state.accept_disabled_reason(), None);
 }
 
 #[test]
-fn select_create_new_auth_secret_marks_creating_new_from_named() {
-    let mut state = remote_claude_state();
+fn local_mode_does_not_expose_managed_auth_secret() {
+    let mut state = OrchestrationEditState::from_run_agents_fields(
+        "sonnet",
+        "claude",
+        &RunAgentsExecutionMode::Local,
+    );
     state.auth_secret_selection = AuthSecretSelection::Named("my-key".to_string());
-    assert_eq!(state.auth_secret_name(), Some("my-key"));
 
-    state.select_create_new_auth_secret();
-
-    // `CreatingNew` (distinct from `Unset`) blocks Accept and isn't re-seeded.
-    assert!(matches!(
-        state.auth_secret_selection,
-        AuthSecretSelection::CreatingNew
-    ));
     assert_eq!(state.auth_secret_name(), None);
-    assert!(should_show_auth_secret_picker(&state));
+    assert!(!should_show_auth_secret_picker(&state));
 }
 
 #[test]
-fn select_create_new_auth_secret_marks_creating_new_from_inherit() {
-    let mut state = remote_claude_state();
+fn selecting_create_auth_secret_remains_a_distinct_state() {
+    let mut state = OrchestrationEditState::from_run_agents_fields(
+        "sonnet",
+        "claude",
+        &RunAgentsExecutionMode::Local,
+    );
     state.auth_secret_selection = AuthSecretSelection::Inherit;
 
     state.select_create_new_auth_secret();

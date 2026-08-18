@@ -112,8 +112,6 @@ pub struct AcpTurnRequest {
     pub auto_approve_permissions: bool,
     /// Category permissions inherited from Galaxy's active execution profile.
     pub permission_policy: AcpPermissionPolicy,
-    /// Prompt capabilities advertised by the agent.
-    pub prompt_capabilities: agent_client_protocol::schema::v1::PromptCapabilities,
 }
 
 impl AcpTurnRequest {
@@ -134,7 +132,6 @@ impl AcpTurnRequest {
             mcp_servers: Vec::new(),
             auto_approve_permissions: false,
             permission_policy: AcpPermissionPolicy::default(),
-            prompt_capabilities: Default::default(),
         }
     }
 
@@ -221,26 +218,6 @@ impl AcpTurnRequest {
                         server.command.display()
                     )));
                 }
-            }
-        }
-        for content in &self.prompt {
-            match content {
-                ContentBlock::Image(_) if !self.prompt_capabilities.image => {
-                    return Err(AcpRuntimeError::InvalidTurn(
-                        "agent does not advertise image prompt support".to_owned(),
-                    ));
-                }
-                ContentBlock::Audio(_) if !self.prompt_capabilities.audio => {
-                    return Err(AcpRuntimeError::InvalidTurn(
-                        "agent does not advertise audio prompt support".to_owned(),
-                    ));
-                }
-                ContentBlock::Resource(_) if !self.prompt_capabilities.embedded_context => {
-                    return Err(AcpRuntimeError::InvalidTurn(
-                        "agent does not advertise embedded context support".to_owned(),
-                    ));
-                }
-                _ => {}
             }
         }
         Ok(())
@@ -980,6 +957,11 @@ impl RuntimeActor {
             )
         };
 
+        validate_prompt_capabilities(
+            &request.prompt,
+            &self.agent_capabilities.prompt_capabilities,
+        )?;
+
         if ready {
             let session_id = session_id
                 .ok_or_else(|| AcpRuntimeError::Protocol("ready session has no id".to_owned()))?;
@@ -1525,6 +1507,45 @@ impl RuntimeActor {
     }
 }
 
+fn validate_prompt_capabilities(
+    prompt: &[ContentBlock],
+    capabilities: &agent_client_protocol::schema::v1::PromptCapabilities,
+) -> Result<(), AcpRuntimeError> {
+    for content in prompt {
+        match content {
+            ContentBlock::Image(_) => require_prompt_capability(
+                capabilities.image,
+                "agent does not advertise image prompt support",
+            )?,
+            ContentBlock::Audio(_) => require_prompt_capability(
+                capabilities.audio,
+                "agent does not advertise audio prompt support",
+            )?,
+            ContentBlock::Resource(_) => require_prompt_capability(
+                capabilities.embedded_context,
+                "agent does not advertise embedded context support",
+            )?,
+            ContentBlock::Text(_) | ContentBlock::ResourceLink(_) => {}
+            // ACP content is forward-compatible. New prompt types must be
+            // rejected until the SDK exposes a matching capability bit.
+            _ => {
+                return Err(AcpRuntimeError::InvalidTurn(
+                    "agent prompt contains an unsupported ACP content type".to_owned(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn require_prompt_capability(supported: bool, message: &str) -> Result<(), AcpRuntimeError> {
+    if supported {
+        Ok(())
+    } else {
+        Err(AcpRuntimeError::InvalidTurn(message.to_owned()))
+    }
+}
+
 fn fail_conversations(conversations: &HashMap<String, ConversationState>, message: &str) {
     for state in conversations.values() {
         if let Some(active) = state.active.as_ref() {
@@ -1811,6 +1832,7 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
         SessionUpdate::AgentMessageChunk(chunk) => Some(event_from_content(chunk.content, false)),
         SessionUpdate::AgentThoughtChunk(chunk) => Some(event_from_content(chunk.content, true)),
         SessionUpdate::ToolCall(tool_call) => {
+            let title = visible_tool_title(&tool_call.title, tool_call.raw_input.as_ref());
             let output = visible_tool_output(
                 &tool_call.content,
                 tool_call.raw_output.as_ref(),
@@ -1818,12 +1840,18 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
             );
             Some(AcpEvent::ToolCall {
                 id: tool_call.tool_call_id,
-                title: tool_call.title,
+                title,
                 status: tool_call.status,
                 output,
             })
         }
         SessionUpdate::ToolCallUpdate(update) => {
+            let title = update
+                .fields
+                .raw_input
+                .as_ref()
+                .and_then(command_from_raw_input)
+                .or(update.fields.title);
             let output = visible_tool_output(
                 update.fields.content.as_deref().unwrap_or_default(),
                 update.fields.raw_output.as_ref(),
@@ -1831,7 +1859,7 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
             );
             Some(AcpEvent::ToolCallUpdate {
                 id: update.tool_call_id,
-                title: update.fields.title,
+                title,
                 status: update.fields.status,
                 output,
             })
@@ -1855,6 +1883,25 @@ fn event_from_session_update(update: SessionUpdate) -> Option<AcpEvent> {
         // remain forward-compatible and can be added to the visible surface.
         _ => None,
     }
+}
+
+fn visible_tool_title(title: &str, raw_input: Option<&serde_json::Value>) -> String {
+    raw_input
+        .and_then(command_from_raw_input)
+        .unwrap_or_else(|| title.to_owned())
+}
+
+fn command_from_raw_input(raw_input: &serde_json::Value) -> Option<String> {
+    let object = raw_input.as_object()?;
+    let command = ["command", "cmd", "shell_command", "shellCommand"]
+        .into_iter()
+        .find_map(|key| object.get(key).and_then(serde_json::Value::as_str))?;
+    let mut visible = VisibleToolOutput::default();
+    visible.append(command.trim());
+    visible
+        .finish()
+        .map(|command| command.lines().collect::<Vec<_>>().join(" "))
+        .filter(|command| !command.is_empty())
 }
 
 fn visible_tool_output(

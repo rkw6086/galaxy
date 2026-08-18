@@ -5,7 +5,7 @@ description = "Galaxy - AI-powered terminal"
 edition = "2021"
 autobins = false
 name = "galaxy"
-version = "2.1.0"
+version = "3.0.0"
 publish.workspace = true
 license.workspace = true
 
@@ -234,6 +234,8 @@ warp_assets.workspace = true
 warp_channel_config.workspace = true
 galaxy_completer.workspace = true
 galaxy_core.workspace = true
+galaxy_agent_core.workspace = true
+galaxy_agent_rig.workspace = true
 galaxy_editor.workspace = true
 galaxy_graphql.workspace = true
 galaxy_js = { workspace = true, optional = true }
@@ -326,7 +328,8 @@ tracing-subscriber.workspace = true
 # AWS SDK (loading credentials for BYO LLM)
 aws-config = { version = "1.8.16", features = ["credentials-login"] }
 aws-credential-types = "1"
-aws-sdk-bedrockruntime = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-bedrock.workspace = true
+aws-sdk-bedrockruntime.workspace = true
 aws-sdk-sts = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-smithy-types = "1"
 aws-types = "1"

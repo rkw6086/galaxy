@@ -188,12 +188,36 @@ impl BlocklistAIContextModel {
         );
 
         ctx.subscribe_to_model(&LLMPreferences::handle(ctx), |me, _, event, ctx| {
-            if let LLMPreferencesEvent::UpdatedActiveAgentModeLLM = event {
+            if matches!(
+                event,
+                LLMPreferencesEvent::UpdatedActiveAgentModeLLM
+                    | LLMPreferencesEvent::UpdatedAvailableLLMs
+            ) {
                 let llm_prefs = LLMPreferences::as_ref(ctx);
                 let vision_supported =
                     llm_prefs.vision_supported(ctx, Some(me.terminal_surface_id));
+                #[cfg(not(target_family = "wasm"))]
+                let desired_backend =
+                    llm_prefs.agent_backend_for_active_model(Some(me.terminal_surface_id), ctx);
                 if !vision_supported {
                     me.clear_pending_images(ctx);
+                }
+
+                // ACP and provider histories have different owners. When the
+                // selected model crosses that boundary, make the next prompt a
+                // fresh conversation instead of silently sending it through
+                // the backend that owned the existing conversation.
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    let selected_backend = me
+                        .selected_conversation(ctx)
+                        .map(|conversation| conversation.agent_backend().clone());
+                    if selected_backend.is_some_and(|backend| backend != desired_backend) {
+                        me.set_pending_query_state_for_new_conversation(
+                            AgentViewEntryOrigin::ConversationSelector,
+                            ctx,
+                        );
+                    }
                 }
             }
         });

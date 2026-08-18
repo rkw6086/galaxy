@@ -4,20 +4,20 @@ use galaxyui::{SingletonEntity, ViewContext, ViewHandle};
 use pathfinder_geometry::vector::Vector2F;
 
 use super::env_var_collection::{EnvVarCollectionAction, EnvVarCollectionView, VariableRowIndex};
-use crate::cloud_object::{CloudObject, GenericStringObjectFormat, Space};
+use crate::cloud_object::{CloudObject, GenericStringObjectFormat};
 use crate::drive::drive_helpers::has_feature_gated_anonymous_user_reached_env_var_limit;
 use crate::drive::export::ExportManager;
 use crate::drive::CloudObjectTypeAndId;
 use crate::env_vars::active_env_var_collection_data::TrashStatus;
 use crate::external_secrets::SecretManager;
+use crate::local_object_repository::LocalObjectRepository;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::PaneEvent;
-use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::ui_components::icons::Icon;
 use crate::util::bindings::{
     keybinding_name_to_display_string, trigger_to_keystroke, CustomAction,
 };
-use crate::{AppContext, CloudModel, FeatureFlag};
+use crate::{AppContext, CloudModel};
 
 const PANE_MENU_WIDTH: f32 = 200.;
 
@@ -360,10 +360,7 @@ impl EnvVarCollectionView {
         let mut menu_items = Vec::new();
 
         let active_collection_data = self.active_env_var_collection_data.as_ref(ctx);
-        let access_level = active_collection_data.access_level(ctx);
-        let space = active_collection_data.space(ctx);
-
-        if !active_collection_data.is_on_server()
+        if active_collection_data.id().is_none()
             || active_collection_data.trash_status(ctx) != TrashStatus::Active
         {
             return menu_items;
@@ -380,26 +377,20 @@ impl EnvVarCollectionView {
         }
 
         // Add "Duplicate" to menu
-        if space != Some(Space::Shared) {
-            menu_items.push(
-                MenuItemFields::new("Duplicate")
-                    .with_on_select_action(EnvVarCollectionAction::Duplicate)
-                    .with_icon(Icon::Duplicate)
-                    .into_item(),
-            );
-        }
+        menu_items.push(
+            MenuItemFields::new("Duplicate")
+                .with_on_select_action(EnvVarCollectionAction::Duplicate)
+                .with_icon(Icon::Duplicate)
+                .into_item(),
+        );
 
         // Add "Trash" to menu
-        if self.is_online(ctx)
-            && (!FeatureFlag::SharedWithMe.is_enabled() || access_level.can_trash())
-        {
-            menu_items.push(
-                MenuItemFields::new("Trash")
-                    .with_on_select_action(EnvVarCollectionAction::Trash)
-                    .with_icon(Icon::Trash)
-                    .into_item(),
-            );
-        }
+        menu_items.push(
+            MenuItemFields::new("Trash")
+                .with_on_select_action(EnvVarCollectionAction::Trash)
+                .with_icon(Icon::Trash)
+                .into_item(),
+        );
 
         #[cfg(feature = "local_fs")]
         menu_items.push(
@@ -424,16 +415,8 @@ impl EnvVarCollectionView {
                 return;
             }
 
-            UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                update_manager.untrash_object(
-                    CloudObjectTypeAndId::GenericStringObject {
-                        object_type: GenericStringObjectFormat::Json(
-                            crate::cloud_object::JsonObjectType::EnvVarCollection,
-                        ),
-                        id: env_var_collection_id,
-                    },
-                    ctx,
-                );
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.set_env_var_collection_trashed(env_var_collection_id, false, ctx);
             });
         }
         ctx.notify();
@@ -443,16 +426,8 @@ impl EnvVarCollectionView {
         if let Some(env_var_collection_id) = self.env_var_collection_id(ctx) {
             self.close_env_var_collection(ctx);
 
-            UpdateManager::handle(ctx).update(ctx, move |update_manager, ctx| {
-                update_manager.trash_object(
-                    CloudObjectTypeAndId::from_generic_string_object(
-                        GenericStringObjectFormat::Json(
-                            crate::cloud_object::JsonObjectType::EnvVarCollection,
-                        ),
-                        env_var_collection_id,
-                    ),
-                    ctx,
-                );
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.set_env_var_collection_trashed(env_var_collection_id, true, ctx);
             });
             ctx.notify();
         }
@@ -460,16 +435,8 @@ impl EnvVarCollectionView {
 
     pub(super) fn duplicate_env_var_collection(&self, ctx: &mut ViewContext<Self>) {
         if let Some(env_var_collection_id) = self.env_var_collection_id(ctx) {
-            UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-                update_manager.duplicate_object(
-                    &CloudObjectTypeAndId::from_generic_string_object(
-                        GenericStringObjectFormat::Json(
-                            crate::cloud_object::JsonObjectType::EnvVarCollection,
-                        ),
-                        env_var_collection_id,
-                    ),
-                    ctx,
-                );
+            LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
+                repository.duplicate_env_var_collection(env_var_collection_id, ctx);
             });
             ctx.notify();
         }

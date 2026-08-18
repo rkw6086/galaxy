@@ -28,3 +28,22 @@ fn ask_user_question_skipped_by_auto_approve_converts_to_skipped_answers() {
         Some(AskUserQuestionAnswer::Skipped(()))
     ));
 }
+
+#[test]
+fn completed_run_agents_child_converts_to_legacy_launched_wire_outcome() {
+    let outcome = RunAgentsAgentOutcome {
+        name: "research".to_string(),
+        kind: RunAgentsAgentOutcomeKind::Completed {
+            agent_id: "child-1".to_string(),
+            output: "local output".to_string(),
+        },
+    };
+
+    let converted = api::run_agents_result::AgentOutcome::from(outcome);
+    assert!(matches!(
+        converted.result,
+        Some(api::run_agents_result::agent_outcome::Result::Launched(
+            api::run_agents_result::LaunchedAgent { agent_id }
+        )) if agent_id == "child-1"
+    ));
+}

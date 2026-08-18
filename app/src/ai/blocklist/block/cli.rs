@@ -1170,7 +1170,7 @@ impl View for CLISubagentView {
                         let is_cancelled = self
                             .action_model
                             .as_ref(app)
-                            .get_action_status(&action.id)
+                            .get_action_status(self.conversation_id, &action.id)
                             .is_some_and(|status| status.is_cancelled());
                         if blocked_action.is_none() && !is_cancelled && !should_hide_responses {
                             if let Some(rendered_action) = render_action(action.action.clone(), app)
@@ -1641,7 +1641,9 @@ fn should_retain_task_output_message(
         || (is_latest_exchange
             && matches!(
                 message,
-                AIAgentOutputMessageType::Action(_) | AIAgentOutputMessageType::WebSearch(_)
+                AIAgentOutputMessageType::Action(_)
+                    | AIAgentOutputMessageType::RuntimeActivity(_)
+                    | AIAgentOutputMessageType::WebSearch(_)
             ))
 }
 

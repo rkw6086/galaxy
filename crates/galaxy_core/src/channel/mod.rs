@@ -47,6 +47,28 @@ impl Channel {
         }
     }
 
+    /// Whether this channel may communicate with Warp-operated services.
+    ///
+    /// The OSS product is local-first. Provider endpoints explicitly configured
+    /// by the user are outside this policy, but inherited Warp authentication,
+    /// cloud sync, RTC, and session-sharing services must remain unavailable.
+    pub fn allows_warp_service_egress(&self) -> bool {
+        match self {
+            Channel::Stable
+            | Channel::Preview
+            | Channel::Dev
+            | Channel::Local
+            | Channel::Integration => true,
+            Channel::Oss => false,
+        }
+    }
+
+    /// Whether the channel is local-first and must not expose Warp-owned
+    /// identity, sharing, or workspace state to the product surface.
+    pub fn is_local_first(&self) -> bool {
+        !self.allows_warp_service_egress()
+    }
+
     /// Returns the CLI command name corresponding to this channel.
     pub fn cli_command_name(&self) -> &'static str {
         match self {

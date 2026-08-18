@@ -36,11 +36,44 @@ pub fn init(app: &mut AppContext) {
 
 const DIALOG_WIDTH: f32 = 460.;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DeleteConversationDialogSource {
+    pub conversations: Vec<DeleteConversationTarget>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DeleteConversationTarget {
     pub conversation_id: AIConversationId,
     pub conversation_title: String,
     pub terminal_view_id: Option<galaxyui::EntityId>,
+}
+
+impl DeleteConversationDialogSource {
+    pub fn single(
+        conversation_id: AIConversationId,
+        conversation_title: String,
+        terminal_view_id: Option<galaxyui::EntityId>,
+    ) -> Self {
+        Self {
+            conversations: vec![DeleteConversationTarget {
+                conversation_id,
+                conversation_title,
+                terminal_view_id,
+            }],
+        }
+    }
+
+    pub fn multiple(conversations: Vec<DeleteConversationTarget>) -> Self {
+        Self { conversations }
+    }
+
+    pub fn len(&self) -> usize {
+        self.conversations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.conversations.is_empty()
+    }
 }
 
 pub struct DeleteConversationConfirmationDialog {
@@ -101,15 +134,34 @@ impl View for DeleteConversationConfirmationDialog {
         let title = self
             .source
             .as_ref()
-            .map(|s| format!("Delete '{}'?", s.conversation_title))
+            .map(|source| match source.conversations.as_slice() {
+                [conversation] => format!("Delete '{}'?", conversation.conversation_title),
+                conversations => format!("Delete {} conversations?", conversations.len()),
+            })
             .unwrap_or_else(|| "Delete conversation?".into());
+
+        let body = self
+            .source
+            .as_ref()
+            .map(|source| {
+                if source.len() == 1 {
+                    "This conversation will be permanently deleted. This action cannot be undone."
+                        .to_string()
+                } else {
+                    format!(
+                        "{} conversations will be permanently deleted. This action cannot be undone.",
+                        source.len()
+                    )
+                }
+            })
+            .unwrap_or_else(|| {
+                "This conversation will be permanently deleted. This action cannot be undone."
+                    .to_string()
+            });
 
         let dialog = Dialog::new(
             title,
-            Some(
-                "This conversation will be permanently deleted. This action cannot be undone."
-                    .into(),
-            ),
+            Some(body),
             UiComponentStyles {
                 width: Some(DIALOG_WIDTH),
                 ..dialog_styles(appearance)
@@ -165,6 +217,10 @@ impl TypedActionView for DeleteConversationConfirmationDialog {
                     log::error!("Delete confirm button pressed with no source");
                     return;
                 };
+                if source.is_empty() {
+                    log::error!("Delete confirm button pressed with no conversations");
+                    return;
+                }
                 ctx.emit(DeleteConversationConfirmationEvent::Confirm { source });
             }
             DeleteConversationConfirmationAction::Cancel => {

@@ -33,14 +33,16 @@ use crate::ai::agent::conversation::{
 use crate::ai::agent::task::helper::{MessageExt, ToolCallExt};
 use crate::ai::agent::task::TaskId;
 use crate::ai::agent::{
-    AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput, AIAgentOutputStatus,
-    CancellationReason, FinishedAIAgentOutput, MessageId, RenderableAIError, RequestCost,
-    Suggestions,
+    AIAgentAction, AIAgentActionId, AIAgentExchange, AIAgentExchangeId, AIAgentInput,
+    AIAgentOutputStatus, CancellationReason, FinishedAIAgentOutput, MessageId, RenderableAIError,
+    RequestCost, Suggestions,
 };
 use crate::ai::artifacts::Artifact;
 use crate::ai::document::ai_document_model::AIDocumentModel;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::llms::LLMPreferences;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::input_suggestions::HistoryOrder;
 use crate::persistence::model::{
     AcpConversationData, AgentBackend, AgentConversation, AgentConversationData,
@@ -559,6 +561,44 @@ impl BlocklistAIHistoryModel {
             return;
         };
         conversation.write_updated_conversation_state(ctx);
+    }
+
+    pub(crate) fn persist_active_provider_run_json(
+        &mut self,
+        conversation_id: AIConversationId,
+        snapshot: Option<String>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        let conversation = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?;
+        conversation.set_active_provider_run_json(snapshot);
+        conversation.write_updated_conversation_state(ctx);
+        Ok(())
+    }
+
+    pub(crate) fn rebind_provider_projection(
+        &mut self,
+        conversation_id: AIConversationId,
+        task_id: &TaskId,
+        exchange_id: AIAgentExchangeId,
+        response_stream_id: ResponseStreamId,
+        terminal_surface_id: EntityId,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        let conversation = self
+            .conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?;
+        conversation.rebind_provider_projection(
+            task_id,
+            exchange_id,
+            response_stream_id,
+            terminal_surface_id,
+            ctx,
+        )?;
+        Ok(())
     }
 
     fn update_cached_metadata_for_conversation(&mut self, conversation_id: AIConversationId) {
@@ -1182,6 +1222,87 @@ impl BlocklistAIHistoryModel {
         });
     }
 
+    fn configured_agent_backend(
+        terminal_surface_id: EntityId,
+        is_viewing_shared_session: bool,
+        is_cli_agent_transcript: bool,
+        ctx: &AppContext,
+    ) -> AgentBackend {
+        if is_viewing_shared_session
+            || is_cli_agent_transcript
+            || !cfg!(unix)
+            || !FeatureFlag::AgentClientProtocol.is_enabled()
+        {
+            return AgentBackend::Provider;
+        }
+
+        let settings = AISettings::as_ref(ctx);
+        if !*settings.acp_enabled.value() {
+            return AgentBackend::Provider;
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(llm_preferences) = ctx.try_get_singleton_model_as_ref::<LLMPreferences>() {
+            return llm_preferences.agent_backend_for_active_model(Some(terminal_surface_id), ctx);
+        }
+
+        let providers = settings.enabled_acp_providers();
+        let [provider] = providers.as_slice() else {
+            return AgentBackend::Provider;
+        };
+        let agent_id = provider.agent_id.trim();
+        let agent_id = if agent_id.is_empty() {
+            "codex"
+        } else {
+            agent_id
+        };
+        #[cfg(not(target_family = "wasm"))]
+        let launch_fingerprint =
+            acp_launch_fingerprint(agent_id, &provider.command, &provider.args);
+        #[cfg(target_family = "wasm")]
+        let launch_fingerprint = String::new();
+        AgentBackend::Acp(AcpConversationData {
+            provider_id: provider.id.clone(),
+            agent_id: agent_id.to_string(),
+            launch_fingerprint,
+            session_id: None,
+            config_values: crate::ai::acp::AcpRuntimeModel::current_config_values(
+                &provider.config_options,
+            ),
+        })
+    }
+
+    /// Reconciles a conversation without agent output with the currently enabled local runtime.
+    ///
+    /// Agent views can create their initial conversation before the user changes runtime settings,
+    /// and a provider-less attempt can leave behind an error-only exchange. Refreshing here lets
+    /// either case use ACP without mixing successful provider output into an ACP-owned history.
+    pub(crate) fn refresh_conversation_backend_without_output(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &AppContext,
+    ) {
+        let Some(conversation) = self.conversation(&conversation_id) else {
+            return;
+        };
+        let Some(terminal_surface_id) = self.terminal_surface_id_for_conversation(&conversation_id)
+        else {
+            return;
+        };
+        let agent_backend = Self::configured_agent_backend(
+            terminal_surface_id,
+            conversation.is_viewing_shared_session(),
+            conversation.is_cli_agent_transcript(),
+            ctx,
+        );
+        if conversation.agent_backend() == &agent_backend {
+            return;
+        }
+        if let Some(conversation) = self.conversation_mut(&conversation_id) {
+            conversation.set_agent_backend_if_no_output(agent_backend);
+        }
+    }
+
     /// Starts a new conversation in the given terminal surface's history, effectively marking the
     /// existing conversation (if any) as completed.
     ///
@@ -1197,55 +1318,12 @@ impl BlocklistAIHistoryModel {
         is_cli_agent_transcript: bool,
         ctx: &mut ModelContext<Self>,
     ) -> AIConversationId {
-        let agent_backend = if !is_viewing_shared_session
-            && !is_cli_agent_transcript
-            && cfg!(unix)
-            && FeatureFlag::AgentClientProtocol.is_enabled()
-        {
-            let settings = AISettings::as_ref(ctx);
-            if *settings.acp_enabled.value() {
-                let configured_agent_id = settings.acp_agent_id.value().trim();
-                let agent_id = if configured_agent_id.is_empty() {
-                    "codex"
-                } else {
-                    configured_agent_id
-                };
-                #[cfg(not(target_family = "wasm"))]
-                let launch_fingerprint = acp_launch_fingerprint(
-                    agent_id,
-                    settings.acp_agent_command.value(),
-                    settings.acp_agent_args.value(),
-                );
-                #[cfg(target_family = "wasm")]
-                let launch_fingerprint = String::new();
-                AgentBackend::Acp(AcpConversationData {
-                    agent_id: agent_id.to_string(),
-                    launch_fingerprint,
-                    session_id: None,
-                    config_values: settings
-                        .acp_agents
-                        .value()
-                        .iter()
-                        .find(|agent| agent.id.eq_ignore_ascii_case(agent_id))
-                        .map(|agent| {
-                            #[cfg(not(target_family = "wasm"))]
-                            if let Some(selection) = LLMPreferences::as_ref(ctx)
-                                .selected_acp_config_for_agent(&agent.name, ctx)
-                            {
-                                return selection;
-                            }
-                            crate::ai::acp::AcpRuntimeModel::current_config_values(
-                                &agent.config_options,
-                            )
-                        })
-                        .unwrap_or_default(),
-                })
-            } else {
-                AgentBackend::Provider
-            }
-        } else {
-            AgentBackend::Provider
-        };
+        let agent_backend = Self::configured_agent_backend(
+            terminal_surface_id,
+            is_viewing_shared_session,
+            is_cli_agent_transcript,
+            ctx,
+        );
         let mut new_conversation = AIConversation::new_with_agent_backend(
             is_viewing_shared_session,
             is_cli_agent_transcript,
@@ -1322,7 +1400,21 @@ impl BlocklistAIHistoryModel {
         ctx: &mut ModelContext<Self>,
     ) {
         if let Some(conversation) = self.conversations_by_id.get_mut(&conversation_id) {
+            #[cfg(not(target_family = "wasm"))]
+            let remote_log_context =
+                remote_status_log_context(conversation, &status, error.as_ref());
             conversation.update_status_with_error(status, error, terminal_surface_id, ctx);
+            #[cfg(not(target_family = "wasm"))]
+            if let Some(context) = remote_log_context {
+                remote_logging::log_model_event(
+                    ctx,
+                    RemoteLogRecord {
+                        level: RemoteLogLevel::Info,
+                        message: "Agent conversation status changed".to_string(),
+                        context,
+                    },
+                );
+            }
         }
     }
 
@@ -1598,6 +1690,7 @@ impl BlocklistAIHistoryModel {
 
         let conversation_data = AgentConversationData {
             agent_backend: source_conversation.agent_backend().for_fork(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: Some(source_conversation.usage_metadata()),
             reverted_action_ids,
@@ -1762,6 +1855,7 @@ impl BlocklistAIHistoryModel {
         // be recomputed based on the retained exchanges in a follow-up.
         let conversation_data = AgentConversationData {
             agent_backend: conversation.agent_backend().for_fork(),
+            active_provider_run_json: None,
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids,
@@ -1849,6 +1943,21 @@ impl BlocklistAIHistoryModel {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub fn apply_domain_tool_proposal(
+        &mut self,
+        response_stream_id: &ResponseStreamId,
+        conversation_id: AIConversationId,
+        terminal_surface_id: EntityId,
+        action: AIAgentAction,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), UpdateHistoryError> {
+        self.conversations_by_id
+            .get_mut(&conversation_id)
+            .ok_or(UpdateHistoryError::ConversationNotFound(conversation_id))?
+            .apply_domain_tool_proposal(response_stream_id, terminal_surface_id, action, ctx)?;
         Ok(())
     }
 
@@ -2755,6 +2864,9 @@ fn merged_remote_child_placeholder_conversation_data(
         // Placeholder authoritative.
         agent_backend: placeholder.agent_backend().clone(),
 
+        // Active process-local provider runs cannot be merged from a cloud transcript.
+        active_provider_run_json: None,
+
         // Cloud authoritative.
         server_conversation_token: cloud_conversation
             .server_conversation_token()
@@ -2815,6 +2927,46 @@ fn agent_id_key(conversation: &AIConversation) -> Option<String> {
 
 fn agent_id_key_from_persisted_data(conversation_data: &AgentConversationData) -> Option<&str> {
     conversation_data.run_id.as_deref()
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn remote_status_log_context(
+    conversation: &AIConversation,
+    new_status: &ConversationStatus,
+    error: Option<&RenderableAIError>,
+) -> Option<serde_json::Value> {
+    let prev_status = conversation.status();
+    if prev_status == new_status {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "event": "agent_conversation_status_changed",
+        "conversation_id": conversation.id().to_string(),
+        "parent_conversation_id": conversation.parent_conversation_id().map(|id| id.to_string()),
+        "agent_id": conversation.orchestration_agent_id(),
+        "agent_name": conversation.agent_name(),
+        "harness_type": conversation.orchestration_harness_type(),
+        "is_child": conversation.parent_conversation_id().is_some(),
+        "is_remote_child": conversation.is_remote_child(),
+        "previous_status": conversation_status_label(prev_status),
+        "new_status": conversation_status_label(new_status),
+        "new_status_is_terminal": new_status.is_done(),
+        "error": error.map(remote_logging::sanitize_error),
+    }))
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn conversation_status_label(status: &ConversationStatus) -> &'static str {
+    match status {
+        ConversationStatus::InProgress => "in_progress",
+        ConversationStatus::Success => "success",
+        ConversationStatus::Error => "error",
+        ConversationStatus::TransientError => "transient_error",
+        ConversationStatus::Cancelled => "cancelled",
+        ConversationStatus::Blocked { .. } => "blocked",
+        ConversationStatus::WaitingForEvents => "waiting_for_events",
+    }
 }
 
 /// Whether an `UpdatedConversationStatus` event represents a restoration

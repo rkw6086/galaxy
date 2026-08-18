@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 pub use cloud_object_models::{CloudWorkflow, CloudWorkflowModel, WorkflowId};
 use galaxy_core::context_flag::ContextFlag;
-use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, SingletonEntity};
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +23,6 @@ use async_trait::async_trait;
 pub use categories::{CategoriesView, CategoriesViewEvent, WorkflowsViewAction};
 
 use crate::appearance::Appearance;
-use crate::cloud_object::model::view::CloudViewModel;
 use crate::cloud_object::{
     CloudModelType, CloudObjectEventEntrypoint, CloudObjectUpsertParams, CreateCloudObjectResult,
     CreateObjectRequest, GenericServerObject, ObjectType, Revision, UpdateCloudObjectResult,
@@ -89,41 +87,17 @@ pub enum WorkflowViewMode {
 }
 
 impl WorkflowViewMode {
-    /// The editing mode supported for a workflow.
-    ///
-    /// Editing is disabled if the user does not have edit permissions.
-    pub fn supported_edit_mode(workflow_id: Option<SyncId>, app: &AppContext) -> Self {
-        let can_edit = workflow_id
-            .map(|id| {
-                CloudViewModel::as_ref(app)
-                    .object_editability(&id.uid(), app)
-                    .can_edit()
-            })
-            .unwrap_or(true);
-
-        if !FeatureFlag::SharedWithMe.is_enabled() || can_edit {
-            Self::Edit
-        } else {
-            Self::View
-        }
+    /// Local workflows are always editable.
+    pub fn supported_edit_mode() -> Self {
+        Self::Edit
     }
 
     /// The viewing mode supported for this workflow.
     ///
     /// Viewing is disabled if the user is allowed to edit the workflow and in a context where
     /// running workflows is supported.
-    pub fn supported_view_mode(workflow_id: Option<SyncId>, app: &AppContext) -> Self {
-        let can_edit = workflow_id
-            .map(|id| {
-                CloudViewModel::as_ref(app)
-                    .object_editability(&id.uid(), app)
-                    .can_edit()
-            })
-            .unwrap_or(true);
-
-        if FeatureFlag::SharedWithMe.is_enabled() && !can_edit {
-            Self::View
-        } else if ContextFlag::RunWorkflow.is_enabled() {
+    pub fn supported_view_mode() -> Self {
+        if ContextFlag::RunWorkflow.is_enabled() {
             Self::Edit
         } else {
             Self::View

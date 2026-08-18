@@ -602,7 +602,13 @@ impl ConversationDetailsData {
 #[derive(Debug, Clone)]
 pub enum ConversationDetailsPanelEvent {
     Close,
-    OpenPlanNotebook { notebook_uid: NotebookId },
+    OpenPlanNotebook {
+        notebook_uid: NotebookId,
+    },
+    ShowDeleteConfirmationDialog {
+        conversation_id: AIConversationId,
+        conversation_title: String,
+    },
 }
 
 /// Actions for the ConversationDetailsPanel.
@@ -878,14 +884,20 @@ impl ConversationDetailsPanel {
                 ))
             }
             PanelMode::Conversation {
-                ai_conversation_id, ..
+                ai_conversation_id,
+                status,
+                ..
             } => {
                 let conversation_id = *ai_conversation_id.as_ref()?;
-                Some(ActionButtonsConfig::for_conversation(
+                let mut config = ActionButtonsConfig::for_conversation(
                     conversation_id,
                     open_action,
                     data.copy_link_url.clone(),
-                ))
+                );
+                if !status.as_ref().is_some_and(ConversationStatus::is_done) {
+                    config.delete_conversation_id = None;
+                }
+                Some(config)
             }
         }
     }
@@ -1002,6 +1014,14 @@ impl ConversationDetailsPanel {
 
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(link.clone()));
+            }
+            AgentDetailsButtonEvent::DeleteConversation { conversation_id } => {
+                ctx.emit(
+                    ConversationDetailsPanelEvent::ShowDeleteConfirmationDialog {
+                        conversation_id: *conversation_id,
+                        conversation_title: self.data.title.clone(),
+                    },
+                );
             }
         }
     }

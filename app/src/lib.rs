@@ -69,6 +69,7 @@ mod interval_timer;
 mod linear;
 #[cfg(feature = "local_fs")]
 mod local_control;
+mod local_object_repository;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;
 mod menu;
@@ -300,6 +301,7 @@ use crate::env_vars::manager::EnvVarCollectionManager;
 use crate::experiments::ImprovedPaletteSearch;
 pub use crate::global_resource_handles::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 use crate::gpu_state::GPUState;
+use crate::local_object_repository::LocalObjectRepository;
 use crate::network::NetworkStatus;
 use crate::notebooks::editor::keys::NotebookKeybindings;
 use crate::notebooks::manager::NotebookManager;
@@ -1853,7 +1855,17 @@ pub(crate) fn initialize_app(
     let mut all_queue_items = Vec::new();
     let objects_with_pending_changes = cloud_objects
         .iter()
-        .filter(|object| object.metadata().has_pending_content_changes())
+        .filter(|object| {
+            object.metadata().has_pending_content_changes()
+                && !matches!(
+                    object.object_type(),
+                    crate::cloud_object::ObjectType::GenericStringObject(
+                        crate::cloud_object::GenericStringObjectFormat::Json(
+                            crate::cloud_object::JsonObjectType::AIFact
+                        )
+                    )
+                )
+        })
         .cloned()
         .collect::<Vec<_>>();
     all_queue_items.extend(QueueItem::from_cached_objects(
@@ -1868,13 +1880,34 @@ pub(crate) fn initialize_app(
         )
     });
 
+    let local_object_sender = persistence_writer.sender();
+    let legacy_profile_owner = UserWorkspaces::as_ref(ctx).personal_drive(ctx);
+    ctx.add_singleton_model(move |ctx| {
+        LocalObjectRepository::new(local_object_sender, legacy_profile_owner, ctx)
+    });
+
     let unsynced_actions: Vec<(CloudObjectTypeAndId, ObjectAction)> = object_actions
         .iter()
         .filter(|action| action.is_pending())
         .filter_map(|action| {
             cloud_model.read(ctx, |model, _| {
                 let object = model.get_by_uid(&action.uid);
-                object.map(|o| (o.cloud_object_type_and_id(), action.clone()))
+                object.and_then(|object| {
+                    let type_and_id = object.cloud_object_type_and_id();
+                    if matches!(
+                        type_and_id,
+                        CloudObjectTypeAndId::GenericStringObject {
+                            object_type: crate::cloud_object::GenericStringObjectFormat::Json(
+                                crate::cloud_object::JsonObjectType::AIFact
+                            ),
+                            ..
+                        }
+                    ) {
+                        None
+                    } else {
+                        Some((type_and_id, action.clone()))
+                    }
+                })
             })
         })
         .collect::<Vec<_>>();
@@ -2108,7 +2141,7 @@ pub(crate) fn initialize_app(
     );
 
     ctx.add_singleton_model(EnvVarCollectionManager::new);
-    ctx.add_singleton_model(WorkflowManager::new);
+    ctx.add_singleton_model(|_| WorkflowManager::new());
 
     if FeatureFlag::ScheduledAmbientAgents.is_enabled() {
         ctx.add_singleton_model(ScheduledAgentManager::new);
@@ -2123,7 +2156,7 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(ConnectedSelfHostedWorkersModel::new);
 
     // Seed predefined rules on first launch if no global rules exist.
-    // This runs after CloudModel and UpdateManager are initialized.
+    // This runs after the local object repository is initialized.
     seed_predefined_rules_if_needed(ctx);
 
     let tip_model_handle = ctx.add_singleton_model(|ctx| {
@@ -2825,18 +2858,13 @@ fn launch(ctx: &mut galaxyui::AppContext, app_state: Option<AppState>, launch_mo
 ///
 /// Additionally, we must not write anything to stdout in this function, as it
 /// can interfere with test harnesses collecting the set of tests to run. (This
-/// Seeds predefined system rules into the local CloudModel on first launch
+/// Seeds predefined system rules into the local object repository on first launch
 /// (when no global rules exist and they haven't been seeded before).
 /// This ensures rules are available for AI requests without requiring the user
 /// to manually visit the Rules settings page.
 fn seed_predefined_rules_if_needed(ctx: &mut AppContext) {
     use ai::facts::predefined_rules::PREDEFINED_RULES;
     use ai::facts::{AIFact, AIMemory};
-    use cloud_object::model::generic_string_model::GenericStringObjectId;
-    use cloud_object::model::persistence::CloudModel;
-    use server::cloud_objects::update_manager::UpdateManager;
-    use server::ids::ClientId;
-    use workspaces::user_workspaces::UserWorkspaces;
 
     let settings = AISettings::as_ref(ctx);
     if settings.has_seeded_predefined_rules() {
@@ -2844,11 +2872,7 @@ fn seed_predefined_rules_if_needed(ctx: &mut AppContext) {
     }
 
     // Check if any rules already exist
-    let has_existing_rules = CloudModel::handle(ctx)
-        .as_ref(ctx)
-        .get_all_objects_of_type::<GenericStringObjectId, ai::facts::CloudAIFactModel>()
-        .next()
-        .is_some();
+    let has_existing_rules = !LocalObjectRepository::as_ref(ctx).rules(ctx).is_empty();
 
     if has_existing_rules {
         // Rules exist (e.g. from a previous session) — mark as seeded and skip
@@ -2858,16 +2882,12 @@ fn seed_predefined_rules_if_needed(ctx: &mut AppContext) {
         return;
     }
 
-    let Some(owner) = UserWorkspaces::as_ref(ctx).personal_drive(ctx) else {
-        return;
-    };
-
     log::info!(
         "[rules] Seeding {} predefined rules on first launch",
         PREDEFINED_RULES.len()
     );
 
-    UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+    LocalObjectRepository::handle(ctx).update(ctx, |repository, ctx| {
         for rule in PREDEFINED_RULES {
             let ai_fact = AIFact::Memory(AIMemory {
                 is_autogenerated: false,
@@ -2875,7 +2895,7 @@ fn seed_predefined_rules_if_needed(ctx: &mut AppContext) {
                 content: rule.content.to_string(),
                 suggested_logging_id: None,
             });
-            update_manager.create_ai_fact(ai_fact, ClientId::default(), owner, ctx);
+            repository.create_rule(ai_fact, ctx);
         }
     });
 

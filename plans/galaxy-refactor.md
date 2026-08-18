@@ -1,5 +1,10 @@
 # Galaxy Refactor — Implementation Plan
 
+> **Superseded:** This Bedrock-only plan no longer represents the product direction.
+> Use [`galaxy-local-first-rig.md`](galaxy-local-first-rig.md) and
+> [`ui-flow-inventory.md`](ui-flow-inventory.md). This file remains as historical
+> context so completed work and earlier decisions are not silently lost.
+
 > **Created:** 2026-05-07
 > **Status:** In Progress
 > **Current Phase:** Phase 1 — Crate Renaming

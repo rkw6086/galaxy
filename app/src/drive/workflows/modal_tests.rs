@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use galaxy_core::ui::appearance::Appearance;
 use warpui::platform::WindowStyle;
-use warpui::{App, SingletonEntity, ViewHandle};
+use warpui::{AddSingletonModel, App, SingletonEntity, ViewHandle};
 
 use super::WorkflowModal;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::model::persistence::CloudModel;
+use crate::cloud_object::{CloudObject, Owner};
 use crate::editor::PlainTextEditorViewAction as EditorAction;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
@@ -21,6 +22,13 @@ fn initialize_app(app: &mut App) {
 
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(CloudModel::mock);
+    app.add_singleton_model(|ctx| {
+        crate::local_object_repository::LocalObjectRepository::new(
+            None,
+            Some(Owner::mock_current_user()),
+            ctx,
+        )
+    });
     app.add_singleton_model(|_| ServerApiProvider::new_for_test());
     app.add_singleton_model(|_| KeybindingChangedNotifier::mock());
     app.add_singleton_model(|_| AuthStateProvider::new_for_test());
@@ -61,6 +69,34 @@ fn build_argument(
         default_value: default_value.into(),
         arg_type: Default::default(),
     }
+}
+
+#[test]
+fn test_save_new_workflow_persists_locally() {
+    App::test((), |mut app| async move {
+        let modal_view = create_modal(&mut app);
+
+        modal_view.update(&mut app, |view, ctx| {
+            view.open_with_new(Owner::mock_current_user(), None, ctx);
+            view.title_editor.update(ctx, |editor, ctx| {
+                editor.set_buffer_text("Local workflow", ctx);
+            });
+            view.content_editor.update(ctx, |editor, ctx| {
+                editor.set_buffer_text("cargo test", ctx);
+            });
+            view.save_workflow_and_close(ctx);
+        });
+
+        app.read(|ctx| {
+            let workflows = CloudModel::as_ref(ctx)
+                .get_all_active_workflows()
+                .collect::<Vec<_>>();
+            assert_eq!(workflows.len(), 1);
+            assert_eq!(workflows[0].model().data.name(), "Local workflow");
+            assert_eq!(workflows[0].model().data.command(), Some("cargo test"));
+            assert!(!workflows[0].metadata().has_pending_content_changes());
+        });
+    });
 }
 
 #[test]

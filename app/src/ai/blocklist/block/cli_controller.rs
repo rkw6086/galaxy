@@ -15,6 +15,7 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
 use crate::ai::blocklist::context_model::block_context_from_terminal_model;
+use crate::ai::blocklist::controller::PendingProviderCommandCompletion;
 use crate::ai::blocklist::{
     BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIController,
     BlocklistAIControllerEvent, BlocklistAIHistoryEvent,
@@ -40,9 +41,14 @@ pub enum UserTakeOverReason {
 
 #[derive(Debug, Clone, Default)]
 struct ActiveCLISubagentState {
+    initial_requested_command_conversation_id: Option<AIConversationId>,
     initial_requested_command_action_id: Option<AIAgentActionId>,
     task_id: Option<TaskId>,
     last_snapshot_at: Option<Instant>,
+    /// Prevents a monitor turn that ended with prose and no tool call from recursively
+    /// generating nudges. A real snapshot/action result resets this so the next turn can be
+    /// nudged again if it stalls in the same way.
+    monitor_nudge_sent: bool,
     completion: Option<PendingCommandCompletion>,
 }
 
@@ -52,6 +58,7 @@ struct PendingCommandCompletion {
     initial_requested_command_action_id: Option<AIAgentActionId>,
     prompt: String,
     completed_command: RunningCommand,
+    exit_code: i32,
     final_turn_started: bool,
 }
 
@@ -67,7 +74,7 @@ impl UserTakeOverReason {
     pub fn transfer_reason(&self) -> Option<&str> {
         match self {
             Self::TransferFromAgent { reason } => Some(reason.as_str()),
-            _ => None,
+            Self::Manual | Self::Stop => None,
         }
     }
 }
@@ -161,12 +168,25 @@ impl CLISubagentController {
                 return;
             };
             me.advance_completed_subagents(*conversation_id, ctx);
+            me.ensure_monitor_continues(*conversation_id, ctx);
         });
 
         ctx.subscribe_to_model(action_model, |me, _, event, ctx| match event {
-            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation(_) => {
+            BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
+                if !matches_active_requested_command(
+                    *conversation_id,
+                    action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    return;
+                }
                 active_block.update_is_agent_blocked(true);
 
                 let action_id = active_block.requested_command_action_id().cloned();
@@ -176,9 +196,21 @@ impl CLISubagentController {
                     agent_has_control: active_block.is_agent_in_control(),
                 });
             }
-            BlocklistAIActionEvent::ExecutingAction(..) => {
+            BlocklistAIActionEvent::ExecutingAction {
+                action_id,
+                conversation_id,
+                ..
+            } => {
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
+                if !matches_active_requested_command(
+                    *conversation_id,
+                    action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    return;
+                }
                 active_block.update_is_agent_blocked(false);
 
                 let action_id = active_block.requested_command_action_id().cloned();
@@ -190,12 +222,13 @@ impl CLISubagentController {
             }
             BlocklistAIActionEvent::FinishedAction {
                 action_id: finished_action_id,
+                conversation_id,
                 ..
             } => {
                 let action_result = me
                     .action_model
                     .as_ref(ctx)
-                    .get_action_result(finished_action_id);
+                    .get_action_result(*conversation_id, finished_action_id);
                 let initial_command_finished_without_snapshot =
                     action_result.is_some_and(|result| {
                         matches!(
@@ -215,38 +248,47 @@ impl CLISubagentController {
                     .cloned();
                 let mut terminal_model = me.terminal_model.lock();
                 let active_block = terminal_model.block_list_mut().active_block_mut();
-                active_block.update_is_agent_blocked(false);
+                if matches_active_requested_command(
+                    *conversation_id,
+                    finished_action_id,
+                    active_block.ai_conversation_id(),
+                    active_block.requested_command_action_id(),
+                ) {
+                    active_block.update_is_agent_blocked(false);
 
-                let active_command_action_id = active_block.requested_command_action_id().cloned();
-                ctx.emit(CLISubagentEvent::UpdatedControl {
-                    block_id: active_block.id().clone(),
-                    requested_command_action_id: active_command_action_id,
-                    agent_has_control: active_block.is_agent_in_control(),
-                });
+                    let active_command_action_id =
+                        active_block.requested_command_action_id().cloned();
+                    ctx.emit(CLISubagentEvent::UpdatedControl {
+                        block_id: active_block.id().clone(),
+                        requested_command_action_id: active_command_action_id,
+                        agent_has_control: active_block.is_agent_in_control(),
+                    });
+                }
 
                 // Updates the last snapshot timestamp for the active block after the agent has read the block output.
                 if let Some(snapshot_block_id) = snapshot_block_id {
-                    me.active_subagents_by_block
+                    let state = me
+                        .active_subagents_by_block
                         .entry(snapshot_block_id.clone())
-                        .or_default()
-                        .last_snapshot_at = Some(Instant::now());
+                        .or_default();
+                    state.last_snapshot_at = Some(Instant::now());
+                    state.monitor_nudge_sent = false;
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
                 }
                 if initial_command_finished_without_snapshot {
                     me.active_subagents_by_block.retain(|_, state| {
                         state.task_id.is_some()
-                            || state.initial_requested_command_action_id.as_ref()
-                                != Some(finished_action_id)
+                            || !matches_requested_command_identity(
+                                *conversation_id,
+                                finished_action_id,
+                                state.initial_requested_command_conversation_id,
+                                state.initial_requested_command_action_id.as_ref(),
+                            )
                     });
                 }
+                drop(terminal_model);
                 if let Some(block_id) = command_finished_block_id {
-                    if let Some(completion) = me
-                        .active_subagents_by_block
-                        .get_mut(&block_id)
-                        .and_then(|state| state.completion.as_mut())
-                    {
-                        completion.final_turn_started = true;
-                    }
+                    me.advance_completed_subagent(&block_id, ctx);
                 }
             }
             _ => (),
@@ -265,6 +307,8 @@ impl CLISubagentController {
                 let block_id = block.id().clone();
                 let conversation_id = block.ai_conversation_id();
                 let requested_command_action_id = block.requested_command_action_id().cloned();
+                let should_skip_completion_assessment =
+                    !should_request_completion_assessment(block.long_running_control_state());
                 let completion = match (&block_completed_event.block_type, conversation_id) {
                     (BlockType::User(completed), Some(conversation_id)) => {
                         let command = if completed.command_with_obfuscated_secrets.is_empty() {
@@ -294,6 +338,7 @@ impl CLISubagentController {
                                 requested_command_id: requested_command_action_id.clone(),
                                 is_alt_screen_active: false,
                             },
+                            exit_code,
                             final_turn_started: false,
                         })
                     }
@@ -310,16 +355,69 @@ impl CLISubagentController {
                 };
                 drop(terminal_model);
 
-                let Some(subagent_state) = me.active_subagents_by_block.get_mut(&block_id) else {
-                    return;
-                };
-                if subagent_state.last_snapshot_at.is_some() {
+                let provider_accepted_completion = completion.as_ref().is_some_and(|completion| {
+                    let provider_completion = PendingProviderCommandCompletion::new(
+                        completion.completed_command.block_id.clone(),
+                        completion.initial_requested_command_action_id.clone(),
+                        completion.completed_command.command.clone(),
+                        completion.completed_command.grid_contents.clone(),
+                        completion.exit_code,
+                    );
+                    me.controller.update(ctx, |controller, ctx| {
+                        controller.offer_provider_command_completion(
+                            completion.conversation_id,
+                            provider_completion,
+                            ctx,
+                        )
+                    })
+                });
+                let has_last_snapshot = me
+                    .active_subagents_by_block
+                    .get(&block_id)
+                    .is_some_and(|state| state.last_snapshot_at.is_some());
+                if has_last_snapshot {
                     ctx.emit(CLISubagentEvent::UpdatedLastSnapshot);
                 }
-                subagent_state.completion = completion;
-                if subagent_state.completion.is_none() {
+                if provider_accepted_completion {
+                    // The provider controller owns deactivation after it applies the queued
+                    // completion at a safe run boundary.
+                    return;
+                }
+                if !me.active_subagents_by_block.contains_key(&block_id) {
+                    return;
+                }
+
+                // A Stop takeover intentionally cancels the subagent. The command may still
+                // finish later, but that completion must not start a new assessment turn. Also
+                // clean up the in-memory monitor state so the stopped subagent cannot linger in
+                // the UI or intercept later refreshes.
+                if should_skip_completion_assessment {
+                    me.finish_subagent(
+                        &block_id,
+                        conversation_id,
+                        requested_command_action_id,
+                        ctx,
+                    );
+                    return;
+                }
+
+                let has_completion = {
+                    let Some(subagent_state) = me.active_subagents_by_block.get_mut(&block_id)
+                    else {
+                        return;
+                    };
+                    subagent_state.completion = completion;
+                    subagent_state.completion.is_some()
+                };
+                if !has_completion {
                     log::warn!(
                         "CLI monitor block {block_id:?} completed without final command metadata"
+                    );
+                    me.finish_subagent(
+                        &block_id,
+                        conversation_id,
+                        requested_command_action_id,
+                        ctx,
                     );
                     return;
                 }
@@ -359,10 +457,10 @@ impl CLISubagentController {
     }
 
     fn advance_completed_subagent(&mut self, block_id: &BlockId, ctx: &mut ModelContext<Self>) {
-        let Some((task_id, completion)) = self
+        let Some(completion) = self
             .active_subagents_by_block
             .get(block_id)
-            .and_then(|state| Some((state.task_id.clone()?, state.completion.as_ref()?.clone())))
+            .and_then(|state| state.completion.as_ref().cloned())
         else {
             return;
         };
@@ -380,14 +478,18 @@ impl CLISubagentController {
         }
 
         if completion.final_turn_started {
-            self.finish_completed_subagent(block_id, ctx);
+            self.finish_subagent(
+                block_id,
+                Some(completion.conversation_id),
+                completion.initial_requested_command_action_id,
+                ctx,
+            );
             return;
         }
 
         let sent = self.controller.update(ctx, |controller, ctx| {
             controller.send_command_completion_assessment(
                 completion.conversation_id,
-                task_id,
                 completion.prompt,
                 completion.completed_command,
                 ctx,
@@ -404,38 +506,125 @@ impl CLISubagentController {
         }
     }
 
-    fn finish_completed_subagent(&mut self, block_id: &BlockId, ctx: &mut ModelContext<Self>) {
-        let Some(state) = self.active_subagents_by_block.remove(block_id) else {
-            return;
-        };
-        let Some(completion) = state.completion else {
+    /// A monitor turn that returns only prose has no action result to trigger the normal
+    /// action-follow-up path. Nudge that monitor once with the live command context so a model
+    /// that acknowledged the first snapshot without polling gets another chance to inspect it.
+    fn ensure_monitor_continues(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(block_id) = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(|conversation| {
+                conversation.all_tasks().find_map(|task| {
+                    let block_id = task.cli_subagent_block_id()?;
+                    let state = self.active_subagents_by_block.get(&block_id)?;
+                    if state.task_id.as_ref() != Some(task.id()) || state.completion.is_some() {
+                        return None;
+                    }
+                    let last_exchange_has_action = task.last_exchange().is_some_and(|exchange| {
+                        exchange
+                            .output_status
+                            .output()
+                            .is_some_and(|output| output.get().actions().next().is_some())
+                    });
+                    should_nudge_monitor_turn(last_exchange_has_action, state.monitor_nudge_sent)
+                        .then_some(block_id)
+                })
+            })
+        else {
             return;
         };
 
-        let deactivate_result =
-            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
-                history_model.deactivate_cli_subagent_task_for_conversation(
-                    block_id,
-                    completion.conversation_id,
-                )
-            });
-        if let Err(error) = deactivate_result {
-            log::error!(
-                "Failed to deactivate completed CLI monitor for block {block_id:?}: {error:?}"
-            );
+        if self
+            .controller
+            .as_ref(ctx)
+            .has_active_provider_run(conversation_id)
+            || self
+                .controller
+                .as_ref(ctx)
+                .has_active_stream_for_conversation(conversation_id, ctx)
+            || self
+                .action_model
+                .as_ref(ctx)
+                .has_unfinished_actions_for_conversation(conversation_id)
+        {
+            return;
+        }
+
+        let command_is_still_agent_controlled = {
+            let terminal_model = self.terminal_model.lock();
+            terminal_model
+                .block_list()
+                .block_with_id(&block_id)
+                .is_some_and(|block| {
+                    block.is_active_and_long_running()
+                        && block.is_agent_in_control()
+                        && block.ai_conversation_id() == Some(conversation_id)
+                })
+        };
+        if !command_is_still_agent_controlled {
+            return;
+        }
+
+        if let Some(state) = self.active_subagents_by_block.get_mut(&block_id) {
+            state.monitor_nudge_sent = true;
+        }
+        self.controller.update(ctx, |controller, ctx| {
+            controller.send_cli_monitor_nudge(conversation_id, ctx);
+        });
+    }
+
+    fn finish_subagent(
+        &mut self,
+        block_id: &BlockId,
+        conversation_id: Option<AIConversationId>,
+        initial_requested_command_action_id: Option<AIAgentActionId>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let Some(state) = self.active_subagents_by_block.remove(block_id) else {
+            return;
+        };
+        let conversation_id = conversation_id.or_else(|| {
+            state
+                .completion
+                .as_ref()
+                .map(|completion| completion.conversation_id)
+        });
+        let initial_requested_command_action_id = initial_requested_command_action_id
+            .or_else(|| {
+                state
+                    .completion
+                    .as_ref()
+                    .and_then(|completion| completion.initial_requested_command_action_id.clone())
+            })
+            .or(state.initial_requested_command_action_id);
+
+        if let Some(conversation_id) = conversation_id {
+            let deactivate_result =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, _| {
+                    history_model
+                        .deactivate_cli_subagent_task_for_conversation(block_id, conversation_id)
+                });
+            if let Err(error) = deactivate_result {
+                log::error!("Failed to deactivate CLI monitor for block {block_id:?}: {error:?}");
+            }
         }
 
         ctx.emit(CLISubagentEvent::FinishedSubagent {
             block_id: block_id.clone(),
-            conversation_id: Some(completion.conversation_id),
-            initial_requested_command_action_id: completion.initial_requested_command_action_id,
+            conversation_id,
+            initial_requested_command_action_id,
         });
 
-        if let Some(agent_view_controller) = &self.agent_view_controller {
+        if let (Some(agent_view_controller), Some(conversation_id)) =
+            (&self.agent_view_controller, conversation_id)
+        {
             agent_view_controller.update(ctx, |controller, ctx| {
                 let is_this_inline_conversation = controller.is_inline()
                     && controller.agent_view_state().active_conversation_id()
-                        == Some(completion.conversation_id);
+                        == Some(conversation_id);
                 if is_this_inline_conversation {
                     controller.exit_agent_view(ctx);
                 }
@@ -469,11 +658,18 @@ impl CLISubagentController {
     ///
     /// The placeholder lets command completion and action-result events arrive in either order
     /// without losing the completion that a subsequently-created CLI monitor needs.
-    pub fn track_requested_command(&mut self, block_id: &BlockId, action_id: &AIAgentActionId) {
-        self.active_subagents_by_block
+    pub fn track_requested_command(
+        &mut self,
+        block_id: &BlockId,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) {
+        let state = self
+            .active_subagents_by_block
             .entry(block_id.clone())
-            .or_default()
-            .initial_requested_command_action_id = Some(action_id.clone());
+            .or_default();
+        state.initial_requested_command_conversation_id = Some(conversation_id);
+        state.initial_requested_command_action_id = Some(action_id.clone());
     }
 
     /// Force the currently in-flight poll for the given long-running command block to
@@ -609,13 +805,7 @@ impl CLISubagentController {
                         .collect()
                 };
                 self.controller.update(ctx, |controller, ctx| {
-                    controller.resume_conversation(
-                        conversation_id,
-                        /*can_attempt_resume_on_error*/ true,
-                        /*is_auto_resume_after_error*/ false,
-                        resume_context,
-                        ctx,
-                    );
+                    controller.resume_conversation(conversation_id, resume_context, ctx);
                 });
             }
         }
@@ -726,6 +916,10 @@ impl CLISubagentController {
             requested_command_action_id: action_id.clone(),
             agent_has_control,
         });
+        self.active_subagents_by_block
+            .entry(block_id.clone())
+            .or_default()
+            .initial_requested_command_conversation_id = Some(conversation_id);
         self.active_subagents_by_block
             .entry(block_id.clone())
             .or_default()
@@ -874,6 +1068,7 @@ fn command_finished_block_id(result: &AIAgentActionResultType) -> Option<&BlockI
         AIAgentActionResultType::RequestCommandOutput(
             RequestCommandOutputResult::LongRunningCommandSnapshot { .. }
             | RequestCommandOutputResult::CancelledBeforeExecution
+            | RequestCommandOutputResult::ExecutionError { .. }
             | RequestCommandOutputResult::Denylisted { .. },
         )
         | AIAgentActionResultType::WriteToLongRunningShellCommand(
@@ -917,5 +1112,122 @@ fn command_finished_block_id(result: &AIAgentActionResultType) -> Option<&BlockI
         | AIAgentActionResultType::AskUserQuestion(_)
         | AIAgentActionResultType::RunAgents(_)
         | AIAgentActionResultType::WaitForEvents(_) => None,
+    }
+}
+
+fn should_request_completion_assessment(
+    control_state: Option<&LongRunningCommandControlState>,
+) -> bool {
+    !control_state
+        .and_then(LongRunningCommandControlState::user_take_over_reason)
+        .is_some_and(UserTakeOverReason::is_stop)
+}
+
+fn should_nudge_monitor_turn(last_exchange_has_action: bool, monitor_nudge_sent: bool) -> bool {
+    !last_exchange_has_action && !monitor_nudge_sent
+}
+
+fn matches_active_requested_command(
+    event_conversation_id: AIConversationId,
+    event_action_id: &AIAgentActionId,
+    active_conversation_id: Option<AIConversationId>,
+    active_requested_command_id: Option<&AIAgentActionId>,
+) -> bool {
+    active_conversation_id == Some(event_conversation_id)
+        && active_requested_command_id == Some(event_action_id)
+}
+
+fn matches_requested_command_identity(
+    event_conversation_id: AIConversationId,
+    event_action_id: &AIAgentActionId,
+    requested_command_conversation_id: Option<AIConversationId>,
+    requested_command_action_id: Option<&AIAgentActionId>,
+) -> bool {
+    requested_command_conversation_id == Some(event_conversation_id)
+        && requested_command_action_id == Some(event_action_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_takeover_does_not_request_a_completion_assessment() {
+        let state = LongRunningCommandControlState::User {
+            reason: UserTakeOverReason::Stop,
+        };
+
+        assert!(!should_request_completion_assessment(Some(&state)));
+    }
+
+    #[test]
+    fn non_stop_control_states_can_request_a_completion_assessment() {
+        let agent_state = LongRunningCommandControlState::Agent {
+            is_blocked: false,
+            should_hide_responses: false,
+        };
+        let transfer_state = LongRunningCommandControlState::User {
+            reason: UserTakeOverReason::TransferFromAgent {
+                reason: "needs user input".to_owned(),
+            },
+        };
+
+        assert!(should_request_completion_assessment(None));
+        assert!(should_request_completion_assessment(Some(&agent_state)));
+        assert!(should_request_completion_assessment(Some(&transfer_state)));
+    }
+
+    #[test]
+    fn prose_monitor_turn_is_nudged_once_until_a_tool_action_runs() {
+        assert!(should_nudge_monitor_turn(false, false));
+        assert!(!should_nudge_monitor_turn(false, true));
+        assert!(!should_nudge_monitor_turn(true, false));
+    }
+
+    #[test]
+    fn shell_control_event_must_match_conversation_and_requested_command() {
+        let active_conversation_id = AIConversationId::new();
+        let other_conversation_id = AIConversationId::new();
+        let active_action_id = AIAgentActionId::from("same-action".to_owned());
+        let other_action_id = AIAgentActionId::from("other-action".to_owned());
+
+        assert!(matches_active_requested_command(
+            active_conversation_id,
+            &active_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+        assert!(!matches_active_requested_command(
+            other_conversation_id,
+            &active_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+        assert!(!matches_active_requested_command(
+            active_conversation_id,
+            &other_action_id,
+            Some(active_conversation_id),
+            Some(&active_action_id),
+        ));
+    }
+
+    #[test]
+    fn requested_command_identity_rejects_duplicate_id_from_another_conversation() {
+        let active_conversation_id = AIConversationId::new();
+        let other_conversation_id = AIConversationId::new();
+        let duplicate_action_id = AIAgentActionId::from("duplicate-action".to_owned());
+
+        assert!(matches_requested_command_identity(
+            active_conversation_id,
+            &duplicate_action_id,
+            Some(active_conversation_id),
+            Some(&duplicate_action_id),
+        ));
+        assert!(!matches_requested_command_identity(
+            other_conversation_id,
+            &duplicate_action_id,
+            Some(active_conversation_id),
+            Some(&duplicate_action_id),
+        ));
     }
 }
