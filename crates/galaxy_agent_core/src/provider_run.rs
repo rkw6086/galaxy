@@ -302,6 +302,7 @@ pub enum ModelFailureDisposition {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProviderRunRestoreNormalization {
+    pub interrupted_model_call: bool,
     pub permission_call_ids_reset: Vec<String>,
     pub interrupted_call_ids: Vec<String>,
     pub recovery_call_ids: Vec<String>,
@@ -348,6 +349,9 @@ pub enum ProviderRunProtocolError {
         call_id: String,
     },
     InvalidDriverObservation {
+        message: String,
+    },
+    InvalidRestoredState {
         message: String,
     },
     EpochExhausted,
@@ -408,6 +412,9 @@ impl fmt::Display for ProviderRunProtocolError {
             }
             Self::InvalidDriverObservation { message } => {
                 write!(f, "invalid driver observation: {message}")
+            }
+            Self::InvalidRestoredState { message } => {
+                write!(f, "invalid restored provider run: {message}")
             }
             Self::EpochExhausted => f.write_str("provider run epoch is exhausted"),
             Self::Terminal => f.write_str("provider run is already terminal"),
@@ -502,6 +509,226 @@ impl ProviderRun {
         )
     }
 
+    /// Validates persisted state before restore normalization can mutate it or external work can
+    /// be reconstructed from it.
+    pub fn validate_restored_state(&self) -> Result<(), ProviderRunProtocolError> {
+        let invalid = |message: String| ProviderRunProtocolError::InvalidRestoredState { message };
+
+        if self.id.as_str().is_empty() {
+            return Err(invalid("run ID must not be empty".to_string()));
+        }
+        if self.profile.as_str().is_empty() {
+            return Err(invalid("request profile must not be empty".to_string()));
+        }
+        if self.limits.max_model_turns == 0 {
+            return Err(invalid("model-turn limit must be at least one".to_string()));
+        }
+        if self.model_turns > self.limits.max_model_turns {
+            return Err(invalid(format!(
+                "model-turn counter {} exceeds limit {}",
+                self.model_turns, self.limits.max_model_turns
+            )));
+        }
+        if self.epoch.get() < u64::from(self.model_turns) {
+            return Err(invalid(format!(
+                "epoch {} is behind model-turn counter {}",
+                self.epoch.get(),
+                self.model_turns
+            )));
+        }
+        let retry_slots = u64::from(self.model_turns)
+            .saturating_add(1)
+            .saturating_mul(u64::from(self.limits.max_model_retries_per_turn));
+        if u64::from(self.model_retries) > retry_slots {
+            return Err(invalid(format!(
+                "model-retry counter {} exceeds maximum possible {}",
+                self.model_retries, retry_slots
+            )));
+        }
+
+        if let Some(work_id) = self.active_work_id() {
+            self.validate_restored_work_id(work_id)?;
+        }
+
+        match &self.state {
+            ProviderRunState::ReadyToCallModel => {}
+            ProviderRunState::AwaitingModel { call } => {
+                if self.model_turns >= self.limits.max_model_turns {
+                    return Err(invalid(
+                        "awaiting a model call after reaching the model-turn limit".to_string(),
+                    ));
+                }
+                if call.retry_attempt > self.limits.max_model_retries_per_turn {
+                    return Err(invalid(format!(
+                        "pending retry attempt {} exceeds per-turn limit {}",
+                        call.retry_attempt, self.limits.max_model_retries_per_turn
+                    )));
+                }
+                if call.retry_attempt > self.model_retries {
+                    return Err(invalid(format!(
+                        "pending retry attempt {} exceeds total retry counter {}",
+                        call.retry_attempt, self.model_retries
+                    )));
+                }
+                if (call.retry_attempt == 0) != call.last_error.is_none() {
+                    return Err(invalid(
+                        "pending retry error does not match its retry attempt".to_string(),
+                    ));
+                }
+                if call
+                    .last_error
+                    .as_ref()
+                    .is_some_and(|error| !error.recoverable)
+                {
+                    return Err(invalid(
+                        "pending retry retains a non-recoverable model error".to_string(),
+                    ));
+                }
+            }
+            ProviderRunState::ResolvingModel { turn } => {
+                self.validate_post_model_phase()?;
+                validate_model_turn(turn).map_err(|error| invalid(error.to_string()))?;
+                if self.transcript.last() != Some(&assistant_message(turn)) {
+                    return Err(invalid(
+                        "resolving model turn does not own the latest transcript message"
+                            .to_string(),
+                    ));
+                }
+                if !usage_contains(&self.usage, &turn.usage) {
+                    return Err(invalid(
+                        "aggregate usage does not include the resolving model turn".to_string(),
+                    ));
+                }
+            }
+            ProviderRunState::AwaitingTools { batch } => {
+                self.validate_post_model_phase()?;
+                if batch.calls.is_empty() {
+                    return Err(invalid("pending tool batch is empty".to_string()));
+                }
+                let mut call_ids = HashSet::new();
+                for pending in &batch.calls {
+                    if pending.call.id.is_empty() {
+                        return Err(invalid("pending tool call ID is empty".to_string()));
+                    }
+                    if !call_ids.insert(pending.call.id.as_str()) {
+                        return Err(invalid(format!(
+                            "duplicate pending tool call ID '{}'",
+                            pending.call.id
+                        )));
+                    }
+                    validate_pending_tool_state(pending).map_err(invalid)?;
+                }
+                let transcript_calls = self
+                    .transcript
+                    .last()
+                    .map(tool_calls_from_message)
+                    .unwrap_or_default();
+                if transcript_calls
+                    != batch
+                        .calls
+                        .iter()
+                        .map(|pending| pending.call.clone())
+                        .collect::<Vec<_>>()
+                {
+                    return Err(invalid(
+                        "pending tool batch does not match the latest assistant message"
+                            .to_string(),
+                    ));
+                }
+            }
+            ProviderRunState::AwaitingDriver { .. } => {
+                self.validate_post_model_phase()?;
+                let Some(message) = self.transcript.last() else {
+                    return Err(invalid(
+                        "driver wait is missing its assistant transcript message".to_string(),
+                    ));
+                };
+                if message.role != MessageRole::Assistant {
+                    return Err(invalid(
+                        "driver wait does not follow an assistant transcript message".to_string(),
+                    ));
+                }
+                if !tool_calls_from_message(message).is_empty() {
+                    return Err(invalid(
+                        "driver wait follows an uncommitted assistant tool call".to_string(),
+                    ));
+                }
+            }
+            ProviderRunState::Done { .. } => {
+                if self.model_turns == 0 {
+                    return Err(invalid(
+                        "completed run has no completed model turn".to_string(),
+                    ));
+                }
+            }
+            ProviderRunState::Failed { failure } => match failure.kind {
+                ProviderRunFailureKind::ModelCall
+                    if !failure
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| !source.recoverable) =>
+                {
+                    return Err(invalid(
+                        "model-call failure lacks a non-recoverable source".to_string(),
+                    ));
+                }
+                ProviderRunFailureKind::RetryLimitExceeded
+                    if !failure
+                        .source
+                        .as_ref()
+                        .is_some_and(|source| source.recoverable) =>
+                {
+                    return Err(invalid(
+                        "retry-limit failure lacks a recoverable source".to_string(),
+                    ));
+                }
+                ProviderRunFailureKind::TurnLimitExceeded
+                    if self.model_turns < self.limits.max_model_turns =>
+                {
+                    return Err(invalid(
+                        "turn-limit failure occurred before reaching the limit".to_string(),
+                    ));
+                }
+                ProviderRunFailureKind::ModelCall
+                | ProviderRunFailureKind::RetryLimitExceeded
+                | ProviderRunFailureKind::TurnLimitExceeded
+                | ProviderRunFailureKind::Protocol
+                | ProviderRunFailureKind::Projection
+                | ProviderRunFailureKind::Restore
+                | ProviderRunFailureKind::ExternalWork => {}
+            },
+            ProviderRunState::Cancelled { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn validate_restored_work_id(
+        &self,
+        work_id: &ExternalWorkId,
+    ) -> Result<(), ProviderRunProtocolError> {
+        validate_work_id(&self.current_work_id(), work_id).map_err(|_| {
+            ProviderRunProtocolError::InvalidRestoredState {
+                message: format!(
+                    "active work identity {}:{} does not match run {}:{}",
+                    work_id.run_id.as_str(),
+                    work_id.epoch.get(),
+                    self.id.as_str(),
+                    self.epoch.get()
+                ),
+            }
+        })
+    }
+
+    fn validate_post_model_phase(&self) -> Result<(), ProviderRunProtocolError> {
+        if self.model_turns == 0 {
+            Err(ProviderRunProtocolError::InvalidRestoredState {
+                message: format!("{:?} phase has no completed model turn", self.state.phase()),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn normalize_after_restore(
         &mut self,
     ) -> Result<ProviderRunRestoreNormalization, ProviderRunProtocolError> {
@@ -512,6 +739,21 @@ impl ProviderRun {
         &mut self,
         recoverable_call_ids: &HashSet<String>,
     ) -> Result<ProviderRunRestoreNormalization, ProviderRunProtocolError> {
+        if matches!(self.state, ProviderRunState::AwaitingModel { .. }) {
+            self.state = ProviderRunState::Failed {
+                failure: ProviderRunFailure {
+                    kind: ProviderRunFailureKind::Restore,
+                    message: "The model call was interrupted by application restart after dispatch may have begun. Its outcome is unknown, so it was not replayed to avoid duplicate billing or output."
+                        .to_string(),
+                    source: None,
+                },
+            };
+            return Ok(ProviderRunRestoreNormalization {
+                interrupted_model_call: true,
+                ..ProviderRunRestoreNormalization::default()
+            });
+        }
+
         let ProviderRunState::AwaitingTools { batch } = &mut self.state else {
             return Ok(ProviderRunRestoreNormalization::default());
         };
@@ -1218,6 +1460,84 @@ fn validate_work_id(
             received: received.clone(),
         })
     }
+}
+
+fn validate_pending_tool_state(pending: &PendingToolCall) -> Result<(), String> {
+    match &pending.state {
+        PendingToolCallState::PermissionPending { request } => {
+            if request.id.is_empty() {
+                return Err(format!(
+                    "permission request for '{}' has an empty request ID",
+                    pending.call.id
+                ));
+            }
+            if request.call_id != pending.call.id {
+                return Err(format!(
+                    "permission request for '{}' belongs to call '{}'",
+                    pending.call.id, request.call_id
+                ));
+            }
+        }
+        PendingToolCallState::Approved {
+            request_id,
+            decision,
+        } => {
+            if request_id.is_empty() {
+                return Err(format!(
+                    "approved tool call '{}' has an empty request ID",
+                    pending.call.id
+                ));
+            }
+            if matches!(decision, PermissionDecision::Denied { .. }) {
+                return Err(format!(
+                    "approved tool call '{}' contains a denied decision",
+                    pending.call.id
+                ));
+            }
+        }
+        PendingToolCallState::Resolved { result } if result.call_id != pending.call.id => {
+            return Err(format!(
+                "resolved result for '{}' belongs to call '{}'",
+                pending.call.id, result.call_id
+            ));
+        }
+        PendingToolCallState::Proposed
+        | PendingToolCallState::Executing
+        | PendingToolCallState::RecoveryPending
+        | PendingToolCallState::Resolved { .. } => {}
+    }
+    Ok(())
+}
+
+fn tool_calls_from_message(message: &ConversationMessage) -> Vec<ToolCall> {
+    let MessageContent::MultiPart(parts) = &message.content else {
+        return Vec::new();
+    };
+    parts
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ToolUse {
+                tool_use_id,
+                name,
+                input,
+            } => Some(ToolCall {
+                id: tool_use_id.clone(),
+                name: name.clone(),
+                arguments: input.clone(),
+            }),
+            ContentPart::Text(_)
+            | ContentPart::Reasoning { .. }
+            | ContentPart::ToolResult { .. }
+            | ContentPart::Image { .. } => None,
+        })
+        .collect()
+}
+
+fn usage_contains(total: &Usage, part: &Usage) -> bool {
+    total.input_tokens >= part.input_tokens
+        && total.output_tokens >= part.output_tokens
+        && total.cached_input_tokens >= part.cached_input_tokens
+        && total.cache_creation_input_tokens >= part.cache_creation_input_tokens
 }
 
 fn validate_model_turn(turn: &CompletedModelTurn) -> Result<(), ProviderRunProtocolError> {

@@ -68,8 +68,8 @@ struct ExistingLaunchedAgent {
 }
 
 pub struct RunAgentsExecutor {
-    pending: HashMap<AIAgentActionId, PendingRunAgents>,
-    recovery_action_ids: HashSet<AIAgentActionId>,
+    pending: HashMap<(AIConversationId, AIAgentActionId), PendingRunAgents>,
+    recovery_action_ids: HashSet<(AIConversationId, AIAgentActionId)>,
     launched_agents: HashMap<AIConversationId, HashMap<String, ExistingLaunchedAgent>>,
     start_agent_executor: ModelHandle<StartAgentExecutor>,
     terminal_view_id: EntityId,
@@ -78,10 +78,12 @@ pub struct RunAgentsExecutor {
 /// Lifecycle events for in-flight dispatches.
 pub enum RunAgentsExecutorEvent {
     SpawningStarted {
+        conversation_id: AIConversationId,
         action_id: AIAgentActionId,
         snapshot: RunAgentsSpawningSnapshot,
     },
     SpawningFinished {
+        conversation_id: AIConversationId,
         action_id: AIAgentActionId,
     },
     ChildConversationCreated {
@@ -127,12 +129,26 @@ impl RunAgentsExecutor {
         }
     }
 
-    pub fn is_pending(&self, action_id: &AIAgentActionId) -> bool {
-        self.pending.contains_key(action_id)
+    pub fn is_pending(
+        &self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> bool {
+        self.pending
+            .contains_key(&(conversation_id, action_id.clone()))
     }
 
-    pub fn mark_recovery_actions(&mut self, action_ids: &HashSet<AIAgentActionId>) {
-        self.recovery_action_ids.extend(action_ids.iter().cloned());
+    pub fn mark_recovery_actions(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_ids: &HashSet<AIAgentActionId>,
+    ) {
+        self.recovery_action_ids.extend(
+            action_ids
+                .iter()
+                .cloned()
+                .map(|action_id| (conversation_id, action_id)),
+        );
     }
 
     pub(crate) fn terminal_view_id(&self) -> EntityId {
@@ -142,18 +158,21 @@ impl RunAgentsExecutor {
     /// Cancels the parent tool wait without cancelling independently-running children.
     pub(super) fn cancel_execution(
         &mut self,
+        conversation_id: AIConversationId,
         action_id: &AIAgentActionId,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.recovery_action_ids.remove(action_id);
+        let action_key = (conversation_id, action_id.clone());
+        self.recovery_action_ids.remove(&action_key);
         let detached_dispatches = self.start_agent_executor.update(ctx, |executor, _| {
-            executor.cancel_dispatches_for_action(action_id)
+            executor.cancel_dispatches_for_action(conversation_id, action_id)
         });
-        log::info!(
+        crate::ai::tool_diagnostics::tool_debug!(
             "RunAgents cancellation detached {detached_dispatches} pending child dispatch(es) for action {action_id}"
         );
-        if self.pending.remove(action_id).is_some() {
+        if self.pending.remove(&action_key).is_some() {
             ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
+                conversation_id,
                 action_id: action_id.clone(),
             });
         }
@@ -224,7 +243,8 @@ impl RunAgentsExecutor {
     ) -> async_channel::Receiver<RunAgentsResult> {
         let (sender, receiver) = async_channel::bounded(1);
 
-        if self.pending.contains_key(&action_id) {
+        let action_key = (parent_conversation_id, action_id.clone());
+        if self.pending.contains_key(&action_key) {
             log::warn!("RunAgentsExecutor: dispatch reentered for {action_id:?}; rejecting");
             #[cfg(not(target_family = "wasm"))]
             log_run_agents_event(
@@ -265,7 +285,7 @@ impl RunAgentsExecutor {
             agent_count: request.agent_run_configs.len(),
         };
         self.pending
-            .insert(action_id.clone(), PendingRunAgents::Publishing);
+            .insert(action_key, PendingRunAgents::Publishing);
         #[cfg(not(target_family = "wasm"))]
         log_run_agents_event(
             ctx,
@@ -280,6 +300,7 @@ impl RunAgentsExecutor {
             }),
         );
         ctx.emit(RunAgentsExecutorEvent::SpawningStarted {
+            conversation_id: parent_conversation_id,
             action_id: action_id.clone(),
             snapshot,
         });
@@ -294,7 +315,7 @@ impl RunAgentsExecutor {
                 request
             },
             move |me, request, ctx| {
-                if !me.is_pending(&action_id_for_wait) {
+                if !me.is_pending(parent_conversation_id, &action_id_for_wait) {
                     return;
                 }
                 me.dispatch_children_for_prepared_request(
@@ -320,7 +341,7 @@ impl RunAgentsExecutor {
         ctx: &mut ModelContext<Self>,
     ) -> async_channel::Receiver<RunAgentsResult> {
         let (sender, receiver) = async_channel::bounded(1);
-        if self.pending.contains_key(&action_id) {
+        if self.is_pending(parent_conversation_id, &action_id) {
             let _ = sender.try_send(RunAgentsResult::Cancelled);
             return receiver;
         }
@@ -333,6 +354,7 @@ impl RunAgentsExecutor {
             agent_count: request.agent_run_configs.len(),
         };
         ctx.emit(RunAgentsExecutorEvent::SpawningStarted {
+            conversation_id: parent_conversation_id,
             action_id: action_id.clone(),
             snapshot,
         });
@@ -356,8 +378,10 @@ impl RunAgentsExecutor {
         sender: async_channel::Sender<RunAgentsResult>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.pending
-            .insert(action_id.clone(), PendingRunAgents::Spawning);
+        self.pending.insert(
+            (parent_conversation_id, action_id.clone()),
+            PendingRunAgents::Spawning,
+        );
         let parent_run_id = BlocklistAIHistoryModel::as_ref(ctx)
             .conversation(&parent_conversation_id)
             .and_then(|c| c.run_id());
@@ -527,7 +551,7 @@ impl RunAgentsExecutor {
                 resolved_slots
             },
             move |me, resolved_slots, ctx| {
-                if !me.is_pending(&action_id_for_aggr) {
+                if !me.is_pending(parent_conversation_id_for_result, &action_id_for_aggr) {
                     return;
                 }
                 let timed_out_request_ids = resolved_slots
@@ -603,8 +627,12 @@ impl RunAgentsExecutor {
                     execution_mode: launched_mode,
                     agents,
                 };
-                me.pending.remove(&action_id_for_aggr);
+                me.pending.remove(&(
+                    parent_conversation_id_for_result,
+                    action_id_for_aggr.clone(),
+                ));
                 ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
+                    conversation_id: parent_conversation_id_for_result,
                     action_id: action_id_for_aggr,
                 });
                 let _ = sender.try_send(result);
@@ -624,7 +652,9 @@ impl RunAgentsExecutor {
         let mut request = request.clone();
         let action_id = id.clone();
         let parent_conversation_id = input.conversation_id;
-        let is_recovery = self.recovery_action_ids.remove(&action_id);
+        let is_recovery = self
+            .recovery_action_ids
+            .remove(&(parent_conversation_id, action_id.clone()));
 
         let recovery_children = if is_recovery {
             prepare_recovery_request_for_execution(&mut request, parent_conversation_id, ctx);

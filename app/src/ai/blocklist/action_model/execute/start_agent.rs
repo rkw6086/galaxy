@@ -788,12 +788,18 @@ impl StartAgentExecutor {
         self.pending.contains_key(&request_id)
     }
 
-    pub fn cancel_dispatches_for_action(&mut self, action_id: &AIAgentActionId) -> usize {
+    pub fn cancel_dispatches_for_action(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) -> usize {
         let request_ids = self
             .pending
             .iter()
             .filter_map(|(request_id, pending)| {
-                (&pending.action_id == action_id).then_some(*request_id)
+                (pending.parent_conversation_id == conversation_id
+                    && &pending.action_id == action_id)
+                    .then_some(*request_id)
             })
             .collect::<Vec<_>>();
         let detached_count = request_ids.len();
@@ -805,8 +811,12 @@ impl StartAgentExecutor {
 
     /// Cancels only the caller's pending tool wait. A child that was already created keeps
     /// running independently and remains available in conversation history.
-    pub(super) fn cancel_execution(&mut self, action_id: &AIAgentActionId) {
-        self.cancel_dispatches_for_action(action_id);
+    pub(super) fn cancel_execution(
+        &mut self,
+        conversation_id: AIConversationId,
+        action_id: &AIAgentActionId,
+    ) {
+        self.cancel_dispatches_for_action(conversation_id, action_id);
     }
 
     pub(super) fn preprocess_action(

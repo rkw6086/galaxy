@@ -544,7 +544,7 @@ impl ActiveProviderRun {
 
 const ACTIVE_PROVIDER_RUN_SNAPSHOT_VERSION: u32 = 1;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct ProviderProjectionTarget {
     task_id: TaskId,
     exchange_id: AIAgentExchangeId,
@@ -684,6 +684,40 @@ struct QueuedProviderRun {
     request_params: api::RequestParams,
 }
 
+struct PreparedQueuedProviderRunRestoration {
+    snapshot: QueuedProviderRunSnapshot,
+    root_task_id: TaskId,
+    base_provider_config: crate::ai::provider::ProviderConfig,
+    cli_provider_config: crate::ai::provider::ProviderConfig,
+    request_params: api::RequestParams,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct QueuedProviderRunSnapshot {
+    run_id: ProviderRunId,
+    projection_target: ProviderProjectionTarget,
+    did_input_contain_user_query: bool,
+    supported_tools_override: Option<Vec<i32>>,
+}
+
+const QUEUED_PROVIDER_RUN_SNAPSHOT_VERSION: u32 = 2;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct AbandonedProviderGenerationSnapshot {
+    run_id: ProviderRunId,
+    projection_target: ProviderProjectionTarget,
+    response_stream_id: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct QueuedProviderRunsOnlySnapshot {
+    version: u32,
+    active_run_id: ProviderRunId,
+    #[serde(default)]
+    abandoned_generation: Option<AbandonedProviderGenerationSnapshot>,
+    queued_follow_ups: Vec<QueuedProviderRunSnapshot>,
+}
+
 #[derive(Clone)]
 struct ActiveProviderRunCheckpoint {
     run: ProviderRun,
@@ -751,6 +785,8 @@ struct ActiveProviderRunSnapshot {
     pending_monitor_observation: Option<PendingProviderMonitorObservation>,
     pending_command_completion: Option<PendingProviderCommandCompletion>,
     monitor_prose_continuations: usize,
+    #[serde(default)]
+    queued_follow_ups: Vec<QueuedProviderRunSnapshot>,
 }
 
 impl ActiveProviderRunSnapshot {
@@ -791,6 +827,7 @@ impl ActiveProviderRunSnapshot {
             pending_monitor_observation: slot.pending_monitor_observation.clone(),
             pending_command_completion: slot.pending_command_completion.clone(),
             monitor_prose_continuations: slot.monitor_prose_continuations,
+            queued_follow_ups: Vec::new(),
         })
     }
 
@@ -803,6 +840,10 @@ impl ActiveProviderRunSnapshot {
                 snapshot.version
             ));
         }
+        snapshot
+            .run
+            .validate_restored_state()
+            .map_err(|error| error.to_string())?;
         Ok(snapshot)
     }
 
@@ -997,6 +1038,10 @@ fn recoverable_run_agents_call_ids(
 fn normalize_restored_provider_snapshot(
     snapshot: &mut ActiveProviderRunSnapshot,
 ) -> Result<(), String> {
+    snapshot
+        .run
+        .validate_restored_state()
+        .map_err(|error| error.to_string())?;
     let recoverable_call_ids = recoverable_run_agents_call_ids(snapshot)?;
     let normalization = snapshot
         .run
@@ -1090,6 +1135,19 @@ fn apply_restored_provider_command_evidence(
     Ok(())
 }
 
+fn merge_completion_offered_during_restore(
+    prepared: &mut ActiveProviderRunSnapshot,
+    latest: ActiveProviderRunSnapshot,
+) {
+    if latest.run.id() != prepared.run.id() {
+        return;
+    }
+    prepared.pending_command_completion = latest.pending_command_completion;
+    if prepared.pending_command_completion.is_some() {
+        prepared.pending_monitor_observation = None;
+    }
+}
+
 fn restored_projection_was_initialized(
     has_output: bool,
     has_server_output_id: bool,
@@ -1102,6 +1160,20 @@ fn restored_projection_was_initialized(
             Err("restored provider projection exchange is partially initialized".to_owned())
         }
     }
+}
+
+fn refresh_queued_provider_history(
+    request_params: &mut api::RequestParams,
+    conversation: &AIConversation,
+) {
+    request_params.tasks = conversation.compute_active_tasks();
+    request_params.root_task_id = Some(conversation.get_root_task_id().to_string());
+    if conversation.is_child_agent_conversation() {
+        request_params.orchestration_enabled = false;
+    }
+    request_params.message_history = conversation.bedrock_message_history().to_vec();
+    request_params.tool_result_archive = conversation.tool_result_archive().to_vec();
+    request_params.progressive_summary = conversation.progressive_summary().map(str::to_owned);
 }
 
 fn provider_execution_matches_active_work(
@@ -4493,11 +4565,15 @@ impl BlocklistAIController {
             .all_inputs()
             .any(|input| input.is_passive_request());
 
-        // Make sure there's no existing response stream for the conversation. If
-        // there is, something has gone wrong.
-        if self
+        // A same-conversation direct-provider follow-up is allowed to create its exchange while
+        // the cancelled generation is still terminalizing. Its provider run is queued below and
+        // cannot take the active slot until cleanup removes the old generation. Other overlapping
+        // streams remain invalid.
+        let has_in_flight_response = self
             .in_flight_response_streams
-            .has_active_stream_for_conversation(conversation_id, ctx)
+            .has_active_stream_for_conversation(conversation_id, ctx);
+        if has_in_flight_response
+            && !self.provider_generation_is_terminalizing_for_follow_up(conversation_id)
         {
             send_telemetry_from_ctx!(
                 TelemetryEvent::AIInputNotSent {
@@ -4764,6 +4840,9 @@ impl BlocklistAIController {
                         cli_provider_config,
                         request_params: request_params.clone(),
                     });
+                if let Err(error) = self.persist_active_provider_run(conversation_data.id, ctx) {
+                    log::error!("Failed to persist queued provider follow-up: {error}");
+                }
             } else {
                 self.active_provider_runs.insert(conversation_data.id, slot);
                 self.prepare_active_provider_run(
@@ -4822,6 +4901,22 @@ impl BlocklistAIController {
         Ok((conversation_data.id, response_stream_id))
     }
 
+    fn provider_generation_is_terminalizing_for_follow_up(
+        &self,
+        conversation_id: AIConversationId,
+    ) -> bool {
+        self.active_provider_runs
+            .get(&conversation_id)
+            .is_some_and(|slot| {
+                matches!(
+                    slot.cancellation_reason,
+                    Some(CancellationReason::FollowUpSubmitted {
+                        is_for_same_conversation: true,
+                    })
+                ) && self.in_flight_response_streams.has_stream(&slot.stream_id)
+            })
+    }
+
     fn schedule_restored_provider_runs(
         &mut self,
         conversation_ids: &[AIConversationId],
@@ -4875,6 +4970,79 @@ impl BlocklistAIController {
             self.restoring_provider_runs.remove(&conversation_id);
             return;
         };
+        if let Ok(snapshot) = serde_json::from_str::<QueuedProviderRunsOnlySnapshot>(&snapshot_json)
+        {
+            if !matches!(snapshot.version, 1 | QUEUED_PROVIDER_RUN_SNAPSHOT_VERSION) {
+                self.fail_restored_provider_run(
+                    conversation_id,
+                    format!(
+                        "unsupported queued provider run snapshot version {}",
+                        snapshot.version
+                    ),
+                    ctx,
+                );
+                return;
+            }
+            let validation = history_model
+                .as_ref(ctx)
+                .conversation(&conversation_id)
+                .ok_or_else(|| "queued provider conversation is missing".to_string())
+                .and_then(|conversation| {
+                    if conversation.agent_backend() != &AgentBackend::Provider {
+                        return Err("queued provider run belongs to a non-provider conversation"
+                            .to_string());
+                    }
+                    Ok(())
+                });
+            if let Err(error) = validation {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+            let Some(abandoned_generation) = snapshot.abandoned_generation else {
+                self.fail_restored_provider_run(
+                    conversation_id,
+                    "queued-only provider snapshot is missing abandoned generation identity"
+                        .to_string(),
+                    ctx,
+                );
+                return;
+            };
+            if abandoned_generation.run_id != snapshot.active_run_id {
+                self.fail_restored_provider_run(
+                    conversation_id,
+                    "queued provider abandoned generation identity mismatch".to_string(),
+                    ctx,
+                );
+                return;
+            }
+            if let Err(error) = validate_queued_provider_run_snapshots(
+                Some(&snapshot.active_run_id),
+                Some(&abandoned_generation.projection_target),
+                &snapshot.queued_follow_ups,
+            ) {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+            if let Err(error) = self.reconcile_abandoned_provider_generation(
+                conversation_id,
+                abandoned_generation,
+                ctx,
+            ) {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+            if let Err(error) = self.restore_queued_provider_follow_ups(
+                conversation_id,
+                snapshot.queued_follow_ups,
+                ctx,
+            ) {
+                self.fail_restored_provider_run(conversation_id, error, ctx);
+                return;
+            }
+            self.restoring_provider_runs.remove(&conversation_id);
+            self.start_next_queued_provider_run(conversation_id, ctx);
+            return;
+        }
         let mut snapshot = match ActiveProviderRunSnapshot::parse(&snapshot_json) {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -4986,6 +5154,63 @@ impl BlocklistAIController {
         );
     }
 
+    fn reconcile_abandoned_provider_generation(
+        &self,
+        conversation_id: AIConversationId,
+        abandoned: AbandonedProviderGenerationSnapshot,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        let stream_id = ResponseStreamId::from_persisted(abandoned.response_stream_id);
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            let existing_target = history_model
+                .conversation(&conversation_id)
+                .ok_or_else(|| "queued provider conversation is missing".to_string())?
+                .provider_projection_target(&stream_id);
+            if existing_target.is_none() {
+                history_model
+                    .rebind_provider_projection(
+                        conversation_id,
+                        &abandoned.projection_target.task_id,
+                        abandoned.projection_target.exchange_id,
+                        stream_id.clone(),
+                        self.terminal_surface_id,
+                        ctx,
+                    )
+                    .map_err(|error| {
+                        format!("failed to rebind abandoned provider projection: {error:?}")
+                    })?;
+            }
+            let target = history_model
+                .conversation(&conversation_id)
+                .and_then(|conversation| conversation.provider_projection_target(&stream_id))
+                .expect("abandoned provider projection was rebound");
+            if target
+                != (
+                    abandoned.projection_target.task_id.clone(),
+                    abandoned.projection_target.exchange_id,
+                )
+            {
+                return Err(
+                    "abandoned provider generation projection identity mismatch".to_string()
+                );
+            }
+            history_model.mark_response_stream_cancelled(
+                &stream_id,
+                conversation_id,
+                self.terminal_surface_id,
+                CancellationReason::FollowUpSubmitted {
+                    is_for_same_conversation: true,
+                },
+                ctx,
+            );
+            history_model
+                .conversation_mut(&conversation_id)
+                .expect("queued provider conversation was validated")
+                .cleanup_completed_response_stream(&stream_id);
+            Ok(())
+        })
+    }
+
     fn reconcile_restored_provider_command(
         &self,
         conversation_id: AIConversationId,
@@ -5037,10 +5262,12 @@ impl BlocklistAIController {
             || self.active_provider_runs.contains_key(&conversation_id)
         {
             self.restoring_provider_runs.remove(&conversation_id);
+            self.restoring_provider_command_completions
+                .remove(&conversation_id);
             return;
         }
         let PreparedRestoredProviderRun {
-            snapshot,
+            mut snapshot,
             profiles,
             projection_was_initialized,
         } = match result {
@@ -5050,6 +5277,22 @@ impl BlocklistAIController {
                 return;
             }
         };
+        // Completion can arrive while provider runtimes are being rebuilt. Reload only that
+        // mailbox from the durable snapshot so the prepared run cannot overwrite the offer.
+        if let Some(latest_snapshot) = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(AIConversation::active_provider_run_json)
+            .and_then(|json| ActiveProviderRunSnapshot::parse(json).ok())
+        {
+            merge_completion_offered_during_restore(&mut snapshot, latest_snapshot);
+        }
+        if let Some(completion) = self
+            .restoring_provider_command_completions
+            .remove(&conversation_id)
+        {
+            snapshot.pending_command_completion = Some(completion);
+            snapshot.pending_monitor_observation = None;
+        }
         let ActiveProviderRunSnapshot {
             version: _,
             run: provider_run,
@@ -5069,6 +5312,7 @@ impl BlocklistAIController {
             pending_monitor_observation,
             pending_command_completion,
             monitor_prose_continuations,
+            queued_follow_ups,
         } = snapshot;
         let run_id = provider_run.id().clone();
         let transcript = provider_run.transcript();
@@ -5175,6 +5419,12 @@ impl BlocklistAIController {
                 monitor_prose_continuations,
             },
         );
+        if let Err(error) =
+            self.restore_queued_provider_follow_ups(conversation_id, queued_follow_ups, ctx)
+        {
+            self.fail_active_provider_run(conversation_id, error, ctx);
+            return;
+        }
         self.restoring_provider_runs.remove(&conversation_id);
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model.update_conversation_status(
@@ -5189,6 +5439,194 @@ impl BlocklistAIController {
             return;
         }
         self.resume_restored_provider_run(conversation_id, ctx);
+    }
+
+    fn restore_queued_provider_follow_ups(
+        &mut self,
+        conversation_id: AIConversationId,
+        snapshots: Vec<QueuedProviderRunSnapshot>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        let (active_run_id, active_projection_target) = self
+            .active_provider_runs
+            .get(&conversation_id)
+            .map_or((None, None), |slot| {
+                (Some(&slot.run_id), Some(&slot.projection_target))
+            });
+        validate_queued_provider_run_snapshots(
+            active_run_id,
+            active_projection_target,
+            &snapshots,
+        )?;
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let mut prepared_runs = Vec::with_capacity(snapshots.len());
+        for snapshot in snapshots {
+            let (request_input, conversation_data, message_history, tool_result_archive, summary) = {
+                let conversation = history_model
+                    .as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .ok_or_else(|| "queued provider conversation is missing".to_string())?;
+                let exchange = conversation
+                    .get_task(&snapshot.projection_target.task_id)
+                    .and_then(|task| task.exchange(snapshot.projection_target.exchange_id))
+                    .ok_or_else(|| "queued provider projection exchange is missing".to_string())?;
+                let request_input = RequestInput {
+                    conversation_id,
+                    input_messages: HashMap::from([(
+                        snapshot.projection_target.task_id.clone(),
+                        exchange.input.clone(),
+                    )]),
+                    working_directory: exchange.working_directory.clone(),
+                    model_id: exchange.model_id.clone(),
+                    coding_model_id: exchange.coding_model_id.clone(),
+                    cli_agent_model_id: exchange.cli_agent_model_id.clone(),
+                    computer_use_model_id: exchange.computer_use_model_id.clone(),
+                    shared_session_response_initiator: exchange.response_initiator.clone(),
+                    request_start_ts: exchange.start_time,
+                    supported_tools_override: snapshot
+                        .supported_tools_override
+                        .as_ref()
+                        .map(|tools| {
+                            tools
+                                .iter()
+                                .map(|tool| {
+                                    ToolType::try_from(*tool).map_err(|_| {
+                                        format!("queued provider tool type {tool} is invalid")
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?,
+                };
+                let conversation_data = api::ConversationData {
+                    id: conversation_id,
+                    tasks: conversation.compute_active_tasks(),
+                    server_conversation_token: conversation.server_conversation_token().cloned(),
+                    forked_from_conversation_token: conversation
+                        .forked_from_server_conversation_token()
+                        .cloned(),
+                    ambient_agent_task_id: self.ambient_agent_task_id,
+                    existing_suggestions: history_model
+                        .as_ref(ctx)
+                        .existing_suggestions_for_conversation(conversation_id)
+                        .cloned(),
+                };
+                (
+                    request_input,
+                    conversation_data,
+                    conversation.bedrock_message_history().to_vec(),
+                    conversation.tool_result_archive().to_vec(),
+                    conversation.progressive_summary().map(str::to_owned),
+                )
+            };
+            let mut request_params = api::RequestParams::new(
+                Some(self.terminal_surface_id),
+                SessionContext::from_session(self.active_session.as_ref(ctx), ctx),
+                &request_input,
+                conversation_data,
+                None,
+                ctx,
+            );
+            request_params.message_history = message_history;
+            request_params.tool_result_archive = tool_result_archive;
+            request_params.progressive_summary = summary;
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .expect("queued provider conversation was validated");
+            let root_task_id = conversation.get_root_task_id().clone();
+            request_params.root_task_id = Some(root_task_id.to_string());
+            if conversation.is_child_agent_conversation() {
+                request_params.orchestration_enabled = false;
+            }
+            let base_provider_config =
+                ResponseStream::resolve_provider_config(request_params.model.as_str(), ctx);
+            let cli_provider_config = ResponseStream::resolve_provider_config(
+                request_params.cli_agent_model.as_str(),
+                ctx,
+            );
+            prepared_runs.push(PreparedQueuedProviderRunRestoration {
+                snapshot,
+                root_task_id,
+                base_provider_config,
+                cli_provider_config,
+                request_params,
+            });
+        }
+
+        // Do not rebind exchanges or register streams until every queued entry validates and its
+        // request can be rebuilt. A malformed later entry must not make an earlier one executable.
+        for prepared in prepared_runs {
+            let PreparedQueuedProviderRunRestoration {
+                snapshot,
+                root_task_id,
+                base_provider_config,
+                cli_provider_config,
+                request_params,
+            } = prepared;
+            let ai_identifiers = AIIdentifiers {
+                client_conversation_id: Some(conversation_id),
+                model_id: Some(request_params.model.clone()),
+                ..AIIdentifiers::default()
+            };
+            let response_stream = ctx.add_model(|ctx| {
+                ResponseStream::new_provider_projection(request_params.clone(), ai_identifiers, ctx)
+            });
+            let stream_id = response_stream.as_ref(ctx).id().clone();
+            let response_stream_clone = response_stream.clone();
+            let did_input_contain_user_query = snapshot.did_input_contain_user_query;
+            ctx.subscribe_to_model(&response_stream, move |me, _, event, ctx| {
+                let _ = me.handle_response_stream_event(
+                    did_input_contain_user_query,
+                    event,
+                    &response_stream_clone,
+                    ctx,
+                );
+            });
+            history_model
+                .update(ctx, |history_model, ctx| {
+                    history_model.rebind_provider_projection(
+                        conversation_id,
+                        &snapshot.projection_target.task_id,
+                        snapshot.projection_target.exchange_id,
+                        stream_id.clone(),
+                        self.terminal_surface_id,
+                        ctx,
+                    )
+                })
+                .map_err(|error| {
+                    format!("failed to rebind queued provider projection: {error:?}")
+                })?;
+            self.in_flight_response_streams
+                .register_additional_stream(stream_id.clone(), response_stream.clone());
+            self.queued_provider_runs
+                .entry(conversation_id)
+                .or_default()
+                .push_back(QueuedProviderRun {
+                    slot: ActiveProviderRunSlot {
+                        stream_id,
+                        response_stream,
+                        did_input_contain_user_query,
+                        run_id: snapshot.run_id,
+                        root_task_id,
+                        projection_target: snapshot.projection_target,
+                        run: None,
+                        checkpoint: None,
+                        turn_control: None,
+                        cancellation_reason: None,
+                        committed_provider_batch: None,
+                        finished_provider_batch: None,
+                        command_action_refs: HashMap::new(),
+                        command_monitor: None,
+                        pending_monitor_observation: None,
+                        pending_command_completion: None,
+                        monitor_prose_continuations: 0,
+                    },
+                    base_provider_config,
+                    cli_provider_config,
+                    request_params,
+                });
+        }
+        Ok(())
     }
 
     fn resume_restored_provider_run(
@@ -5253,6 +5691,8 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         self.restoring_provider_runs.remove(&conversation_id);
+        self.restoring_provider_command_completions
+            .remove(&conversation_id);
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model.update_conversation_status_with_error(
                 self.terminal_surface_id,
@@ -5382,13 +5822,97 @@ impl BlocklistAIController {
             .active_provider_runs
             .get(&conversation_id)
             .ok_or_else(|| "active provider run disappeared before persistence".to_string())?;
-        let snapshot = ActiveProviderRunSnapshot::from_slot(slot)?;
+        let queued_follow_ups = self.queued_provider_run_snapshots(conversation_id);
+        let mut snapshot = match ActiveProviderRunSnapshot::from_slot(slot) {
+            Ok(snapshot) => snapshot,
+            Err(error) if slot.run.is_none() && slot.checkpoint.is_none() => {
+                let persisted = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .and_then(AIConversation::active_provider_run_json);
+                if let Some(persisted) = persisted {
+                    if let Ok(snapshot) = ActiveProviderRunSnapshot::parse(persisted) {
+                        if snapshot.run.id() != &slot.run_id {
+                            return Err(
+                                "persisted provider run identity does not match active slot".into(),
+                            );
+                        }
+                        snapshot
+                    } else {
+                        return self.persist_queued_provider_runs_only(
+                            conversation_id,
+                            slot,
+                            queued_follow_ups,
+                            ctx,
+                        );
+                    }
+                } else {
+                    let _ = error;
+                    return self.persist_queued_provider_runs_only(
+                        conversation_id,
+                        slot,
+                        queued_follow_ups,
+                        ctx,
+                    );
+                }
+            }
+            Err(error) => return Err(error),
+        };
+        snapshot.queued_follow_ups = queued_follow_ups;
         let json = serde_json::to_string(&snapshot)
             .map_err(|error| format!("failed to serialize active provider run: {error}"))?;
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model
                 .persist_active_provider_run_json(conversation_id, Some(json), ctx)
                 .map_err(|error| format!("failed to persist active provider run: {error:?}"))
+        })
+    }
+
+    fn queued_provider_run_snapshots(
+        &self,
+        conversation_id: AIConversationId,
+    ) -> Vec<QueuedProviderRunSnapshot> {
+        self.queued_provider_runs
+            .get(&conversation_id)
+            .into_iter()
+            .flatten()
+            .map(|queued| QueuedProviderRunSnapshot {
+                run_id: queued.slot.run_id.clone(),
+                projection_target: queued.slot.projection_target.clone(),
+                did_input_contain_user_query: queued.slot.did_input_contain_user_query,
+                supported_tools_override: queued
+                    .request_params
+                    .supported_tools_override
+                    .as_ref()
+                    .map(|tools| tools.iter().map(|tool| *tool as i32).collect()),
+            })
+            .collect()
+    }
+
+    fn persist_queued_provider_runs_only(
+        &self,
+        conversation_id: AIConversationId,
+        active_slot: &ActiveProviderRunSlot,
+        queued_follow_ups: Vec<QueuedProviderRunSnapshot>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<(), String> {
+        if queued_follow_ups.is_empty() {
+            return Err("provider run is not prepared".to_string());
+        }
+        let json = serde_json::to_string(&QueuedProviderRunsOnlySnapshot {
+            version: QUEUED_PROVIDER_RUN_SNAPSHOT_VERSION,
+            active_run_id: active_slot.run_id.clone(),
+            abandoned_generation: Some(AbandonedProviderGenerationSnapshot {
+                run_id: active_slot.run_id.clone(),
+                projection_target: active_slot.projection_target.clone(),
+                response_stream_id: active_slot.stream_id.as_str().to_owned(),
+            }),
+            queued_follow_ups,
+        })
+        .map_err(|error| format!("failed to serialize queued provider runs: {error}"))?;
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model
+                .persist_active_provider_run_json(conversation_id, Some(json), ctx)
+                .map_err(|error| format!("failed to persist queued provider runs: {error:?}"))
         })
     }
 
@@ -6538,8 +7062,10 @@ impl BlocklistAIController {
         {
             return;
         }
-        if let Err(error) = self.clear_persisted_active_provider_run(conversation_id, ctx) {
-            log::error!("Failed to clear persisted provider run during cleanup: {error}");
+        if !self.queued_provider_runs.contains_key(&conversation_id) {
+            if let Err(error) = self.clear_persisted_active_provider_run(conversation_id, ctx) {
+                log::error!("Failed to clear persisted provider run during cleanup: {error}");
+            }
         }
         self.active_provider_runs.remove(&conversation_id);
         self.restoring_provider_runs.remove(&conversation_id);
@@ -6566,6 +7092,11 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        // The old generation must be gone before its successor can own the conversation slot.
+        // This also makes delayed cleanup callbacks harmless: cleanup checks the stream identity.
+        if self.active_provider_runs.contains_key(&conversation_id) {
+            return;
+        }
         let next = self
             .queued_provider_runs
             .get_mut(&conversation_id)
@@ -6580,6 +7111,12 @@ impl BlocklistAIController {
         let Some(next) = next else {
             return;
         };
+        let mut request_params = next.request_params;
+        if let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
+        {
+            refresh_queued_provider_history(&mut request_params, conversation);
+        }
         let stream_id = next.slot.stream_id.clone();
         self.active_provider_runs.insert(conversation_id, next.slot);
         self.prepare_active_provider_run(
@@ -6587,7 +7124,7 @@ impl BlocklistAIController {
             stream_id,
             next.base_provider_config,
             next.cli_provider_config,
-            next.request_params,
+            request_params,
             ctx,
         );
     }
@@ -6689,6 +7226,19 @@ impl BlocklistAIController {
         self.active_provider_runs.contains_key(&conversation_id)
     }
 
+    pub(super) fn offer_provider_command_completion(
+        &mut self,
+        conversation_id: AIConversationId,
+        completion: PendingProviderCommandCompletion,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        if self.active_provider_runs.contains_key(&conversation_id) {
+            self.accept_provider_command_completion(conversation_id, completion, ctx)
+        } else {
+            self.persist_restoring_provider_command_completion(conversation_id, completion, ctx)
+        }
+    }
+
     pub(super) fn accept_provider_command_completion(
         &mut self,
         conversation_id: AIConversationId,
@@ -6776,6 +7326,64 @@ impl BlocklistAIController {
             ProviderBoundaryDisposition::Park => {}
         }
         true
+    }
+
+    pub(super) fn persist_restoring_provider_command_completion(
+        &mut self,
+        conversation_id: AIConversationId,
+        mut completion: PendingProviderCommandCompletion,
+        ctx: &mut ModelContext<Self>,
+    ) -> bool {
+        if self.active_provider_runs.contains_key(&conversation_id) {
+            return self.accept_provider_command_completion(conversation_id, completion, ctx);
+        }
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let Some(snapshot_json) = history_model
+            .as_ref(ctx)
+            .conversation(&conversation_id)
+            .and_then(AIConversation::active_provider_run_json)
+        else {
+            return false;
+        };
+        let Ok(mut snapshot) = ActiveProviderRunSnapshot::parse(snapshot_json) else {
+            return false;
+        };
+        if !provider_command_completion_matches(
+            snapshot.run.id(),
+            &snapshot.command_action_refs,
+            snapshot.command_monitor.as_ref(),
+            &completion.block_id,
+            completion.initial_requested_command_action_id.as_ref(),
+        ) {
+            return false;
+        }
+        if completion.command.is_empty() {
+            completion.command = snapshot
+                .command_monitor
+                .as_ref()
+                .map(|monitor| monitor.command.clone())
+                .unwrap_or_default();
+        }
+        match self
+            .restoring_provider_command_completions
+            .get(&conversation_id)
+        {
+            Some(existing) => return existing == &completion,
+            None => {
+                self.restoring_provider_command_completions
+                    .insert(conversation_id, completion.clone());
+            }
+        }
+        snapshot.pending_monitor_observation = None;
+        snapshot.pending_command_completion = Some(completion);
+        match self.persist_provider_run_snapshot(conversation_id, &snapshot, ctx) {
+            Ok(()) => true,
+            Err(error) => {
+                log::error!("Failed to persist completion for restoring provider run: {error}");
+                // The in-memory mailbox remains the exactly-once owner until restore installs it.
+                true
+            }
+        }
     }
 
     pub fn has_active_stream_for_conversation(

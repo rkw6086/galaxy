@@ -88,6 +88,36 @@ fn assert_serialization_round_trip(run: &ProviderRun) {
     assert_eq!(&restored, run);
 }
 
+fn mutate_run_json(run: &ProviderRun, mutate: impl FnOnce(&mut serde_json::Value)) -> ProviderRun {
+    let mut value = serde_json::to_value(run).unwrap();
+    mutate(&mut value);
+    serde_json::from_value(value).unwrap()
+}
+
+fn restored_state_error(run: &ProviderRun) -> String {
+    let ProviderRunProtocolError::InvalidRestoredState { message } =
+        run.validate_restored_state().unwrap_err()
+    else {
+        panic!("expected restored-state validation error");
+    };
+    message
+}
+
+fn awaiting_tool_run() -> ProviderRun {
+    let mut run = run();
+    accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("first", "read_files"),
+                tool_call("second", "grep"),
+            ],
+            &["read_files", "grep"],
+        ),
+    );
+    run
+}
+
 #[test]
 fn next_step_reemits_identical_pending_model_work() {
     let mut run = run();
@@ -740,7 +770,228 @@ fn every_nonterminal_phase_round_trips_through_json() {
 }
 
 #[test]
-fn restore_normalization_preserves_safe_nonterminal_states() {
+fn restored_state_validation_accepts_valid_snapshots_in_every_phase() {
+    let ready = run();
+    let mut awaiting_model = ready.clone();
+    let call = next_model_call(&mut awaiting_model);
+    let mut resolving = awaiting_model.clone();
+    resolving
+        .accept_model_turn(&call.work_id, text_turn("done"))
+        .unwrap();
+    let mut awaiting_driver = resolving.clone();
+    assert_eq!(awaiting_driver.next_step().unwrap(), None);
+    let awaiting_tools = awaiting_tool_run();
+    let mut done = awaiting_driver.clone();
+    let work_id = awaiting_driver.active_work_id().unwrap().clone();
+    done.complete(&work_id).unwrap();
+    let mut failed = ready.clone();
+    failed
+        .fail(ProviderRunFailureKind::ExternalWork, "failed")
+        .unwrap();
+    let mut cancelled = ready;
+    cancelled.cancel("cancelled").unwrap();
+
+    for candidate in [
+        awaiting_model,
+        resolving,
+        awaiting_tools,
+        awaiting_driver,
+        done,
+        failed,
+        cancelled,
+    ] {
+        candidate.validate_restored_state().unwrap();
+    }
+}
+
+#[test]
+fn restored_state_validation_rejects_active_work_run_and_epoch_mismatches() {
+    let mut awaiting_model = run();
+    next_model_call(&mut awaiting_model);
+    let wrong_run = mutate_run_json(&awaiting_model, |value| {
+        value["state"]["AwaitingModel"]["call"]["work_id"]["run_id"] = json!("other-run");
+    });
+    assert!(restored_state_error(&wrong_run).contains("active work identity other-run:0"));
+
+    let wrong_epoch = mutate_run_json(&awaiting_model, |value| {
+        value["state"]["AwaitingModel"]["call"]["work_id"]["epoch"] = json!(9);
+    });
+    assert!(restored_state_error(&wrong_epoch).contains("active work identity run-1:9"));
+}
+
+#[test]
+fn restored_state_validation_rejects_duplicate_tool_call_ids() {
+    let corrupted = mutate_run_json(&awaiting_tool_run(), |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][1]["call"]["id"] = json!("first");
+    });
+    assert_eq!(
+        restored_state_error(&corrupted),
+        "duplicate pending tool call ID 'first'"
+    );
+}
+
+#[test]
+fn restored_state_validation_rejects_result_and_permission_call_ownership() {
+    let mut resolved = awaiting_tool_run();
+    let work_id = resolved.active_work_id().unwrap().clone();
+    resolved
+        .complete_tool(&work_id, successful_result("first", "done"))
+        .unwrap();
+    let wrong_result = mutate_run_json(&resolved, |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][0]["state"]["Resolved"]["result"]["call_id"] =
+            json!("second");
+    });
+    assert_eq!(
+        restored_state_error(&wrong_result),
+        "resolved result for 'first' belongs to call 'second'"
+    );
+
+    let mut permission = awaiting_tool_run();
+    let work_id = permission.active_work_id().unwrap().clone();
+    permission
+        .request_tool_permission(
+            &work_id,
+            PermissionRequest {
+                id: "request-1".to_string(),
+                call_id: "first".to_string(),
+                kind: PermissionKind::Read,
+                reason: None,
+            },
+        )
+        .unwrap();
+    let wrong_permission = mutate_run_json(&permission, |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][0]["state"]["PermissionPending"]["request"]
+            ["call_id"] = json!("second");
+    });
+    assert_eq!(
+        restored_state_error(&wrong_permission),
+        "permission request for 'first' belongs to call 'second'"
+    );
+}
+
+#[test]
+fn restored_state_validation_rejects_phase_specific_corruption() {
+    let empty_batch = mutate_run_json(&awaiting_tool_run(), |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"] = json!([]);
+    });
+    assert_eq!(
+        restored_state_error(&empty_batch),
+        "pending tool batch is empty"
+    );
+
+    let mismatched_batch = mutate_run_json(&awaiting_tool_run(), |value| {
+        value["state"]["AwaitingTools"]["batch"]["calls"][0]["call"]["name"] =
+            json!("different_tool");
+    });
+    assert!(restored_state_error(&mismatched_batch).contains("latest assistant message"));
+
+    let resolving_without_turn = mutate_run_json(&awaiting_tool_run(), |value| {
+        value["model_turns"] = json!(0);
+    });
+    assert!(restored_state_error(&resolving_without_turn).contains("has no completed model turn"));
+
+    let mut resolving = run();
+    let call = next_model_call(&mut resolving);
+    resolving
+        .accept_model_turn(&call.work_id, text_turn("done"))
+        .unwrap();
+    let invalid_turn = mutate_run_json(&resolving, |value| {
+        value["state"]["ResolvingModel"]["turn"]["assistant_content"] = json!([{
+            "ToolUse": {
+                "tool_use_id": "injected",
+                "name": "read_files",
+                "input": {}
+            }
+        }]);
+    });
+    assert!(restored_state_error(&invalid_turn).contains("assistant_content"));
+
+    let mut awaiting_driver = resolving;
+    assert_eq!(awaiting_driver.next_step().unwrap(), None);
+    let wrong_driver_owner = mutate_run_json(&awaiting_driver, |value| {
+        let last = value["transcript"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap();
+        last["role"] = json!("User");
+    });
+    assert!(restored_state_error(&wrong_driver_owner).contains("does not follow an assistant"));
+}
+
+#[test]
+fn restored_state_validation_rejects_retry_counter_and_terminal_corruption() {
+    let zero_limit = mutate_run_json(&run(), |value| {
+        value["limits"]["max_model_turns"] = json!(0);
+    });
+    assert_eq!(
+        restored_state_error(&zero_limit),
+        "model-turn limit must be at least one"
+    );
+
+    let excessive_retries = mutate_run_json(&run(), |value| {
+        value["model_retries"] = json!(3);
+    });
+    assert!(restored_state_error(&excessive_retries).contains("model-retry counter"));
+
+    let mut awaiting_model = run();
+    next_model_call(&mut awaiting_model);
+    let inconsistent_retry = mutate_run_json(&awaiting_model, |value| {
+        value["state"]["AwaitingModel"]["call"]["retry_attempt"] = json!(1);
+    });
+    assert!(restored_state_error(&inconsistent_retry).contains("total retry counter"));
+
+    let completed_without_turn = mutate_run_json(&run(), |value| {
+        value["state"] = json!({"Done": {"completion": {"stop_reason": "Completed"}}});
+    });
+    assert_eq!(
+        restored_state_error(&completed_without_turn),
+        "completed run has no completed model turn"
+    );
+
+    let early_turn_limit = mutate_run_json(&run(), |value| {
+        value["state"] = json!({
+            "Failed": {"failure": {
+                "kind": "TurnLimitExceeded",
+                "message": "bad",
+                "source": null
+            }}
+        });
+    });
+    assert_eq!(
+        restored_state_error(&early_turn_limit),
+        "turn-limit failure occurred before reaching the limit"
+    );
+
+    let missing_retry_source = mutate_run_json(&run(), |value| {
+        value["state"] = json!({
+            "Failed": {"failure": {
+                "kind": "RetryLimitExceeded",
+                "message": "bad",
+                "source": null
+            }}
+        });
+    });
+    assert_eq!(
+        restored_state_error(&missing_retry_source),
+        "retry-limit failure lacks a recoverable source"
+    );
+}
+
+#[test]
+fn restored_state_validation_rejects_empty_run_identity_and_profile() {
+    let empty_run = mutate_run_json(&run(), |value| value["id"] = json!(""));
+    assert_eq!(restored_state_error(&empty_run), "run ID must not be empty");
+
+    let empty_profile = mutate_run_json(&run(), |value| value["profile"] = json!(""));
+    assert_eq!(
+        restored_state_error(&empty_profile),
+        "request profile must not be empty"
+    );
+}
+
+#[test]
+fn restore_normalization_preserves_model_work_outside_the_uncertain_dispatch_boundary() {
     let ready = run();
     let mut awaiting_model = ready.clone();
     let call = next_model_call(&mut awaiting_model);
@@ -752,7 +1003,7 @@ fn restore_normalization_preserves_safe_nonterminal_states() {
     let mut awaiting_driver = resolving.clone();
     assert_eq!(awaiting_driver.next_step().unwrap(), None);
 
-    for mut candidate in [ready, awaiting_model, resolving, awaiting_driver] {
+    for mut candidate in [ready, resolving, awaiting_driver] {
         let before = candidate.clone();
         assert_eq!(
             candidate.normalize_after_restore().unwrap(),
@@ -760,6 +1011,58 @@ fn restore_normalization_preserves_safe_nonterminal_states() {
         );
         assert_eq!(candidate, before);
     }
+}
+
+#[test]
+fn crash_after_model_acceptance_before_checkpoint_does_not_replay_the_persisted_call() {
+    let mut live_run = run();
+    let call = next_model_call(&mut live_run);
+    let serialized_at_dispatch_boundary = serde_json::to_string(&live_run).unwrap();
+
+    // Simulate remote acceptance followed by a crash before the accepted turn is checkpointed.
+    live_run
+        .accept_model_turn(&call.work_id, text_turn("accepted but not checkpointed"))
+        .unwrap();
+    assert_eq!(live_run.model_turns(), 1);
+
+    let mut restored: ProviderRun = serde_json::from_str(&serialized_at_dispatch_boundary).unwrap();
+
+    let normalization = restored.normalize_after_restore().unwrap();
+
+    assert!(normalization.interrupted_model_call);
+    let ProviderRunState::Failed { failure } = restored.state() else {
+        panic!("uncertain model work must become terminal on restore");
+    };
+    assert_eq!(failure.kind, ProviderRunFailureKind::Restore);
+    assert!(failure.message.contains("outcome is unknown"));
+    assert!(failure.message.contains("not replayed"));
+    assert_eq!(restored.active_work_id(), None);
+    assert!(matches!(
+        restored.next_step().unwrap(),
+        Some(ProviderRunStep::Done(ProviderRunOutcome::Failed(_)))
+    ));
+
+    // The persisted dispatch identity remains useful for diagnostics but can never be called again.
+    assert_eq!(call.work_id.epoch, RunEpoch::new(0));
+}
+
+#[test]
+fn restore_after_model_acceptance_keeps_the_committed_turn_without_replaying() {
+    let mut run = run();
+    let call = next_model_call(&mut run);
+    run.accept_model_turn(&call.work_id, text_turn("accepted output"))
+        .unwrap();
+    let serialized_after_acceptance = serde_json::to_string(&run).unwrap();
+    let mut restored: ProviderRun = serde_json::from_str(&serialized_after_acceptance).unwrap();
+
+    assert_eq!(
+        restored.normalize_after_restore().unwrap(),
+        ProviderRunRestoreNormalization::default()
+    );
+    assert_eq!(restored.state().phase(), ProviderRunPhase::ResolvingModel);
+    assert_eq!(restored.model_turns(), 1);
+    assert_eq!(restored.next_step().unwrap(), None);
+    assert_eq!(restored.state().phase(), ProviderRunPhase::AwaitingDriver);
 }
 
 #[test]

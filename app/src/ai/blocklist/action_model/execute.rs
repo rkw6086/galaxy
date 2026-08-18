@@ -316,7 +316,7 @@ pub struct BlocklistAIActionExecutor {
     wait_for_events_executor: ModelHandle<WaitForEventsExecutor>,
     /// The actions currently executing asynchronously, scoped by conversation and action ID.
     async_executing_actions: AsyncExecutingActions,
-    restored_action_ids: HashSet<AIAgentActionId>,
+    restored_action_ids: HashSet<AsyncExecutingActionKey>,
 
     /// Reference to the terminal model for checking session sharing state.
     terminal_model: Arc<FairMutex<TerminalModel>>,
@@ -428,12 +428,18 @@ impl BlocklistAIActionExecutor {
 
     pub fn mark_restored_actions(
         &mut self,
+        conversation_id: AIConversationId,
         action_ids: &HashSet<AIAgentActionId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.restored_action_ids.extend(action_ids.iter().cloned());
+        self.restored_action_ids.extend(
+            action_ids
+                .iter()
+                .cloned()
+                .map(|action_id| (conversation_id, action_id)),
+        );
         self.run_agents_executor.update(ctx, |executor, _| {
-            executor.mark_recovery_actions(action_ids);
+            executor.mark_recovery_actions(conversation_id, action_ids);
         });
     }
 
@@ -753,7 +759,8 @@ impl BlocklistAIActionExecutor {
             action.id,
             std::mem::discriminant(&action.action)
         );
-        let is_restored = self.restored_action_ids.remove(&action.id);
+        let action_key = (conversation_id, action.id.clone());
+        let is_restored = self.restored_action_ids.remove(&action_key);
         let action_clone = action.clone();
         let execution = match &action.action {
             AIAgentActionType::RequestCommandOutput { .. }
@@ -1054,7 +1061,7 @@ impl BlocklistAIActionExecutor {
             .remove(conversation_id, action_id)
         {
             let action_kind = AIAgentActionTypeDiscriminants::from(&running.action.action);
-            log::info!(
+            crate::ai::tool_diagnostics::tool_debug!(
                 "Canceling running async action of type {action_kind:?} action_id={action_id:?}, reason={reason:?}"
             );
             if let Some(backtrace) = crate::ai::tool_diagnostics::capture_backtrace() {
@@ -1075,11 +1082,11 @@ impl BlocklistAIActionExecutor {
                 });
             } else if matches!(running.action.action, AIAgentActionType::RunAgents(..)) {
                 self.run_agents_executor.update(ctx, |executor, ctx| {
-                    executor.cancel_execution(&running.action.id, ctx);
+                    executor.cancel_execution(conversation_id, &running.action.id, ctx);
                 });
             } else if matches!(running.action.action, AIAgentActionType::StartAgent { .. }) {
                 self.start_agent_executor.update(ctx, |executor, _| {
-                    executor.cancel_execution(&running.action.id);
+                    executor.cancel_execution(conversation_id, &running.action.id);
                 });
             } else if let AIAgentActionType::WaitForEvents { tool_call_id, .. } =
                 &running.action.action
@@ -1123,7 +1130,9 @@ impl BlocklistAIActionExecutor {
     }
 
     fn should_autoexecute(&self, input: ExecuteActionInput, ctx: &mut ModelContext<Self>) -> bool {
-        if self.restored_action_ids.contains(&input.action.id)
+        if self
+            .restored_action_ids
+            .contains(&(input.conversation_id, input.action.id.clone()))
             || cfg!(feature = "bedrock_smoke_test")
         {
             return true;

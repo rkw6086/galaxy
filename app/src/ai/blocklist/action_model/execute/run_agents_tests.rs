@@ -386,7 +386,8 @@ fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_chil
             title: String::new(),
         });
         state.executor.update(&mut app, |executor, _| {
-            executor.mark_recovery_actions(&HashSet::from([action.id.clone()]));
+            executor
+                .mark_recovery_actions(state.conversation_id, &HashSet::from([action.id.clone()]));
         });
 
         let execution = state.executor.update(&mut app, |executor, ctx| {
@@ -481,7 +482,8 @@ fn cancelling_recovered_run_agents_keeps_persisted_child_running() {
         });
         let action = remote_run_agents_action("oz");
         state.executor.update(&mut app, |executor, _| {
-            executor.mark_recovery_actions(&HashSet::from([action.id.clone()]));
+            executor
+                .mark_recovery_actions(state.conversation_id, &HashSet::from([action.id.clone()]));
         });
         let execution = state.executor.update(&mut app, |executor, ctx| {
             executor
@@ -503,7 +505,7 @@ fn cancelling_recovered_run_agents_keeps_persisted_child_running() {
         };
 
         state.executor.update(&mut app, |executor, ctx| {
-            executor.cancel_execution(&action.id, ctx);
+            executor.cancel_execution(state.conversation_id, &action.id, ctx);
         });
         let async_result = execute_future.await;
         let result = app.update(|ctx| on_complete(async_result, ctx));
@@ -1090,9 +1092,9 @@ fn cancel_during_plan_publication_does_not_dispatch_children() {
         // The action is awaiting plan publication, so it's pending but no children dispatched yet.
         assert!(matches!(execution, AnyActionExecution::Async { .. }));
         state.executor.update(&mut app, |executor, ctx| {
-            assert!(executor.is_pending(&action_id));
-            executor.cancel_execution(&action_id, ctx);
-            assert!(!executor.is_pending(&action_id));
+            assert!(executor.is_pending(state.conversation_id, &action_id));
+            executor.cancel_execution(state.conversation_id, &action_id, ctx);
+            assert!(!executor.is_pending(state.conversation_id, &action_id));
         });
 
         // Finish publishing the plan, which resolves the wait the dispatch was blocked on.

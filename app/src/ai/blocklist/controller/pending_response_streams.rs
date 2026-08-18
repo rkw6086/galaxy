@@ -148,7 +148,7 @@ impl PendingResponseStreams {
             false
         } else {
             for response_stream in streams_to_cancel.into_iter() {
-                log::info!(
+                crate::ai::tool_diagnostics::tool_debug!(
                     "Canceling active stream for conversation_id={conversation_id:?}, \
                      reason={reason}"
                 );

@@ -296,6 +296,31 @@ fn mark_run_agents_child_removed(
     true
 }
 
+fn run_agents_event_matches_card(
+    event: &RunAgentsExecutorEvent,
+    conversation_id: Option<AIConversationId>,
+    action_id: &AIAgentActionId,
+) -> bool {
+    let (event_conversation_id, event_action_id) = match event {
+        RunAgentsExecutorEvent::SpawningStarted {
+            conversation_id,
+            action_id,
+            ..
+        }
+        | RunAgentsExecutorEvent::SpawningFinished {
+            conversation_id,
+            action_id,
+        } => (*conversation_id, action_id),
+        RunAgentsExecutorEvent::ChildConversationCreated {
+            action_id,
+            parent_conversation_id,
+            ..
+        } => (*parent_conversation_id, action_id),
+    };
+
+    Some(event_conversation_id) == conversation_id && event_action_id == action_id
+}
+
 pub struct RunAgentsCardView {
     action_id: AIAgentActionId,
     state: RunAgentsEditState,
@@ -441,32 +466,34 @@ impl RunAgentsCardView {
         });
 
         let action_id_for_subscription = action_id.clone();
-        ctx.subscribe_to_model(&run_agents_executor, move |me, _, event, ctx| match event {
-            RunAgentsExecutorEvent::SpawningStarted {
-                action_id,
-                snapshot,
-            } if action_id == &action_id_for_subscription => {
-                me.spawning = Some(*snapshot);
-                ctx.notify();
+        let conversation_id_for_subscription = block_model.conversation_id(ctx);
+        ctx.subscribe_to_model(&run_agents_executor, move |me, _, event, ctx| {
+            if !run_agents_event_matches_card(
+                event,
+                conversation_id_for_subscription,
+                &action_id_for_subscription,
+            ) {
+                return;
             }
-            RunAgentsExecutorEvent::SpawningFinished { action_id }
-                if action_id == &action_id_for_subscription =>
-            {
-                me.spawning = None;
-                ctx.notify();
+
+            match event {
+                RunAgentsExecutorEvent::SpawningStarted { snapshot, .. } => {
+                    me.spawning = Some(*snapshot);
+                    ctx.notify();
+                }
+                RunAgentsExecutorEvent::SpawningFinished { .. } => {
+                    me.spawning = None;
+                    ctx.notify();
+                }
+                RunAgentsExecutorEvent::ChildConversationCreated {
+                    agent_name,
+                    child_conversation_id,
+                    ..
+                } => {
+                    me.link_child_conversation(agent_name, *child_conversation_id);
+                    ctx.notify();
+                }
             }
-            RunAgentsExecutorEvent::ChildConversationCreated {
-                action_id,
-                agent_name,
-                child_conversation_id,
-                ..
-            } if action_id == &action_id_for_subscription => {
-                me.link_child_conversation(agent_name, *child_conversation_id);
-                ctx.notify();
-            }
-            RunAgentsExecutorEvent::SpawningStarted { .. }
-            | RunAgentsExecutorEvent::SpawningFinished { .. }
-            | RunAgentsExecutorEvent::ChildConversationCreated { .. } => {}
         });
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);

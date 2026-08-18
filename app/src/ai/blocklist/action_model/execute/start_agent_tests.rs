@@ -986,7 +986,7 @@ fn cancelling_standalone_start_agent_drops_dispatch_but_keeps_child_running() {
         });
 
         executor.update(&mut app, |executor, _| {
-            executor.cancel_execution(&action.id);
+            executor.cancel_execution(parent_conversation_id, &action.id);
         });
 
         executor.read(&app, |executor, _| assert!(executor.pending.is_empty()));
@@ -1003,6 +1003,65 @@ fn cancelling_standalone_start_agent_drops_dispatch_but_keeps_child_running() {
             panic!("expected async StartAgent execution");
         };
         let _ = execute_future.await;
+    });
+}
+
+#[test]
+fn cancelling_duplicate_action_id_detaches_only_the_matching_conversation() {
+    App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
+        let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let executor = app.add_model(StartAgentExecutor::new);
+        let terminal_view_id = EntityId::new();
+        let first_conversation = history_model.update(&mut app, |history, ctx| {
+            history.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let second_conversation = history_model.update(&mut app, |history, ctx| {
+            history.start_new_conversation(terminal_view_id, false, false, false, ctx)
+        });
+        let action = build_start_agent_action(
+            StartAgentVersion::V1,
+            StartAgentExecutionMode::local_with_defaults(),
+        );
+
+        let first = executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: first_conversation,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        let second = executor.update(&mut app, |executor, ctx| {
+            executor
+                .execute(
+                    ExecuteActionInput {
+                        action: &action,
+                        conversation_id: second_conversation,
+                    },
+                    ctx,
+                )
+                .into()
+        });
+        assert!(matches!(first, AnyActionExecution::Async { .. }));
+        assert!(matches!(second, AnyActionExecution::Async { .. }));
+
+        executor.update(&mut app, |executor, _| {
+            executor.cancel_execution(first_conversation, &action.id);
+            assert_eq!(executor.pending.len(), 1);
+            assert_eq!(
+                executor
+                    .pending
+                    .values()
+                    .next()
+                    .unwrap()
+                    .parent_conversation_id,
+                second_conversation
+            );
+        });
     });
 }
 

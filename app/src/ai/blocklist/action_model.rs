@@ -1733,7 +1733,7 @@ impl BlocklistAIActionModel {
         }
         self.provider_tool_executions.extend(refs);
         self.executor.update(ctx, |executor, ctx| {
-            executor.mark_restored_actions(&recovery_action_ids, ctx);
+            executor.mark_restored_actions(conversation_id, &recovery_action_ids, ctx);
         });
         self.queue_actions(actions, conversation_id, ctx);
         Ok(())
@@ -1981,7 +1981,7 @@ impl BlocklistAIActionModel {
             return;
         };
         for action in actions_to_cancel.drain(..).collect_vec() {
-            log::info!(
+            crate::ai::tool_diagnostics::tool_debug!(
                 "Canceling pending action of type {:?} conversation_id={conversation_id:?} action_id={:?}, reason={:?}",
                 AIAgentActionTypeDiscriminants::from(&action.action),
                 action.id,

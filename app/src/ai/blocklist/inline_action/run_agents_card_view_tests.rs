@@ -10,9 +10,11 @@ use warp_util::local_or_remote_path::LocalOrRemotePath;
 
 use super::{
     has_run_agents_child, link_run_agents_child, mark_run_agents_child_removed,
-    sync_run_agents_children, RunAgentsChildState, RunAgentsEditState,
+    run_agents_event_matches_card, sync_run_agents_children, RunAgentsChildState,
+    RunAgentsEditState, RunAgentsExecutorEvent,
 };
 use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::AIAgentActionId;
 use crate::ai::blocklist::inline_action::orchestration_controls::OrchestrationEditState;
 
 fn make_request(harness: &str, mode: RunAgentsExecutionMode) -> RunAgentsRequest {
@@ -302,6 +304,31 @@ fn live_child_links_and_removal_survive_streaming_config_sync() {
         &mut children,
         "missing",
         AIConversationId::new()
+    ));
+}
+
+#[test]
+fn child_created_with_duplicate_action_id_only_matches_parent_conversation() {
+    let card_conversation_id = AIConversationId::new();
+    let other_conversation_id = AIConversationId::new();
+    let child_conversation_id = AIConversationId::new();
+    let duplicate_action_id = AIAgentActionId::from("duplicate-action".to_string());
+    let event = RunAgentsExecutorEvent::ChildConversationCreated {
+        action_id: duplicate_action_id.clone(),
+        agent_name: "child".to_string(),
+        parent_conversation_id: other_conversation_id,
+        child_conversation_id,
+    };
+
+    assert!(!run_agents_event_matches_card(
+        &event,
+        Some(card_conversation_id),
+        &duplicate_action_id,
+    ));
+    assert!(run_agents_event_matches_card(
+        &event,
+        Some(other_conversation_id),
+        &duplicate_action_id,
     ));
 }
 

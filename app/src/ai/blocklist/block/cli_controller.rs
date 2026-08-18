@@ -356,16 +356,17 @@ impl CLISubagentController {
                 drop(terminal_model);
 
                 let provider_accepted_completion = completion.as_ref().is_some_and(|completion| {
+                    let provider_completion = PendingProviderCommandCompletion::new(
+                        completion.completed_command.block_id.clone(),
+                        completion.initial_requested_command_action_id.clone(),
+                        completion.completed_command.command.clone(),
+                        completion.completed_command.grid_contents.clone(),
+                        completion.exit_code,
+                    );
                     me.controller.update(ctx, |controller, ctx| {
-                        controller.accept_provider_command_completion(
+                        controller.offer_provider_command_completion(
                             completion.conversation_id,
-                            PendingProviderCommandCompletion::new(
-                                completion.completed_command.block_id.clone(),
-                                completion.initial_requested_command_action_id.clone(),
-                                completion.completed_command.command.clone(),
-                                completion.completed_command.grid_contents.clone(),
-                                completion.exit_code,
-                            ),
+                            provider_completion,
                             ctx,
                         )
                     })

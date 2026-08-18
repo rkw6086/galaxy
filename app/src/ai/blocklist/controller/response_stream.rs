@@ -56,6 +56,10 @@ impl ResponseStreamId {
         &self.0
     }
 
+    pub(crate) fn from_persisted(value: String) -> Self {
+        Self(value)
+    }
+
     pub fn for_shared_session(init_event: &response_event::StreamInit) -> Self {
         // Make the stream ID unique per viewing by appending a local UUID
         // This prevents collisions when replaying the same conversation multiple times
