@@ -601,10 +601,10 @@ impl ProviderRun {
                 }
             }
             ProviderRunState::AwaitingTools { batch } => {
-                self.validate_post_model_phase()?;
                 if batch.calls.is_empty() {
                     return Err(invalid("pending tool batch is empty".to_string()));
                 }
+                self.validate_post_model_phase()?;
                 let mut call_ids = HashSet::new();
                 for pending in &batch.calls {
                     if pending.call.id.is_empty() {

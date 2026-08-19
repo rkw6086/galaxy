@@ -4800,39 +4800,54 @@ impl BlocklistAIController {
             }
         }
 
-        history_model.update(ctx, |history_model, ctx| {
-            match history_model.update_conversation_for_new_request_input(
+        let update_result = history_model.update(ctx, |history_model, ctx| {
+            history_model.update_conversation_for_new_request_input(
                 request_input,
                 response_stream_id.clone(),
                 self.terminal_surface_id,
                 ctx,
-            ) {
-                Ok(_) => {
-                    history_model.update_conversation_status(
-                        self.terminal_surface_id,
-                        conversation_data.id,
-                        ConversationStatus::InProgress,
-                        ctx,
-                    );
-                }
-                Err(e) => {
-                    log::warn!("Failed to push new exchange to AI conversation: {e:?}");
-                }
-            }
+            )
+        });
+        if let Err(error) = update_result {
+            let message = format!("failed to create AI response exchange: {error:?}");
+            self.cleanup_failed_response_stream_setup(
+                conversation_data.id,
+                &response_stream_id,
+                &response_stream,
+                message.clone(),
+                ctx,
+            );
+            return Err(anyhow!(message));
+        }
+        history_model.update(ctx, |history_model, ctx| {
+            history_model.update_conversation_status(
+                self.terminal_surface_id,
+                conversation_data.id,
+                ConversationStatus::InProgress,
+                ctx,
+            );
         });
 
         let provider_projection_target = if provider_configs.is_some() {
-            let (task_id, exchange_id) = history_model
+            let target = history_model
                 .as_ref(ctx)
                 .conversation(&conversation_data.id)
                 .and_then(|conversation| {
                     conversation.provider_projection_target(&response_stream_id)
-                })
-                .ok_or_else(|| {
-                    anyhow!(
-                        "direct-provider response stream does not have exactly one projection target"
-                    )
-                })?;
+                });
+            let Some((task_id, exchange_id)) = target else {
+                let message =
+                    "direct-provider response stream does not have exactly one projection target"
+                        .to_owned();
+                self.cleanup_failed_response_stream_setup(
+                    conversation_data.id,
+                    &response_stream_id,
+                    &response_stream,
+                    message.clone(),
+                    ctx,
+                );
+                return Err(anyhow!(message));
+            };
             Some(ProviderProjectionTarget {
                 task_id,
                 exchange_id,
@@ -4864,20 +4879,43 @@ impl BlocklistAIController {
                 conversation_data.id,
                 response_stream_id.as_str()
             ));
-            let root_task_id = history_model
+            let Some(root_task_id) = history_model
                 .as_ref(ctx)
                 .conversation(&conversation_data.id)
-                .expect("conversation exists while starting provider run")
-                .get_root_task_id()
-                .clone();
+                .map(|conversation| conversation.get_root_task_id().clone())
+            else {
+                let message = format!(
+                    "conversation {:?} disappeared while starting provider run",
+                    conversation_data.id
+                );
+                self.cleanup_failed_response_stream_setup(
+                    conversation_data.id,
+                    &response_stream_id,
+                    &response_stream,
+                    message.clone(),
+                    ctx,
+                );
+                return Err(anyhow!(message));
+            };
+            let Some(projection_target) = provider_projection_target else {
+                let message =
+                    "direct-provider response stream is missing its projection target".to_owned();
+                self.cleanup_failed_response_stream_setup(
+                    conversation_data.id,
+                    &response_stream_id,
+                    &response_stream,
+                    message.clone(),
+                    ctx,
+                );
+                return Err(anyhow!(message));
+            };
             let slot = ActiveProviderRunSlot {
                 stream_id: response_stream_id.clone(),
                 response_stream,
                 did_input_contain_user_query: input_contains_user_query,
                 run_id: provider_run_id,
                 root_task_id,
-                projection_target: provider_projection_target
-                    .expect("provider projection target was validated"),
+                projection_target,
                 run: None,
                 checkpoint: None,
                 turn_control: None,
@@ -4962,6 +5000,35 @@ impl BlocklistAIController {
         }
 
         Ok((conversation_data.id, response_stream_id))
+    }
+
+    fn cleanup_failed_response_stream_setup(
+        &self,
+        conversation_id: AIConversationId,
+        stream_id: &ResponseStreamId,
+        response_stream: &ModelHandle<ResponseStream>,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            history_model.mark_response_stream_completed_with_error(
+                RenderableAIError::Other {
+                    error_message: message,
+                    will_attempt_resume: false,
+                    waiting_for_network: false,
+                    is_user_error: false,
+                },
+                false,
+                stream_id,
+                conversation_id,
+                self.terminal_surface_id,
+                ctx,
+            );
+            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                conversation.cleanup_completed_response_stream(stream_id);
+            }
+        });
+        ctx.unsubscribe_from_model(response_stream);
     }
 
     fn provider_generation_is_terminalizing_for_follow_up(
