@@ -73,3 +73,6 @@ __pycache__/
 
 # Project notes
 .note/
+
+# Error reports
+error-reports/
