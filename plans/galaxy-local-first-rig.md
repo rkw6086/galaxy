@@ -278,8 +278,8 @@ Initial opt-in example:
 enabled = true
 
 [[ai.providers]]
-name = "LiteLLM (ai.ryserve.net)"
-base_url = "https://ai.ryserve.net/v1"
+name = "My local provider"
+base_url = "https://your-provider.example/v1"
 api_key = "REPLACE_WITH_LOCAL_KEY"
 
 [[ai.providers.models]]

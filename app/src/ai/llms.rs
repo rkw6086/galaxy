@@ -735,7 +735,6 @@ impl LLMPreferences {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            Self::ensure_default_chatgpt_models_in_settings(ctx);
             me.refresh_bedrock_models(ctx);
             me.inject_openai_models(ctx);
             me.ensure_default_model_present();
@@ -745,44 +744,6 @@ impl LLMPreferences {
         }
 
         me
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn ensure_default_chatgpt_models_in_settings(ctx: &mut ModelContext<Self>) {
-        let mut providers = AISettings::as_ref(ctx).openai_providers.value().clone();
-        let default_chatgpt_models = crate::settings::ai::default_chatgpt_provider().models;
-        let mut providers_changed = false;
-        for provider in &mut providers {
-            if provider.kind != OpenAIProviderKind::ChatGPTSubscription {
-                continue;
-            }
-
-            if provider.models.is_empty() {
-                provider.models = default_chatgpt_models.clone();
-                providers_changed = true;
-                continue;
-            }
-
-            for model in &mut provider.models {
-                if !model.reasoning_efforts.is_empty() {
-                    continue;
-                }
-                if let Some(default_model) = default_chatgpt_models
-                    .iter()
-                    .find(|default_model| default_model.model_id == model.model_id)
-                {
-                    if !default_model.reasoning_efforts.is_empty() {
-                        model.reasoning_efforts = default_model.reasoning_efforts.clone();
-                        providers_changed = true;
-                    }
-                }
-            }
-        }
-        if providers_changed {
-            AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                let _ = settings.openai_providers.set_value(providers, ctx);
-            });
-        }
     }
 
     #[cfg(not(target_family = "wasm"))]

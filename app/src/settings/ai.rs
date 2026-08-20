@@ -1029,9 +1029,6 @@ pub struct OpenAIProviderConfig {
 
 impl settings_value::SettingsValue for OpenAIProviderConfig {}
 
-const INITIAL_LITELLM_BASE_URL: &str = "https://ai.ryserve.net/v1";
-const INITIAL_RIG_MODEL_ID: &str = "codex-gpt-5.6-sol-xhigh";
-
 fn default_acp_agent_id() -> String {
     "codex".to_string()
 }
@@ -1116,119 +1113,6 @@ impl AcpProviderConfig {
 
 impl settings_value::SettingsValue for AcpProviderConfig {}
 
-fn default_chatgpt_models() -> Vec<OpenAIModelConfig> {
-    // Fallback catalog used before the first successful Codex model discovery.
-    // Once discovery succeeds, the saved ChatGPT subscription catalog is treated
-    // as backend-owned so removed models do not get reintroduced on startup.
-    [
-        (
-            "gpt-5.6-sol",
-            "GPT-5.6 Sol",
-            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
-            272_000,
-            Some(258_400),
-        ),
-        (
-            "gpt-5.6-terra",
-            "GPT-5.6 Terra",
-            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
-            272_000,
-            Some(258_400),
-        ),
-        (
-            "gpt-5.6-luna",
-            "GPT-5.6 Luna",
-            vec!["low", "medium", "high", "xhigh", "max", "ultra"],
-            272_000,
-            Some(258_400),
-        ),
-        (
-            "gpt-5.4",
-            "GPT-5.4",
-            vec!["low", "medium", "high", "xhigh"],
-            1_000_000,
-            Some(950_000),
-        ),
-        (
-            "gpt-5.4-pro",
-            "GPT-5.4 Pro",
-            vec!["medium", "high", "xhigh"],
-            default_context_size(),
-            None,
-        ),
-    ]
-    .into_iter()
-    .map(
-        |(model_id, display_name, reasoning_efforts, context_size, max_input_tokens)| {
-            OpenAIModelConfig {
-                model_id: model_id.to_string(),
-                display_name: display_name.to_string(),
-                // ChatGPT's subscription backend accepts image input for its chat
-                // models, but it does not expose a public capability discovery
-                // endpoint. Keep this explicit catalog in sync with that contract
-                // so the model picker does not hide vision context.
-                vision_supported: true,
-                context_size,
-                max_input_tokens,
-                max_output_tokens: None,
-                provider: Some("openai".to_string()),
-                use_rig: true,
-                supports_system_messages: Some(true),
-                capability_overrides: HashMap::new(),
-                reasoning_efforts: reasoning_efforts.into_iter().map(str::to_string).collect(),
-                enabled: true,
-            }
-        },
-    )
-    .collect()
-}
-
-pub(crate) fn default_chatgpt_provider() -> OpenAIProviderConfig {
-    OpenAIProviderConfig {
-        kind: OpenAIProviderKind::ChatGPTSubscription,
-        enabled: true,
-        name: "ChatGPT Subscription".to_string(),
-        base_url: String::new(),
-        api_key: None,
-        project_id: None,
-        location: None,
-        models: default_chatgpt_models(),
-    }
-}
-
-fn default_openai_providers() -> Vec<OpenAIProviderConfig> {
-    vec![
-        OpenAIProviderConfig {
-            kind: OpenAIProviderKind::LiteLLM,
-            enabled: true,
-            name: "LiteLLM (ai.ryserve.net)".to_string(),
-            base_url: INITIAL_LITELLM_BASE_URL.to_string(),
-            // Credentials are deliberately never committed. Set this locally in
-            // ~/.galaxy/settings.toml before sending a request.
-            api_key: None,
-            project_id: None,
-            location: None,
-            models: vec![OpenAIModelConfig {
-                model_id: INITIAL_RIG_MODEL_ID.to_string(),
-                display_name: "Codex GPT-5.6 SOL (xhigh)".to_string(),
-                // Auto capability detection is optimistic for modern
-                // multimodal-compatible endpoints; users can override it per model.
-                vision_supported: true,
-                context_size: default_context_size(),
-                max_input_tokens: None,
-                max_output_tokens: None,
-                provider: Some("openai".to_string()),
-                use_rig: true,
-                supports_system_messages: Some(false),
-                capability_overrides: HashMap::new(),
-                reasoning_efforts: Vec::new(),
-                enabled: true,
-            }],
-        },
-        default_chatgpt_provider(),
-    ]
-}
-
 /// Cached metadata and runtime session options for an ACP agent.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct AcpAgentSettings {
@@ -1286,7 +1170,7 @@ define_settings_group!(AISettings, settings: [
     // If `false`, all AI features are disabled.
     is_any_ai_enabled: IsAnyAIEnabled {
         type: bool,
-        default: true,
+        default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
         private: false,
@@ -1804,20 +1688,20 @@ define_settings_group!(AISettings, settings: [
         toml_path: "cloud_platform.third_party_api_keys.gemini_enterprise_credentials_enabled",
         description: "Whether Warp should route eligible requests through your workspace's Gemini Enterprise Google Cloud project.",
     }
-    // Whether the OpenAI-compatible (LiteLLM) provider is enabled.
+    // Whether a configured OpenAI-compatible provider is enabled.
     openai_enabled: OpenAIEnabled {
         type: bool,
-        default: true,
+        default: false,
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "ai.openai.enabled",
-        description: "Whether to use an OpenAI-compatible endpoint (e.g. LiteLLM) for AI requests.",
+        description: "Whether to use a configured OpenAI-compatible endpoint for AI requests.",
     }
     // Base URL for the OpenAI-compatible API endpoint.
     openai_base_url: OpenAIBaseUrl {
         type: String,
-        default: "http://localhost:4000/v1".to_string(),
+        default: String::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
@@ -1844,7 +1728,7 @@ define_settings_group!(AISettings, settings: [
         toml_path: "ai.openai.model",
         description: "Model name to send to the OpenAI-compatible endpoint. Leave empty to use the selected model ID.",
     }
-    // Custom OpenAI-compatible model configurations (fetched from LiteLLM or manually configured).
+    // Custom OpenAI-compatible model configurations (fetched or manually configured).
     openai_models: OpenAIModels {
         type: Vec<OpenAIModelConfig>,
         default: Vec::new(),
@@ -1852,20 +1736,20 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
         toml_path: "ai.openai.models",
-        description: "Custom OpenAI-compatible model configurations (e.g. from LiteLLM).",
+        description: "Custom OpenAI-compatible model configurations.",
     }
-    // Multiple OpenAI-compatible provider endpoints (LiteLLM, Ollama, vLLM, etc.).
+    // Multiple OpenAI-compatible provider endpoints.
     // Each provider has its own name, base_url, api_key, and model list.
     openai_providers: OpenAIProviders {
         type: Vec<OpenAIProviderConfig>,
-        default: default_openai_providers(),
+        default: Vec::new(),
         supported_platforms: SupportedPlatforms::DESKTOP,
         // Provider entries may contain API keys, so the complete setting must
         // remain local even when preference sync is enabled.
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "ai.providers",
-        description: "Multiple OpenAI-compatible provider endpoints (e.g. LiteLLM, Ollama, local models).",
+        description: "Multiple OpenAI-compatible provider endpoints.",
     }
     // Whether to send opt-in AI diagnostics to a remote logging endpoint.
     remote_logging_enabled: RemoteLoggingEnabled {
