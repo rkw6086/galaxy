@@ -49,6 +49,7 @@ use self::execute::{
     BlocklistAIActionExecutor, BlocklistAIActionExecutorEvent, NotExecutedReason,
     RunningActionPhase, TryExecuteResult,
 };
+use super::history_model::BlocklistAIHistoryEvent;
 use super::BlocklistAIHistoryModel;
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::{
@@ -852,6 +853,29 @@ impl BlocklistAIActionModel {
                     comments: comments.clone(),
                     base_branch: base_branch.clone(),
                 });
+            }
+        });
+
+        let history_model = BlocklistAIHistoryModel::handle(ctx);
+        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| {
+            match event {
+                BlocklistAIHistoryEvent::RemoveConversation {
+                    conversation_id, ..
+                }
+                | BlocklistAIHistoryEvent::DeletedConversation {
+                    conversation_id, ..
+                } => {
+                    me.cleanup_conversation_state(*conversation_id, ctx);
+                }
+                BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface {
+                    cleared_conversation_ids,
+                    ..
+                } => {
+                    for conversation_id in cleared_conversation_ids {
+                        me.cleanup_conversation_state(*conversation_id, ctx);
+                    }
+                }
+                _ => {}
             }
         });
 
@@ -2156,6 +2180,35 @@ impl BlocklistAIActionModel {
             .retain(|(finished_conversation_id, _), _| {
                 *finished_conversation_id != conversation_id
             });
+    }
+
+    /// Removes all per-conversation state for a conversation that has been removed or cleared.
+    /// This prevents unbounded growth of `past_action_results` and other maps over long sessions.
+    fn cleanup_conversation_state(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.past_action_results
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.provider_tool_executions
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.denied_permissions
+            .retain(|(conv_id, _)| *conv_id != conversation_id);
+        self.pending_actions.remove(&conversation_id);
+        self.running_actions.remove(&conversation_id);
+        self.finished_action_results.remove(&conversation_id);
+        self.finished_tool_results.remove(&conversation_id);
+        self.provider_finished_action_results
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.action_order.remove(&conversation_id);
+        self.pending_preprocessed_actions.remove(&conversation_id);
+        self.not_ready_actions
+            .actions
+            .retain(|(conv_id, _)| *conv_id != conversation_id);
+        self.executor.update(ctx, |executor, ctx| {
+            executor.cleanup_conversation(conversation_id, ctx);
+        });
     }
 
     #[cfg(test)]

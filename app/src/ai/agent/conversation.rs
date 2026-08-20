@@ -793,6 +793,11 @@ impl AIConversation {
     ) {
         use crate::ai::bedrock::convert::{ContentPart, MessageContent};
 
+        // Cap the archive to prevent unbounded growth. The archive is only used by
+        // `recall_tool_history` which already truncates individual results to 50K chars,
+        // so retaining the most recent entries is sufficient for lookup.
+        const MAX_TOOL_RESULT_ARCHIVE_ENTRIES: usize = 400;
+
         let mut pending_tool_uses: Vec<crate::ai::bedrock::convert::ConversationMessage> =
             Vec::new();
 
@@ -830,6 +835,12 @@ impl AIConversation {
 
         for tool_use in pending_tool_uses {
             self.tool_result_archive.push(tool_use);
+        }
+
+        // Evict oldest entries if the archive exceeds the cap.
+        if self.tool_result_archive.len() > MAX_TOOL_RESULT_ARCHIVE_ENTRIES {
+            let excess = self.tool_result_archive.len() - MAX_TOOL_RESULT_ARCHIVE_ENTRIES;
+            self.tool_result_archive.drain(0..excess);
         }
     }
 
