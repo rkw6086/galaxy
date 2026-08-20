@@ -628,6 +628,16 @@ impl ResponseStream {
 
         let projection_model = params.model.clone();
         let projection_messages_sent = params.messages_sent.clone();
+        // For direct-provider projections, drop the heavy history fields from params
+        // after logging. Only `tool_results` is needed post-init (for `has_error_tool_results`
+        // and `tool_result_count`). This prevents retaining the full conversation history
+        // for the lifetime of the response stream.
+        let mut params = params;
+        params.message_history = Vec::new();
+        params.tool_result_archive = Vec::new();
+        params.input = Vec::new();
+        params.global_rules = Vec::new();
+        params.mcp_context = None;
         Self {
             id: response_stream_id,
             runtime_capabilities: RuntimeCapabilities::provider(),

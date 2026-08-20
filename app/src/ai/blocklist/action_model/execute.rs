@@ -1129,6 +1129,23 @@ impl BlocklistAIActionExecutor {
         }
     }
 
+    /// Removes all per-conversation retained state from sub-executors.
+    /// Called when a conversation is removed or cleared from memory.
+    pub fn cleanup_conversation(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.restored_action_ids
+            .retain(|(conv_id, _)| *conv_id != conversation_id);
+        self.async_executing_actions
+            .0
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.run_agents_executor.update(ctx, |executor, _| {
+            executor.cleanup_conversation(conversation_id);
+        });
+    }
+
     fn should_autoexecute(&self, input: ExecuteActionInput, ctx: &mut ModelContext<Self>) -> bool {
         if self
             .restored_action_ids

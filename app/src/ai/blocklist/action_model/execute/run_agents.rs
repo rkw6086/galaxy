@@ -155,6 +155,15 @@ impl RunAgentsExecutor {
         self.terminal_view_id
     }
 
+    /// Removes all per-conversation state for a conversation that has been removed.
+    pub(super) fn cleanup_conversation(&mut self, conversation_id: AIConversationId) {
+        self.launched_agents.remove(&conversation_id);
+        self.pending
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
+        self.recovery_action_ids
+            .retain(|(conv_id, _)| *conv_id != conversation_id);
+    }
+
     /// Cancels the parent tool wait without cancelling independently-running children.
     pub(super) fn cancel_execution(
         &mut self,
