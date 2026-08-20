@@ -209,7 +209,10 @@ impl BlocklistAIStatusBar {
                         .active_exchange_model
                         .as_ref()
                         .is_some_and(|model| model.conversation_id(ctx) == Some(*conversation_id));
-                    if is_active_conversation && !new_status.is_in_progress() {
+                    if is_active_conversation
+                        && !new_status.is_in_progress()
+                        && !new_status.is_transient_error()
+                    {
                         me.stop_warping_timer();
                     }
                     ctx.notify();

@@ -30,7 +30,7 @@ use crate::ai::blocklist::action_model::{
     RunAgentsExecutorEvent, RunAgentsSpawningSnapshot,
 };
 use crate::ai::blocklist::agent_view::orchestration_conversation_links::{
-    conversation_id_for_agent_id, conversation_navigation_card_with_icon,
+    conversation_id_for_agent_id_in_terminal_view, conversation_navigation_card_with_icon,
     dispatch_focus_or_open_child_agent_pane,
 };
 use crate::ai::blocklist::agent_view::orchestration_pill_bar::render_static_agent_pill;
@@ -1784,7 +1784,7 @@ fn render_run_agents_child_row(
     let outcome_conversation_id = outcome.and_then(|outcome| match &outcome.kind {
         RunAgentsAgentOutcomeKind::Launched { agent_id }
         | RunAgentsAgentOutcomeKind::Completed { agent_id, .. } => {
-            conversation_id_for_agent_id(agent_id, app)
+            conversation_id_for_agent_id_in_terminal_view(agent_id, terminal_view_id, app)
         }
         RunAgentsAgentOutcomeKind::Failed { .. } => None,
     });

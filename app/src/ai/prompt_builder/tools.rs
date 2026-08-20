@@ -107,11 +107,11 @@ fn run_shell_command_readonly() -> ToolDefinition {
 fn read_files() -> ToolDefinition {
     ToolDefinition {
         name: "read_files".to_string(),
-        description: "Read the contents of one or more files. Pass ALL file paths you need in a single call for efficiency. Returns file contents with path headers. Binary files are detected and skipped. Use absolute paths.".to_string(),
+        description: "Read the contents of up to 6 focused files per call. If you need more, make another call. Returns file contents with path headers. Binary files are detected and skipped. Use absolute paths.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "files": { "type": "array", "items": { "type": "string" }, "description": "Absolute file paths to read" }
+                "files": { "type": "array", "maxItems": 6, "items": { "type": "string" }, "description": "Absolute file paths to read (maximum 6 per call)" }
             },
             "required": ["files"]
         }),
@@ -121,7 +121,7 @@ fn read_files() -> ToolDefinition {
 fn apply_file_diffs() -> ToolDefinition {
     ToolDefinition {
         name: "apply_file_diffs".to_string(),
-        description: "Apply search/replace edits to files. Creates files if they don't exist (use empty search string). The search string must uniquely match one location in the file. Include enough surrounding context for uniqueness. For new files, use search=\"\" and put full content in replace.".to_string(),
+        description: "Apply search/replace edits to exactly one file per call. For multiple files, make separate calls. Creates files if they don't exist (use empty search string). The search string must uniquely match one location in the file. Include enough surrounding context for uniqueness. For new files, use search=\"\" and put full content in replace.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -136,11 +136,11 @@ fn apply_file_diffs() -> ToolDefinition {
 fn grep() -> ToolDefinition {
     ToolDefinition {
         name: "grep".to_string(),
-        description: "Search for regex patterns in files. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns file paths and matching line numbers. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
+        description: "Search for up to 3 focused regex patterns per call. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns file paths and matching line numbers. Use read_files afterward to see context around matches.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "queries": { "type": "array", "items": { "type": "string" }, "description": "Regex patterns to search for" },
+                "queries": { "type": "array", "maxItems": 3, "items": { "type": "string" }, "description": "Regex patterns to search for (maximum 3 per call)" },
                 "path": { "type": "string", "description": "Directory to scope the search to" }
             },
             "required": ["queries"]
@@ -151,11 +151,11 @@ fn grep() -> ToolDefinition {
 fn file_glob() -> ToolDefinition {
     ToolDefinition {
         name: "file_glob".to_string(),
-        description: "Find files matching glob patterns. Uses git ls-files in git repos. Returns absolute file paths of matches. Common patterns: '**/*.rs', 'src/**/*.ts', '**/Cargo.toml'. Pass ALL patterns in one call.".to_string(),
+        description: "Find files matching up to 3 focused glob patterns per call. Uses git ls-files in git repos. Returns absolute file paths of matches. Make another call for more patterns.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "patterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to match files" },
+                "patterns": { "type": "array", "maxItems": 3, "items": { "type": "string" }, "description": "Glob patterns to match files (maximum 3 per call)" },
                 "path": { "type": "string", "description": "Directory to search from" }
             },
             "required": ["patterns"]
@@ -241,12 +241,12 @@ fn read_mcp_resource() -> ToolDefinition {
 fn read_documents() -> ToolDefinition {
     ToolDefinition {
         name: "read_plan".to_string(),
-        description: "Read the contents of one or more Galaxy plan documents by their IDs. Plans are rich-text documents that appear in the Plans folder of Galaxy Drive."
+        description: "Read the contents of up to 6 Galaxy plan documents per call. Make another call for more. Plans are rich-text documents that appear in the Plans folder of Galaxy Drive."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Plan document IDs to read" }
+                "document_ids": { "type": "array", "maxItems": 6, "items": { "type": "string" }, "description": "Plan document IDs to read (maximum 6 per call)" }
             },
             "required": ["document_ids"]
         }),
@@ -256,12 +256,12 @@ fn read_documents() -> ToolDefinition {
 fn create_documents() -> ToolDefinition {
     ToolDefinition {
         name: "create_plan".to_string(),
-        description: "Create a new plan document in Galaxy Drive's Plans folder. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes."
+        description: "Create exactly one plan document per call. Use separate calls for separate documents. Plans are rich-text documents for tracking tasks, architecture decisions, and project notes."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Plan documents to create" }
+                "documents": { "type": "array", "maxItems": 1, "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "One plan document to create" }
             },
             "required": ["documents"]
         }),
@@ -271,12 +271,12 @@ fn create_documents() -> ToolDefinition {
 fn edit_documents() -> ToolDefinition {
     ToolDefinition {
         name: "edit_plan".to_string(),
-        description: "Edit an existing plan document in Galaxy Drive using search/replace diffs."
+        description: "Edit exactly one plan document per call with incremental search/replace diffs. Use separate calls for separate documents."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to plan documents" }
+                "diffs": { "type": "array", "maxItems": 1, "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "One incremental edit to apply to a plan document" }
             },
             "required": ["diffs"]
         }),
@@ -364,11 +364,11 @@ fn fetch_conversation() -> ToolDefinition {
 fn read_notebook() -> ToolDefinition {
     ToolDefinition {
         name: "read_notebook".to_string(),
-        description: "Read the contents of one or more Galaxy Drive notebooks by their IDs. Notebooks are user-created rich-text documents stored in Galaxy Drive.".to_string(),
+        description: "Read the contents of up to 6 Galaxy Drive notebooks per call. Make another call for more. Notebooks are user-created rich-text documents stored in Galaxy Drive.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "document_ids": { "type": "array", "items": { "type": "string" }, "description": "Notebook IDs to read" }
+                "document_ids": { "type": "array", "maxItems": 6, "items": { "type": "string" }, "description": "Notebook IDs to read (maximum 6 per call)" }
             },
             "required": ["document_ids"]
         }),
@@ -378,11 +378,11 @@ fn read_notebook() -> ToolDefinition {
 fn create_notebook() -> ToolDefinition {
     ToolDefinition {
         name: "create_notebook".to_string(),
-        description: "Create a new notebook in Galaxy Drive. Notebooks are rich-text documents for general notes, documentation, and reference material.".to_string(),
+        description: "Create exactly one notebook per call. Use separate calls for separate notebooks. Notebooks are rich-text documents for general notes, documentation, and reference material.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "documents": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "Notebooks to create" }
+                "documents": { "type": "array", "maxItems": 1, "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title", "content"] }, "description": "One notebook to create" }
             },
             "required": ["documents"]
         }),
@@ -392,12 +392,12 @@ fn create_notebook() -> ToolDefinition {
 fn edit_notebook() -> ToolDefinition {
     ToolDefinition {
         name: "edit_notebook".to_string(),
-        description: "Edit an existing Galaxy Drive notebook using search/replace diffs."
+        description: "Edit exactly one Galaxy Drive notebook per call with incremental search/replace diffs. Use separate calls for separate notebooks."
             .to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
-                "diffs": { "type": "array", "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "Edits to apply to notebooks" }
+                "diffs": { "type": "array", "maxItems": 1, "items": { "type": "object", "properties": { "document_id": { "type": "string" }, "search": { "type": "string" }, "replace": { "type": "string" } }, "required": ["document_id", "search", "replace"] }, "description": "One incremental edit to apply to a notebook" }
             },
             "required": ["diffs"]
         }),

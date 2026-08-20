@@ -4756,11 +4756,12 @@ impl AIBlock {
     ) {
         ctx.subscribe_to_model(action_model, |me, action_model, event, ctx| {
             let action_id = event.action_id();
+            let is_finished_action = matches!(event, BlocklistAIActionEvent::FinishedAction { .. });
 
             if event
                 .conversation_id()
                 .is_some_and(|conversation_id| conversation_id != me.client_ids.conversation_id)
-                || me.is_finished()
+                || (me.is_finished() && !is_finished_action)
                 || !me.requested_action_ids.contains(action_id)
             {
                 // Technically, this subscription should be unregistered after `is_finished` is

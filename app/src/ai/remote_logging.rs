@@ -5,6 +5,13 @@
 //! provider/model IDs, lifecycle states, counts, timings, and sanitized errors.
 
 use std::time::Duration;
+#[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+};
 
 use chrono::Utc;
 use galaxy_core::channel::ChannelState;
@@ -58,6 +65,9 @@ struct RemoteLogPayload {
     context: Value,
 }
 
+#[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
+static LOCAL_LOG_FILE: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
+
 impl RemoteLogConfig {
     fn from_settings(settings: &AISettings) -> Option<Self> {
         if !*settings.remote_logging_enabled.value() {
@@ -92,6 +102,9 @@ where
         context: enrich_context(record.context),
     };
 
+    #[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
+    write_local_log(&payload);
+
     let _ = ctx.spawn(
         async move { send_remote_log(config, payload).await },
         |_, result, _| {
@@ -100,6 +113,60 @@ where
             }
         },
     );
+}
+
+#[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
+fn write_local_log(payload: &RemoteLogPayload) {
+    let state = LOCAL_LOG_FILE.get_or_init(|| Mutex::new(None));
+    let mut path = match state.lock() {
+        Ok(path) => path,
+        Err(error) => {
+            log::error!("[remote-logging] local log lock is poisoned: {error}");
+            return;
+        }
+    };
+
+    if path.is_none() {
+        let directory = std::env::temp_dir().join("galaxy-remote-logs");
+        if let Err(error) = std::fs::create_dir_all(&directory) {
+            log::error!(
+                "[remote-logging] failed to create local log directory {}: {error}",
+                directory.display()
+            );
+            return;
+        }
+        let file_path = directory.join(format!("galaxy-remote-{}.jsonl", std::process::id()));
+        *path = Some(file_path.clone());
+        log::warn!(
+            "[remote-logging] local diagnostic log enabled: {}",
+            file_path.display()
+        );
+    }
+
+    let Some(file_path) = path.as_ref() else {
+        return;
+    };
+    let line = match serde_json::to_string(payload) {
+        Ok(line) => line,
+        Err(error) => {
+            log::error!("[remote-logging] failed to serialize local log record: {error}");
+            return;
+        }
+    };
+    match OpenOptions::new().create(true).append(true).open(file_path) {
+        Ok(mut file) => {
+            if let Err(error) = writeln!(file, "{line}") {
+                log::error!(
+                    "[remote-logging] failed to write local log {}: {error}",
+                    file_path.display()
+                );
+            }
+        }
+        Err(error) => log::error!(
+            "[remote-logging] failed to open local log {}: {error}",
+            file_path.display()
+        ),
+    }
 }
 
 pub(crate) fn sanitize_error(error: impl std::fmt::Display) -> String {

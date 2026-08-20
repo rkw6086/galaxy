@@ -24,6 +24,7 @@ Environment variables:
 - `WS_SERVER_URL` - WebSocket endpoint (default: `ws://localhost:8080/graphql/v2`)
 
 ### Testing
+- During interactive bug-fix verification, make the requested code changes first and run only `cargo run --bin galaxy-oss` for the user to verify. Leave the app running for the user; do not stop it or treat the command timeout as a failure. Do not run `cargo fmt`, `cargo check`, `cargo clippy`, presubmit, or other validation commands until the user confirms the fix.
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p galaxy_completer --features v2` - Run completer tests with v2 features
 - `cargo test --doc` - Run doc tests

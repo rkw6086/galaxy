@@ -460,6 +460,7 @@ embed-resource = "3.0"
 
 # Note that we support channel-specific enables for these features
 [features]
+remote_logs_local_file = []
 tui = ["galaxyui_core/tui"]
 ai_resume_button = []
 autoupdate = []

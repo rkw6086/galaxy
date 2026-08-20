@@ -513,13 +513,13 @@ fn init_internal(
 
     let mut base_logger = env_logger::builder();
 
-    base_logger.filter_level(LevelFilter::Info);
+    base_logger.filter_level(LevelFilter::Warn);
 
     // Only include `WARN` or higher logs for wgpu. By default, wgpu outputs logs at the `INFO`
     // level multiple times _per_ frame. See https://github.com/gfx-rs/wgpu/issues/3206.
     // Naga is overly noisy at `DEBUG`, so increase to `INFO`.
     base_logger
-        .filter(Some("naga"), LevelFilter::Info)
+        .filter(Some("naga"), LevelFilter::Warn)
         .filter(Some("wgpu_core"), LevelFilter::Warn)
         // Since we always pair an insertion with a deletion to avoid duplicate,
         // tantivy will log a lot of warnings for deleting a non-existing doc.

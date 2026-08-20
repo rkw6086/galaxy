@@ -23,6 +23,11 @@ pub(crate) const BASE_PROVIDER_PROFILE: &str = "base";
 pub(crate) const CLI_MONITOR_PROVIDER_PROFILE: &str = "cli-monitor";
 const PROVIDER_MODEL_START_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVIDER_MODEL_EVENT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const PROVIDER_MODEL_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(5),
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ProviderRunProjection {
@@ -856,6 +861,7 @@ impl ProviderRunCoordinator {
     where
         F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
+        let error_message = error.message.clone();
         let disposition = self
             .run
             .register_model_failure(&call.work_id, error.clone())?;
@@ -890,7 +896,25 @@ impl ProviderRunCoordinator {
                 project,
             )
             .await?;
+            let delay = PROVIDER_MODEL_RETRY_DELAYS
+                .get(retry_attempt.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or_default();
+            log::warn!(
+                "rig model call failed; retrying attempt {retry_attempt} after {}s: {}",
+                delay.as_secs(),
+                error_message
+            );
+            if !delay.is_zero() {
+                Timer::after(delay).await;
+            }
+            return Ok(());
         }
+        log::error!(
+            "rig model call failed permanently after {} retries: {}",
+            call.retry_attempt,
+            error_message
+        );
         Ok(())
     }
 

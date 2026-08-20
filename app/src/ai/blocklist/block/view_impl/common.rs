@@ -337,6 +337,14 @@ pub fn render_warping_indicator<V: View>(
 
     let mut should_render_waiting_icon = false;
     let mut non_shimmering_text = None;
+    if let Some(status_message) = props
+        .model
+        .conversation(app)
+        .and_then(|conversation| conversation.status_error_message())
+        .filter(|message| message.starts_with("Retrying LLM request"))
+    {
+        non_shimmering_text = Some(format!(" • {status_message}"));
+    }
     let message = if let Some(summarization_type) = summarization_type {
         // Choose the appropriate message based on summarization type
         let base_message = match summarization_type {

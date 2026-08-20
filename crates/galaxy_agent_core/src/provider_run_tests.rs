@@ -930,7 +930,7 @@ fn restored_state_validation_rejects_retry_counter_and_terminal_corruption() {
     );
 
     let excessive_retries = mutate_run_json(&run(), |value| {
-        value["model_retries"] = json!(3);
+        value["model_retries"] = json!(4);
     });
     assert!(restored_state_error(&excessive_retries).contains("model-retry counter"));
 

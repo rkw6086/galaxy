@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use ai::diff_validation::ParsedDiff;
@@ -17,6 +17,10 @@ use crate::ai::agent::{
     StartAgentVersion,
 };
 use crate::ai::document::ai_document_model::AIDocumentId;
+
+const MAX_BATCH_READ_ITEMS: usize = 6;
+const MAX_BATCH_SEARCH_ITEMS: usize = 3;
+const MAX_RUN_AGENTS: usize = 8;
 
 pub(crate) fn action_from_tool_call(
     task_id: &str,
@@ -47,7 +51,7 @@ pub(crate) fn action_from_tool_call(
                 citations: Vec::new(),
             },
             "read_files" => AIAgentActionType::ReadFiles(ReadFilesRequest {
-                locations: required_array(input, "files")?
+                locations: limited_required_array(input, "files", MAX_BATCH_READ_ITEMS)?
                     .iter()
                     .enumerate()
                     .map(|(index, file)| file_location(file, index))
@@ -58,11 +62,11 @@ pub(crate) fn action_from_tool_call(
                 title: Some(required_string(input, "summary")?),
             },
             "grep" => AIAgentActionType::Grep {
-                queries: required_strings(input, "queries")?,
+                queries: limited_required_strings(input, "queries", MAX_BATCH_SEARCH_ITEMS)?,
                 path: optional_string(input, "path")?.unwrap_or_default(),
             },
             "file_glob" => AIAgentActionType::FileGlob {
-                patterns: required_strings(input, "patterns")?,
+                patterns: limited_required_strings(input, "patterns", MAX_BATCH_SEARCH_ITEMS)?,
                 path: optional_string(input, "path")?.filter(|path| !path.is_empty()),
             },
             "search_codebase" => AIAgentActionType::SearchCodebase(SearchCodebaseRequest {
@@ -110,19 +114,23 @@ pub(crate) fn action_from_tool_call(
             },
             "read_plan" | "read_documents" | "read_notebook" => {
                 AIAgentActionType::ReadDocuments(ReadDocumentsRequest {
-                    document_ids: required_strings(input, "document_ids")?
-                        .into_iter()
-                        .map(|id| {
-                            AIDocumentId::try_from(id.clone()).map_err(|_| {
-                                format!("invalid document_ids entry: {id:?} is not a document ID")
-                            })
+                    document_ids: limited_required_strings(
+                        input,
+                        "document_ids",
+                        MAX_BATCH_READ_ITEMS,
+                    )?
+                    .into_iter()
+                    .map(|id| {
+                        AIDocumentId::try_from(id.clone()).map_err(|_| {
+                            format!("invalid document_ids entry: {id:?} is not a document ID")
                         })
-                        .collect::<Result<_, _>>()?,
+                    })
+                    .collect::<Result<_, _>>()?,
                 })
             }
             "create_plan" | "create_documents" | "create_notebook" => {
                 AIAgentActionType::CreateDocuments(CreateDocumentsRequest {
-                    documents: required_array(input, "documents")?
+                    documents: limited_required_array(input, "documents", 1)?
                         .iter()
                         .enumerate()
                         .map(|(index, document)| {
@@ -137,7 +145,7 @@ pub(crate) fn action_from_tool_call(
             }
             "edit_plan" | "edit_documents" | "edit_notebook" => {
                 AIAgentActionType::EditDocuments(EditDocumentsRequest {
-                    diffs: required_array(input, "diffs")?
+                    diffs: limited_required_array(input, "diffs", 1)?
                         .iter()
                         .enumerate()
                         .map(|(index, diff)| {
@@ -160,18 +168,22 @@ pub(crate) fn action_from_tool_call(
                 model_id: optional_string(input, "model_id")?.unwrap_or_default(),
                 harness_type: optional_string(input, "harness_type")?.unwrap_or_default(),
                 execution_mode: run_agents_execution_mode(input)?,
-                agent_run_configs: nonempty_required_array(input, "agent_run_configs")?
-                    .iter()
-                    .enumerate()
-                    .map(|(index, config)| {
-                        require_object(config, &format!("agent_run_configs[{index}]"))?;
-                        Ok(RunAgentsAgentRunConfig {
-                            name: required_nonempty_string(config, "name")?,
-                            prompt: required_nonempty_string(config, "prompt")?,
-                            title: optional_string(config, "title")?.unwrap_or_default(),
-                        })
+                agent_run_configs: limited_nonempty_required_array(
+                    input,
+                    "agent_run_configs",
+                    MAX_RUN_AGENTS,
+                )?
+                .iter()
+                .enumerate()
+                .map(|(index, config)| {
+                    require_object(config, &format!("agent_run_configs[{index}]"))?;
+                    Ok(RunAgentsAgentRunConfig {
+                        name: required_nonempty_string(config, "name")?,
+                        prompt: required_nonempty_string(config, "prompt")?,
+                        title: optional_string(config, "title")?.unwrap_or_default(),
                     })
-                    .collect::<Result<_, String>>()?,
+                })
+                .collect::<Result<_, String>>()?,
                 plan_id: optional_string(input, "plan_id")?.unwrap_or_default(),
                 harness_auth_secret_name: None,
             }),
@@ -317,6 +329,21 @@ fn required_array<'a>(
         .ok_or_else(|| format!("invalid field {key:?}: expected an array"))
 }
 
+fn limited_required_array<'a>(
+    input: &'a serde_json::Value,
+    key: &str,
+    maximum: usize,
+) -> Result<&'a Vec<serde_json::Value>, String> {
+    let values = required_array(input, key)?;
+    if values.len() > maximum {
+        return Err(format!(
+            "invalid field {key:?}: expected no more than {maximum} items, got {}",
+            values.len()
+        ));
+    }
+    Ok(values)
+}
+
 fn nonempty_required_array<'a>(
     input: &'a serde_json::Value,
     key: &str,
@@ -328,8 +355,28 @@ fn nonempty_required_array<'a>(
     Ok(values)
 }
 
+fn limited_nonempty_required_array<'a>(
+    input: &'a serde_json::Value,
+    key: &str,
+    maximum: usize,
+) -> Result<&'a Vec<serde_json::Value>, String> {
+    let values = limited_required_array(input, key, maximum)?;
+    if values.is_empty() {
+        return Err(format!("invalid field {key:?}: expected at least one item"));
+    }
+    Ok(values)
+}
+
 fn required_strings(input: &serde_json::Value, key: &str) -> Result<Vec<String>, String> {
     strings_from_array(required_array(input, key)?, key)
+}
+
+fn limited_required_strings(
+    input: &serde_json::Value,
+    key: &str,
+    maximum: usize,
+) -> Result<Vec<String>, String> {
+    strings_from_array(limited_required_array(input, key, maximum)?, key)
 }
 
 fn optional_strings(input: &serde_json::Value, key: &str) -> Result<Option<Vec<String>>, String> {
@@ -555,6 +602,16 @@ fn file_edits(input: &serde_json::Value) -> Result<Vec<FileEdit>, String> {
         return Err(
             "invalid file edits: expected at least one diff, new file, or deleted file".to_string(),
         );
+    }
+    let distinct_files = edits
+        .iter()
+        .filter_map(FileEdit::file)
+        .collect::<HashSet<_>>();
+    if distinct_files.len() > 1 {
+        return Err(format!(
+            "apply_file_diffs accepts one file per call; received {} distinct files. Apply each file in a separate call.",
+            distinct_files.len()
+        ));
     }
     Ok(edits)
 }

@@ -18,6 +18,7 @@ use crate::ai::agent_conversations_model::entry::AgentConversationEntryId;
 use crate::ai::agent_conversations_model::{
     AgentConversationNavigationSubject, AgentConversationsModel,
 };
+use crate::ai::blocklist::orchestration_topology::descendant_conversation_ids_in_spawn_order;
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::terminal::view::TerminalAction;
 use crate::ui_components::blended_colors;
@@ -52,6 +53,57 @@ pub(crate) fn conversation_id_for_agent_id(
                 .is_some()
                 .then_some(conversation_id)
         })
+}
+
+/// Resolve an agent identifier within the active orchestration tree first.
+/// Agent ids are server-facing identifiers and can be reused by separate
+/// orchestrators, so the global index is only a fallback for legacy output.
+pub(crate) fn conversation_id_for_agent_id_in_orchestration(
+    agent_id: &str,
+    orchestrator_id: AIConversationId,
+    app: &AppContext,
+) -> Option<AIConversationId> {
+    let canonical_id = canonical_agent_id(agent_id);
+    let history = BlocklistAIHistoryModel::as_ref(app);
+    let matches = |conversation: &AIConversation| {
+        conversation
+            .orchestration_agent_id()
+            .as_deref()
+            .is_some_and(|id| id == canonical_id)
+            || conversation.run_id().is_some_and(|id| id == canonical_id)
+            || conversation
+                .server_conversation_token()
+                .is_some_and(|token| token.as_str() == canonical_id)
+    };
+
+    std::iter::once(orchestrator_id)
+        .chain(descendant_conversation_ids_in_spawn_order(
+            history,
+            orchestrator_id,
+        ))
+        .find(|conversation_id| {
+            history
+                .conversation(conversation_id)
+                .is_some_and(|conversation| matches(conversation))
+        })
+        .or_else(|| conversation_id_for_agent_id(canonical_id, app))
+}
+
+/// Resolve an agent id relative to the conversation currently shown by a
+/// terminal view. Inline orchestration cards must use this instead of the
+/// global agent-id index because separate orchestrators can have overlapping
+/// server-facing child identifiers.
+pub(crate) fn conversation_id_for_agent_id_in_terminal_view(
+    agent_id: &str,
+    terminal_view_id: EntityId,
+    app: &AppContext,
+) -> Option<AIConversationId> {
+    let history = BlocklistAIHistoryModel::as_ref(app);
+    let active_conversation = history.active_conversation(terminal_view_id)?;
+    let orchestrator_id = active_conversation
+        .parent_conversation_id()
+        .unwrap_or_else(|| active_conversation.id());
+    conversation_id_for_agent_id_in_orchestration(agent_id, orchestrator_id, app)
 }
 
 /// True if the conversation is open in some other visible pane. Hidden
@@ -114,8 +166,13 @@ pub(crate) fn dispatch_focus_or_open_child_agent_pane(
                 let self_pane_group_id =
                     pane_group_id_containing_terminal_view(self_terminal_view_id, app);
                 if Some(owner_pane_group_id) == self_pane_group_id {
+                    // Same pane group: swap to the child pane in place.
                     ctx.dispatch_typed_action(TerminalAction::RevealChildAgent { conversation_id });
                 } else {
+                    // Different pane group: focus the exact canonical owner.
+                    // The conversation id was resolved from the source
+                    // orchestration tree, so this cannot select a same-named
+                    // child belonging to another orchestrator.
                     ctx.dispatch_typed_action(WorkspaceAction::FocusTerminalViewInWorkspace {
                         terminal_view_id: owner_view_id,
                     });

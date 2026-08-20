@@ -6189,6 +6189,35 @@ impl BlocklistAIController {
                 }
                 #[cfg(not(target_family = "wasm"))]
                 if let Some(lifecycle) = lifecycle.as_ref() {
+                    if lifecycle.phase == ProviderLlmLifecyclePhase::Requested {
+                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                            history.update_conversation_status(
+                                self.terminal_surface_id,
+                                conversation_id,
+                                ConversationStatus::InProgress,
+                                ctx,
+                            );
+                        });
+                    }
+                    if lifecycle.phase == ProviderLlmLifecyclePhase::RetryScheduled {
+                        let retry_message = format!(
+                            "Retrying LLM request ({}/3): {}",
+                            lifecycle.retry_attempt,
+                            lifecycle
+                                .error
+                                .as_deref()
+                                .unwrap_or("temporary provider error")
+                        );
+                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                            history.update_conversation_status_with_error(
+                                self.terminal_surface_id,
+                                conversation_id,
+                                ConversationStatus::TransientError,
+                                Some(RenderableAIError::other(retry_message, false)),
+                                ctx,
+                            );
+                        });
+                    }
                     remote_logging::log_model_event(
                         ctx,
                         provider_llm_lifecycle_remote_log_record(
@@ -6199,7 +6228,28 @@ impl BlocklistAIController {
                     );
                 }
                 #[cfg(target_family = "wasm")]
-                let _ = lifecycle;
+                if let Some(lifecycle) = lifecycle.as_ref() {
+                    if lifecycle.phase == ProviderLlmLifecyclePhase::Requested {
+                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                            history.update_conversation_status(
+                                self.terminal_surface_id,
+                                conversation_id,
+                                ConversationStatus::InProgress,
+                                ctx,
+                            );
+                        });
+                    }
+                    if lifecycle.phase == ProviderLlmLifecyclePhase::RetryScheduled {
+                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                            history.update_conversation_status(
+                                self.terminal_surface_id,
+                                conversation_id,
+                                ConversationStatus::TransientError,
+                                ctx,
+                            );
+                        });
+                    }
+                }
                 let _ = acknowledgement.send(result);
             }
             ProviderDriveMessage::Checkpoint {

@@ -98,7 +98,9 @@ impl Default for ProviderRunLimits {
     fn default() -> Self {
         Self {
             max_model_turns: 100,
-            max_model_retries_per_turn: 2,
+            // Three retries means the initial call plus three delayed retries;
+            // the fourth failure is surfaced to the user.
+            max_model_retries_per_turn: 3,
         }
     }
 }

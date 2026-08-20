@@ -22,8 +22,8 @@ use crate::ai::agent::{
 use crate::ai::blocklist::action_model::AIActionStatus;
 use crate::ai::blocklist::agent_view::orchestration_avatar::OrchestrationAvatar;
 use crate::ai::blocklist::agent_view::orchestration_conversation_links::{
-    conversation_id_for_agent_id, conversation_navigation_card_with_icon,
-    dispatch_focus_or_open_child_agent_pane,
+    conversation_id_for_agent_id, conversation_id_for_agent_id_in_orchestration,
+    conversation_navigation_card_with_icon, dispatch_focus_or_open_child_agent_pane,
 };
 use crate::ai::blocklist::block::model::AIBlockModelHelper;
 use crate::ai::blocklist::block::{
@@ -104,6 +104,28 @@ fn participant_for_agent_id(
         return OrchestrationParticipant::orchestrator();
     }
     OrchestrationParticipant::unknown_child()
+}
+
+fn participant_for_agent_id_in_orchestration(
+    agent_id: &str,
+    orchestrator_agent_id: Option<&str>,
+    orchestrator_conversation_id: AIConversationId,
+    app: &AppContext,
+) -> OrchestrationParticipant {
+    if let Some(conversation_id) =
+        conversation_id_for_agent_id_in_orchestration(agent_id, orchestrator_conversation_id, app)
+    {
+        if let Some(conversation) =
+            BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)
+        {
+            return participant_for_conversation(
+                conversation,
+                orchestrator_agent_id,
+                Some(agent_id),
+            );
+        }
+    }
+    participant_for_agent_id(agent_id, orchestrator_agent_id, app)
 }
 
 fn participant_for_conversation(
@@ -346,15 +368,32 @@ pub(super) fn render_messages_received_from_agents(
         .model
         .conversation(app)
         .and_then(|conversation| orchestrator_agent_id_for_conversation(conversation, app));
+    let orchestrator_conversation_id = props.model.conversation(app).map(|conversation| {
+        conversation
+            .parent_conversation_id()
+            .unwrap_or_else(|| conversation.id())
+    });
+    let Some(orchestrator_conversation_id) = orchestrator_conversation_id else {
+        return Empty::new().finish();
+    };
     let mut column = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
     for (index, msg) in messages.iter().enumerate() {
-        let sender =
-            participant_for_agent_id(&msg.sender_agent_id, orchestrator_agent_id.as_deref(), app);
+        let sender = participant_for_agent_id_in_orchestration(
+            &msg.sender_agent_id,
+            orchestrator_agent_id.as_deref(),
+            orchestrator_conversation_id,
+            app,
+        );
         let recipients = msg
             .addresses
             .iter()
             .map(|agent_id| {
-                participant_for_agent_id(agent_id, orchestrator_agent_id.as_deref(), app)
+                participant_for_agent_id_in_orchestration(
+                    agent_id,
+                    orchestrator_agent_id.as_deref(),
+                    orchestrator_conversation_id,
+                    app,
+                )
             })
             .collect::<Vec<_>>();
         let row_message_id = received_message_collapsible_id(&msg.message_id);
@@ -580,7 +619,19 @@ pub(super) fn render_start_agent(
             );
             return Empty::new().finish();
         };
-        let child_conversation_card_data = child_conversation_card_data_for_result(result, app);
+        let orchestrator_conversation_id = props.model.conversation(app).map(|conversation| {
+            conversation
+                .parent_conversation_id()
+                .unwrap_or_else(|| conversation.id())
+        });
+        let child_conversation_card_data =
+            orchestrator_conversation_id.and_then(|orchestrator_id| {
+                child_conversation_card_data_for_result_in_orchestration(
+                    result,
+                    orchestrator_id,
+                    app,
+                )
+            });
         let (label_fragments, status_icon) = match result {
             StartAgentResult::Success { .. } => (
                 vec![
@@ -825,6 +876,31 @@ fn child_conversation_card_data_for_result(
     match result {
         StartAgentResult::Success { agent_id, .. } => {
             let conversation_id = conversation_id_for_agent_id(agent_id, app)?;
+            let conversation =
+                BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)?;
+            let agent_name = conversation.agent_name().unwrap_or("Agent").to_string();
+            let status = conversation.status().clone();
+            let title = available_conversation_title_for_id(conversation_id, app)?;
+            Some(ChildConversationCardData {
+                conversation_id,
+                agent_name,
+                title,
+                status,
+            })
+        }
+        StartAgentResult::Error { .. } | StartAgentResult::Cancelled { .. } => None,
+    }
+}
+
+fn child_conversation_card_data_for_result_in_orchestration(
+    result: &StartAgentResult,
+    orchestrator_id: AIConversationId,
+    app: &AppContext,
+) -> Option<ChildConversationCardData> {
+    match result {
+        StartAgentResult::Success { agent_id, .. } => {
+            let conversation_id =
+                conversation_id_for_agent_id_in_orchestration(agent_id, orchestrator_id, app)?;
             let conversation =
                 BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)?;
             let agent_name = conversation.agent_name().unwrap_or("Agent").to_string();

@@ -80,10 +80,23 @@ pub(crate) async fn prepare_provider_run(
     let skill_path_origin = params.session_context.skill_path_origin();
     let max_context_tokens = params.context_window_limit;
     let mut cli_params = params.clone();
+    let cli_model_is_placeholder = params.cli_agent_model.as_str().trim().is_empty()
+        || params
+            .cli_agent_model
+            .as_str()
+            .eq_ignore_ascii_case("placeholder");
     let cli_provider_config = match cli_provider_config {
         crate::ai::provider::ProviderConfig::None => {
             // The CLI model can be absent from a model-specific provider routing table even when
             // the base model is usable. Keep monitoring available through the base provider/model.
+            cli_params.model = params.model.clone();
+            base_provider_config.clone()
+        }
+        provider_config if cli_model_is_placeholder => {
+            // A placeholder CLI model is used while preferences are still
+            // loading. Never send it to a provider: fall back to the working
+            // base model so command monitoring cannot terminate the run with
+            // a provider-side invalid-model error.
             cli_params.model = params.model.clone();
             base_provider_config.clone()
         }
