@@ -1239,6 +1239,10 @@ pub(crate) fn initialize_app(
         }
     }
 
+    // Migrate state and caches out of macOS Application Support before creating
+    // the new home-relative data directory.
+    galaxy_core::paths::migrate_legacy_macos_data_dir_if_needed();
+
     // One-time migration: give Preview its own config directory by
     // symlinking contents from the shared ~/.warp location. Must run
     // before ensure_galaxy_watch_roots_exist() creates the new directory.

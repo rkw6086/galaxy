@@ -66,7 +66,7 @@ use crate::ai::blocklist::code_block::CodeSnippetButtonHandles;
 use crate::ai::blocklist::inline_action::inline_action_icons::icon_size;
 use crate::ai::blocklist::permissions::is_agent_mode_autonomy_allowed;
 use crate::ai::blocklist::{
-    BlocklistAIActionModel, BlocklistAIHistoryEvent, BlocklistAIPermissions,
+    BlocklistAIActionModel, BlocklistAIController, BlocklistAIHistoryEvent, BlocklistAIPermissions,
 };
 use crate::ai::control_code_parser::{parse_control_codes_from_bytes, ParsedControlCodeOutput};
 use crate::ai::execution_profiles::profiles::{
@@ -489,27 +489,36 @@ impl CLISubagentView {
     }
 
     fn task_inputs_to_render(&self, app: &AppContext) -> Vec<AIAgentInput> {
-        BlocklistAIHistoryModel::as_ref(app)
+        let inputs = BlocklistAIHistoryModel::as_ref(app)
             .conversation(&self.conversation_id)
             .and_then(|conversation| conversation.get_task(&self.task_id))
             .map(|task| {
                 task.exchanges()
                     .flat_map(|exchange| exchange.input.iter())
-                    .filter_map(|input| {
-                        matches!(input, AIAgentInput::UserQuery { .. }).then(|| input.clone())
-                    })
-                    .last()
-                    .into_iter()
-                    .collect()
+                    .cloned()
+                    .collect::<Vec<_>>()
             })
-            .unwrap_or_else(|| self.model.inputs_to_render(app).to_vec())
+            .unwrap_or_else(|| self.model.inputs_to_render(app).to_vec());
+
+        inputs
+            .into_iter()
+            .rev()
+            .find_map(|input| match &input {
+                AIAgentInput::UserQuery { query, .. }
+                    if query != BlocklistAIController::cli_monitor_nudge_message() =>
+                {
+                    Some(input)
+                }
+                _ => None,
+            })
+            .into_iter()
+            .collect()
     }
 
     /// Builds the compact visible transcript for the monitor task.
     ///
-    /// The latest user query and the newest assistant text remain visible while historical tool
-    /// activity is omitted to avoid a growing stack of repeated poll cards. Only the newest
-    /// exchange's live action is retained.
+    /// The view shows at most one user query and one assistant progress message. Historical tool
+    /// calls and monitor nudges are implementation details, not user-facing transcript content.
     fn task_output_to_render(&self, app: &AppContext) -> AIAgentOutput {
         let Some(task) = BlocklistAIHistoryModel::as_ref(app)
             .conversation(&self.conversation_id)
@@ -519,32 +528,17 @@ impl CLISubagentView {
                 .model
                 .status(app)
                 .output_to_render()
-                .map(|output| output.get().clone())
+                .map(|output| compact_monitor_output([output.get().clone()]))
                 .unwrap_or_default();
         };
 
-        let Some(last_exchange_id) = task.last_exchange().map(|exchange| exchange.id) else {
-            return AIAgentOutput::default();
-        };
-
-        let mut visible_output = AIAgentOutput::default();
-        for exchange in task.exchanges() {
-            let Some(output) = exchange.output_status.output() else {
-                continue;
-            };
-            let output = output.get();
-            for message in output.messages.iter().filter(|message| {
-                should_retain_task_output_message(&message.message, exchange.id == last_exchange_id)
-            }) {
-                if matches!(message.message, AIAgentOutputMessageType::Text(_)) {
-                    visible_output.messages.retain(|existing| {
-                        !matches!(existing.message, AIAgentOutputMessageType::Text(_))
-                    });
-                }
-                visible_output.messages.push(message.clone());
-            }
-        }
-        visible_output
+        let outputs = task.exchanges().filter_map(|exchange| {
+            exchange
+                .output_status
+                .output()
+                .map(|output| output.get().clone())
+        });
+        compact_monitor_output(outputs)
     }
 
     fn execute_pending_action(&mut self, ctx: &mut ViewContext<Self>) {
@@ -1635,18 +1629,23 @@ fn should_show_read_files_speedbump(app: &AppContext) -> bool {
         && *AISettings::as_ref(app).should_show_agent_mode_autoread_files_speedbump
 }
 
-fn should_retain_task_output_message(
-    message: &AIAgentOutputMessageType,
-    is_latest_exchange: bool,
-) -> bool {
+fn compact_monitor_output(outputs: impl IntoIterator<Item = AIAgentOutput>) -> AIAgentOutput {
+    let latest_text = outputs
+        .into_iter()
+        .flat_map(|output| output.messages)
+        .filter(|message| should_retain_task_output_message(&message.message))
+        .last();
+
+    // Keep the monitor transcript to one user-visible assistant message. Tool calls are
+    // implementation details; the model's latest explanation is the useful progress update.
+    AIAgentOutput {
+        messages: latest_text.into_iter().collect(),
+        ..Default::default()
+    }
+}
+
+fn should_retain_task_output_message(message: &AIAgentOutputMessageType) -> bool {
     matches!(message, AIAgentOutputMessageType::Text(_))
-        || (is_latest_exchange
-            && matches!(
-                message,
-                AIAgentOutputMessageType::Action(_)
-                    | AIAgentOutputMessageType::RuntimeActivity(_)
-                    | AIAgentOutputMessageType::WebSearch(_)
-            ))
 }
 
 fn get_action_loading_text(action: AIAgentActionType) -> Option<String> {
@@ -1663,10 +1662,10 @@ fn get_action_loading_text(action: AIAgentActionType) -> Option<String> {
         AIAgentActionType::FileGlobV2 { .. } => Some(LOAD_OUTPUT_MESSAGE_FOR_FILE_GLOB.to_string()),
         AIAgentActionType::ReadShellCommandOutput { delay, .. } => match delay {
             Some(crate::ai::agent::ShellCommandDelay::OnCompletion) => {
-                Some("Waiting for the running command to finish…".to_string())
+                Some("Waiting for the command to finish…".to_string())
             }
             Some(crate::ai::agent::ShellCommandDelay::Duration(_)) | None => {
-                Some("Checking the running command output…".to_string())
+                Some("Reading the latest command output…".to_string())
             }
         },
         AIAgentActionType::WriteToLongRunningShellCommand { .. } => {

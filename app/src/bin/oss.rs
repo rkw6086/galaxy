@@ -25,6 +25,7 @@ fn main() -> Result<()> {
     if cfg!(debug_assertions) {
         state = state.with_additional_features(galaxy_core::features::DEBUG_FLAGS);
     }
+    state = state.with_additional_features(galaxy_core::features::PREVIEW_FLAGS);
     state = state.with_additional_features(&[
         FeatureFlag::AgentMode,
         FeatureFlag::AgentView,

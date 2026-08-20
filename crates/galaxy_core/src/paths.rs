@@ -204,36 +204,17 @@ pub fn galaxy_home_mcp_config_file_path() -> Option<PathBuf> {
     galaxy_home_config_dir().map(|warp_config_dir| warp_config_dir.join(".mcp.json"))
 }
 
-/// Returns the macOS config directory name for the current channel.
-///
-/// Stable uses `.warp-core`, while other channels include a channel suffix
-/// (e.g., `.warp-core-dev`, `.warp-core-local`).
-///
-/// These suffixes are persisted on disk as directory names and must not be
-/// changed once established, or existing user data will be orphaned.
-#[cfg(target_os = "macos")]
-fn macos_config_dir_name() -> String {
-    match ChannelState::channel() {
-        Channel::Stable | Channel::Oss => WARP_CONFIG_DIR.to_owned(),
-        Channel::Preview => format!("{WARP_CONFIG_DIR}-preview"),
-        Channel::Dev => format!("{WARP_CONFIG_DIR}-dev"),
-        Channel::Integration => format!("{WARP_CONFIG_DIR}-integration"),
-        Channel::Local => format!("{WARP_CONFIG_DIR}-local"),
-    }
-}
-
 /// Returns the path to the directory where portable user data should be
 /// stored.
 ///
 /// This is the appropriate home for things like custom themes and workflows.
 pub fn data_dir() -> PathBuf {
     cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            // TODO(vorporeal): We should do something better than return a
-            // relative path.
-            dirs::home_dir().unwrap_or_default().join(macos_config_dir_name())
-        } else {
+        if #[cfg(target_os = "windows")] {
             project_dirs().map(|dirs| dirs.data_dir().to_owned()).unwrap_or_default()
+        } else {
+            // macOS and Linux both use ~/.galaxy
+            dirs::home_dir().unwrap_or_default().join(galaxy_home_config_dir_name())
         }
     }
 }
@@ -242,14 +223,13 @@ pub fn data_dir() -> PathBuf {
 /// should be stored.
 pub fn config_local_dir() -> PathBuf {
     cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            // TODO(vorporeal): We should do something better than return a
-            // relative path.
-            dirs::home_dir().unwrap_or_default().join(macos_config_dir_name())
-        } else {
+        if #[cfg(target_os = "windows")] {
             project_dirs()
                 .map(|dirs| dirs.config_local_dir().to_owned())
                 .unwrap_or_default()
+        } else {
+            // macOS and Linux both use ~/.galaxy
+            dirs::home_dir().unwrap_or_default().join(galaxy_home_config_dir_name())
         }
     }
 }
@@ -269,39 +249,34 @@ pub fn base_config_dir() -> PathBuf {
 /// contains durable but non-critical and non-portable data like what windows
 /// the user had open and cached state of known Warp Drive objects.
 pub fn state_dir() -> PathBuf {
-    let Some(project_dirs) = project_dirs() else {
-        return PathBuf::new();
-    };
-    // For platforms that don't have a notion of a "state" directory (e.g.:
-    // macOS and Windows), fall back to using the data directory.
-    project_dirs
-        .state_dir()
-        .unwrap_or_else(|| project_dirs.data_local_dir())
-        .to_owned()
+    cfg_if! {
+        if #[cfg(target_os = "windows")] {
+            let Some(project_dirs) = project_dirs() else {
+                return PathBuf::new();
+            };
+            project_dirs
+                .state_dir()
+                .unwrap_or_else(|| project_dirs.data_local_dir())
+                .to_owned()
+        } else {
+            // macOS and Linux both use ~/.galaxy (same as data_dir)
+            data_dir()
+        }
+    }
 }
 
 /// Returns the path to the secure directory for non-portable application state data.
 ///
-/// Prefer this over [`state_dir`] where possible.
-///
-/// On macOS, this will use the App Group container directory if available.
+/// macOS data is intentionally kept in [`data_dir`] rather than an App Group container so all
+/// local Galaxy data is visible under the user's home directory.
 pub fn secure_state_dir() -> Option<PathBuf> {
-    // Do not use the secure state directory in integration tests, which have a temporary home directory instead.
+    // Do not use a secure state directory in integration tests, which have a temporary home.
     if ChannelState::channel() == Channel::Integration {
         return None;
     }
 
-    #[cfg(target_os = "macos")]
-    if let Some(app_group_root) = app_group_container_path() {
-        // The macOS project_path is the bundle ID (i.e. `dev.warp.Warp-Stable`).
-        let project_dirs = project_dirs()?;
-        return Some(
-            app_group_root
-                .join("Library/Application Support")
-                .join(project_dirs.project_path()),
-        );
-    }
-
+    // No platform currently has a separate secure state directory. Callers fall back to
+    // `state_dir()`, which is `~/.galaxy` on macOS.
     None
 }
 
@@ -317,17 +292,107 @@ pub fn themes_dir() -> PathBuf {
 /// we don't want to fetch on every launch of the app but can be safely
 /// deleted by the OS.
 pub fn cache_dir() -> PathBuf {
-    let Some(project_dirs) = project_dirs() else {
-        return PathBuf::new();
-    };
     cfg_if! {
-        if #[cfg(target_os = "macos")] {
-            // TODO(vorporeal): Given that this is just cache data; do we want
-            // change the path we use on macOS?
-            project_dirs.data_dir().to_owned()
+        if #[cfg(target_os = "windows")] {
+            project_dirs()
+                .map(|project_dirs| project_dirs.cache_dir().to_owned())
+                .unwrap_or_default()
         } else {
-            project_dirs.cache_dir().to_owned()
+            // macOS and Linux both use ~/.galaxy (same as data_dir)
+            data_dir()
         }
+    }
+}
+
+/// Migrates data from the old macOS Application Support locations into the home-relative Galaxy
+/// directory. Existing files are never overwritten; directory contents are merged recursively.
+pub fn migrate_legacy_macos_data_dir_if_needed() {
+    #[cfg(target_os = "macos")]
+    {
+        if ChannelState::channel() == Channel::Integration {
+            return;
+        }
+
+        let target_dir = data_dir();
+        let mut legacy_dirs = Vec::new();
+        if let Some(project_dirs) = project_dirs() {
+            legacy_dirs.push(project_dirs.data_dir().to_owned());
+        }
+
+        // Older signed builds may have used the App Group container for SQLite state.
+        if let (Some(app_group_root), Some(project_dirs)) =
+            (app_group_container_path(), project_dirs())
+        {
+            legacy_dirs.push(
+                app_group_root
+                    .join("Library/Application Support")
+                    .join(project_dirs.project_path()),
+            );
+        }
+
+        legacy_dirs.sort();
+        legacy_dirs.dedup();
+        for legacy_dir in legacy_dirs {
+            if legacy_dir != target_dir && legacy_dir.exists() {
+                migrate_directory_contents(&legacy_dir, &target_dir);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_directory_contents(source_dir: &Path, target_dir: &Path) {
+    if let Err(err) = std::fs::create_dir_all(target_dir) {
+        log::warn!(
+            "Failed to create Galaxy data directory {} while migrating {}: {err}",
+            target_dir.display(),
+            source_dir.display()
+        );
+        return;
+    }
+
+    let entries = match std::fs::read_dir(source_dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            log::warn!(
+                "Failed to read legacy Galaxy data directory {}: {err}",
+                source_dir.display()
+            );
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let source_path = entry.path();
+        let target_path = target_dir.join(entry.file_name());
+        let source_is_dir = entry.file_type().is_ok_and(|file_type| file_type.is_dir());
+
+        if target_path.exists() {
+            if source_is_dir && target_path.is_dir() {
+                migrate_directory_contents(&source_path, &target_path);
+            } else {
+                log::warn!(
+                    "Leaving legacy Galaxy data at {} because {} already exists",
+                    source_path.display(),
+                    target_path.display()
+                );
+            }
+            continue;
+        }
+
+        if let Err(err) = std::fs::rename(&source_path, &target_path) {
+            log::warn!(
+                "Failed to migrate Galaxy data {} to {}: {err}",
+                source_path.display(),
+                target_path.display()
+            );
+        }
+    }
+
+    if std::fs::read_dir(source_dir)
+        .is_ok_and(|mut entries| entries.next().is_none())
+    {
+        let _ = std::fs::remove_dir(source_dir);
     }
 }
 
@@ -360,30 +425,16 @@ fn project_dirs() -> Option<directories::ProjectDirs> {
 ///
 /// This returns [`None`] if the user's home directory could not be determined.
 fn project_dirs_for_app_id(
-    app_id: AppId,
+    _app_id: AppId,
     data_profile: Option<&str>,
 ) -> Option<directories::ProjectDirs> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(target_os = "linux", target_os = "freebsd"))] {
-            // Adjust the base application name so that we end up with
-            // directories like "warp-terminal" and "warp-terminal-dev", to
-            // match our Linux package name.
-            let base_app_name = match app_id.application_name() {
-                "Warp" => "Warp-Terminal".to_owned(),
-                "WarpOss" => "Warp-Oss".to_owned(),
-                other if other.starts_with("Warp") => other.replace("Warp", "Warp-Terminal-"),
-                _ => app_id.application_name().to_owned(),
-            };
-        } else {
-            let base_app_name = app_id.application_name().to_owned();
-        }
-    }
+    let base_app_name = "Galaxy".to_owned();
     let app_name = if let Some(data_profile) = data_profile {
         format!("{base_app_name}-{data_profile}")
     } else {
         base_app_name
     };
-    directories::ProjectDirs::from(app_id.qualifier(), app_id.organization(), &app_name)
+    directories::ProjectDirs::from("com", "galaxy", &app_name)
 }
 
 /// Returns the path to the app's secure group container on macOS.

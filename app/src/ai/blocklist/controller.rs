@@ -2954,7 +2954,7 @@ impl BlocklistAIController {
     }
 
     pub(crate) fn cli_monitor_nudge_message() -> &'static str {
-        "The command is still running. Please check its latest output and keep monitoring it."
+        "The command is still running. Before checking it again, provide one concise, user-facing sentence grounded in the latest output about what it appears to be doing, then continue monitoring it."
     }
 
     #[allow(clippy::too_many_arguments)]
