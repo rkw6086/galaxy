@@ -1,0 +1,739 @@
+{
+  "anthropic.claude-fable-5": {
+    "created": 1780272000,
+    "regions": [
+      "us-east-1"
+    ]
+  },
+  "anthropic.claude-haiku-4-5": {
+    "created": 1759276800,
+    "regions": [
+      "ap-northeast-1",
+      "eu-north-1",
+      "eu-west-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "anthropic.claude-opus-4-7": {
+    "created": 1775692800,
+    "regions": [
+      "ap-northeast-1",
+      "eu-north-1",
+      "eu-west-1",
+      "us-east-1"
+    ]
+  },
+  "anthropic.claude-opus-4-8": {
+    "created": 1779148800,
+    "regions": [
+      "ap-northeast-1",
+      "eu-north-1",
+      "eu-west-1",
+      "us-east-1"
+    ]
+  },
+  "anthropic.claude-opus-5": {
+    "created": 1782950400,
+    "regions": [
+      "eu-north-1",
+      "eu-west-1",
+      "us-east-1"
+    ]
+  },
+  "anthropic.claude-sonnet-5": {
+    "created": 1781654400,
+    "regions": [
+      "eu-north-1",
+      "eu-west-1",
+      "us-east-1"
+    ]
+  },
+  "deepseek.v3.1": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "deepseek.v3.2": {
+    "created": 1769385600,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-3-12b-it": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-3-27b-it": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-3-4b-it": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-4-26b-a4b": {
+    "created": 1777852800,
+    "regions": [
+      "eu-central-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-4-31b": {
+    "created": 1778112000,
+    "regions": [
+      "eu-central-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "google.gemma-4-e2b": {
+    "created": 1778112000,
+    "regions": [
+      "eu-central-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "minimax.minimax-m2": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "minimax.minimax-m2.1": {
+    "created": 1769396433,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "minimax.minimax-m2.5": {
+    "created": 1769396433,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.devstral-2-123b": {
+    "created": 1765843200,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.magistral-small-2509": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.ministral-3-14b-instruct": {
+    "created": 1763923865,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.ministral-3-3b-instruct": {
+    "created": 1763923654,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.ministral-3-8b-instruct": {
+    "created": 1763923750,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.mistral-large-3-675b-instruct": {
+    "created": 1763923896,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.voxtral-mini-3b-2507": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "mistral.voxtral-small-24b-2507": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "moonshotai.kimi-k2-thinking": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "moonshotai.kimi-k2.5": {
+    "created": 1769558400,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "nvidia.nemotron-nano-12b-v2": {
+    "created": 1763769600,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "nvidia.nemotron-nano-3-30b": {
+    "created": 1765065600,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "nvidia.nemotron-nano-9b-v2": {
+    "created": 1763769600,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "nvidia.nemotron-super-3-120b": {
+    "created": 1768780800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-5.4": {
+    "created": 1777507200,
+    "regions": [
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-5.4-2026-03-05": {
+    "created": 1777507200,
+    "regions": [
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-5.5": {
+    "created": 1779321600,
+    "regions": [
+      "us-east-1",
+      "us-east-2"
+    ]
+  },
+  "openai.gpt-5.5-2026-04-23": {
+    "created": 1779321600,
+    "regions": [
+      "us-east-1",
+      "us-east-2"
+    ]
+  },
+  "openai.gpt-5.6-luna": {
+    "created": 1782345600,
+    "regions": [
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-5.6-sol": {
+    "created": 1781827200,
+    "regions": [
+      "us-east-1",
+      "us-east-2"
+    ]
+  },
+  "openai.gpt-5.6-terra": {
+    "created": 1781827200,
+    "regions": [
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-oss-120b": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-oss-20b": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-oss-safeguard-120b": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "openai.gpt-oss-safeguard-20b": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-235b-a22b-2507": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-32b": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-coder-30b-a3b-instruct": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-coder-480b-a35b-instruct": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-coder-next": {
+    "created": 1770163200,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-next-80b-a3b-instruct": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "qwen.qwen3-vl-235b-a22b-instruct": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "writer.palmyra-vision-7b": {
+    "created": 1771804800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "xai.grok-4.3": {
+    "created": 1778630400,
+    "regions": [
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "xai.grok-4.6": {
+    "created": 1786492800,
+    "regions": [
+      "us-west-2"
+    ]
+  },
+  "zai.glm-4.6": {
+    "created": 1764460800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "zai.glm-4.7": {
+    "created": 1769558400,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "zai.glm-4.7-flash": {
+    "created": 1769644800,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "eu-north-1",
+      "eu-west-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  },
+  "zai.glm-5": {
+    "created": 1771770206,
+    "regions": [
+      "ap-northeast-1",
+      "ap-south-1",
+      "ap-southeast-2",
+      "eu-north-1",
+      "eu-west-2",
+      "sa-east-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-2"
+    ]
+  }
+}

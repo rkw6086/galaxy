@@ -117,7 +117,17 @@ pub trait AIExecutionProfileAppExt {
     fn configurable_context_window(&self, app: &AppContext) -> Option<LLMContextWindow>;
 
     fn context_window_display_value(&self, app: &AppContext) -> Option<u32>;
+    fn context_window_display_value_for_model(
+        &self,
+        model: &LLMInfo,
+        app: &AppContext,
+    ) -> Option<u32>;
     fn context_window_limit_for_request(&self, app: &AppContext) -> Option<u32>;
+    fn context_window_limit_for_model_request(
+        &self,
+        model: &LLMInfo,
+        app: &AppContext,
+    ) -> Option<u32>;
     fn should_show_long_context_pricing_warning(
         &self,
         context_window_limit: Option<u32>,
@@ -139,20 +149,52 @@ impl AIExecutionProfileAppExt for AIExecutionProfile {
     }
 
     fn context_window_display_value(&self, app: &AppContext) -> Option<u32> {
-        let cw = self.configurable_context_window(app)?;
-        Some(self.context_window_limit.unwrap_or(cw.default_max))
+        self.context_window_display_value_for_model(effective_base_model(self, app), app)
     }
-    fn context_window_limit_for_request(&self, app: &AppContext) -> Option<u32> {
-        let llm = effective_base_model(self, app);
+
+    fn context_window_display_value_for_model(
+        &self,
+        model: &LLMInfo,
+        app: &AppContext,
+    ) -> Option<u32> {
         if !has_configurable_context_window(
-            llm,
+            model,
             FeatureFlag::GPTConfigurableContextWindow.is_enabled(),
         ) {
             return None;
         }
 
+        let selected_limit = if effective_base_model(self, app).id == model.id {
+            self.context_window_limit
+        } else {
+            None
+        };
+        Some(
+            selected_limit
+                .unwrap_or(model.context_window.default_max)
+                .clamp(model.context_window.min, model.context_window.max),
+        )
+    }
+
+    fn context_window_limit_for_request(&self, app: &AppContext) -> Option<u32> {
+        self.context_window_limit_for_model_request(effective_base_model(self, app), app)
+    }
+
+    fn context_window_limit_for_model_request(
+        &self,
+        model: &LLMInfo,
+        app: &AppContext,
+    ) -> Option<u32> {
+        if !has_configurable_context_window(
+            model,
+            FeatureFlag::GPTConfigurableContextWindow.is_enabled(),
+        ) || effective_base_model(self, app).id != model.id
+        {
+            return None;
+        }
+
         self.context_window_limit
-            .map(|limit| limit.clamp(llm.context_window.min, llm.context_window.max))
+            .map(|limit| limit.clamp(model.context_window.min, model.context_window.max))
     }
 
     fn should_show_long_context_pricing_warning(

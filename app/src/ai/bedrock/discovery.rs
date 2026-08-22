@@ -8,6 +8,7 @@ use aws_config::BehaviorVersion;
 use aws_sdk_bedrock::Client;
 use aws_sdk_bedrockruntime::config::Region;
 use futures::{stream, StreamExt};
+use galaxy_bedrock_model_catalog::model_metadata;
 
 use super::client::{BedrockClientConfig, BedrockError};
 use crate::settings::ai::BedrockModelConfig;
@@ -71,20 +72,23 @@ pub async fn discover_available_models(
                 return None;
             }
 
-            let display_name = summary
-                .model_name()
-                .map(str::to_owned)
-                .unwrap_or_else(|| prettify_model_id(model_id));
+            let metadata = model_metadata(model_id);
+            let display_name = summary.model_name().map(str::to_owned).unwrap_or_else(|| {
+                metadata
+                    .map(|metadata| metadata.model_name.clone())
+                    .unwrap_or_else(|| prettify_model_id(model_id))
+            });
             let vision_supported = summary
                 .input_modalities()
                 .iter()
-                .any(|modality| modality.as_str() == "IMAGE");
+                .any(|modality| modality.as_str() == "IMAGE")
+                || metadata.is_some_and(|metadata| metadata.supports_vision_input());
 
             Some(BedrockModelConfig {
                 model_id: model_id.to_owned(),
                 display_name,
                 vision_supported,
-                use_rig: false,
+                use_rig: true,
             })
         }
     });

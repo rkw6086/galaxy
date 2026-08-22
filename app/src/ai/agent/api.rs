@@ -413,10 +413,14 @@ impl RequestParams {
         // server-side, drop the override; otherwise clamp it to the model's
         // current `[min, max]` range. This closes the window between an
         // in-flight model metadata refresh and the next request.
+        let llm_preferences = LLMPreferences::as_ref(app);
+        let selected_model = llm_preferences
+            .get_llm_info(&request_input.model_id)
+            .unwrap_or_else(|| llm_preferences.get_active_base_model(app, terminal_view_id));
         let context_window_limit = AIExecutionProfilesModel::as_ref(app)
             .active_profile(terminal_view_id, app)
             .data()
-            .context_window_limit_for_request(app);
+            .context_window_limit_for_model_request(selected_model, app);
 
         Self {
             terminal_view_id,

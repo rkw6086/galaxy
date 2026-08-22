@@ -5748,6 +5748,7 @@ dependencies = [
  "galaxy_acp",
  "galaxy_agent_core",
  "galaxy_agent_rig",
+ "galaxy_bedrock_model_catalog",
  "galaxy_cli",
  "galaxy_completer",
  "galaxy_core",
@@ -5991,6 +5992,14 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "galaxy_bedrock_model_catalog"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

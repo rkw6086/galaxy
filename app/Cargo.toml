@@ -210,6 +210,7 @@ galaxy_completer.workspace = true
 galaxy_core.workspace = true
 galaxy_agent_core.workspace = true
 galaxy_agent_rig.workspace = true
+galaxy_bedrock_model_catalog.workspace = true
 galaxy_editor.workspace = true
 galaxy_graphql.workspace = true
 galaxy_js = { workspace = true, optional = true }

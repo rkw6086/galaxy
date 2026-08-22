@@ -1,0 +1,3595 @@
+{
+  "ai21-labs-jamba-1-5-large": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-ai21-labs-jamba-1-5-large.html",
+    "title": "Jamba 1.5 Large",
+    "metadata": {
+      "modelLaunchDate": "Aug 22, 2024",
+      "modelEolDate": "November 26, 2026",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "ai21.jamba-1-5-large-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "ai21-labs-jamba-1-5-mini": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-ai21-labs-jamba-1-5-mini.html",
+    "title": "Jamba 1.5 Mini",
+    "metadata": {
+      "modelLaunchDate": "Aug 22, 2024",
+      "modelEolDate": "November 26, 2026",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "ai21.jamba-1-5-mini-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-2-lite": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-lite.html",
+    "title": "Nova 2 Lite",
+    "metadata": {
+      "modelLaunchDate": "Dec 02, 2025",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-2-lite-v1:0",
+        "eu.amazon.nova-2-lite-v1:0",
+        "global.amazon.nova-2-lite-v1:0",
+        "jp.amazon.nova-2-lite-v1:0",
+        "us.amazon.nova-2-lite-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-2-sonic": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-2-sonic.html",
+    "title": "Nova 2 Sonic",
+    "metadata": {
+      "modelLaunchDate": "Dec 2, 2025",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-2-sonic-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-premier": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-premier.html",
+    "title": "Nova Premier",
+    "metadata": {
+      "modelLaunchDate": "Oct 31, 2025",
+      "modelEolDate": "September 14, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "25K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-premier-v1:0",
+        "us.amazon.nova-premier-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-sonic": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-sonic.html",
+    "title": "Nova Sonic",
+    "metadata": {
+      "modelEolDate": "September 14, 2026",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-sonic-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-lite": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-lite.html",
+    "title": "Nova Lite",
+    "metadata": {
+      "modelLaunchDate": "Dec 05, 2024",
+      "contextWindow": "300K tokens",
+      "maxOutputTokens": "5K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-lite-v1:0",
+        "eu.amazon.nova-lite-v1:0",
+        "us.amazon.nova-lite-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-micro": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-micro.html",
+    "title": "Nova Micro",
+    "metadata": {
+      "modelLaunchDate": "Dec 05, 2024",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "5K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-micro-v1:0",
+        "eu.amazon.nova-micro-v1:0",
+        "us.amazon.nova-micro-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-pro": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-pro.html",
+    "title": "Nova Pro",
+    "metadata": {
+      "modelLaunchDate": "Dec 05, 2024",
+      "contextWindow": "300K tokens",
+      "maxOutputTokens": "5K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-pro-v1:0",
+        "eu.amazon.nova-pro-v1:0",
+        "us.amazon.nova-pro-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-amazon-nova-multimodal-embeddings": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-amazon-nova-multimodal-embeddings.html",
+    "title": "Amazon Nova Multimodal Embeddings",
+    "metadata": {
+      "modelLaunchDate": "Oct 28, 2025",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-2-multimodal-embeddings-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-canvas": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-canvas.html",
+    "title": "Nova Canvas",
+    "metadata": {
+      "modelLaunchDate": "Dec 3, 2024",
+      "modelEolDate": "September 30, 2026",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-canvas-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-nova-reel": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-nova-reel.html",
+    "title": "Nova Reel",
+    "metadata": {
+      "modelLaunchDate": "Dec 3, 2024",
+      "modelEolDate": "September 30, 2026",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.nova-reel-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-titan-text-embeddings-v2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-titan-text-embeddings-v2.html",
+    "title": "Titan Text Embeddings V2",
+    "metadata": {
+      "modelLaunchDate": "Apr 30, 2024",
+      "contextWindow": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.titan-embed-text-v2:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-titan-image-generator-g1-v2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-titan-image-generator-g1-v2.html",
+    "title": "Titan Image Generator G1 v2",
+    "metadata": {
+      "modelLaunchDate": "Nov 29, 2023",
+      "modelEolDate": "June 30, 2026",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.titan-image-generator-v2:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-titan-multimodal-embeddings-g1": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-titan-multimodal-embeddings-g1.html",
+    "title": "Titan Multimodal Embeddings G1",
+    "metadata": {
+      "modelLaunchDate": "Nov 29, 2023",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.titan-embed-image-v1"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-titan-embeddings-g1---text": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-titan-embeddings-g1---text.html",
+    "title": "Titan Embeddings G1 - Text",
+    "metadata": {
+      "modelLaunchDate": "Sep 28, 2023",
+      "contextWindow": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.titan-embed-text-v1"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "amazon-titan-text-embeddings-v2-2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-amazon-titan-text-embeddings-v2-2.html",
+    "title": "Titan Embeddings G1 - Text v2",
+    "metadata": {
+      "contextWindow": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "amazon.titan-embed-g1-text-02"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-opus-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-5.html",
+    "title": "Claude Opus 5",
+    "metadata": {
+      "modelLaunchDate": "July 24, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-opus-5",
+        "au.anthropic.claude-opus-5",
+        "eu.anthropic.claude-opus-5",
+        "global.anthropic.claude-opus-5",
+        "us.anthropic.claude-opus-5"
+      ],
+      "mantleRegions": [
+        "eu-north-1",
+        "eu-west-1",
+        "us-east-1"
+      ],
+      "mantleCreated": 1782950400
+    }
+  },
+  "anthropic-claude-sonnet-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5.html",
+    "title": "Claude Sonnet 5",
+    "metadata": {
+      "modelLaunchDate": "June 30, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-sonnet-5",
+        "au.anthropic.claude-sonnet-5",
+        "eu.anthropic.claude-sonnet-5",
+        "global.anthropic.claude-sonnet-5",
+        "us.anthropic.claude-sonnet-5"
+      ],
+      "mantleRegions": [
+        "eu-north-1",
+        "eu-west-1",
+        "us-east-1"
+      ],
+      "mantleCreated": 1781654400
+    }
+  },
+  "anthropic-claude-mythos-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-5.html",
+    "title": "Claude Mythos 5",
+    "metadata": {
+      "modelLaunchDate": "June 9, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-mythos-5"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-fable-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-fable-5.html",
+    "title": "Claude Fable 5",
+    "metadata": {
+      "modelLaunchDate": "June 9, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-fable-5",
+        "global.anthropic.claude-fable-5",
+        "us.anthropic.claude-fable-5"
+      ],
+      "mantleRegions": [
+        "us-east-1"
+      ],
+      "mantleCreated": 1780272000
+    }
+  },
+  "anthropic-claude-opus-4-8": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-4-8.html",
+    "title": "Claude Opus 4.8",
+    "metadata": {
+      "modelLaunchDate": "May 28, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-opus-4-8",
+        "au.anthropic.claude-opus-4-8",
+        "eu.anthropic.claude-opus-4-8",
+        "global.anthropic.claude-opus-4-8",
+        "jp.anthropic.claude-opus-4-8",
+        "us.anthropic.claude-opus-4-8"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "eu-north-1",
+        "eu-west-1",
+        "us-east-1"
+      ],
+      "mantleCreated": 1779148800
+    }
+  },
+  "anthropic-claude-opus-4-7": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-4-7.html",
+    "title": "Claude Opus 4.7",
+    "metadata": {
+      "modelLaunchDate": "Apr 16, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-opus-4-7",
+        "au.anthropic.claude-opus-4-7",
+        "eu.anthropic.claude-opus-4-7",
+        "global.anthropic.claude-opus-4-7",
+        "jp.anthropic.claude-opus-4-7",
+        "us.anthropic.claude-opus-4-7"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "eu-north-1",
+        "eu-west-1",
+        "us-east-1"
+      ],
+      "mantleCreated": 1775692800
+    }
+  },
+  "anthropic-claude-mythos-preview": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-mythos-preview.html",
+    "title": "Claude Mythos Preview",
+    "metadata": {
+      "modelLaunchDate": "Apr 07, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-mythos-preview"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-sonnet-4-6": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-6.html",
+    "title": "Claude Sonnet 4.6",
+    "metadata": {
+      "modelLaunchDate": "Feb 17, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-sonnet-4-6",
+        "au.anthropic.claude-sonnet-4-6",
+        "eu.anthropic.claude-sonnet-4-6",
+        "global.anthropic.claude-sonnet-4-6",
+        "jp.anthropic.claude-sonnet-4-6",
+        "us.anthropic.claude-sonnet-4-6"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-opus-4-6": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-4-6.html",
+    "title": "Claude Opus 4.6",
+    "metadata": {
+      "modelLaunchDate": "Feb 5, 2026",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-opus-4-6-v1",
+        "au.anthropic.claude-opus-4-6-v1",
+        "eu.anthropic.claude-opus-4-6-v1",
+        "global.anthropic.claude-opus-4-6-v1",
+        "us.anthropic.claude-opus-4-6-v1"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-opus-4-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-4-5.html",
+    "title": "Claude Opus 4.5",
+    "metadata": {
+      "modelLaunchDate": "Nov 24, 2025",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-opus-4-5-20251101-v1:0",
+        "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+        "global.anthropic.claude-opus-4-5-20251101-v1:0",
+        "us.anthropic.claude-opus-4-5-20251101-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-haiku-4-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-4-5.html",
+    "title": "Claude Haiku 4.5",
+    "metadata": {
+      "modelLaunchDate": "Oct 16, 2025",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "anthropic.claude-haiku-4-5",
+        "anthropic.claude-haiku-4-5-20251001-v1:0",
+        "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "eu-north-1",
+        "eu-west-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1759276800
+    }
+  },
+  "anthropic-claude-sonnet-4-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4-5.html",
+    "title": "Claude Sonnet 4.5",
+    "metadata": {
+      "modelLaunchDate": "Sep 30, 2025",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "au.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-opus-4-1": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-opus-4-1.html",
+    "title": "Claude Opus 4.1",
+    "metadata": {
+      "modelLaunchDate": "Aug 05, 2025",
+      "modelEolDate": "January 8, 2027",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-opus-4-1-20250805-v1:0",
+        "us.anthropic.claude-opus-4-1-20250805-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-sonnet-4": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-4.html",
+    "title": "Claude Sonnet 4",
+    "metadata": {
+      "modelLaunchDate": "May 23, 2025",
+      "modelEolDate": "October 14, 2026",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "64K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-sonnet-4-20250514-v1:0",
+        "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+        "eu.anthropic.claude-sonnet-4-20250514-v1:0",
+        "global.anthropic.claude-sonnet-4-20250514-v1:0",
+        "us.anthropic.claude-sonnet-4-20250514-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-3-5-haiku": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-3-5-haiku.html",
+    "title": "Claude 3.5 Haiku",
+    "metadata": {
+      "modelLaunchDate": "Nov 4, 2024",
+      "modelEolDate": "June 19, 2026",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "anthropic-claude-3-haiku": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-3-haiku.html",
+    "title": "Claude 3 Haiku",
+    "metadata": {
+      "modelLaunchDate": "Mar 13, 2024",
+      "modelEolDate": "September 10, 2026",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "anthropic.claude-3-haiku-20240307-v1:0",
+        "eu.anthropic.claude-3-haiku-20240307-v1:0",
+        "us.anthropic.claude-3-haiku-20240307-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-embed-v4": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-embed-v4.html",
+    "title": "Embed v4",
+    "metadata": {
+      "modelLaunchDate": "Apr 15, 2025",
+      "contextWindow": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.embed-v4:0",
+        "eu.cohere.embed-v4:0",
+        "global.cohere.embed-v4:0",
+        "us.cohere.embed-v4:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-rerank-3-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-rerank-3-5.html",
+    "title": "Rerank 3.5",
+    "metadata": {
+      "modelLaunchDate": "Dec 2, 2024",
+      "contextWindow": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.rerank-v3-5:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-command-r": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-command-r.html",
+    "title": "Command R",
+    "metadata": {
+      "modelEolDate": "August 19, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.command-r-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-command-r-plus": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-command-r-plus.html",
+    "title": "Command R+",
+    "metadata": {
+      "modelEolDate": "August 19, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.command-r-plus-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-embed-english": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-embed-english.html",
+    "title": "Embed English",
+    "metadata": {
+      "modelLaunchDate": "Nov 2, 2023",
+      "contextWindow": "512t tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.embed-english-v3"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "cohere-embed-multilingual": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-cohere-embed-multilingual.html",
+    "title": "Embed Multilingual",
+    "metadata": {
+      "modelLaunchDate": "Nov 2, 2023",
+      "contextWindow": "512t tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "cohere.embed-multilingual-v3"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "deepseek-deepseek-v3-2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-deepseek-deepseek-v3-2.html",
+    "title": "DeepSeek V3.2",
+    "metadata": {
+      "modelLaunchDate": "Dec 01, 2025",
+      "contextWindow": "164K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "deepseek.v3.2"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769385600
+    }
+  },
+  "deepseek-deepseek-v3-1": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-deepseek-deepseek-v3-1.html",
+    "title": "DeepSeek-V3.1",
+    "metadata": {
+      "modelLaunchDate": "Aug 21, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "deepseek.v3-v1:0",
+        "deepseek.v3.1"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "deepseek-deepseek-r1": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-deepseek-deepseek-r1.html",
+    "title": "DeepSeek-R1",
+    "metadata": {
+      "modelLaunchDate": "Jan 20, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "deepseek.r1-v1:0",
+        "us.deepseek.r1-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "google-gemma-4-31b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-4-31b.html",
+    "title": "Gemma 4 31B",
+    "metadata": {
+      "modelLaunchDate": "Mar 31, 2026",
+      "contextWindow": "256K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-4-31b"
+      ],
+      "mantleRegions": [
+        "eu-central-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1778112000
+    }
+  },
+  "google-gemma-4-26b-a4b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-4-26b-a4b.html",
+    "title": "Gemma 4 26B-A4B",
+    "metadata": {
+      "modelLaunchDate": "Mar 31, 2026",
+      "contextWindow": "256K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-4-26b-a4b"
+      ],
+      "mantleRegions": [
+        "eu-central-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1777852800
+    }
+  },
+  "google-gemma-4-e2b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-4-e2b.html",
+    "title": "Gemma 4 E2B",
+    "metadata": {
+      "modelLaunchDate": "Mar 31, 2026",
+      "contextWindow": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-4-e2b"
+      ],
+      "mantleRegions": [
+        "eu-central-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1778112000
+    }
+  },
+  "google-gemma-3-12b-it": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-3-12b-it.html",
+    "title": "Gemma 3 12B IT",
+    "metadata": {
+      "modelLaunchDate": "Mar 12, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-3-12b-it"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "google-gemma-3-27b-pt": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-3-27b-pt.html",
+    "title": "Gemma 3 27B PT",
+    "metadata": {
+      "modelLaunchDate": "Mar 12, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-3-27b-it"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "google-gemma-3-4b-it": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-google-gemma-3-4b-it.html",
+    "title": "Gemma 3 4B IT",
+    "metadata": {
+      "modelLaunchDate": "Mar 12, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "google.gemma-3-4b-it"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "meta-llama-4-maverick-17b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-4-maverick-17b-instruct.html",
+    "title": "Llama 4 Maverick 17B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Apr 05, 2025",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama4-maverick-17b-instruct-v1:0",
+        "us.meta.llama4-maverick-17b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-4-scout-17b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-4-scout-17b-instruct.html",
+    "title": "Llama 4 Scout 17B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Apr 05, 2025",
+      "contextWindow": "10M tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama4-scout-17b-instruct-v1:0",
+        "us.meta.llama4-scout-17b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-3-70b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-3-70b-instruct.html",
+    "title": "Llama 3.3 70B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Dec 06, 2024",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-3-70b-instruct-v1:0",
+        "us.meta.llama3-3-70b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-2-11b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-2-11b-instruct.html",
+    "title": "Llama 3.2 11B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Sep 25, 2024",
+      "modelEolDate": "July 7, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-2-11b-instruct-v1:0",
+        "us.meta.llama3-2-11b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-2-1b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-2-1b-instruct.html",
+    "title": "Llama 3.2 1B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Sep 25, 2024",
+      "modelEolDate": "July 7, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.meta.llama3-2-1b-instruct-v1:0",
+        "meta.llama3-2-1b-instruct-v1:0",
+        "us.meta.llama3-2-1b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-2-3b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-2-3b-instruct.html",
+    "title": "Llama 3.2 3B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Sep 25, 2024",
+      "modelEolDate": "July 7, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.meta.llama3-2-3b-instruct-v1:0",
+        "meta.llama3-2-3b-instruct-v1:0",
+        "us.meta.llama3-2-3b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-2-90b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-2-90b-instruct.html",
+    "title": "Llama 3.2 90B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Sep 25, 2024",
+      "modelEolDate": "July 7, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-2-90b-instruct-v1:0",
+        "us.meta.llama3-2-90b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-1-405b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-1-405b-instruct.html",
+    "title": "Llama 3.1 405B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Jul 23, 2024",
+      "modelEolDate": "July 7, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-1-405b-instruct-v1:0",
+        "us.meta.llama3-1-405b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-1-70b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-1-70b-instruct.html",
+    "title": "Llama 3.1 70B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Jul 23, 2024",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-1-70b-instruct-v1:0",
+        "us.meta.llama3-1-70b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-1-8b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-1-8b-instruct.html",
+    "title": "Llama 3.1 8B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Jul 23, 2024",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-1-8b-instruct-v1:0",
+        "us.meta.llama3-1-8b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-70b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-70b-instruct.html",
+    "title": "Llama 3 70B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Apr 18, 2024",
+      "contextWindow": "8K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-70b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "meta-llama-3-8b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-meta-llama-3-8b-instruct.html",
+    "title": "Llama 3 8B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Apr 18, 2024",
+      "contextWindow": "8K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "meta.llama3-8b-instruct-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "minimax-minimax-m2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-minimax-minimax-m2.html",
+    "title": "MiniMax M2",
+    "metadata": {
+      "modelLaunchDate": "Oct 23, 2025",
+      "contextWindow": "1M tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "minimax.minimax-m2"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "minimax-minimax-m2-1": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-minimax-minimax-m2-1.html",
+    "title": "MiniMax M2.1",
+    "metadata": {
+      "modelLaunchDate": "Dec 23, 2025",
+      "contextWindow": "196K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "minimax.minimax-m2.1"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769396433
+    }
+  },
+  "minimax-minimax-m2-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-minimax-minimax-m2-5.html",
+    "title": "MiniMax M2.5",
+    "metadata": {
+      "modelLaunchDate": "Feb 12, 2026",
+      "contextWindow": "196K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "minimax.minimax-m2.5"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769396433
+    }
+  },
+  "mistral-ai-mistral-small": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-mistral-small.html",
+    "title": "Mistral Small",
+    "metadata": {
+      "modelLaunchDate": "Dec 16, 2025",
+      "contextWindow": "32K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "mistral.mistral-small-2402-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "mistral-ai-ministral-14b-3-0": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-ministral-14b-3-0.html",
+    "title": "Ministral 14B 3.0",
+    "metadata": {
+      "modelLaunchDate": "Dec 2, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.ministral-3-14b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763923865
+    }
+  },
+  "mistral-ai-ministral-3-8b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-ministral-3-8b.html",
+    "title": "Ministral 3 8B",
+    "metadata": {
+      "modelLaunchDate": "Dec 02, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.ministral-3-8b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763923750
+    }
+  },
+  "mistral-ai-ministral-3b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-ministral-3b.html",
+    "title": "Ministral 3B",
+    "metadata": {
+      "modelLaunchDate": "Dec 2, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.ministral-3-3b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763923654
+    }
+  },
+  "mistral-ai-mistral-large-3": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-mistral-large-3.html",
+    "title": "Mistral Large 3",
+    "metadata": {
+      "modelLaunchDate": "Dec 2, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.mistral-large-3-675b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763923896
+    }
+  },
+  "mistral-ai-voxtral-small-24b-2507": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-voxtral-small-24b-2507.html",
+    "title": "Voxtral Small 24B 2507",
+    "metadata": {
+      "modelLaunchDate": "Oct 30, 2025",
+      "contextWindow": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.voxtral-small-24b-2507"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "mistral-ai-magistral-small-2509": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-magistral-small-2509.html",
+    "title": "Magistral Small 2509",
+    "metadata": {
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "40K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.magistral-small-2509"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "mistral-ai-voxtral-mini-3b-2507": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-voxtral-mini-3b-2507.html",
+    "title": "Voxtral Mini 3B 2507",
+    "metadata": {
+      "contextWindow": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.voxtral-mini-3b-2507"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "mistral-ai-devstral-2-123b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-devstral-2-123b.html",
+    "title": "Devstral 2 123B",
+    "metadata": {
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "mistral.devstral-2-123b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1765843200
+    }
+  },
+  "mistral-ai-pixtral-large": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-pixtral-large.html",
+    "title": "Pixtral Large",
+    "metadata": {
+      "modelLaunchDate": "Nov 19, 2024",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.mistral.pixtral-large-2502-v1:0",
+        "mistral.pixtral-large-2502-v1:0",
+        "us.mistral.pixtral-large-2502-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "mistral-ai-mistral-large": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-mistral-large.html",
+    "title": "Mistral Large",
+    "metadata": {
+      "modelLaunchDate": "Feb 26, 2024",
+      "contextWindow": "32K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "mistral.mistral-large-2402-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "mistral-ai-mixtral-8x7b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-mixtral-8x7b-instruct.html",
+    "title": "Mixtral 8x7B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Dec 10, 2023",
+      "contextWindow": "32K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "mistral.mixtral-8x7b-instruct-v0:1"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "mistral-ai-mistral-7b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-mistral-ai-mistral-7b-instruct.html",
+    "title": "Mistral 7B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Sep 28, 2023",
+      "contextWindow": "32K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "mistral.mistral-7b-instruct-v0:2"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "moonshot-ai-kimi-k2-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k2-5.html",
+    "title": "Kimi K2.5",
+    "metadata": {
+      "modelLaunchDate": "Jan 27, 2026",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "moonshotai.kimi-k2.5"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769558400
+    }
+  },
+  "moonshot-ai-kimi-k2-thinking": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-moonshot-ai-kimi-k2-thinking.html",
+    "title": "Kimi K2 Thinking",
+    "metadata": {
+      "modelLaunchDate": "Nov 06, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "moonshot.kimi-k2-thinking",
+        "moonshotai.kimi-k2-thinking"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "nvidia-nvidia-nemotron-nano-9b-v2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-nvidia-nvidia-nemotron-nano-9b-v2.html",
+    "title": "NVIDIA Nemotron Nano 9B v2",
+    "metadata": {
+      "modelLaunchDate": "Aug 18, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "nvidia.nemotron-nano-9b-v2",
+        "us-gov.nvidia.nemotron-nano-9b-v2"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763769600
+    }
+  },
+  "nvidia-nvidia-nemotron-nano-12b-v2-vl-bf16": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-nvidia-nvidia-nemotron-nano-12b-v2-vl-bf16.html",
+    "title": "NVIDIA Nemotron Nano 12B v2 VL BF16",
+    "metadata": {
+      "modelLaunchDate": "Oct 28, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "nvidia.nemotron-nano-12b-v2",
+        "us-gov.nvidia.nemotron-nano-12b-v2"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1763769600
+    }
+  },
+  "nvidia-nemotron-nano-3-30b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-nvidia-nemotron-nano-3-30b.html",
+    "title": "Nemotron Nano 3 30B",
+    "metadata": {
+      "modelLaunchDate": "Dec 15, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "nvidia.nemotron-nano-3-30b",
+        "us-gov.nvidia.nemotron-nano-3-30b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1765065600
+    }
+  },
+  "nvidia-nemotron-super-3-120b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-nvidia-nemotron-super-3-120b.html",
+    "title": "NVIDIA Nemotron 3 Super 120B",
+    "metadata": {
+      "modelLaunchDate": "Mar 11, 2026",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "32K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "nvidia.nemotron-super-3-120b",
+        "us-gov.nvidia.nemotron-super-3-120b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1768780800
+    }
+  },
+  "openai-gpt-56-sol": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-sol.html",
+    "title": "GPT-5.6 Sol",
+    "metadata": {
+      "modelLaunchDate": "July 13, 2026",
+      "contextWindow": "1M tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "global.openai.gpt-5.6-sol",
+        "openai.gpt-5.6-sol",
+        "us.openai.gpt-5.6-sol"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2"
+      ],
+      "mantleCreated": 1781827200
+    }
+  },
+  "openai-gpt-56-terra": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-terra.html",
+    "title": "GPT-5.6 Terra",
+    "metadata": {
+      "modelLaunchDate": "July 13, 2026",
+      "contextWindow": "1M tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "global.openai.gpt-5.6-terra",
+        "in.openai.gpt-5.6-terra",
+        "openai.gpt-5.6-terra",
+        "us.openai.gpt-5.6-terra"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1781827200
+    }
+  },
+  "openai-gpt-56-luna": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-luna.html",
+    "title": "GPT-5.6 Luna",
+    "metadata": {
+      "modelLaunchDate": "July 13, 2026",
+      "contextWindow": "1M tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "global.openai.gpt-5.6-luna",
+        "in.openai.gpt-5.6-luna",
+        "openai.gpt-5.6-luna",
+        "us.openai.gpt-5.6-luna"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1782345600
+    }
+  },
+  "openai-gpt-56-cyber": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-56-cyber.html",
+    "title": "Daybreak Red: GPT-5.6 Cyber",
+    "metadata": {
+      "modelLaunchDate": "August 12, 2026",
+      "contextWindow": "272K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "openai.gpt-5.6-cyber"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "openai-gpt-daybreak-blue-56-sol": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-daybreak-blue-56-sol.html",
+    "title": "Daybreak Blue: GPT-5.6 Sol",
+    "metadata": {
+      "modelLaunchDate": "August 12, 2026",
+      "contextWindow": "1M tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "openai.gpt-daybreak-blue-5.6-sol"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "openai-gpt-55": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-55.html",
+    "title": "GPT-5.5",
+    "metadata": {
+      "modelLaunchDate": "June 1, 2026",
+      "contextWindow": "272K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-5.5"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2"
+      ],
+      "mantleCreated": 1779321600
+    }
+  },
+  "openai-gpt-54": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-54.html",
+    "title": "GPT-5.4",
+    "metadata": {
+      "modelLaunchDate": "June 1, 2026",
+      "contextWindow": "272K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-5.4"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1777507200
+    }
+  },
+  "openai-gpt-oss-safeguard-120b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-oss-safeguard-120b.html",
+    "title": "GPT OSS Safeguard 120B",
+    "metadata": {
+      "modelLaunchDate": "Oct 29, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-oss-safeguard-120b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "openai-gpt-oss-safeguard-20b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-oss-safeguard-20b.html",
+    "title": "GPT OSS Safeguard 20B",
+    "metadata": {
+      "modelLaunchDate": "Oct 29, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-oss-safeguard-20b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "openai-gpt-oss-120b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-oss-120b.html",
+    "title": "gpt-oss-120b",
+    "metadata": {
+      "modelLaunchDate": "Aug 05, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-oss-120b",
+        "openai.gpt-oss-120b-1:0",
+        "us-gov.openai.gpt-oss-120b-1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "openai-gpt-oss-20b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-openai-gpt-oss-20b.html",
+    "title": "gpt-oss-20b",
+    "metadata": {
+      "modelLaunchDate": "Aug 05, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "openai.gpt-oss-20b",
+        "openai.gpt-oss-20b-1:0",
+        "us-gov.openai.gpt-oss-20b-1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-coder-next": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-next.html",
+    "title": "Qwen3 Coder Next",
+    "metadata": {
+      "modelLaunchDate": "Feb 04, 2026",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-coder-next"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1770163200
+    }
+  },
+  "qwen-qwen3-vl-235b-a22b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-vl-235b-a22b.html",
+    "title": "Qwen3 VL 235B A22B",
+    "metadata": {
+      "modelLaunchDate": "Sep 23, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-vl-235b-a22b",
+        "qwen.qwen3-vl-235b-a22b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-next-80b-a3b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-next-80b-a3b.html",
+    "title": "Qwen3 Next 80B A3B",
+    "metadata": {
+      "modelLaunchDate": "Sep 11, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-next-80b-a3b",
+        "qwen.qwen3-next-80b-a3b-instruct"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-coder-30b-a3b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-30b-a3b-instruct.html",
+    "title": "Qwen3-Coder-30B-A3B-Instruct",
+    "metadata": {
+      "modelLaunchDate": "Jul 31, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-coder-30b-a3b-instruct",
+        "qwen.qwen3-coder-30b-a3b-v1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-coder-480b-a35b-instruct": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-480b-a35b-instruct.html",
+    "title": "Qwen3 Coder 480B A35B Instruct",
+    "metadata": {
+      "modelLaunchDate": "Jul 23, 2025",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "16K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-coder-480b-a35b-instruct",
+        "qwen.qwen3-coder-480b-a35b-v1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-32b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-32b.html",
+    "title": "Qwen3 32B",
+    "metadata": {
+      "modelLaunchDate": "Apr 29, 2025",
+      "contextWindow": "32K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-32b",
+        "qwen.qwen3-32b-v1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "qwen-qwen3-235b-a22b-2507": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-235b-a22b-2507.html",
+    "title": "Qwen3 235B A22B 2507",
+    "metadata": {
+      "modelLaunchDate": "Apr 28, 2025",
+      "contextWindow": "256K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "qwen.qwen3-235b-a22b-2507",
+        "qwen.qwen3-235b-a22b-2507-v1:0"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1764460800
+    }
+  },
+  "stability-ai-stable-image-remove-background": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-remove-background.html",
+    "title": "Stable Image Remove Background",
+    "metadata": {
+      "modelLaunchDate": "Nov 7, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-remove-background-v1:0",
+        "us.stability.stable-image-remove-background-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-search-and-replace": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-search-and-replace.html",
+    "title": "Stable Image Search and Replace",
+    "metadata": {
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-search-replace-v1:0",
+        "us.stability.stable-image-search-replace-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-style-guide": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-style-guide.html",
+    "title": "Stable Image Style Guide",
+    "metadata": {
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-style-guide-v1:0",
+        "us.stability.stable-image-style-guide-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-style-transfer": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-style-transfer.html",
+    "title": "Stable Image Style Transfer",
+    "metadata": {
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-style-transfer-v1:0",
+        "us.stability.stable-style-transfer-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-fast-upscale": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-fast-upscale.html",
+    "title": "Stable Image Fast Upscale",
+    "metadata": {
+      "modelLaunchDate": "Sep 10, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-fast-upscale-v1:0",
+        "us.stability.stable-fast-upscale-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-search-and-recolor": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-search-and-recolor.html",
+    "title": "Stable Image Search and Recolor",
+    "metadata": {
+      "modelLaunchDate": "Aug 19, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-search-recolor-v1:0",
+        "us.stability.stable-image-search-recolor-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-conservative-upscale": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-conservative-upscale.html",
+    "title": "Stable Image Conservative Upscale",
+    "metadata": {
+      "modelLaunchDate": "May 20, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-conservative-upscale-v1:0",
+        "us.stability.stable-conservative-upscale-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-erase-object": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-erase-object.html",
+    "title": "Stable Image Erase Object",
+    "metadata": {
+      "modelLaunchDate": "May 20, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-erase-object-v1:0",
+        "us.stability.stable-image-erase-object-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-control-structure": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-control-structure.html",
+    "title": "Stable Image Control Structure",
+    "metadata": {
+      "modelLaunchDate": "Apr 30, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-control-structure-v1:0",
+        "us.stability.stable-image-control-structure-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-creative-upscale": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-creative-upscale.html",
+    "title": "Stable Image Creative Upscale",
+    "metadata": {
+      "modelLaunchDate": "Mar 21, 2024",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-creative-upscale-v1:0",
+        "us.stability.stable-creative-upscale-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-control-sketch": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-control-sketch.html",
+    "title": "Stable Image Control Sketch",
+    "metadata": {
+      "modelLaunchDate": "Jul 13, 2023",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-control-sketch-v1:0",
+        "us.stability.stable-image-control-sketch-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-outpaint": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-outpaint.html",
+    "title": "Stable Image Outpaint",
+    "metadata": {
+      "modelLaunchDate": "Nov 24, 2022",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-outpaint-v1:0",
+        "us.stability.stable-outpaint-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "stability-ai-stable-image-inpaint": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-stability-ai-stable-image-inpaint.html",
+    "title": "Stable Image Inpaint",
+    "metadata": {
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "stability.stable-image-inpaint-v1:0",
+        "us.stability.stable-image-inpaint-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "twelvelabs-marengo-embed-3-0": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-twelvelabs-marengo-embed-3-0.html",
+    "title": "Marengo Embed 3.0",
+    "metadata": {
+      "modelLaunchDate": "Oct 29, 2025",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.twelvelabs.marengo-embed-3-0-v1:0",
+        "twelvelabs.marengo-embed-3-0-v1:0",
+        "us.twelvelabs.marengo-embed-3-0-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "twelvelabs-pegasus-v1-2": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-twelvelabs-pegasus-v1-2.html",
+    "title": "Pegasus v1.2",
+    "metadata": {
+      "modelLaunchDate": "Feb 11, 2025",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.twelvelabs.pegasus-1-2-v1:0",
+        "global.twelvelabs.pegasus-1-2-v1:0",
+        "twelvelabs.pegasus-1-2-v1:0",
+        "us.twelvelabs.pegasus-1-2-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "twelvelabs-marengo-embed-v2-7": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-twelvelabs-marengo-embed-v2-7.html",
+    "title": "Marengo Embed v2.7",
+    "metadata": {
+      "modelLaunchDate": "Dec 4, 2024",
+      "modelEolDate": "November 30, 2026",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "eu.twelvelabs.marengo-embed-2-7-v1:0",
+        "twelvelabs.marengo-embed-2-7-v1:0",
+        "us.twelvelabs.marengo-embed-2-7-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "writer-palmyra-vision-7b": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-writer-palmyra-vision-7b.html",
+    "title": "Palmyra Vision 7B",
+    "metadata": {
+      "modelLaunchDate": "Mar 26, 2026",
+      "contextWindow": "4K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "writer.palmyra-vision-7b"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1771804800
+    }
+  },
+  "writer-palmyra-x5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-writer-palmyra-x5.html",
+    "title": "Palmyra X5",
+    "metadata": {
+      "modelLaunchDate": "Jan 21, 2026",
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "us.writer.palmyra-x5-v1:0",
+        "writer.palmyra-x5-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "writer-palmyra-x4": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-writer-palmyra-x4.html",
+    "title": "Palmyra X4",
+    "metadata": {
+      "contextWindow": "128K tokens",
+      "maxOutputTokens": "8K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": false,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": false
+      },
+      "modelIds": [
+        "us.writer.palmyra-x4-v1:0",
+        "writer.palmyra-x4-v1:0"
+      ],
+      "mantleRegions": []
+    }
+  },
+  "xai-grok-4-3": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-3.html",
+    "title": "Grok 4.3",
+    "metadata": {
+      "modelLaunchDate": "June 15, 2026",
+      "contextWindow": "1M tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": false
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": false,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "xai.grok-4.3"
+      ],
+      "mantleRegions": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1778630400
+    }
+  },
+  "xai-grok-4-6": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-xai-grok-4-6.html",
+    "title": "Grok 4.6",
+    "metadata": {
+      "modelLaunchDate": "August 18, 2026",
+      "contextWindow": "500K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": true,
+        "chatCompletions": true,
+        "invoke": false,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "global.xai.grok-4.6",
+        "us.xai.grok-4.6",
+        "xai.grok-4.6"
+      ],
+      "mantleRegions": [
+        "us-west-2"
+      ],
+      "mantleCreated": 1786492800
+    }
+  },
+  "zai-glm-4-7": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-zai-glm-4-7.html",
+    "title": "GLM 4.7",
+    "metadata": {
+      "modelLaunchDate": "Dec 22, 2025",
+      "contextWindow": "203K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "zai.glm-4.7"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769558400
+    }
+  },
+  "zai-glm-4-7-flash": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-zai-glm-4-7-flash.html",
+    "title": "GLM 4.7 Flash",
+    "metadata": {
+      "modelLaunchDate": "Jan 19, 2026",
+      "contextWindow": "203K tokens",
+      "maxOutputTokens": "4K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "zai.glm-4.7-flash"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-central-1",
+        "eu-north-1",
+        "eu-west-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1769644800
+    }
+  },
+  "zai-glm-5": {
+    "url": "https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-zai-glm-5.html",
+    "title": "GLM 5",
+    "metadata": {
+      "modelLaunchDate": "Feb 11, 2026",
+      "contextWindow": "200K tokens",
+      "maxOutputTokens": "128K tokens",
+      "pricing": {},
+      "apisSupported": {
+        "responses": false,
+        "chatCompletions": true,
+        "invoke": true,
+        "converse": true
+      },
+      "endpointsSupported": {
+        "bedrockRuntime": true,
+        "bedrockMantle": true
+      },
+      "modelIds": [
+        "zai.glm-5"
+      ],
+      "mantleRegions": [
+        "ap-northeast-1",
+        "ap-south-1",
+        "ap-southeast-2",
+        "eu-north-1",
+        "eu-west-2",
+        "sa-east-1",
+        "us-east-1",
+        "us-east-2",
+        "us-west-2"
+      ],
+      "mantleCreated": 1771770206
+    }
+  }
+}

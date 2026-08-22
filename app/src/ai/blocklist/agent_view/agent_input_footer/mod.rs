@@ -2050,7 +2050,7 @@ impl AgentInputFooter {
         let profile_context = AIExecutionProfilesModel::as_ref(ctx)
             .active_profile(Some(self.terminal_view_id), ctx)
             .data()
-            .context_window_display_value(ctx);
+            .context_window_display_value_for_model(active_model, ctx);
         let model_max_context = active_model
             .context_window
             .default_max

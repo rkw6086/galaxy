@@ -8,6 +8,7 @@ use galaxy_agent_rig::{
     GeminiRuntimeConfig, OpenAICompatibleRuntime, OpenAICompatibleRuntimeConfig, VertexAiRuntime,
     VertexAiRuntimeConfig,
 };
+use galaxy_bedrock_model_catalog::model_metadata;
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
@@ -79,7 +80,11 @@ pub(crate) async fn prepare_provider_run(
     let (supported_tools, supported_cli_agent_tools) =
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
     let skill_path_origin = params.session_context.skill_path_origin();
-    let max_context_tokens = params.context_window_limit;
+    let max_context_tokens = provider_context_window_tokens(
+        &base_provider_config,
+        params.model.as_str(),
+        params.context_window_limit,
+    );
     let mut cli_params = params.clone();
     let cli_model_is_placeholder = params.cli_agent_model.as_str().trim().is_empty()
         || params
@@ -186,14 +191,17 @@ async fn prepare_provider_profile(
             ),
             None => prepare_rig_turn(config, params, supported_tools, supported_cli_agent_tools),
         },
-        crate::ai::provider::ProviderConfig::Bedrock(_) => prepare_bedrock_rig_turn_for_mode(
-            model,
-            Some(64_000),
-            params,
-            supported_tools,
-            supported_cli_agent_tools,
-            mode,
-        ),
+        crate::ai::provider::ProviderConfig::Bedrock(_) => {
+            let max_output_tokens = Some(bedrock_max_output_tokens(&model));
+            prepare_bedrock_rig_turn_for_mode(
+                model,
+                max_output_tokens,
+                params,
+                supported_tools,
+                supported_cli_agent_tools,
+                mode,
+            )
+        }
         crate::ai::provider::ProviderConfig::None => {
             anyhow::bail!(
                 "No AI runtime configured. Enable an agent runtime or model provider in settings."
@@ -250,7 +258,7 @@ pub(crate) async fn provider_runtime_for_request(
             })),
         },
         crate::ai::provider::ProviderConfig::Bedrock(config) => {
-            let max_output_tokens = Some(64_000);
+            let max_output_tokens = Some(bedrock_max_output_tokens(&model));
             let cross_region_inference = config.cross_region_inference;
             let caching_config =
                 CachingConfig::from_external_config(&ExternalBedrockConfig::load());
@@ -273,6 +281,27 @@ pub(crate) async fn provider_runtime_for_request(
         }
     };
     Ok(runtime)
+}
+
+fn bedrock_max_output_tokens(model: &str) -> u64 {
+    model_metadata(model)
+        .and_then(|metadata| metadata.max_output_tokens)
+        .map(u64::from)
+        .unwrap_or(64_000)
+}
+
+fn provider_context_window_tokens(
+    provider_config: &crate::ai::provider::ProviderConfig,
+    model: &str,
+    configured_limit: Option<u32>,
+) -> Option<u32> {
+    configured_limit.or_else(|| match provider_config {
+        crate::ai::provider::ProviderConfig::Bedrock(_) => {
+            model_metadata(model).and_then(|metadata| metadata.context_window_tokens)
+        }
+        crate::ai::provider::ProviderConfig::OpenAI(_)
+        | crate::ai::provider::ProviderConfig::None => None,
+    })
 }
 
 #[cfg(test)]

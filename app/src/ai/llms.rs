@@ -11,6 +11,8 @@ use galaxy_agent_rig::{
     discover_anthropic_models, discover_gemini_models, validate_vertex_ai_credentials,
     vertex_ai_model_catalog, RigModelInfo,
 };
+#[cfg(not(target_family = "wasm"))]
+use galaxy_bedrock_model_catalog::model_metadata;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::user_preferences::GetUserPreferences;
@@ -873,11 +875,29 @@ impl LLMPreferences {
 
         let effective = effective;
         for model in effective {
+            let metadata = model_metadata(&model.model_id);
+            if metadata.is_some_and(|metadata| metadata.supports_agent_runtime() == Some(false)) {
+                log::debug!(
+                    "[bedrock] Excluding {} from Agent Mode because its catalog metadata marks it as incompatible with streaming Converse",
+                    model.model_id
+                );
+                continue;
+            }
+
             let model_id = if cross_region && !region.is_empty() {
                 super::bedrock::models::apply_cross_region_prefix(&model.model_id, &region)
             } else {
                 model.model_id.clone()
             };
+            let context_window = metadata
+                .and_then(|metadata| metadata.context_window_tokens)
+                .map(|tokens| LLMContextWindow {
+                    is_configurable: false,
+                    min: tokens,
+                    max: tokens,
+                    default_max: tokens,
+                })
+                .unwrap_or_default();
 
             let llm_info = LLMInfo {
                 id: LLMId::from(model_id.as_str()),
@@ -890,7 +910,8 @@ impl LLMPreferences {
                 },
                 description: Some("AWS Bedrock".to_string()),
                 disable_reason: None,
-                vision_supported: model.vision_supported,
+                vision_supported: model.vision_supported
+                    || metadata.is_some_and(|metadata| metadata.supports_vision_input()),
                 spec: None,
                 provider: LLMProvider::Bedrock,
                 host_configs: HashMap::from([(
@@ -901,7 +922,7 @@ impl LLMPreferences {
                     },
                 )]),
                 discount_percentage: None,
-                context_window: LLMContextWindow::default(),
+                context_window,
             };
             self.models_by_feature
                 .agent_mode

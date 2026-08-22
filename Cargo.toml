@@ -31,6 +31,7 @@ publish = false
 galaxy_acp = { path = "crates/acp" }
 galaxy_agent_core = { path = "crates/galaxy_agent_core" }
 galaxy_agent_rig = { path = "crates/galaxy_agent_rig" }
+galaxy_bedrock_model_catalog = { path = "crates/galaxy_bedrock_model_catalog" }
 ai = { path = "crates/ai" }
 app-installation-detection = { path = "crates/app-installation-detection" }
 asset_cache = { path = "crates/asset_cache" }
