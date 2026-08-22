@@ -36,6 +36,19 @@ echo "Compiling .icon bundle for $CHANNEL channel"
 
 BUNDLED_RESOURCES_DIR="$APP_BUNDLE_PATH/Contents/Resources"
 PARTIAL_INFO_PLIST="$(dirname "$APP_BUNDLE_PATH")/partial-icon-info.plist"
+ACTOOL_ICON_BUNDLE_PATH="$ICON_BUNDLE_PATH"
+
+# The OSS icon artwork is already shared with the in-app icon picker. Assemble its adaptive
+# icon package in a temporary directory so we do not need to keep a second large PNG in Git.
+if [[ "$CHANNEL" = "oss" ]]; then
+    TEMP_ICON_ROOT="$(mktemp -d)"
+    trap 'rm -rf "$TEMP_ICON_ROOT"' EXIT
+    ACTOOL_ICON_BUNDLE_PATH="$TEMP_ICON_ROOT/AppIcon.icon"
+    mkdir -p "$ACTOOL_ICON_BUNDLE_PATH/Assets"
+    cp "$ICON_BUNDLE_PATH/icon.json" "$ACTOOL_ICON_BUNDLE_PATH/icon.json"
+    cp "$REPO_ROOT/app/assets/bundled/png/galaxy.png" \
+      "$ACTOOL_ICON_BUNDLE_PATH/Assets/Galaxy.png"
+fi
 
 # Compile the .icon bundle using actool
 xcrun actool \
@@ -44,7 +57,7 @@ xcrun actool \
   --minimum-deployment-target 10.14 \
   --app-icon AppIcon \
   --output-partial-info-plist "$PARTIAL_INFO_PLIST" \
-  "$ICON_BUNDLE_PATH"
+  "$ACTOOL_ICON_BUNDLE_PATH"
 
 # Earlier XCode versions won't build the correct asset format for adaptive icons
 if [[ ! -f "$BUNDLED_RESOURCES_DIR/Assets.car" ]]; then

@@ -760,7 +760,7 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
                 "display_name": "GPT-5.6-Sol",
                 "visibility": "list",
                 "context_window": 272000,
-                "max_context_window": 272000,
+                "max_context_window": 872000,
                 "effective_context_window_percent": 95,
                 "input_modalities": ["text", "image"],
                 "supported_reasoning_levels": [
@@ -795,7 +795,7 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     assert_eq!(models[0].model_id, "gpt-5.6-sol");
     assert_eq!(models[0].display_name, "GPT-5.6-Sol");
     assert!(models[0].vision_supported);
-    assert_eq!(models[0].context_size, 272_000);
+    assert_eq!(models[0].context_size, 828_400);
     assert_eq!(models[0].max_input_tokens, Some(258_400));
     assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
     assert!(models[0].use_rig);
@@ -804,8 +804,24 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
 
     assert_eq!(models[1].model_id, "gpt-text-only");
     assert!(!models[1].vision_supported);
-    assert_eq!(models[1].context_size, 128_000);
+    assert_eq!(models[1].context_size, 115_200);
     assert_eq!(models[1].max_input_tokens, Some(115_200));
+
+    let configurable = openai_model_context_window(
+        &models[0],
+        crate::settings::OpenAIProviderKind::ChatGPTSubscription,
+    );
+    assert!(configurable.is_configurable);
+    assert_eq!(configurable.min, 258_400);
+    assert_eq!(configurable.default_max, 258_400);
+    assert_eq!(configurable.max, 828_400);
+
+    let fixed =
+        openai_model_context_window(&models[0], crate::settings::OpenAIProviderKind::LiteLLM);
+    assert!(!fixed.is_configurable);
+    assert_eq!(fixed.min, 258_400);
+    assert_eq!(fixed.default_max, 258_400);
+    assert_eq!(fixed.max, 258_400);
 }
 
 #[test]

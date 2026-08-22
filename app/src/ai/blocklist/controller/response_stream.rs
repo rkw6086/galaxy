@@ -166,26 +166,24 @@ impl ResponseStream {
         // Check if this specific model has an OpenAI-compatible routing entry.
         // This allows OpenAI/LiteLLM models to coexist with Bedrock models —
         // only models fetched from the OpenAI endpoint route through it.
-        if *settings.openai_enabled.value() {
-            let llm_prefs = LLMPreferences::as_ref(ctx);
-            if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
-                return ProviderConfig::OpenAI(OpenAIClientConfig {
-                    kind: client_config.kind,
-                    base_url: client_config.base_url.clone(),
-                    api_key: client_config.api_key.clone(),
-                    project_id: client_config.project_id.clone(),
-                    location: client_config.location.clone(),
-                    model: client_config
-                        .model
-                        .clone()
-                        .or_else(|| Some(model_id.to_string())),
-                    reasoning_effort: client_config.reasoning_effort.clone(),
-                    max_input_tokens: client_config.max_input_tokens,
-                    max_output_tokens: client_config.max_output_tokens,
-                    use_rig: client_config.use_rig,
-                    supports_system_messages: client_config.supports_system_messages,
-                });
-            }
+        let llm_prefs = LLMPreferences::as_ref(ctx);
+        if let Some(client_config) = llm_prefs.openai_client_config_for_model(model_id) {
+            return ProviderConfig::OpenAI(OpenAIClientConfig {
+                kind: client_config.kind,
+                base_url: client_config.base_url.clone(),
+                api_key: client_config.api_key.clone(),
+                project_id: client_config.project_id.clone(),
+                location: client_config.location.clone(),
+                model: client_config
+                    .model
+                    .clone()
+                    .or_else(|| Some(model_id.to_string())),
+                reasoning_effort: client_config.reasoning_effort.clone(),
+                max_input_tokens: client_config.max_input_tokens,
+                max_output_tokens: client_config.max_output_tokens,
+                use_rig: client_config.use_rig,
+                supports_system_messages: client_config.supports_system_messages,
+            });
         }
 
         // Fall back to Bedrock

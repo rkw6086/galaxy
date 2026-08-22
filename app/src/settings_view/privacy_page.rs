@@ -4,13 +4,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::elements::{
-    Align, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
-    Empty, Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty,
+    Expanded, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle,
     OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Rect, Shrinkable,
     Stack, Text,
 };
@@ -79,9 +78,7 @@ const TELEMETRY_DESCRIPTION_OLD: &str =
 const TELEMETRY_TITLE: &str = "Help improve Galaxy";
 const TELEMETRY_DESCRIPTION: &str =
     "App analytics help us make the product better for you. We may collect \
-    certain console interactions to improve Warp's AI capabilities.";
-const TELEMETRY_DOCS_URL: &str =
-    "https://docs.warp.dev/support-and-community/privacy-and-security/privacy#what-telemetry-data-does-warp-collect-and-why";
+    certain app interactions to improve Galaxy.";
 
 pub struct PrivacyPageView {
     page: PageType<Self>,
@@ -102,7 +99,6 @@ pub struct PrivacyPageView {
 
 #[derive(Clone, Copy)]
 pub enum PrivacyPageViewEvent {
-    LaunchNetworkLogging,
     ShowAddRegexModal,
     HideAddRegexModal,
 }
@@ -203,14 +199,12 @@ impl PrivacyPageView {
     }
 
     fn build_page() -> PageType<Self> {
-        let mut widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
+        let widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![
+            Box::new(AIProviderPrivacyWidget),
             Box::new(SecretRedactionWidget::default()),
             Box::new(AppAnalyticsWidget::default()),
             Box::new(CrashReportsWidget::default()),
         ];
-        if ContextFlag::NetworkLogConsole.is_enabled() {
-            widgets.push(Box::new(NetworkLogWidget::default()));
-        }
         PageType::new_uncategorized(widgets, Some("Privacy"))
     }
 
@@ -343,10 +337,6 @@ impl PrivacyPageView {
         ctx.notify();
     }
 
-    fn launch_network_logging(&mut self, ctx: &mut ViewContext<Self>) {
-        ctx.emit(PrivacyPageViewEvent::LaunchNetworkLogging);
-    }
-
     fn show_add_regex_modal(&mut self, ctx: &mut ViewContext<Self>) {
         self.add_regex_modal_state.open(ctx);
         ctx.emit(PrivacyPageViewEvent::ShowAddRegexModal);
@@ -443,7 +433,6 @@ pub enum PrivacyPageAction {
     ToggleHideSecretsInBlockList,
     SetSecretDisplayMode(SecretDisplayMode),
     ToggleTelemetry,
-    LaunchNetworkLogging,
     RemoveCustomRegex(usize),
     AddAllRecommendedRegexes,
     ShowAddRegexModal,
@@ -532,7 +521,6 @@ impl TypedActionView for PrivacyPageView {
                 });
                 ctx.notify();
             }
-            PrivacyPageAction::LaunchNetworkLogging => self.launch_network_logging(ctx),
             PrivacyPageAction::RemoveCustomRegex(idx) => {
                 self.queue_regex_removal(*idx, ctx);
             }
@@ -1321,7 +1309,6 @@ impl SettingsWidget for SecretRedactionWidget {
 #[derive(Default)]
 struct AppAnalyticsWidget {
     switch_state: SwitchStateHandle,
-    docs_link_mouse_state: MouseStateHandle,
     zdr_badge_mouse_state: MouseStateHandle,
 }
 
@@ -1491,24 +1478,6 @@ impl SettingsWidget for AppAnalyticsWidget {
                 .finish(),
         );
 
-        column.add_child(
-            Align::new(
-                ui_builder
-                    .link(
-                        "Read more about Galaxy's use of data".into(),
-                        Some(TELEMETRY_DOCS_URL.into()),
-                        None,
-                        self.docs_link_mouse_state.clone(),
-                    )
-                    .soft_wrap(false)
-                    .build()
-                    .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
-                    .finish(),
-            )
-            .left()
-            .finish(),
-        );
-
         column.finish()
     }
 }
@@ -1565,16 +1534,13 @@ impl SettingsWidget for CrashReportsWidget {
     }
 }
 
-#[derive(Default)]
-struct NetworkLogWidget {
-    link_mouse_state: MouseStateHandle,
-}
+struct AIProviderPrivacyWidget;
 
-impl SettingsWidget for NetworkLogWidget {
+impl SettingsWidget for AIProviderPrivacyWidget {
     type View = PrivacyPageView;
 
     fn search_terms(&self) -> &str {
-        "network log audit console data collection"
+        "local privacy data ai providers storage conversations terminal drive"
     }
 
     fn render(
@@ -1583,62 +1549,18 @@ impl SettingsWidget for NetworkLogWidget {
         appearance: &Appearance,
         _app: &AppContext,
     ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        Flex::column()
-            .with_child(render_body_item::<PrivacyPageAction>(
-                "Network log console".into(),
-                None,
-                // Not rendering a setting, so no need to show local only icon state.
-                LocalOnlyIconState::Hidden,
-                ToggleState::Enabled,
-                appearance,
-                Empty::new().finish(),
-                None,
-            ))
-            .with_child(
-                ui_builder
-                    .paragraph(
-                        "This tool uses AWS Bedrock and is subject to its data collection practices. \
-                        No data is stored locally by Galaxy."
-                            .to_owned(),
-                    )
-                    .with_style(UiComponentStyles {
-                        font_color: Some(
-                            appearance
-                                .theme()
-                                .sub_text_color(appearance.theme().surface_2())
-                                .into_solid(),
-                        ),
-                        margin: Some(
-                            Coords::default()
-                                .top(styles::DESCRIPTION_NEGATIVE_MARGIN_OFFSET)
-                                .bottom(styles::DESCRIPTION_LINE_MARGIN_BOTTOM),
-                        ),
-                        ..Default::default()
-                    })
-                    .build()
-                    .finish(),
-            )
-            .with_child(
-                Align::new(
-                    ui_builder
-                        .link(
-                            "View network logging".to_owned(),
-                            None,
-                            Some(Box::new(|ctx| {
-                                ctx.dispatch_typed_action(PrivacyPageAction::LaunchNetworkLogging);
-                            })),
-                            self.link_mouse_state.clone(),
-                        )
-                        .soft_wrap(false)
-                        .build()
-                        .with_margin_bottom(styles::DESCRIPTION_MARGIN_BOTTOM)
-                        .finish(),
-                )
-                .left()
-                .finish(),
-            )
-            .finish()
+        render_body_item::<PrivacyPageAction>(
+            "Local-first data".into(),
+            None,
+            LocalOnlyIconState::Hidden,
+            ToggleState::Enabled,
+            appearance,
+            Empty::new().finish(),
+            Some(
+                "Galaxy keeps your settings, terminal data, conversations, and Galaxy Drive content on this machine. When you use AI, Galaxy sends only the request context needed to the AI providers you have configured."
+                    .into(),
+            ),
+        )
     }
 }
 

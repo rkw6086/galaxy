@@ -47,13 +47,13 @@ pub enum ThemeKind {
     ReceivedReferralReward,
     #[schemars(description = "Adeberry")]
     Adeberry,
+    #[default]
     #[schemars(description = "Galaxy Dark")]
     GalaxyDark,
     #[schemars(description = "Galaxy Day")]
     GalaxyDay,
     #[schemars(description = "Phenomenon")]
     Phenomenon,
-    #[default]
     #[schemars(description = "Dark")]
     Dark,
     #[schemars(description = "Dracula")]
@@ -566,8 +566,8 @@ impl RespectSystemTheme {
 impl Default for SelectedSystemThemes {
     fn default() -> Self {
         Self {
-            light: ThemeKind::Light,
-            dark: ThemeKind::Dark,
+            light: ThemeKind::GalaxyDay,
+            dark: ThemeKind::GalaxyDark,
         }
     }
 }

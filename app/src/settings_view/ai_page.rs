@@ -101,7 +101,7 @@ use crate::settings::{
     BedrockEnabled, BedrockModelConfig, CodeSettings, CodebaseContextEnabled, CrosscheckEnabled,
     FileBasedMcpEnabled, GitOperationsAutogenEnabled, IncludeAgentCommandsInHistory, InputSettings,
     IntelligentAutosuggestionsEnabled, LongRunningCommandSubmissionMode, MemoryEnabled,
-    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIEnabled, OpenAIModelConfig,
+    NLDInTerminalEnabled, NaturalLanguageAutosuggestionsEnabled, OpenAIModelConfig,
     OpenAIProviderConfig, OrchestrationMessageDisplayMode, PromptSubmissionMode,
     RuleSuggestionsEnabled, SharedBlockTitleGenerationEnabled, ShouldRenderCLIAgentToolbar,
     ShouldRenderUseAgentToolbarForUserCommands, ShowAgentTips, ShowConversationHistory,
@@ -129,8 +129,6 @@ use crate::{
 };
 
 const CONTENT_FONT_SIZE: f32 = 12.;
-const PRIMARY_HEADER_FONT_SIZE: f32 = 24.;
-
 const AI_SETTINGS_DROPDOWN_WIDTH: f32 = 250.;
 const AI_SETTINGS_DROPDOWN_MAX_HEIGHT: f32 = 250.;
 const CONTEXT_WINDOW_SLIDER_WIDTH: f32 = 220.;
@@ -151,7 +149,7 @@ const WISPR_FLOW_URL: &str = "https://wisprflow.ai/";
 /// When `None`, the page shows all widgets (legacy/full view).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AISubpage {
-    /// The main Galaxy Agent page: global AI toggle + Active AI + Input + Other sections.
+    /// The main Galaxy Agent page: suggestions, input, and other agent settings.
     WarpAgent,
     /// Agent profiles and permissions.
     Profiles,
@@ -214,28 +212,6 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         )
         .with_group(bindings::BindingGroup::WarpAi)
         .with_enabled(|| cfg!(unix) && FeatureFlag::AgentClientProtocol.is_enabled())],
-        app,
-    );
-
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![ToggleSettingActionPair::new(
-            "AI",
-            builder(SettingsAction::AI(AISettingsPageAction::ToggleGlobalAI)),
-            context,
-            flags::IS_ANY_AI_ENABLED,
-        )
-        .with_group(bindings::BindingGroup::WarpAi)],
-        app,
-    );
-
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(
-        vec![ToggleSettingActionPair::new(
-            "Active AI",
-            builder(SettingsAction::AI(AISettingsPageAction::ToggleActiveAI)),
-            &(context.clone() & id!(flags::IS_ANY_AI_ENABLED)),
-            flags::IS_ACTIVE_AI_ENABLED,
-        )
-        .with_group(bindings::BindingGroup::WarpAi)],
         app,
     );
 
@@ -2115,7 +2091,6 @@ impl AISettingsPageView {
         match subpage {
             None => {
                 // Full page: all widgets (legacy behavior)
-                widgets.push(Box::new(GlobalAIWidget::default()));
                 if ai_settings
                     .intelligent_autosuggestions_enabled_internal
                     .is_supported_on_current_platform()
@@ -2158,8 +2133,7 @@ impl AISettingsPageView {
                 widgets.push(Box::new(OtherAIWidget::default()));
             }
             Some(AISubpage::WarpAgent) => {
-                // Galaxy Agent page: global toggle + Active AI + Input + Other
-                widgets.push(Box::new(GlobalAIWidget::default()));
+                // Galaxy Agent page: suggestions, input, and other agent settings.
                 if ai_settings
                     .intelligent_autosuggestions_enabled_internal
                     .is_supported_on_current_platform()
@@ -4128,84 +4102,7 @@ fn render_ai_list(
 }
 
 #[derive(Default)]
-struct GlobalAIWidget {
-    switch_state: SwitchStateHandle,
-}
-
-impl SettingsWidget for GlobalAIWidget {
-    type View = AISettingsPageView;
-
-    fn search_terms(&self) -> &str {
-        "galaxy agent global ai a.i. active next command prompt code diffs suggestion suggested suggestions \
-                agent mode natural language detection input hint"
-    }
-
-    fn render(
-        &self,
-        _view: &Self::View,
-        appearance: &Appearance,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let ui_builder = appearance.ui_builder();
-        let is_ai_disabled_due_to_remote_session_org_policy =
-            AISettings::as_ref(app).is_ai_disabled_due_to_remote_session_org_policy(app);
-
-        let mut row = Flex::row()
-            .with_main_axis_size(MainAxisSize::Max)
-            .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(
-                Text::new_inline(
-                    "Galaxy Agent",
-                    appearance.ui_font_family(),
-                    PRIMARY_HEADER_FONT_SIZE,
-                )
-                .with_style(Properties::default().weight(Weight::Bold))
-                .with_color(appearance.theme().active_ui_text_color().into())
-                .finish(),
-            );
-
-        if is_ai_disabled_due_to_remote_session_org_policy {
-            row.add_child(
-                ConstrainedBox::new(
-                    Container::new(
-                        Text::new("Your organization disallows AI when the active pane contains content from a remote session", appearance.ui_font_family(), 12.)
-                            .with_color(appearance.theme().ui_warning_color())
-                            .finish()
-                    )
-                    .with_padding_left(8.)
-                    .with_padding_right(8.)
-                    .finish()
-                )
-                .with_max_width(400.)
-                .finish()
-            );
-        }
-
-        row.add_child(
-            Container::new(
-                ui_builder
-                    .switch(self.switch_state.clone())
-                    .check(AISettings::as_ref(app).is_any_ai_enabled(app))
-                    .build()
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(AISettingsPageAction::ToggleGlobalAI);
-                    })
-                    .finish(),
-            )
-            .with_padding_right(TOGGLE_BUTTON_RIGHT_PADDING)
-            .finish(),
-        );
-
-        Container::new(row.finish())
-            .with_padding_bottom(15.)
-            .finish()
-    }
-}
-
-#[derive(Default)]
 struct ActiveAIWidget {
-    active_ai_toggle: SwitchStateHandle,
     intelligent_autosuggestions_toggle: SwitchStateHandle,
     prompt_suggestions_toggle: SwitchStateHandle,
     code_suggestions_toggle: SwitchStateHandle,
@@ -4452,38 +4349,12 @@ impl SettingsWidget for ActiveAIWidget {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
-        let ai_settings = AISettings::as_ref(app);
-        let is_any_ai_enabled = ai_settings.is_any_ai_enabled(app);
         let mut column = Flex::column()
             .with_child(render_separator(appearance))
             .with_child(
-                Container::new(
-                    Flex::row()
-                        .with_main_axis_size(MainAxisSize::Max)
-                        .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                        .with_child(
-                            build_sub_header(
-                                appearance,
-                                "Active AI",
-                                Some(styles::header_font_color(is_any_ai_enabled, app)),
-                            )
-                            .finish(),
-                        )
-                        .with_child(
-                            Container::new(render_ai_feature_switch(
-                                self.active_ai_toggle.clone(),
-                                *ai_settings.is_active_ai_enabled_internal,
-                                is_any_ai_enabled,
-                                AISettingsPageAction::ToggleActiveAI,
-                                app,
-                            ))
-                            .with_padding_right(TOGGLE_BUTTON_RIGHT_PADDING)
-                            .finish(),
-                        )
-                        .finish(),
-                )
-                .with_padding_bottom(HEADER_PADDING)
-                .finish(),
+                Container::new(build_sub_header(appearance, "AI suggestions", None).finish())
+                    .with_padding_bottom(HEADER_PADDING)
+                    .finish(),
             );
 
         if self.is_next_command_toggleable(app) {
@@ -7230,7 +7101,6 @@ struct AcpProviderCardState {
 
 struct ProviderSettingsWidget {
     provider_type: ProviderSetupProviderType,
-    enabled_toggle: SwitchStateHandle,
     bedrock_enabled_toggle: SwitchStateHandle,
     add_openai_provider_button: ViewHandle<ActionButton>,
     add_litellm_provider_button: ViewHandle<ActionButton>,
@@ -7342,7 +7212,6 @@ impl ProviderSettingsWidget {
         });
         Self {
             provider_type,
-            enabled_toggle: SwitchStateHandle::default(),
             bedrock_enabled_toggle: SwitchStateHandle::default(),
             add_openai_provider_button,
             add_litellm_provider_button,
@@ -7990,16 +7859,6 @@ impl SettingsWidget for ProviderSettingsWidget {
             ProviderSetupProviderType::OpenAI
             | ProviderSetupProviderType::LiteLLM
             | ProviderSetupProviderType::ChatGPTSubscription => {
-                column.add_child(render_ai_setting_toggle::<OpenAIEnabled>(
-                    "Enable direct providers",
-                    AISettingsPageAction::ToggleOpenAIEnabled,
-                    *settings.openai_enabled.value(),
-                    true,
-                    self.enabled_toggle.clone(),
-                    &RefCell::new(HashMap::new()),
-                    app,
-                ));
-
                 if is_setup_visible {
                     column.add_child(Self::render_inline_setup(appearance, view));
                 }

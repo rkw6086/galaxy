@@ -7,9 +7,12 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_bedrock::Client;
 use aws_sdk_bedrockruntime::config::Region;
+use futures::{stream, StreamExt};
 
 use super::client::{BedrockClientConfig, BedrockError};
 use crate::settings::ai::BedrockModelConfig;
+
+const AVAILABILITY_CHECK_CONCURRENCY: usize = 8;
 
 pub async fn discover_available_models(
     config: BedrockClientConfig,
@@ -24,61 +27,72 @@ pub async fn discover_available_models(
         .await
         .map_err(|error| format!("Could not list AWS Bedrock foundation models: {error}"))?;
 
-    let mut models = Vec::new();
-    for summary in catalog.model_summaries() {
-        let model_id = summary.model_id();
-        let availability = match client
-            .get_foundation_model_availability()
-            .model_id(model_id)
-            .send()
-            .await
-        {
-            Ok(availability) => availability,
-            Err(error) => {
-                log::debug!(
-                    "[bedrock] Availability check failed for {model_id}; excluding model: {error}"
-                );
-                continue;
-            }
-        };
+    // AWS exposes agreement/authorization state only through an individual
+    // GetFoundationModelAvailability call. Keep using that control-plane API,
+    // but bound the independent checks so a large catalog does not serialize
+    // startup discovery one model at a time.
+    let checks = catalog.model_summaries().iter().cloned().map(|summary| {
+        let client = client.clone();
+        async move {
+            let model_id = summary.model_id();
+            let availability = match client
+                .get_foundation_model_availability()
+                .model_id(model_id)
+                .send()
+                .await
+            {
+                Ok(availability) => availability,
+                Err(error) => {
+                    log::debug!(
+                        "[bedrock] Availability check failed for {model_id}; excluding model: {error}"
+                    );
+                    return None;
+                }
+            };
 
-        if !model_availability_is_usable(
-            availability
-                .agreement_availability()
-                .map(|agreement| agreement.status().as_str()),
-            availability.authorization_status().as_str(),
-            availability.entitlement_availability().as_str(),
-            availability.region_availability().as_str(),
-        ) {
-            log::debug!(
-                "[bedrock] Excluding {model_id}: agreement={}, authorization={}, entitlement={}, region={}",
+            if !model_availability_is_usable(
                 availability
                     .agreement_availability()
-                    .map(|agreement| agreement.status().as_str())
-                    .unwrap_or("MISSING"),
+                    .map(|agreement| agreement.status().as_str()),
                 availability.authorization_status().as_str(),
                 availability.entitlement_availability().as_str(),
                 availability.region_availability().as_str(),
-            );
-            continue;
+            ) {
+                log::debug!(
+                    "[bedrock] Excluding {model_id}: agreement={}, authorization={}, entitlement={}, region={}",
+                    availability
+                        .agreement_availability()
+                        .map(|agreement| agreement.status().as_str())
+                        .unwrap_or("MISSING"),
+                    availability.authorization_status().as_str(),
+                    availability.entitlement_availability().as_str(),
+                    availability.region_availability().as_str(),
+                );
+                return None;
+            }
+
+            let display_name = summary
+                .model_name()
+                .map(str::to_owned)
+                .unwrap_or_else(|| prettify_model_id(model_id));
+            let vision_supported = summary
+                .input_modalities()
+                .iter()
+                .any(|modality| modality.as_str() == "IMAGE");
+
+            Some(BedrockModelConfig {
+                model_id: model_id.to_owned(),
+                display_name,
+                vision_supported,
+                use_rig: false,
+            })
         }
-
-        let display_name = summary
-            .model_name()
-            .map(str::to_owned)
-            .unwrap_or_else(|| prettify_model_id(model_id));
-        let vision_supported = summary
-            .input_modalities()
-            .iter()
-            .any(|modality| modality.as_str() == "IMAGE");
-
-        models.push(BedrockModelConfig {
-            model_id: model_id.to_owned(),
-            display_name,
-            vision_supported,
-            use_rig: false,
-        });
-    }
+    });
+    let mut models = stream::iter(checks)
+        .buffer_unordered(AVAILABILITY_CHECK_CONCURRENCY)
+        .filter_map(futures::future::ready)
+        .collect::<Vec<_>>()
+        .await;
 
     models.sort_by(|left, right| left.display_name.cmp(&right.display_name));
     if models.is_empty() {

@@ -59,7 +59,6 @@ const ALTERNATING_LIST_ITEM_PADDING: f32 = 8.0;
 const GREY_TEXT_OPACITY: u8 = 60;
 const MIN_PAGE_WIDTH: f32 = 520.;
 const MAX_PAGE_WIDTH: f32 = 800.;
-const INFO_TOOLTIP_MAX_WIDTH: f32 = 320.;
 
 /// Left margin for top-level sidebar nav items (pages and umbrella labels).
 pub(super) const NAV_ITEM_LEFT_MARGIN: f32 = 12.;
@@ -529,61 +528,6 @@ impl LocalOnlyIconState {
     }
 }
 
-pub fn render_info_icon<T: Clone + Action>(
-    appearance: &Appearance,
-    additional_info: AdditionalInfo<T>,
-) -> Box<dyn Element> {
-    let tooltip_text = additional_info
-        .tooltip_override_text
-        .unwrap_or("Click to learn more in docs".to_owned());
-    let icon = Container::new(
-        ConstrainedBox::new(
-            Icon::Info
-                .to_warpui_icon(appearance.theme().active_ui_text_color())
-                .finish(),
-        )
-        .with_width(13.)
-        .with_height(13.)
-        .finish(),
-    )
-    .finish();
-
-    let mut info_button = Hoverable::new(additional_info.mouse_state.clone(), move |state| {
-        let mut stack = Stack::new().with_child(icon);
-        if state.is_hovered() {
-            let tool_tip = ConstrainedBox::new(
-                appearance
-                    .ui_builder()
-                    .tool_tip(tooltip_text)
-                    .build()
-                    .finish(),
-            )
-            .with_max_width(INFO_TOOLTIP_MAX_WIDTH)
-            .finish();
-            stack.add_positioned_child(
-                tool_tip,
-                OffsetPositioning::offset_from_parent(
-                    vec2f(0., -3.),
-                    ParentOffsetBounds::WindowByPosition,
-                    ParentAnchor::TopMiddle,
-                    ChildAnchor::BottomMiddle,
-                ),
-            );
-        }
-        stack.finish()
-    })
-    .with_cursor(Cursor::PointingHand);
-
-    if let Some(on_click_action) = additional_info.on_click_action {
-        info_button = info_button
-            .on_click(move |ctx, _, _| ctx.dispatch_typed_action(on_click_action.clone()));
-    }
-
-    Container::new(Box::new(info_button))
-        .with_margin_left(4.)
-        .finish()
-}
-
 pub fn render_local_only_icon(
     appearance: &Appearance,
     mouse_state: MouseStateHandle,
@@ -675,8 +619,6 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
 
     let label = label.finish();
     if let Some(additional_info) = additional_info {
-        // Construct a child element for the secondary text, if necessary, before
-        // `additional_info` gets moved into `render_info_icon()`.
         let secondary_text_child =
             if let Some(secondary_text) = additional_info.secondary_text.clone() {
                 let warp_theme = appearance.theme();
@@ -705,8 +647,7 @@ pub fn render_body_item_label_internal<T: Clone + Action>(
 
         let mut row = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(label)
-            .with_child(render_info_icon(appearance, additional_info));
+            .with_child(label);
         if let LocalOnlyIconState::Visible {
             mouse_state,
             custom_tooltip,

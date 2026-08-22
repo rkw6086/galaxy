@@ -620,7 +620,6 @@ default = [
     "supergrok",
     "remote_code_review",
     "git_operations_in_code_review",
-    "galaxy_control_cli",
 ]
 # Enable this feature to automatically perform heap profiling.  NOTE: This will
 # substantially slow down program execution.

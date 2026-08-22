@@ -634,6 +634,27 @@ impl LLMPreferences {
             }
         });
 
+        #[cfg(not(target_family = "wasm"))]
+        if ctx
+            .try_get_singleton_model_as_ref::<super::chatgpt_auth::ChatGPTAuthModel>()
+            .is_some()
+        {
+            ctx.subscribe_to_model(
+                &super::chatgpt_auth::ChatGPTAuthModel::handle(ctx),
+                |me, _, event, ctx| {
+                    if matches!(
+                        event,
+                        super::chatgpt_auth::ChatGPTAuthModelEvent::StateChanged
+                    ) && matches!(
+                        super::chatgpt_auth::ChatGPTAuthModel::as_ref(ctx).state(),
+                        super::chatgpt_auth::ChatGPTAuthState::Connected
+                    ) {
+                        me.refresh_chatgpt_subscription_models(ctx);
+                    }
+                },
+            );
+        }
+
         ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |me, _, event, ctx| {
             if let UserWorkspacesEvent::TeamsChanged = event {
                 me.sanitize_disabled_custom_model_preferences(ctx);
@@ -735,6 +756,10 @@ impl LLMPreferences {
 
         #[cfg(not(target_family = "wasm"))]
         {
+            // Make the persisted Bedrock catalog available immediately. Agreement
+            // revalidation stays in the background and replaces this cache when it
+            // completes, so startup never waits on the per-model AWS checks.
+            me.inject_bedrock_models(ctx);
             me.refresh_bedrock_models(ctx);
             me.inject_openai_models(ctx);
             me.ensure_default_model_present();
@@ -978,7 +1003,7 @@ impl LLMPreferences {
 
         let settings = AISettings::as_ref(ctx);
         self.inject_acp_models(ctx);
-        if !*settings.openai_enabled.value() {
+        if !settings.is_openai_provider_enabled() {
             return;
         }
 
@@ -1163,7 +1188,7 @@ impl LLMPreferences {
                             },
                         )]),
                         discount_percentage: None,
-                        context_window: openai_model_context_window(model),
+                        context_window: openai_model_context_window(model, provider_kind),
                     };
                     self.models_by_feature
                         .agent_mode
@@ -1447,7 +1472,7 @@ impl LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     pub fn fetch_openai_models_from_endpoint(&mut self, ctx: &mut ModelContext<Self>) {
         let settings = AISettings::as_ref(ctx);
-        if !*settings.openai_enabled.value() {
+        if !settings.is_openai_provider_enabled() {
             return;
         }
 
@@ -1509,7 +1534,7 @@ impl LLMPreferences {
         ctx: &mut ModelContext<Self>,
     ) {
         let settings = AISettings::as_ref(ctx);
-        if !*settings.openai_enabled.value() {
+        if !settings.is_openai_provider_enabled() {
             return;
         }
 
@@ -1716,7 +1741,7 @@ impl LLMPreferences {
         }
 
         let settings = AISettings::as_ref(ctx);
-        if !*settings.openai_enabled.value()
+        if !settings.is_openai_provider_enabled()
             || !settings.openai_providers.value().iter().any(|provider| {
                 provider.enabled && provider.kind == OpenAIProviderKind::ChatGPTSubscription
             })
@@ -2682,13 +2707,21 @@ fn openai_model_variant_id(model_id: &str, reasoning_effort: &str) -> String {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn openai_model_context_window(model: &OpenAIModelConfig) -> LLMContextWindow {
-    let context_size = openai_model_context_size(model);
+fn openai_model_context_window(
+    model: &OpenAIModelConfig,
+    provider_kind: OpenAIProviderKind,
+) -> LLMContextWindow {
+    let default_context_size = openai_model_context_size(model);
+    let max_context_size = if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
+        model.context_size.max(default_context_size)
+    } else {
+        default_context_size
+    };
     LLMContextWindow {
-        is_configurable: false,
-        min: context_size,
-        max: context_size,
-        default_max: context_size,
+        is_configurable: max_context_size > default_context_size,
+        min: default_context_size,
+        max: max_context_size,
+        default_max: default_context_size,
     }
 }
 
@@ -2822,18 +2855,23 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                 return None;
             }
 
-            let context_size = u32_from_json_any(model, &["context_window", "max_context_window"])
+            let default_context_size = u32_from_json_any(model, &["context_window"])
+                .or_else(|| u32_from_json_any(model, &["max_context_window"]))
                 .unwrap_or(DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE);
+            let max_context_size = u32_from_json_any(model, &["max_context_window"])
+                .unwrap_or(default_context_size)
+                .max(default_context_size);
             let effective_context_percent = model["effective_context_window_percent"]
                 .as_u64()
                 .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| (1..=100).contains(value))
                 .unwrap_or(100);
-            let max_input_tokens = Some(
-                context_size
-                    .checked_mul(effective_context_percent)
-                    .map(|tokens| tokens / 100)
-                    .unwrap_or(context_size),
-            );
+            let effective_context_size = |context_size: u32| {
+                u32::try_from(u64::from(context_size) * u64::from(effective_context_percent) / 100)
+                    .unwrap_or(context_size)
+            };
+            let max_input_tokens = Some(effective_context_size(default_context_size));
+            let context_size = effective_context_size(max_context_size);
 
             let vision_supported = model["input_modalities"]
                 .as_array()

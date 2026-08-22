@@ -104,8 +104,8 @@ pub use code_page::CodeSettingsPageView;
 pub use features_page::FeaturesPageAction;
 pub use privacy_page::PrivacyPageAction;
 pub use settings_page::{
-    render_body_item_label, render_info_icon, render_input_list, render_separator, AdditionalInfo,
-    InputListItem, LocalOnlyIconState, ToggleState,
+    render_body_item_label, render_input_list, render_separator, AdditionalInfo, InputListItem,
+    LocalOnlyIconState, ToggleState,
 };
 pub use teams_page::{OpenTeamsSettingsModalArgs, TeamsInviteOption};
 
@@ -1216,11 +1216,6 @@ impl SettingsView {
         let warp_drive_page_handle =
             ctx.add_typed_action_view(warp_drive_page::WarpDriveSettingsPageView::new);
 
-        let platform_page_handle = ctx.add_typed_action_view(platform_page::PlatformPageView::new);
-        ctx.subscribe_to_view(&platform_page_handle, |me, _, event, ctx| {
-            me.handle_platform_page_event(event, ctx);
-        });
-
         // MCP Servers page
         let mcp_servers_page_handle = ctx.add_typed_action_view(MCPServersSettingsPageView::new);
         ctx.subscribe_to_view(&mcp_servers_page_handle, |me, _, event, ctx| {
@@ -1261,7 +1256,6 @@ impl SettingsView {
             SettingsPage::new(appearance_page_handle),
             SettingsPage::new(features_page_handle),
             SettingsPage::new(keybindings_handle),
-            SettingsPage::new(platform_page_handle),
             SettingsPage::new(warpify_page_handle),
             SettingsPage::new(warp_drive_page_handle),
         ];
@@ -1730,31 +1724,11 @@ impl SettingsView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            PrivacyPageViewEvent::LaunchNetworkLogging => {
-                ctx.emit(SettingsViewEvent::LaunchNetworkLogging);
-            }
             PrivacyPageViewEvent::ShowAddRegexModal => {
                 // Modal rendering is handled in get_modal_content_for_page
                 ctx.notify();
             }
             PrivacyPageViewEvent::HideAddRegexModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
-        }
-    }
-
-    fn handle_platform_page_event(
-        &mut self,
-        event: &platform_page::PlatformPageViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            platform_page::PlatformPageViewEvent::ShowCreateApiKeyModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
-            platform_page::PlatformPageViewEvent::HideCreateApiKeyModal => {
                 // Modal rendering is handled in get_modal_content_for_page
                 ctx.notify();
             }

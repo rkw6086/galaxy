@@ -124,9 +124,11 @@ fn test_non_ai_commands_remain_active_when_ai_is_disabled() {
         let slash_command_data_source =
             input.read(&app, |input, _| input.slash_command_data_source.clone());
 
-        // Disable AI globally.
+        // AI is unavailable when no provider runtime is enabled.
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
-            report_if_error!(settings.is_any_ai_enabled.set_value(false, ctx));
+            report_if_error!(settings.bedrock_enabled.set_value(false, ctx));
+            report_if_error!(settings.openai_enabled.set_value(false, ctx));
+            report_if_error!(settings.acp_enabled.set_value(false, ctx));
         });
 
         slash_command_data_source.read(&app, |data_source, _| {

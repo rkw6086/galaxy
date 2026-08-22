@@ -14,8 +14,7 @@ use crate::themes::theme::{RespectSystemTheme, SelectedSystemThemes, ThemeKind};
 define_settings_group!(ThemeSettings, settings: [
     theme_kind: Theme {
         type: ThemeKind,
-        // Note that for new users, we now override this default value in SettingsInitializer
-        // to set the default theme to Phenomenon.
+        // New installations start with Galaxy's built-in brand theme.
         default: ThemeKind::default(),
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,

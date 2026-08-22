@@ -7,11 +7,10 @@ use galaxyui::ui_components::switch::SwitchStateHandle;
 use galaxyui::{
     id, Action, AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
-use warpui::elements::{Element, MouseStateHandle};
+use warpui::elements::Element;
 
 use super::settings_page::{
-    render_body_item, AdditionalInfo, MatchData, PageType, SettingsPageMeta,
-    SettingsPageViewHandle, SettingsWidget,
+    render_body_item, MatchData, PageType, SettingsPageMeta, SettingsPageViewHandle, SettingsWidget,
 };
 use super::{
     flags, LocalOnlyIconState, SettingActionPairContexts, SettingActionPairDescriptions,
@@ -23,7 +22,6 @@ use crate::drive::settings::WarpDriveSettings;
 #[derive(Debug, Clone)]
 pub enum WarpDriveSettingsPageAction {
     ToggleShowWarpDrive,
-    OpenUrl(String),
 }
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
@@ -78,9 +76,6 @@ impl TypedActionView for WarpDriveSettingsPageView {
                 });
                 ctx.notify();
             }
-            WarpDriveSettingsPageAction::OpenUrl(url) => {
-                ctx.open_url(url.as_str());
-            }
         }
     }
 }
@@ -126,7 +121,6 @@ impl From<ViewHandle<WarpDriveSettingsPageView>> for SettingsPageViewHandle {
 #[derive(Default)]
 struct WarpDriveToggleWidget {
     switch_state: SwitchStateHandle,
-    info_icon_mouse_state: MouseStateHandle,
 }
 
 impl SettingsWidget for WarpDriveToggleWidget {
@@ -146,14 +140,7 @@ impl SettingsWidget for WarpDriveToggleWidget {
 
         render_body_item::<WarpDriveSettingsPageAction>(
             "Galaxy Drive".into(),
-            Some(AdditionalInfo {
-                mouse_state: self.info_icon_mouse_state.clone(),
-                on_click_action: Some(WarpDriveSettingsPageAction::OpenUrl(
-                    "https://docs.warp.dev/knowledge-and-collaboration/warp-drive".to_string(),
-                )),
-                secondary_text: None,
-                tooltip_override_text: None,
-            }),
+            None,
             LocalOnlyIconState::Hidden,
             ToggleState::Enabled,
             appearance,
@@ -166,7 +153,7 @@ impl SettingsWidget for WarpDriveToggleWidget {
                     ctx.dispatch_typed_action(WarpDriveSettingsPageAction::ToggleShowWarpDrive);
                 })
                 .finish(),
-            Some("Galaxy Drive is a workspace in your terminal where you can save Workflows, Notebooks, Prompts, and Environment Variables for personal use or to share with a team.".into()),
+            Some("Galaxy Drive is a local workspace for Workflows, Notebooks, Prompts, and Environment Variables. Its contents are stored on this machine in your ~/.galaxy directory.".into()),
         )
     }
 }

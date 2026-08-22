@@ -1167,15 +1167,16 @@ impl settings_value::SettingsValue for AcpAgentSettings {}
 // Nested ACP discovery data is intentionally persisted as one setting so refreshes are atomic.
 
 define_settings_group!(AISettings, settings: [
-    // If `false`, all AI features are disabled.
+    // Legacy compatibility value. Effective AI availability is derived from configured,
+    // enabled providers rather than this historical global switch.
     is_any_ai_enabled: IsAnyAIEnabled {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.is_any_ai_enabled",
-        description: "Controls whether all AI features are enabled.",
+        description: "Legacy global AI enablement value retained for settings compatibility.",
     },
     // This field should not be referenced directly to lookup active AI enablement -- use the
     // `is_active_ai_enabled()` getter.
@@ -1206,7 +1207,7 @@ define_settings_group!(AISettings, settings: [
     // This is only used when `FeatureFlag::AgentView` is enabled.
     nld_in_terminal_enabled_internal: NLDInTerminalEnabled {
         type: bool,
-        default: false,
+        default: true,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
         private: false,
@@ -2338,11 +2339,35 @@ impl AISettings {
 
     pub fn is_any_ai_enabled(&self, app: &AppContext) -> bool {
         // Galaxy does not require Warp authentication for AI.
-        // AI is enabled only when the user hasn't explicitly disabled it, at least one local
-        // runtime is enabled, and there's no org policy blocking it.
-        *self.is_any_ai_enabled
-            && self.has_enabled_ai_runtime()
-            && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+        // Configuring and enabling a provider is the single source of truth for AI availability.
+        self.has_enabled_ai_runtime() && !self.is_ai_disabled_due_to_remote_session_org_policy(app)
+    }
+
+    /// Returns whether an OpenAI-compatible provider is enabled. The legacy global switch is
+    /// consulted only for the legacy single-endpoint configuration, which has no per-provider
+    /// enablement field.
+    pub fn is_openai_provider_enabled(&self) -> bool {
+        if !self.openai_providers.value().is_empty() {
+            return self
+                .openai_providers
+                .value()
+                .iter()
+                .any(|provider| provider.enabled);
+        }
+
+        *self.openai_enabled.value()
+    }
+
+    /// Returns whether an OpenAI-compatible provider is enabled and has at least one enabled model.
+    pub fn has_enabled_openai_provider(&self) -> bool {
+        if !self.openai_providers.value().is_empty() {
+            return self.openai_providers.value().iter().any(|provider| {
+                provider.enabled && provider.models.iter().any(|model| model.enabled)
+            });
+        }
+
+        self.is_openai_provider_enabled()
+            && self.openai_models.value().iter().any(|model| model.enabled)
     }
 
     pub(crate) fn configured_acp_providers(&self) -> Vec<AcpProviderConfig> {
@@ -2409,11 +2434,11 @@ impl AISettings {
 
     /// Returns whether Galaxy has a local model provider or agent runtime enabled.
     pub fn has_enabled_ai_runtime(&self) -> bool {
-        *self.bedrock_enabled.value()
-            || *self.openai_enabled.value()
+        (*self.bedrock_enabled.value() && !self.bedrock_models.value().is_empty())
+            || self.has_enabled_openai_provider()
             || (cfg!(unix)
                 && FeatureFlag::AgentClientProtocol.is_enabled()
-                && *self.acp_enabled.value())
+                && !self.enabled_acp_providers().is_empty())
     }
 
     pub fn default_session_mode(&self, app: &AppContext) -> DefaultSessionMode {
@@ -2465,9 +2490,7 @@ impl AISettings {
     }
 
     pub fn is_active_ai_enabled(&self, app: &galaxyui::AppContext) -> bool {
-        self.is_any_ai_enabled(app)
-            && *self.is_active_ai_enabled_internal
-            && AppExecutionMode::as_ref(app).allows_active_ai()
+        self.is_any_ai_enabled(app) && AppExecutionMode::as_ref(app).allows_active_ai()
     }
 
     pub fn is_prompt_suggestions_enabled(&self, app: &galaxyui::AppContext) -> bool {

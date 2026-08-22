@@ -46,8 +46,17 @@ pub(crate) struct ChatGPTAuthModel {
 
 impl ChatGPTAuthModel {
     pub(crate) fn new() -> Self {
+        let state = match load_or_import_auth_credentials() {
+            Ok(_) => ChatGPTAuthState::Connected,
+            Err(error) => {
+                log::debug!(
+                    "[chatgpt/auth] No usable persisted ChatGPT credentials at startup: {error}"
+                );
+                ChatGPTAuthState::NotConnected
+            }
+        };
         Self {
-            state: ChatGPTAuthState::NotConnected,
+            state,
             pending_code_verifier: None,
             pending_state: None,
         }

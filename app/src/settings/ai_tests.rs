@@ -433,6 +433,21 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
         initialize_settings_for_tests(&mut app);
         add_ai_enablement_dependencies_for_test(&mut app);
 
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .bedrock_models
+                .set_value(
+                    vec![BedrockModelConfig {
+                        model_id: "test-model".to_string(),
+                        display_name: "Test model".to_string(),
+                        vision_supported: false,
+                        use_rig: false,
+                    }],
+                    ctx,
+                )
+                .expect("Bedrock models should update");
+        });
+
         AISettings::handle(&app).read(&app, |settings, ctx| {
             assert!(settings.is_orchestration_enabled(ctx));
         });
