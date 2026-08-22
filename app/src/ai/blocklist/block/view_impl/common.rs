@@ -218,6 +218,7 @@ pub struct WarpingProps<'a, V> {
     pub action_model: &'a BlocklistAIActionModel,
     pub terminal_model: &'a TerminalModel,
     pub default_warping_text: String,
+    pub retry_status_text: Option<String>,
     pub secondary_element: Option<Box<dyn Element>>,
     /// When an LRC subagent has sent at least one snapshot, the timestamp of the most recent snapshot.
     pub last_snapshot_at: Option<instant::Instant>,
@@ -337,14 +338,6 @@ pub fn render_warping_indicator<V: View>(
 
     let mut should_render_waiting_icon = false;
     let mut non_shimmering_text = None;
-    if let Some(status_message) = props
-        .model
-        .conversation(app)
-        .and_then(|conversation| conversation.status_error_message())
-        .filter(|message| message.starts_with("Retrying LLM request"))
-    {
-        non_shimmering_text = Some(format!(" • {status_message}"));
-    }
     let message = if let Some(summarization_type) = summarization_type {
         // Choose the appropriate message based on summarization type
         let base_message = match summarization_type {
@@ -485,6 +478,13 @@ pub fn render_warping_indicator<V: View>(
             }
         }
     };
+
+    if let Some(retry_status_text) = props.retry_status_text.as_deref() {
+        non_shimmering_text = Some(match non_shimmering_text {
+            Some(text) if !text.is_empty() => format!("{text} {retry_status_text}"),
+            Some(_) | None => format!(" {retry_status_text}"),
+        });
+    }
 
     let appearance = Appearance::as_ref(app);
 

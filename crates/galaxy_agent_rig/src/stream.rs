@@ -125,11 +125,15 @@ where
                             });
                         }
                         Ok(StreamedAssistantContent::Unknown(value)) => {
-                            yield Err(AgentError::new(
-                                AgentErrorKind::Protocol,
-                                format!("Rig returned an unsupported provider event: {value}"),
-                            ));
-                            return;
+                            if is_keepalive_event(&value) {
+                                yield Ok(AgentEvent::KeepAlive);
+                            } else {
+                                yield Err(AgentError::new(
+                                    AgentErrorKind::Protocol,
+                                    format!("Rig returned an unsupported provider event: {value}"),
+                                ));
+                                return;
+                            }
                         }
                         Err(error) => {
                             if let Some(reason) = completion_error_stop_reason(&error) {
@@ -255,8 +259,24 @@ fn stopped_with_reason(runtime_request_id: String, reason: StopReason) -> AgentE
 }
 
 pub(crate) fn map_usage(usage: rig_core::completion::Usage) -> Usage {
+    // Rig preserves provider-native input semantics: OpenAI includes cached
+    // tokens in `input_tokens`, while Anthropic reports cache reads/writes
+    // separately. `total_tokens - output_tokens` gives the normalized prompt
+    // size for both shapes, so store only the uncached portion in
+    // `input_tokens` and keep cache reads/writes disjoint.
+    let total_input_tokens = if usage.total_tokens > 0 && usage.total_tokens >= usage.output_tokens
+    {
+        usage.total_tokens - usage.output_tokens
+    } else {
+        usage
+            .input_tokens
+            .saturating_add(usage.cached_input_tokens)
+            .saturating_add(usage.cache_creation_input_tokens)
+    };
     Usage {
-        input_tokens: usage.input_tokens,
+        input_tokens: total_input_tokens
+            .saturating_sub(usage.cached_input_tokens)
+            .saturating_sub(usage.cache_creation_input_tokens),
         output_tokens: usage.output_tokens,
         cached_input_tokens: usage.cached_input_tokens,
         cache_creation_input_tokens: usage.cache_creation_input_tokens,
@@ -307,6 +327,10 @@ fn json_value_indicates_context_window_exceeded(value: &serde_json::Value) -> bo
     }
 }
 
+fn is_keepalive_event(value: &serde_json::Value) -> bool {
+    value.get("type").and_then(serde_json::Value::as_str) == Some("keepalive")
+}
+
 fn text_indicates_context_window_exceeded(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     normalized.contains("modelcontextwindowexceeded")
@@ -352,7 +376,7 @@ fn map_completion_error(error: CompletionError) -> AgentError {
     mapped.recoverable = matches!(
         kind,
         AgentErrorKind::RateLimited | AgentErrorKind::Transport
-    );
+    ) || status.is_some_and(|status| (500..=599).contains(&status));
     mapped
 }
 
@@ -361,7 +385,9 @@ mod tests {
     use galaxy_agent_core::{AgentErrorKind, StopReason};
     use rig_core::completion::CompletionError;
 
-    use super::{completion_error_stop_reason, domain_tool_call, map_completion_error};
+    use super::{
+        completion_error_stop_reason, domain_tool_call, is_keepalive_event, map_completion_error,
+    };
 
     #[test]
     fn domain_tool_call_prefers_responses_call_id() {
@@ -427,5 +453,33 @@ mod tests {
             completion_error_stop_reason(&error),
             Some(StopReason::ContextWindowExceeded)
         );
+    }
+
+    #[test]
+    fn provider_keepalive_event_is_a_transport_heartbeat() {
+        assert!(is_keepalive_event(&serde_json::json!({
+            "type": "keepalive",
+            "sequence_number": 3,
+        })));
+        assert!(!is_keepalive_event(&serde_json::json!({
+            "type": "unsupported",
+        })));
+    }
+
+    #[test]
+    fn provider_server_error_is_recoverable() {
+        let status = rig_core::http_client::Response::builder()
+            .status(503)
+            .body(())
+            .unwrap()
+            .status();
+        let error = CompletionError::from_http_response(
+            status,
+            r#"{"error":{"message":"Service temporarily unavailable"}}"#,
+        );
+
+        let mapped = map_completion_error(error);
+        assert_eq!(mapped.kind, AgentErrorKind::Provider);
+        assert!(mapped.recoverable);
     }
 }

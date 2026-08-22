@@ -163,9 +163,13 @@ fn metadata(usage: Usage) -> AwsStreamEvent {
         ConverseStreamMetadataEvent::builder()
             .usage(
                 TokenUsage::builder()
-                    .input_tokens(usage.input_tokens as i32)
+                    .input_tokens(
+                        (usage.input_tokens
+                            + usage.cached_input_tokens
+                            + usage.cache_creation_input_tokens) as i32,
+                    )
                     .output_tokens(usage.output_tokens as i32)
-                    .total_tokens((usage.input_tokens + usage.output_tokens) as i32)
+                    .total_tokens(usage.total_tokens() as i32)
                     .cache_read_input_tokens(usage.cached_input_tokens as i32)
                     .cache_write_input_tokens(usage.cache_creation_input_tokens as i32)
                     .build()
@@ -347,4 +351,12 @@ fn bedrock_stop_reasons_map_to_domain_reasons() {
         map_stop_reason(&AwsStopReason::GuardrailIntervened),
         StopReason::Refusal
     );
+}
+
+#[test]
+fn transient_bedrock_provider_failure_is_recoverable() {
+    let error = map_bedrock_error("ServiceUnavailableException: model temporarily unavailable");
+
+    assert_eq!(error.kind, AgentErrorKind::Provider);
+    assert!(error.recoverable);
 }

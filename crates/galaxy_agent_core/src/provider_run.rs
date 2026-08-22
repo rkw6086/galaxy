@@ -502,6 +502,10 @@ impl ProviderRun {
         self.model_retries
     }
 
+    pub fn max_model_retries_per_turn(&self) -> u32 {
+        self.limits.max_model_retries_per_turn
+    }
+
     pub fn is_terminal(&self) -> bool {
         matches!(
             self.state,
@@ -665,20 +669,20 @@ impl ProviderRun {
             }
             ProviderRunState::Failed { failure } => match failure.kind {
                 ProviderRunFailureKind::ModelCall
-                    if !failure
+                    if failure
                         .source
                         .as_ref()
-                        .is_some_and(|source| !source.recoverable) =>
+                        .is_none_or(|source| source.recoverable) =>
                 {
                     return Err(invalid(
                         "model-call failure lacks a non-recoverable source".to_string(),
                     ));
                 }
                 ProviderRunFailureKind::RetryLimitExceeded
-                    if !failure
+                    if failure
                         .source
                         .as_ref()
-                        .is_some_and(|source| source.recoverable) =>
+                        .is_none_or(|source| !source.recoverable) =>
                 {
                     return Err(invalid(
                         "retry-limit failure lacks a recoverable source".to_string(),

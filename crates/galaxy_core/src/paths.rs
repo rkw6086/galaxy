@@ -389,9 +389,7 @@ fn migrate_directory_contents(source_dir: &Path, target_dir: &Path) {
         }
     }
 
-    if std::fs::read_dir(source_dir)
-        .is_ok_and(|mut entries| entries.next().is_none())
-    {
+    if std::fs::read_dir(source_dir).is_ok_and(|mut entries| entries.next().is_none()) {
         let _ = std::fs::remove_dir(source_dir);
     }
 }

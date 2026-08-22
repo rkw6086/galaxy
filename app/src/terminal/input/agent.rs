@@ -5,11 +5,10 @@ use galaxyui::elements::{
     Align, AnchorPair, Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
     DispatchEventResult, DropTarget, Element, Empty, EventHandler, Expanded, Flex, Hoverable,
     MainAxisSize, OffsetPositioning, OffsetType, ParentElement, PositionedElementOffsetBounds,
-    PositioningAxis, Radius, SavePosition, Stack, Text, XAxisAnchor, YAxisAnchor,
+    PositioningAxis, Radius, SavePosition, Stack, XAxisAnchor, YAxisAnchor,
 };
 use galaxyui::presenter::ChildView;
-use galaxyui::{AppContext, EntityId, SingletonEntity as _};
-use pathfinder_color::ColorU;
+use galaxyui::{AppContext, SingletonEntity as _};
 
 use super::common::{
     add_command_xray_overlay, add_input_suggestions_overlays, add_voltron_overlay,
@@ -22,10 +21,7 @@ use crate::ai::blocklist::agent_view::shortcuts::{
 };
 use crate::ai::blocklist::agent_view::{agent_view_bg_fill, AgentViewState};
 use crate::ai::blocklist::InputType;
-use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-use crate::ai::execution_profiles::AIExecutionProfileAppExt;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::llms::LLMPreferences;
 use crate::appearance::Appearance;
 use crate::context_chips::spacing::{self};
 use crate::editor::position_id_for_cursor;
@@ -163,19 +159,6 @@ impl Input {
             )
             .finish(),
         );
-
-        if let Some(conv_id) = self
-            .agent_view_controller
-            .as_ref(app)
-            .agent_view_state()
-            .active_conversation_id()
-        {
-            if let Some(status_bar) =
-                render_session_status_bar(appearance, app, self.terminal_view_id, conv_id)
-            {
-                column.add_child(status_bar);
-            }
-        }
 
         stack.add_child(wrap_input_with_terminal_padding_and_focus_handler(
             self.is_active_session(app),
@@ -733,156 +716,6 @@ impl Input {
 
         SavePosition::new(column.finish(), &self.save_position_id()).finish()
     }
-}
-
-fn format_token_count(tokens: u32) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}k", tokens as f64 / 1_000.0)
-    } else {
-        format!("{tokens}")
-    }
-}
-
-fn cache_hit_color(pct: f64, theme: &galaxy_core::ui::theme::GalaxyTheme) -> ColorU {
-    if pct >= 90.0 {
-        theme.ansi_fg_green()
-    } else if pct >= 50.0 {
-        theme.ansi_fg_yellow()
-    } else {
-        theme.ansi_fg_red()
-    }
-}
-
-fn render_session_status_bar(
-    appearance: &Appearance,
-    app: &AppContext,
-    terminal_view_id: EntityId,
-    conversation_id: crate::ai::agent::conversation::AIConversationId,
-) -> Option<Box<dyn Element>> {
-    let (cache_read, cache_write, cache_miss, cost_cents, context_usage, current_context) =
-        if let Some(conversation) =
-            BlocklistAIHistoryModel::as_ref(app).conversation(&conversation_id)
-        {
-            (
-                conversation.last_block_cache_read_tokens(),
-                conversation.last_block_cache_write_tokens(),
-                conversation.last_block_cache_miss_tokens(),
-                conversation.total_cost_cents(),
-                conversation.context_window_usage(),
-                conversation.current_context_tokens(),
-            )
-        } else {
-            (0, 0, 0, 0.0, 0.0, 0)
-        };
-
-    let cache_total_ops = cache_read + cache_write + cache_miss;
-    let cache_hit_pct = if cache_total_ops > 0 {
-        (cache_read as f64 / cache_total_ops as f64) * 100.0
-    } else {
-        0.0
-    };
-
-    let active_model =
-        LLMPreferences::as_ref(app).get_active_base_model(app, Some(terminal_view_id));
-    let profile_context = AIExecutionProfilesModel::as_ref(app)
-        .active_profile(Some(terminal_view_id), app)
-        .data()
-        .context_window_display_value(app);
-    let model_max_context = active_model
-        .context_window
-        .default_max
-        .max(active_model.context_window.max);
-    let max_context = profile_context
-        .or((model_max_context > 0).then_some(model_max_context))
-        .unwrap_or(200_000);
-    let context_pct = context_usage.clamp(0.0, 1.0) * 100.0;
-
-    let theme = appearance.theme();
-    let font_family = appearance.ui_font_family();
-    let font_size = appearance.monospace_font_size() - 1.0;
-    let dim_color: ColorU = theme.sub_text_color(theme.background()).into();
-    let cache_color = cache_hit_color(cache_hit_pct, theme);
-
-    let mut row = Flex::row()
-        .with_cross_axis_alignment(CrossAxisAlignment::Center)
-        .with_main_axis_size(MainAxisSize::Min);
-
-    // Context: XX.X% (Xk / Xk)
-    let context_text = format!(
-        "\u{25a0} Ctx: {:.1}% ({}/{})",
-        context_pct,
-        format_token_count(current_context),
-        format_token_count(max_context),
-    );
-    row.add_child(
-        Text::new_inline(context_text, font_family, font_size)
-            .with_color(dim_color)
-            .finish(),
-    );
-
-    // Only show cache stats when the provider actually reports them
-    // (Bedrock reports cache data; LiteLLM/OpenAI typically does not)
-    if cache_read > 0 || cache_write > 0 {
-        // Separator
-        row.add_child(
-            Container::new(
-                Text::new_inline("  \u{2502}  ".to_string(), font_family, font_size)
-                    .with_color(dim_color)
-                    .finish(),
-            )
-            .finish(),
-        );
-
-        // Cache Hit: XX.X% (R: Xk W: Xk M: Xk)
-        let cache_label = format!("\u{25c6} Cache: {:.1}%", cache_hit_pct);
-        row.add_child(
-            Text::new_inline(cache_label, font_family, font_size)
-                .with_color(cache_color)
-                .finish(),
-        );
-
-        let cache_detail = format!(
-            " (R:{} W:{} M:{})",
-            format_token_count(cache_read),
-            format_token_count(cache_write),
-            format_token_count(cache_miss),
-        );
-        row.add_child(
-            Text::new_inline(cache_detail, font_family, font_size)
-                .with_color(dim_color)
-                .finish(),
-        );
-    }
-
-    // Separator
-    row.add_child(
-        Container::new(
-            Text::new_inline("  \u{2502}  ".to_string(), font_family, font_size)
-                .with_color(dim_color)
-                .finish(),
-        )
-        .finish(),
-    );
-
-    // Cost: $X.XX
-    let cost_text = format!("\u{25b2} ${:.2}", cost_cents / 100.0);
-    row.add_child(
-        Text::new_inline(cost_text, font_family, font_size)
-            .with_color(theme.ansi_fg_green())
-            .finish(),
-    );
-
-    Some(
-        Container::new(row.finish())
-            .with_padding_left(12.)
-            .with_padding_right(12.)
-            .with_padding_top(2.)
-            .with_padding_bottom(2.)
-            .with_background(theme.background())
-            .finish(),
-    )
 }
 
 pub mod styles {

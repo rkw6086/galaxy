@@ -82,6 +82,32 @@ fn native_context_reaches_rig_without_a_proto_context_conversion() {
 }
 
 #[test]
+fn volatile_request_time_follows_the_cacheable_system_prompt_prefix() {
+    let mut params = RequestParams::new_for_test();
+    params.global_rules = vec![(
+        "Stable rule".to_string(),
+        "Preserve this cacheable instruction.".to_string(),
+    )];
+    params.input = vec![user_query_with_context(
+        "Inspect the cache layout",
+        vec![AIAgentContext::CurrentTime {
+            current_time: chrono::Local::now(),
+        }],
+    )];
+
+    let prepared = prepare_rig_turn(&config(), params, vec![ToolType::ReadFiles], Vec::new());
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+    let rule_position = prompt
+        .find("Preserve this cacheable instruction.")
+        .expect("global rule");
+    let tools_position = prompt.find("## Available Tools").expect("tool contract");
+    let time_position = prompt.find("## Request Time").expect("request time");
+
+    assert!(rule_position < time_position);
+    assert!(tools_position < time_position);
+}
+
+#[test]
 fn builds_a_rig_turn_directly_from_galaxy_request_state() {
     let mut params = RequestParams::new_for_test();
     params.model = LLMId::from("selected-model");

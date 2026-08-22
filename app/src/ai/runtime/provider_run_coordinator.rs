@@ -67,6 +67,7 @@ pub(crate) enum ProviderRunProjection {
         runtime_id: String,
         model_id: String,
         retry_attempt: u32,
+        max_retries: u32,
         elapsed_ms: u64,
         error: AgentError,
     },
@@ -639,6 +640,7 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                 }
+                AgentEvent::KeepAlive => {}
                 AgentEvent::TextDelta { text } => {
                     if !self
                         .ensure_model_started_acknowledged(
@@ -732,14 +734,11 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                     buffer.usage.clone_from(&usage);
-                    let cumulative_usage = combined_usage(self.run.usage(), &usage);
                     if !self
                         .project_or_fail_acknowledged(
                             ProviderRunProjection::ModelEvent {
                                 work_id: call.work_id.clone(),
-                                event: AgentEvent::UsageUpdated {
-                                    usage: cumulative_usage,
-                                },
+                                event: AgentEvent::UsageUpdated { usage },
                             },
                             project,
                         )
@@ -890,6 +889,7 @@ impl ProviderRunCoordinator {
                     runtime_id: profile.runtime.descriptor().id.clone(),
                     model_id: profile.request.model.as_str().to_string(),
                     retry_attempt,
+                    max_retries: self.run.max_model_retries_per_turn(),
                     elapsed_ms: elapsed_millis(started_at),
                     error,
                 },
@@ -1016,19 +1016,6 @@ fn request_for_model_call(mut template: TurnRequest, call: &ProviderModelCall) -
     template.prompt = None;
     template.messages = call.messages.clone();
     template
-}
-
-fn combined_usage(previous: &Usage, current: &Usage) -> Usage {
-    Usage {
-        input_tokens: previous.input_tokens.saturating_add(current.input_tokens),
-        output_tokens: previous.output_tokens.saturating_add(current.output_tokens),
-        cached_input_tokens: previous
-            .cached_input_tokens
-            .saturating_add(current.cached_input_tokens),
-        cache_creation_input_tokens: previous
-            .cache_creation_input_tokens
-            .saturating_add(current.cache_creation_input_tokens),
-    }
 }
 
 fn tool_event_call_id(event: &ToolEvent) -> Result<&str, ProviderRunCoordinatorError> {

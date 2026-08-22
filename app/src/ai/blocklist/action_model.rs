@@ -857,26 +857,24 @@ impl BlocklistAIActionModel {
         });
 
         let history_model = BlocklistAIHistoryModel::handle(ctx);
-        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| {
-            match event {
-                BlocklistAIHistoryEvent::RemoveConversation {
-                    conversation_id, ..
-                }
-                | BlocklistAIHistoryEvent::DeletedConversation {
-                    conversation_id, ..
-                } => {
+        ctx.subscribe_to_model(&history_model, |me, _, event, ctx| match event {
+            BlocklistAIHistoryEvent::RemoveConversation {
+                conversation_id, ..
+            }
+            | BlocklistAIHistoryEvent::DeletedConversation {
+                conversation_id, ..
+            } => {
+                me.cleanup_conversation_state(*conversation_id, ctx);
+            }
+            BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface {
+                cleared_conversation_ids,
+                ..
+            } => {
+                for conversation_id in cleared_conversation_ids {
                     me.cleanup_conversation_state(*conversation_id, ctx);
                 }
-                BlocklistAIHistoryEvent::ClearedConversationsForTerminalSurface {
-                    cleared_conversation_ids,
-                    ..
-                } => {
-                    for conversation_id in cleared_conversation_ids {
-                        me.cleanup_conversation_state(*conversation_id, ctx);
-                    }
-                }
-                _ => {}
             }
+            _ => {}
         });
 
         Self {

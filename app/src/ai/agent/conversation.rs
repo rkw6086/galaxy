@@ -5,6 +5,7 @@ use ai::agent::orchestration_config::{OrchestrationConfig, OrchestrationConfigSt
 use ai::document::AIDocumentId;
 use ai::skills::SkillPathOrigin;
 use chrono::{DateTime, Local, TimeZone};
+use galaxy_agent_core::Usage as ProviderUsage;
 use galaxy_cli::agent::Harness;
 use galaxy_core::command::ExitCode;
 use galaxy_core::execution_mode::AppExecutionMode;
@@ -338,6 +339,7 @@ pub struct AIConversation {
     progressive_summary: Option<String>,
     messages_summarized_up_to: usize,
     current_context_tokens: u32,
+    latest_model_call_usage: ProviderUsage,
     has_pending_progressive_summary: bool,
 }
 
@@ -413,6 +415,7 @@ impl AIConversation {
             progressive_summary: None,
             messages_summarized_up_to: 0,
             current_context_tokens: 0,
+            latest_model_call_usage: ProviderUsage::default(),
             has_pending_progressive_summary: false,
         }
     }
@@ -701,6 +704,7 @@ impl AIConversation {
             progressive_summary,
             messages_summarized_up_to,
             current_context_tokens: 0,
+            latest_model_call_usage: ProviderUsage::default(),
             has_pending_progressive_summary: false,
         })
     }
@@ -763,6 +767,29 @@ impl AIConversation {
 
     pub fn set_current_context_tokens(&mut self, val: u32) {
         self.current_context_tokens = val;
+    }
+
+    pub fn set_latest_model_call_usage(&mut self, usage: ProviderUsage) {
+        self.current_context_tokens = u32::try_from(
+            usage
+                .input_tokens
+                .saturating_add(usage.cached_input_tokens)
+                .saturating_add(usage.cache_creation_input_tokens),
+        )
+        .unwrap_or(u32::MAX);
+        self.latest_model_call_usage = usage;
+    }
+
+    pub fn latest_model_call_cache_read_tokens(&self) -> u32 {
+        u32::try_from(self.latest_model_call_usage.cached_input_tokens).unwrap_or(u32::MAX)
+    }
+
+    pub fn latest_model_call_cache_write_tokens(&self) -> u32 {
+        u32::try_from(self.latest_model_call_usage.cache_creation_input_tokens).unwrap_or(u32::MAX)
+    }
+
+    pub fn latest_model_call_cache_miss_tokens(&self) -> u32 {
+        u32::try_from(self.latest_model_call_usage.input_tokens).unwrap_or(u32::MAX)
     }
 
     pub fn has_pending_progressive_summary(&self) -> bool {
@@ -2463,10 +2490,16 @@ impl AIConversation {
 
         // Update live context token count from this response's input tokens.
         // This represents the actual current context window size (not cumulative).
-        let live_input: u32 = token_usage
-            .iter()
-            .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
-            .sum();
+        let live_input = usage_metadata
+            .as_ref()
+            .map(|metadata| metadata.total_input_tokens)
+            .filter(|tokens| *tokens > 0)
+            .unwrap_or_else(|| {
+                token_usage
+                    .iter()
+                    .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
+                    .sum()
+            });
         if live_input > 0 {
             self.current_context_tokens = live_input;
         }
@@ -4269,10 +4302,7 @@ impl AIConversation {
     pub fn cache_miss_tokens(&self) -> u32 {
         self.total_token_usage_by_model
             .values()
-            .map(|u| {
-                u.total_input
-                    .saturating_sub(u.input_cache_read + u.input_cache_write)
-            })
+            .map(|u| u.total_input)
             .sum()
     }
 
@@ -4293,10 +4323,7 @@ impl AIConversation {
     pub fn last_block_cache_miss_tokens(&self) -> u32 {
         self.last_block_token_usage_by_model
             .values()
-            .map(|u| {
-                u.total_input
-                    .saturating_sub(u.input_cache_read + u.input_cache_write)
-            })
+            .map(|u| u.total_input)
             .sum()
     }
 

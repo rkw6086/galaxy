@@ -223,15 +223,21 @@ impl ToolEvent {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
+    /// Input tokens not served by or written to a provider prompt cache.
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Input tokens served from the provider prompt cache.
     pub cached_input_tokens: u64,
+    /// Input tokens written to the provider prompt cache.
     pub cache_creation_input_tokens: u64,
 }
 
 impl Usage {
     pub fn total_tokens(&self) -> u64 {
-        self.input_tokens.saturating_add(self.output_tokens)
+        self.input_tokens
+            .saturating_add(self.cached_input_tokens)
+            .saturating_add(self.cache_creation_input_tokens)
+            .saturating_add(self.output_tokens)
     }
 }
 
@@ -268,6 +274,9 @@ pub enum AgentEvent {
     TurnStarted {
         runtime_request_id: String,
     },
+    /// A transport heartbeat proving that the current model stream is still connected.
+    /// Consumers should use this to refresh idle timeouts without rendering output.
+    KeepAlive,
     TextDelta {
         text: String,
     },

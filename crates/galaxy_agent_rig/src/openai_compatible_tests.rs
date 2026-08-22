@@ -73,7 +73,7 @@ async fn rig_stream_maps_reasoning_text_usage_and_stop() {
             },
             AgentEvent::UsageUpdated {
                 usage: Usage {
-                    input_tokens: 4,
+                    input_tokens: 2,
                     output_tokens: 6,
                     cached_input_tokens: 2,
                     cache_creation_input_tokens: 0,

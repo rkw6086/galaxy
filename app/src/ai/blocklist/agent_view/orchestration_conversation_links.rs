@@ -81,11 +81,7 @@ pub(crate) fn conversation_id_for_agent_id_in_orchestration(
             history,
             orchestrator_id,
         ))
-        .find(|conversation_id| {
-            history
-                .conversation(conversation_id)
-                .is_some_and(|conversation| matches(conversation))
-        })
+        .find(|conversation_id| history.conversation(conversation_id).is_some_and(&matches))
         .or_else(|| conversation_id_for_agent_id(canonical_id, app))
 }
 

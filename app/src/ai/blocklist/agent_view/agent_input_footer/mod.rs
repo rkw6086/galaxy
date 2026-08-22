@@ -55,7 +55,9 @@ use crate::ai::blocklist::prompt::prompt_alert::{PromptAlertEvent, PromptAlertVi
 use crate::ai::blocklist::usage::icon_for_context_window_usage;
 use crate::ai::blocklist::BlocklistAIInputModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
+use crate::ai::execution_profiles::AIExecutionProfileAppExt;
 use crate::ai::harness_availability::HarnessAvailabilityModel;
+use crate::ai::llms::LLMPreferences;
 use crate::ai::AIRequestUsageModel;
 use crate::appearance::Appearance;
 use crate::auth::{AuthManager, AuthStateProvider};
@@ -122,6 +124,16 @@ const FAST_FORWARD_LOCKED_TOOLTIP: &str =
     "Fast forward is always enabled for cloud agent conversations";
 
 const CLOUD_MODE_V2_FOOTER_GAP: f32 = 4.;
+
+fn format_llm_token_count(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        tokens.to_string()
+    }
+}
 
 /// Voice input state for the CLI agent footer. Unlike the editor-based voice
 /// flow (which goes through Input → EditorView), this state is self-contained
@@ -194,6 +206,8 @@ pub struct AgentInputFooter {
     nld_button: ViewHandle<ActionButton>,
     file_button: ViewHandle<ActionButton>,
     context_window_button: ViewHandle<ActionButton>,
+    llm_context_usage_button: ViewHandle<ActionButton>,
+    llm_cache_details_button: ViewHandle<ActionButton>,
     model_selector: ViewHandle<ProfileModelSelector>,
     environment_selector: Option<ViewHandle<EnvironmentSelector>>,
     handoff_environment_selector: ViewHandle<EnvironmentSelector>,
@@ -610,6 +624,22 @@ impl AgentInputFooter {
                 .with_tooltip_alignment(TooltipAlignment::Left)
         });
 
+        let llm_context_usage_button = ctx.add_typed_action_view(|_ctx| {
+            ActionButton::new("Ctx —", AgentInputButtonTheme)
+                .with_icon(Icon::ContextRemaining100)
+                .with_tooltip("LLM context usage is available after the first model call")
+                .with_size(button_size)
+                .with_tooltip_alignment(TooltipAlignment::Left)
+        });
+
+        let llm_cache_details_button = ctx.add_typed_action_view(|_ctx| {
+            ActionButton::new("Cache —", AgentInputButtonTheme)
+                .with_icon(Icon::LayersThree01)
+                .with_tooltip("LLM cache details are available after the first model call")
+                .with_size(button_size)
+                .with_tooltip_alignment(TooltipAlignment::Left)
+        });
+
         let profile_model_selector_full = ctx.add_typed_action_view(|ctx| {
             let mut selector = ProfileModelSelector::new(
                 menu_positioning_provider.clone(),
@@ -752,7 +782,12 @@ impl AgentInputFooter {
             },
         );
         // Subscribe to AIExecutionProfilesModel to potentially show/hide the profile selector button when profiles are added/removed
-        ctx.subscribe_to_model(&AIExecutionProfilesModel::handle(ctx), |_, _, _, ctx| {
+        ctx.subscribe_to_model(&AIExecutionProfilesModel::handle(ctx), |me, _, _, ctx| {
+            me.update_llm_usage_buttons(ctx);
+            ctx.notify();
+        });
+        ctx.subscribe_to_model(&LLMPreferences::handle(ctx), |me, _, _, ctx| {
+            me.update_llm_usage_buttons(ctx);
             ctx.notify();
         });
 
@@ -775,6 +810,7 @@ impl AgentInputFooter {
                     | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. } => {
                         me.sync_fast_forward_button(ctx);
                         me.update_context_window_button(ctx);
+                        me.update_llm_usage_buttons(ctx);
                         me.model_selector.update(ctx, |_, ctx| ctx.notify());
                         ctx.notify();
                     }
@@ -783,6 +819,7 @@ impl AgentInputFooter {
                     | BlocklistAIHistoryEvent::AppendedExchange { .. }
                     | BlocklistAIHistoryEvent::UpdatedStreamingExchange { .. } => {
                         me.update_context_window_button(ctx);
+                        me.update_llm_usage_buttons(ctx);
                         me.model_selector.update(ctx, |_, ctx| ctx.notify());
                         ctx.notify();
                     }
@@ -836,6 +873,8 @@ impl AgentInputFooter {
             plugin_operation_in_progress: false,
             plugin_chip_ready: false,
             context_window_button,
+            llm_context_usage_button,
+            llm_cache_details_button,
             model_selector: profile_model_selector_full,
             environment_selector,
             handoff_environment_selector,
@@ -860,6 +899,7 @@ impl AgentInputFooter {
         };
         me.sync_fast_forward_button(ctx);
         me.update_context_window_button(ctx);
+        me.update_llm_usage_buttons(ctx);
         me.update_display_chips(&prompt, ctx);
         me
     }
@@ -1463,6 +1503,8 @@ impl AgentInputFooter {
             AgentToolbarItemKind::ModelSelector
             | AgentToolbarItemKind::NLDToggle
             | AgentToolbarItemKind::ContextWindowUsage
+            | AgentToolbarItemKind::LLMContextUsage
+            | AgentToolbarItemKind::LLMCacheDetails
             | AgentToolbarItemKind::FastForwardToggle
             | AgentToolbarItemKind::HandoffToCloud => None,
         }
@@ -1970,6 +2012,101 @@ impl AgentInputFooter {
         }
     }
 
+    fn update_llm_usage_buttons(&self, ctx: &mut ViewContext<Self>) {
+        let metrics = BlocklistAIHistoryModel::as_ref(ctx)
+            .active_conversation(self.terminal_view_id)
+            .map(|conversation| {
+                (
+                    conversation.current_context_tokens(),
+                    conversation.context_window_usage(),
+                    conversation.latest_model_call_cache_read_tokens(),
+                    conversation.latest_model_call_cache_write_tokens(),
+                    conversation.latest_model_call_cache_miss_tokens(),
+                )
+            });
+
+        let Some((current_context, reported_usage, cache_read, cache_write, cache_miss)) = metrics
+        else {
+            self.llm_context_usage_button.update(ctx, |button, ctx| {
+                button.set_label("Ctx —", ctx);
+                button.set_icon(Some(Icon::ContextRemaining100), ctx);
+                button.set_tooltip(
+                    Some("LLM context usage is available after the first model call"),
+                    ctx,
+                );
+            });
+            self.llm_cache_details_button.update(ctx, |button, ctx| {
+                button.set_label("Cache —", ctx);
+                button.set_tooltip(
+                    Some("LLM cache details are available after the first model call"),
+                    ctx,
+                );
+            });
+            return;
+        };
+
+        let active_model =
+            LLMPreferences::as_ref(ctx).get_active_base_model(ctx, Some(self.terminal_view_id));
+        let profile_context = AIExecutionProfilesModel::as_ref(ctx)
+            .active_profile(Some(self.terminal_view_id), ctx)
+            .data()
+            .context_window_display_value(ctx);
+        let model_max_context = active_model
+            .context_window
+            .default_max
+            .max(active_model.context_window.max);
+        let max_context = profile_context
+            .or((model_max_context > 0).then_some(model_max_context))
+            .unwrap_or(200_000);
+        let context_usage = if max_context > 0 && current_context > 0 {
+            (current_context as f32 / max_context as f32).clamp(0.0, 1.0)
+        } else {
+            reported_usage.clamp(0.0, 1.0)
+        };
+        let context_pct = context_usage * 100.0;
+        let context_label = format!(
+            "Ctx {context_pct:.1}% · {}/{}",
+            format_llm_token_count(current_context),
+            format_llm_token_count(max_context),
+        );
+        let context_tooltip = format!(
+            "Current LLM context: {} of {} tokens ({context_pct:.1}%). This is not cumulative.",
+            format_llm_token_count(current_context),
+            format_llm_token_count(max_context),
+        );
+        let context_icon = icon_for_context_window_usage(context_usage);
+        self.llm_context_usage_button.update(ctx, |button, ctx| {
+            button.set_label(context_label, ctx);
+            button.set_icon(Some(context_icon), ctx);
+            button.set_tooltip(Some(context_tooltip), ctx);
+        });
+
+        let cache_total = cache_read
+            .saturating_add(cache_write)
+            .saturating_add(cache_miss);
+        let cache_hit_pct = if cache_total > 0 {
+            cache_read as f64 / cache_total as f64 * 100.0
+        } else {
+            0.0
+        };
+        let cache_label = format!(
+            "Cache {cache_hit_pct:.1}% · R {} · W {} · M {}",
+            format_llm_token_count(cache_read),
+            format_llm_token_count(cache_write),
+            format_llm_token_count(cache_miss),
+        );
+        let cache_tooltip = format!(
+            "Latest model call: {} cache-read, {} cache-write, {} cache-miss tokens.",
+            format_llm_token_count(cache_read),
+            format_llm_token_count(cache_write),
+            format_llm_token_count(cache_miss),
+        );
+        self.llm_cache_details_button.update(ctx, |button, ctx| {
+            button.set_label(cache_label, ctx);
+            button.set_tooltip(Some(cache_tooltip), ctx);
+        });
+    }
+
     /// Schedules a refresh of the context-window button at the prompt-cache
     /// expiry instant so the notification dot appears while the conversation is idle.
     fn reschedule_prompt_cache_expiry_timer(
@@ -2101,6 +2238,14 @@ impl AgentInputFooter {
                     stack.finish()
                 })
             }
+            AgentToolbarItemKind::LLMContextUsage => BlocklistAIHistoryModel::as_ref(app)
+                .active_conversation(self.terminal_view_id)
+                .is_some()
+                .then(|| ChildView::new(&self.llm_context_usage_button).finish()),
+            AgentToolbarItemKind::LLMCacheDetails => BlocklistAIHistoryModel::as_ref(app)
+                .active_conversation(self.terminal_view_id)
+                .is_some()
+                .then(|| ChildView::new(&self.llm_cache_details_button).finish()),
             AgentToolbarItemKind::ShareSession => {
                 if is_conversation_transcript_context {
                     return None;

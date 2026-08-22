@@ -404,6 +404,7 @@ fn provider_retry_clears_failed_attempt_output_before_new_messages() {
             runtime_id: "runtime".to_owned(),
             model_id: "model".to_owned(),
             retry_attempt: 1,
+            max_retries: 3,
             elapsed_ms: 2,
             error: galaxy_agent_core::AgentError::new(
                 galaxy_agent_core::AgentErrorKind::Transport,

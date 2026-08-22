@@ -363,7 +363,7 @@ async fn one_run_drives_model_tool_and_followup_turns_with_atomic_history() {
         ProviderRunProjection::ModelEvent {
             event: AgentEvent::UsageUpdated { usage },
             ..
-        } if usage.input_tokens == 30 && usage.output_tokens == 9
+        } if usage.input_tokens == 20 && usage.output_tokens == 5
     )));
 
     coordinator.run_mut().complete(&work_id).unwrap();
@@ -761,8 +761,9 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
             ProviderRunProjection::ModelRetry {
                 work_id,
                 retry_attempt,
+                max_retries,
                 ..
-            } => Some((work_id.clone(), *retry_attempt)),
+            } => Some((work_id.clone(), *retry_attempt, *max_retries)),
             ProviderRunProjection::ModelTurnRequested { .. }
             | ProviderRunProjection::ModelTurnStarted { .. }
             | ProviderRunProjection::ModelTurnFinished { .. }
@@ -788,6 +789,7 @@ async fn recoverable_start_failure_retries_the_same_work_identity() {
         .expect("retried model start");
     assert_eq!(retry.0, started);
     assert_eq!(retry.1, 1);
+    assert_eq!(retry.2, 3);
 }
 
 #[tokio::test]
@@ -967,6 +969,38 @@ async fn model_event_idle_timeout_retries_the_same_work_identity() {
     );
     assert_eq!(coordinator.run().model_retries(), 1);
     assert_single_retry_lifecycle(&projections, "event timed out", true);
+}
+
+#[tokio::test]
+async fn model_keepalive_preserves_the_active_turn_without_rendering_output() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![Ok(vec![
+        started("request-keepalive"),
+        Ok(AgentEvent::KeepAlive),
+        Ok(AgentEvent::TextDelta {
+            text: "finished".to_string(),
+        }),
+        stopped(StopReason::Completed),
+    ])]));
+    let mut coordinator = coordinator(runtime);
+    let mut projections = Vec::new();
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
+
+    assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
+    assert_eq!(coordinator.run().model_retries(), 0);
+    assert!(!projections.iter().any(|projection| {
+        matches!(
+            projection,
+            ProviderRunProjection::ModelEvent {
+                event: AgentEvent::KeepAlive,
+                ..
+            }
+        )
+    }));
 }
 
 #[tokio::test]
@@ -1168,7 +1202,11 @@ async fn transcript_projector_emits_one_ui_stream_for_the_whole_run() {
     else {
         panic!("expected terminal run");
     };
-    ui_events.extend(projector.finish(&outcome).unwrap());
+    ui_events.extend(
+        projector
+            .finish(&outcome, coordinator.run().usage())
+            .unwrap(),
+    );
     assert_eq!(
         count_response_events(&ui_events, ResponseEventKind::Finished),
         1
@@ -1188,11 +1226,14 @@ fn transcript_projector_preserves_provider_failure_message() {
         empty_output_message: None,
     });
     let events = projector
-        .finish(&ProviderRunOutcome::Failed(ProviderRunFailure {
-            kind: ProviderRunFailureKind::ModelCall,
-            message: "upstream provider rejected the request".to_string(),
-            source: None,
-        }))
+        .finish(
+            &ProviderRunOutcome::Failed(ProviderRunFailure {
+                kind: ProviderRunFailureKind::ModelCall,
+                message: "upstream provider rejected the request".to_string(),
+                source: None,
+            }),
+            &Usage::default(),
+        )
         .unwrap();
 
     let finished = events

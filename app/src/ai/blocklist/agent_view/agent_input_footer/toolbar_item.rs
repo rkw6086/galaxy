@@ -52,6 +52,8 @@ pub enum AgentToolbarItemKind {
     ModelSelector,
     NLDToggle,
     ContextWindowUsage,
+    LLMContextUsage,
+    LLMCacheDetails,
 
     // CLI agent only
     FileExplorer,
@@ -83,6 +85,8 @@ impl AgentToolbarItemKind {
             Self::ModelSelector
             | Self::NLDToggle
             | Self::ContextWindowUsage
+            | Self::LLMContextUsage
+            | Self::LLMCacheDetails
             | Self::FastForwardToggle
             | Self::HandoffToCloud
             | Self::ShareSession => ToolbarAvailability::AgentViewOnly,
@@ -111,6 +115,8 @@ impl AgentToolbarItemKind {
             | Self::ModelSelector
             | Self::NLDToggle
             | Self::ContextWindowUsage
+            | Self::LLMContextUsage
+            | Self::LLMCacheDetails
             | Self::RichInput
             | Self::VoiceInput => true,
         }
@@ -123,7 +129,9 @@ impl AgentToolbarItemKind {
             Self::NLDToggle => "Autodetection",
             Self::VoiceInput => "Voice Input",
             Self::FileAttach => "Attach File",
-            Self::ContextWindowUsage => "Context Usage",
+            Self::ContextWindowUsage => "Warp Context Indicator",
+            Self::LLMContextUsage => "LLM Context Usage",
+            Self::LLMCacheDetails => "LLM Cache Details",
             Self::FileExplorer => "File Explorer",
             Self::RichInput => "Rich Input",
             Self::Settings => "Settings",
@@ -141,6 +149,8 @@ impl AgentToolbarItemKind {
             Self::VoiceInput => Some(Icon::Microphone),
             Self::FileAttach => Some(Icon::Plus),
             Self::ContextWindowUsage => Some(Icon::ContextRemaining100),
+            Self::LLMContextUsage => Some(Icon::ContextRemaining100),
+            Self::LLMCacheDetails => Some(Icon::LayersThree01),
             Self::FileExplorer => Some(Icon::FileCopy),
             Self::RichInput => Some(Icon::TextInput),
             Self::Settings => Some(Icon::Settings),
@@ -163,6 +173,8 @@ impl AgentToolbarItemKind {
             Self::ContextChip(_)
             | Self::NLDToggle
             | Self::ContextWindowUsage
+            | Self::LLMContextUsage
+            | Self::LLMCacheDetails
             | Self::FastForwardToggle
             | Self::HandoffToCloud
             | Self::ShareSession
@@ -214,7 +226,8 @@ impl AgentToolbarItemKind {
     pub fn default_right() -> Vec<Self> {
         let mut items = vec![
             Self::ContextChip(ContextChipKind::AgentPlanAndTodoList),
-            Self::ContextWindowUsage,
+            Self::LLMContextUsage,
+            Self::LLMCacheDetails,
             Self::ModelSelector,
         ];
         if FeatureFlag::OzHandoff.is_enabled()
@@ -240,6 +253,8 @@ impl AgentToolbarItemKind {
             Self::VoiceInput,
             Self::FileAttach,
             Self::ContextWindowUsage,
+            Self::LLMContextUsage,
+            Self::LLMCacheDetails,
         ]);
         if FeatureFlag::FastForwardAutoexecuteButton.is_enabled() {
             items.push(Self::FastForwardToggle);

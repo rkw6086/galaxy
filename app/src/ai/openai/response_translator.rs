@@ -39,6 +39,9 @@ pub(crate) struct StreamUsage {
     pub(crate) output_tokens: i32,
     pub(crate) cache_read_tokens: i32,
     pub(crate) cache_write_tokens: i32,
+    /// Input currently occupying the model context. When absent, the
+    /// per-request token fields above are used.
+    pub(crate) current_context_tokens: Option<i32>,
     pub(crate) cost_in_cents: f32,
     pub(crate) model_id: String,
     pub(crate) max_context_tokens: Option<u32>,
@@ -376,14 +379,13 @@ pub fn openai_stream_to_response_events(
             }
         }
 
-        // If we got cache_read but no explicit cache_write, infer it:
-        // cache_write = prompt_tokens - cache_read (the non-cached input that will be cached)
-        if cache_read_tokens > 0 && cache_write_tokens == 0 {
-            cache_write_tokens = (input_tokens - cache_read_tokens).max(0);
-        }
+        let current_context_tokens = input_tokens;
+        let cache_miss_tokens = input_tokens
+            .saturating_sub(cache_read_tokens)
+            .saturating_sub(cache_write_tokens);
 
         let cost = estimate_cost_cents(
-            input_tokens as u32,
+            cache_miss_tokens as u32,
             output_tokens as u32,
             cache_read_tokens as u32,
             cache_write_tokens as u32,
@@ -392,10 +394,11 @@ pub fn openai_stream_to_response_events(
         let finished_event = build_stream_finished(
             stop_reason,
             StreamUsage {
-                input_tokens,
+                input_tokens: cache_miss_tokens,
                 output_tokens,
                 cache_read_tokens,
                 cache_write_tokens,
+                current_context_tokens: Some(current_context_tokens),
                 cost_in_cents: cost,
                 model_id: model_id.clone(),
                 max_context_tokens,
@@ -545,6 +548,7 @@ pub(crate) fn build_stream_finished(
         output_tokens,
         cache_read_tokens,
         cache_write_tokens,
+        current_context_tokens,
         cost_in_cents,
         model_id,
         max_context_tokens,
@@ -577,7 +581,8 @@ pub(crate) fn build_stream_finished(
     let max_context_tokens =
         max_context_tokens.unwrap_or_else(|| context_window_for_model(&model_id));
     // Context usage should reflect the full input including cached tokens
-    let effective_input = input_tokens + cache_read_tokens + cache_write_tokens;
+    let effective_input =
+        current_context_tokens.unwrap_or(input_tokens + cache_read_tokens + cache_write_tokens);
     let context_usage = if max_context_tokens > 0 {
         effective_input as f32 / max_context_tokens as f32
     } else {
@@ -591,7 +596,7 @@ pub(crate) fn build_stream_finished(
         summarized: false,
         credits_spent: 0.0,
         platform_credits_spent: 0.0,
-        total_input_tokens: input_tokens as u32,
+        total_input_tokens: effective_input.max(0) as u32,
         token_usage: vec![],
         tool_usage_metadata: None,
         warp_token_usage: std::collections::HashMap::new(),

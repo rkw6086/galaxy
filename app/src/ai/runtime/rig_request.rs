@@ -651,6 +651,7 @@ fn build_system_prompt(
     );
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
+    let mut request_time = None;
     let mut project_rules = Vec::new();
     let mut available_skills = Vec::new();
     let mut attached_context = Vec::new();
@@ -724,7 +725,7 @@ fn build_system_prompt(
                 attached_context.push(("Selected text".to_string(), text.clone()));
             }
             AIAgentContext::CurrentTime { current_time } => {
-                environment.push(format!("Current time: {current_time}"));
+                request_time = Some(*current_time);
             }
             AIAgentContext::Codebase { path, name } => {
                 environment.push(format!("Indexed codebase: {name} ({path})"));
@@ -850,6 +851,14 @@ fn build_system_prompt(
                 "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve.\n",
             );
         }
+    }
+    // Keep volatile request data at the end of the system prompt. Provider
+    // prompt caches match the longest exact prefix, so putting the current
+    // timestamp ahead of rules and tool instructions invalidates that stable
+    // prefix on every model call.
+    if let Some(request_time) = request_time {
+        prompt.push_str("\n## Request Time\n");
+        prompt.push_str(&format!("- Current time: {request_time}\n"));
     }
     prompt
 }

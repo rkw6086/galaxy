@@ -40,6 +40,7 @@ pub(crate) struct RuntimeResponseTranslator {
     activity_message_ids: HashMap<String, String>,
     activities: HashMap<String, RuntimeActivity>,
     has_visible_output: bool,
+    /// Usage for the most recent model call.
     usage: Usage,
     context_usage: Option<(u64, u64)>,
 }
@@ -107,25 +108,22 @@ impl ProviderRunResponseProjector {
     pub(crate) fn finish(
         &mut self,
         outcome: &ProviderRunOutcome,
+        aggregate_usage: &Usage,
     ) -> Result<Vec<ResponseEvent>, String> {
         if self.finished {
             return Err("provider run projection is already finished".to_string());
         }
         self.finished = true;
         match outcome {
-            ProviderRunOutcome::Completed(completion) => {
-                self.translator.translate(AgentEvent::TurnStopped {
-                    reason: completion.stop_reason.clone(),
-                })
-            }
-            ProviderRunOutcome::Failed(failure) => {
-                Ok(self.translator.provider_failure(&failure.message))
-            }
-            ProviderRunOutcome::Cancelled { .. } => {
-                self.translator.translate(AgentEvent::TurnStopped {
-                    reason: StopReason::Cancelled,
-                })
-            }
+            ProviderRunOutcome::Completed(completion) => Ok(self
+                .translator
+                .finish_provider_run(completion.stop_reason.clone(), aggregate_usage)),
+            ProviderRunOutcome::Failed(failure) => Ok(self
+                .translator
+                .provider_failure(&failure.message, aggregate_usage)),
+            ProviderRunOutcome::Cancelled { .. } => Ok(self
+                .translator
+                .finish_provider_run(StopReason::Cancelled, aggregate_usage)),
         }
     }
 }
@@ -165,6 +163,7 @@ impl RuntimeResponseTranslator {
         let mut events = Vec::new();
         match event {
             AgentEvent::TurnStarted { .. } => self.initialize(&mut events),
+            AgentEvent::KeepAlive => {}
             AgentEvent::TextDelta { text } => {
                 self.initialize(&mut events);
                 self.add_or_append_text(&text, &mut events);
@@ -249,13 +248,31 @@ impl RuntimeResponseTranslator {
         events
     }
 
+    fn finish_provider_run(
+        &mut self,
+        reason: StopReason,
+        aggregate_usage: &Usage,
+    ) -> Vec<ResponseEvent> {
+        let mut events = Vec::new();
+        self.initialize(&mut events);
+        if !self.has_visible_output && reason != StopReason::Cancelled {
+            if let Some(message) = self.config.empty_output_message.clone() {
+                self.add_or_append_text(&message, &mut events);
+            }
+        }
+        events.push(self.finished_with_usage(map_stop_reason(reason), aggregate_usage));
+        events
+    }
+
     pub(crate) fn begin_followup_turn(&mut self) {
         self.text_message_id = None;
         self.reasoning_message_id = None;
+        self.usage = Usage::default();
     }
 
     fn discard_failed_turn_output(&mut self) -> Vec<ResponseEvent> {
         let mut events = Vec::new();
+        self.usage = Usage::default();
         if let Some(message_id) = self.text_message_id.take() {
             events.push(build_replace_text_message(
                 &self.config.task_id,
@@ -404,20 +421,27 @@ impl RuntimeResponseTranslator {
         self.finished_with_reason(map_stop_reason(reason))
     }
 
-    fn provider_failure(&mut self, message: &str) -> Vec<ResponseEvent> {
+    fn provider_failure(&mut self, message: &str, aggregate_usage: &Usage) -> Vec<ResponseEvent> {
         let mut events = Vec::new();
         self.initialize(&mut events);
-        events.push(
-            self.finished_with_reason(stream_finished::Reason::InternalError(
-                stream_finished::InternalError {
-                    message: message.to_owned(),
-                },
-            )),
-        );
+        events.push(self.finished_with_usage(
+            stream_finished::Reason::InternalError(stream_finished::InternalError {
+                message: message.to_owned(),
+            }),
+            aggregate_usage,
+        ));
         events
     }
 
     fn finished_with_reason(&self, reason: stream_finished::Reason) -> ResponseEvent {
+        self.finished_with_usage(reason, &self.usage)
+    }
+
+    fn finished_with_usage(
+        &self,
+        reason: stream_finished::Reason,
+        aggregate_usage: &Usage,
+    ) -> ResponseEvent {
         if !self.config.capabilities.host_managed_history {
             let (used_tokens, context_size) = self.context_usage.unwrap_or_default();
             return build_context_finished(
@@ -430,10 +454,16 @@ impl RuntimeResponseTranslator {
         build_stream_finished(
             reason,
             StreamUsage {
-                input_tokens: saturating_i32(self.usage.input_tokens),
-                output_tokens: saturating_i32(self.usage.output_tokens),
-                cache_read_tokens: saturating_i32(self.usage.cached_input_tokens),
-                cache_write_tokens: saturating_i32(self.usage.cache_creation_input_tokens),
+                input_tokens: saturating_i32(aggregate_usage.input_tokens),
+                output_tokens: saturating_i32(aggregate_usage.output_tokens),
+                cache_read_tokens: saturating_i32(aggregate_usage.cached_input_tokens),
+                cache_write_tokens: saturating_i32(aggregate_usage.cache_creation_input_tokens),
+                current_context_tokens: Some(saturating_i32(
+                    self.usage
+                        .input_tokens
+                        .saturating_add(self.usage.cached_input_tokens)
+                        .saturating_add(self.usage.cache_creation_input_tokens),
+                )),
                 cost_in_cents: 0.0,
                 model_id: self.config.model_id.clone(),
                 max_context_tokens: self.config.max_context_tokens,

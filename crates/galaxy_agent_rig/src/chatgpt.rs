@@ -116,6 +116,7 @@ impl ChatGPTSubscriptionRuntime {
                 AgentEvent::ReasoningDelta { .. }
                 | AgentEvent::ReasoningCompleted { .. }
                 | AgentEvent::TurnStarted { .. }
+                | AgentEvent::KeepAlive
                 | AgentEvent::UsageUpdated { .. }
                 | AgentEvent::RuntimeActivityUpdated { .. }
                 | AgentEvent::ContextUsageUpdated { .. }

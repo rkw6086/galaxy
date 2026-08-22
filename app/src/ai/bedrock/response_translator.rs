@@ -668,9 +668,9 @@ pub fn build_stream_finished(
     }];
 
     let max_context_tokens = context_window_for_model(model_id);
+    let effective_input = input_tokens + cache_read_input_tokens + cache_write_input_tokens;
     let context_usage = if max_context_tokens > 0 {
-        (input_tokens as f32 + cache_read_input_tokens as f32 + cache_write_input_tokens as f32)
-            / max_context_tokens as f32
+        effective_input as f32 / max_context_tokens as f32
     } else {
         0.0
     }
@@ -682,7 +682,7 @@ pub fn build_stream_finished(
         summarized: is_summarization,
         credits_spent: 0.0,
         platform_credits_spent: 0.0,
-        total_input_tokens: input_tokens as u32,
+        total_input_tokens: effective_input.max(0) as u32,
         token_usage: vec![],
         tool_usage_metadata: None,
         warp_token_usage: std::collections::HashMap::new(),

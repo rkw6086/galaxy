@@ -340,16 +340,27 @@ impl BedrockStreamTranslator {
                 let Some(usage) = metadata.usage() else {
                     return Ok(Vec::new());
                 };
+                let output_tokens = nonnegative_tokens(usage.output_tokens());
+                let cached_input_tokens =
+                    nonnegative_tokens(usage.cache_read_input_tokens().unwrap_or(0));
+                let cache_creation_input_tokens =
+                    nonnegative_tokens(usage.cache_write_input_tokens().unwrap_or(0));
+                let reported_total_tokens = nonnegative_tokens(usage.total_tokens());
+                let total_input_tokens = if reported_total_tokens > 0 {
+                    reported_total_tokens.saturating_sub(output_tokens)
+                } else {
+                    nonnegative_tokens(usage.input_tokens())
+                        .saturating_add(cached_input_tokens)
+                        .saturating_add(cache_creation_input_tokens)
+                };
                 Ok(vec![AgentEvent::UsageUpdated {
                     usage: Usage {
-                        input_tokens: nonnegative_tokens(usage.input_tokens()),
-                        output_tokens: nonnegative_tokens(usage.output_tokens()),
-                        cached_input_tokens: nonnegative_tokens(
-                            usage.cache_read_input_tokens().unwrap_or(0),
-                        ),
-                        cache_creation_input_tokens: nonnegative_tokens(
-                            usage.cache_write_input_tokens().unwrap_or(0),
-                        ),
+                        input_tokens: total_input_tokens
+                            .saturating_sub(cached_input_tokens)
+                            .saturating_sub(cache_creation_input_tokens),
+                        output_tokens,
+                        cached_input_tokens,
+                        cache_creation_input_tokens,
                     },
                 }])
             }
@@ -450,8 +461,20 @@ fn map_bedrock_error(error: impl std::fmt::Display + std::fmt::Debug) -> AgentEr
     error.recoverable = matches!(
         kind,
         AgentErrorKind::RateLimited | AgentErrorKind::Transport
-    );
+    ) || (kind == AgentErrorKind::Provider
+        && is_transient_provider_error(&normalized));
     error
+}
+
+fn is_transient_provider_error(normalized: &str) -> bool {
+    normalized.contains("modelnotready")
+        || normalized.contains("model not ready")
+        || normalized.contains("serviceunavailable")
+        || normalized.contains("service unavailable")
+        || normalized.contains("internalserver")
+        || normalized.contains("internal server")
+        || normalized.contains("temporarily unavailable")
+        || normalized.contains("overloaded")
 }
 
 fn protocol_error(message: impl Into<String>) -> AgentError {

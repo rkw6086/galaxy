@@ -83,7 +83,7 @@ fn normalizes_bedrock_usage_and_max_token_stop() {
     assert_eq!(
         map_usage((&response).into()),
         Usage {
-            input_tokens: 100,
+            input_tokens: 50,
             output_tokens: 25,
             cached_input_tokens: 40,
             cache_creation_input_tokens: 10,

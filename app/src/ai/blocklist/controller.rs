@@ -10,6 +10,7 @@ mod pending_response_streams;
 pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 #[cfg(not(target_family = "wasm"))]
 use std::path::PathBuf;
@@ -20,11 +21,12 @@ use ai::skills::SkillPathOrigin;
 use anyhow::anyhow;
 use chrono::{DateTime, Local};
 use futures::channel::oneshot;
+use futures::{FutureExt, StreamExt};
 use galaxy_agent_core::{
-    turn_control, ExternalWorkId, PendingToolBatch, PendingToolCallState, ProviderRun,
+    turn_control, AgentEvent, ExternalWorkId, PendingToolBatch, PendingToolCallState, ProviderRun,
     ProviderRunFailureKind, ProviderRunId, ProviderRunLimits, ProviderRunOutcome, ProviderRunState,
     StopReason, ToolLoopGuard, ToolResult, ToolResultStatus, TurnCommand, TurnCommandSender,
-    TurnRequest,
+    TurnRequest, Usage,
 };
 use galaxy_core::assertions::safe_assert;
 use input_context::{input_context_for_request, parse_context_attachments};
@@ -73,8 +75,9 @@ use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::document::ai_document_model::{
     AIDocumentId, AIDocumentModel, AIDocumentUserEditStatus,
 };
-use crate::ai::llms::{LLMId, LLMPreferences};
-use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent};
+use crate::ai::llms::{LLMId, LLMInfo, LLMPreferences};
+use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent, MessageRole};
+use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
@@ -105,6 +108,182 @@ use crate::terminal::view::inline_banner::ZeroStatePromptSuggestionType;
 use crate::terminal::ShellLaunchData;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
+
+const PROGRESSIVE_SUMMARY_TRIGGER_USAGE: f32 = 0.70;
+const PROGRESSIVE_SUMMARY_RETAINED_USAGE: f32 = 0.50;
+const PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES: usize = 20;
+const PROGRESSIVE_SUMMARY_OUTPUT_TOKENS: u32 = 8_000;
+const PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS: u32 = 2_000;
+const PROGRESSIVE_SUMMARY_START_TIMEOUT: Duration = Duration::from_secs(120);
+const PROGRESSIVE_SUMMARY_EVENT_TIMEOUT: Duration = Duration::from_secs(300);
+
+#[derive(Clone)]
+struct ProgressiveSummaryCandidate {
+    model_id: String,
+    context_limit: u32,
+    provider_config: ProviderConfig,
+}
+
+fn configured_llm_context_limit(info: &LLMInfo) -> u32 {
+    [
+        info.context_window.default_max,
+        info.context_window.max,
+        info.context_window.min,
+    ]
+    .into_iter()
+    .find(|limit| *limit > 0)
+    .unwrap_or(128_000)
+}
+
+fn estimated_text_tokens(text: &str) -> u32 {
+    u32::try_from(text.chars().count().div_ceil(4)).unwrap_or(u32::MAX)
+}
+
+fn estimated_message_tokens(message: &ConversationMessage) -> u32 {
+    let content_tokens = match &message.content {
+        MessageContent::Text(text) => estimated_text_tokens(text),
+        MessageContent::ToolUse { name, input, .. } => estimated_text_tokens(name)
+            .saturating_add(estimated_text_tokens(&input.to_string()))
+            .saturating_add(20),
+        MessageContent::ToolResult { content, .. } => {
+            estimated_text_tokens(content).saturating_add(20)
+        }
+        MessageContent::MultiPart(parts) => parts.iter().fold(0_u32, |total, part| {
+            let part_tokens = match part {
+                ContentPart::Text(text) | ContentPart::Reasoning { text, .. } => {
+                    estimated_text_tokens(text)
+                }
+                ContentPart::Image { .. } => 1_600,
+                ContentPart::ToolUse { name, input, .. } => estimated_text_tokens(name)
+                    .saturating_add(estimated_text_tokens(&input.to_string()))
+                    .saturating_add(20),
+                ContentPart::ToolResult { content, .. } => {
+                    estimated_text_tokens(content).saturating_add(20)
+                }
+            };
+            total.saturating_add(part_tokens)
+        }),
+    };
+    content_tokens.saturating_add(8)
+}
+
+fn estimated_history_tokens(messages: &[ConversationMessage]) -> u32 {
+    messages.iter().fold(0_u32, |total, message| {
+        total.saturating_add(estimated_message_tokens(message))
+    })
+}
+
+fn content_contains_tool_result(content: &MessageContent) -> bool {
+    match content {
+        MessageContent::ToolResult { .. } => true,
+        MessageContent::MultiPart(parts) => parts
+            .iter()
+            .any(|part| matches!(part, ContentPart::ToolResult { .. })),
+        MessageContent::Text(_) | MessageContent::ToolUse { .. } => false,
+    }
+}
+
+fn progressive_summary_split_point(
+    messages: &[ConversationMessage],
+    retained_token_budget: u32,
+) -> usize {
+    if messages.len() <= PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES {
+        return 0;
+    }
+
+    let mut retained_tokens = 0_u32;
+    let mut split_point = messages.len();
+    for index in (0..messages.len()).rev() {
+        let message_tokens = estimated_message_tokens(&messages[index]);
+        let retained_count = messages.len() - index;
+        if retained_count > PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES
+            && retained_tokens.saturating_add(message_tokens) > retained_token_budget
+        {
+            break;
+        }
+        retained_tokens = retained_tokens.saturating_add(message_tokens);
+        split_point = index;
+    }
+
+    // Do not leave a tool result at the start of retained history without its
+    // preceding assistant tool call.
+    while split_point > 0
+        && messages
+            .get(split_point)
+            .is_some_and(|message| content_contains_tool_result(&message.content))
+    {
+        split_point -= 1;
+    }
+
+    split_point
+}
+
+async fn collect_progressive_summary(
+    provider_config: ProviderConfig,
+    request: TurnRequest,
+) -> anyhow::Result<(String, Usage)> {
+    let (command_sender, control) = turn_control();
+    let startup = async move {
+        let runtime = provider_runtime_for_request(provider_config, &request).await?;
+        runtime
+            .start_turn(request, control)
+            .await
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+    .fuse();
+    let startup_timeout = FutureExt::fuse(Timer::after(PROGRESSIVE_SUMMARY_START_TIMEOUT));
+    futures::pin_mut!(startup, startup_timeout);
+    let mut stream = futures::select_biased! {
+        result = startup => result?,
+        _ = startup_timeout => {
+            let _ = command_sender.send(TurnCommand::Cancel).await;
+            anyhow::bail!("summary model did not start within {} seconds", PROGRESSIVE_SUMMARY_START_TIMEOUT.as_secs());
+        }
+    };
+
+    let mut summary = String::new();
+    let mut usage = Usage::default();
+    let stop_reason = loop {
+        let next_event = stream.next().fuse();
+        let event_timeout = FutureExt::fuse(Timer::after(PROGRESSIVE_SUMMARY_EVENT_TIMEOUT));
+        futures::pin_mut!(next_event, event_timeout);
+        let event = futures::select_biased! {
+            event = next_event => event,
+            _ = event_timeout => {
+                let _ = command_sender.send(TurnCommand::Cancel).await;
+                anyhow::bail!("summary model was idle for {} seconds", PROGRESSIVE_SUMMARY_EVENT_TIMEOUT.as_secs());
+            }
+        };
+        let Some(event) = event else {
+            anyhow::bail!("summary model stream ended without a completion event");
+        };
+        match event.map_err(|error| anyhow!(error.to_string()))? {
+            AgentEvent::TextDelta { text } => summary.push_str(&text),
+            AgentEvent::UsageUpdated { usage: event_usage } => usage = event_usage,
+            AgentEvent::TurnStopped { reason } => break reason,
+            AgentEvent::Tool { .. } => {
+                anyhow::bail!("summary model unexpectedly requested a tool")
+            }
+            AgentEvent::TurnStarted { .. }
+            | AgentEvent::KeepAlive
+            | AgentEvent::ReasoningDelta { .. }
+            | AgentEvent::ReasoningCompleted { .. }
+            | AgentEvent::RuntimeActivityUpdated { .. }
+            | AgentEvent::ContextUsageUpdated { .. }
+            | AgentEvent::UserInputAccepted { .. }
+            | AgentEvent::RuntimeNotice { .. } => {}
+        }
+    };
+
+    if stop_reason != StopReason::Completed {
+        anyhow::bail!("summary model stopped with {stop_reason:?}");
+    }
+    if summary.trim().is_empty() {
+        anyhow::bail!("summary model returned an empty response");
+    }
+
+    Ok((summary, usage))
+}
 
 #[derive(Debug, Clone)]
 pub struct SessionContext {
@@ -657,6 +836,18 @@ fn convert_provider_tool_batch(
     (actions, invalid_results)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderRetryStatus {
+    attempt: u32,
+    max_retries: u32,
+}
+
+impl ProviderRetryStatus {
+    pub(crate) fn label(self) -> String {
+        format!("(Retry {}/{})", self.attempt, self.max_retries)
+    }
+}
+
 struct ActiveProviderRunSlot {
     stream_id: ResponseStreamId,
     response_stream: ModelHandle<ResponseStream>,
@@ -675,6 +866,7 @@ struct ActiveProviderRunSlot {
     pending_monitor_observation: Option<PendingProviderMonitorObservation>,
     pending_command_completion: Option<PendingProviderCommandCompletion>,
     monitor_prose_continuations: usize,
+    retry_status: Option<ProviderRetryStatus>,
 }
 
 struct QueuedProviderRun {
@@ -1497,6 +1689,7 @@ struct ProviderLlmLifecycle {
     model_id: String,
     runtime_request_id: Option<String>,
     retry_attempt: u32,
+    max_retries: Option<u32>,
     elapsed_ms: Option<u64>,
     stop_reason: Option<String>,
     tool_call_count: Option<usize>,
@@ -1521,6 +1714,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             model_id: model_id.clone(),
             runtime_request_id: None,
             retry_attempt: *retry_attempt,
+            max_retries: None,
             elapsed_ms: None,
             stop_reason: None,
             tool_call_count: None,
@@ -1544,6 +1738,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             model_id: model_id.clone(),
             runtime_request_id: Some(runtime_request_id.clone()),
             retry_attempt: *retry_attempt,
+            max_retries: None,
             elapsed_ms: Some(*elapsed_ms),
             stop_reason: None,
             tool_call_count: None,
@@ -1568,6 +1763,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             model_id: model_id.clone(),
             runtime_request_id: None,
             retry_attempt: *retry_attempt,
+            max_retries: None,
             elapsed_ms: Some(*elapsed_ms),
             stop_reason: Some(format!("{stop_reason:?}")),
             tool_call_count: Some(*tool_call_count),
@@ -1581,6 +1777,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             runtime_id,
             model_id,
             retry_attempt,
+            max_retries,
             elapsed_ms,
             error,
         } => ProviderLlmLifecycle {
@@ -1591,6 +1788,7 @@ fn provider_llm_lifecycle(projection: &ProviderRunProjection) -> Option<Provider
             model_id: model_id.clone(),
             runtime_request_id: None,
             retry_attempt: *retry_attempt,
+            max_retries: Some(*max_retries),
             elapsed_ms: Some(*elapsed_ms),
             stop_reason: None,
             tool_call_count: None,
@@ -1635,6 +1833,7 @@ fn provider_llm_lifecycle_remote_log_record(
             "model_id": lifecycle.model_id,
             "runtime_request_id": lifecycle.runtime_request_id,
             "retry_attempt": lifecycle.retry_attempt,
+            "max_retries": lifecycle.max_retries,
             "elapsed_ms": lifecycle.elapsed_ms,
             "stop_reason": lifecycle.stop_reason,
             "tool_call_count": lifecycle.tool_call_count,
@@ -1706,6 +1905,7 @@ fn provider_run_terminal_remote_log_record(
 enum ProviderDriveMessage {
     Projection {
         lifecycle: Option<ProviderLlmLifecycle>,
+        latest_usage: Option<Usage>,
         events: Vec<warp_multi_agent_api::ResponseEvent>,
         acknowledgement: oneshot::Sender<Result<(), String>>,
     },
@@ -1889,6 +2089,15 @@ impl InputQuery {
 }
 
 impl BlocklistAIController {
+    pub(crate) fn provider_retry_status(
+        &self,
+        conversation_id: AIConversationId,
+    ) -> Option<ProviderRetryStatus> {
+        self.active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.retry_status)
+    }
+
     fn has_unresolved_ask_user_question(
         &self,
         conversation_id: AIConversationId,
@@ -2783,10 +2992,10 @@ impl BlocklistAIController {
         if self
             .in_flight_response_streams
             .has_active_stream_for_conversation(conversation_id, ctx)
-            && !self
+            && self
                 .active_provider_runs
                 .get(&conversation_id)
-                .is_some_and(|slot| slot.cancellation_reason.is_some())
+                .is_none_or(|slot| slot.cancellation_reason.is_none())
             || self
                 .action_model
                 .as_ref(ctx)
@@ -4927,33 +5136,35 @@ impl BlocklistAIController {
                 pending_monitor_observation: None,
                 pending_command_completion: None,
                 monitor_prose_continuations: 0,
+                retry_status: None,
             };
-            if self
-                .active_provider_runs
-                .contains_key(&conversation_data.id)
-            {
-                self.queued_provider_runs
-                    .entry(conversation_data.id)
-                    .or_default()
-                    .push_back(QueuedProviderRun {
-                        slot,
+            match self.active_provider_runs.entry(conversation_data.id) {
+                Entry::Occupied(_) => {
+                    self.queued_provider_runs
+                        .entry(conversation_data.id)
+                        .or_default()
+                        .push_back(QueuedProviderRun {
+                            slot,
+                            base_provider_config,
+                            cli_provider_config,
+                            request_params: request_params.clone(),
+                        });
+                    if let Err(error) = self.persist_active_provider_run(conversation_data.id, ctx)
+                    {
+                        log::error!("Failed to persist queued provider follow-up: {error}");
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(slot);
+                    self.prepare_active_provider_run(
+                        conversation_data.id,
+                        response_stream_id.clone(),
                         base_provider_config,
                         cli_provider_config,
-                        request_params: request_params.clone(),
-                    });
-                if let Err(error) = self.persist_active_provider_run(conversation_data.id, ctx) {
-                    log::error!("Failed to persist queued provider follow-up: {error}");
+                        request_params.clone(),
+                        ctx,
+                    );
                 }
-            } else {
-                self.active_provider_runs.insert(conversation_data.id, slot);
-                self.prepare_active_provider_run(
-                    conversation_data.id,
-                    response_stream_id.clone(),
-                    base_provider_config,
-                    cli_provider_config,
-                    request_params.clone(),
-                    ctx,
-                );
             }
         }
 
@@ -5547,6 +5758,7 @@ impl BlocklistAIController {
                 pending_monitor_observation,
                 pending_command_completion,
                 monitor_prose_continuations,
+                retry_status: None,
             },
         );
         if let Err(error) =
@@ -5750,6 +5962,7 @@ impl BlocklistAIController {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        retry_status: None,
                     },
                     base_provider_config,
                     cli_provider_config,
@@ -6103,6 +6316,18 @@ impl BlocklistAIController {
                         turn_control,
                         |projection| {
                             let lifecycle = provider_llm_lifecycle(&projection);
+                            let latest_usage = match &projection {
+                                ProviderRunProjection::ModelEvent {
+                                    event: AgentEvent::UsageUpdated { usage },
+                                    ..
+                                } => Some(usage.clone()),
+                                ProviderRunProjection::ModelTurnRequested { .. }
+                                | ProviderRunProjection::ModelTurnStarted { .. }
+                                | ProviderRunProjection::ModelTurnFinished { .. }
+                                | ProviderRunProjection::ModelEvent { .. }
+                                | ProviderRunProjection::ModelRetry { .. }
+                                | ProviderRunProjection::ToolBatchReady { .. } => None,
+                            };
                             let events = run.projector.project(projection);
                             let projection_sender = projection_sender.clone();
                             Box::pin(async move {
@@ -6111,6 +6336,7 @@ impl BlocklistAIController {
                                 projection_sender
                                     .send(ProviderDriveMessage::Projection {
                                         lifecycle,
+                                        latest_usage,
                                         events,
                                         acknowledgement,
                                     })
@@ -6169,9 +6395,17 @@ impl BlocklistAIController {
         match message {
             ProviderDriveMessage::Projection {
                 lifecycle,
+                latest_usage,
                 events,
                 acknowledgement,
             } => {
+                if let Some(usage) = latest_usage {
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, _| {
+                        if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                            conversation.set_latest_model_call_usage(usage);
+                        }
+                    });
+                }
                 let response_stream = slot.response_stream.clone();
                 let did_input_contain_user_query = slot.did_input_contain_user_query;
                 let mut result = Ok(());
@@ -6187,9 +6421,37 @@ impl BlocklistAIController {
                         break;
                     }
                 }
-                #[cfg(not(target_family = "wasm"))]
                 if let Some(lifecycle) = lifecycle.as_ref() {
-                    if lifecycle.phase == ProviderLlmLifecyclePhase::Requested {
+                    let should_refresh_status = {
+                        let slot = self
+                            .active_provider_runs
+                            .get_mut(&conversation_id)
+                            .expect("provider projection retained its active run slot");
+                        match lifecycle.phase {
+                            ProviderLlmLifecyclePhase::Requested => {
+                                if lifecycle.retry_attempt == 0 {
+                                    slot.retry_status = None;
+                                }
+                                true
+                            }
+                            ProviderLlmLifecyclePhase::Started => false,
+                            ProviderLlmLifecyclePhase::RetryScheduled => {
+                                slot.retry_status =
+                                    lifecycle
+                                        .max_retries
+                                        .map(|max_retries| ProviderRetryStatus {
+                                            attempt: lifecycle.retry_attempt,
+                                            max_retries,
+                                        });
+                                true
+                            }
+                            ProviderLlmLifecyclePhase::Finished => {
+                                slot.retry_status = None;
+                                true
+                            }
+                        }
+                    };
+                    if should_refresh_status {
                         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
                             history.update_conversation_status(
                                 self.terminal_surface_id,
@@ -6199,25 +6461,7 @@ impl BlocklistAIController {
                             );
                         });
                     }
-                    if lifecycle.phase == ProviderLlmLifecyclePhase::RetryScheduled {
-                        let retry_message = format!(
-                            "Retrying LLM request ({}/3): {}",
-                            lifecycle.retry_attempt,
-                            lifecycle
-                                .error
-                                .as_deref()
-                                .unwrap_or("temporary provider error")
-                        );
-                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                            history.update_conversation_status_with_error(
-                                self.terminal_surface_id,
-                                conversation_id,
-                                ConversationStatus::TransientError,
-                                Some(RenderableAIError::other(retry_message, false)),
-                                ctx,
-                            );
-                        });
-                    }
+                    #[cfg(not(target_family = "wasm"))]
                     remote_logging::log_model_event(
                         ctx,
                         provider_llm_lifecycle_remote_log_record(
@@ -6226,29 +6470,6 @@ impl BlocklistAIController {
                             lifecycle,
                         ),
                     );
-                }
-                #[cfg(target_family = "wasm")]
-                if let Some(lifecycle) = lifecycle.as_ref() {
-                    if lifecycle.phase == ProviderLlmLifecyclePhase::Requested {
-                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                            history.update_conversation_status(
-                                self.terminal_surface_id,
-                                conversation_id,
-                                ConversationStatus::InProgress,
-                                ctx,
-                            );
-                        });
-                    }
-                    if lifecycle.phase == ProviderLlmLifecyclePhase::RetryScheduled {
-                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                            history.update_conversation_status(
-                                self.terminal_surface_id,
-                                conversation_id,
-                                ConversationStatus::TransientError,
-                                ctx,
-                            );
-                        });
-                    }
                 }
                 let _ = acknowledgement.send(result);
             }
@@ -7103,7 +7324,8 @@ impl BlocklistAIController {
             let offset = run.persistence_offset.min(transcript.len());
             *messages_sent = transcript[offset..].to_vec();
         }
-        let events = match run.projector.finish(&outcome) {
+        let aggregate_usage = run.coordinator.run().usage().clone();
+        let events = match run.projector.finish(&outcome, &aggregate_usage) {
             Ok(events) => events,
             Err(message) => {
                 self.fail_provider_startup(
@@ -8660,10 +8882,9 @@ impl BlocklistAIController {
             ctx.emit(BlocklistAIControllerEvent::FreeTierLimitCheckTriggered);
         }
 
-        // Progressive summarization: when context window usage >= 85% and we have
-        // more than 100 messages, summarize the oldest messages while keeping the
-        // most recent 100 verbatim. This runs as a background Bedrock call — no UI,
-        // no exchange created, no tool execution shown.
+        // Progressive summarization runs in the background with no UI exchange or
+        // tool execution. Token-budget planning below decides how much recent
+        // history to retain and leaves enough hysteresis before the next summary.
         let should_progressive_summarize = {
             let history_model = BlocklistAIHistoryModel::as_ref(ctx);
             history_model
@@ -8676,10 +8897,11 @@ impl BlocklistAIController {
                                 .iter()
                                 .any(|i| matches!(i, AIAgentInput::SummarizeConversation { .. }))
                         });
-                    conversation.context_window_usage() >= 0.85
+                    conversation.context_window_usage() >= PROGRESSIVE_SUMMARY_TRIGGER_USAGE
                         && !conversation.has_pending_progressive_summary()
                         && !is_summarization_request
-                        && conversation.bedrock_message_history().len() > 100
+                        && conversation.bedrock_message_history().len()
+                            > PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES
                 })
         };
 
@@ -8693,82 +8915,79 @@ impl BlocklistAIController {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        use settings::Setting;
-
-        use crate::ai::bedrock::client::{BedrockClient, BedrockClientConfig};
-        use crate::ai::bedrock::convert::{ConversationMessage, MessageContent, MessageRole};
-        use crate::ai::bedrock::response_translator::{
-            context_window_for_model, estimate_cost_cents,
-        };
-        use crate::settings::ai::AISettings;
-
-        let settings = AISettings::as_ref(ctx);
-        if !*settings.bedrock_enabled.value() {
-            return;
-        }
-
-        let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
-        let mut config = BedrockClientConfig {
-            auth_method: *settings.bedrock_auth_method.value(),
-            profile: settings.bedrock_profile.value().clone(),
-            region: settings.bedrock_region.value().clone(),
-            access_key_id: settings.bedrock_access_key_id.value().clone(),
-            secret_access_key: settings.bedrock_secret_access_key.value().clone(),
-            session_token: None,
-            cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-            use_rig: false,
-        };
-
-        if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
-            api_key_manager.aws_credentials_state()
-        {
-            config.auth_method = crate::settings::BedrockAuthMethod::StaticKeys;
-            config.access_key_id = credentials.access_key().to_string();
-            config.secret_access_key = credentials.secret_key().to_string();
-            config.session_token = credentials.session_token().map(|s| s.to_string());
-        }
-
-        let config = config.with_external_fallbacks();
-
-        let cross_region = config.cross_region_inference;
-        // Use Sonnet for summarization — cheaper and fast enough for this task
-        let model_id = "us.anthropic.claude-sonnet-4-6-20250514-v1:0".to_string();
-
         let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let (terminal_model_id, terminal_context_limit, base_model_id, base_context_limit) = {
+            let preferences = LLMPreferences::as_ref(ctx);
+            let terminal_model =
+                preferences.get_active_cli_agent_model(ctx, Some(self.terminal_surface_id));
+            let base_model = preferences.get_active_base_model(ctx, Some(self.terminal_surface_id));
+            (
+                terminal_model.id.to_string(),
+                configured_llm_context_limit(terminal_model),
+                base_model.id.to_string(),
+                configured_llm_context_limit(base_model),
+            )
+        };
+        let terminal_provider_config =
+            ResponseStream::resolve_provider_config(&terminal_model_id, ctx);
+        let base_provider_config = ResponseStream::resolve_provider_config(&base_model_id, ctx);
 
-        // Extract the messages to summarize and set the guard flag
-        let (messages_to_summarize, existing_summary, messages_count) = {
+        let (
+            messages_to_summarize,
+            existing_summary,
+            messages_count,
+            retained_messages_count,
+            active_context_limit,
+            persistent_context_tokens,
+        ) = {
             let history = history_model.as_ref(ctx);
             let Some(conversation) = history.conversation(&conversation_id) else {
                 return;
             };
 
-            let history_len = conversation.bedrock_message_history().len();
-            let split_point = history_len.saturating_sub(100);
+            let messages = conversation.bedrock_message_history();
+            let history_tokens = estimated_history_tokens(messages);
+            let existing_summary = conversation.progressive_summary().map(str::to_string);
+            let existing_summary_tokens = existing_summary
+                .as_deref()
+                .map(estimated_text_tokens)
+                .unwrap_or_default();
+            let current_tokens = conversation.current_context_tokens();
+            let reported_usage = conversation.context_window_usage();
+            let inferred_context_limit = if current_tokens > 0 && reported_usage > 0.0 {
+                ((current_tokens as f64 / reported_usage as f64).round() as u64)
+                    .min(u64::from(u32::MAX)) as u32
+            } else {
+                0
+            };
+            let active_context_limit = if inferred_context_limit > 0 {
+                inferred_context_limit
+            } else {
+                base_context_limit
+            };
+            let persistent_context_tokens = current_tokens
+                .saturating_sub(history_tokens)
+                .saturating_sub(existing_summary_tokens);
+            let retained_total_budget =
+                (active_context_limit as f32 * PROGRESSIVE_SUMMARY_RETAINED_USAGE) as u32;
+            let retained_history_budget = retained_total_budget
+                .saturating_sub(persistent_context_tokens)
+                .saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS);
+            let split_point = progressive_summary_split_point(messages, retained_history_budget);
             if split_point == 0 {
                 return;
             }
 
-            let msgs: Vec<ConversationMessage> =
-                conversation.bedrock_message_history()[..split_point].to_vec();
-            let existing = conversation.progressive_summary().map(str::to_string);
-
-            (msgs, existing, split_point)
+            (
+                messages[..split_point].to_vec(),
+                existing_summary,
+                split_point,
+                messages.len().saturating_sub(split_point),
+                active_context_limit,
+                persistent_context_tokens,
+            )
         };
 
-        history_model.update(ctx, |history_model, _| {
-            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
-                conversation.set_has_pending_progressive_summary(true);
-            }
-        });
-
-        log::info!(
-            "[progressive-summary] Triggering for conversation {:?}: summarizing {} messages, keeping last 100",
-            conversation_id,
-            messages_count
-        );
-
-        // Build the summarization input
         let mut summarize_content = String::new();
         if let Some(ref prior) = existing_summary {
             summarize_content.push_str("<prior-summary>\n");
@@ -8793,29 +9012,26 @@ impl BlocklistAIController {
             let content_str = match &msg.content {
                 MessageContent::Text(t) => t.clone(),
                 MessageContent::ToolUse { name, input, .. } => {
-                    format!("[Tool Call: {}] {}", name, input)
+                    format!("[Tool Call: {name}] {input}")
                 }
                 MessageContent::ToolResult { content, .. } => safe_truncate(content, 2000),
-                MessageContent::MultiPart(parts) => {
-                    use crate::ai::bedrock::convert::ContentPart;
-                    parts
-                        .iter()
-                        .map(|p| match p {
-                            ContentPart::Text(t) => t.clone(),
-                            ContentPart::Reasoning { text, .. } => {
-                                format!("[Reasoning] {text}")
-                            }
-                            ContentPart::Image { .. } => "[Image attachment]".to_string(),
-                            ContentPart::ToolUse { name, input, .. } => {
-                                format!("[Tool: {}] {}", name, input)
-                            }
-                            ContentPart::ToolResult { content, .. } => safe_truncate(content, 2000),
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                }
+                MessageContent::MultiPart(parts) => parts
+                    .iter()
+                    .map(|p| match p {
+                        ContentPart::Text(t) => t.clone(),
+                        ContentPart::Reasoning { text, .. } => {
+                            format!("[Reasoning] {text}")
+                        }
+                        ContentPart::Image { .. } => "[Image attachment]".to_string(),
+                        ContentPart::ToolUse { name, input, .. } => {
+                            format!("[Tool: {name}] {input}")
+                        }
+                        ContentPart::ToolResult { content, .. } => safe_truncate(content, 2000),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             };
-            summarize_content.push_str(&format!("[{}]: {}\n", role_str, content_str));
+            summarize_content.push_str(&format!("[{role_str}]: {content_str}\n"));
         }
         summarize_content.push_str("</messages-to-summarize>");
 
@@ -8827,135 +9043,170 @@ impl BlocklistAIController {
             - Technical details, code patterns, and architecture discussed\n\n\
             Be comprehensive. This summary will be the only record of these exchanges.";
 
+        let estimated_summary_input_tokens = estimated_text_tokens(summarize_prompt)
+            .saturating_add(estimated_text_tokens(&summarize_content));
+        let candidate_fits = |context_limit: u32| {
+            estimated_summary_input_tokens
+                .saturating_add(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS)
+                .saturating_add(PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS)
+                <= context_limit
+        };
+        let model_is_usable = |model_id: &str, provider_config: &ProviderConfig| {
+            !model_id.trim().is_empty()
+                && !model_id.eq_ignore_ascii_case("placeholder")
+                && !matches!(provider_config, ProviderConfig::None)
+        };
+        let mut candidates = Vec::new();
+        if model_is_usable(&terminal_model_id, &terminal_provider_config)
+            && candidate_fits(terminal_context_limit)
+        {
+            candidates.push(ProgressiveSummaryCandidate {
+                model_id: terminal_model_id.clone(),
+                context_limit: terminal_context_limit,
+                provider_config: terminal_provider_config,
+            });
+        }
+        if model_is_usable(&base_model_id, &base_provider_config)
+            && candidate_fits(base_context_limit)
+            && !candidates
+                .iter()
+                .any(|candidate| candidate.model_id == base_model_id)
+        {
+            candidates.push(ProgressiveSummaryCandidate {
+                model_id: base_model_id.clone(),
+                context_limit: base_context_limit,
+                provider_config: base_provider_config,
+            });
+        }
+        if candidates.is_empty() {
+            log::warn!(
+                "[progressive-summary] No configured model can fit ~{} input tokens for conversation {:?}",
+                estimated_summary_input_tokens,
+                conversation_id,
+            );
+            return;
+        }
+
+        history_model.update(ctx, |history_model, _| {
+            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                conversation.set_has_pending_progressive_summary(true);
+            }
+        });
+
+        let candidate_names = candidates
+            .iter()
+            .map(|candidate| format!("{}({})", candidate.model_id, candidate.context_limit))
+            .join(", ");
+        log::info!(
+            "[progressive-summary] Triggering for {:?}: summarizing {} messages, retaining {}, candidates=[{}]",
+            conversation_id,
+            messages_count,
+            retained_messages_count,
+            candidate_names,
+        );
+
         let summarize_messages = vec![ConversationMessage {
             role: MessageRole::User,
-            content: MessageContent::Text(format!("{}\n\n{}", summarize_prompt, summarize_content)),
+            content: MessageContent::Text(summarize_content),
         }];
 
-        // Spawn the background Bedrock call
-        let model_id_clone = model_id.clone();
         ctx.spawn(
             async move {
-                let client = BedrockClient::from_config(config).await?;
-                client
-                    .converse_collect(
-                        &model_id_clone,
-                        summarize_messages,
-                        None,
-                        16000,
-                        cross_region,
-                    )
-                    .await
+                let mut errors = Vec::new();
+                for candidate in candidates {
+                    let mut request =
+                        TurnRequest::new(candidate.model_id.clone(), summarize_messages.clone());
+                    request.system_prompt = Some(summarize_prompt.to_string());
+                    request.max_output_tokens = Some(u64::from(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS));
+                    match collect_progressive_summary(candidate.provider_config, request).await {
+                        Ok((summary, usage)) => {
+                            return Ok((summary, usage, candidate.model_id));
+                        }
+                        Err(error) => errors.push(format!("{}: {error}", candidate.model_id)),
+                    }
+                }
+                Err(anyhow!(
+                    "all progressive summary candidates failed: {}",
+                    errors.join("; ")
+                ))
             },
-            move |me, result, ctx| {
+            move |_, result, ctx| {
                 let history_model = BlocklistAIHistoryModel::handle(ctx);
                 match result {
-                    Ok((summary_text, input_tokens, output_tokens)) => {
+                    Ok((summary_text, usage, summarizer_model_id)) => {
                         log::info!(
-                            "[progressive-summary] Completed for {:?}: {} chars, input={} output={} tokens",
+                            "[progressive-summary] Completed for {:?} with {}: {} chars, input={} output={} tokens",
                             conversation_id,
+                            summarizer_model_id,
                             summary_text.len(),
-                            input_tokens,
-                            output_tokens,
+                            usage.input_tokens,
+                            usage.output_tokens,
                         );
 
-                        let cost_cents = estimate_cost_cents(
-                            input_tokens,
-                            output_tokens,
-                            0,
-                            0,
-                            &model_id,
-                        );
-
-                        // Use the conversation's active model for context window sizing,
-                        // not the summarizer model.
-                        let active_model_id = crate::ai::llms::LLMPreferences::as_ref(ctx)
-                            .get_active_base_model(ctx, Some(me.terminal_surface_id))
-                            .id
-                            .to_string();
-
+                        let usage_u32 = |tokens: u64| {
+                            u32::try_from(tokens).unwrap_or(u32::MAX)
+                        };
+                        let cost_cents =
+                            crate::ai::bedrock::response_translator::estimate_cost_cents(
+                                usage_u32(usage.input_tokens),
+                                usage_u32(usage.output_tokens),
+                                usage_u32(usage.cached_input_tokens),
+                                usage_u32(usage.cache_creation_input_tokens),
+                                &summarizer_model_id,
+                            );
                         history_model.update(ctx, |history_model, _| {
-                            if let Some(conversation) =
+                            let Some(conversation) =
                                 history_model.conversation_mut(&conversation_id)
-                            {
-                                // Drain the summarized messages from history
-                                let drain_count =
-                                    messages_count.min(conversation.bedrock_message_history().len());
-                                let drained: Vec<_> = conversation
-                                    .bedrock_message_history()
-                                    .iter()
-                                    .take(drain_count)
-                                    .cloned()
-                                    .collect();
-                                conversation.archive_tool_results(drained);
-                                conversation
-                                    .bedrock_message_history_mut()
-                                    .drain(0..drain_count);
+                            else {
+                                return;
+                            };
 
-                                conversation
-                                    .set_progressive_summary(Some(summary_text.clone()), drain_count);
-                                conversation.set_has_pending_progressive_summary(false);
+                            let drain_count =
+                                messages_count.min(conversation.bedrock_message_history().len());
+                            let drained = conversation
+                                .bedrock_message_history()
+                                .iter()
+                                .take(drain_count)
+                                .cloned()
+                                .collect();
+                            conversation.archive_tool_results(drained);
+                            conversation
+                                .bedrock_message_history_mut()
+                                .drain(0..drain_count);
+                            conversation
+                                .set_progressive_summary(Some(summary_text.clone()), drain_count);
+                            conversation.set_has_pending_progressive_summary(false);
 
-                                // Estimate new context window usage
-                                let summary_tokens = (summary_text.len() / 4) as u32;
-                                let remaining_msgs_tokens: u32 = conversation
-                                    .bedrock_message_history()
-                                    .iter()
-                                    .map(|m| match &m.content {
-                                        MessageContent::Text(t) => (t.len() / 4) as u32,
-                                        MessageContent::ToolUse { input, .. } => {
-                                            (input.to_string().len() / 4) as u32 + 20
-                                        }
-                                        MessageContent::ToolResult { content, .. } => {
-                                            (content.len() / 4) as u32
-                                        }
-                                        MessageContent::MultiPart(parts) => {
-                                            parts
-                                                .iter()
-                                                .map(|p| match p {
-                                                    ContentPart::Text(t) => (t.len() / 4) as u32,
-                                                    ContentPart::Reasoning { text, .. } => {
-                                                        (text.len() / 4) as u32
-                                                    }
-                                                    ContentPart::Image { .. } => 1_600,
-                                                    ContentPart::ToolUse { input, .. } => {
-                                                        (input.to_string().len() / 4) as u32
-                                                    }
-                                                    ContentPart::ToolResult { content, .. } => {
-                                                        (content.len() / 4) as u32
-                                                    }
-                                                })
-                                                .sum()
-                                        }
-                                    })
-                                    .sum();
+                            let summary_tokens = estimated_text_tokens(&summary_text);
+                            let remaining_messages_tokens =
+                                estimated_history_tokens(conversation.bedrock_message_history());
+                            let new_context_tokens = persistent_context_tokens
+                                .saturating_add(summary_tokens)
+                                .saturating_add(remaining_messages_tokens);
+                            let new_usage =
+                                new_context_tokens as f32 / active_context_limit.max(1) as f32;
+                            conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
+                            conversation.set_current_context_tokens(new_context_tokens);
 
-                                let max_ctx = context_window_for_model(&active_model_id);
-                                let new_usage =
-                                    (summary_tokens + remaining_msgs_tokens) as f32 / max_ctx as f32;
-                                conversation.set_context_window_usage(new_usage.clamp(0.0, 1.0));
-                                conversation
-                                    .set_current_context_tokens(summary_tokens + remaining_msgs_tokens);
-
-                                log::info!(
-                                    "[progressive-summary] Post-summary: ~{} tokens ({:.1}% of {} context), {} messages retained",
-                                    summary_tokens + remaining_msgs_tokens,
-                                    new_usage * 100.0,
-                                    active_model_id,
-                                    conversation.bedrock_message_history().len()
-                                );
-                            }
+                            log::info!(
+                                "[progressive-summary] Post-summary: ~{} tokens ({:.1}% of {} context), {} messages retained",
+                                new_context_tokens,
+                                new_usage * 100.0,
+                                active_context_limit,
+                                conversation.bedrock_message_history().len(),
+                            );
                         });
 
-                        // Update cost tracking
                         history_model.update(ctx, |history_model, ctx| {
                             use warp_multi_agent_api::response_event::stream_finished;
                             let token_usage = vec![stream_finished::TokenUsage {
-                                model_id: "bedrock".to_string(),
-                                total_input: input_tokens,
-                                output: output_tokens,
-                                input_cache_read: 0,
-                                input_cache_write: 0,
+                                model_id: summarizer_model_id,
+                                total_input: usage_u32(usage.input_tokens),
+                                output: usage_u32(usage.output_tokens),
+                                input_cache_read: usage_u32(usage.cached_input_tokens),
+                                input_cache_write: usage_u32(
+                                    usage.cache_creation_input_tokens,
+                                ),
                                 cost_in_cents: cost_cents,
                             }];
                             history_model.update_conversation_cost_and_usage_for_request(
@@ -8968,11 +9219,10 @@ impl BlocklistAIController {
                             );
                         });
                     }
-                    Err(e) => {
+                    Err(error) => {
                         log::error!(
-                            "[progressive-summary] Failed for {:?}: {:?}",
+                            "[progressive-summary] Failed for {:?}: {error:#}",
                             conversation_id,
-                            e
                         );
                         history_model.update(ctx, |history_model, _| {
                             if let Some(conversation) =
@@ -8983,7 +9233,6 @@ impl BlocklistAIController {
                         });
                     }
                 }
-                let _ = me;
             },
         );
     }

@@ -75,6 +75,7 @@ fn provider_lifecycle_logs_expose_llm_completion_and_sanitize_errors() {
             runtime_id: "rig:openai".to_owned(),
             model_id: "test-model".to_owned(),
             retry_attempt: 1,
+            max_retries: 3,
             elapsed_ms: 120_000,
             error: retry_error,
         },
@@ -112,6 +113,7 @@ fn provider_lifecycle_logs_expose_llm_completion_and_sanitize_errors() {
     assert_eq!(records[0].context["llm_finished"], false);
     assert_eq!(records[1].context["llm_finished"], false);
     assert_eq!(records[2].context["llm_finished"], false);
+    assert_eq!(records[2].context["max_retries"], 3);
     assert_eq!(records[3].context["llm_finished"], true);
     assert_eq!(records[2].level, RemoteLogLevel::Warn);
     assert_eq!(records[2].context["error"], "[redacted] connection failed");
@@ -122,6 +124,16 @@ fn provider_lifecycle_logs_expose_llm_completion_and_sanitize_errors() {
     assert_eq!(records[3].context["model_id"], "test-model");
     assert_eq!(records[3].context["stop_reason"], "Completed");
     assert_eq!(records[3].context["tool_call_count"], 2);
+}
+
+#[test]
+fn provider_retry_status_uses_configured_budget_in_label() {
+    let status = super::ProviderRetryStatus {
+        attempt: 1,
+        max_retries: 5,
+    };
+
+    assert_eq!(status.label(), "(Retry 1/5)");
 }
 
 #[test]
@@ -455,6 +467,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        retry_status: None,
                     },
                 );
                 controller
@@ -480,6 +493,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                             pending_monitor_observation: None,
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
+                            retry_status: None,
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1029,6 +1043,7 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        retry_status: None,
                     },
                 );
 
@@ -1127,6 +1142,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        retry_status: None,
                     },
                 );
                 controller
@@ -1158,6 +1174,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             pending_monitor_observation: None,
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
+                            retry_status: None,
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1267,6 +1284,7 @@ fn non_follow_up_provider_cancellation_does_not_admit_an_overlapping_generation(
                         pending_monitor_observation: None,
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
+                        retry_status: None,
                     },
                 );
 
@@ -2033,18 +2051,9 @@ fn restored_evidence_is_ignored_without_a_command_monitor() {
 
 #[test]
 fn restored_projection_accepts_empty_or_complete_and_rejects_partial_state() {
-    assert_eq!(
-        super::restored_projection_was_initialized(false, false, false).unwrap(),
-        false
-    );
-    assert_eq!(
-        super::restored_projection_was_initialized(true, true, false).unwrap(),
-        true
-    );
-    assert_eq!(
-        super::restored_projection_was_initialized(true, true, true).unwrap(),
-        true
-    );
+    assert!(!super::restored_projection_was_initialized(false, false, false).unwrap());
+    assert!(super::restored_projection_was_initialized(true, true, false).unwrap());
+    assert!(super::restored_projection_was_initialized(true, true, true).unwrap());
     for state in [
         (false, false, true),
         (false, true, false),

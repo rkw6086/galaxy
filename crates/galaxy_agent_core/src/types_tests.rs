@@ -26,9 +26,9 @@ fn truncates_large_tool_results_for_provider_request() {
 }
 
 #[test]
-fn usage_total_excludes_cached_breakdown_to_avoid_double_counting() {
+fn usage_total_combines_disjoint_cache_and_miss_buckets() {
     let usage = Usage {
-        input_tokens: 100,
+        input_tokens: 10,
         output_tokens: 25,
         cached_input_tokens: 80,
         cache_creation_input_tokens: 10,
