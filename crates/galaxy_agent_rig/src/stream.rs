@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use futures::{FutureExt, StreamExt};
 use galaxy_agent_core::{
     AgentError, AgentErrorKind, AgentEvent, AgentEventStream, StopReason, ToolCall, TurnCommand,
     TurnControl, Usage,
 };
 use rig_core::completion::{CompletionError, CompletionModel, CompletionRequest};
-use rig_core::streaming::StreamedAssistantContent;
+use rig_core::streaming::{StreamedAssistantContent, ToolCallDeltaContent};
 use uuid::Uuid;
 
 pub(crate) async fn start_model_turn<M>(
@@ -48,6 +50,7 @@ where
 
         let mut control_open = true;
         let mut last_output_tokens = 0;
+        let mut tool_call_progress = HashMap::<String, ToolCallProgressState>::new();
         loop {
             let next_item = rig_stream.next().fuse();
             let next_command = if control_open {
@@ -106,16 +109,45 @@ where
                                 yield Ok(AgentEvent::ReasoningDelta { text: reasoning });
                             }
                         }
-                        Ok(StreamedAssistantContent::ToolCall { tool_call, .. }) => {
+                        Ok(StreamedAssistantContent::ToolCall {
+                            tool_call,
+                            internal_call_id,
+                        }) => {
+                            tool_call_progress.remove(&internal_call_id);
                             yield Ok(AgentEvent::Tool {
                                 event: galaxy_agent_core::ToolEvent::Proposed {
                                     call: domain_tool_call(tool_call),
                                 },
                             });
                         }
-                        Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {
-                            // Rig emits a complete ToolCall after its deltas, which
-                            // is the canonical event Galaxy consumes.
+                        Ok(StreamedAssistantContent::ToolCallDelta {
+                            id,
+                            internal_call_id,
+                            content,
+                        }) => {
+                            let progress = tool_call_progress
+                                .entry(internal_call_id.clone())
+                                .or_insert_with(|| ToolCallProgressState {
+                                    call_id: if id.is_empty() {
+                                        internal_call_id
+                                    } else {
+                                        id
+                                    },
+                                    ..ToolCallProgressState::default()
+                                });
+                            match content {
+                                ToolCallDeltaContent::Name(name) => progress.name = Some(name),
+                                ToolCallDeltaContent::Delta(arguments) => {
+                                    progress.arguments_bytes = progress
+                                        .arguments_bytes
+                                        .saturating_add(arguments.len() as u64);
+                                }
+                            }
+                            yield Ok(AgentEvent::ToolCallProgress {
+                                call_id: progress.call_id.clone(),
+                                name: progress.name.clone(),
+                                arguments_bytes: progress.arguments_bytes,
+                            });
                         }
                         Ok(StreamedAssistantContent::Final(response)) => {
                             let mapped_usage = map_usage(response.usage);
@@ -150,6 +182,13 @@ where
     };
 
     Ok(Box::pin(events))
+}
+
+#[derive(Default)]
+struct ToolCallProgressState {
+    call_id: String,
+    name: Option<String>,
+    arguments_bytes: u64,
 }
 
 pub(crate) async fn start_model_completion<M>(

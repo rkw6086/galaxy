@@ -1018,6 +1018,10 @@ impl BlocklistAIStatusBar {
             .as_ref(app)
             .provider_retry_status(conversation.id())
             .map(|status| status.label());
+        let model_progress_text = self
+            .controller
+            .as_ref(app)
+            .provider_tool_call_progress_label(conversation.id());
         let secondary_element = if fallback_warping_text.is_some() {
             Some(render_fallback_explanation(model.as_ref(), app))
         } else {
@@ -1077,6 +1081,7 @@ impl BlocklistAIStatusBar {
                 force_refresh_button,
                 default_warping_text,
                 retry_status_text,
+                model_progress_text,
                 secondary_element,
                 last_snapshot_at,
                 warping_start_time: self.warping_start_time,

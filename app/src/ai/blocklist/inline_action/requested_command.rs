@@ -341,9 +341,9 @@ pub struct RequestedCommandView {
     autoexecute_readonly_commands_speedbump_checkbox_handle: MouseStateHandle,
     manage_autonomy_settings_link_handle: MouseStateHandle,
 
-    // Selection support for MCP tool call detail text
-    mcp_content_selection_handle: SelectionHandle,
-    mcp_content_selected_text: Arc<std::sync::RwLock<Option<String>>>,
+    // Selection support for scrollable command output and MCP tool-call detail text.
+    content_selection_handle: SelectionHandle,
+    content_selected_text: Arc<std::sync::RwLock<Option<String>>>,
 
     // Structured request data and per-tree expansion state for JSON tree rendering.
     // `mcp_request` is populated from the stream as soon as the tool name
@@ -598,8 +598,8 @@ impl RequestedCommandView {
             position_id_prefix,
             terminal_model,
             ai_block_view_id,
-            mcp_content_selection_handle: SelectionHandle::default(),
-            mcp_content_selected_text: Arc::new(std::sync::RwLock::new(None)),
+            content_selection_handle: SelectionHandle::default(),
+            content_selected_text: Arc::new(std::sync::RwLock::new(None)),
             mcp_request: None,
             mcp_request_tree_state: Default::default(),
             mcp_response_tree_state: Default::default(),
@@ -1092,10 +1092,10 @@ impl RequestedCommandView {
 
     /// Returns the currently selected text.
     pub fn selected_text(&self, ctx: &AppContext) -> Option<String> {
-        // Check MCP content selection first, then fall back to editor selection.
-        if let Ok(mcp_selection) = self.mcp_content_selected_text.read() {
-            if mcp_selection.is_some() {
-                return mcp_selection.clone();
+        // Check rendered pane content first, then fall back to editor selection.
+        if let Ok(content_selection) = self.content_selected_text.read() {
+            if content_selection.is_some() {
+                return content_selection.clone();
             }
         }
         self.editor
@@ -1104,11 +1104,11 @@ impl RequestedCommandView {
     }
 
     pub fn clear_selection(&mut self, ctx: &mut ViewContext<Self>) {
-        // Clear MCP content selection if it exists, else fall back to editor selection.
-        self.mcp_content_selection_handle.clear();
-        if let Ok(mut mcp_selection) = self.mcp_content_selected_text.write() {
-            *mcp_selection = None;
-        } else if let Some(editor) = &self.editor {
+        self.content_selection_handle.clear();
+        if let Ok(mut content_selection) = self.content_selected_text.write() {
+            *content_selection = None;
+        }
+        if let Some(editor) = &self.editor {
             editor.update(ctx, |editor, ctx| {
                 editor.clear_selection(ctx);
             });
@@ -1630,12 +1630,12 @@ impl View for RequestedCommandView {
             .with_selectable(true)
             .finish();
 
-            let mcp_selected_text = self.mcp_content_selected_text.clone();
+            let content_selected_text = self.content_selected_text.clone();
             let selectable_text = SelectableArea::new(
-                self.mcp_content_selection_handle.clone(),
+                self.content_selection_handle.clone(),
                 #[allow(clippy::unwrap_used)]
                 move |selection_args, _, _| {
-                    *mcp_selected_text.write().unwrap() = selection_args.selection;
+                    *content_selected_text.write().unwrap() = selection_args.selection;
                 },
                 text_element,
             )
@@ -1661,10 +1661,23 @@ impl View for RequestedCommandView {
                 app,
             )
             .finish();
+            let content_selected_text = self.content_selected_text.clone();
+            let selectable_output = SelectableArea::new(
+                self.content_selection_handle.clone(),
+                #[allow(clippy::unwrap_used)]
+                move |selection_args, _, _| {
+                    *content_selected_text.write().unwrap() = selection_args.selection;
+                },
+                output_text,
+            )
+            .on_selection_updated(|ctx, _| {
+                ctx.dispatch_typed_action(RequestedCommandViewAction::SelectText);
+            })
+            .finish();
             let scrollable = NewScrollable::vertical(
                 SingleAxisConfig::Clipped {
                     handle: self.output_scroll_state.clone(),
-                    child: output_text,
+                    child: selectable_output,
                 },
                 Fill::None,
                 Fill::None,

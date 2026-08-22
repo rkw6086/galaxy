@@ -22,6 +22,9 @@ pub struct LogConfig {
     /// `rotate_log_files` behavior. `None` preserves the existing unbounded-within-session
     /// growth (warpdotdev/warp#10879).
     pub max_file_size_bytes: Option<u64>,
+    /// Whether to retain an unrotated, full-detail copy of this process's logs in
+    /// `~/.galaxy/session-logs/<session-id>_<datetime>.log`.
+    pub session_logs_enabled: bool,
 }
 
 #[cfg_attr(not(target_family = "wasm"), path = "native.rs")]
@@ -33,7 +36,9 @@ mod rotation;
 
 pub use imp::init;
 #[cfg(not(target_family = "wasm"))]
-pub use imp::{create_log_bundle_zip, log_directory, log_file_path, rotate_log_files};
+pub use imp::{
+    create_log_bundle_zip, log_directory, log_file_path, rotate_log_files, session_log_file_path,
+};
 #[cfg(not(target_family = "wasm"))]
 pub use imp::{
     init_for_crash_recovery_process, init_logging_for_unit_tests, on_crash_recovery_process_killed,

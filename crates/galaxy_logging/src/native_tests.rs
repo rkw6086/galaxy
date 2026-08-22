@@ -1,4 +1,31 @@
+use std::io::Write as _;
+
 use super::*;
+
+#[test]
+fn session_log_path_uses_the_galaxy_session_logs_directory() {
+    let path = session_log_path(Path::new("/Users/tester"), "session123", "20260822_091530");
+
+    assert_eq!(
+        path,
+        PathBuf::from("/Users/tester/.galaxy/session-logs/session123_20260822_091530.log")
+    );
+}
+
+#[test]
+fn tee_writer_copies_each_record_to_both_destinations() {
+    let mut writer = TeeWriter {
+        primary: Vec::new(),
+        session: Vec::new(),
+    };
+
+    writer.write_all(b"first\n").unwrap();
+    writer.write_all(b"second\n").unwrap();
+    writer.flush().unwrap();
+
+    assert_eq!(writer.primary, b"first\nsecond\n");
+    assert_eq!(writer.session, b"first\nsecond\n");
+}
 
 fn touch(dir: &Path, name: &str) -> PathBuf {
     let path = dir.join(name);

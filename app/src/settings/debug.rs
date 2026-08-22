@@ -55,6 +55,15 @@ define_settings_group!(DebugSettings, settings: [
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Never,
         private: true,
+    },
+    session_logs_enabled: SessionLogsEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Never,
+        private: false,
+        toml_path: "logging.session_logs_enabled",
+        description: "Writes full per-session logs, including model response text, reasoning, and tool-call JSON, to ~/.galaxy/session-logs after Galaxy restarts.",
     }
 ]);
 

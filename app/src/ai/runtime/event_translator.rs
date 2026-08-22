@@ -163,7 +163,7 @@ impl RuntimeResponseTranslator {
         let mut events = Vec::new();
         match event {
             AgentEvent::TurnStarted { .. } => self.initialize(&mut events),
-            AgentEvent::KeepAlive => {}
+            AgentEvent::KeepAlive | AgentEvent::ToolCallProgress { .. } => {}
             AgentEvent::TextDelta { text } => {
                 self.initialize(&mut events);
                 self.add_or_append_text(&text, &mut events);

@@ -18,6 +18,8 @@ use instant::Instant;
 use warpui::r#async::Timer;
 
 use crate::ai::agent::conversation::AIConversationId;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::model_output_logging;
 
 pub(crate) const BASE_PROVIDER_PROFILE: &str = "base";
 pub(crate) const CLI_MONITOR_PROVIDER_PROFILE: &str = "cli-monitor";
@@ -597,6 +599,18 @@ impl ProviderRunCoordinator {
                     return Ok(());
                 }
             };
+            #[cfg(not(target_family = "wasm"))]
+            model_output_logging::log(serde_json::json!({
+                "event": "model_output",
+                "source": "direct_provider",
+                "provider_run_id": call.work_id.run_id.as_str(),
+                "provider_epoch": call.work_id.epoch.get(),
+                "profile": call.profile.as_str(),
+                "runtime_id": runtime_id,
+                "model_id": model_id,
+                "retry_attempt": call.retry_attempt,
+                "payload": &event,
+            }));
             match event {
                 AgentEvent::TurnStarted { runtime_request_id } => {
                     if buffer.started {
@@ -641,6 +655,36 @@ impl ProviderRunCoordinator {
                     }
                 }
                 AgentEvent::KeepAlive => {}
+                AgentEvent::ToolCallProgress {
+                    call_id,
+                    name,
+                    arguments_bytes,
+                } => {
+                    if !self
+                        .ensure_model_started_acknowledged(
+                            &call, &profile, started_at, &buffer, project,
+                        )
+                        .await?
+                    {
+                        return Ok(());
+                    }
+                    if !self
+                        .project_or_fail_acknowledged(
+                            ProviderRunProjection::ModelEvent {
+                                work_id: call.work_id.clone(),
+                                event: AgentEvent::ToolCallProgress {
+                                    call_id,
+                                    name,
+                                    arguments_bytes,
+                                },
+                            },
+                            project,
+                        )
+                        .await?
+                    {
+                        return Ok(());
+                    }
+                }
                 AgentEvent::TextDelta { text } => {
                     if !self
                         .ensure_model_started_acknowledged(
@@ -860,6 +904,18 @@ impl ProviderRunCoordinator {
     where
         F: FnMut(ProviderRunProjection) -> BoxFuture<'static, Result<(), String>>,
     {
+        #[cfg(not(target_family = "wasm"))]
+        model_output_logging::log(serde_json::json!({
+            "event": "model_error",
+            "source": "direct_provider",
+            "provider_run_id": call.work_id.run_id.as_str(),
+            "provider_epoch": call.work_id.epoch.get(),
+            "profile": call.profile.as_str(),
+            "runtime_id": profile.runtime.descriptor().id,
+            "model_id": profile.request.model.as_str(),
+            "retry_attempt": call.retry_attempt,
+            "payload": &error,
+        }));
         let error_message = error.message.clone();
         let disposition = self
             .run

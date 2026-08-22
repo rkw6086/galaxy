@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use galaxy_agent_core::{AgentRuntime, ToolCall, TurnRequest};
 use galaxy_agent_rig::{
-    AnthropicRuntime, AnthropicRuntimeConfig, ChatGPTSubscriptionRuntime,
-    ChatGPTSubscriptionRuntimeConfig, GeminiRuntime, GeminiRuntimeConfig, OpenAICompatibleRuntime,
-    OpenAICompatibleRuntimeConfig, VertexAiRuntime, VertexAiRuntimeConfig,
+    AnthropicRuntime, AnthropicRuntimeConfig, BedrockRigConfig, BedrockRuntime,
+    ChatGPTSubscriptionRuntime, ChatGPTSubscriptionRuntimeConfig, GeminiRuntime,
+    GeminiRuntimeConfig, OpenAICompatibleRuntime, OpenAICompatibleRuntimeConfig, VertexAiRuntime,
+    VertexAiRuntimeConfig,
 };
 use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
@@ -254,11 +255,15 @@ pub(crate) async fn provider_runtime_for_request(
             let caching_config =
                 CachingConfig::from_external_config(&ExternalBedrockConfig::load());
             let client = BedrockClient::from_config(config).await?;
-            Arc::new(client.agent_runtime(
-                model,
-                cross_region_inference,
-                max_output_tokens,
-                caching_config,
+            Arc::new(BedrockRuntime::from_aws_client(
+                client.runtime_client(),
+                BedrockRigConfig {
+                    model,
+                    region: client.region().to_string(),
+                    cross_region_inference,
+                    prompt_caching: caching_config.enabled,
+                    max_output_tokens,
+                },
             )?)
         }
         crate::ai::provider::ProviderConfig::None => {

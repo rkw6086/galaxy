@@ -5,14 +5,12 @@ use aws_config::BehaviorVersion;
 use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::config::Region;
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
-use galaxy_agent_core::AgentError;
 
 use super::convert::{build_converse_request, CachingConfig, ConversationMessage, ToolDefinition};
 use super::diagnostic::BedrockDiagnosticLogger;
 use super::external_config::ExternalBedrockConfig;
 use super::models::apply_cross_region_prefix;
 use super::response_translator::bedrock_stream_to_response_events;
-use super::runtime::BedrockAgentRuntime;
 use crate::ai::agent::api::LegacyResponseStream;
 use crate::settings::ai::BedrockAuthMethod;
 
@@ -171,21 +169,12 @@ impl BedrockClient {
         })
     }
 
-    pub(crate) fn agent_runtime(
-        &self,
-        model: String,
-        cross_region_inference: bool,
-        max_output_tokens: Option<u64>,
-        caching_config: CachingConfig,
-    ) -> Result<BedrockAgentRuntime, AgentError> {
-        BedrockAgentRuntime::new(
-            self.runtime_client.clone(),
-            model,
-            self.region.clone(),
-            cross_region_inference,
-            max_output_tokens,
-            caching_config,
-        )
+    pub(crate) fn runtime_client(&self) -> BedrockRuntimeClient {
+        self.runtime_client.clone()
+    }
+
+    pub(crate) fn region(&self) -> &str {
+        &self.region
     }
 
     #[allow(clippy::too_many_arguments)]

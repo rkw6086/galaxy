@@ -277,6 +277,14 @@ pub enum AgentEvent {
     /// A transport heartbeat proving that the current model stream is still connected.
     /// Consumers should use this to refresh idle timeouts without rendering output.
     KeepAlive,
+    /// Progress received while the provider is streaming a tool call's JSON arguments.
+    /// The arguments remain buffered by the provider runtime and are not executed until the
+    /// complete tool call has been parsed and emitted as [`ToolEvent::Proposed`].
+    ToolCallProgress {
+        call_id: String,
+        name: Option<String>,
+        arguments_bytes: u64,
+    },
     TextDelta {
         text: String,
     },

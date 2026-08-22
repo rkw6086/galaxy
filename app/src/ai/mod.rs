@@ -46,6 +46,8 @@ pub(crate) mod harness_display;
 pub(crate) mod llms;
 pub(crate) mod local_harness_setup;
 pub(crate) mod metadata_project_rules;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) mod model_output_logging;
 pub mod onboarding;
 #[cfg(not(target_family = "wasm"))]
 pub mod openai;

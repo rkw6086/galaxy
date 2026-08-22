@@ -915,6 +915,24 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     );
     let _enter = span.enter();
 
+    // Load the TOML-backed preferences before logging so the opt-in session log can capture the
+    // complete application startup. The same backends are registered with AppContext below.
+    let private_preferences = settings::init_private_user_preferences();
+    let (public_preferences, startup_toml_parse_error) = settings::init_public_user_preferences();
+    let session_logs_enabled = FeatureFlag::SettingsFile.is_enabled()
+        && crate::settings::SessionLogsEnabled::read_from_preferences(public_preferences.as_ref())
+            .unwrap_or_default();
+
+    // When the SettingsFile feature flag is enabled, public settings live in
+    // the TOML-backed store. When disabled, they live in the platform-native
+    // store (same backend as private). Use the correct one for pre-app reads.
+    let prefs_for_public_settings: &dyn galaxyui_extras::user_preferences::UserPreferences =
+        if FeatureFlag::SettingsFile.is_enabled() {
+            public_preferences.as_ref()
+        } else {
+            private_preferences.deref()
+        };
+
     let log_destination = launch_mode.log_destination();
     let is_cli = log_destination.is_some();
 
@@ -926,6 +944,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
                 galaxy_logging::init(galaxy_logging::LogConfig {
                     is_cli,
                     log_destination,
+                    session_logs_enabled,
                     ..Default::default()
                 })?;
             }
@@ -933,6 +952,7 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
             galaxy_logging::init(galaxy_logging::LogConfig {
                 is_cli,
                 log_destination,
+                session_logs_enabled,
                 ..Default::default()
             })?;
         }
@@ -942,6 +962,10 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
         initialization.log_initialization_warning();
     }
     timer.mark_interval_end("LOG_FILE_SETUP_COMPLETE");
+
+    if let Some(error) = &startup_toml_parse_error {
+        log::warn!("Settings file has syntax errors and could not be parsed: {error}");
+    }
 
     #[cfg(windows)]
     platform::windows::check_redirection_guard();
@@ -1014,28 +1038,6 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     // start spawning any child processes.
     #[cfg(windows)]
     command::windows::init();
-
-    let private_preferences = settings::init_private_user_preferences();
-    let (public_preferences, startup_toml_parse_error) = settings::init_public_user_preferences();
-
-    // When the SettingsFile feature flag is enabled, public settings live in
-    // the TOML-backed store. When disabled, they live in the platform-native
-    // store (same backend as private). Use the correct one for pre-app reads.
-    #[cfg_attr(
-        not(any(
-            enable_crash_recovery,
-            target_os = "linux",
-            target_os = "freebsd",
-            target_os = "macos"
-        )),
-        expect(unused)
-    )]
-    let prefs_for_public_settings: &dyn galaxyui_extras::user_preferences::UserPreferences =
-        if FeatureFlag::SettingsFile.is_enabled() {
-            public_preferences.as_ref()
-        } else {
-            private_preferences.deref()
-        };
 
     #[cfg(enable_crash_recovery)]
     let crash_recovery =

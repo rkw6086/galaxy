@@ -17,6 +17,7 @@ use super::launch::{acp_provider_selection_identity, acp_selection_identity};
 use super::prompt::{prompt_content, GalaxyTerminalTools};
 use crate::ai::agent::api::{self, RequestParams};
 use crate::ai::agent::EntrypointType;
+use crate::ai::model_output_logging;
 use crate::ai::runtime::{RuntimeResponseConfig, RuntimeResponseTranslator};
 use crate::persistence::model::AcpConversationData;
 use crate::server::server_api::AIApiError;
@@ -113,12 +114,21 @@ pub(crate) async fn acp_output_stream(
     runtime_config.auto_approve_permissions = auto_approve_permissions;
     runtime_config.permission_policy = permission_policy;
     let runtime = AcpAgentRuntime::new(manager, runtime_config).with_state(session_metadata);
-    let mut request = TurnRequest::new(runtime_id, Vec::new()).with_prompt(prompt);
-    request.conversation_id = Some(conversation_id);
+    let mut request = TurnRequest::new(runtime_id.clone(), Vec::new()).with_prompt(prompt);
+    request.conversation_id = Some(conversation_id.clone());
     let (control_sender, control) = turn_control();
     let events = match runtime.start_turn(request, control).await {
         Ok(events) => events,
-        Err(error) => return translated_startup_error_stream(translator, &error.to_string()),
+        Err(error) => {
+            model_output_logging::log(serde_json::json!({
+                "event": "model_error",
+                "source": "acp",
+                "conversation_id": conversation_id,
+                "runtime_id": runtime_id,
+                "payload": &error,
+            }));
+            return translated_startup_error_stream(translator, &error.to_string());
+        }
     };
     let turn_control_guard = AcpTurnControlGuard::new(turn_control_slot, control_sender.clone());
 
@@ -140,6 +150,13 @@ pub(crate) async fn acp_output_stream(
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
+                            model_output_logging::log(serde_json::json!({
+                                "event": "model_error",
+                                "source": "acp",
+                                "conversation_id": conversation_id,
+                                "runtime_id": runtime_id,
+                                "payload": &error,
+                            }));
                             yield Err(Arc::new(AIApiError::Stream {
                                 stream_type: "acp",
                                 source: anyhow::anyhow!(error),
@@ -147,6 +164,13 @@ pub(crate) async fn acp_output_stream(
                             break;
                         }
                     };
+                    model_output_logging::log(serde_json::json!({
+                        "event": "model_output",
+                        "source": "acp",
+                        "conversation_id": conversation_id,
+                        "runtime_id": runtime_id,
+                        "payload": &event,
+                    }));
                     match translator.translate(event) {
                         Ok(response_events) => {
                             for response_event in response_events {

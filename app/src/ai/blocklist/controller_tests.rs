@@ -468,6 +468,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
+                        tool_call_progress: None,
                     },
                 );
                 controller
@@ -494,6 +495,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
                             retry_status: None,
+                            tool_call_progress: None,
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1044,6 +1046,7 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
+                        tool_call_progress: None,
                     },
                 );
 
@@ -1143,6 +1146,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
+                        tool_call_progress: None,
                     },
                 );
                 controller
@@ -1175,6 +1179,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
                             retry_status: None,
+                            tool_call_progress: None,
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1285,6 +1290,7 @@ fn non_follow_up_provider_cancellation_does_not_admit_an_overlapping_generation(
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
+                        tool_call_progress: None,
                     },
                 );
 

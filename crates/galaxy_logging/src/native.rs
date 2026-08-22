@@ -1,6 +1,8 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{IsTerminal, Write, copy};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -17,7 +19,11 @@ use crate::{LogConfig, LogDestination};
 const MAX_FILES_IN_GUI_ROTATION: usize = 5;
 const MAX_FILES_IN_CLI_ROTATION: usize = 10;
 const CLI_LOG_SUBDIRECTORY: &str = "oz";
+const SESSION_LOG_SUBDIRECTORY: &str = "session-logs";
 const TEMP_LOG_FILE_SUFFIX: &str = "old.temp";
+const INPUT_CLASSIFIER_LOG_TARGET: &str = "input_classifier";
+const TERMINAL_ANSI_HANDLER_LOG_TARGET: &str =
+    "galaxy::terminal::model::grid::grid_handler::ansi_handler";
 
 /// Runtime logging state, computed from `LogConfig` during initialization.
 #[derive(Debug)]
@@ -31,9 +37,30 @@ struct LogState {
 
     /// The maximum number of backup log files to keep during rotation.
     max_rotation: usize,
+
+    /// The opt-in full-session log for this process, if enabled successfully.
+    session_log_path: Option<PathBuf>,
 }
 
 static LOG_STATE: OnceLock<LogState> = OnceLock::new();
+
+struct TeeWriter<Primary, Session> {
+    primary: Primary,
+    session: Session,
+}
+
+impl<Primary: Write, Session: Write> Write for TeeWriter<Primary, Session> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.primary.write_all(buf)?;
+        self.session.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.primary.flush()?;
+        self.session.flush()
+    }
+}
 
 /// Formats a log record to be output to the terminal.
 fn format_for_terminal_output(
@@ -283,6 +310,7 @@ pub fn init_for_crash_recovery_process() -> Result<()> {
         false, /* is_cli */
         None,  /* log_destination */
         None,  /* max_file_size_bytes — crash recovery uses its own short-lived log */
+        false, /* session_logs_enabled */
     )
 }
 
@@ -296,6 +324,7 @@ pub fn init(config: LogConfig) -> Result<()> {
         config.is_cli,
         config.log_destination,
         config.max_file_size_bytes,
+        config.session_logs_enabled,
     )
 }
 
@@ -475,11 +504,42 @@ fn temp_log_file_path(log_directory: impl AsRef<Path>) -> PathBuf {
         .join(format!("{channel_logfile_name}.{TEMP_LOG_FILE_SUFFIX}"))
 }
 
+fn session_log_path(home_directory: &Path, session_id: &str, datetime: &str) -> PathBuf {
+    home_directory
+        .join(galaxy_core::paths::WARP_CONFIG_DIR)
+        .join(SESSION_LOG_SUBDIRECTORY)
+        .join(format!("{session_id}_{datetime}.log"))
+}
+
+fn create_session_log_file() -> Result<(File, PathBuf)> {
+    let home_directory = dirs::home_dir().ok_or_else(|| {
+        anyhow::anyhow!("could not locate home directory in order to create a session log")
+    })?;
+    let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let datetime = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let path = session_log_path(&home_directory, &session_id, &datetime);
+    let directory = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("session log path did not have a parent directory"))?;
+    fs::create_dir_all(directory)?;
+
+    #[cfg(unix)]
+    fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let file = options.open(&path)?;
+    Ok((file, path))
+}
+
 fn init_internal(
     is_from_crash_recovery_process: bool,
     is_cli: bool,
     log_destination: Option<LogDestination>,
     max_file_size_bytes: Option<u64>,
+    session_logs_enabled: bool,
 ) -> Result<()> {
     /// Returns an empty file named `warp.log` to log the current execution, and
     /// renames the previous execution's log to a temporary name.
@@ -513,7 +573,11 @@ fn init_internal(
 
     let mut base_logger = env_logger::builder();
 
-    base_logger.filter_level(LevelFilter::Warn);
+    base_logger.filter_level(if session_logs_enabled {
+        LevelFilter::Trace
+    } else {
+        LevelFilter::Warn
+    });
 
     // Only include `WARN` or higher logs for wgpu. By default, wgpu outputs logs at the `INFO`
     // level multiple times _per_ frame. See https://github.com/gfx-rs/wgpu/issues/3206.
@@ -521,6 +585,14 @@ fn init_internal(
     base_logger
         .filter(Some("naga"), LevelFilter::Warn)
         .filter(Some("wgpu_core"), LevelFilter::Warn)
+        // ANSI rendering emits trace records for every character and terminal control sequence.
+        // Preserve meaningful info/warnings/errors without filling full-session logs with typing,
+        // carriage-return, linefeed, cursor-motion, and scrolling noise.
+        .filter(Some(TERMINAL_ANSI_HANDLER_LOG_TARGET), LevelFilter::Info)
+        // The input classifier runs as the buffer changes and includes partial user input in its
+        // info/debug records. Keep initialization failures and classification errors, but omit the
+        // noisy pre-submission decision trail from full-session logs.
+        .filter(Some(INPUT_CLASSIFIER_LOG_TARGET), LevelFilter::Warn)
         // Since we always pair an insertion with a deletion to avoid duplicate,
         // tantivy will log a lot of warnings for deleting a non-existing doc.
         .filter(Some("tantivy"), LevelFilter::Error)
@@ -554,6 +626,15 @@ fn init_internal(
     if is_cli {
         log_directory = log_directory.join(CLI_LOG_SUBDIRECTORY);
     }
+    let (session_log_file, session_log_path, session_log_error) = if session_logs_enabled {
+        match create_session_log_file() {
+            Ok((file, path)) => (Some(file), Some(path), None),
+            Err(error) => (None, None, Some(error)),
+        }
+    } else {
+        (None, None, None)
+    };
+
     if use_logfile {
         let file =
             setup_log_files_for_current_execution(&log_directory, is_from_crash_recovery_process)?;
@@ -561,7 +642,7 @@ fn init_internal(
         // by the parent on crash, and otherwise deleted on clean exit), so
         // skip in-session rotation for them — `max_file_size_bytes` only
         // applies to the main process's `warp.log`.
-        let target: Box<dyn std::io::Write + Send + 'static> = if is_from_crash_recovery_process {
+        let primary: Box<dyn std::io::Write + Send + 'static> = if is_from_crash_recovery_process {
             Box::new(file)
         } else {
             crate::rotation::wrap_for_rotation(
@@ -572,7 +653,19 @@ fn init_internal(
                 max_rotation,
             )?
         };
+        let target: Box<dyn std::io::Write + Send + 'static> = match session_log_file {
+            Some(session) => Box::new(TeeWriter { primary, session }),
+            None => primary,
+        };
         base_logger.target(env_logger::Target::Pipe(target));
+        base_logger.format(format_for_file_output);
+    } else if let Some(session) = session_log_file {
+        let target = TeeWriter {
+            primary: std::io::stderr(),
+            session,
+        };
+        base_logger.target(env_logger::Target::Pipe(Box::new(target)));
+        base_logger.write_style(env_logger::WriteStyle::Never);
         base_logger.format(format_for_file_output);
     } else {
         // Agent mode eval outputs are written to stdout but redirected to a file, so we don't want terminal styling.
@@ -588,7 +681,7 @@ fn init_internal(
 
     // If we're logging to a file, initialize the `log_panics` crate, which
     // will install a panic hook that writes out panics using `log::error`.
-    if use_logfile {
+    if use_logfile || session_log_path.is_some() {
         log_panics::init();
     }
 
@@ -597,9 +690,19 @@ fn init_internal(
             use_logfile,
             log_directory,
             max_rotation,
+            session_log_path: session_log_path.clone(),
         })
         .expect("Logging already initialized");
     // We can .expect here because .init would have already panicked if we initialized logging twice.
+
+    if let Some(path) = session_log_path {
+        log::info!("Full session logging enabled at {}", path.display());
+    }
+    if let Some(error) = session_log_error {
+        log::error!(
+            "Full session logging was enabled but the log file could not be created: {error:#}"
+        );
+    }
 
     Ok(())
 }
@@ -608,6 +711,14 @@ pub fn log_directory() -> Result<std::path::PathBuf> {
     LOG_STATE
         .get()
         .map(|config| config.log_directory.clone())
+        .ok_or_else(|| anyhow::anyhow!("Logging not initialized"))
+}
+
+/// Returns the opt-in full-session log path for this process, when enabled and created.
+pub fn session_log_file_path() -> Result<Option<PathBuf>> {
+    LOG_STATE
+        .get()
+        .map(|config| config.session_log_path.clone())
         .ok_or_else(|| anyhow::anyhow!("Logging not initialized"))
 }
 

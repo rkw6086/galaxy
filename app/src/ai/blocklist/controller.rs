@@ -266,6 +266,7 @@ async fn collect_progressive_summary(
             }
             AgentEvent::TurnStarted { .. }
             | AgentEvent::KeepAlive
+            | AgentEvent::ToolCallProgress { .. }
             | AgentEvent::ReasoningDelta { .. }
             | AgentEvent::ReasoningCompleted { .. }
             | AgentEvent::RuntimeActivityUpdated { .. }
@@ -848,6 +849,60 @@ impl ProviderRetryStatus {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ProviderToolCallProgressStatus {
+    call_id: String,
+    name: Option<String>,
+    arguments_bytes: u64,
+}
+
+impl ProviderToolCallProgressStatus {
+    fn label(&self) -> String {
+        let activity = match self.name.as_deref() {
+            Some("apply_file_diffs") => "Preparing file edit",
+            Some(name) if name.starts_with("mcp__") => "Preparing MCP tool call",
+            Some(_) | None => "Preparing tool call",
+        };
+        if self.arguments_bytes == 0 {
+            return format!("{activity}…");
+        }
+        let kibibytes = self.arguments_bytes.saturating_add(1023) / 1024;
+        format!("{activity}… ({kibibytes} KB received)")
+    }
+}
+
+enum ProviderToolCallProgressUpdate {
+    Unchanged,
+    Set(ProviderToolCallProgressStatus),
+    Clear,
+}
+
+fn provider_tool_call_progress_update(
+    projection: &ProviderRunProjection,
+) -> ProviderToolCallProgressUpdate {
+    match projection {
+        ProviderRunProjection::ModelEvent {
+            event:
+                AgentEvent::ToolCallProgress {
+                    call_id,
+                    name,
+                    arguments_bytes,
+                },
+            ..
+        } => ProviderToolCallProgressUpdate::Set(ProviderToolCallProgressStatus {
+            call_id: call_id.clone(),
+            name: name.clone(),
+            arguments_bytes: *arguments_bytes,
+        }),
+        ProviderRunProjection::ModelTurnRequested { .. }
+        | ProviderRunProjection::ModelTurnFinished { .. }
+        | ProviderRunProjection::ModelRetry { .. }
+        | ProviderRunProjection::ToolBatchReady { .. } => ProviderToolCallProgressUpdate::Clear,
+        ProviderRunProjection::ModelTurnStarted { .. }
+        | ProviderRunProjection::ModelEvent { .. } => ProviderToolCallProgressUpdate::Unchanged,
+    }
+}
+
 struct ActiveProviderRunSlot {
     stream_id: ResponseStreamId,
     response_stream: ModelHandle<ResponseStream>,
@@ -867,6 +922,7 @@ struct ActiveProviderRunSlot {
     pending_command_completion: Option<PendingProviderCommandCompletion>,
     monitor_prose_continuations: usize,
     retry_status: Option<ProviderRetryStatus>,
+    tool_call_progress: Option<ProviderToolCallProgressStatus>,
 }
 
 struct QueuedProviderRun {
@@ -1906,6 +1962,7 @@ enum ProviderDriveMessage {
     Projection {
         lifecycle: Option<ProviderLlmLifecycle>,
         latest_usage: Option<Usage>,
+        tool_call_progress: ProviderToolCallProgressUpdate,
         events: Vec<warp_multi_agent_api::ResponseEvent>,
         acknowledgement: oneshot::Sender<Result<(), String>>,
     },
@@ -2096,6 +2153,16 @@ impl BlocklistAIController {
         self.active_provider_runs
             .get(&conversation_id)
             .and_then(|slot| slot.retry_status)
+    }
+
+    pub(crate) fn provider_tool_call_progress_label(
+        &self,
+        conversation_id: AIConversationId,
+    ) -> Option<String> {
+        self.active_provider_runs
+            .get(&conversation_id)
+            .and_then(|slot| slot.tool_call_progress.as_ref())
+            .map(ProviderToolCallProgressStatus::label)
     }
 
     fn has_unresolved_ask_user_question(
@@ -5137,6 +5204,7 @@ impl BlocklistAIController {
                 pending_command_completion: None,
                 monitor_prose_continuations: 0,
                 retry_status: None,
+                tool_call_progress: None,
             };
             match self.active_provider_runs.entry(conversation_data.id) {
                 Entry::Occupied(_) => {
@@ -5759,6 +5827,7 @@ impl BlocklistAIController {
                 pending_command_completion,
                 monitor_prose_continuations,
                 retry_status: None,
+                tool_call_progress: None,
             },
         );
         if let Err(error) =
@@ -5963,6 +6032,7 @@ impl BlocklistAIController {
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
+                        tool_call_progress: None,
                     },
                     base_provider_config,
                     cli_provider_config,
@@ -6316,6 +6386,8 @@ impl BlocklistAIController {
                         turn_control,
                         |projection| {
                             let lifecycle = provider_llm_lifecycle(&projection);
+                            let tool_call_progress =
+                                provider_tool_call_progress_update(&projection);
                             let latest_usage = match &projection {
                                 ProviderRunProjection::ModelEvent {
                                     event: AgentEvent::UsageUpdated { usage },
@@ -6337,6 +6409,7 @@ impl BlocklistAIController {
                                     .send(ProviderDriveMessage::Projection {
                                         lifecycle,
                                         latest_usage,
+                                        tool_call_progress,
                                         events,
                                         acknowledgement,
                                     })
@@ -6396,6 +6469,7 @@ impl BlocklistAIController {
             ProviderDriveMessage::Projection {
                 lifecycle,
                 latest_usage,
+                tool_call_progress,
                 events,
                 acknowledgement,
             } => {
@@ -6421,8 +6495,29 @@ impl BlocklistAIController {
                         break;
                     }
                 }
+                let progress_changed = {
+                    let slot = self
+                        .active_provider_runs
+                        .get_mut(&conversation_id)
+                        .expect("provider projection retained its active run slot");
+                    match tool_call_progress {
+                        ProviderToolCallProgressUpdate::Unchanged => false,
+                        ProviderToolCallProgressUpdate::Set(progress) => {
+                            let changed = slot
+                                .tool_call_progress
+                                .as_ref()
+                                .is_none_or(|current| current.label() != progress.label());
+                            slot.tool_call_progress = Some(progress);
+                            changed
+                        }
+                        ProviderToolCallProgressUpdate::Clear => {
+                            slot.tool_call_progress.take().is_some()
+                        }
+                    }
+                };
+                let mut should_refresh_status = progress_changed;
                 if let Some(lifecycle) = lifecycle.as_ref() {
-                    let should_refresh_status = {
+                    should_refresh_status |= {
                         let slot = self
                             .active_provider_runs
                             .get_mut(&conversation_id)
@@ -6451,16 +6546,6 @@ impl BlocklistAIController {
                             }
                         }
                     };
-                    if should_refresh_status {
-                        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                            history.update_conversation_status(
-                                self.terminal_surface_id,
-                                conversation_id,
-                                ConversationStatus::InProgress,
-                                ctx,
-                            );
-                        });
-                    }
                     #[cfg(not(target_family = "wasm"))]
                     remote_logging::log_model_event(
                         ctx,
@@ -6470,6 +6555,16 @@ impl BlocklistAIController {
                             lifecycle,
                         ),
                     );
+                }
+                if should_refresh_status {
+                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                        history.update_conversation_status(
+                            self.terminal_surface_id,
+                            conversation_id,
+                            ConversationStatus::InProgress,
+                            ctx,
+                        );
+                    });
                 }
                 let _ = acknowledgement.send(result);
             }
