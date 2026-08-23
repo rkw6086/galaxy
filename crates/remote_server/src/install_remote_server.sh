@@ -93,9 +93,16 @@ tar -xzf "$tmpdir/oz.tar.gz" -C "$tmpdir"
 # The executable and its resources are siblings in the artifact. Exclude the
 # resources tree from the search: bundled skills may ship companion files
 # whose names also start with `oz`.
-bin=$(find "$tmpdir" -type f -name 'oz*' ! -name '*.tar.gz' ! -path '*/resources/*' | head -n1)
+bin=$(find "$tmpdir" -type f -name '{binary_name}*' ! -name '*.tar.gz' ! -path '*/resources/*' | head -n1)
+# Continue accepting legacy archives while existing release infrastructure is
+# migrated to Galaxy-named helper artifacts.
+if [ -z "$bin" ]; then
+  bin=$(find "$tmpdir" -type f -name 'oz*' ! -name '*.tar.gz' ! -path '*/resources/*' | head -n1)
+fi
 if [ -z "$bin" ]; then echo "no binary found in tarball" >&2; exit 1; fi
 chmod +x "$bin"
+
+version_marker="$(dirname "$bin")/wormhole-version"
 
 # Install the resources tree at the global, version-independent location
 # the daemon reads. `$tmpdir` lives inside `$install_dir`, so the `mv` is a
@@ -110,3 +117,8 @@ if [ -d "$resources" ]; then
 fi
 
 mv "$bin" "$install_dir/{binary_name}{version_suffix}"
+if [ -f "$version_marker" ]; then
+  mv "$version_marker" "$install_dir/{binary_name}{version_suffix}.wormhole-version"
+else
+  rm -f "$install_dir/{binary_name}{version_suffix}.wormhole-version"
+fi

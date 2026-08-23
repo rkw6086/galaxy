@@ -1562,13 +1562,23 @@ impl GlobalBufferModel {
             .flatten();
 
         // If we have a previous version that wasn't synced, we need to do a full sync.
-        let needs_full_sync = previous_version.is_some_and(|prev| {
-            last_synced.is_none() || last_synced.is_some_and(|synced| synced < prev)
-        });
+        let server_requires_full_sync = lsp_server.as_ref(ctx).requires_full_document_sync();
+        let needs_full_sync = server_requires_full_sync
+            || previous_version.is_some_and(|prev| {
+                last_synced.is_none() || last_synced.is_some_and(|synced| synced < prev)
+            });
 
         let deltas_len = deltas.len();
 
-        if needs_full_sync {
+        if server_requires_full_sync {
+            lsp_server.as_ref(ctx).log_to_server_log(
+                LspServerLogLevel::Debug,
+                format!(
+                    "didChange -> server: REQUIRED full-sync file={} send_version={current_version} deltas={deltas_len}",
+                    path.display()
+                ),
+            );
+        } else if needs_full_sync {
             lsp_server.as_ref(ctx).log_to_server_log(
                 LspServerLogLevel::Info,
                 format!(

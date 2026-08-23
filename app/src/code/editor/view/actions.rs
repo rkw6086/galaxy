@@ -79,6 +79,11 @@ pub fn init(app: &mut AppContext) {
             text_entry.clone() & id!("Vim"),
         ),
         FixedBinding::new(
+            "ctrl-space",
+            CodeEditorViewAction::TriggerCompletion,
+            editable_state.clone(),
+        ),
+        FixedBinding::new(
             "backspace",
             CodeEditorViewAction::Backspace,
             text_entry.clone() & !id!("Vim"),
@@ -711,6 +716,7 @@ pub enum CodeEditorViewAction {
     ShiftTab,
     ShowFindBar,
     ShowGoToLine,
+    TriggerCompletion,
     Escape,
     VimEnter,
     VimTab,
@@ -795,6 +801,7 @@ impl CodeEditorViewAction {
             | Self::Copy
             | Self::ShowFindBar
             | Self::ShowGoToLine
+            | Self::TriggerCompletion
             | Self::Escape
             | Self::HiddenSectionExpansion { .. }
             | Self::AddDiffHunkContext { .. }
@@ -1064,6 +1071,7 @@ impl TypedActionView for CodeEditorView {
 
             ShowFindBar => self.show_find_bar(ctx),
             ShowGoToLine => self.show_goto_line(ctx),
+            TriggerCompletion => ctx.emit(CodeEditorEvent::CompletionTrigger),
             Escape => self.escape(ctx),
             HiddenSectionExpansion {
                 line_range,

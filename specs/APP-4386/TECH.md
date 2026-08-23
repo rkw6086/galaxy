@@ -225,7 +225,7 @@ The SCP fallback uses a separate, longer timeout:
 pub const SCP_INSTALL_TIMEOUT: Duration = Duration::from_secs(120);
 ```
 The standard `INSTALL_TIMEOUT` (60s) is sufficient for the curl/wget path because the remote host downloads directly from the CDN. The SCP path adds a local download step (~5s) plus an SCP upload that depends entirely on the SSH link bandwidth — embedded devices, VPNs, and high-latency connections can easily exceed 60s for a ~30-50 MB transfer. Each sub-step (`scp_upload`, `run_ssh_script` for extraction) uses the full `SCP_INSTALL_TIMEOUT` individually to avoid splitting a single budget across steps, which would require coordination logic for diminishing remaining time.
-- If the SCP upload or extraction fails, the error surfaces the same way as a normal install failure — `BinaryInstallComplete { result: Err(_) }` — and the session falls back to ControlMaster warpification.
+- If the SCP upload or extraction fails, the error surfaces the same way as a normal install failure — `BinaryInstallComplete { result: Err(_) }` — and the session falls back to ControlMaster wormholing.
 
 ## Testing and validation
 

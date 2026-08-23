@@ -9,6 +9,7 @@ use galaxy_util::path::LineAndColumnArg;
 use galaxyui::AppContext;
 
 use super::Editor;
+use super::Editor::*;
 
 static INSTALLED_EDITOR_METADATA: OnceLock<HashMap<Editor, EditorMetadata>> = OnceLock::new();
 

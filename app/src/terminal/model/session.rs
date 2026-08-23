@@ -40,7 +40,7 @@ use crate::remote_server::manager::{RemoteServerManager, RemoteServerManagerEven
 use crate::server::telemetry::{BootstrappingInfo, TelemetryEvent};
 use crate::terminal::event::{ExecutedExecutorCommandEvent, RemoteServerSetupState};
 use crate::terminal::shell::{Shell, ShellType};
-use crate::terminal::warpify::SubshellSource;
+use crate::terminal::wormhole::SubshellSource;
 use crate::terminal::{History, ShellHost, ShellLaunchData};
 
 #[derive(thiserror::Error, Debug)]
@@ -361,7 +361,7 @@ impl Sessions {
         let session = Arc::new(session);
         self.sessions.insert(session.id(), session.clone());
 
-        // For warpified-remote sessions, pick up the current host_id from
+        // For wormholed-remote sessions, pick up the current host_id from
         // the manager so session.remote_host_id() is populated without
         // waiting for the next SessionConnected event. The
         // RemoteServerCommandExecutor already has its client baked in, so
@@ -370,7 +370,7 @@ impl Sessions {
         if FeatureFlag::SshRemoteServer.is_enabled()
             && matches!(
                 session_info.session_type,
-                BootstrapSessionType::WarpifiedRemote
+                BootstrapSessionType::WormholedRemote
             )
         {
             if let Some(host_id) = RemoteServerManager::as_ref(ctx).host_id_for_session(session_id)
@@ -518,7 +518,7 @@ impl Sessions {
 impl From<SessionType> for command_corrections::SessionType {
     fn from(session_type: SessionType) -> Self {
         match session_type {
-            SessionType::WarpifiedRemote { .. } => command_corrections::SessionType::Remote,
+            SessionType::WormholedRemote { .. } => command_corrections::SessionType::Remote,
             SessionType::Local => command_corrections::SessionType::Local,
         }
     }
@@ -527,20 +527,20 @@ impl From<SessionType> for command_corrections::SessionType {
 impl From<&SessionType> for command_corrections::SessionType {
     fn from(session_type: &SessionType) -> Self {
         match session_type {
-            SessionType::WarpifiedRemote { .. } => command_corrections::SessionType::Remote,
+            SessionType::WormholedRemote { .. } => command_corrections::SessionType::Remote,
             SessionType::Local => command_corrections::SessionType::Local,
         }
     }
 }
 
-/// Whether a session was established by Warp's in-band SSH wrapper — the shell function our
+/// Whether a session was established by Galaxy's in-band SSH wrapper — the shell function our
 /// bootstrap injects that intercepts `ssh`, sets up a ControlMaster connection, and bootstraps
-/// the remote shell. This applies to all SSH warpification today: the remote-server SSH
+/// the remote shell. This applies to all SSH wormholing today: the remote-server SSH
 /// extension also runs on top of a wrapper session (reusing the ControlMaster socket for its
 /// proxy and for the `RemoteCommandExecutor` fallback).
 ///
-/// `No` covers local sessions, subshells, and remote sessions warpified *without* the wrapper
-/// (e.g. via the auto-warpify RC snippet inside an unwrapped `ssh` session), which carry no
+/// `No` covers local sessions, subshells, and remote sessions wormholed *without* the wrapper
+/// (e.g. via the auto-wormhole RC snippet inside an unwrapped `ssh` session), which carry no
 /// ControlMaster socket.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IsSSHWrapperSession {
@@ -550,7 +550,7 @@ pub enum IsSSHWrapperSession {
         socket_path: PathBuf,
         /// `true` when `socket_path` points at a ControlMaster the user
         /// already had running (the SSH wrapper attached to it instead of
-        /// creating a Warp-owned one). Warp must not tear down such a
+        /// creating a Galaxy-owned one). Galaxy must not tear down such a
         /// master on session exit.
         external_control_master: bool,
     },
@@ -651,7 +651,7 @@ impl SessionInfo {
             matches!(&is_ssh_wrapper_session, IsSSHWrapperSession::Yes { .. }),
         );
 
-        let spawning_session_id = if matches!(session_type, BootstrapSessionType::WarpifiedRemote)
+        let spawning_session_id = if matches!(session_type, BootstrapSessionType::WormholedRemote)
             || subshell_info.is_some()
         {
             active_block_session_id
@@ -699,7 +699,7 @@ impl SessionInfo {
                 {
                     BootstrapSessionType::Local
                 } else {
-                    BootstrapSessionType::WarpifiedRemote
+                    BootstrapSessionType::WormholedRemote
                 }
             }
             Err(e) => {
@@ -715,7 +715,7 @@ impl SessionInfo {
         _is_ssh_session: bool,
     ) -> BootstrapSessionType {
         // When the `remote_tty` feature is enabled--the session is always considered remote.
-        BootstrapSessionType::WarpifiedRemote
+        BootstrapSessionType::WormholedRemote
     }
 
     /// Returns a fully populated [`SessionInfo`] containing data derived from the given
@@ -859,26 +859,26 @@ impl SessionInfo {
 /// which happens *after* the session is bootstrapped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BootstrapSessionType {
-    /// The session host is the same host where Warp is running.
+    /// The session host is the same host where Galaxy is running.
     Local,
 
-    /// The session host is a different host from where Warp is running.
-    WarpifiedRemote,
+    /// The session host is a different host from where Galaxy is running.
+    WormholedRemote,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionType {
-    /// The session host is the same host where Warp is running.
+    /// The session host is the same host where Galaxy is running.
     Local,
 
-    /// The session host is a different host from where Warp is running.
-    /// Note that we only know this for sure when we Warpify a block.
+    /// The session host is a different host from where Galaxy is running.
+    /// Note that we only know this for sure when we Wormhole a block.
     ///
     /// `host_id` is `Some` when the remote server feature flag is enabled and
     /// `RemoteServerManager` has completed the connection handshake. It is
     /// `None` when the feature flag is off or the connection hasn't been
     /// established yet.
-    WarpifiedRemote {
+    WormholedRemote {
         host_id: Option<galaxy_core::HostId>,
     },
 }
@@ -887,7 +887,7 @@ impl From<BootstrapSessionType> for SessionType {
     fn from(bst: BootstrapSessionType) -> Self {
         match bst {
             BootstrapSessionType::Local => SessionType::Local,
-            BootstrapSessionType::WarpifiedRemote => SessionType::WarpifiedRemote { host_id: None },
+            BootstrapSessionType::WormholedRemote => SessionType::WormholedRemote { host_id: None },
         }
     }
 }
@@ -964,11 +964,11 @@ impl Session {
         self.session_type.lock().clone()
     }
 
-    /// Updates the `host_id` on a `WarpifiedRemote` session type after the
+    /// Updates the `host_id` on a `WormholedRemote` session type after the
     /// remote server handshake completes (or clears it on disconnect).
     pub fn set_remote_host_id(&self, host_id: Option<galaxy_core::HostId>) {
         let mut st = self.session_type.lock();
-        if let SessionType::WarpifiedRemote { host_id: ref mut h } = *st {
+        if let SessionType::WormholedRemote { host_id: ref mut h } = *st {
             *h = host_id;
         }
     }
@@ -1012,9 +1012,9 @@ impl Session {
         self.info.host_info.clone()
     }
 
-    /// Returns whether this session was established by Warp's in-band SSH wrapper (see
-    /// [`IsSSHWrapperSession`]). Note this stays `false` for remote sessions warpified via
-    /// the auto-warpify RC snippet inside an unwrapped `ssh` session.
+    /// Returns whether this session was established by Galaxy's in-band SSH wrapper (see
+    /// [`IsSSHWrapperSession`]). Note this stays `false` for remote sessions wormholed via
+    /// the auto-wormhole RC snippet inside an unwrapped `ssh` session.
     pub fn is_ssh_wrapper_session(&self) -> bool {
         matches!(
             self.info.is_ssh_wrapper_session,
@@ -1023,7 +1023,7 @@ impl Session {
     }
 
     pub fn is_subshell_or_ssh(&self) -> bool {
-        matches!(self.session_type(), SessionType::WarpifiedRemote { .. })
+        matches!(self.session_type(), SessionType::WormholedRemote { .. })
             || self.is_ssh_wrapper_session()
             || self.subshell_info().is_some()
     }
@@ -1539,7 +1539,7 @@ impl Session {
                 self.read_history_for_local_session(is_kaspersky_running)
                     .await
             }
-            BootstrapSessionType::WarpifiedRemote => self.read_history_for_remote_session().await,
+            BootstrapSessionType::WormholedRemote => self.read_history_for_remote_session().await,
         }
     }
 
@@ -1635,22 +1635,22 @@ impl Session {
     /// Converts the given directory into a [`typed_path::TypedPathBuf`].
     pub fn convert_directory_to_typed_path_buf(&self, pwd: String) -> TypedPathBuf {
         // We need to determine whether this session requires windows file paths
-        // or unix file paths. This needs to be resilient to warpified ssh. Some examples:
+        // or unix file paths. This needs to be resilient to wormholed ssh. Some examples:
         // - bash on mac ---> unix
         // - powershell on linux ---> unix
         // - powershell on windows ---> windows
         // - wsl on windows ---> unix
-        // - warpified zsh --> unix
+        // - wormholed zsh --> unix
 
         // If the host architecture is unix, we can infer unix file paths. This would break
-        // if we supported warpifying a powershell-on-windows SSH session.
+        // if we supported wormholing a powershell-on-windows SSH session.
         if cfg!(unix) {
             return TypedPathBuf::from_unix(pwd);
         }
 
         // We assume that we're on Windows.
         match self.shell_family() {
-            // Cases: WSL, MSYS2, warpified bash
+            // Cases: WSL, MSYS2, wormholed bash
             ShellFamily::Posix => TypedPathBuf::from_unix(pwd),
             // Cases: powershell sessions
             ShellFamily::PowerShell => TypedPathBuf::from_windows(pwd),
@@ -1671,7 +1671,7 @@ impl Display for Session {
     }
 }
 
-/// Returns the hostname for the local machine where Warp is running.
+/// Returns the hostname for the local machine where Galaxy is running.
 pub fn get_local_hostname() -> Result<String> {
     cfg_if::cfg_if! {
         if #[cfg(not(target_family = "wasm"))] {
@@ -1786,7 +1786,7 @@ pub mod testing {
 
         pub fn with_ssh_socket_path(mut self, socket_path: PathBuf) -> Self {
             if let BootstrapSessionType::Local = self.session_type {
-                self.session_type = BootstrapSessionType::WarpifiedRemote;
+                self.session_type = BootstrapSessionType::WormholedRemote;
             }
             self.is_ssh_wrapper_session = IsSSHWrapperSession::Yes {
                 socket_path,
@@ -1856,7 +1856,7 @@ pub mod testing {
 
         pub fn test_remote() -> Self {
             let info = SessionInfo::new_for_test()
-                .with_session_type(BootstrapSessionType::WarpifiedRemote)
+                .with_session_type(BootstrapSessionType::WormholedRemote)
                 .with_shell_type(ShellType::Bash); // We only support UNIX-based remote sessions.
             let session_type = SessionType::from(info.session_type.clone());
             Self {

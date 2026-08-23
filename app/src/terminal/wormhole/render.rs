@@ -13,7 +13,7 @@ use pathfinder_color::ColorU;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 
-use super::settings::WarpifySettings;
+use super::settings::WormholeSettings;
 use super::SubshellSource;
 use crate::ai::blocklist::inline_action::inline_action_icons;
 use crate::ui_components::blended_colors;
@@ -31,8 +31,6 @@ const WARP_DRIVE_ENV_VAR_COLLECTION_ICON_COLOR: u32 = 0xC464FFFF;
 const ICON_MARGIN: f32 = 4.;
 const TERMINAL_ICON: &str = "bundled/svg/terminal.svg";
 pub const HORIZONTAL_TEXT_MARGIN: f32 = 20.;
-pub const SSH_DOCS_URL: &str = "https://docs.warp.dev/terminal/warpify/ssh";
-pub const SUBSHELL_DOCS_URL: &str = "https://docs.warp.dev/terminal/warpify/subshells";
 
 /// Errored blocks have a red stripe, and subshells have a gray one.
 pub const LEFT_STRIPE_WIDTH: f32 = 5.;
@@ -92,7 +90,7 @@ fn green_check_icon(appearance: &Appearance, size: f32) -> Box<dyn Element> {
         .finish()
 }
 
-/// UI helper to render the ssh command that caused the warpification prompt.
+/// UI helper to render the ssh command that caused the wormholing prompt.
 pub fn build_command_row(
     command: String,
     theme: &GalaxyTheme,
@@ -164,21 +162,21 @@ pub fn description_row(
     .finish()
 }
 
-/// Renders a "Never Warpify this host" link or nothing.
-pub fn render_never_warpify_ssh_link(
+/// Renders a "Never Wormhole this host" link or nothing.
+pub fn render_never_wormhole_ssh_link(
     ssh_host: &Option<String>,
     app: &AppContext,
     appearance: &Appearance,
     mouse_state_handle: MouseStateHandle,
-    on_never_warpify: fn(&mut EventContext<'_>, ssh_host: String),
+    on_never_wormhole: fn(&mut EventContext<'_>, ssh_host: String),
 ) -> Option<Box<dyn Element>> {
     let Some(ssh_host) = ssh_host else {
         return None;
     };
 
-    let settings = WarpifySettings::handle(app);
+    let settings = WormholeSettings::handle(app);
     if settings.as_ref(app).is_ssh_host_denylisted(ssh_host) {
-        // Should only happen if user manually attempts to Warpify a denylisted host.
+        // Should only happen if user manually attempts to Wormhole a denylisted host.
         return None;
     }
 
@@ -189,7 +187,7 @@ pub fn render_never_warpify_ssh_link(
             None,
             Some(Box::new({
                 let ssh_host = ssh_host.clone();
-                move |ctx| on_never_warpify(ctx, ssh_host.to_owned())
+                move |ctx| on_never_wormhole(ctx, ssh_host.to_owned())
             })),
             mouse_state_handle,
         )

@@ -6,7 +6,7 @@ The `SshRemoteServer` feature flag gates a new SSH session flow where a persiste
 
 ### Current integration test infra
 
-The existing SSH integration tests (`crates/integration/src/test/ssh.rs`) cover the legacy warpification flow:
+The existing SSH integration tests (`crates/integration/src/test/ssh.rs`) cover the legacy wormholing flow:
 - Connect to a GCP-hosted Ubuntu VM (`ubuntu-14-04`) via IAP tunnel with password auth
 - Helper steps in `app/src/integration_testing/subshell/` — `setup_gcloud_sdk()`, `enter_ssh_command()`, `enter_ssh_password()`, `wait_for_password_prompt()`
 - Builder pattern: `new_builder().with_step(TestStep)` with assertion callbacks
@@ -22,7 +22,7 @@ When `SshRemoteServer` is enabled for a legacy SSH session (`app/src/terminal/wr
 4. Bootstrap is flushed; `RemoteServerCommandExecutor` (`app/src/terminal/model/session/command_executor/remote_server_executor.rs`) is wired as the session's `CommandExecutor`
 5. On CWD change, `navigate_to_directory` fires → returns `is_git` flag + triggers `RepoMetadataSnapshot` push
 
-Key config: `SshExtensionInstallMode::AlwaysInstall` (setting in `app/src/terminal/warpify/settings.rs:85`) bypasses the choice block UI, needed for deterministic test flow.
+Key config: `SshExtensionInstallMode::AlwaysInstall` (setting in `app/src/terminal/wormhole/settings.rs:85`) bypasses the choice block UI, needed for deterministic test flow.
 
 ### Binary deployment problem
 

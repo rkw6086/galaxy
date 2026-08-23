@@ -182,21 +182,41 @@ impl JsonRpcService {
         request_error_code: i64,
     ) -> Result<()> {
         if let Ok(request) = serde_json::from_str::<AnyRequest>(message) {
-            let should_ack = matches!(
-                request.method,
+            let params = if let Some(params) = request.params {
+                match serde_json::from_str(params.get()) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        log::warn!("Failed to parse params for {} request: {e}", request.method);
+                        Value::Null
+                    }
+                }
+            } else {
+                Value::Null
+            };
+
+            let acknowledged_result = match request.method {
+                "workspace/configuration" => {
+                    let item_count = params
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .map_or(0, Vec::len);
+                    Some(Value::Array(vec![serde_json::json!({}); item_count]))
+                }
                 "window/workDoneProgress/create"
-                    | "client/registerCapability"
-                    | "client/unregisterCapability"
-            );
+                | "client/registerCapability"
+                | "client/unregisterCapability" => Some(Value::Null),
+                _ => None,
+            };
+            let should_ack = acknowledged_result.is_some();
 
             // Handle specific server -> client requests that we can safely acknowledge.
             // Some LSP servers crash if we return an error.
-            let response = if should_ack {
+            let response = if let Some(result) = acknowledged_result {
                 log::debug!("Acknowledging {} request", request.method);
                 serde_json::json!({
                     "jsonrpc": JSON_RPC_VERSION,
                     "id": request.id,
-                    "result": null
+                    "result": result
                 })
             } else {
                 // For other requests, return an error
@@ -223,21 +243,6 @@ impl JsonRpcService {
                     .clone();
 
                 if let Some(handler) = handler {
-                    let params = if let Some(params) = request.params {
-                        match serde_json::from_str(params.get()) {
-                            Ok(value) => value,
-                            Err(e) => {
-                                log::warn!(
-                                    "Failed to parse params for {} request: {e}",
-                                    request.method
-                                );
-                                Value::Null
-                            }
-                        }
-                    } else {
-                        Value::Null
-                    };
-
                     if let Err(e) = handler(request.method.to_string(), params, request.id) {
                         log::warn!("Server request handler error for {}: {e}", request.method);
                     }
@@ -355,6 +360,20 @@ impl JsonRpcService {
 
         self.executor.spawn(future).detach();
         Ok(())
+    }
+
+    /// Sends a notification and waits until it has been written to the transport.
+    ///
+    /// Use this when a later request depends on the server having observed the
+    /// notification first, such as document synchronization before completion.
+    pub async fn send_notification_and_wait(&self, method: String, params: Value) -> Result<()> {
+        let notification = Notification {
+            jsonrpc: JSON_RPC_VERSION,
+            method,
+            params,
+        };
+        let content = serde_json::to_string(&notification)?;
+        self.transport.write(&content).await
     }
 
     pub async fn shutdown(&self, timeout: std::time::Duration) -> Result<()> {

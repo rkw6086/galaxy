@@ -607,7 +607,7 @@ global `theme()` form. Concretely:
 | --- | --- | --- |
 | `app/src/terminal/view/**` | per-tab | terminal grid, blocks, in-tab modals over the grid |
 | `app/src/terminal/input/**` | per-tab | input bar, inline menus, slash commands inside the tab |
-| `app/src/terminal/{view.rs, block_filter.rs, rich_history.rs, terminal_manager.rs, universal_developer_input.rs, ssh/**, warpify/**, shared_session/**}` | per-tab | terminal-pane content |
+| `app/src/terminal/{view.rs, block_filter.rs, rich_history.rs, terminal_manager.rs, universal_developer_input.rs, ssh/**, wormhole/**, shared_session/**}` | per-tab | terminal-pane content |
 | `app/src/terminal/{share_block_modal.rs, profile_model_selector.rs}` | per-tab | scoped to a specific tab's content |
 | `app/src/{tab.rs, root_view.rs, voltron.rs, modal.rs, menu.rs, search_bar.rs, input_suggestions.rs}` | global | window chrome, command palette, top-level modals |
 | `app/src/settings/**` | global | settings UI |

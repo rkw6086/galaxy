@@ -89,7 +89,7 @@ fn top_level_sections_map_to_themselves() {
         SettingsSection::Scripting,
         SettingsSection::Teams,
         SettingsSection::WarpDrive,
-        SettingsSection::Warpify,
+        SettingsSection::Wormhole,
     ] {
         assert!(!section.is_subpage(), "{section:?} should be top-level");
         assert_eq!(section.parent_page_section(), section);
@@ -101,7 +101,7 @@ fn current_settings_display_names_round_trip() {
     for (section, display_name) in [
         (SettingsSection::Scripting, "Galaxy Control"),
         (SettingsSection::WarpDrive, "Galaxy Drive"),
-        (SettingsSection::Warpify, "Wormhole"),
+        (SettingsSection::Wormhole, "Wormhole"),
         (SettingsSection::WarpAgent, "Galaxy Agent"),
         (SettingsSection::AgentProfiles, "Profiles"),
         (SettingsSection::AgentMCPServers, "MCP servers"),
@@ -135,7 +135,7 @@ fn legacy_settings_names_remain_parseable() {
     for (name, expected) in [
         ("Scripting", SettingsSection::Scripting),
         ("WarpDrive", SettingsSection::WarpDrive),
-        ("Warpify", SettingsSection::Warpify),
+        ("Wormhole", SettingsSection::Wormhole),
         ("Oz", SettingsSection::WarpAgent),
         ("Warp Agent", SettingsSection::WarpAgent),
         ("AgentProfiles", SettingsSection::AgentProfiles),
@@ -191,7 +191,7 @@ fn realistic_nav_items() -> Vec<SettingsNavItem> {
         SettingsNavItem::Page(SettingsSection::Appearance),
         SettingsNavItem::Page(SettingsSection::Features),
         SettingsNavItem::Page(SettingsSection::Keybindings),
-        SettingsNavItem::Page(SettingsSection::Warpify),
+        SettingsNavItem::Page(SettingsSection::Wormhole),
         SettingsNavItem::Page(SettingsSection::WarpDrive),
         SettingsNavItem::Page(SettingsSection::Privacy),
         SettingsNavItem::Page(SettingsSection::About),

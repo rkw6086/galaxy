@@ -1037,6 +1037,157 @@ impl PersistedWorkspace {
         );
     }
 
+    /// Ensures Galaxy's own settings file has schema-backed TOML language support.
+    /// This managed server is intentionally not persisted as a code workspace.
+    #[cfg(feature = "local_fs")]
+    pub fn ensure_settings_toml_lsp(&mut self, file_path: PathBuf, ctx: &mut ModelContext<Self>) {
+        if file_path != crate::settings::user_preferences_toml_file_path() {
+            return;
+        }
+
+        let server_type = LSPServerType::Tombi;
+        let Some(workspace_root) = file_path.parent().map(Path::to_path_buf) else {
+            return;
+        };
+
+        if LspManagerModel::as_ref(ctx).server_registered(&workspace_root, server_type, ctx) {
+            LspManagerModel::handle(ctx).update(ctx, |manager, ctx| {
+                manager.start_all(workspace_root, ctx);
+            });
+            return;
+        }
+
+        if self.lsp_installation_status.get(&server_type)
+            == Some(&LSPInstallationStatus::Installing)
+        {
+            return;
+        }
+
+        self.lsp_installation_status
+            .insert(server_type, LSPInstallationStatus::Installing);
+        ctx.emit(PersistedWorkspaceEvent::InstallStatusUpdate {
+            server_type,
+            status: LSPInstallationStatus::Installing,
+        });
+
+        let path_future = LocalShellState::handle(ctx).update(ctx, |shell_state, ctx| {
+            shell_state.get_interactive_path_env_var(ctx)
+        });
+        let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+        let file_path_for_install = file_path.clone();
+
+        ctx.spawn(
+            async move {
+                let path_env_var = path_future.await;
+                let executor = lsp::CommandBuilder::new(path_env_var.clone());
+                let candidate = server_type.candidate(http_client.clone());
+
+                if !candidate.is_installed(&executor).await {
+                    let metadata = candidate.fetch_latest_server_metadata().await?;
+                    candidate.install(metadata, &executor).await?;
+                }
+
+                let schema_path = crate::settings::schema_export::ensure_runtime_settings_schema()?;
+                let schema_uri = url::Url::from_file_path(&schema_path)
+                    .map_err(|()| anyhow::anyhow!("Invalid settings schema path: {}", schema_path.display()))?;
+                let file_match = file_path_for_install.to_string_lossy().into_owned();
+
+                Ok::<_, anyhow::Error>((
+                    path_env_var,
+                    schema_uri.to_string(),
+                    file_match,
+                ))
+            },
+            move |me, result, ctx| match result {
+                Ok((path_env_var, schema_uri, file_match)) => {
+                    me.lsp_installation_status
+                        .insert(server_type, LSPInstallationStatus::Installed);
+                    ctx.emit(PersistedWorkspaceEvent::InstallStatusUpdate {
+                        server_type,
+                        status: LSPInstallationStatus::Installed,
+                    });
+
+                    let log_relative_path =
+                        crate::code::lsp_logs::relative_log_path(server_type, &workspace_root);
+                    let http_client = ServerApiProvider::as_ref(ctx).get_http_client();
+                    let config = LspServerConfig::new(
+                        server_type,
+                        workspace_root.clone(),
+                        path_env_var,
+                        ChannelState::app_id().application_name().to_string(),
+                        http_client,
+                    )
+                    .with_log_relative_path(log_relative_path)
+                    .with_post_initialize_notification(
+                        "tombi/associateSchema",
+                        serde_json::json!({
+                            "title": "Galaxy Settings",
+                            "description": "Galaxy's generated settings schema",
+                            "uri": schema_uri,
+                            "fileMatch": [file_match],
+                            "tomlVersion": "v1.1.0",
+                            "force": true,
+                        }),
+                    );
+
+                    let manager = LspManagerModel::handle(ctx);
+                    manager.update(ctx, |manager, ctx| {
+                        manager.register(workspace_root.clone(), config, ctx);
+                    });
+
+                    let workspace_root_display = workspace_root.display().to_string();
+                    if let Some(server) = manager
+                        .as_ref(ctx)
+                        .servers_for_workspace(&workspace_root)
+                        .and_then(|servers| servers.last())
+                        .cloned()
+                    {
+                        ctx.subscribe_to_model(&server, move |_, _, event, ctx| {
+                            if let LspEvent::Failed(error) = event {
+                                if let Some(window_id) = WindowManager::as_ref(ctx).active_window() {
+                                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                                        toast_stack.add_ephemeral_toast(
+                                            DismissibleToast::error(format!(
+                                                "Failed to start TOML language support for {workspace_root_display}: {error}"
+                                            )),
+                                            window_id,
+                                            ctx,
+                                        );
+                                    });
+                                }
+                            }
+                        });
+                    }
+
+                    manager.update(ctx, |manager, ctx| {
+                        manager.start_all(workspace_root, ctx);
+                    });
+                }
+                Err(error) => {
+                    log::warn!("Failed to prepare TOML language support: {error:#}");
+                    me.lsp_installation_status
+                        .insert(server_type, LSPInstallationStatus::NotInstalled);
+                    ctx.emit(PersistedWorkspaceEvent::InstallStatusUpdate {
+                        server_type,
+                        status: LSPInstallationStatus::NotInstalled,
+                    });
+
+                    if let Some(window_id) = WindowManager::as_ref(ctx).active_window() {
+                        ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                            toast_stack.add_ephemeral_toast(
+                                DismissibleToast::error(format!(
+                                    "Failed to prepare TOML language support: {error}"
+                                )),
+                                window_id,
+                                ctx,
+                            );
+                        });
+                    }
+                }
+            },
+        );
+    }
+
     /// Starts all enabled LSP servers for the given file path.
     /// This looks up the workspace root and starts any servers that are enabled but not yet running.
     #[cfg(feature = "local_fs")]

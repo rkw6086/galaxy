@@ -1,7 +1,7 @@
 use settings::Setting;
 use warpui::{App, SingletonEntity};
 
-use super::WarpifySettings;
+use super::WormholeSettings;
 use crate::test_util::settings::initialize_settings_for_tests;
 
 #[test]
@@ -10,12 +10,12 @@ fn test_parsed_subshell_commands_updated_via_self_subscription() {
         initialize_settings_for_tests(&mut app);
 
         app.read(|ctx| {
-            assert!(WarpifySettings::as_ref(ctx)
+            assert!(WormholeSettings::as_ref(ctx)
                 .parsed_added_subshell_commands
                 .is_empty());
         });
 
-        WarpifySettings::handle(&app).update(&mut app, |settings, ctx| {
+        WormholeSettings::handle(&app).update(&mut app, |settings, ctx| {
             settings
                 .added_subshell_commands
                 .set_value(vec!["^my-custom-shell$".to_string()], ctx)
@@ -24,7 +24,7 @@ fn test_parsed_subshell_commands_updated_via_self_subscription() {
 
         // The parsed field must now contain the compiled regex.
         app.read(|ctx| {
-            let parsed = &WarpifySettings::as_ref(ctx).parsed_added_subshell_commands;
+            let parsed = &WormholeSettings::as_ref(ctx).parsed_added_subshell_commands;
             assert_eq!(
                 parsed.len(),
                 1,
@@ -41,14 +41,14 @@ fn test_parsed_subshell_commands_updated_via_self_subscription() {
 
 /// Verify that a user who previously set `enable_legacy_ssh_wrapper = false`
 /// (old `SshSettings::enable_ssh_wrapper`) has that opt-out forwarded to
-/// `enable_ssh_warpification` on first launch after the migration.
+/// `enable_ssh_wormholing` on first launch after the migration.
 #[test]
-fn test_enable_ssh_wrapper_false_migrates_to_enable_ssh_warpification_false() {
+fn test_enable_ssh_wrapper_false_migrates_to_enable_ssh_wormholing_false() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
         // Simulate a user who had explicitly opted out of the legacy SSH wrapper.
-        WarpifySettings::handle(&app).update(&mut app, |settings, ctx| {
+        WormholeSettings::handle(&app).update(&mut app, |settings, ctx| {
             settings
                 .enable_ssh_wrapper
                 .set_value(false, ctx)
@@ -63,13 +63,13 @@ fn test_enable_ssh_wrapper_false_migrates_to_enable_ssh_warpification_false() {
         // Simpler approach: confirm the migration logic produces the right state
         // by applying it explicitly here.
         app.update(|ctx| {
-            WarpifySettings::handle(ctx).update(ctx, |me, ctx| {
+            WormholeSettings::handle(ctx).update(ctx, |me, ctx| {
                 if me.enable_ssh_wrapper.is_value_explicitly_set()
                     && !*me.enable_ssh_wrapper.value()
                 {
-                    me.enable_ssh_warpification
+                    me.enable_ssh_wormholing
                         .set_value(false, ctx)
-                        .expect("migration set enable_ssh_warpification");
+                        .expect("migration set enable_ssh_wormholing");
                     me.enable_ssh_wrapper
                         .set_value(true, ctx)
                         .expect("migration reset enable_ssh_wrapper");
@@ -78,10 +78,10 @@ fn test_enable_ssh_wrapper_false_migrates_to_enable_ssh_warpification_false() {
         });
 
         app.read(|ctx| {
-            let settings = WarpifySettings::as_ref(ctx);
+            let settings = WormholeSettings::as_ref(ctx);
             assert!(
-                !*settings.enable_ssh_warpification.value(),
-                "enable_ssh_warpification should be false after migration"
+                !*settings.enable_ssh_wormholing.value(),
+                "enable_ssh_wormholing should be false after migration"
             );
             // The wrapper is reset to true so the migration condition
             // (`!*enable_ssh_wrapper.value()`) won't fire again on the next launch.
@@ -94,22 +94,22 @@ fn test_enable_ssh_wrapper_false_migrates_to_enable_ssh_warpification_false() {
 }
 
 /// Verify that the default state (no legacy setting present) does not
-/// spuriously disable `enable_ssh_warpification`.
+/// spuriously disable `enable_ssh_wormholing`.
 #[test]
-fn test_enable_ssh_wrapper_default_does_not_affect_enable_ssh_warpification() {
+fn test_enable_ssh_wrapper_default_does_not_affect_enable_ssh_wormholing() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
         app.read(|ctx| {
-            let settings = WarpifySettings::as_ref(ctx);
+            let settings = WormholeSettings::as_ref(ctx);
             // Neither setting should be explicitly set — both default to true.
             assert!(
                 !settings.enable_ssh_wrapper.is_value_explicitly_set(),
                 "enable_ssh_wrapper should not be explicitly set in a fresh install"
             );
             assert!(
-                *settings.enable_ssh_warpification.value(),
-                "enable_ssh_warpification should remain true when no migration is needed"
+                *settings.enable_ssh_wormholing.value(),
+                "enable_ssh_wormholing should remain true when no migration is needed"
             );
         });
     });
@@ -133,7 +133,7 @@ fn test_wsl_subshell_detection_success() {
     .iter()
     .for_each(|cmd| {
         assert!(
-            WarpifySettings::is_built_in_subshell_match(cmd),
+            WormholeSettings::is_built_in_subshell_match(cmd),
             "{} failed to match",
             *cmd
         )
@@ -164,7 +164,7 @@ fn test_wsl_subshell_detection_fail() {
     .iter()
     .for_each(|cmd| {
         assert!(
-            !WarpifySettings::is_built_in_subshell_match(cmd),
+            !WormholeSettings::is_built_in_subshell_match(cmd),
             "{} accidentally matched",
             *cmd
         )

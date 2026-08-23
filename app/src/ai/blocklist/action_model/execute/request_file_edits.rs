@@ -370,7 +370,7 @@ impl RequestFileEditsExecutor {
                     })
                     .collect();
                 let diff_session_type = match self.active_session.as_ref(ctx).session_type(ctx) {
-                    Some(SessionType::WarpifiedRemote {
+                    Some(SessionType::WormholedRemote {
                         host_id: Some(host_id),
                     }) => DiffSessionType::Remote(host_id.clone()),
                     _ => DiffSessionType::Local,

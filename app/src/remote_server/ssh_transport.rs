@@ -152,7 +152,19 @@ impl RemoteTransport for SshTransport {
     fn check_binary(&self) -> Pin<Box<dyn Future<Output = Result<bool, Error>> + Send>> {
         let socket_path = self.socket_path.clone();
         Box::pin(async move {
-            let cmd = remote_server::setup::binary_check_command();
+            let binary = remote_server::setup::remote_server_binary();
+            let expected_helper_version = if remote_server::setup::uses_static_linux_helper() {
+                let platform = detect_remote_platform(&socket_path).await?;
+                installation::local_helper_version(&platform).await
+            } else {
+                None
+            };
+            let cmd = match expected_helper_version {
+                Some(version) => format!(
+                    "{binary} --version >/dev/null && test \"$(cat {binary}.wormhole-version 2>/dev/null)\" = \"{version}\""
+                ),
+                None => remote_server::setup::binary_check_command(),
+            };
             log::info!("Running binary check: {cmd}");
             let output = remote_server::ssh::run_ssh_command(
                 &socket_path,
@@ -161,16 +173,18 @@ impl RemoteTransport for SshTransport {
             )
             .await?;
             // `<binary> --version` exits 0 when present, executable, and
-            // functional. Exit 127 means the binary was not found, and 126
-            // means it exists but is not executable. Any other non-zero
-            // exit (e.g. SSH exit 255 for a dead connection, or signal
-            // termination) is treated as a transport-level failure.
+            // functional. Static helpers additionally compare their bundled
+            // build marker, where exit 1 means the remote copy is stale.
+            // Exit 127 means the binary was not found, and 126 means it exists
+            // but is not executable. Any other non-zero exit (e.g. SSH exit
+            // 255 for a dead connection, or signal termination) is treated as
+            // a transport-level failure.
             let code = output.status.code();
             let stdout = String::from_utf8_lossy(&output.stdout);
             log::info!("Binary check result: exit={code:?} stdout={stdout}");
             match code {
                 Some(0) => Ok(true),
-                Some(126) | Some(127) => Ok(false),
+                Some(1) | Some(126) | Some(127) => Ok(false),
                 Some(code) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     Err(Error::Other(anyhow::anyhow!(

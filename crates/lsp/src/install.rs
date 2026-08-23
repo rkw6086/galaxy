@@ -145,6 +145,8 @@ where
 pub enum AssetKind {
     /// A gzip-compressed file (e.g., `rust-analyzer-aarch64-apple-darwin.gz`)
     Gz,
+    /// A gzip-compressed tar archive (e.g., `tombi-cli-1.4.1-aarch64-apple-darwin.tar.gz`)
+    TarGz,
     /// A zip archive (e.g., `rust-analyzer-x86_64-pc-windows-msvc.zip`)
     Zip,
 }
@@ -153,7 +155,9 @@ pub enum AssetKind {
 impl AssetKind {
     /// Determines the asset kind from a file name based on its extension.
     pub fn from_filename(filename: &str) -> Option<Self> {
-        if filename.ends_with(".gz") && !filename.ends_with(".tar.gz") {
+        if filename.ends_with(".tar.gz") {
+            Some(AssetKind::TarGz)
+        } else if filename.ends_with(".gz") {
             Some(AssetKind::Gz)
         } else if filename.ends_with(".zip") {
             Some(AssetKind::Zip)
@@ -262,6 +266,9 @@ pub async fn install_from_github(
         AssetKind::Gz => {
             let binary_path = install_dir.join(&binary_name);
             node_runtime::extract_gz(&bytes, &binary_path).await?;
+        }
+        AssetKind::TarGz => {
+            node_runtime::extract_tar_gz(&bytes, &install_dir)?;
         }
         AssetKind::Zip => {
             if binary_finder.is_some() {

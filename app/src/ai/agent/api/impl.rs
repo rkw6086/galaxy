@@ -71,7 +71,7 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
                 api::ToolType::SearchCodebase,
             ]);
         }
-        Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
+        Some(SessionType::WormholedRemote { host_id: Some(_) }) => {
             // Remote session with a known host — enable tools that route
             // through RemoteServerClient. The host_id is only populated
             // after a successful connection handshake, so its presence is a
@@ -81,7 +81,7 @@ fn get_supported_tools(params: &RequestParams) -> Vec<api::ToolType> {
                 supported_tools.push(api::ToolType::SearchCodebase);
             }
         }
-        Some(SessionType::WarpifiedRemote { host_id: None }) => {}
+        Some(SessionType::WormholedRemote { host_id: None }) => {}
     }
 
     if FeatureFlag::ListSkills.is_enabled() {
@@ -113,13 +113,13 @@ fn get_supported_cli_agent_tools(params: &RequestParams) -> Vec<api::ToolType> {
             supported_cli_agent_tools
                 .extend(&[api::ToolType::ReadFiles, api::ToolType::SearchCodebase]);
         }
-        Some(SessionType::WarpifiedRemote { host_id: Some(_) }) => {
+        Some(SessionType::WormholedRemote { host_id: Some(_) }) => {
             supported_cli_agent_tools.push(api::ToolType::ReadFiles);
             if FeatureFlag::RemoteCodebaseIndexing.is_enabled() {
                 supported_cli_agent_tools.push(api::ToolType::SearchCodebase);
             }
         }
-        Some(SessionType::WarpifiedRemote { host_id: None }) => {}
+        Some(SessionType::WormholedRemote { host_id: None }) => {}
     }
 
     supported_cli_agent_tools

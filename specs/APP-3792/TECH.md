@@ -14,7 +14,7 @@ Behavior is specified in `specs/APP-3792/PRODUCT.md`. This document updates the 
 - `app/src/server/server_api/ai.rs` implements that trait for the client-side `ServerApi`; current master includes the codebase calls around `generate_code_embeddings`, `sync_merkle_tree`, `populate_merkle_tree_cache`, `get_relevant_fragments`, `rerank_fragments`, and `codebase_context_config`.
 - `crates/ai/src/index/full_source_code_embedding/snapshot.rs` owns serialized snapshot persistence. The daemon path should reuse the format while changing the base directory.
 - `app/src/ai/blocklist/action_model/execute/search_codebase.rs:28` defines `SearchCodebaseExecutor`; the current hydration path uses local file reads after `GetRelevantFilesController`.
-- `app/src/ai/agent/api/impl.rs:189-194` explicitly disables `SearchCodebase` for `WarpifiedRemote { host_id: Some(_) }`.
+- `app/src/ai/agent/api/impl.rs:189-194` explicitly disables `SearchCodebase` for `WormholedRemote { host_id: Some(_) }`.
 - The existing local UI strings and flows live in `app/src/ai/blocklist/codebase_index_speedbump_banner.rs:20-30` and `app/src/settings_view/code_page.rs:84-98`.
 
 ### Current remote-server architecture on master
@@ -257,7 +257,7 @@ Use this model from:
 Settings should distinguish local auto-indexing from remote auto-indexing. If implementation chooses to reuse one preference, the product spec must be updated before shipping; the current product expectation is independent control.
 
 ### 3.8 Remote retrieval path
-When `SearchCodebaseExecutor` runs in `SessionType::WarpifiedRemote { host_id: Some(_) }`:
+When `SearchCodebaseExecutor` runs in `SessionType::WormholedRemote { host_id: Some(_) }`:
 1. Resolve the active remote repo path.
 2. Read `RemoteCodebaseIndexModel` for `(remote_identity_key, host_id, repo_path)`.
 3. If the state is not ready/stale with a root hash, return a typed `SearchCodebaseResult::Failed` reason for indexing-in-progress, failed, disabled, unavailable, or not indexed.

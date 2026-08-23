@@ -167,9 +167,9 @@ pub enum TerminalMode {
 #[derive(Clone, Debug)]
 pub enum SshLoginStatus {
     /// We have some evidence login is complete but should check again.
-    RecheckBeforeWarpifying,
+    RecheckBeforeWormholing,
     /// We have high confidence login is complete.
-    ReadyToWarpify,
+    ReadyToWormhole,
 }
 
 #[derive(Clone, Debug)]
@@ -247,7 +247,7 @@ pub enum BlockType {
     /// This is a block containing background process output.
     Background(Arc<SerializedBlock>),
 
-    /// This is a block containing static/hardcoded content (e.g. the subshell Warpification
+    /// This is a block containing static/hardcoded content (e.g. the subshell Wormholing
     /// welcome block).
     Static,
 }

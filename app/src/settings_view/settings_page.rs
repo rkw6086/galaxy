@@ -37,7 +37,7 @@ use super::privacy_page::PrivacyPageView;
 use super::scripting_page::ScriptingSettingsPageView;
 use super::teams_page::TeamsPageView;
 use super::warp_drive_page::WarpDriveSettingsPageView;
-use super::warpify_page::WarpifyPageView;
+use super::wormhole_page::WormholePageView;
 use super::SettingsSection;
 use crate::appearance::Appearance;
 use crate::settings::CloudPreferencesSettings;
@@ -100,7 +100,7 @@ pub enum SettingsPageViewHandle {
     About(ViewHandle<AboutPageView>),
     Code(ViewHandle<CodeSettingsPageView>),
     Privacy(ViewHandle<PrivacyPageView>),
-    Warpify(ViewHandle<WarpifyPageView>),
+    Wormhole(ViewHandle<WormholePageView>),
     Scripting(ViewHandle<ScriptingSettingsPageView>),
     AI(ViewHandle<AISettingsPageView>),
     MCPServers(ViewHandle<MCPServersSettingsPageView>),
@@ -119,7 +119,7 @@ impl SettingsPageViewHandle {
             About(view_handle) => ChildView::new(view_handle).finish(),
             Code(view_handle) => ChildView::new(view_handle).finish(),
             Privacy(view_handle) => ChildView::new(view_handle).finish(),
-            Warpify(view_handle) => ChildView::new(view_handle).finish(),
+            Wormhole(view_handle) => ChildView::new(view_handle).finish(),
             Scripting(view_handle) => ChildView::new(view_handle).finish(),
             AI(view_handle) => ChildView::new(view_handle).finish(),
             MCPServers(view_handle) => ChildView::new(view_handle).finish(),

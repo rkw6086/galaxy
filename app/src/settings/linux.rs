@@ -1,6 +1,6 @@
 use galaxyui::platform::linux;
 use settings::macros::define_settings_group;
-use settings::{SupportedPlatforms, SyncToCloud};
+use settings::{Setting as _, SupportedPlatforms, SyncToCloud};
 
 define_settings_group!(LinuxAppConfiguration,
     settings: [

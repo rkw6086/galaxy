@@ -8,6 +8,9 @@ use remote_server::setup::RemotePlatform;
 use remote_server::transport::Error;
 
 const REMOTE_SERVER_TARBALL_CACHE_FILE_NAME: &str = "oz.tar.gz";
+const WORMHOLE_HELPER_TARBALL_FILE_NAME: &str = "galaxy-wormhole.tar.gz";
+const WORMHOLE_HELPER_VERSION_FILE_NAME: &str = "galaxy-wormhole.version";
+const WORMHOLE_HELPERS_DIR_ENV: &str = "GALAXY_WORMHOLE_HELPERS_DIR";
 
 const REMOTE_SERVER_TARBALL_DOWNLOAD_ATTEMPTS: usize = 3;
 // The local SCP fallback download can run over slow or captive networks. Match
@@ -25,6 +28,29 @@ pub(super) fn should_try_install(error: &Error) -> bool {
     !matches!(error, Error::ScriptFailed { exit_code, .. } if *exit_code == 2)
 }
 
+/// Installs the static Linux helper shipped with local-first Galaxy builds.
+/// No network download is attempted: the selected artifact is copied directly
+/// through the existing SSH control connection.
+pub(super) async fn install_local_helper(socket_path: &Path) -> Result<(), Error> {
+    let platform = super::super::detect_remote_platform(socket_path).await?;
+    let client_tarball_path = local_helper_tarball(&platform).ok_or_else(|| {
+        Error::Other(anyhow::anyhow!(
+            "Galaxy does not contain a Wormhole helper for Linux {}. Expected {} under the bundled resources or {}.",
+            platform.arch.as_str(),
+            helper_relative_path(&platform)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "a supported Linux platform directory".to_string()),
+            WORMHOLE_HELPERS_DIR_ENV,
+        ))
+    })?;
+
+    log::info!(
+        "Using bundled Wormhole helper at {}",
+        client_tarball_path.display()
+    );
+    install_tarball(socket_path, &client_tarball_path).await
+}
+
 /// Installs the remote server via SCP fallback.
 ///
 /// The tarball is downloaded or reused from the local cache first, then uploaded
@@ -36,6 +62,10 @@ pub(super) async fn install(socket_path: &Path) -> Result<(), Error> {
     let client_tarball_path = cached_remote_server_tarball(&platform)
         .await
         .map_err(Error::Other)?;
+    install_tarball(socket_path, &client_tarball_path).await
+}
+
+async fn install_tarball(socket_path: &Path, client_tarball_path: &Path) -> Result<(), Error> {
     let timeout = remote_server::setup::SCP_INSTALL_TIMEOUT;
     let install_dir = remote_server::setup::remote_server_dir();
     let remote_tarball_name = format!("oz-upload-{}.tar.gz", uuid::Uuid::new_v4());
@@ -63,7 +93,7 @@ pub(super) async fn install(socket_path: &Path) -> Result<(), Error> {
     log::info!("Uploading tarball to remote at {remote_tarball_path}");
     remote_server::ssh::scp_upload(
         socket_path,
-        &client_tarball_path,
+        client_tarball_path,
         &remote_tarball_path,
         timeout,
     )
@@ -86,6 +116,58 @@ pub(super) async fn install(socket_path: &Path) -> Result<(), Error> {
             stderr,
         })
     }
+}
+
+fn helper_relative_path(platform: &RemotePlatform) -> Option<PathBuf> {
+    if !matches!(&platform.os, remote_server::setup::RemoteOs::Linux) {
+        return None;
+    }
+
+    Some(
+        PathBuf::from(format!("linux-{}", platform.arch.as_str()))
+            .join(WORMHOLE_HELPER_TARBALL_FILE_NAME),
+    )
+}
+
+fn helper_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(path) = std::env::var_os(WORMHOLE_HELPERS_DIR_ENV) {
+        roots.push(path.into());
+    }
+    if let Some(resources_dir) = galaxy_core::paths::bundled_resources_dir() {
+        roots.push(resources_dir.join("wormhole-helpers"));
+    }
+    if cfg!(debug_assertions) {
+        roots.push(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("app manifest directory should have a workspace parent")
+                .join("resources")
+                .join("wormhole-helpers"),
+        );
+    }
+    roots
+}
+
+fn local_helper_tarball(platform: &RemotePlatform) -> Option<PathBuf> {
+    let relative_path = helper_relative_path(platform)?;
+    helper_roots()
+        .into_iter()
+        .map(|root| root.join(&relative_path))
+        .find(|path| {
+            std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0)
+        })
+}
+
+pub(super) async fn local_helper_version(platform: &RemotePlatform) -> Option<String> {
+    let tarball = local_helper_tarball(platform)?;
+    let version_path = tarball.parent()?.join(WORMHOLE_HELPER_VERSION_FILE_NAME);
+    let version = async_fs::read_to_string(version_path).await.ok()?;
+    let version = version.trim();
+    if version.is_empty() || !version.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(version.to_owned())
 }
 
 fn remote_server_tarball_cache_root() -> PathBuf {
@@ -124,6 +206,11 @@ async fn is_valid_cached_tarball(path: &Path) -> bool {
 /// Reuses an existing cached tarball when available; otherwise downloads the
 /// tarball into the cache and returns the newly cached path.
 async fn cached_remote_server_tarball(platform: &RemotePlatform) -> anyhow::Result<PathBuf> {
+    if let Some(path) = local_helper_tarball(platform) {
+        log::info!("Using bundled Wormhole helper at {}", path.display());
+        return Ok(path);
+    }
+
     let cache_path = remote_server_tarball_cache_path(platform);
     if is_valid_cached_tarball(&cache_path).await {
         log::info!(

@@ -53,7 +53,7 @@ Status values:
 | WS-04 | Open settings, resource center, logs, and diagnostic panes | Mixed local and server/account actions | Preserve local pages; remove hosted links/actions | Rebuild |
 | TERM-01 | Run shell commands and view structured blocks | Terminal/UI core | Preserve | Keep/local |
 | TERM-02 | Search command history, blocks, commands, files, and palettes | SQLite/local index plus cloud object sources | Preserve local sources; remove hosted sources | Rebuild |
-| TERM-03 | Use SSH, remote shells, and Wormhole/warpification | Remote host and remote-server components | Keep only explicit remote-host behavior; audit branding and hidden service calls | Keep/explicit |
+| TERM-03 | Use SSH, remote shells, and Wormhole/wormholing | Remote host and remote-server components | Keep only explicit remote-host behavior; audit branding and hidden service calls | Keep/explicit |
 | TERM-04 | Share a terminal/session by URL or QR code | Warp session-sharing service | No hosted replacement in local-first scope | Remove |
 | TERM-05 | Sync terminal input across panes/tabs | Local workspace state | Preserve | Keep/local |
 | AGENT-01 | Start an agent conversation in a tab/pane | Blocklist controller, Warp proto request, provider/ACP branch | Route through `AgentRuntime` | Rebuild |

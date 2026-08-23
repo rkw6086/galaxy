@@ -28,6 +28,7 @@ mod onboarding;
 mod pane;
 mod privacy;
 mod same_line_prompt_block;
+pub mod schema_export;
 mod scroll;
 mod select;
 mod ssh;

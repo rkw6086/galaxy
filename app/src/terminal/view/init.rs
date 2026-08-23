@@ -81,8 +81,8 @@ pub fn init(app: &mut AppContext) {
     app.register_binding_validator::<TerminalView>(is_binding_pty_compliant);
 
     init_overlapping_keybindings(app);
-    // Register input mode bindings before warpify bindings so ctrl-i warpifies
-    // instead of opening inline agent when a warpify banner is visible.
+    // Register input mode bindings before wormhole bindings so ctrl-i wormholes
+    // instead of opening inline agent when a wormhole banner is visible.
     register_input_mode_bindings(app);
 
     app.register_fixed_bindings([
@@ -320,7 +320,7 @@ pub fn init(app: &mut AppContext) {
             | (id!("Terminal") & !id!("IMEOpen") & id!(flags::CLI_AGENT_RICH_INPUT_OPEN)),
         ),
         EditableBinding::new(
-            "terminal:warpify_subshell",
+            "terminal:wormhole_subshell",
             "Wormhole subshell",
             TerminalAction::TriggerSubshellBootstrap,
         )

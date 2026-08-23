@@ -114,11 +114,6 @@ pub fn init(app: &mut AppContext) {
             LocalCodeEditorAction::StartRename,
             id!("LocalCodeEditorView"),
         ),
-        FixedBinding::new(
-            "ctrl-alt-space",
-            LocalCodeEditorAction::TriggerCompletion,
-            id!("LocalCodeEditorView"),
-        ),
     ]);
 }
 
@@ -216,8 +211,6 @@ pub enum LocalCodeEditorAction {
     OpenCodeActions,
     /// Start LSP rename at cursor (F2).
     StartRename,
-    /// Manually trigger completion (Ctrl+Alt+Space).
-    TriggerCompletion,
     /// Hover over a completion item by display index.
     CompletionHoverItem(usize),
     /// Confirm completion via mouse click.
@@ -509,6 +502,9 @@ impl LocalCodeEditorView {
             }
             CodeEditorEvent::CompletionConfirm => {
                 me.confirm_completion(ctx);
+            }
+            CodeEditorEvent::CompletionTrigger => {
+                me.trigger_completion_manually(ctx);
             }
             CodeEditorEvent::VimGotoDefinition
             | CodeEditorEvent::VimFindReferences
@@ -995,9 +991,12 @@ impl LocalCodeEditorView {
             // If the LSP is not registered, try to start it via PersistedWorkspace.
             #[cfg(feature = "local_fs")]
             {
-                use crate::ai::persisted_workspace::LspTask;
                 PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
-                    workspace.execute_lsp_task(LspTask::Spawn { file_path: path }, ctx);
+                    if path == crate::settings::user_preferences_toml_file_path() {
+                        workspace.ensure_settings_toml_lsp(path, ctx);
+                    } else {
+                        workspace.execute_lsp_task(LspTask::Spawn { file_path: path }, ctx);
+                    }
                 });
             }
             return;
@@ -2486,9 +2485,6 @@ impl TypedActionView for LocalCodeEditorView {
             }
             LocalCodeEditorAction::StartRename => {
                 self.start_rename(ctx);
-            }
-            LocalCodeEditorAction::TriggerCompletion => {
-                self.trigger_completion_manually(ctx);
             }
             LocalCodeEditorAction::CompletionHoverItem(display_index) => {
                 self.handle_completion_hover_item(*display_index, ctx);

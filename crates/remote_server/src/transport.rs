@@ -53,7 +53,7 @@ pub struct InstallOutcome {
 #[derive(Clone, Debug)]
 pub struct UserFacingError {
     /// Always-visible explanation of what went wrong,
-    /// e.g. "Failed to install SSH extension".
+    /// e.g. "Failed to install Wormhole helper".
     pub body: String,
     /// Optional technical detail shown to the user (stderr,
     /// timeout duration, unsupported OS/arch). `None` when the
@@ -77,9 +77,9 @@ impl SetupStage {
         match self {
             Self::DetectPlatform => "detect remote platform",
             Self::PreinstallCheck => "run preinstall check",
-            Self::CheckBinary => "verify SSH extension",
-            Self::InstallBinary => "install SSH extension",
-            Self::Launch => "start SSH extension",
+            Self::CheckBinary => "verify Wormhole helper",
+            Self::InstallBinary => "install Wormhole helper",
+            Self::Launch => "start Wormhole helper",
         }
     }
 }

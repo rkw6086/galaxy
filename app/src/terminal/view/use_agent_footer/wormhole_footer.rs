@@ -15,28 +15,28 @@ use crate::view_components::action_button::{
 };
 
 /// Footer view rendered for detected subshell commands, offering both
-/// "Warpify" and "Use agent" buttons in a horizontal row.
-pub(super) struct WarpifyFooterView {
+/// "Wormhole" and "Use agent" buttons in a horizontal row.
+pub(super) struct WormholeFooterView {
     terminal_model: Arc<FairMutex<TerminalModel>>,
-    warpify_button: ViewHandle<ActionButton>,
+    wormhole_button: ViewHandle<ActionButton>,
     use_agent_button: ViewHandle<ActionButton>,
     dismiss_button: ViewHandle<ActionButton>,
-    /// Whether the footer is currently offering subshell warpification.
+    /// Whether the footer is currently offering subshell wormholing.
     is_active: bool,
 }
 
-impl WarpifyFooterView {
+impl WormholeFooterView {
     pub fn new(terminal_model: Arc<FairMutex<TerminalModel>>, ctx: &mut ViewContext<Self>) -> Self {
         let button_size = ButtonSize::XSmall;
 
-        let warpify_button = ctx.add_typed_action_view(|_ctx| {
+        let wormhole_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Wormhole subshell", AgentFooterButtonTheme::new(None))
-                .with_icon(Icon::Warp)
+                .with_icon(Icon::GalaxyLogo)
                 .with_size(button_size)
                 .with_tooltip("Enable Galaxy shell integration in this session")
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(WarpifyFooterViewAction::Warpify);
+                    ctx.dispatch_typed_action(WormholeFooterViewAction::Wormhole);
                 })
         });
 
@@ -48,7 +48,7 @@ impl WarpifyFooterView {
                 .with_tooltip("Ask the Galaxy agent to assist")
                 .with_tooltip_alignment(TooltipAlignment::Left)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(WarpifyFooterViewAction::UseAgent);
+                    ctx.dispatch_typed_action(WormholeFooterViewAction::UseAgent);
                 })
         });
 
@@ -56,24 +56,24 @@ impl WarpifyFooterView {
             ActionButton::new("Dismiss", AgentFooterButtonTheme::new(None))
                 .with_size(button_size)
                 .on_click(|ctx| {
-                    ctx.dispatch_typed_action(WarpifyFooterViewAction::Dismiss);
+                    ctx.dispatch_typed_action(WormholeFooterViewAction::Dismiss);
                 })
         });
 
         Self {
             terminal_model,
-            warpify_button,
+            wormhole_button,
             use_agent_button,
             dismiss_button,
             is_active: false,
         }
     }
 
-    /// Activates the footer so it offers subshell warpification.
+    /// Activates the footer so it offers subshell wormholing.
     pub fn show(&mut self, ctx: &mut ViewContext<Self>) {
-        self.warpify_button.update(ctx, |button, ctx| {
+        self.wormhole_button.update(ctx, |button, ctx| {
             button.set_keybinding(
-                Some(KeystrokeSource::Binding("terminal:warpify_subshell")),
+                Some(KeystrokeSource::Binding("terminal:wormhole_subshell")),
                 ctx,
             );
         });
@@ -81,7 +81,7 @@ impl WarpifyFooterView {
         ctx.notify();
     }
 
-    /// Returns whether the footer is currently offering subshell warpification.
+    /// Returns whether the footer is currently offering subshell wormholing.
     pub fn is_active(&self) -> bool {
         self.is_active
     }
@@ -89,7 +89,7 @@ impl WarpifyFooterView {
     /// Deactivates the footer.
     pub fn clear(&mut self, ctx: &mut ViewContext<Self>) {
         self.is_active = false;
-        self.warpify_button.update(ctx, |button, ctx| {
+        self.wormhole_button.update(ctx, |button, ctx| {
             button.set_keybinding(None, ctx);
         });
         ctx.notify();
@@ -97,25 +97,25 @@ impl WarpifyFooterView {
 }
 
 #[derive(Debug, Clone)]
-pub enum WarpifyFooterViewAction {
-    Warpify,
+pub enum WormholeFooterViewAction {
+    Wormhole,
     UseAgent,
     Dismiss,
 }
 
-pub enum WarpifyFooterViewEvent {
-    Warpify,
+pub enum WormholeFooterViewEvent {
+    Wormhole,
     UseAgent,
     Dismiss,
 }
 
-impl Entity for WarpifyFooterView {
-    type Event = WarpifyFooterViewEvent;
+impl Entity for WormholeFooterView {
+    type Event = WormholeFooterViewEvent;
 }
 
-impl View for WarpifyFooterView {
+impl View for WormholeFooterView {
     fn ui_name() -> &'static str {
-        "WarpifyFooterView"
+        "WormholeFooterView"
     }
 
     fn render(&self, _app: &AppContext) -> Box<dyn Element> {
@@ -125,7 +125,7 @@ impl View for WarpifyFooterView {
             .with_spacing(4.)
             .with_main_axis_size(MainAxisSize::Max)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(ChildView::new(&self.warpify_button).finish())
+            .with_child(ChildView::new(&self.wormhole_button).finish())
             .with_child(ChildView::new(&self.use_agent_button).finish())
             .with_child(Expanded::new(1., Empty::new().finish()).finish())
             .with_child(ChildView::new(&self.dismiss_button).finish());
@@ -144,24 +144,24 @@ impl View for WarpifyFooterView {
     }
 }
 
-impl TypedActionView for WarpifyFooterView {
-    type Action = WarpifyFooterViewAction;
+impl TypedActionView for WormholeFooterView {
+    type Action = WormholeFooterViewAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
-            WarpifyFooterViewAction::Warpify => {
+            WormholeFooterViewAction::Wormhole => {
                 if self.is_active {
                     self.clear(ctx);
-                    ctx.emit(WarpifyFooterViewEvent::Warpify);
+                    ctx.emit(WormholeFooterViewEvent::Wormhole);
                 }
             }
-            WarpifyFooterViewAction::UseAgent => {
+            WormholeFooterViewAction::UseAgent => {
                 self.clear(ctx);
-                ctx.emit(WarpifyFooterViewEvent::UseAgent);
+                ctx.emit(WormholeFooterViewEvent::UseAgent);
             }
-            WarpifyFooterViewAction::Dismiss => {
+            WormholeFooterViewAction::Dismiss => {
                 self.clear(ctx);
-                ctx.emit(WarpifyFooterViewEvent::Dismiss);
+                ctx.emit(WormholeFooterViewEvent::Dismiss);
             }
         }
     }

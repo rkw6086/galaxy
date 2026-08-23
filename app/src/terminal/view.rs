@@ -67,13 +67,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use action::RememberForWarpification;
+use action::RememberForWormholing;
 pub use action::{AgentOnboardingVersion, OnboardingIntention, OnboardingVersion, TerminalAction};
 use ai::api_keys::{ApiKeyManager, AwsCredentialsState};
 use ai::index::full_source_code_embedding::manager::{BuildSource, CodebaseIndexManager};
 use async_channel::{Receiver, Sender};
 use base64::Engine as _;
-use block_banner::{render_warpification_banner, WarpifyBannerState};
+use block_banner::{render_wormholing_banner, WormholeBannerState};
 pub use block_banner::{WithinBlockBanner, BLOCK_BANNER_HEIGHT};
 use block_onboarding::onboarding_drive_sharing_block::OnboardingDriveSharingBlock;
 use bookmarks::render_floating_block_snapshot;
@@ -192,10 +192,9 @@ use super::model::secrets::RichContentSecretTooltipInfo;
 use super::model::selection::ExpandedSelectionRange;
 use super::model::session::SessionBootstrappedEvent;
 use super::settings::AltScreenPaddingMode;
-use super::ssh::util::{parse_interactive_ssh_command, InteractiveSshCommand, SshWarpifyCommand};
-use super::warpify::success_block::{WarpifySuccessBlock, WarpifySuccessBlockEvent};
-use super::warpify::trigger_state::{SshBlockState, WarpifyState};
-use super::warpify::WarpificationSource;
+use super::ssh::util::{parse_interactive_ssh_command, InteractiveSshCommand, SshWormholeCommand};
+use super::wormhole::success_block::{WormholeSuccessBlock, WormholeSuccessBlockEvent};
+use super::wormhole::trigger_state::{SshBlockState, WormholeState};
 use super::{cli_agent, CLIAgent, GridType};
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::{AIConversation, AIConversationId, ConversationStatus};
@@ -484,10 +483,10 @@ use crate::terminal::view::ssh_tmux_deprecation_banner::{
 };
 use crate::terminal::view::telemetry::PromptSuggestionFallbackReason;
 use crate::terminal::view::zero_state_block::TerminalViewZeroStateBlock;
-use crate::terminal::warpify::render::render_subshell_separator;
-use crate::terminal::warpify::settings::WarpifySettings;
-use crate::terminal::warpify::SubshellSource;
 use crate::terminal::waterfall_gap_element::WaterfallGapElement;
+use crate::terminal::wormhole::render::render_subshell_separator;
+use crate::terminal::wormhole::settings::WormholeSettings;
+use crate::terminal::wormhole::SubshellSource;
 use crate::terminal::writeable_pty::{PtyIntent, PtyIntentEvent, TerminalSurface};
 use crate::terminal::{
     block_list_element::BlockHoverAction,
@@ -634,10 +633,6 @@ const KNOWN_ISSUES_URL: &str =
 const PROMPT_COMPATIBILITY_URL: &str =
     "https://docs.warp.dev/terminal/appearance/prompt#custom-prompt-compatibility-table";
 
-/// Link to troubleshooting steps for ControlMaster errors.
-const CONTROLMASTER_ISSUES_URL: &str =
-    "https://docs.warp.dev/terminal/warpify/ssh-legacy#troubleshooting";
-
 /// Link to instructions on how to update p10k.
 const P10K_UPDATE_INSTRUCTIONS_URL: &str =
     "https://github.com/romkatv/powerlevel10k#how-do-i-update-powerlevel10k";
@@ -676,10 +671,10 @@ enum Osc52ClipboardBlockedType {
 /// Key used in user defaults to save whether the user has seen the banner.
 pub const ALIAS_EXPANSION_BANNER_SEEN_KEY: &str = "AliasExpansionBannerSeen";
 
-/// Delay between receiving preexec hook for a command we want to auto-warpify
-/// and triggering the warpification (subshell bootstrapping).
+/// Delay between receiving preexec hook for a command we want to auto-wormhole
+/// and triggering the wormholing (subshell bootstrapping).
 /// Reached this number after experimenting with different values to find a reliable delay.
-const AUTO_WARPIFY_DELAY: u64 = 1000;
+const AUTO_WORMHOLE_DELAY: u64 = 1000;
 
 /// Binding names to be customized if the user indicates they prefer
 /// Emacs-style keybindings instead of IDE-style keybindings.
@@ -2755,7 +2750,7 @@ pub struct TerminalView {
 
     onboarding_callout_view: Option<ViewHandle<onboarding::OnboardingCalloutView>>,
 
-    /// The type of the subshell that we will bootstrap/"warpify"" on the next [`AfterBlockStarted`]
+    /// The type of the subshell that we will bootstrap/"wormhole"" on the next [`AfterBlockStarted`]
     /// terminal model event. Will only be `Some` with a [`ShellType`] we can bootstrap.
     pending_auto_bootstrap_shell_type: Option<ShellType>,
     env_vars: Vec<EnvVar>,
@@ -2817,7 +2812,7 @@ pub struct TerminalView {
 
     find_model: ModelHandle<TerminalFindModel>,
 
-    warpify_state: WarpifyState,
+    wormhole_state: WormholeState,
 
     /// The keystroke bound to canceling a command.
     ///
@@ -3947,12 +3942,12 @@ impl TerminalView {
 
         let control_master_error_banner = ctx.add_typed_action_view(|_| {
             Banner::new_permanently_dismissible(BannerTextContent::formatted_text(vec![
-                FormattedTextFragment::plain_text("Seems like your completions are not working ("),
-                FormattedTextFragment::hyperlink("more info", CONTROLMASTER_ISSUES_URL),
-                FormattedTextFragment::plain_text("). Enabling the SSH extension in "),
+                FormattedTextFragment::plain_text(
+                    "Your completions may not be working. Enabling the Wormhole helper in ",
+                ),
                 FormattedTextFragment::hyperlink_action(
                     "settings",
-                    TerminalAction::ShowWarpifySettings,
+                    TerminalAction::ShowWormholeSettings,
                 ),
                 FormattedTextFragment::plain_text(" may resolve this issue."),
             ]))
@@ -4436,7 +4431,7 @@ impl TerminalView {
             input_position_id,
             input_hoverable_handle: Default::default(),
             find_model,
-            warpify_state: Default::default(),
+            wormhole_state: Default::default(),
             cancel_command_keystroke: keybinding_name_to_keystroke(CANCEL_COMMAND_KEYBINDING, ctx),
             is_file_drop_target: false,
             is_ssh_file_uploader: false,
@@ -4582,7 +4577,7 @@ impl TerminalView {
                             me.show_ssh_remote_server_failed_banner(
                                 *session_id,
                                 remote_server::transport::UserFacingError {
-                                    body: "Failed to start SSH extension".into(),
+                                    body: "Failed to start Wormhole helper".into(),
                                     detail: if error.is_empty() {
                                         None
                                     } else {
@@ -9116,7 +9111,7 @@ impl TerminalView {
     /// events, allow it to handle the event.
     ///
     /// TODO(CORE-3415): We should probably remove the FixedBindings for ctrl-c
-    /// in the SSH warpification blocks and handle them here as well.
+    /// in the SSH wormholing blocks and handle them here as well.
     fn maybe_handle_ctrl_c_in_rich_content_block(&mut self, ctx: &mut ViewContext<Self>) {
         if self.active_ai_block(ctx).is_some() {
             self.cancel_active_conversation_via_status_bar(ctx);
@@ -9192,7 +9187,7 @@ impl TerminalView {
     /// the workspace to derive `PendingRemoteSession` without storing
     /// mutable state on the workspace itself.
     pub fn has_pending_ssh_command(&self) -> bool {
-        self.warpify_state.get_pending_ssh_host().is_some() && self.is_long_running()
+        self.wormhole_state.get_pending_ssh_host().is_some() && self.is_long_running()
     }
 
     /// Like `is_long_running`, but also requires the user to be in control of the command
@@ -9779,7 +9774,7 @@ impl TerminalView {
                     .is_some_and(|session| {
                         matches!(
                             session.session_type(),
-                            SessionType::WarpifiedRemote {
+                            SessionType::WormholedRemote {
                                 host_id: Some(_),
                                 ..
                             }
@@ -9839,7 +9834,7 @@ impl TerminalView {
         triggered_by_rc_file_snippet: bool,
         ctx: &mut ViewContext<Self>,
     ) {
-        self.dismiss_warpify_banner(&RememberForWarpification::DoNotRememberSubshellCommand, ctx);
+        self.dismiss_wormhole_banner(&RememberForWormholing::DoNotRememberSubshellCommand, ctx);
 
         // Record the active long-running block so we can hide it later once the remote
         // actually confirms subshell bootstrap is in progress.
@@ -9852,7 +9847,7 @@ impl TerminalView {
                 .is_active_and_long_running()
             {
                 let block_id = model.block_list().active_block_id().clone();
-                self.warpify_state.set_block_id(block_id);
+                self.wormhole_state.set_block_id(block_id);
             }
         }
 
@@ -9875,7 +9870,7 @@ impl TerminalView {
 
     /// Util method to update the ssh block, with a lock
     fn update_long_running_ssh_block_with_lock(&self, f: impl FnOnce(&mut Block)) -> bool {
-        if let Some(block_id) = self.warpify_state.block_id() {
+        if let Some(block_id) = self.wormhole_state.block_id() {
             if let Some(block) = self
                 .model
                 .lock()
@@ -9897,15 +9892,15 @@ impl TerminalView {
     }
 
     fn clear_ssh_blocks(&mut self, ctx: &mut ViewContext<Self>) {
-        self.dismiss_warpify_banner(&RememberForWarpification::DoNotRememberSSHHost, ctx);
-        if let Some(ssh_block) = self.warpify_state.ssh_block_state() {
+        self.dismiss_wormhole_banner(&RememberForWormholing::DoNotRememberSSHHost, ctx);
+        if let Some(ssh_block) = self.wormhole_state.ssh_block_state() {
             let view_id = ssh_block.get_block_view_id();
 
             self.remove_ssh_block_by_id(view_id);
 
             self.redetermine_global_focus(ctx);
 
-            self.warpify_state.clear_ssh_block_state();
+            self.wormhole_state.clear_ssh_block_state();
         }
     }
 
@@ -9915,7 +9910,6 @@ impl TerminalView {
             spawning_command,
             subshell_info,
             shell,
-            session_type,
             ..
         }: SessionBootstrappedEvent,
         ctx: &mut ViewContext<Self>,
@@ -9929,18 +9923,8 @@ impl TerminalView {
             });
         }
 
-        let warpification_source = match session_type {
-            BootstrapSessionType::WarpifiedRemote => WarpificationSource::Ssh,
-            BootstrapSessionType::Local => WarpificationSource::Subshell,
-        };
         let ssh_success_block_handle = ctx.add_typed_action_view(|ctx| {
-            WarpifySuccessBlock::new(
-                warpification_source,
-                spawning_command,
-                subshell_info,
-                shell,
-                ctx,
-            )
+            WormholeSuccessBlock::new(spawning_command, subshell_info, shell, ctx)
         });
         ctx.subscribe_to_view(&ssh_success_block_handle, move |me, _, event, ctx| {
             me.handle_ssh_success_block_events(event, ctx);
@@ -9948,9 +9932,9 @@ impl TerminalView {
 
         self.clear_ssh_blocks(ctx);
         self.insert_rich_content(
-            Some(RichContentType::WarpifySuccessBlock),
+            Some(RichContentType::WormholeSuccessBlock),
             ssh_success_block_handle.clone(),
-            Some(RichContentMetadata::WarpifySuccessBlock {
+            Some(RichContentMetadata::WormholeSuccessBlock {
                 bootstrap_success_block_handle: ssh_success_block_handle.clone(),
             }),
             RichContentInsertionPosition::Append {
@@ -9958,30 +9942,30 @@ impl TerminalView {
             },
             ctx,
         );
-        self.warpify_state
-            .set_ssh_block_state(SshBlockState::WarpifySuccess {
+        self.wormhole_state
+            .set_ssh_block_state(SshBlockState::WormholeSuccess {
                 handle: ssh_success_block_handle,
             });
         let active_session_id = self.active_block_session_id();
-        self.warpify_state.on_warpify_start(active_session_id);
+        self.wormhole_state.on_wormhole_start(active_session_id);
         self.refresh_warp_prompt(ctx);
     }
 
     fn handle_ssh_success_block_events(
         &mut self,
-        event: &WarpifySuccessBlockEvent,
+        event: &WormholeSuccessBlockEvent,
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            WarpifySuccessBlockEvent::OpenWarpifySettings => {
-                ctx.emit(Event::OpenSettings(SettingsSection::Warpify));
+            WormholeSuccessBlockEvent::OpenWormholeSettings => {
+                ctx.emit(Event::OpenSettings(SettingsSection::Wormhole));
             }
         }
     }
 
-    fn dismiss_warpify_banner(
+    fn dismiss_wormhole_banner(
         &mut self,
-        remember_command: &RememberForWarpification,
+        remember_command: &RememberForWormholing,
         ctx: &mut ViewContext<Self>,
     ) {
         {
@@ -9989,54 +9973,54 @@ impl TerminalView {
             model.block_list_mut().set_active_block_banner(None);
         }
 
-        // Also clear the warpify footer so it doesn't linger after warpification
+        // Also clear the wormhole footer so it doesn't linger after wormholing
         // starts, fails, or is cancelled.
-        if FeatureFlag::WarpifyFooter.is_enabled() {
+        if FeatureFlag::WormholeFooter.is_enabled() {
             self.use_agent_footer.update(ctx, |footer, ctx| {
-                footer.clear_warpify(ctx);
+                footer.clear_wormhole(ctx);
             });
         }
 
         match remember_command {
-            RememberForWarpification::RememberSubshellCommand(command) => {
-                WarpifySettings::handle(ctx).update(ctx, |warpify, ctx| {
-                    warpify.denylist_subshell_command(command, ctx);
+            RememberForWormholing::RememberSubshellCommand(command) => {
+                WormholeSettings::handle(ctx).update(ctx, |wormhole, ctx| {
+                    wormhole.denylist_subshell_command(command, ctx);
                 });
             }
-            RememberForWarpification::RememberSSHHost(host) => {
-                WarpifySettings::handle(ctx).update(ctx, |warpify, ctx| {
-                    warpify.denylist_ssh_host(host, ctx);
+            RememberForWormholing::RememberSSHHost(host) => {
+                WormholeSettings::handle(ctx).update(ctx, |wormhole, ctx| {
+                    wormhole.denylist_ssh_host(host, ctx);
                 });
             }
-            RememberForWarpification::DoNotRememberSubshellCommand
-            | RememberForWarpification::DoNotRememberSSHHost => {}
+            RememberForWormholing::DoNotRememberSubshellCommand
+            | RememberForWormholing::DoNotRememberSSHHost => {}
         }
     }
 
-    fn show_warpify_banner(
+    fn show_wormhole_banner(
         &mut self,
         command: String,
         title: &str,
         lowercase_title: &str,
-        warpify_keybinding: Option<Keystroke>,
+        wormhole_keybinding: Option<Keystroke>,
         telemetry_event: TelemetryEvent,
         ctx: &mut ViewContext<Self>,
     ) {
-        if FeatureFlag::WarpifyFooter.is_enabled() {
+        if FeatureFlag::WormholeFooter.is_enabled() {
             return;
         }
 
         let mut model = self.model.lock();
 
-        // Shared session viewers can't initiate warpification currently.
-        // Don't show the warpify banner when an agent is monitoring the command either.
+        // Shared session viewers can't initiate wormholing currently.
+        // Don't show the wormhole banner when an agent is monitoring the command either.
         if model.shared_session_status().is_viewer()
             || model.block_list().active_block().is_agent_monitoring()
         {
             return;
         }
 
-        let a11y_message = match &warpify_keybinding {
+        let a11y_message = match &wormhole_keybinding {
             Some(keystroke) => format!(
                 "You can press {} to Wormhole this {} for more Galaxy features.",
                 keystroke.displayed(),
@@ -10047,8 +10031,8 @@ impl TerminalView {
 
         model
             .block_list_mut()
-            .set_active_block_banner(Some(WithinBlockBanner::WarpifyBanner(
-                WarpifyBannerState::new(command, warpify_keybinding),
+            .set_active_block_banner(Some(WithinBlockBanner::WormholeBanner(
+                WormholeBannerState::new(command, wormhole_keybinding),
             )));
 
         let a11y_content = AccessibilityContent::new(
@@ -11310,7 +11294,7 @@ impl TerminalView {
     /// Returns true if the block is considered remote.
     ///
     /// Note that we don't know for sure if a block is remote, because we can only detect
-    /// warpified remote blocks.
+    /// wormholed remote blocks.
     ///
     /// For some organizations, we accept a regex list that we run against commands to
     /// further make the determination.
@@ -11320,7 +11304,7 @@ impl TerminalView {
         command: Option<&str>,
         app: &AppContext,
     ) -> bool {
-        let is_warpified_remote = session_id
+        let is_wormholed_remote = session_id
             .map(|id| {
                 self.sessions
                     .as_ref(app)
@@ -11330,7 +11314,7 @@ impl TerminalView {
             })
             .unwrap_or_default();
 
-        if is_warpified_remote {
+        if is_wormholed_remote {
             return true;
         }
 
@@ -11980,7 +11964,8 @@ impl TerminalView {
 
                 // If this block ran a possible subshell command, and it exited before the 1s timer
                 // completed, abort showing the banner.
-                if let Some(abort_handle) = self.warpify_state.take_subshell_banner_abort_handle() {
+                if let Some(abort_handle) = self.wormhole_state.take_subshell_banner_abort_handle()
+                {
                     abort_handle.abort();
                 }
 
@@ -12022,9 +12007,9 @@ impl TerminalView {
                     self.on_user_block_completed(&block_completed_event.block_id, ctx);
                 }
 
-                // Clear any stale warpify footer so it doesn't leak into the next command's footer rendering.
+                // Clear any stale wormhole footer so it doesn't leak into the next command's footer rendering.
                 self.use_agent_footer.update(ctx, |footer, ctx| {
-                    footer.clear_warpify(ctx);
+                    footer.clear_wormhole(ctx);
                 });
                 self.hide_use_agent_footer_in_blocklist(ctx);
                 if matches!(block_completed_event.block_type, BlockType::User(_)) {
@@ -12109,7 +12094,7 @@ impl TerminalView {
                 self.drop_hidden_passive_ai_blocks(ctx);
 
                 // If the first word of the command is a shell alias, expand it
-                // for subshell/SSH detection. This enables warpification for
+                // for subshell/SSH detection. This enables wormholing for
                 // aliased SSH commands (e.g. `alias myssh='ssh user@host'`).
                 let expanded_command = self
                     .active_block_session_id()
@@ -12119,19 +12104,19 @@ impl TerminalView {
                         let alias_value = session.alias_value(first_word)?;
                         Some(format!("{alias_value}{rest}"))
                     });
-                let warpify_command = expanded_command.as_deref().unwrap_or(command.as_str());
+                let wormhole_command = expanded_command.as_deref().unwrap_or(command.as_str());
 
-                // Check if the current running command spawns a subshell eligible for Warpification.
+                // Check if the current running command spawns a subshell eligible for Wormholing.
                 let shell_family = self.shell_family(ctx);
-                let warpify_settings = WarpifySettings::as_ref(ctx);
-                let is_compatible_subshell_command = warpify_settings
+                let wormhole_settings = WormholeSettings::as_ref(ctx);
+                let is_compatible_subshell_command = wormhole_settings
                     .is_compatible_subshell_command(command, shell_family)
-                    || warpify_settings
-                        .is_compatible_subshell_command(warpify_command, shell_family);
-                let command_is_denylisted = warpify_settings
+                    || wormhole_settings
+                        .is_compatible_subshell_command(wormhole_command, shell_family);
+                let command_is_denylisted = wormhole_settings
                     .is_denylisted_subshell_command(command)
-                    || warpify_settings.is_denylisted_subshell_command(warpify_command);
-                // Never warpify or surface warpification for agent-requested commands.
+                    || wormhole_settings.is_denylisted_subshell_command(wormhole_command);
+                // Never wormhole or surface wormholing for agent-requested commands.
                 let has_ai_metadata = self
                     .model
                     .lock()
@@ -12142,30 +12127,30 @@ impl TerminalView {
 
                 if is_compatible_subshell_command {
                     if command_is_denylisted || has_ai_metadata {
-                        // Don't auto-warpify or surface warpification for these commands.
+                        // Don't auto-wormhole or surface wormholing for these commands.
                     } else if let Some(shell_type) = self.pending_auto_bootstrap_shell_type.take() {
                         // If there is a subshell we're waiting to bootstrap until we receive
                         // the preexec hook, now we can bootstrap it.
-                        let auto_warpify_abort_handle = ctx.spawn_abortable(
-                            Timer::after(Duration::from_millis(AUTO_WARPIFY_DELAY)),
+                        let auto_wormhole_abort_handle = ctx.spawn_abortable(
+                            Timer::after(Duration::from_millis(AUTO_WORMHOLE_DELAY)),
                             move |me, _, ctx| {
                                 me.trigger_subshell_bootstrap(Some(shell_type), false, ctx);
                             },
                             |_, _| (),
                         );
-                        self.warpify_state
-                            .add_auto_warpify_abort_handle(auto_warpify_abort_handle);
+                        self.wormhole_state
+                            .add_auto_wormhole_abort_handle(auto_wormhole_abort_handle);
                     } else {
                         // Wait 1 second before showing the banner, just to make sure the
                         // command stays running for a bit. If the command fails instantly,
                         // we don't want to flicker the banner away so quickly.
                         let command = command.clone();
-                        self.warpify_state
+                        self.wormhole_state
                             .add_subshell_banner_abort_handle(ctx.spawn_abortable(
                                 Timer::after(*SUBSHELL_BANNER_DELAY_DURATION),
                                 |view, _, ctx| {
-                                    if FeatureFlag::WarpifyFooter.is_enabled() {
-                                        view.show_warpify_footer(ctx);
+                                    if FeatureFlag::WormholeFooter.is_enabled() {
+                                        view.show_wormhole_footer(ctx);
                                     } else {
                                         view.handle_action(
                                             &TerminalAction::ShowSubshellBanner(command),
@@ -12179,14 +12164,14 @@ impl TerminalView {
                 } else {
                     if !has_ai_metadata {
                         if let Some(ssh_host) =
-                            parse_interactive_ssh_command(warpify_command).map(|cmd| cmd.host)
+                            parse_interactive_ssh_command(wormhole_command).map(|cmd| cmd.host)
                         {
-                            self.warpify_state
-                                .set_pending_ssh_host(warpify_command.to_string(), ssh_host);
+                            self.wormhole_state
+                                .set_pending_ssh_host(wormhole_command.to_string(), ssh_host);
                             self.model.lock().start_notify_on_end_of_ssh_login();
                             ctx.emit(Event::TerminalViewStateChanged);
                         } else {
-                            self.warpify_state.clear_pending_ssh_host();
+                            self.wormhole_state.clear_pending_ssh_host();
 
                             ctx.spawn(
                                 Timer::after(Duration::from_millis(
@@ -12284,14 +12269,14 @@ impl TerminalView {
                 cloud_workflow_id,
                 cloud_env_var_collection_id,
             }) => {
-                // To automatically warpify a subshell, we run the relevant command
+                // To automatically wormhole a subshell, we run the relevant command
                 // subshell and create a future to delay bootstrapping the subshell long enough for
                 // the command to complete. We receive AfterBlockCompleted if the subshell command
                 // returns an error or the user exits the subshell. Here we abort the future to
                 // avoid an attempt to trigger bootstrapping if the subshell command failed. If the
                 // future already resolved, abort has no effect. We handle this as early as possible
                 // because the abort is time sensitive.
-                self.warpify_state.abort_auto_warpify();
+                self.wormhole_state.abort_auto_wormhole();
 
                 let active_session = self
                     .active_block_session_id()
@@ -12366,14 +12351,14 @@ impl TerminalView {
                 }
                 let active_session_id = self.active_block_session_id();
                 if let Some(block_id) = self
-                    .warpify_state
-                    .get_completed_warpify_session_id(active_session_id, ctx)
+                    .wormhole_state
+                    .get_completed_wormhole_session_id(active_session_id, ctx)
                 {
                     self.remove_ssh_block_by_id(block_id);
                 }
 
-                self.dismiss_warpify_banner(
-                    &RememberForWarpification::DoNotRememberSubshellCommand,
+                self.dismiss_wormhole_banner(
+                    &RememberForWormholing::DoNotRememberSubshellCommand,
                     ctx,
                 );
 
@@ -12868,7 +12853,7 @@ impl TerminalView {
                             .active_block()
                             .agent_interaction_metadata()
                             .is_some();
-                        // Never warpify for agent-requested commands.
+                        // Never wormhole for agent-requested commands.
                         if has_ai_metadata {
                             return;
                         }
@@ -13063,8 +13048,8 @@ impl TerminalView {
                 me.remove_ssh_remote_server_choice_block(session_id, ctx);
                 ctx.emit(Event::RemoteServerSkipRequested { session_id });
             }
-            SshRemoteServerChoiceViewEvent::OpenWarpifySettings => {
-                ctx.emit(Event::OpenSettings(SettingsSection::Warpify));
+            SshRemoteServerChoiceViewEvent::OpenWormholeSettings => {
+                ctx.emit(Event::OpenSettings(SettingsSection::Wormhole));
             }
         });
 
@@ -13259,7 +13244,7 @@ impl TerminalView {
 
         // Clear the pending flag up front so the notice is shown at most once, even if the
         // banner is dismissed without interaction or the session ends early.
-        WarpifySettings::handle(ctx).update(ctx, |settings, ctx| {
+        WormholeSettings::handle(ctx).update(ctx, |settings, ctx| {
             settings.mark_tmux_deprecation_notice_shown(ctx);
         });
 
@@ -13690,7 +13675,7 @@ impl TerminalView {
         self.update_incompatible_configuration_banner(session.shell().plugins(), ctx);
 
         if let Some(subshell_info) = session.subshell_info() {
-            self.warpify_state
+            self.wormhole_state
                 .add_subshell_separator(subshell_info, self.model.clone(), ctx);
         }
 
@@ -13772,22 +13757,23 @@ impl TerminalView {
             .spawn(async move { session_clone2.load_all_builtins().await })
             .detach();
 
-        // If we were waiting for a successful warpification, it's come. Stop the timeout.
-        self.warpify_state.abort_ssh_warpify_timeout();
+        // If we were waiting for a successful wormholing, it's come. Stop the timeout.
+        self.wormhole_state.abort_ssh_wormhole_timeout();
 
-        let is_warpified_remote = matches!(
+        let is_wormholed_remote = matches!(
             bootstrap_event.session_type,
-            BootstrapSessionType::WarpifiedRemote
+            BootstrapSessionType::WormholedRemote
         );
         if bootstrap_event.subshell_info.is_some() {
             self.add_bootstrap_success_block(bootstrap_event, ctx);
         }
 
         // Show the one-time tmux deprecation notice when an SSH session successfully
-        // warpifies. The end-of-ssh-login path (`handle_detected_end_of_ssh_login`) only
-        // fires for sessions that stay unwarpified, since warpification replaces the
+        // wormholes. The end-of-ssh-login path (`handle_detected_end_of_ssh_login`) only
+        // fires for sessions that stay unwormholed, since wormholing replaces the
         // original ssh block before login detection can confirm completion.
-        if is_warpified_remote && WarpifySettings::as_ref(ctx).should_show_tmux_deprecation_notice()
+        if is_wormholed_remote
+            && WormholeSettings::as_ref(ctx).should_show_tmux_deprecation_notice()
         {
             self.show_ssh_tmux_deprecation_banner(session_id, ctx);
         }
@@ -15201,7 +15187,7 @@ impl TerminalView {
         // https://github.com/warpdotdev/command-corrections/blob/df7848d4fb3da7883623e959889a296a07d88053/src/rules/cd/mod.rs#L31-L36
         // We don't currently support dynamic rules over SSH, so we should not attempt to correct commands if
         // inside ssh session.
-        let is_ssh_command = SshWarpifyCommand::matches(input).is_some();
+        let is_ssh_command = SshWormholeCommand::matches(input).is_some();
         if is_ssh_command {
             return vec![];
         }
@@ -19105,7 +19091,7 @@ impl TerminalView {
             .and_then(|id| self.sessions.as_ref(ctx).get(id))
         {
             if let Some(info) = session.subshell_info() {
-                self.warpify_state
+                self.wormhole_state
                     .add_subshell_separator(info, self.model.clone(), ctx);
             }
         }
@@ -20152,9 +20138,9 @@ impl TerminalView {
                         env_var_collection_block.clear_selection(ctx);
                     });
                 }
-                Some(RichContentMetadata::WarpifySuccessBlock { .. }) => {
-                    // TODO(Simon): We should be checking for WarpifySuccessBlocks here as well.
-                    // The `WarpifySuccessBlock` implements a `SelectableArea`.
+                Some(RichContentMetadata::WormholeSuccessBlock { .. }) => {
+                    // TODO(Simon): We should be checking for WormholeSuccessBlocks here as well.
+                    // The `WormholeSuccessBlock` implements a `SelectableArea`.
                 }
                 _ => {}
             }
@@ -23365,7 +23351,7 @@ impl TerminalView {
         } else {
             // Remote session: pair CWD with the session's host_id.
             let host_id = match session.session_type() {
-                SessionType::WarpifiedRemote { host_id } => host_id,
+                SessionType::WormholedRemote { host_id } => host_id,
                 SessionType::Local => return None,
             }?;
             let std_path = StandardizedPath::try_new(cwd_str).ok()?;
@@ -24110,7 +24096,7 @@ impl TerminalView {
 
         let mut subshell_separators = HashMap::new();
 
-        for (id, command) in self.warpify_state.get_subshell_separators() {
+        for (id, command) in self.wormhole_state.get_subshell_separators() {
             subshell_separators.insert(*id, render_subshell_separator(command.clone(), appearance));
         }
 
@@ -24122,8 +24108,8 @@ impl TerminalView {
             .active_block()
             .block_banner()
             .map(|banner| match banner {
-                WithinBlockBanner::WarpifyBanner(state) => {
-                    render_warpification_banner(state, appearance)
+                WithinBlockBanner::WormholeBanner(state) => {
+                    render_wormholing_banner(state, appearance)
                 }
             });
 
@@ -25397,7 +25383,7 @@ impl TerminalView {
     }
 
     /// Replace the terminal input buffer with the given command that is meant to open a subshell.
-    /// Set a flag that we should automatically bootstrap AKA "warpify" the subshell when we
+    /// Set a flag that we should automatically bootstrap AKA "wormhole" the subshell when we
     /// receive the [`AfterBlockStarted`] event.
     pub fn insert_subshell_command_and_bootstrap_if_supported(
         &mut self,
@@ -25631,7 +25617,7 @@ impl TerminalView {
         shell_type: ShellType,
         ctx: &mut ViewContext<Self>,
     ) {
-        // Attempt to auto warpify the subshell when bootstrapped
+        // Attempt to auto wormhole the subshell when bootstrapped
         self.pending_auto_bootstrap_shell_type = Some(shell_type);
 
         self.input.update(ctx, |input, ctx| {
@@ -25853,7 +25839,7 @@ impl TerminalView {
         ctx: &mut ViewContext<TerminalView>,
     ) {
         match check_type {
-            SshLoginStatus::RecheckBeforeWarpifying => {
+            SshLoginStatus::RecheckBeforeWormholing => {
                 // After we receive a line of output from ssh that is NOT prompting for user input (unlike "Enter passphrase: "),
                 // we wait and repeat the check after a small delay in case the state returned to something that's user-input bound.
                 // For example, say the output that kicked off this event was "Permission denied, please try again." and
@@ -25875,11 +25861,11 @@ impl TerminalView {
                     },
                 );
             }
-            SshLoginStatus::ReadyToWarpify => {
-                // The tmux-based SSH warpification flow has been removed in favor of the
+            SshLoginStatus::ReadyToWormhole => {
+                // The tmux-based SSH wormholing flow has been removed in favor of the
                 // remote-server SSH extension. If this user had previously opted into the tmux
                 // wrapper, show them a one-time deprecation notice on their next SSH session.
-                if WarpifySettings::as_ref(ctx).should_show_tmux_deprecation_notice() {
+                if WormholeSettings::as_ref(ctx).should_show_tmux_deprecation_notice() {
                     if let Some(session_id) = self.active_block_session_id() {
                         self.show_ssh_tmux_deprecation_banner(session_id, ctx);
                     }
@@ -25922,22 +25908,22 @@ impl TerminalView {
                 let alias_value = session.alias_value(first_word)?;
                 Some(format!("{alias_value}{rest}"))
             });
-        let warpify_command = expanded_command.as_deref().unwrap_or(command);
+        let wormhole_command = expanded_command.as_deref().unwrap_or(command);
         let shell_family = self.shell_family_for_password_prompt_polling(ctx);
-        let warpify_settings = WarpifySettings::as_ref(ctx);
-        let is_compatible_subshell_command = warpify_settings
+        let wormhole_settings = WormholeSettings::as_ref(ctx);
+        let is_compatible_subshell_command = wormhole_settings
             .is_compatible_subshell_command(command, shell_family)
-            || warpify_settings.is_compatible_subshell_command(warpify_command, shell_family);
+            || wormhole_settings.is_compatible_subshell_command(wormhole_command, shell_family);
 
         !is_compatible_subshell_command
     }
 
-    /// Shows the warpify footer for a detected subshell command.
-    fn show_warpify_footer(&mut self, ctx: &mut ViewContext<Self>) {
+    /// Shows the wormhole footer for a detected subshell command.
+    fn show_wormhole_footer(&mut self, ctx: &mut ViewContext<Self>) {
         let model = self.model.lock();
 
-        // Shared session viewers can't initiate warpification currently.
-        // Don't show the warpify footer when an agent is monitoring the command either.
+        // Shared session viewers can't initiate wormholing currently.
+        // Don't show the wormhole footer when an agent is monitoring the command either.
         if model.shared_session_status().is_viewer()
             || model.block_list().active_block().is_agent_monitoring()
         {
@@ -25946,11 +25932,11 @@ impl TerminalView {
         drop(model);
 
         self.use_agent_footer.update(ctx, |footer, ctx| {
-            footer.show_warpify(ctx);
+            footer.show_wormhole(ctx);
         });
         self.maybe_show_use_agent_footer_in_blocklist(ctx);
 
-        send_telemetry_from_ctx!(TelemetryEvent::WarpifyFooterShown { is_ssh: false }, ctx);
+        send_telemetry_from_ctx!(TelemetryEvent::WormholeFooterShown { is_ssh: false }, ctx);
     }
 
     fn show_initialization_block(&mut self) {
@@ -26330,7 +26316,7 @@ impl TypedActionView for TerminalView {
                 "Showed initialization block",
                 GalaxyA11yRole::TextareaRole,
             )),
-            ShowWarpifySettings => Custom(AccessibilityContent::new_without_help(
+            ShowWormholeSettings => Custom(AccessibilityContent::new_without_help(
                 "Opened Wormhole Settings",
                 GalaxyA11yRole::ButtonRole,
             )),
@@ -26380,7 +26366,7 @@ impl TypedActionView for TerminalView {
             | ControlSequence(_)
             | TriggerSubshellBootstrap
             | ShowSubshellBanner(_)
-            | DismissWarpifyBanner(_)
+            | DismissWormholeBanner(_)
             | OpenBlockListContextMenu
             | AliasExpansionBanner(_)
             | VimModeBanner(_)
@@ -26891,21 +26877,21 @@ impl TypedActionView for TerminalView {
             TriggerSubshellBootstrap => self.trigger_subshell_bootstrap(None, false, ctx),
             ShowSubshellBanner(command) => {
                 // Abort handle is no longer needed since we've waited the 1s already.
-                self.warpify_state.take_subshell_banner_abort_handle();
+                self.wormhole_state.take_subshell_banner_abort_handle();
 
-                let warpify_keybinding =
-                    keybinding_name_to_keystroke("terminal:warpify_subshell", ctx);
-                self.show_warpify_banner(
+                let wormhole_keybinding =
+                    keybinding_name_to_keystroke("terminal:wormhole_subshell", ctx);
+                self.show_wormhole_banner(
                     command.to_owned(),
                     "Subshell",
                     "subshell",
-                    warpify_keybinding,
+                    wormhole_keybinding,
                     TelemetryEvent::ShowSubshellBanner,
                     ctx,
                 );
             }
-            DismissWarpifyBanner(remember) => {
-                self.dismiss_warpify_banner(remember, ctx);
+            DismissWormholeBanner(remember) => {
+                self.dismiss_wormhole_banner(remember, ctx);
                 if !remember.is_ssh() {
                     send_telemetry_from_ctx!(
                         TelemetryEvent::DeclineSubshellBootstrap {
@@ -27142,7 +27128,7 @@ impl TypedActionView for TerminalView {
             LoadAgentModeConversation => {
                 self.load_agent_mode_conversation(ctx);
             }
-            ShowWarpifySettings => ctx.emit(Event::OpenSettings(SettingsSection::Warpify)),
+            ShowWormholeSettings => ctx.emit(Event::OpenSettings(SettingsSection::Wormhole)),
             DeleteAttachment { index } => {
                 self.ai_context_model.update(ctx, |context_model, ctx| {
                     context_model.remove_pending_attachment(*index, ctx);
@@ -28374,15 +28360,15 @@ impl View for TerminalView {
             context.set.insert(init::ROOT_CLOUD_MODE_PANE_KEY);
         }
 
-        if let Some(WithinBlockBanner::WarpifyBanner(_)) =
+        if let Some(WithinBlockBanner::WormholeBanner(_)) =
             model_lock.block_list().active_block().block_banner()
         {
             context.set.insert("SubshellBanner");
         }
 
-        // Also set the warpify context when the footer (flag-gated replacement
+        // Also set the wormhole context when the footer (flag-gated replacement
         // for the in-block banner) is active, so the ctrl-i keybinding works.
-        if self.use_agent_footer.as_ref(app).is_warpify_active(app) {
+        if self.use_agent_footer.as_ref(app).is_wormhole_active(app) {
             context.set.insert("SubshellBanner");
         }
 

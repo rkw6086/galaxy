@@ -35,6 +35,7 @@ pub enum LanguageId {
     JavaScriptReact,
     C,
     Cpp,
+    Toml,
 }
 
 impl LanguageId {
@@ -55,6 +56,7 @@ impl LanguageId {
             // compile_commands.json is present, clangd will use the correct language
             // regardless of the languageId we send.
             "h" | "H" | "hh" | "hpp" | "hxx" => Some(Self::Cpp),
+            "toml" => Some(Self::Toml),
             _ => None,
         }
     }
@@ -72,6 +74,7 @@ impl LanguageId {
             LanguageId::JavaScriptReact => "javascriptreact",
             LanguageId::C => "c",
             LanguageId::Cpp => "cpp",
+            LanguageId::Toml => "toml",
         }
     }
 
@@ -86,6 +89,7 @@ impl LanguageId {
             | LanguageId::JavaScript
             | LanguageId::JavaScriptReact => LSPServerType::TypeScriptLanguageServer,
             LanguageId::C | LanguageId::Cpp => LSPServerType::Clangd,
+            LanguageId::Toml => LSPServerType::Tombi,
         }
     }
 }
@@ -105,6 +109,8 @@ pub struct LspServerConfig {
     client: Arc<http_client::Client>,
     /// Optional path relative to the LSP log namespace for server stderr output.
     log_relative_path: Option<PathBuf>,
+    /// Notifications sent immediately after the server completes LSP initialization.
+    post_initialize_notifications: Vec<(String, serde_json::Value)>,
 }
 
 impl fmt::Debug for LspServerConfig {
@@ -115,6 +121,10 @@ impl fmt::Debug for LspServerConfig {
             .field("path_env_var", &self.path_env_var)
             .field("client_name", &self.client_name)
             .field("log_relative_path", &self.log_relative_path)
+            .field(
+                "post_initialize_notifications",
+                &self.post_initialize_notifications,
+            )
             .finish()
     }
 }
@@ -134,6 +144,7 @@ impl LspServerConfig {
             client_name,
             client,
             log_relative_path: None,
+            post_initialize_notifications: Vec::new(),
         }
     }
 
@@ -145,6 +156,21 @@ impl LspServerConfig {
     /// Returns the relative log path if configured.
     pub fn log_relative_path(&self) -> Option<&PathBuf> {
         self.log_relative_path.as_ref()
+    }
+
+    /// Adds a custom notification to send after the language server initializes.
+    pub fn with_post_initialize_notification(
+        mut self,
+        method: impl Into<String>,
+        params: serde_json::Value,
+    ) -> Self {
+        self.post_initialize_notifications
+            .push((method.into(), params));
+        self
+    }
+
+    pub(crate) fn post_initialize_notifications(&self) -> &[(String, serde_json::Value)] {
+        &self.post_initialize_notifications
     }
 
     /// Returns the initial workspace path.

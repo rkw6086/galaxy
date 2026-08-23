@@ -306,7 +306,7 @@ fn build_host_shell_command(
     // Whether the SSH wrapper should attach to an existing ControlMaster
     // for the destination host instead of always creating its own.
     builder.env(
-        "WARP_SSH_REUSE_CONTROL_MASTER",
+        "GALAXY_SSH_REUSE_CONTROL_MASTER",
         if reuse_ssh_control_master { "1" } else { "0" },
     );
 
@@ -784,8 +784,8 @@ fn build_docker_sandbox_command(
     // TODO(advait): audit this list. It currently mirrors what the
     // pre-refactor host-shell `spawn` set when the starter happened to
     // be a Docker sandbox, so behaviour is unchanged from before the
-    // split. Many of these (e.g. `WARP_USE_SSH_WRAPPER`,
-    // `SSH_SOCKET_DIR`, `HISTFILESIZE`, `WARP_IS_LOCAL_SHELL_SESSION`)
+    // split. Many of these (e.g. `GALAXY_USE_SSH_WRAPPER`,
+    // `SSH_SOCKET_DIR`, `HISTFILESIZE`, `GALAXY_IS_LOCAL_SHELL_SESSION`)
     // are set on the *host* `sbx` process and may or may not propagate
     // into the container depending on `sbx`'s env passthrough rules.
     // Once we've validated what the container bootstrap actually needs,
@@ -813,7 +813,7 @@ fn build_docker_sandbox_command(
         if enable_ssh_wrapper { "1" } else { "0" },
     );
     builder.env(
-        "WARP_SSH_REUSE_CONTROL_MASTER",
+        "GALAXY_SSH_REUSE_CONTROL_MASTER",
         if reuse_ssh_control_master { "1" } else { "0" },
     );
     builder.env("SSH_SOCKET_DIR", ssh_socket_dir());

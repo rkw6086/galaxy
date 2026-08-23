@@ -170,7 +170,8 @@ impl LspService {
         let response = self.send_request::<request::Initialize>(params).await?;
         self.server_capabilities = Some(response.capabilities);
 
-        self.send_notification::<notification::Initialized>(InitializedParams {})?;
+        self.send_notification_and_wait::<notification::Initialized>(InitializedParams {})
+            .await?;
         self.subscribe::<notification::Progress>().await;
         self.subscribe::<notification::PublishDiagnostics>().await;
 
@@ -295,6 +296,23 @@ impl LspService {
         let params = serde_json::to_value(params)?;
         self.jsonrpc_service
             .send_notification(N::METHOD.to_string(), params)
+    }
+
+    async fn send_notification_and_wait<N: Notification>(&self, params: N::Params) -> Result<()> {
+        let params = serde_json::to_value(params)?;
+        self.jsonrpc_service
+            .send_notification_and_wait(N::METHOD.to_string(), params)
+            .await
+    }
+
+    pub(crate) async fn send_custom_notification_and_wait(
+        &self,
+        method: impl Into<String>,
+        params: Value,
+    ) -> Result<()> {
+        self.jsonrpc_service
+            .send_notification_and_wait(method.into(), params)
+            .await
     }
 
     async fn send_request<R: Request>(&self, params: R::Params) -> Result<R::Result> {
@@ -538,7 +556,8 @@ impl<'a> TextDocumentService<'a> {
         };
 
         self.service
-            .send_notification::<notification::DidOpenTextDocument>(did_open_params)
+            .send_notification_and_wait::<notification::DidOpenTextDocument>(did_open_params)
+            .await
     }
 
     pub async fn did_close(&self, path: &Path) -> Result<()> {
@@ -560,7 +579,8 @@ impl<'a> TextDocumentService<'a> {
         };
 
         self.service
-            .send_notification::<notification::DidCloseTextDocument>(did_close_params)
+            .send_notification_and_wait::<notification::DidCloseTextDocument>(did_close_params)
+            .await
     }
 
     pub async fn did_change(
@@ -592,7 +612,8 @@ impl<'a> TextDocumentService<'a> {
         };
 
         self.service
-            .send_notification::<notification::DidChangeTextDocument>(did_change_params)
+            .send_notification_and_wait::<notification::DidChangeTextDocument>(did_change_params)
+            .await
     }
 
     pub async fn definition(

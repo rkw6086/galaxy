@@ -187,6 +187,13 @@ fn fuzzy_match(target: &str, query: &str) -> bool {
     true
 }
 
+fn completion_documentation(item: &CompletionItem) -> Option<String> {
+    match item.documentation.as_ref()? {
+        lsp_types::Documentation::String(documentation) => Some(documentation.clone()),
+        lsp_types::Documentation::MarkupContent(documentation) => Some(documentation.value.clone()),
+    }
+}
+
 impl LocalCodeEditorView {
     pub(super) fn is_completion_enabled() -> bool {
         FeatureFlag::LspCompletion.is_enabled()
@@ -254,12 +261,13 @@ impl LocalCodeEditorView {
         };
 
         if let Some(trigger) = trigger {
-            self.request_completion(cursor_offset, trigger, ctx);
+            self.request_completion(cursor_offset, cursor_offset, trigger, ctx);
         }
     }
 
     pub(super) fn request_completion(
         &mut self,
+        request_offset: CharOffset,
         trigger_offset: CharOffset,
         trigger: CompletionTrigger,
         ctx: &mut ViewContext<Self>,
@@ -279,7 +287,7 @@ impl LocalCodeEditorView {
         let lsp_position = self
             .editor()
             .as_ref(ctx)
-            .offset_to_lsp_position(trigger_offset, ctx);
+            .offset_to_lsp_position(request_offset, ctx);
 
         let future =
             match lsp_server
@@ -318,7 +326,7 @@ impl LocalCodeEditorView {
         }
 
         let word_start = self.find_word_start(offset, ctx);
-        self.request_completion(word_start, CompletionTrigger::Invoked, ctx);
+        self.request_completion(offset, word_start, CompletionTrigger::Invoked, ctx);
     }
 
     /// Find the start of the current identifier word by walking backwards from `offset`.
@@ -440,7 +448,7 @@ impl LocalCodeEditorView {
 
     /// Resolve documentation for the currently selected completion item.
     pub(super) fn resolve_selected_completion_docs(&mut self, ctx: &mut ViewContext<Self>) {
-        let raw_item = match &self.completion_state {
+        let (item_index, raw_item) = match &self.completion_state {
             CompletionState::Showing {
                 items,
                 filtered_indices,
@@ -458,14 +466,22 @@ impl LocalCodeEditorView {
                 {
                     return;
                 }
-                items[item_idx].raw_item.clone()
+                (item_idx, items[item_idx].raw_item.clone())
             }
             _ => return,
         };
 
+        if let Some(documentation) = completion_documentation(&raw_item) {
+            self.set_resolved_completion_docs(item_index, documentation, ctx);
+            return;
+        }
+
         let Some(lsp_server) = &self.lsp_server else {
             return;
         };
+        if !lsp_server.as_ref(ctx).supports_completion_resolve() {
+            return;
+        }
 
         let future = match lsp_server.as_ref(ctx).completion_resolve(raw_item) {
             Ok(future) => future,
@@ -473,8 +489,8 @@ impl LocalCodeEditorView {
         };
 
         let abort_handle = ctx
-            .spawn(future, |me, result, ctx| {
-                me.handle_completion_resolve_response(result, ctx);
+            .spawn(future, move |me, result, ctx| {
+                me.handle_completion_resolve_response(item_index, result, ctx);
             })
             .abort_handle();
 
@@ -492,6 +508,7 @@ impl LocalCodeEditorView {
 
     fn handle_completion_resolve_response(
         &mut self,
+        item_index: usize,
         result: anyhow::Result<CompletionItem>,
         ctx: &mut ViewContext<Self>,
     ) {
@@ -500,22 +517,29 @@ impl LocalCodeEditorView {
             Err(_) => return,
         };
 
-        let doc_string = match resolved_item.documentation {
-            Some(lsp_types::Documentation::String(s)) => s,
-            Some(lsp_types::Documentation::MarkupContent(m)) => m.value,
-            None => return,
+        let Some(documentation) = completion_documentation(&resolved_item) else {
+            return;
         };
 
-        if doc_string.trim().is_empty() {
+        self.set_resolved_completion_docs(item_index, documentation, ctx);
+    }
+
+    fn set_resolved_completion_docs(
+        &mut self,
+        item_index: usize,
+        documentation: String,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if documentation.trim().is_empty() {
             return;
         }
 
-        let formatted = match markdown_parser::parse_markdown(&doc_string) {
+        let formatted = match markdown_parser::parse_markdown(&documentation) {
             Ok(text) => text,
             Err(_) => {
                 use markdown_parser::{FormattedTextFragment, FormattedTextLine};
                 FormattedText::new([FormattedTextLine::Line(vec![
-                    FormattedTextFragment::plain_text(doc_string),
+                    FormattedTextFragment::plain_text(documentation),
                 ])])
             }
         };
@@ -529,9 +553,9 @@ impl LocalCodeEditorView {
         } = &mut self.completion_state
         {
             *resolve_abort_handle = None;
-            if let Some(&item_idx) = filtered_indices.get(*selected_index) {
+            if filtered_indices.get(*selected_index) == Some(&item_index) {
                 *resolved_docs = Some(ResolvedDocumentation {
-                    item_index: item_idx,
+                    item_index,
                     text: formatted,
                     scroll_state: ClippedScrollStateHandle::default(),
                 });
@@ -552,7 +576,7 @@ impl LocalCodeEditorView {
         }
     }
 
-    /// Manually trigger completion (Ctrl+Alt+Space).
+    /// Manually trigger completion (Ctrl+Space in the code editor).
     pub(super) fn trigger_completion_manually(&mut self, ctx: &mut ViewContext<Self>) {
         if !Self::is_completion_enabled() {
             return;
@@ -562,7 +586,7 @@ impl LocalCodeEditorView {
         }
         let cursor_offset = self.editor().as_ref(ctx).cursor_head_offset(ctx);
         let word_start = self.find_word_start(cursor_offset, ctx);
-        self.request_completion(word_start, CompletionTrigger::Invoked, ctx);
+        self.request_completion(cursor_offset, word_start, CompletionTrigger::Invoked, ctx);
     }
 
     pub(super) fn render_completion_menu(&self, app: &AppContext) -> Option<Box<dyn Element>> {

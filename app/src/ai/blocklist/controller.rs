@@ -314,11 +314,11 @@ impl SessionContext {
         &self.current_working_directory
     }
 
-    /// Returns the remote host ID if this is a `WarpifiedRemote` session with
+    /// Returns the remote host ID if this is a `WormholedRemote` session with
     /// a connected `RemoteServerClient`.
     pub fn host_id(&self) -> Option<&galaxy_core::HostId> {
         match &self.session_type {
-            Some(SessionType::WarpifiedRemote { host_id }) => host_id.as_ref(),
+            Some(SessionType::WormholedRemote { host_id }) => host_id.as_ref(),
             Some(SessionType::Local) | None => None,
         }
     }
@@ -326,17 +326,17 @@ impl SessionContext {
     /// Returns `true` if this is a remote session (regardless of whether
     /// the remote server client is connected).
     pub fn is_remote(&self) -> bool {
-        matches!(self.session_type, Some(SessionType::WarpifiedRemote { .. }))
+        matches!(self.session_type, Some(SessionType::WormholedRemote { .. }))
     }
 
     pub fn skill_path_origin(&self) -> SkillPathOrigin {
         match &self.session_type {
-            Some(SessionType::WarpifiedRemote {
+            Some(SessionType::WormholedRemote {
                 host_id: Some(host_id),
             }) => SkillPathOrigin::Remote {
                 host_id: host_id.clone(),
             },
-            Some(SessionType::WarpifiedRemote { host_id: None }) => SkillPathOrigin::Unavailable,
+            Some(SessionType::WormholedRemote { host_id: None }) => SkillPathOrigin::Unavailable,
             Some(SessionType::Local) | None => SkillPathOrigin::Local,
         }
     }

@@ -24,7 +24,7 @@ use warp::integration_testing::terminal::{
     wait_until_bootstrapped_single_pane_for_tab,
 };
 use warp::terminal::shell::ShellType;
-use warp::terminal::warpify::settings::{SshExtensionInstallMode, SshExtensionInstallModeSetting};
+use warp::terminal::wormhole::settings::{SshExtensionInstallMode, SshExtensionInstallModeSetting};
 
 use super::{new_builder, Builder};
 

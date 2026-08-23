@@ -159,12 +159,14 @@ mod appimage {
 }
 
 mod package_manager {
+    use anyhow::{bail, Result};
     use galaxyui::elements::{Container, FormattedTextElement, HighlightedHyperlink};
     use galaxyui::{Element, SingletonEntity as _};
     use markdown_parser::{
         FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     };
 
+    use super::{PackageManager, CURRENT_EXE};
     use crate::appearance::Appearance;
 
     pub struct AutoupdateContextBlock {

@@ -418,7 +418,7 @@ use crate::terminal::view::{
     OnboardingIntention, OnboardingVersion, SyncEvent, SyncInputType, TerminalAction,
     NOTIFICATIONS_TROUBLESHOOT_URL,
 };
-use crate::terminal::warpify::settings::WarpifySettings;
+use crate::terminal::wormhole::settings::WormholeSettings;
 use crate::terminal::{self, BlockListSettings, SizeInfo, TerminalModel, TerminalView};
 use crate::themes::theme::{AnsiColorIdentifier, RespectSystemTheme, ThemeKind};
 use crate::themes::theme_chooser::{ThemeChooser, ThemeChooserEvent, ThemeChooserMode};
@@ -17039,7 +17039,7 @@ impl Workspace {
     }
 
     /// Insert the given command that should open a subshell. And set a flag that we should
-    /// automatically bootstrap AKA "warpify" that subshell if we support it. No-op if there is
+    /// automatically bootstrap AKA "wormhole" that subshell if we support it. No-op if there is
     /// no active terminal session.
     pub fn insert_subshell_command_and_bootstrap_if_supported(
         &mut self,
@@ -17140,7 +17140,7 @@ impl Workspace {
 
             // Check whether this remote session has an active remote server
             // connection (or is in the process of connecting). This is only
-            // true for Auto SSH Warpification (mode 1) sessions where
+            // true for Auto SSH Wormholing (mode 1) sessions where
             // `connect_session` was called at `InitShell` time.
             let has_remote_server = is_remote
                 && FeatureFlag::SshRemoteServer.is_enabled()
@@ -22566,7 +22566,7 @@ impl Workspace {
         let reporting_setings = AltScreenReporting::as_ref(app);
         let general_settings = GeneralSettings::as_ref(app);
         let theme_settings = ThemeSettings::as_ref(app);
-        let warpify_settings = WarpifySettings::as_ref(app);
+        let wormhole_settings = WormholeSettings::as_ref(app);
         let terminal_settings = TerminalSettings::as_ref(app);
         let window_settings = WindowSettings::as_ref(app);
         let pane_settings = PaneSettings::as_ref(app);
@@ -22618,8 +22618,8 @@ impl Workspace {
                 .set
                 .insert(flags::SSH_REUSE_CONTROL_MASTER_CONTEXT_FLAG);
         }
-        if *warpify_settings.enable_ssh_warpification.value() {
-            context.set.insert(flags::SSH_WARPIFICATION_CONTEXT_FLAG);
+        if *wormhole_settings.enable_ssh_wormholing.value() {
+            context.set.insert(flags::SSH_WORMHOLING_CONTEXT_FLAG);
         }
 
         if keys_settings.extra_meta_keys.left_alt {

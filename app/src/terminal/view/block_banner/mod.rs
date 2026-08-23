@@ -6,14 +6,14 @@
 //! without a LayoutContext. Use the exported BLOCK_BANNER_HEIGHT const when the banner height
 //! needs to be taken into account.
 
-mod warpify;
+mod wormhole;
 
 use galaxyui::elements::{
     ConstrainedBox, Container, CornerRadius, Hoverable, MouseState, MouseStateHandle,
     ParentElement, Radius, Stack,
 };
 use galaxyui::Element;
-pub use warpify::*;
+pub use wormhole::*;
 
 use crate::themes::theme::GalaxyTheme;
 
@@ -25,13 +25,13 @@ const BANNER_H_PADDING: f32 = 8.;
 pub const BLOCK_BANNER_HEIGHT: f32 = CONSTRAINED_BANNER_HEIGHT + BANNER_TOP_MARGIN;
 
 pub enum WithinBlockBanner {
-    WarpifyBanner(WarpifyBannerState),
+    WormholeBanner(WormholeBannerState),
 }
 
 impl WithinBlockBanner {
     pub fn banner_height(&self) -> f32 {
         match self {
-            WithinBlockBanner::WarpifyBanner(_) => BLOCK_BANNER_HEIGHT,
+            WithinBlockBanner::WormholeBanner(_) => BLOCK_BANNER_HEIGHT,
         }
     }
 }

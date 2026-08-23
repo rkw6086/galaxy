@@ -583,7 +583,7 @@ if [[ -z $WARP_BOOTSTRAPPED ]]; then
     # set the WARP_DISABLE_AUTO_TITLE flag.
     [[ "${WARP_DISABLE_AUTO_TITLE:-}" != true ]] || return
 
-    if [[ $WARP_IS_LOCAL_SHELL_SESSION == "1" ]]; then
+    if [[ $GALAXY_IS_LOCAL_SHELL_SESSION == "1" ]]; then
       warp_title "$ZSH_THEME_TERM_TITLE_IDLE"
     else
       warp_title "$ZSH_THEME_TERM_TAB_TITLE_IDLE_REMOTE"
@@ -892,7 +892,7 @@ if [[ -z $WARP_BOOTSTRAPPED ]]; then
 
   # The SSH logic only applies to local sessions, because we don't yet have support for bootstrapping
   # recursive SSH sessions.
-  if [[ $WARP_IS_LOCAL_SHELL_SESSION == "1" ]]; then
+  if [[ $GALAXY_IS_LOCAL_SHELL_SESSION == "1" ]]; then
       # This helper function determines whether the user's ssh arguments imply
       # creation of a non-interactive session or otherwise would conflict with
       # our SSH wrapper.  Returns 0 for an interactive session; >0 otherwise.
@@ -952,7 +952,7 @@ if [[ -z $WARP_BOOTSTRAPPED ]]; then
           local control_path="$SSH_SOCKET_DIR/$WARP_SESSION_ID"
           local control_master_mode="yes"
           local external_control_master="false"
-          if [[ "$WARP_SSH_REUSE_CONTROL_MASTER" == "1" ]]; then
+          if [[ "$GALAXY_SSH_REUSE_CONTROL_MASTER" == "1" ]]; then
               local user_control_path=$(command ssh -G "${@:1}" 2>/dev/null | command -p sed -n 's/^controlpath //p')
               case "$user_control_path" in
                   "" | none)
@@ -991,9 +991,9 @@ export TERM_PROGRAM='WarpTerminal'
 # body can distinguish it from local shells. Used to gate the ExitShell
 # hook which tears down the remote-server-proxy subprocess.
 export WARP_IS_SSH='1'
-test -n '$WARP_CLIENT_VERSION' && export WARP_CLIENT_VERSION='$WARP_CLIENT_VERSION'
+test -n '$GALAXY_CLIENT_VERSION' && export GALAXY_CLIENT_VERSION='$GALAXY_CLIENT_VERSION'
 # Only forward the protocol version if it was set locally (i.e. the HOANotifications feature flag is on).
-test -n '$WARP_CLI_AGENT_PROTOCOL_VERSION' && export WARP_CLI_AGENT_PROTOCOL_VERSION='$WARP_CLI_AGENT_PROTOCOL_VERSION'
+test -n '$GALAXY_CLI_AGENT_PROTOCOL_VERSION' && export GALAXY_CLI_AGENT_PROTOCOL_VERSION='$GALAXY_CLI_AGENT_PROTOCOL_VERSION'
 hook="'$(printf "{\"hook\": \"SSH\", \"value\": {\"socket_path\": \"'$control_path'\", \"remote_shell\": \"%s\", \"session_id\": '"$WARP_SESSION_ID"', \"remote_session_id\": '"$remote_session_id"', \"external_control_master\": '"$external_control_master"'}}" "${SHELL##*/}" | command -p od -An -v -tx1 | command -p tr -d " \n")'"
 printf '$OSC_START$DCS_JSON_MARKER$OSC_PARAM_SEPARATOR%s$OSC_END' "'$hook'"
 
@@ -1065,7 +1065,7 @@ esac
               warp_send_json_message "{\"hook\": \"PreInteractiveSSHSession\", \"value\": {\"session_id\": $WARP_SESSION_ID}}"
 
               # If the SSH wrapper is not enabled for this session, don't use it.
-              if [ "$WARP_USE_SSH_WRAPPER" = "1" ]; then
+              if [ "$GALAXY_USE_SSH_WRAPPER" = "1" ]; then
                 local TRACE_FLAG_IF_WARP_SHELL_DEBUG_MODE=""
                 if [[ "$WARP_SHELL_DEBUG_MODE" == "1" ]]; then
                     TRACE_FLAG_IF_WARP_SHELL_DEBUG_MODE="-x"

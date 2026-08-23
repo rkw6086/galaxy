@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+#
+# Builds the statically linked Linux helpers that Galaxy copies to Wormhole
+# hosts over SCP. The output layout is consumed directly by development builds
+# and copied into application bundles by prepare_bundled_resources:
+#
+#   resources/wormhole-helpers/
+#   ├── linux-x86_64/
+#   │   ├── galaxy-wormhole.tar.gz
+#   │   └── galaxy-wormhole.version
+#   └── linux-aarch64/
+#       ├── galaxy-wormhole.tar.gz
+#       └── galaxy-wormhole.version
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# These artifacts are committed and shipped with every desktop bundle, so use
+# the repository's size-optimized CLI profile. Ordinary `cargo run` builds do
+# not invoke this script.
+PROFILE="release-cli"
+REQUESTED_ARCH="all"
+
+usage() {
+  echo "Usage: $(basename "$0") [--arch x86_64|aarch64|all] [--profile PROFILE]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --arch)
+      REQUESTED_ARCH="$2"
+      shift 2
+      ;;
+    --profile)
+      PROFILE="$2"
+      shift 2
+      ;;
+    --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+case "$REQUESTED_ARCH" in
+  x86_64) TARGETS=("x86_64-unknown-linux-musl") ;;
+  aarch64) TARGETS=("aarch64-unknown-linux-musl") ;;
+  all) TARGETS=("x86_64-unknown-linux-musl" "aarch64-unknown-linux-musl") ;;
+  *)
+    echo "Unsupported Wormhole helper architecture: $REQUESTED_ARCH" >&2
+    usage
+    exit 1
+    ;;
+esac
+
+case "$PROFILE" in
+  dev) PROFILE_DIR="debug" ;;
+  *) PROFILE_DIR="$PROFILE" ;;
+esac
+
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$WORKSPACE_ROOT/target}"
+HELPERS_ROOT="$WORKSPACE_ROOT/resources/wormhole-helpers"
+FEATURES="release_bundle,standalone,agent_mode_debug,remote_codebase_indexing"
+
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+for target in "${TARGETS[@]}"; do
+  source "$SCRIPT_DIR/linux/configure_musl_toolchain" "$target"
+  if ! rustup target list --installed | grep -qx "$target"; then
+    rustup target add "$target"
+  fi
+
+  case "$target" in
+    x86_64-unknown-linux-musl) arch="x86_64" ;;
+    aarch64-unknown-linux-musl) arch="aarch64" ;;
+  esac
+
+  echo "Building Wormhole helper for linux-$arch"
+  cargo build \
+    --manifest-path "$WORKSPACE_ROOT/Cargo.toml" \
+    -p galaxy \
+    --bin galaxy-oss \
+    --target "$target" \
+    --profile "$PROFILE" \
+    --features "$FEATURES"
+
+  built_binary="$CARGO_TARGET_DIR/$target/$PROFILE_DIR/galaxy-oss"
+  if [[ ! -x "$built_binary" ]]; then
+    echo "Expected Wormhole helper was not produced at $built_binary" >&2
+    exit 1
+  fi
+
+  artifact_dir="$HELPERS_ROOT/linux-$arch"
+  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/galaxy-wormhole.XXXXXX")"
+  trap 'rm -rf "$staging_dir"' EXIT
+  mkdir -p "$artifact_dir"
+
+  cp "$built_binary" "$staging_dir/galaxy-ai-oss"
+  # Release profiles retain line-table symbols for desktop crash reports. The
+  # remote helper is shipped as a standalone artifact, so strip its staged
+  # copy to keep the committed archive and application bundle small without
+  # modifying Cargo's build output.
+  "$WARP_MUSL_STRIP" --strip-unneeded "$staging_dir/galaxy-ai-oss"
+  NO_LICENSES=1 SKIP_SETTINGS_SCHEMA=1 \
+    GALAXY_WORMHOLE_HELPERS_DIR="$staging_dir/no-wormhole-helpers" \
+    "$SCRIPT_DIR/prepare_bundled_resources" "$staging_dir/resources" oss "$PROFILE"
+
+  helper_version="$(hash_file "$staging_dir/galaxy-ai-oss")"
+  printf '%s\n' "$helper_version" > "$staging_dir/wormhole-version"
+  tar -czf "$artifact_dir/galaxy-wormhole.tar.gz" -C "$staging_dir" \
+    galaxy-ai-oss resources wormhole-version
+  printf '%s\n' "$helper_version" > "$artifact_dir/galaxy-wormhole.version"
+
+  rm -rf "$staging_dir"
+  trap - EXIT
+  echo "Wrote $artifact_dir/galaxy-wormhole.tar.gz"
+done

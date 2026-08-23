@@ -1309,7 +1309,9 @@ pub fn init(app: &mut AppContext) {
             },
         )
         .with_enabled(|| FeatureFlag::AgentMode.is_enabled())
-        .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
+        .with_context_predicate(
+            id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED) & !id!("CodeEditorView"),
+        )
         .with_group(bindings::BindingGroup::WarpAi.as_str())
         .with_custom_action(CustomAction::NewAgentModePane),
         EditableBinding::new(
@@ -1318,7 +1320,9 @@ pub fn init(app: &mut AppContext) {
             WorkspaceAction::ToggleAIAssistant,
         )
         .with_enabled(|| !FeatureFlag::AgentMode.is_enabled())
-        .with_context_predicate(id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED))
+        .with_context_predicate(
+            id!("Workspace") & id!(flags::IS_ANY_AI_ENABLED) & !id!("CodeEditorView"),
+        )
         .with_group(bindings::BindingGroup::WarpAi.as_str())
         // We use the same custom action as AM so that we don't have
         // two mac menu items for AM vs Warp AI since they are mutually exclusive.
@@ -1583,10 +1587,10 @@ fn add_open_setting_pages_as_editable_binding(app: &mut AppContext) {
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),
         EditableBinding::new(
-            "workspace:show_settings_warpify_page",
+            "workspace:show_settings_wormhole_page",
             BindingDescription::new("Open Settings: Wormhole")
                 .with_custom_description(bindings::MAC_MENUS_CONTEXT, "Configure Wormhole..."),
-            WorkspaceAction::ShowSettingsPage(SettingsSection::Warpify),
+            WorkspaceAction::ShowSettingsPage(SettingsSection::Wormhole),
         )
         .with_group(bindings::BindingGroup::Settings.as_str())
         .with_context_predicate(id!("Workspace")),

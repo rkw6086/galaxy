@@ -58,7 +58,7 @@ use super::view::{
     BlocklistAIRenderContext, InlineBannerId, RichContentMetadata, SeparatorId,
     SharedSessionBanners, TerminalEditor, TerminalViewRenderContext, BLOCK_BANNER_HEIGHT,
 };
-use super::warpify::render::{draw_flag_pole, render_subshell_flag};
+use super::wormhole::render::{draw_flag_pole, render_subshell_flag};
 use super::{heights_approx_eq, TerminalModel, HEIGHT_FUDGE_FACTOR_LINES};
 use crate::ai::blocklist::agent_view::{agent_view_bg_fill, AgentViewState};
 use crate::ai::blocklist::{ai_brand_color, ATTACH_AS_AGENT_MODE_CONTEXT_TEXT};
@@ -86,7 +86,7 @@ use crate::terminal::model::selection::{SelectAction, SelectionPoint};
 use crate::terminal::model::terminal_model::BlockIndex;
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::view::TerminalAction;
-use crate::terminal::warpify::SubshellSource;
+use crate::terminal::wormhole::SubshellSource;
 use crate::terminal::{grid_renderer, SizeInfo};
 use crate::themes::theme::{Fill, WarpTheme};
 use crate::ui_components::{self, icons as UIIcon};

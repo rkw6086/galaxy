@@ -62,6 +62,21 @@ else
   echo "Warning: No bundled directory found at $RESOURCES_SRC/bundled" >&2
 fi
 
+# Include the two statically linked Linux Wormhole helpers when they have been
+# produced by `script/build_wormhole_helpers`. They are checked into the
+# repository so ordinary Cargo builds never need a Linux cross-compiler;
+# packaged applications receive this copy in their filesystem resources.
+WORMHOLE_HELPERS_SRC="${GALAXY_WORMHOLE_HELPERS_DIR:-$REPO_ROOT/resources/wormhole-helpers}"
+if [ -d "$WORMHOLE_HELPERS_SRC" ]; then
+  echo "Copying Wormhole helpers to $DEST_DIR/wormhole-helpers"
+  rm -rf "$DEST_DIR/wormhole-helpers"
+  cp -R "$WORMHOLE_HELPERS_SRC" "$DEST_DIR/wormhole-helpers"
+elif [ "${REQUIRE_WORMHOLE_HELPERS:-0}" = "1" ]; then
+  echo "Error: Wormhole helpers were not found at $WORMHOLE_HELPERS_SRC" >&2
+  echo "Run script/build_wormhole_helpers before packaging Galaxy." >&2
+  exit 1
+fi
+
 if [ -n "$GIT_RELEASE_TAG" ]; then
   VERSION_METADATA_DIR="$DEST_DIR/bundled/metadata"
   VERSION_METADATA_PATH="$VERSION_METADATA_DIR/version.json"

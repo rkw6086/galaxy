@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use galaxy_core::features::FeatureFlag;
-use galaxyui::elements::{
-    Container, Flex, FormattedTextElement, HighlightedHyperlink, MouseStateHandle, ParentElement,
-};
+use galaxyui::elements::{Container, Flex, MouseStateHandle, ParentElement, Text};
 use galaxyui::keymap::ContextPredicate;
 use galaxyui::presenter::ChildView;
 use galaxyui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
@@ -14,7 +12,6 @@ use galaxyui::{
     Action, AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle,
 };
-use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use regex::Regex;
 use settings::{Setting, ToggleableSetting};
 use strum::IntoEnumIterator;
@@ -29,9 +26,9 @@ use super::{flags, SettingsAction, SettingsSection, ToggleSettingActionPair};
 use crate::appearance::Appearance;
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::{ReuseExistingSshControlMaster, SshSettings};
-use crate::terminal::warpify::settings::{
-    EnableSshWarpification, SshExtensionInstallMode, SshExtensionInstallModeSetting,
-    WarpifySettings, WarpifySettingsChangedEvent,
+use crate::terminal::wormhole::settings::{
+    EnableSshWormholing, SshExtensionInstallMode, SshExtensionInstallModeSetting, WormholeSettings,
+    WormholeSettingsChangedEvent,
 };
 use crate::ui_components::blended_colors;
 use crate::view_components::dropdown::{Dropdown, DropdownItem};
@@ -43,19 +40,19 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    // Add all of the toggle settings from the Warpify Page that you want to show up on the Command Palette here.
+    // Add all of the toggle settings from the Wormhole Page that you want to show up on the Command Palette here.
     let mut toggle_binding_pairs = vec![];
-    if WarpifySettings::as_ref(app)
-        .enable_ssh_warpification
+    if WormholeSettings::as_ref(app)
+        .enable_ssh_wormholing
         .is_supported_on_current_platform()
     {
         toggle_binding_pairs.push(ToggleSettingActionPair::new(
-            "SSH Warpification",
-            builder(SettingsAction::WarpifyPageToggle(
-                WarpifyPageAction::ToggleSshWarpification,
+            "SSH Wormholing",
+            builder(SettingsAction::WormholePageToggle(
+                WormholePageAction::ToggleSshWormholing,
             )),
             context,
-            flags::SSH_WARPIFICATION_CONTEXT_FLAG,
+            flags::SSH_WORMHOLING_CONTEXT_FLAG,
         ));
     }
 
@@ -68,17 +65,17 @@ const ITEM_VERTICAL_SPACING: f32 = 24.;
 const BUILT_IN_TEXT_INPUT_MARGIN: f32 = 10.;
 const SPACE_AFTER_TEXT_INPUT: f32 = ITEM_VERTICAL_SPACING - BUILT_IN_TEXT_INPUT_MARGIN;
 
-const SSH_REUSE_CONTROL_MASTER_DESCRIPTION: &str = "Attach to a live SSH ControlMaster you already have configured for the destination host instead of creating a Warp-owned one. Takes effect in new tabs.";
+const SSH_REUSE_CONTROL_MASTER_DESCRIPTION: &str = "Attach to a live SSH ControlMaster you already have configured for the destination host instead of creating a Galaxy-owned one. Takes effect in new tabs.";
 
 const SSH_EXTENSION_INSTALL_MODE_DESCRIPTION: &str =
-    "Controls the installation behavior for Galaxy's SSH extension when a remote host doesn't have it installed.";
+    "Controls how Galaxy installs the Wormhole helper when a remote host doesn't have it.";
 
-/// This page lets users configure when they get asked to warpify a session. Some shell commands
+/// This page lets users configure when they get asked to wormhole a session. Some shell commands
 /// are recognized by default. Users can add new shell commands, or prevent the default ones from
 /// asking. Users can also enable the SSH wrapper, and add hosts to a denylist.
 /// This page is essentially the View for the SubshellSettings model, as well as the SshSettings
-/// related to warpification.
-pub struct WarpifyPageView {
+/// related to wormholing.
+pub struct WormholePageView {
     page: PageType<Self>,
     /// This needs to mirror the length of SubshellSettings::added_remove_button_states.
     remove_added_command_button_states: Vec<MouseStateHandle>,
@@ -87,19 +84,19 @@ pub struct WarpifyPageView {
     remove_denylisted_command_button_states: Vec<MouseStateHandle>,
     add_denylisted_commands_editor: ViewHandle<SubmittableTextInput>,
 
-    ssh_extension_install_mode_dropdown: ViewHandle<Dropdown<WarpifyPageAction>>,
+    ssh_extension_install_mode_dropdown: ViewHandle<Dropdown<WormholePageAction>>,
 }
 
-impl WarpifyPageView {
+impl WormholePageView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
-        let warpify_settings_handle = WarpifySettings::handle(ctx);
+        let wormhole_settings_handle = WormholeSettings::handle(ctx);
 
-        ctx.observe(&warpify_settings_handle, Self::update_button_states);
-        ctx.subscribe_to_model(&warpify_settings_handle, move |me, model, event, ctx| {
+        ctx.observe(&wormhole_settings_handle, Self::update_button_states);
+        ctx.subscribe_to_model(&wormhole_settings_handle, move |me, model, event, ctx| {
             me.update_button_states(model, ctx);
             if matches!(
                 event,
-                WarpifySettingsChangedEvent::SshExtensionInstallModeSetting { .. }
+                WormholeSettingsChangedEvent::SshExtensionInstallModeSetting { .. }
             ) {
                 me.update_dropdown(ctx);
             }
@@ -143,20 +140,20 @@ impl WarpifyPageView {
             ssh_extension_install_mode_dropdown,
         };
 
-        instance.update_button_states(warpify_settings_handle, ctx);
+        instance.update_button_states(wormhole_settings_handle, ctx);
         instance
     }
 
     fn build_page(ctx: &mut ViewContext<Self>) -> PageType<Self> {
         let mut categories = vec![
-            Category::new("", vec![Box::new(TitleWidget::default())]),
+            Category::new("", vec![Box::new(TitleWidget)]),
             Category::new("Subshells", vec![Box::new(SubshellsWidget::default())])
                 .with_subtitle("Subshells supported: bash, zsh, and fish."),
         ];
 
-        let warpify_settings = WarpifySettings::as_ref(ctx);
-        if warpify_settings
-            .enable_ssh_warpification
+        let wormhole_settings = WormholeSettings::as_ref(ctx);
+        if wormhole_settings
+            .enable_ssh_wormholing
             .is_supported_on_current_platform()
         {
             categories.push(
@@ -171,16 +168,16 @@ impl WarpifyPageView {
     /// its delete button in the View.
     fn update_button_states(
         &mut self,
-        warpify_settings_handle: ModelHandle<WarpifySettings>,
+        wormhole_settings_handle: ModelHandle<WormholeSettings>,
         ctx: &mut ViewContext<Self>,
     ) {
-        let warpify_settings = warpify_settings_handle.as_ref(ctx);
-        self.remove_denylisted_command_button_states = warpify_settings
+        let wormhole_settings = wormhole_settings_handle.as_ref(ctx);
+        self.remove_denylisted_command_button_states = wormhole_settings
             .subshell_command_denylist
             .iter()
             .map(|_| Default::default())
             .collect();
-        self.remove_added_command_button_states = warpify_settings
+        self.remove_added_command_button_states = wormhole_settings
             .added_subshell_commands
             .iter()
             .map(|_| Default::default())
@@ -189,16 +186,16 @@ impl WarpifyPageView {
     }
 
     /// Syncs the install-mode dropdown selection with the current
-    /// `WarpifySettings::ssh_extension_install_mode` value (e.g. after it
+    /// `WormholeSettings::ssh_extension_install_mode` value (e.g. after it
     /// was changed from the SSH remote server choice view).
     fn update_dropdown(&mut self, ctx: &mut ViewContext<Self>) {
-        let current_mode = *WarpifySettings::as_ref(ctx)
+        let current_mode = *WormholeSettings::as_ref(ctx)
             .ssh_extension_install_mode
             .value();
         self.ssh_extension_install_mode_dropdown
             .update(ctx, |dropdown, ctx| {
                 dropdown.set_selected_by_action(
-                    WarpifyPageAction::SetSshExtensionInstallMode(current_mode),
+                    WormholePageAction::SetSshExtensionInstallMode(current_mode),
                     ctx,
                 );
             });
@@ -212,8 +209,8 @@ impl WarpifyPageView {
     ) {
         match event {
             SubmittableTextInputEvent::Submit(new_command) => {
-                WarpifySettings::handle(ctx).update(ctx, |warpify_settings, ctx| {
-                    warpify_settings.add_subshell_command(new_command, ctx);
+                WormholeSettings::handle(ctx).update(ctx, |wormhole_settings, ctx| {
+                    wormhole_settings.add_subshell_command(new_command, ctx);
                 });
 
                 send_telemetry_from_ctx!(TelemetryEvent::AddAddedSubshellCommand, ctx);
@@ -230,8 +227,8 @@ impl WarpifyPageView {
     ) {
         match event {
             SubmittableTextInputEvent::Submit(new_command) => {
-                WarpifySettings::handle(ctx).update(ctx, |warpify_settings, ctx| {
-                    warpify_settings.denylist_subshell_command(new_command, ctx);
+                WormholeSettings::handle(ctx).update(ctx, |wormhole_settings, ctx| {
+                    wormhole_settings.denylist_subshell_command(new_command, ctx);
                 });
 
                 send_telemetry_from_ctx!(TelemetryEvent::AddDenylistedSubshellCommand, ctx);
@@ -242,20 +239,20 @@ impl WarpifyPageView {
 
     fn remove_denylisted_command(&self, index: usize, ctx: &mut ViewContext<Self>) {
         send_telemetry_from_ctx!(TelemetryEvent::RemoveDenylistedSubshellCommand, ctx);
-        WarpifySettings::handle(ctx).update(ctx, |warpify, ctx| {
-            warpify.remove_denylisted_subshell_command(index, ctx)
+        WormholeSettings::handle(ctx).update(ctx, |wormhole, ctx| {
+            wormhole.remove_denylisted_subshell_command(index, ctx)
         });
     }
 
     fn remove_added_command(&self, index: usize, ctx: &mut ViewContext<Self>) {
         send_telemetry_from_ctx!(TelemetryEvent::RemoveAddedSubshellCommand, ctx);
-        WarpifySettings::handle(ctx).update(ctx, |warpify, ctx| {
-            warpify.remove_added_subshell_command(index, ctx)
+        WormholeSettings::handle(ctx).update(ctx, |wormhole, ctx| {
+            wormhole.remove_added_subshell_command(index, ctx)
         });
     }
 }
 
-impl Entity for WarpifyPageView {
+impl Entity for WormholePageView {
     type Event = SettingsPageEvent;
 }
 
@@ -272,25 +269,23 @@ fn build_sub_sub_title(title: &str, appearance: &Appearance) -> Container {
 
 const SSH_EXTENSION_DROPDOWN_WIDTH: f32 = 250.;
 
-impl WarpifyPageView {
+impl WormholePageView {
     fn create_ssh_extension_install_mode_dropdown(
         ctx: &mut ViewContext<Self>,
-    ) -> ViewHandle<Dropdown<WarpifyPageAction>> {
-        let items: Vec<DropdownItem<WarpifyPageAction>> = SshExtensionInstallMode::iter()
+    ) -> ViewHandle<Dropdown<WormholePageAction>> {
+        let items: Vec<DropdownItem<WormholePageAction>> = SshExtensionInstallMode::iter()
             .map(|mode| {
                 DropdownItem::new(
                     mode.display_name(),
-                    WarpifyPageAction::SetSshExtensionInstallMode(mode),
+                    WormholePageAction::SetSshExtensionInstallMode(mode),
                 )
             })
             .collect();
 
-        let current_mode = *WarpifySettings::as_ref(ctx)
+        let current_mode = *WormholeSettings::as_ref(ctx)
             .ssh_extension_install_mode
             .value();
-        let enable_ssh_warpification = *WarpifySettings::as_ref(ctx)
-            .enable_ssh_warpification
-            .value();
+        let enable_ssh_wormholing = *WormholeSettings::as_ref(ctx).enable_ssh_wormholing.value();
 
         ctx.add_typed_action_view(move |ctx| {
             let mut dropdown = Dropdown::new(ctx);
@@ -298,10 +293,10 @@ impl WarpifyPageView {
             dropdown.set_menu_width(SSH_EXTENSION_DROPDOWN_WIDTH, ctx);
             dropdown.add_items(items, ctx);
             dropdown.set_selected_by_action(
-                WarpifyPageAction::SetSshExtensionInstallMode(current_mode),
+                WormholePageAction::SetSshExtensionInstallMode(current_mode),
                 ctx,
             );
-            if !enable_ssh_warpification {
+            if !enable_ssh_wormholing {
                 dropdown.set_disabled(ctx);
             }
             dropdown
@@ -352,9 +347,9 @@ impl WarpifyPageView {
     }
 }
 
-impl View for WarpifyPageView {
+impl View for WormholePageView {
     fn ui_name() -> &'static str {
-        "WarpifyPageView"
+        "WormholePageView"
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
@@ -363,41 +358,38 @@ impl View for WarpifyPageView {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum WarpifyPageAction {
+pub enum WormholePageAction {
     RemoveAddedCommand(usize),
     RemoveDenylistedCommand(usize),
-    ToggleSshWarpification,
+    ToggleSshWormholing,
     /// Toggles whether the legacy SSH wrapper attaches to an existing
     /// ControlMaster for the destination host instead of creating its own.
     ToggleReuseSshControlMaster,
     /// Set the SSH extension installation mode (always ask / always install / always skip).
     SetSshExtensionInstallMode(SshExtensionInstallMode),
-    OpenUrl(String),
 }
 
-impl TypedActionView for WarpifyPageView {
-    type Action = WarpifyPageAction;
+impl TypedActionView for WormholePageView {
+    type Action = WormholePageAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
-        use WarpifyPageAction::*;
+        use WormholePageAction::*;
         match action {
             RemoveDenylistedCommand(index) => self.remove_denylisted_command(*index, ctx),
             RemoveAddedCommand(index) => self.remove_added_command(*index, ctx),
-            ToggleSshWarpification => {
-                WarpifySettings::handle(ctx).update(ctx, |ssh_settings, ctx| {
+            ToggleSshWormholing => {
+                WormholeSettings::handle(ctx).update(ctx, |ssh_settings, ctx| {
                     report_if_error!(ssh_settings
-                        .enable_ssh_warpification
+                        .enable_ssh_wormholing
                         .toggle_and_save_value(ctx));
                     send_telemetry_from_ctx!(
-                        TelemetryEvent::ToggleSshWarpification {
-                            enabled: *ssh_settings.enable_ssh_warpification.value(),
+                        TelemetryEvent::ToggleSshWormholing {
+                            enabled: *ssh_settings.enable_ssh_wormholing.value(),
                         },
                         ctx
                     );
                 });
-                let enabled = *WarpifySettings::as_ref(ctx)
-                    .enable_ssh_warpification
-                    .value();
+                let enabled = *WormholeSettings::as_ref(ctx).enable_ssh_wormholing.value();
                 self.ssh_extension_install_mode_dropdown
                     .update(ctx, |dropdown, ctx| {
                         if enabled {
@@ -425,8 +417,8 @@ impl TypedActionView for WarpifyPageView {
                 });
             }
             SetSshExtensionInstallMode(mode) => {
-                WarpifySettings::handle(ctx).update(ctx, |warpify_settings, ctx| {
-                    report_if_error!(warpify_settings
+                WormholeSettings::handle(ctx).update(ctx, |wormhole_settings, ctx| {
+                    report_if_error!(wormhole_settings
                         .ssh_extension_install_mode
                         .set_value(*mode, ctx));
                     send_telemetry_from_ctx!(
@@ -437,16 +429,13 @@ impl TypedActionView for WarpifyPageView {
                     );
                 });
             }
-            OpenUrl(url) => {
-                ctx.open_url(url.as_str());
-            }
         }
     }
 }
 
-impl SettingsPageMeta for WarpifyPageView {
+impl SettingsPageMeta for WormholePageView {
     fn section() -> SettingsSection {
-        SettingsSection::Warpify
+        SettingsSection::Wormhole
     }
 
     fn should_render(&self, _ctx: &AppContext) -> bool {
@@ -466,53 +455,39 @@ impl SettingsPageMeta for WarpifyPageView {
     }
 }
 
-impl From<ViewHandle<WarpifyPageView>> for SettingsPageViewHandle {
-    fn from(view_handle: ViewHandle<WarpifyPageView>) -> Self {
-        SettingsPageViewHandle::Warpify(view_handle)
+impl From<ViewHandle<WormholePageView>> for SettingsPageViewHandle {
+    fn from(view_handle: ViewHandle<WormholePageView>) -> Self {
+        SettingsPageViewHandle::Wormhole(view_handle)
     }
 }
 
 #[derive(Default)]
-struct TitleWidget {
-    learn_more_highlight_index: HighlightedHyperlink,
-}
+struct TitleWidget;
 
 impl TitleWidget {
     fn render_top_of_page(&self, appearance: &Appearance, _app: &AppContext) -> Box<dyn Element> {
-        let warpify_description = vec![
-            FormattedTextFragment::plain_text(
-                "Configure whether Galaxy attempts to \u{201c}Wormhole\u{201d} (add support for blocks, \
-                    input modes, etc) certain shells. ",
-            ),
-            FormattedTextFragment::hyperlink(
-                "Learn more",
-                "https://docs.warp.dev/terminal/warpify/subshells",
-            ),
-        ];
-
-        let warpify_description = FormattedTextElement::new(
-            FormattedText::new([FormattedTextLine::Line(warpify_description)]),
+        let wormhole_description = Text::new(
+            "Configure whether Galaxy attempts to \u{201c}Wormhole\u{201d} supported shells, adding blocks, full text editing, completions, and other Galaxy features."
+                .to_string(),
+            appearance.ui_font_family(),
             CONTENT_FONT_SIZE,
-            appearance.ui_font_family(),
-            appearance.ui_font_family(),
-            blended_colors::text_sub(appearance.theme(), appearance.theme().surface_1()),
-            self.learn_more_highlight_index.clone(),
         )
-        .with_hyperlink_font_color(appearance.theme().accent().into_solid())
-        .register_default_click_handlers(|url, _, ctx| {
-            ctx.open_url(&url.url);
-        })
+        .soft_wrap(true)
+        .with_color(blended_colors::text_sub(
+            appearance.theme(),
+            appearance.theme().surface_1(),
+        ))
         .finish();
 
         Flex::column()
             .with_child(render_page_title("Wormhole", HEADER_FONT_SIZE, appearance))
-            .with_child(warpify_description)
+            .with_child(wormhole_description)
             .finish()
     }
 }
 
 impl SettingsWidget for TitleWidget {
-    type View = WarpifyPageView;
+    type View = WormholePageView;
 
     fn search_terms(&self) -> &str {
         "ssh subshell galaxify session"
@@ -536,20 +511,20 @@ struct SubshellsWidget {}
 impl SubshellsWidget {
     fn render_subshells_section(
         &self,
-        view: &WarpifyPageView,
+        view: &WormholePageView,
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
         let mut column = Flex::column();
 
-        let warpify_settings = WarpifySettings::as_ref(app);
+        let wormhole_settings = WormholeSettings::as_ref(app);
 
         column.add_child(
             view.build_input_list(
                 "Added commands",
-                &warpify_settings.added_subshell_commands,
+                &wormhole_settings.added_subshell_commands,
                 &view.remove_added_command_button_states,
-                WarpifyPageAction::RemoveAddedCommand,
+                WormholePageAction::RemoveAddedCommand,
                 &view.add_added_commands_editor,
                 appearance,
             )
@@ -559,9 +534,9 @@ impl SubshellsWidget {
         column.add_child(
             view.build_input_list(
                 "Denylisted commands",
-                &warpify_settings.subshell_command_denylist,
+                &wormhole_settings.subshell_command_denylist,
                 &view.remove_denylisted_command_button_states,
-                WarpifyPageAction::RemoveDenylistedCommand,
+                WormholePageAction::RemoveDenylistedCommand,
                 &view.add_denylisted_commands_editor,
                 appearance,
             )
@@ -574,7 +549,7 @@ impl SubshellsWidget {
 }
 
 impl SettingsWidget for SubshellsWidget {
-    type View = WarpifyPageView;
+    type View = WormholePageView;
 
     fn search_terms(&self) -> &str {
         "galaxify subshell"
@@ -594,13 +569,13 @@ impl SettingsWidget for SubshellsWidget {
 
 #[derive(Default)]
 struct SSHWidget {
-    enable_ssh_warpification_switch_state: SwitchStateHandle,
+    enable_ssh_wormholing_switch_state: SwitchStateHandle,
     reuse_control_master_switch_state: SwitchStateHandle,
     local_only_icon_tooltip_states: RefCell<HashMap<String, MouseStateHandle>>,
 }
 
 impl SettingsWidget for SSHWidget {
-    type View = WarpifyPageView;
+    type View = WormholePageView;
 
     fn search_terms(&self) -> &str {
         "galaxify ssh"
@@ -618,31 +593,29 @@ impl SettingsWidget for SSHWidget {
             .theme()
             .sub_text_color(appearance.theme().surface_2());
 
-        let enable_ssh_warpification = *WarpifySettings::as_ref(app)
-            .enable_ssh_warpification
-            .value();
+        let enable_ssh_wormholing = *WormholeSettings::as_ref(app).enable_ssh_wormholing.value();
 
         add_setting(
             &mut column,
-            &WarpifySettings::as_ref(app).enable_ssh_warpification,
+            &WormholeSettings::as_ref(app).enable_ssh_wormholing,
             move || {
-                render_body_item::<WarpifyPageAction>(
+                render_body_item::<WormholePageAction>(
                     "Wormhole SSH Sessions".into(),
                     None,
                     LocalOnlyIconState::for_setting(
-                        EnableSshWarpification::storage_key(),
-                        EnableSshWarpification::sync_to_cloud(),
+                        EnableSshWormholing::storage_key(),
+                        EnableSshWormholing::sync_to_cloud(),
                         &mut self.local_only_icon_tooltip_states.borrow_mut(),
                         app,
                     ),
                     ToggleState::Enabled,
                     appearance,
                     ui_builder
-                        .switch(self.enable_ssh_warpification_switch_state.clone())
-                        .check(enable_ssh_warpification)
+                        .switch(self.enable_ssh_wormholing_switch_state.clone())
+                        .check(enable_ssh_wormholing)
                         .build()
                         .on_click(move |ctx, _, _| {
-                            ctx.dispatch_typed_action(WarpifyPageAction::ToggleSshWarpification);
+                            ctx.dispatch_typed_action(WormholePageAction::ToggleSshWormholing);
                         })
                         .finish(),
                     None,
@@ -651,18 +624,18 @@ impl SettingsWidget for SSHWidget {
         );
 
         if FeatureFlag::SshRemoteServer.is_enabled() {
-            let label_color_override = if !enable_ssh_warpification {
+            let label_color_override = if !enable_ssh_wormholing {
                 Some(appearance.theme().disabled_ui_text_color())
             } else {
                 None
             };
             add_setting(
                 &mut column,
-                &WarpifySettings::as_ref(app).ssh_extension_install_mode,
+                &WormholeSettings::as_ref(app).ssh_extension_install_mode,
                 move || {
                     Container::new(render_dropdown_item(
                         appearance,
-                        "Install SSH extension",
+                        "Install Wormhole helper",
                         Some(SSH_EXTENSION_INSTALL_MODE_DESCRIPTION),
                         None,
                         LocalOnlyIconState::for_setting(
@@ -688,7 +661,7 @@ impl SettingsWidget for SSHWidget {
             &SshSettings::as_ref(app).reuse_existing_control_master,
             move || {
                 let mut column = Flex::column();
-                column.add_child(render_body_item::<WarpifyPageAction>(
+                column.add_child(render_body_item::<WormholePageAction>(
                     "Reuse existing SSH ControlMaster".into(),
                     None,
                     LocalOnlyIconState::for_setting(
@@ -697,19 +670,19 @@ impl SettingsWidget for SSHWidget {
                         &mut self.local_only_icon_tooltip_states.borrow_mut(),
                         app,
                     ),
-                    enable_ssh_warpification.into(),
+                    enable_ssh_wormholing.into(),
                     appearance,
                     ui_builder
                         .switch(self.reuse_control_master_switch_state.clone())
                         .check(reuse_existing_control_master)
-                        .with_disabled(!enable_ssh_warpification)
+                        .with_disabled(!enable_ssh_wormholing)
                         .build()
                         .on_click(move |ctx, _, _| {
-                            if !enable_ssh_warpification {
+                            if !enable_ssh_wormholing {
                                 return;
                             }
                             ctx.dispatch_typed_action(
-                                WarpifyPageAction::ToggleReuseSshControlMaster,
+                                WormholePageAction::ToggleReuseSshControlMaster,
                             );
                         })
                         .finish(),

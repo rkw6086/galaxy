@@ -5,7 +5,6 @@ mod mouse;
 mod screenshot;
 
 use async_trait::async_trait;
-use galaxyui::r#async::Timer;
 use galaxyui_core::r#async::Timer;
 use pathfinder_geometry::vector::Vector2I;
 use x11rb::connection::Connection;

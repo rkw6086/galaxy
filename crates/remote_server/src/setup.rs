@@ -507,7 +507,18 @@ pub fn binary_check_command() -> String {
 /// the next install overwrites it, and an older daemon that is still
 /// running parsed its skills at startup.
 pub fn remote_server_removal_command() -> String {
-    format!("rm -f {}", remote_server_binary())
+    let binary = remote_server_binary();
+    format!("rm -f {binary} {binary}.wormhole-version")
+}
+
+/// Returns whether this channel ships a statically linked Linux Wormhole
+/// helper with the client instead of downloading a glibc-linked CLI artifact.
+///
+/// Static helpers do not depend on the remote host's libc implementation, so
+/// the glibc compatibility gate used by the hosted release channels does not
+/// apply to them.
+pub fn uses_static_linux_helper() -> bool {
+    matches!(ChannelState::channel(), Channel::Local | Channel::Oss)
 }
 
 /// Returns the version string used to pin remote-server installs on

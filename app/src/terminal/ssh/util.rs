@@ -78,7 +78,7 @@ pub fn check_ssh_login_state(block_output: &str) -> SshLoginState {
 }
 
 /// Represents the parsed components of an interactive SSH command.
-/// For some [`SshWarpifyCommand`]s, we do not support parsing
+/// For some [`SshWormholeCommand`]s, we do not support parsing
 /// a host or port In these cases, we can still parse to a valid
 /// empty `InteractiveSshCommand` to indicate that we did
 /// successfully detect an interactive SSH command.
@@ -150,25 +150,25 @@ pub enum SshLikeCommand {
 /// Represents the different kinds of commands we recognize as starting an interactive SSH
 /// session. `Ssh` means a literal `ssh` command, where all other commands (e.g. `gcloud
 /// compute ssh`) are categorized as SSH-like commands.
-pub enum SshWarpifyCommand {
+pub enum SshWormholeCommand {
     Ssh,
     SshLike(SshLikeCommand),
 }
 
-impl SshWarpifyCommand {
+impl SshWormholeCommand {
     /// Not a literal `ssh` command, but another command that starts an interactive SSH
     /// session.
     pub fn is_ssh_like_command(&self) -> bool {
-        matches!(self, SshWarpifyCommand::SshLike(_))
+        matches!(self, SshWormholeCommand::SshLike(_))
     }
 }
 
-impl SshWarpifyCommand {
-    pub fn matches(command: &str) -> Option<SshWarpifyCommand> {
+impl SshWormholeCommand {
+    pub fn matches(command: &str) -> Option<SshWormholeCommand> {
         let tokens = normalized_command_tokens(command)?;
         match tokens.as_slice() {
             [command, arguments @ ..] if command == "ssh" && !arguments.is_empty() => {
-                Some(SshWarpifyCommand::Ssh)
+                Some(SshWormholeCommand::Ssh)
             }
             [command, compute, ssh, arguments @ ..]
                 if command == "gcloud"
@@ -176,12 +176,14 @@ impl SshWarpifyCommand {
                     && ssh == "ssh"
                     && !arguments.is_empty() =>
             {
-                Some(SshWarpifyCommand::SshLike(SshLikeCommand::Gcloud))
+                Some(SshWormholeCommand::SshLike(SshLikeCommand::Gcloud))
             }
             [command, ssh, arguments @ ..]
                 if command == "eb" && ssh == "ssh" && !arguments.is_empty() =>
             {
-                Some(SshWarpifyCommand::SshLike(SshLikeCommand::ElasticBeanstalk))
+                Some(SshWormholeCommand::SshLike(
+                    SshLikeCommand::ElasticBeanstalk,
+                ))
             }
             [command, compute, ssh, arguments @ ..]
                 if command == "doctl"
@@ -189,7 +191,7 @@ impl SshWarpifyCommand {
                     && ssh == "ssh"
                     && !arguments.is_empty() =>
             {
-                Some(SshWarpifyCommand::SshLike(
+                Some(SshWormholeCommand::SshLike(
                     SshLikeCommand::DigitalOceanDroplet,
                 ))
             }
@@ -199,15 +201,15 @@ impl SshWarpifyCommand {
 }
 
 pub fn parse_interactive_ssh_command(command: &str) -> Option<InteractiveSshCommand> {
-    match SshWarpifyCommand::matches(command) {
-        Some(SshWarpifyCommand::Ssh) => InteractiveSshCommand::parse_ssh_command(command),
-        Some(SshWarpifyCommand::SshLike(SshLikeCommand::Gcloud)) => {
+    match SshWormholeCommand::matches(command) {
+        Some(SshWormholeCommand::Ssh) => InteractiveSshCommand::parse_ssh_command(command),
+        Some(SshWormholeCommand::SshLike(SshLikeCommand::Gcloud)) => {
             Some(InteractiveSshCommand::default())
         }
-        Some(SshWarpifyCommand::SshLike(SshLikeCommand::ElasticBeanstalk)) => {
+        Some(SshWormholeCommand::SshLike(SshLikeCommand::ElasticBeanstalk)) => {
             Some(InteractiveSshCommand::default())
         }
-        Some(SshWarpifyCommand::SshLike(SshLikeCommand::DigitalOceanDroplet)) => {
+        Some(SshWormholeCommand::SshLike(SshLikeCommand::DigitalOceanDroplet)) => {
             Some(InteractiveSshCommand::default())
         }
         None => None,
@@ -299,7 +301,7 @@ fn executable_name(executable: &str) -> String {
         .to_ascii_lowercase()
 }
 
-/// Creates an sftp command that copies a given local file into the pwd in the warpified ssh session.
+/// Creates an sftp command that copies a given local file into the pwd in the wormholed ssh session.
 pub fn transfer_file_sftp_command(
     local_file_path: String,
     ssh_host: String,

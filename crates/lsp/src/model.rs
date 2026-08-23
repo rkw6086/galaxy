@@ -16,7 +16,8 @@ use jsonrpc::ServerNotificationEvent;
 use lsp_types::notification::{self, Notification};
 use lsp_types::{
     CompletionItem, CompletionTriggerKind, FormattingOptions, NumberOrString, ProgressParams,
-    ProgressParamsValue, PublishDiagnosticsParams, Range as LspRange, WorkDoneProgress,
+    ProgressParamsValue, PublishDiagnosticsParams, Range as LspRange, TextDocumentSyncCapability,
+    TextDocumentSyncKind, WorkDoneProgress,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use simple_logger::manager::LogManager;
@@ -529,6 +530,41 @@ impl LspServerModel {
                 .did_change(&path, version.as_i32(), deltas)
                 .await
         })
+    }
+
+    /// Whether the server requires each document change to contain the full document.
+    pub fn requires_full_document_sync(&self) -> bool {
+        let Ok(service) = self.service() else {
+            return false;
+        };
+        let Some(sync) = service
+            .server_capabilities()
+            .as_ref()
+            .and_then(|capabilities| capabilities.text_document_sync.as_ref())
+        else {
+            return false;
+        };
+
+        match sync {
+            TextDocumentSyncCapability::Kind(kind) => *kind == TextDocumentSyncKind::FULL,
+            TextDocumentSyncCapability::Options(options) => {
+                options.change == Some(TextDocumentSyncKind::FULL)
+            }
+        }
+    }
+
+    /// Whether the server can resolve additional details for completion items.
+    pub fn supports_completion_resolve(&self) -> bool {
+        let Ok(service) = self.service() else {
+            return false;
+        };
+
+        service
+            .server_capabilities()
+            .as_ref()
+            .and_then(|capabilities| capabilities.completion_provider.as_ref())
+            .and_then(|options| options.resolve_provider)
+            .unwrap_or(false)
     }
 
     pub fn did_change_watched_files(&self, events: Vec<WatchedFileChangeEvent>) -> Result<()> {

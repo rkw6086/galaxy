@@ -78,6 +78,7 @@ pub async fn spawn_lsp_service(
     logger: Option<SimpleLogger>,
 ) -> Result<LspServiceInitializationResult> {
     let workspace_root = config.initial_workspace().to_path_buf();
+    let post_initialize_notifications = config.post_initialize_notifications().to_vec();
 
     let resolved = match config.command_and_params().await {
         Ok(resolved) => resolved,
@@ -117,6 +118,12 @@ pub async fn spawn_lsp_service(
             logger.log(format!("[startup error] {e}"));
         }
         return Err(e);
+    }
+
+    for (method, params) in post_initialize_notifications {
+        service
+            .send_custom_notification_and_wait(method, params)
+            .await?;
     }
 
     Ok(LspServiceInitializationResult {

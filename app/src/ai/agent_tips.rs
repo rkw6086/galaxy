@@ -289,7 +289,7 @@ static DEFAULT_TIPS: LazyLock<Vec<AgentTip>> = LazyLock::new(|| {
         },
         AgentTip {
             description: "Wormhole a remote SSH session to enable the agent inside that environment.".to_string(),
-            link: Some("https://docs.warp.dev/terminal/warpify".to_string()),
+            link: None,
             binding_name: None,
             action: None,
             kind: AgentTipKind::General,

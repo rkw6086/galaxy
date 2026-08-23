@@ -4,6 +4,8 @@ mod scp_fallback;
 use std::path::Path;
 
 use anyhow::Result;
+use galaxy_core::channel::{Channel, ChannelState};
+use remote_server::setup::RemotePlatform;
 use remote_server::ssh::SshCommandError;
 use remote_server::transport::{Error, InstallOutcome, InstallSource};
 
@@ -13,28 +15,38 @@ use remote_server::transport::{Error, InstallOutcome, InstallSource};
 pub(super) async fn install_binary(socket_path: &Path) -> InstallOutcome {
     let binary_path = remote_server::setup::remote_server_binary();
     log::info!("Installing remote server binary to {binary_path}");
-    let mut outcome = match install_on_server(socket_path).await {
-        Ok(()) => InstallOutcome {
-            source: Some(InstallSource::Server),
-            result: Ok(()),
-        },
-        Err(server_err) => {
-            if scp_fallback::should_try_install(&server_err) {
-                log::info!("Remote server install failed; falling back to SCP upload");
-                match scp_fallback::install(socket_path).await {
-                    Ok(()) => InstallOutcome {
-                        source: Some(InstallSource::Client),
-                        result: Ok(()),
-                    },
-                    Err(e) => InstallOutcome {
-                        source: Some(InstallSource::Client),
-                        result: Err(e),
-                    },
-                }
-            } else {
-                InstallOutcome {
-                    source: Some(InstallSource::Server),
-                    result: Err(server_err),
+    let mut outcome = if matches!(ChannelState::channel(), Channel::Local | Channel::Oss) {
+        // Local-first builds never contact Warp's release service. Their
+        // statically linked Linux helpers are bundled with Galaxy and copied
+        // through the SSH connection instead.
+        InstallOutcome {
+            source: Some(InstallSource::Client),
+            result: scp_fallback::install_local_helper(socket_path).await,
+        }
+    } else {
+        match install_on_server(socket_path).await {
+            Ok(()) => InstallOutcome {
+                source: Some(InstallSource::Server),
+                result: Ok(()),
+            },
+            Err(server_err) => {
+                if scp_fallback::should_try_install(&server_err) {
+                    log::info!("Remote server install failed; falling back to SCP upload");
+                    match scp_fallback::install(socket_path).await {
+                        Ok(()) => InstallOutcome {
+                            source: Some(InstallSource::Client),
+                            result: Ok(()),
+                        },
+                        Err(e) => InstallOutcome {
+                            source: Some(InstallSource::Client),
+                            result: Err(e),
+                        },
+                    }
+                } else {
+                    InstallOutcome {
+                        source: Some(InstallSource::Server),
+                        result: Err(server_err),
+                    }
                 }
             }
         }
@@ -71,6 +83,13 @@ pub(super) async fn install_binary(socket_path: &Path) -> InstallOutcome {
     }
 
     outcome
+}
+
+/// Returns the build marker for the static helper bundled for `platform`, if
+/// this client has one. The SSH transport uses this to avoid copying the helper
+/// when the matching build is already installed remotely.
+pub(super) async fn local_helper_version(platform: &RemotePlatform) -> Option<String> {
+    scp_fallback::local_helper_version(platform).await
 }
 
 /// Runs the install script on the remote host to download and install the

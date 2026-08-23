@@ -1860,7 +1860,10 @@ impl RemoteServerManager {
                     // surfaced as `None`, which the controller treats as
                     // inconclusive (fail open).
                     let preinstall = match &platform {
-                        Some(p) if matches!(p.os, RemoteOs::Linux) => {
+                        Some(p)
+                            if matches!(p.os, RemoteOs::Linux)
+                                && !crate::setup::uses_static_linux_helper() =>
+                        {
                             match transport.run_preinstall_check().await {
                                 Ok(r) => Some(r),
                                 Err(e) => {

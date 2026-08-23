@@ -814,8 +814,8 @@ pub enum FeatureFlag {
     /// Enables Custom Inference endpoints for enterprise users.
     CustomInferenceEndpointsEnterprise,
 
-    /// Replaces the in-block warpification banner with a warpify footer.
-    WarpifyFooter,
+    /// Replaces the in-block wormholing banner with a wormhole footer.
+    WormholeFooter,
 
     /// Enables conversation retrieval via the CLI (oz run conversation get, oz run get --conversation).
     ConversationApi,

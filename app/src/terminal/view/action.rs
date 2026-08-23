@@ -67,7 +67,7 @@ pub enum OnboardingVersion {
 /// This represents whether entering a subshell for a particular command should become automatic in
 /// the future, or to ask again.
 #[derive(Clone, Debug)]
-pub enum RememberForWarpification {
+pub enum RememberForWormholing {
     /// If yes, need to transmit the command itself so it can be persisted to user-defaults
     RememberSubshellCommand(String),
     RememberSSHHost(String),
@@ -75,22 +75,22 @@ pub enum RememberForWarpification {
     DoNotRememberSSHHost,
 }
 
-impl RememberForWarpification {
+impl RememberForWormholing {
     pub fn as_bool(&self) -> bool {
         match self {
-            RememberForWarpification::RememberSubshellCommand(_) => true,
-            RememberForWarpification::RememberSSHHost(_) => true,
-            RememberForWarpification::DoNotRememberSubshellCommand => false,
-            RememberForWarpification::DoNotRememberSSHHost => false,
+            RememberForWormholing::RememberSubshellCommand(_) => true,
+            RememberForWormholing::RememberSSHHost(_) => true,
+            RememberForWormholing::DoNotRememberSubshellCommand => false,
+            RememberForWormholing::DoNotRememberSSHHost => false,
         }
     }
 
     pub fn is_ssh(&self) -> bool {
         match self {
-            RememberForWarpification::RememberSSHHost(_) => true,
-            RememberForWarpification::DoNotRememberSSHHost => true,
-            RememberForWarpification::RememberSubshellCommand(_) => false,
-            RememberForWarpification::DoNotRememberSubshellCommand => false,
+            RememberForWormholing::RememberSSHHost(_) => true,
+            RememberForWormholing::DoNotRememberSSHHost => true,
+            RememberForWormholing::RememberSubshellCommand(_) => false,
+            RememberForWormholing::DoNotRememberSubshellCommand => false,
         }
     }
 }
@@ -284,8 +284,8 @@ pub enum TerminalAction {
     },
     /// Starts a subshell in the active session.
     TriggerSubshellBootstrap,
-    /// If the user says "no" to Warpification, possibly requesting not to be asked again
-    DismissWarpifyBanner(RememberForWarpification),
+    /// If the user says "no" to Wormholing, possibly requesting not to be asked again
+    DismissWormholeBanner(RememberForWormholing),
     /// Triggers the banner asking to turn the running block into a subshell. The String is the
     /// command that the user entered.
     ShowSubshellBanner(String),
@@ -342,7 +342,7 @@ pub enum TerminalAction {
     GenerateCodebaseIndex,
     /// This is for debugging, dev only for now
     LoadAgentModeConversation,
-    ShowWarpifySettings,
+    ShowWormholeSettings,
     /// Removes a pending attachment (image or file) by index in the unified list.
     DeleteAttachment {
         index: usize,
@@ -622,7 +622,7 @@ impl fmt::Debug for TerminalAction {
             OpenBlockListContextMenu => f.write_str("OpenBlockListContextMenu"),
             AskAIAssistant { block_index } => write!(f, "AskAIAssistant({block_index:?})"),
             TriggerSubshellBootstrap => f.write_str("TriggerSubshellBootstrap"),
-            DismissWarpifyBanner(remember) => write!(f, "DismissWarpifyBanner({remember:?})"),
+            DismissWormholeBanner(remember) => write!(f, "DismissWormholeBanner({remember:?})"),
             ShowSubshellBanner(_) => f.write_str("ShowSubshellBanner"),
             InsertMostRecentCommandCorrection => f.write_str("InsertMostRecentCommandCorrection"),
             AliasExpansionBanner(action) => write!(f, "AliasExpansionBanner({action:?}"),
@@ -682,7 +682,7 @@ impl fmt::Debug for TerminalAction {
             ShowInitializationBlock => write!(f, "ShowInitializationBlock"),
             GenerateCodebaseIndex => write!(f, "GenerateIndexForRepo"),
             LoadAgentModeConversation => write!(f, "LoadAgentModeConversation"),
-            ShowWarpifySettings => write!(f, "ShowWarpifySettings"),
+            ShowWormholeSettings => write!(f, "ShowWormholeSettings"),
             DeleteAttachment { index } => write!(f, "DeleteAttachment({index:?})"),
             OpenAttachmentLightbox { index } => {
                 write!(f, "OpenAttachmentLightbox({index:?})")

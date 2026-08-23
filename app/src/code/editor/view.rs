@@ -158,6 +158,8 @@ pub enum CodeEditorEvent {
     CompletionNavigateDown,
     /// Emitted when Tab/Enter is pressed and completion_intercept_keys is active.
     CompletionConfirm,
+    /// Emitted when the manual completion keybinding is pressed.
+    CompletionTrigger,
 }
 
 /// Store all states related to displaying the editor content.

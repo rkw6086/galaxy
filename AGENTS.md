@@ -338,7 +338,7 @@ The code editor has full LSP-powered autocompletion with documentation resolutio
 **Behavior:**
 - Auto-completes as you type (triggered by alphanumeric/underscore with 50ms debounce)
 - Trigger characters: `.` and `::` fire immediately
-- Manual trigger: `Ctrl+Alt+Space`
+- Manual trigger: `Ctrl+Space` while the code editor is focused
 - Keyboard navigation: Up/Down to select, Tab/Enter to confirm
 - Mouse: hover an item to select it and show docs, click to confirm
 - Documentation panel appears beside the menu when the LSP returns docs for the selected item (via `completionItem/resolve`)

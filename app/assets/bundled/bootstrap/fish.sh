@@ -603,7 +603,7 @@ end
 
 # The SSH logic only applies to local sessions, because we don't yet have support for bootstrapping
 # recursive SSH sessions.
-if test "$WARP_IS_LOCAL_SHELL_SESSION" = "1"
+if test "$GALAXY_IS_LOCAL_SHELL_SESSION" = "1"
     function is_interactive_ssh_session
         # Parse through all ssh options, as defined in the ssh man pages.  Send
         # stderr to /dev/null to silence argparse output when an option is invalid.
@@ -652,7 +652,7 @@ if test "$WARP_IS_LOCAL_SHELL_SESSION" = "1"
         set -l control_path "$SSH_SOCKET_DIR/$WARP_SESSION_ID"
         set -l control_master_mode "yes"
         set -l external_control_master "false"
-        if test "$WARP_SSH_REUSE_CONTROL_MASTER" = "1"
+        if test "$GALAXY_SSH_REUSE_CONTROL_MASTER" = "1"
             set -l user_control_path (command ssh -G $argv 2>/dev/null | command sed -n 's/^controlpath //p')
             # Skip when no ControlPath is configured, and reject resolved
             # paths containing characters we cannot safely embed in the SSH
@@ -681,9 +681,9 @@ if test "$WARP_IS_LOCAL_SHELL_SESSION" = "1"
         -t $argv \
 "
 export TERM_PROGRAM='WarpTerminal'
-test -n '$WARP_CLIENT_VERSION' && export WARP_CLIENT_VERSION='$WARP_CLIENT_VERSION'
+test -n '$GALAXY_CLIENT_VERSION' && export GALAXY_CLIENT_VERSION='$GALAXY_CLIENT_VERSION'
 # Only forward the protocol version if it was set locally (i.e. the HOANotifications feature flag is on).
-test -n '$WARP_CLI_AGENT_PROTOCOL_VERSION' && export WARP_CLI_AGENT_PROTOCOL_VERSION='$WARP_CLI_AGENT_PROTOCOL_VERSION'
+test -n '$GALAXY_CLI_AGENT_PROTOCOL_VERSION' && export GALAXY_CLI_AGENT_PROTOCOL_VERSION='$GALAXY_CLI_AGENT_PROTOCOL_VERSION'
 hook="'$(printf "{\"hook\": \"SSH\", \"value\": {\"socket_path\": \"'$control_path'\", \"remote_shell\": \"%s\", \"session_id\": '"$WARP_SESSION_ID"', \"remote_session_id\": '"$remote_session_id"', \"external_control_master\": '"$external_control_master"'}}" "${SHELL##*/}" | command od -An -v -tx1 | command tr -d " \n")'"
 printf '$DCS_START$DCS_JSON_MARKER%s$DCS_END' "'$hook'"
 
@@ -753,7 +753,7 @@ esac
         if is_interactive_ssh_session $argv
             warp_send_json_message "{\"hook\": \"PreInteractiveSSHSession\", \"value\": {\"session_id\": $WARP_SESSION_ID}}"
 
-            if [ "$WARP_USE_SSH_WRAPPER" = "1" ]
+            if [ "$GALAXY_USE_SSH_WRAPPER" = "1" ]
                 if test $WARP_SHELL_DEBUG_MODE
                     set -g TRACE_FLAG_IF_WARP_SHELL_DEBUG_MODE "-x"
                 else

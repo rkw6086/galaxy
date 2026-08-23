@@ -15,6 +15,7 @@ use crate::servers::clangd::ClangdCandidate;
 use crate::servers::go::GoPlsCandidate;
 use crate::servers::pyright::PyrightCandidate;
 use crate::servers::rust::RustAnalyzerCandidate;
+use crate::servers::tombi::TombiCandidate;
 use crate::servers::typescript_language_server::TypeScriptLanguageServerCandidate;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::CommandBuilder;
@@ -45,6 +46,7 @@ pub enum LSPServerType {
     Pyright,
     TypeScriptLanguageServer,
     Clangd,
+    Tombi,
 }
 
 /// Provides server-specific configuration for each LSP server type.
@@ -112,6 +114,12 @@ impl LSPServerType {
                     binary_path: path,
                     prepend_args: vec![],
                 }),
+            LSPServerType::Tombi => TombiCandidate::find_installed_binary_in_data_dir()
+                .await
+                .map(|path| CustomBinaryConfig {
+                    binary_path: path,
+                    prepend_args: vec![],
+                }),
         }
     }
 
@@ -135,6 +143,7 @@ impl LSPServerType {
             LSPServerType::Pyright => "pyright-langserver",
             LSPServerType::TypeScriptLanguageServer => "typescript-language-server",
             LSPServerType::Clangd => "clangd",
+            LSPServerType::Tombi => "tombi",
         }
     }
 
@@ -144,6 +153,7 @@ impl LSPServerType {
         match self {
             LSPServerType::RustAnalyzer | LSPServerType::GoPls | LSPServerType::Clangd => vec![],
             LSPServerType::Pyright | LSPServerType::TypeScriptLanguageServer => vec!["--stdio"],
+            LSPServerType::Tombi => vec!["lsp", "--offline"],
         }
     }
 
@@ -157,6 +167,7 @@ impl LSPServerType {
             LSPServerType::Pyright => vec!["--stdio"],
             LSPServerType::TypeScriptLanguageServer => vec!["--stdio"],
             LSPServerType::Clangd => vec![],
+            LSPServerType::Tombi => vec!["lsp", "--offline"],
         }
     }
 
@@ -175,6 +186,7 @@ impl LSPServerType {
                 ]
             }
             LSPServerType::Clangd => vec![LanguageId::C, LanguageId::Cpp],
+            LSPServerType::Tombi => vec![LanguageId::Toml],
         }
     }
 
@@ -219,7 +231,11 @@ impl LSPServerType {
                 )
                 .await
             }
-            _ => None,
+            LSPServerType::Tombi => None,
+            LSPServerType::RustAnalyzer
+            | LSPServerType::GoPls
+            | LSPServerType::Pyright
+            | LSPServerType::Clangd => None,
         }
     }
 
@@ -232,6 +248,7 @@ impl LSPServerType {
                 Box::new(TypeScriptLanguageServerCandidate::new(client))
             }
             LSPServerType::Clangd => Box::new(ClangdCandidate::new(client)),
+            LSPServerType::Tombi => Box::new(TombiCandidate::new(client)),
         }
     }
 
