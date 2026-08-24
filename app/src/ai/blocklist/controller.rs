@@ -116,13 +116,13 @@ const PROGRESSIVE_SUMMARY_OUTPUT_TOKENS: u32 = 8_000;
 const PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS: u32 = 2_000;
 const PROGRESSIVE_SUMMARY_START_TIMEOUT: Duration = Duration::from_secs(120);
 const PROGRESSIVE_SUMMARY_EVENT_TIMEOUT: Duration = Duration::from_secs(300);
-const PROGRESSIVE_SUMMARY_PROMPT: &str = "Summarize the following conversation history. Preserve:\n\
-    - All decisions made and their rationale\n\
-    - All file paths modified and what was changed\n\
-    - All tool calls with their significant results (commands run, files read, errors encountered)\n\
-    - Current task state and any pending work\n\
-    - Technical details, code patterns, and architecture discussed\n\n\
-    Be comprehensive. This summary will be the only record of these exchanges.";
+const PROGRESSIVE_SUMMARY_PROMPT: &str = "Create a concise, factual task-state checkpoint from the following conversation history. Preserve:\n\
+    - The user's current goal, constraints, and durable preferences\n\
+    - Decisions made and the rationale needed to continue\n\
+    - Files changed and the material result of each change\n\
+    - Significant tool outcomes, errors, identifiers, and unresolved blockers\n\
+    - Current progress and the next concrete steps\n\n\
+    Omit greetings, agreement, praise, reassurance, filler, routine status narration, repeated content, and stylistic assistant phrasing. Summarize completed tool work by outcome instead of listing every call. Do not quote prior assistant wording unless its exact text is task-critical. Return only the checkpoint, structured for another agent to resume the work.";
 
 #[derive(Clone)]
 struct ProgressiveSummaryCandidate {
@@ -335,22 +335,13 @@ fn progressive_summary_content(
 }
 
 fn progressive_summary_messages(summary: String) -> Vec<ConversationMessage> {
-    vec![
-        ConversationMessage {
-            role: MessageRole::User,
-            content: MessageContent::Text(format!(
-                "<conversation-history-summary>\n{summary}\n</conversation-history-summary>\n\n\
-                 The above summarizes earlier conversation history. The detailed messages below are the most recent exchanges."
-            )),
-        },
-        ConversationMessage {
-            role: MessageRole::Assistant,
-            content: MessageContent::Text(
-                "Understood, I have the prior context. Continuing with the recent conversation."
-                    .to_string(),
-            ),
-        },
-    ]
+    vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text(format!(
+            "<conversation-history-summary>\n{summary}\n</conversation-history-summary>\n\n\
+             The above summarizes earlier conversation history. The detailed messages below are the most recent exchanges."
+        )),
+    }]
 }
 
 async fn collect_progressive_summary(
@@ -6859,6 +6850,7 @@ impl BlocklistAIController {
                     let retained = transcript[plan.split_point..].to_vec();
                     let retained_count = retained.len();
                     let summary_prefix = progressive_summary_messages(summary.clone());
+                    let summary_prefix_len = summary_prefix.len();
                     let summary_prefix_tokens = estimated_history_tokens(&summary_prefix);
                     if let Err(error) = run
                         .coordinator
@@ -6870,7 +6862,7 @@ impl BlocklistAIController {
                             format!("failed to compact provider transcript: {error}"),
                         );
                     } else {
-                        run.persistence_offset = 2;
+                        run.persistence_offset = summary_prefix_len;
                         if let Ok(mut messages_sent) = run.messages_sent.lock() {
                             *messages_sent = retained.clone();
                         }
@@ -9812,13 +9804,7 @@ impl BlocklistAIController {
         }
         summarize_content.push_str("</messages-to-summarize>");
 
-        let summarize_prompt = "Summarize the following conversation history. Preserve:\n\
-            - All decisions made and their rationale\n\
-            - All file paths modified and what was changed\n\
-            - All tool calls with their significant results (commands run, files read, errors encountered)\n\
-            - Current task state and any pending work\n\
-            - Technical details, code patterns, and architecture discussed\n\n\
-            Be comprehensive. This summary will be the only record of these exchanges.";
+        let summarize_prompt = PROGRESSIVE_SUMMARY_PROMPT;
 
         let estimated_summary_input_tokens = estimated_text_tokens(summarize_prompt)
             .saturating_add(estimated_text_tokens(&summarize_content));

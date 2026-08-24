@@ -741,13 +741,13 @@ fn progressive_summary_is_provider_context_not_persistent_history() {
     let prepared = prepare_rig_turn(&config(), params, Vec::new(), Vec::new());
 
     assert_eq!(prepared.persistent_messages.len(), 1);
-    assert_eq!(prepared.request.messages.len(), 3);
+    assert_eq!(prepared.request.messages.len(), 2);
     assert!(matches!(
         &prepared.request.messages[0].content,
         MessageContent::Text(text) if text.contains("Earlier work was validated.")
     ));
     assert!(matches!(
-        &prepared.request.messages[2].content,
+        &prepared.request.messages[1].content,
         MessageContent::Text(text) if text == "Continue"
     ));
 }
