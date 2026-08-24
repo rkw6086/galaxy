@@ -1820,7 +1820,7 @@ impl LLMPreferences {
 
     #[cfg(not(target_family = "wasm"))]
     async fn discover_chatgpt_subscription_models() -> Result<Vec<OpenAIModelConfig>, String> {
-        let credentials = crate::ai::chatgpt_auth::load_or_import_auth_credentials()?;
+        let credentials = crate::ai::chatgpt_auth::load_or_refresh_auth_credentials().await?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()

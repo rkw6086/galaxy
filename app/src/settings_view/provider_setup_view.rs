@@ -170,8 +170,6 @@ pub enum ProviderSetupViewAction {
     ToggleModel(usize),
     CycleModelCapability(usize, CapabilityKey),
     ConnectChatGPT,
-    OpenChatGPTDevicePage,
-    CopyChatGPTDeviceCode,
     SelectBedrockAuth(BedrockAuthMethod),
     ToggleBedrockCrossRegion,
     ToggleBedrockAutoLogin,
@@ -2233,12 +2231,6 @@ impl TypedActionView for ProviderSetupView {
             ProviderSetupViewAction::ConnectChatGPT => {
                 #[cfg(not(target_family = "wasm"))]
                 ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
-            }
-            ProviderSetupViewAction::OpenChatGPTDevicePage => {
-                // No-op: device-code flow removed in favor of browser OAuth.
-            }
-            ProviderSetupViewAction::CopyChatGPTDeviceCode => {
-                // No-op: device-code flow removed in favor of browser OAuth.
             }
             ProviderSetupViewAction::SelectBedrockAuth(method) => {
                 self.draft_bedrock.auth_method = *method;

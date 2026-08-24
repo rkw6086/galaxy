@@ -112,8 +112,6 @@ pub enum UriHost {
     TabConfig,
     /// Focuses a specific terminal pane by its persistent session UUID.
     Session,
-    /// Handles OAuth callbacks for ChatGPT subscription authorization.
-    ChatGPT,
 }
 
 impl FromStr for UriHost {
@@ -137,7 +135,6 @@ impl FromStr for UriHost {
             "linear" => Ok(Self::Linear),
             "tab_config" if FeatureFlag::TabConfigs.is_enabled() => Ok(Self::TabConfig),
             "session" => Ok(Self::Session),
-            "chatgpt" => Ok(Self::ChatGPT),
             _ => Err(anyhow!("Received url with unexpected host: {}", s)),
         }
     }
@@ -573,13 +570,6 @@ impl UriHost {
                     log::warn!("session deep link could not find pane with given UUID");
                 }
             }
-            UriHost::ChatGPT => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    crate::ai::chatgpt_auth::ChatGPTAuthModel::handle(ctx)
-                        .update(ctx, |model, ctx| model.handle_oauth_callback(url, ctx));
-                }
-            }
         }
     }
 
@@ -605,7 +595,6 @@ impl UriHost {
             // Handler picks the window itself based on `?new_window=true`.
             Self::TabConfig => W::Nothing,
             Self::Session => W::Nothing,
-            Self::ChatGPT => W::Nothing,
         }
     }
 }
@@ -1680,8 +1669,7 @@ fn validate_custom_uri(url: &Url) -> Result<UriHost> {
         | UriHost::Codex
         | UriHost::Linear
         | UriHost::TabConfig
-        | UriHost::Session
-        | UriHost::ChatGPT => true,
+        | UriHost::Session => true,
         // Auth and Home only allow the desktop redirect path
         UriHost::Auth | UriHost::Home => false,
     };

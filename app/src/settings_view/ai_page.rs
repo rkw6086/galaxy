@@ -63,8 +63,6 @@ use crate::ai::blocklist::agent_view::agent_input_footer::editor::{
     AgentToolbarEditorMode, AgentToolbarInlineEditor,
 };
 use crate::ai::blocklist::BlocklistAIPermissions;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent};
 use crate::ai::execution_profiles::model_menu_items::available_model_menu_items;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::execution_profiles::profiles::{
@@ -2969,9 +2967,6 @@ pub enum AISettingsPageAction {
     CreateProfile,
     ToggleBedrockEnabled,
     ToggleOpenAIEnabled,
-    ConnectChatGPTSubscription,
-    OpenChatGPTDevicePage,
-    CopyChatGPTDeviceCode,
     ToggleAcpEnabled,
     FetchOpenAIProviderModels(usize),
     AddOpenAIProvider(ProviderSetupProviderType),
@@ -3689,17 +3684,6 @@ impl TypedActionView for AISettingsPageView {
                     report_if_error!(settings.openai_enabled.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
-            }
-            AISettingsPageAction::ConnectChatGPTSubscription => {
-                #[cfg(not(target_family = "wasm"))]
-                ChatGPTAuthModel::handle(ctx).update(ctx, |model, ctx| model.connect(ctx));
-                ctx.notify();
-            }
-            AISettingsPageAction::OpenChatGPTDevicePage => {
-                // No-op: device-code flow removed in favor of browser OAuth.
-            }
-            AISettingsPageAction::CopyChatGPTDeviceCode => {
-                // No-op: device-code flow removed in favor of browser OAuth.
             }
             AISettingsPageAction::ToggleAcpEnabled => {
                 if cfg!(unix) {

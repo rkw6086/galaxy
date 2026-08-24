@@ -13,45 +13,16 @@ use rig_core::providers::chatgpt;
 use crate::request::build_completion_request;
 use crate::stream::start_model_turn;
 
-/// The information a user needs to complete ChatGPT's device authorization flow.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChatGPTDeviceCode {
-    pub verification_uri: String,
-    pub user_code: String,
-}
-
-/// Small application-facing wrapper around Rig's native ChatGPT OAuth client.
-///
-/// Keeping the Rig auth type behind this wrapper lets Galaxy present device-code
-/// instructions without depending on Rig's private auth module.
-pub struct ChatGPTSubscriptionClient {
-    client: chatgpt::Client,
-}
-
-impl ChatGPTSubscriptionClient {
-    pub fn with_device_code_handler<F>(handler: F) -> Result<Self, String>
-    where
-        F: Fn(ChatGPTDeviceCode) + Send + Sync + 'static,
-    {
-        let client = chatgpt::Client::builder()
-            .oauth()
-            .on_device_code(move |prompt| {
-                handler(ChatGPTDeviceCode {
-                    verification_uri: prompt.verification_uri,
-                    user_code: prompt.user_code,
-                });
-            })
-            .build()
-            .map_err(|error| error.to_string())?;
-        Ok(Self { client })
-    }
-
-    pub async fn authorize(&self) -> Result<(), String> {
-        self.client
-            .authorize()
-            .await
-            .map_err(|error| error.to_string())
-    }
+/// Refreshes Galaxy's cached ChatGPT subscription credentials without allowing
+/// Rig to fall back to its interactive device-code flow.
+pub async fn refresh_chatgpt_subscription_credentials() -> Result<(), String> {
+    let client = chatgpt::Client::builder()
+        .oauth()
+        .allow_device_flow(false)
+        .originator("galaxy")
+        .build()
+        .map_err(|error| error.to_string())?;
+    client.authorize().await.map_err(|error| error.to_string())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,7 +117,10 @@ impl AgentRuntime for ChatGPTSubscriptionRuntime {
         request: TurnRequest,
         control: TurnControl,
     ) -> Result<AgentEventStream, AgentError> {
-        let mut builder = chatgpt::Client::builder().oauth().allow_device_flow(false);
+        let mut builder = chatgpt::Client::builder()
+            .oauth()
+            .allow_device_flow(false)
+            .originator("galaxy");
         if let Some(auth_file) = &self.config.auth_file {
             builder = builder.auth_file(auth_file);
         }
