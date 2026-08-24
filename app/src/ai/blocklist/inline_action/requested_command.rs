@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::cmp::{Ordering, PartialEq};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -16,6 +17,7 @@ use galaxyui::elements::{
 };
 use galaxyui::keymap::{Context, EditableBinding, FixedBinding, Keystroke};
 use galaxyui::ui_components::components::UiComponent as _;
+use galaxyui::units::IntoPixels;
 use galaxyui::{
     AppContext, Element, Entity, EntityId, EventContext, ModelHandle, SingletonEntity,
     TypedActionView, UpdateView, View, ViewContext, ViewHandle,
@@ -79,8 +81,11 @@ const REQUESTED_COMMAND_EDIT_LABEL: &str = "Edit";
 const REQUESTED_COMMAND_MINIMIZE_LABEL: &str = "Done";
 
 const LOADING_MESSAGE: &str = "Generating command...";
-const COMMAND_WAITING_FOR_USER_MESSAGE: &str = "OK if I run this command and read the output?";
-const MCP_TOOL_WAITING_FOR_USER_MESSAGE: &str = "OK if I call this MCP tool?";
+const COMMAND_WAITING_FOR_USER_MESSAGE: &str = "Approve this command to continue";
+const MCP_TOOL_WAITING_FOR_USER_MESSAGE: &str = "Approve this MCP tool call to continue";
+const APPROVAL_REQUIRED_BADGE: &str = "Approval required";
+const WAITING_FOR_APPROVAL_BADGE: &str = "Waiting for approval above";
+const QUEUED_TOOL_BADGE: &str = "Queued behind an earlier tool";
 const MONITORING_COMMAND_MESSAGE: &str = "Agent is monitoring command...";
 const AGENT_NEEDS_INPUT_MESSAGE: &str = "Agent needs your input to continue";
 const USER_TOOK_CONTROL_COMMAND_MESSAGE: &str = "User is in control.";
@@ -329,6 +334,9 @@ pub struct RequestedCommandView {
     is_user_expanded: bool,
     header_mouse_state: MouseStateHandle,
     output_scroll_state: ClippedScrollStateHandle,
+    follow_command_output: Cell<bool>,
+    last_command_output_len: Cell<usize>,
+    last_output_scroll_start: Cell<f32>,
     is_editing: bool,
 
     // A requested command can either be copied directly off of one citation (such as a Warp Drive
@@ -588,6 +596,9 @@ impl RequestedCommandView {
             is_user_expanded: false,
             header_mouse_state: Default::default(),
             output_scroll_state: ClippedScrollStateHandle::new(),
+            follow_command_output: Cell::new(true),
+            last_command_output_len: Cell::new(0),
+            last_output_scroll_start: Cell::new(0.),
             copied_from_citation: None,
             derived_from_citations: Default::default(),
             citation_state_handles: Default::default(),
@@ -701,6 +712,12 @@ impl RequestedCommandView {
             return;
         }
         self.is_header_expanded = value;
+        if value && self.action_type.is_requested_command() {
+            self.follow_command_output.set(true);
+            self.last_command_output_len.set(0);
+            self.last_output_scroll_start
+                .set(self.output_scroll_state.scroll_start().as_f32());
+        }
         if is_user_initiated {
             self.is_user_expanded = value;
         }
@@ -1147,6 +1164,15 @@ impl RequestedCommandView {
         let mut title: Cow<'static, str>;
         let mut font_override = None;
         let mut font_color_override = None;
+        let mut badge = None;
+
+        let conversation_is_blocked =
+            self.block_model
+                .as_ref()
+                .conversation(app)
+                .is_some_and(|conversation| {
+                    matches!(conversation.status(), ConversationStatus::Blocked { .. })
+                });
 
         let terminal_model = self.terminal_model.lock();
         let requested_command_block = match &self.action_type {
@@ -1177,12 +1203,21 @@ impl RequestedCommandView {
                     appearance.theme(),
                     appearance.theme().surface_2(),
                 ));
+                badge = Some(
+                    if conversation_is_blocked {
+                        WAITING_FOR_APPROVAL_BADGE
+                    } else {
+                        QUEUED_TOOL_BADGE
+                    }
+                    .to_string(),
+                );
             }
             Some(AIActionStatus::Blocked) => {
                 title = match &self.action_type {
                     RequestedActionViewType::Command => COMMAND_WAITING_FOR_USER_MESSAGE.into(),
                     RequestedActionViewType::McpTool => MCP_TOOL_WAITING_FOR_USER_MESSAGE.into(),
                 };
+                badge = Some(APPROVAL_REQUIRED_BADGE.to_string());
             }
             Some(AIActionStatus::RunningAsync) | Some(AIActionStatus::Finished(..))
                 if self.is_header_expanded =>
@@ -1328,6 +1363,9 @@ impl RequestedCommandView {
         }
         if let Some(font_color_override) = font_color_override {
             config = config.with_font_color(font_color_override);
+        }
+        if let Some(badge) = badge {
+            config = config.with_badge(badge);
         }
 
         match action_status {
@@ -1564,6 +1602,27 @@ impl View for RequestedCommandView {
         } else {
             None
         };
+
+        if let Some(output) = command_output.as_ref() {
+            let scroll_start = self.output_scroll_state.scroll_start().as_f32();
+            let last_scroll_start = self.last_output_scroll_start.get();
+
+            // Keep following live command output until the user deliberately scrolls upward.
+            // Collapsing and reopening the pane resumes following from the bottom.
+            if self.follow_command_output.get() && scroll_start + 0.5 < last_scroll_start {
+                self.follow_command_output.set(false);
+            }
+
+            if self.follow_command_output.get()
+                && output.len() != self.last_command_output_len.get()
+            {
+                // Clipped scrollables clamp this sentinel to their actual maximum during layout.
+                self.output_scroll_state.scroll_to(f32::MAX.into_pixels());
+            }
+
+            self.last_command_output_len.set(output.len());
+            self.last_output_scroll_start.set(scroll_start);
+        }
         let should_render_command_output = command_output.is_some();
 
         let has_citations_footer =

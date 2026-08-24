@@ -383,13 +383,28 @@ fn text_indicates_context_window_exceeded(text: &str) -> bool {
         || normalized.contains("exceeds the context")
 }
 
+fn completion_error_indicates_recoverable_transport(error: &CompletionError) -> bool {
+    match error {
+        // Rig flattens non-status SSE transport failures into ProviderError.
+        // Preserve their transport semantics so the durable provider run can
+        // retry a truncated or otherwise interrupted response stream.
+        CompletionError::ProviderError(message) => message
+            .to_ascii_lowercase()
+            .starts_with("http client error:"),
+        _ => false,
+    }
+}
+
 fn map_completion_error(error: CompletionError) -> AgentError {
     let is_context_window_exceeded = completion_error_indicates_context_window_exceeded(&error);
+    let is_recoverable_transport = completion_error_indicates_recoverable_transport(&error);
     let status = error
         .provider_response_status()
         .map(|status| status.as_u16());
     let kind = if is_context_window_exceeded {
         AgentErrorKind::ContextWindowExceeded
+    } else if is_recoverable_transport {
+        AgentErrorKind::Transport
     } else {
         match status {
             Some(401 | 403) => AgentErrorKind::Authentication,
@@ -522,3 +537,7 @@ mod tests {
         assert!(mapped.recoverable);
     }
 }
+
+#[cfg(test)]
+#[path = "stream_tests.rs"]
+mod regression_tests;

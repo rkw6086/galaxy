@@ -468,7 +468,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
-                        tool_call_progress: None,
+                        tool_call_progress: Vec::new(),
                     },
                 );
                 controller
@@ -495,7 +495,7 @@ fn queued_provider_follow_up_persists_while_active_slot_is_unprepared() {
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
                             retry_status: None,
-                            tool_call_progress: None,
+                            tool_call_progress: Vec::new(),
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1046,7 +1046,7 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
-                        tool_call_progress: None,
+                        tool_call_progress: Vec::new(),
                     },
                 );
 
@@ -1146,7 +1146,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
-                        tool_call_progress: None,
+                        tool_call_progress: Vec::new(),
                     },
                 );
                 controller
@@ -1179,7 +1179,7 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             pending_command_completion: None,
                             monitor_prose_continuations: 0,
                             retry_status: None,
-                            tool_call_progress: None,
+                            tool_call_progress: Vec::new(),
                         },
                         base_provider_config: crate::ai::provider::ProviderConfig::None,
                         cli_provider_config: crate::ai::provider::ProviderConfig::None,
@@ -1290,7 +1290,7 @@ fn non_follow_up_provider_cancellation_does_not_admit_an_overlapping_generation(
                         pending_command_completion: None,
                         monitor_prose_continuations: 0,
                         retry_status: None,
-                        tool_call_progress: None,
+                        tool_call_progress: Vec::new(),
                     },
                 );
 
@@ -2473,27 +2473,31 @@ fn pending_provider_completion_reconciles_with_its_committed_snapshot() {
         exit_code: 0,
     };
 
-    assert!(super::reconcile_provider_completion_with_snapshot(
-        Some(&mut completion),
-        &block_id,
-        &action_id,
-        Some("sleep 10"),
-        None,
-    )
-    .unwrap());
+    assert_eq!(
+        super::reconcile_provider_completion_with_snapshot(
+            Some(&mut completion),
+            &block_id,
+            &action_id,
+            Some("sleep 10"),
+            None,
+        ),
+        super::ProviderCompletionSnapshotMatch::Match
+    );
     assert_eq!(completion.command, "sleep 10");
-    assert!(super::reconcile_provider_completion_with_snapshot(
-        None,
-        &block_id,
-        &action_id,
-        Some("sleep 10"),
-        None,
-    )
-    .is_ok_and(|matched| !matched));
+    assert_eq!(
+        super::reconcile_provider_completion_with_snapshot(
+            None,
+            &block_id,
+            &action_id,
+            Some("sleep 10"),
+            None,
+        ),
+        super::ProviderCompletionSnapshotMatch::Absent
+    );
 }
 
 #[test]
-fn pending_provider_completion_rejects_a_different_snapshot() {
+fn pending_provider_completion_defers_a_different_snapshot() {
     let block_id = BlockId::new();
     let action_id = AIAgentActionId::from("command-1".to_owned());
     let mut completion = super::PendingProviderCommandCompletion {
@@ -2504,23 +2508,27 @@ fn pending_provider_completion_rejects_a_different_snapshot() {
         exit_code: 0,
     };
 
-    assert!(super::reconcile_provider_completion_with_snapshot(
-        Some(&mut completion),
-        &BlockId::new(),
-        &action_id,
-        Some("sleep 10"),
-        None,
-    )
-    .is_err());
+    assert_eq!(
+        super::reconcile_provider_completion_with_snapshot(
+            Some(&mut completion),
+            &BlockId::new(),
+            &action_id,
+            Some("sleep 10"),
+            None,
+        ),
+        super::ProviderCompletionSnapshotMatch::Mismatch
+    );
     let completion_block_id = completion.block_id.clone();
-    assert!(super::reconcile_provider_completion_with_snapshot(
-        Some(&mut completion),
-        &completion_block_id,
-        &AIAgentActionId::from("command-2".to_owned()),
-        Some("sleep 10"),
-        None,
-    )
-    .is_err());
+    assert_eq!(
+        super::reconcile_provider_completion_with_snapshot(
+            Some(&mut completion),
+            &completion_block_id,
+            &AIAgentActionId::from("command-2".to_owned()),
+            Some("sleep 10"),
+            None,
+        ),
+        super::ProviderCompletionSnapshotMatch::Mismatch
+    );
 }
 
 #[test]

@@ -2490,16 +2490,19 @@ impl AIConversation {
 
         // Update live context token count from this response's input tokens.
         // This represents the actual current context window size (not cumulative).
-        let live_input = usage_metadata
-            .as_ref()
-            .map(|metadata| metadata.total_input_tokens)
-            .filter(|tokens| *tokens > 0)
-            .unwrap_or_else(|| {
-                token_usage
-                    .iter()
-                    .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
-                    .sum()
-            });
+        let live_input = match usage_metadata.as_ref() {
+            // When a failed follow-up has no usage of its own, the provider emits
+            // zero here. Preserve the most recent live occupancy rather than
+            // falling back to the run's cumulative billing totals.
+            Some(metadata) => metadata.total_input_tokens,
+            None if was_user_initiated_request => token_usage
+                .iter()
+                .map(|u| u.total_input + u.input_cache_read + u.input_cache_write)
+                .sum(),
+            // Auxiliary requests such as progressive summarization count toward
+            // cumulative /usage totals but do not become the agent's live context.
+            None => 0,
+        };
         if live_input > 0 {
             self.current_context_tokens = live_input;
         }

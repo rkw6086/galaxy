@@ -1077,6 +1077,14 @@ impl View for AIBlock {
                 .as_ref()
                 .is_some_and(|model| model.as_ref(app).is_ambient_agent());
 
+        let streaming_tool_calls = if self.model.is_latest_visible_exchange_in_root_task(app) {
+            self.controller
+                .as_ref(app)
+                .provider_tool_call_progress(self.client_ids.conversation_id)
+        } else {
+            Vec::new()
+        };
+
         contents.add_child(output::render(
             output::Props {
                 conversation_id: self.client_ids.conversation_id,
@@ -1150,6 +1158,7 @@ impl View for AIBlock {
                     && self.has_imported_comments_in_current_thread(app),
                 ask_user_question_view: self.ask_user_question_view.as_ref(),
                 is_cloud_agent_pre_first_exchange,
+                streaming_tool_calls: &streaming_tool_calls,
             },
             app,
         ));

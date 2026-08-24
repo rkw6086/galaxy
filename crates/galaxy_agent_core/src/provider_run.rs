@@ -353,6 +353,9 @@ pub enum ProviderRunProtocolError {
     InvalidDriverObservation {
         message: String,
     },
+    InvalidTranscriptCompaction {
+        message: String,
+    },
     InvalidRestoredState {
         message: String,
     },
@@ -414,6 +417,9 @@ impl fmt::Display for ProviderRunProtocolError {
             }
             Self::InvalidDriverObservation { message } => {
                 write!(f, "invalid driver observation: {message}")
+            }
+            Self::InvalidTranscriptCompaction { message } => {
+                write!(f, "invalid transcript compaction: {message}")
             }
             Self::InvalidRestoredState { message } => {
                 write!(f, "invalid restored provider run: {message}")
@@ -488,6 +494,36 @@ impl ProviderRun {
 
     pub fn replace_tool_result_archive(&mut self, archive: Vec<ConversationMessage>) {
         self.tool_result_archive = archive;
+    }
+
+    /// Replaces a summarized prefix while the run is parked between model calls.
+    ///
+    /// Tool calls and results removed from the live transcript remain available to
+    /// `recall_tool_history` through the run-owned archive.
+    pub fn compact_transcript_at_model_boundary(
+        &mut self,
+        summarized_messages: usize,
+        summary_prefix: Vec<ConversationMessage>,
+    ) -> Result<(), ProviderRunProtocolError> {
+        if !matches!(self.state, ProviderRunState::ReadyToCallModel) {
+            return Err(self.unexpected_state(ProviderRunPhase::ReadyToCallModel));
+        }
+        if summarized_messages == 0 || summarized_messages > self.transcript.len() {
+            return Err(ProviderRunProtocolError::InvalidTranscriptCompaction {
+                message: format!(
+                    "cannot summarize {summarized_messages} of {} messages",
+                    self.transcript.len()
+                ),
+            });
+        }
+
+        let drained = self
+            .transcript
+            .drain(0..summarized_messages)
+            .collect::<Vec<_>>();
+        archive_tool_results(&mut self.tool_result_archive, drained);
+        self.transcript.splice(0..0, summary_prefix);
+        Ok(())
     }
 
     pub fn usage(&self) -> &Usage {
@@ -1660,6 +1696,48 @@ fn add_usage(total: &mut Usage, turn: &Usage) {
     total.cache_creation_input_tokens = total
         .cache_creation_input_tokens
         .saturating_add(turn.cache_creation_input_tokens);
+}
+
+fn archive_tool_results(
+    archive: &mut Vec<ConversationMessage>,
+    messages: Vec<ConversationMessage>,
+) {
+    const MAX_TOOL_RESULT_ARCHIVE_ENTRIES: usize = 400;
+
+    let mut pending_tool_uses = Vec::new();
+    for message in messages {
+        match &message.content {
+            MessageContent::ToolUse { .. } => pending_tool_uses.push(message),
+            MessageContent::ToolResult { .. } => {
+                if let Some(tool_use) = pending_tool_uses.pop() {
+                    archive.push(tool_use);
+                }
+                archive.push(message);
+            }
+            MessageContent::MultiPart(parts) => {
+                for part in parts {
+                    match part {
+                        ContentPart::ToolUse { .. } => pending_tool_uses.push(message.clone()),
+                        ContentPart::ToolResult { .. } => {
+                            if let Some(tool_use) = pending_tool_uses.pop() {
+                                archive.push(tool_use);
+                            }
+                            archive.push(message.clone());
+                        }
+                        ContentPart::Text(_)
+                        | ContentPart::Reasoning { .. }
+                        | ContentPart::Image { .. } => {}
+                    }
+                }
+            }
+            MessageContent::Text(_) => {}
+        }
+    }
+    archive.extend(pending_tool_uses);
+
+    if archive.len() > MAX_TOOL_RESULT_ARCHIVE_ENTRIES {
+        archive.drain(0..archive.len() - MAX_TOOL_RESULT_ARCHIVE_ENTRIES);
+    }
 }
 
 #[cfg(test)]

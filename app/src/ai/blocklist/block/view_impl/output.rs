@@ -81,6 +81,7 @@ use crate::ai::blocklist::block::{
     CollapsibleElementState, CollapsibleExpansionState, EmbeddedCodeEditorView, FinishReason,
     ImportedCommentGroup, RequestedEdit, TextLocation, TodoListElementState,
 };
+use crate::ai::blocklist::controller::ProviderToolCallProgressStatus;
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
 use crate::ai::blocklist::inline_action::ask_user_question_view::AskUserQuestionView;
 use crate::ai::blocklist::inline_action::aws_bedrock_credentials_error::AwsBedrockCredentialsErrorView;
@@ -212,6 +213,9 @@ pub(crate) struct Props<'a> {
     /// `true` when this block belongs to a cloud agent pane that is still in its setup phase
     /// (running environment startup commands before the first agent turn).
     pub(super) is_cloud_agent_pre_first_exchange: bool,
+    /// Tool calls whose arguments are still arriving from the model. These are
+    /// rendered as provisional panes until the complete calls replace them.
+    pub(super) streaming_tool_calls: &'a [ProviderToolCallProgressStatus],
 }
 
 pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
@@ -1211,6 +1215,10 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
         }
     }
 
+    for tool_call in props.streaming_tool_calls {
+        output_items.add_child(render_streaming_tool_call(tool_call, app));
+    }
+
     if request_type.is_active() {
         if let AIBlockOutputStatus::Failed { error, .. } = &status {
             // While an automatic resume is still in flight, keep the failed exchange
@@ -1285,6 +1293,22 @@ pub(super) fn render(props: Props, app: &AppContext) -> Box<dyn Element> {
     }
 
     output_items.finish()
+}
+
+fn render_streaming_tool_call(
+    progress: &ProviderToolCallProgressStatus,
+    app: &AppContext,
+) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
+    let loading_icon = Icon::Loading.to_galaxyui_icon(galaxy_core::ui::theme::Fill::Solid(
+        internal_colors::neutral_6(appearance.theme()),
+    ));
+    let header = HeaderConfig::new(progress.label(), app)
+        .with_icon(loading_icon)
+        .with_corner_radius_override(CornerRadius::with_all(Radius::Pixels(8.)))
+        .render(app);
+
+    render_tool_pane_shell(Clipped::new(header).finish(), false, false, false, app)
 }
 
 fn render_runtime_activity(

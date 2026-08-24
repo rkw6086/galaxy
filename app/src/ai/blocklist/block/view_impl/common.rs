@@ -219,7 +219,6 @@ pub struct WarpingProps<'a, V> {
     pub terminal_model: &'a TerminalModel,
     pub default_warping_text: String,
     pub retry_status_text: Option<String>,
-    pub model_progress_text: Option<String>,
     pub secondary_element: Option<Box<dyn Element>>,
     /// When an LRC subagent has sent at least one snapshot, the timestamp of the most recent snapshot.
     pub last_snapshot_at: Option<instant::Instant>,
@@ -479,13 +478,6 @@ pub fn render_warping_indicator<V: View>(
             }
         }
     };
-
-    if let Some(model_progress_text) = props.model_progress_text.as_deref() {
-        non_shimmering_text = Some(match non_shimmering_text {
-            Some(text) if !text.is_empty() => format!("{text} · {model_progress_text}"),
-            Some(_) | None => format!(" · {model_progress_text}"),
-        });
-    }
 
     if let Some(retry_status_text) = props.retry_status_text.as_deref() {
         non_shimmering_text = Some(match non_shimmering_text {

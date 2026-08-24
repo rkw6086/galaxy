@@ -81,6 +81,7 @@ pub(crate) enum ProviderRunProjection {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ProviderRunBlock {
     Tools(PendingToolBatch),
+    ReadyToCallModel,
     AwaitingDriver {
         work_id: ExternalWorkId,
         stop_reason: StopReason,
@@ -383,7 +384,7 @@ impl ProviderRunCoordinator {
                     }
                     if batch.is_complete() {
                         self.run.commit_tool_batch(&batch.work_id)?;
-                        continue;
+                        return Ok(ProviderRunBlock::ReadyToCallModel);
                     }
                     return Ok(ProviderRunBlock::Tools(batch));
                 }

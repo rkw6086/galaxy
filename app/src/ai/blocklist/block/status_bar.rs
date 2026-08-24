@@ -125,7 +125,6 @@ pub struct BlocklistAIStatusBar {
     /// The random loading message chosen for the current conversation run, stable across
     /// re-renders and tool-call follow-up exchanges.
     warping_message: Option<&'static str>,
-    warping_message_ticks: u8,
     /// Handle for the periodic timer that updates the warping elapsed timer UI.
     warping_timer_handle: Option<SpawnedFutureHandle>,
 
@@ -435,7 +434,6 @@ impl BlocklistAIStatusBar {
             last_read_refresh_handle: None,
             warping_start_time: None,
             warping_message: None,
-            warping_message_ticks: 0,
             warping_timer_handle: None,
             ambient_agent_view_model,
             current_tip: None,
@@ -805,7 +803,6 @@ impl BlocklistAIStatusBar {
         self.warping_start_time.get_or_insert_with(Instant::now);
         self.warping_message
             .get_or_insert_with(random_load_output_message);
-        self.warping_message_ticks = 0;
         // Don't start a new timer if one is already running
         if self.warping_timer_handle.is_some() {
             return;
@@ -817,11 +814,6 @@ impl BlocklistAIStatusBar {
             |me, _, ctx| {
                 me.warping_timer_handle = None;
                 if me.warping_start_time.is_some() {
-                    me.warping_message_ticks = me.warping_message_ticks.saturating_add(1);
-                    if me.warping_message_ticks >= 5 {
-                        me.warping_message_ticks = 0;
-                        me.warping_message = Some(random_load_output_message());
-                    }
                     ctx.notify();
                     me.restart_warping_timer(ctx);
                 }
@@ -842,11 +834,6 @@ impl BlocklistAIStatusBar {
             |me, _, ctx| {
                 me.warping_timer_handle = None;
                 if me.warping_start_time.is_some() {
-                    me.warping_message_ticks = me.warping_message_ticks.saturating_add(1);
-                    if me.warping_message_ticks >= 5 {
-                        me.warping_message_ticks = 0;
-                        me.warping_message = Some(random_load_output_message());
-                    }
                     ctx.notify();
                     me.restart_warping_timer(ctx);
                 }
@@ -859,7 +846,6 @@ impl BlocklistAIStatusBar {
     fn stop_warping_timer(&mut self) {
         self.warping_start_time = None;
         self.warping_message = None;
-        self.warping_message_ticks = 0;
         if let Some(handle) = self.warping_timer_handle.take() {
             handle.abort();
         }
@@ -1011,17 +997,13 @@ impl BlocklistAIStatusBar {
         let default_warping_text = fallback_warping_text
             .as_deref()
             .or(self.warping_message)
-            .unwrap_or_else(|| random_load_output_message())
+            .unwrap_or("Exploring the Galaxy...")
             .to_owned();
         let retry_status_text = self
             .controller
             .as_ref(app)
             .provider_retry_status(conversation.id())
             .map(|status| status.label());
-        let model_progress_text = self
-            .controller
-            .as_ref(app)
-            .provider_tool_call_progress_label(conversation.id());
         let secondary_element = if fallback_warping_text.is_some() {
             Some(render_fallback_explanation(model.as_ref(), app))
         } else {
@@ -1081,7 +1063,6 @@ impl BlocklistAIStatusBar {
                 force_refresh_button,
                 default_warping_text,
                 retry_status_text,
-                model_progress_text,
                 secondary_element,
                 last_snapshot_at,
                 warping_start_time: self.warping_start_time,

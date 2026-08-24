@@ -154,7 +154,7 @@ Key invariants:
 - Before progressive summarization drains messages, `ConversationMessage::archive_tool_results()` moves tool-use/result pairs into `tool_result_archive`
 - Bedrock prompt caching uses three cache points: system prompt, second-to-last history message, and tool configuration
 - `ensure_tool_results_paired()` enforces Bedrock's invariant that every `tool_use` has a matching `tool_result`
-- Progressive summaries are prepended to provider requests as a user/assistant pair; background summarization remains independent of the active provider run
+- Progressive summaries are prepended to provider requests as a user/assistant pair; direct-provider runs compact their live transcript at a checkpointed `ReadyToCallModel` boundary before another model call, while background summarization remains independent for session-owned runtimes
 - Loop prevention in `controller.rs` detects repeated tool failures (3+ identical) and injects a corrective instruction
 - Direct-provider long-running shell follow-ups retain CLI tasks as UI projections while command monitoring and completion stay owned by the same provider run
 - A direct-provider command completion is only queued when the terminal reports it; the CLI task remains active until the provider run applies that completion at a safe boundary and deactivates it

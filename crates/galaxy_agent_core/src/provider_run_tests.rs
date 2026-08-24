@@ -1212,6 +1212,60 @@ fn recovery_pending_tool_survives_another_restore_and_completes_once() {
 }
 
 #[test]
+fn transcript_compaction_at_model_boundary_archives_drained_tool_history() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("read", "read_files")], &["read_files"]),
+    );
+    run.complete_tool(
+        &batch.work_id,
+        successful_result("read", "important file contents"),
+    )
+    .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    let original_len = run.transcript().len();
+    let summary_prefix = vec![ConversationMessage {
+        role: MessageRole::User,
+        content: MessageContent::Text("summary".to_string()),
+    }];
+
+    run.compact_transcript_at_model_boundary(original_len, summary_prefix.clone())
+        .unwrap();
+
+    assert_eq!(run.transcript(), summary_prefix);
+    assert_eq!(run.tool_result_archive().len(), 2);
+    assert!(matches!(
+        run.tool_result_archive()[0].content,
+        MessageContent::MultiPart(_)
+    ));
+    assert!(matches!(
+        run.tool_result_archive()[1].content,
+        MessageContent::MultiPart(_)
+    ));
+}
+
+#[test]
+fn transcript_compaction_is_rejected_during_a_model_call() {
+    let mut run = run();
+    let _ = next_model_call(&mut run);
+
+    assert!(matches!(
+        run.compact_transcript_at_model_boundary(
+            1,
+            vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("summary".to_string()),
+            }],
+        ),
+        Err(ProviderRunProtocolError::UnexpectedState {
+            expected: ProviderRunPhase::ReadyToCallModel,
+            actual: ProviderRunPhase::AwaitingModel,
+        })
+    ));
+}
+
+#[test]
 fn restore_normalization_commits_a_fully_resolved_batch() {
     let mut run = run();
     let batch = accept_tool_turn(
