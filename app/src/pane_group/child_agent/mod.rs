@@ -95,13 +95,13 @@ fn propagate_parent_agent_settings(
         profiles.set_active_profile(child_terminal_view_id, parent_profile_id, ctx);
     });
 
-    let parent_base_model_id = LLMPreferences::as_ref(ctx)
-        .get_active_base_model(ctx, Some(parent_view_id))
+    let parent_terminal_model_id = LLMPreferences::as_ref(ctx)
+        .get_active_cli_agent_model(ctx, Some(parent_view_id))
         .id
         .clone();
     LLMPreferences::handle(ctx).update(ctx, |llm_prefs, ctx| {
         llm_prefs.update_preferred_agent_mode_llm(
-            &parent_base_model_id,
+            &parent_terminal_model_id,
             child_terminal_view_id,
             ctx,
         );

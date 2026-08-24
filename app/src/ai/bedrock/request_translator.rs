@@ -1953,7 +1953,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "run_agents".to_string(),
-            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and inherit the parent model. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string(),
+            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and the configured terminal model. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1970,7 +1970,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                             "required": ["skill", "reference_type"]
                         }
                     },
-                    "model_id": { "type": "string", "default": "", "description": "Optional child model override; empty inherits the parent model" },
+                    "model_id": { "type": "string", "default": "", "description": "Optional child model override; empty uses the configured terminal model" },
                     "harness_type": { "type": "string", "default": "", "description": "Optional harness identifier; empty selects the embedded local child runtime" },
                     "execution_mode": {
                         "type": "object",

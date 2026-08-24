@@ -122,7 +122,7 @@ fn serialize_proto_to_base64<M: prost::Message>(message: &M) -> String {
 }
 
 /// Overrides the child's preferred agent-mode LLM. `None` is a no-op
-/// (inherits the parent's LLM via `propagate_parent_agent_settings`).
+/// (inherits the parent's terminal model via `propagate_parent_agent_settings`).
 #[cfg(not(target_family = "wasm"))]
 fn apply_child_model_id_override(
     child_terminal_view_id: EntityId,

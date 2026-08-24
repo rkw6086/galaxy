@@ -278,6 +278,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
         root_task_id: task_id,
         did_input_contain_user_query: true,
         persistence_offset: 0,
+        last_progressive_summary_failure_context_tokens: None,
         cancellation_reason: None,
         committed_provider_batch: None,
         finished_provider_batch: None,
@@ -1022,6 +1023,8 @@ fn cancelling_provider_startup_keeps_slot_and_durable_cancellation() {
                 response_config: snapshot.response_config.clone(),
                 action_context: snapshot.action_context.clone(),
                 persistence_offset: snapshot.persistence_offset,
+                last_progressive_summary_failure_context_tokens: snapshot
+                    .last_progressive_summary_failure_context_tokens,
             };
 
             terminal.ai_controller().update(ctx, |controller, ctx| {
@@ -1133,6 +1136,8 @@ fn same_conversation_follow_up_waits_for_cancelled_provider_generation_cleanup()
                             response_config: old_snapshot.response_config.clone(),
                             action_context: old_snapshot.action_context.clone(),
                             persistence_offset: old_snapshot.persistence_offset,
+                            last_progressive_summary_failure_context_tokens: old_snapshot
+                                .last_progressive_summary_failure_context_tokens,
                         }),
                         turn_control: None,
                         cancellation_reason: Some(CancellationReason::FollowUpSubmitted {
