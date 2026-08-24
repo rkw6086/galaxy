@@ -24,6 +24,8 @@ fn main() -> Result<()> {
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FAMILY");
 
+    emit_git_build_metadata();
+
     let target_os = env::var("CARGO_CFG_TARGET_OS")?;
     let target_family = env::var("CARGO_CFG_TARGET_FAMILY")?;
 
@@ -137,6 +139,92 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn emit_git_build_metadata() {
+    const COMMIT_ENV_VARS: [&str; 3] = ["GALAXY_GIT_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA"];
+
+    for variable in COMMIT_ENV_VARS {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
+    println!("cargo:rerun-if-env-changed=GALAXY_GIT_DIRTY");
+
+    // Keep local build metadata current when the checked-out commit changes. Watching the
+    // package and workspace source directories also refreshes the dirty marker for normal
+    // development builds without making the repository's `target` directory an input.
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=../crates");
+    println!("cargo:rerun-if-changed=../resources");
+    println!("cargo:rerun-if-changed=../Cargo.toml");
+    println!("cargo:rerun-if-changed=../Cargo.lock");
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_owned());
+    let repository_root = Path::new(&manifest_dir).parent().unwrap_or(Path::new("."));
+
+    if let Some(git_dir) = git_output(repository_root, &["rev-parse", "--absolute-git-dir"]) {
+        let git_dir = Path::new(&git_dir);
+        println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
+        println!("cargo:rerun-if-changed={}", git_dir.join("index").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            git_dir.join("packed-refs").display()
+        );
+        if let Some(head_ref) = git_output(repository_root, &["symbolic-ref", "-q", "HEAD"]) {
+            println!(
+                "cargo:rerun-if-changed={}",
+                git_dir.join(head_ref).display()
+            );
+        }
+    }
+
+    let commit = COMMIT_ENV_VARS
+        .iter()
+        .find_map(|variable| env::var(variable).ok())
+        .filter(|value| is_valid_commit(value))
+        .or_else(|| git_output(repository_root, &["rev-parse", "--verify", "HEAD"]))
+        .filter(|value| is_valid_commit(value))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let dirty = env::var("GALAXY_GIT_DIRTY")
+        .ok()
+        .and_then(|value| parse_bool(&value))
+        .unwrap_or_else(|| {
+            git_output(
+                repository_root,
+                &["status", "--porcelain", "--untracked-files=normal"],
+            )
+            .is_some_and(|output| !output.is_empty())
+        });
+
+    println!("cargo:rustc-env=GALAXY_BUILD_GIT_COMMIT={commit}");
+    println!("cargo:rustc-env=GALAXY_BUILD_GIT_DIRTY={dirty}");
+}
+
+fn git_output(repository_root: &Path, arguments: &[&str]) -> Option<String> {
+    let output = Command::new("git")
+        .current_dir(repository_root)
+        .args(arguments)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|output| output.trim().to_owned())
+}
+
+fn is_valid_commit(value: &str) -> bool {
+    let value = value.trim();
+    (7..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Some(true),
+        "0" | "false" | "no" => Some(false),
+        _ => None,
+    }
 }
 
 fn get_build_profile_name() -> String {

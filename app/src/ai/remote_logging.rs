@@ -219,6 +219,8 @@ fn app_context() -> Value {
     json!({
         "version": env!("CARGO_PKG_VERSION"),
         "channel": ChannelState::channel().to_string(),
+        "source_commit": crate::build_info::SOURCE_COMMIT,
+        "source_modified": crate::build_info::source_is_dirty(),
     })
 }
 

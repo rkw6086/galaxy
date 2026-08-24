@@ -36,6 +36,7 @@ mod banner;
 #[cfg(feature = "bedrock_smoke_test")]
 mod bedrock_smoke_test;
 mod billing;
+mod build_info;
 mod changelog_model;
 mod chip_configurator;
 mod cloud_object;
@@ -1585,9 +1586,16 @@ pub(crate) fn initialize_app(
     remote_server::wire_auth_token_rotation(ctx);
 
     log::info!(
-        "Starting Galaxy with channel state {} and version {:?}",
+        "Starting Galaxy with channel state {}, version {:?}, profile {}, source commit {}{}",
         ChannelState::debug_str(),
-        ChannelState::app_version()
+        ChannelState::app_version(),
+        build_info::profile(),
+        build_info::SOURCE_COMMIT,
+        if build_info::source_is_dirty() {
+            " (modified)"
+        } else {
+            ""
+        }
     );
 
     // Teach our app that sometimes option means meta.

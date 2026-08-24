@@ -1,216 +1,161 @@
 ---
 name: update-galaxy-with-latest-warp
-description: Selectively synchronize Galaxy with upstream Warp by updating Rust dependencies and porting eligible terminal, UI, editor, and local core improvements. Do not perform a blanket merge or import Warp API, proprietary AI, cloud auth, telemetry, or billing code.
+description: Audit and almost-autonomously synchronize recent upstream Warp client changes into Galaxy. Use for broad/latest upstream refreshes of terminal, UI, editor, platform, and local core code; use bring-warp-feature-over for a specific PR or named feature. Never perform a blanket merge or import Warp services, proprietary AI, auth, telemetry, billing, or branding.
 ---
 
-# Selectively Update Galaxy from Warp
+# Update Galaxy from Recent Warp Client Work
 
-Galaxy is a fork of Warp, but it intentionally does not use Warp's proprietary service architecture. The default update strategy is therefore **not** `git merge warp/master`. It is a controlled, selective synchronization focused on code that can run locally in Galaxy.
+Bring eligible upstream client improvements into Galaxy with minimal user intervention. Cargo dependency updates and upstream source synchronization are separate operations; neither substitutes for the other.
 
-## Non-negotiable exclusions
+## Autonomy contract
 
-Never import or reintroduce upstream code that depends on:
+When the user asks to update Galaxy with recent/latest Warp work, perform the complete workflow by default: discover, classify, select, port, adapt, and validate. Do not stop for routine confirmations about clearly eligible local client changes.
 
-- Warp's proprietary AI API, agent backend, or hosted orchestration
-- Warp authentication, subscriptions, billing, teams, or cloud-only flows
-- Warp telemetry or analytics that phone home to Warp
-- Warp server GraphQL/API endpoints, unless the change is explicitly adapted to an existing Galaxy service
-- Warp-specific deployment, channel, branding, or package identity
-- Any change that would replace or bypass Galaxy's Bedrock/OpenAI provider dispatch
+Proceed autonomously with:
 
-Galaxy's AI provider implementation remains authoritative in:
+- read-only upstream discovery and fetching;
+- creating a focused local branch or isolated worktree;
+- selecting clearly local terminal, UI, editor, parser, completion, filesystem, SSH, theme, and platform fixes;
+- mechanically adapting Galaxy crate names and branding;
+- extracting eligible hunks from mixed commits;
+- adding or updating focused tests;
+- targeted dependency updates required by an accepted change;
+- formatting and validation allowed by the repository's current `AGENTS.md`.
 
-- `app/src/ai/bedrock/`
-- `app/src/ai/openai/`
-- `app/src/ai/provider/`
-- `app/src/ai/blocklist/controller/response_stream.rs`
+Pause only when a candidate requires a real product or architecture decision, such as:
 
-## Phase 0: Inspect the working tree
+- replacing or materially changing Galaxy's provider/runtime lifecycle;
+- introducing a new external service, credential flow, persistent data migration, or security-sensitive capability;
+- choosing between multiple materially different user experiences;
+- resolving an overlap with unrelated user changes that cannot be isolated safely;
+- accepting a broad upstream refactor whose local-client behavior cannot be separated confidently.
 
-Before changing anything:
+Skip clearly ineligible changes without asking and report why. Never merge upstream wholesale. Never commit, push, open a PR, or update `master` unless the user explicitly requests that action.
+
+## Load current repository guidance
+
+Before discovery, read the repository's current `AGENTS.md`. Its architecture, testing, and push rules supersede command examples in this skill. Before classifying candidates, read [references/eligibility.md](references/eligibility.md).
+
+If selected work changes UI code, also load and follow `warp-ui-guidelines` before editing. Use other repository skills when their trigger conditions apply.
+
+## 1. Inspect and isolate
+
+Start with:
 
 ```bash
 git --no-optional-locks status --short --branch
+git remote -v
 ```
 
-Do not overwrite or reset user changes. If the worktree contains unrelated modifications, keep them intact and make the update in a separate branch or ask the user before proceeding.
+Preserve all user changes. A dirty worktree is not automatically a blocker:
 
-## Phase 1: Update Rust dependencies separately
+- Continue in place when upstream work cannot overlap the user's files.
+- Otherwise create a focused branch plus an isolated worktree from the current `HEAD`.
+- Ask only if the requested result must include overlapping uncommitted work and safe isolation is impossible.
 
-A dependency update is independent from synchronizing upstream source code. Run it from the Galaxy repository root:
+Unless the user selected a branch, create a unique branch such as `update-from-warp-YYYYMMDD-<upstream-short-sha>` before source edits. Do not switch branches when doing so would disturb user changes; use a worktree instead.
 
-```bash
-cargo update
-```
+## 2. Resolve and fetch upstream without configuration ceremony
 
-Then inspect the dependency diff:
+Prefer an existing `warp` remote. If it is absent, do not ask the user to configure one. Resolve the default branch from `https://github.com/warpdotdev/Warp.git` (or `GALAXY_WARP_UPSTREAM_URL` when set) and fetch it directly into a namespaced remote-tracking ref such as `refs/remotes/galaxy-warp-upstream/<branch>`. Do not add or rewrite Git remotes merely to perform the fetch.
 
-```bash
-git diff -- Cargo.lock
-cargo check --workspace
-```
+Determine the upstream default branch dynamically; do not assume `main` or `master`. Fetching must not modify Galaxy branches.
 
-If `cargo update` causes unrelated or excessive churn, do not blindly keep it. Prefer targeted updates for a specific dependency:
+Use `.galaxy/warp-upstream-last-reviewed` as the local, gitignored review cursor. A valid cursor must be an ancestor of the fetched upstream head. If it is missing or invalid:
 
-```bash
-cargo update -p <package>
-```
+1. Try the merge base between Galaxy `HEAD` and the fetched upstream head.
+2. Bound first-run discovery to recent history (normally the last 90 days and at most 200 commits).
+3. Treat older history as the explicit bootstrap baseline and disclose that choice in the report.
 
-If the lockfile update is useful but a package causes breakage, revert only that package's update or restore the lockfile and update dependencies incrementally. Never use a lockfile regeneration as a substitute for source synchronization.
+For later runs, inspect the cursor-to-head range. If more than 200 commits accumulated, process a bounded recent batch, state what remains, and do not chase an unbounded backlog in one run.
 
-`cargo update` updates crates.io/git dependency resolution; it does **not** bring terminal or UI source changes from Warp. Those require the selective workflow below.
+Do not advance the cursor past an unresolved candidate. Advance it only through commits that were ported, intentionally skipped, already present, or conclusively classified as ineligible.
 
-## Phase 2: Fetch and inventory upstream changes
+## 3. Inventory and classify recent commits
 
-The `warp` remote may be configured, but fetching is read-only with respect to Galaxy's branches:
+Inventory commits and changed paths before applying anything:
 
 ```bash
-git fetch warp master
-git log --oneline -30 warp/master
-```
-
-Compare upstream with the Galaxy base without merging:
-
-```bash
-git diff --stat HEAD...warp/master
-git diff --name-status HEAD...warp/master
-```
-
-Classify candidate changes by path and commit. Good candidates generally include:
-
-- `app/src/terminal/` and terminal model/emulation code, excluding agent/provider integrations
-- `crates/galaxy_terminal/` or the corresponding upstream terminal crate
-- `crates/galaxyui/`, `crates/galaxyui_core/`, and UI components
-- `crates/editor/`, `crates/sum_tree/`, completers, parsers, and local utilities
-- Local-only bug fixes and platform behavior fixes
-
-Reject candidates that touch or depend on:
-
-- Warp AI/server/auth/telemetry/billing modules
-- Warp-specific GraphQL/API schema or cloud synchronization
-- Galaxy identity, channels, settings, deployment, or Bedrock/OpenAI files
-- Broad refactors whose dependency surface cannot be isolated safely
-
-For a candidate commit, inspect before applying it:
-
-```bash
+git log --reverse --format='%H%x09%cs%x09%s' <base>..<upstream-ref>
 git show --stat --summary <commit>
-git show --format=fuller --find-renames <commit> -- <path>
+git show --format=fuller --find-renames <commit> -- <relevant-paths>
 ```
 
-## Phase 3: Apply only selected changes
+Use `git cherry` or patch comparison to identify changes already present in equivalent form, but do not rely on patch IDs alone because Galaxy often adapts upstream code.
 
-Create a working branch before porting source changes:
+Classify every candidate as:
 
-```bash
-git switch -c update-from-warp-$(date +%Y%m%d)
-```
+- **Auto-port:** clearly eligible and locally scoped.
+- **Auto-adapt:** useful, with small mechanical Galaxy naming or local-architecture changes.
+- **Extract:** mixed commit; apply only eligible paths or hunks.
+- **Already present/superseded:** Galaxy already contains the behavior or a stronger fix.
+- **Skip:** Warp service, cloud, proprietary AI, telemetry, auth, billing, branding, or otherwise irrelevant.
+- **Hold:** requires one of the genuine decisions listed in the autonomy contract.
+
+Proceed with Auto-port, Auto-adapt, and Extract candidates without an approval round. Collect Hold candidates into one concise checkpoint rather than interrupting repeatedly.
+
+## 4. Apply the smallest safe changes
 
 Prefer, in order:
 
-1. A focused upstream commit with a small, eligible file set:
-   ```bash
-   git cherry-pick -n <commit>
-   ```
-2. A file- or hunk-level patch:
-   ```bash
-   git diff <base> <commit> -- <eligible-paths> | git apply --3way
-   ```
-3. A manual port when Galaxy renamed paths or diverged substantially.
+1. `git cherry-pick -n <commit>` only for narrow, service-free commits.
+2. Apply eligible paths or hunks with a three-way patch.
+3. Manually port when Galaxy renamed paths, diverged, or has stronger local invariants.
 
-Do **not** cherry-pick a commit merely because it includes one useful terminal fix. If a commit mixes terminal code with Warp API/AI/cloud changes, extract only the eligible hunks or manually port the local change.
+Never solve a conflict by taking an entire upstream file over Galaxy's version. Preserve Galaxy comments and unrelated local behavior.
 
-After each selected change:
+Adapt upstream crate names to current Galaxy names without repository-wide renames:
 
-```bash
-git diff --check
-cargo check -p galaxy_terminal
-cargo check -p galaxyui
-cargo check -p galaxy_editor
-```
+- `warpui` -> `galaxyui`
+- `warpui_core` -> `galaxyui_core`
+- `warp_core` -> `galaxy_core`
+- `warp_terminal` -> `galaxy_terminal`
+- `warp_editor` -> `galaxy_editor`
 
-Use the actual package name from the relevant `Cargo.toml` if it differs. For changes affecting the application, also run:
+Preserve Galaxy branding, local storage semantics, provider selection, and settings defaults. New user-facing settings must follow the repository's current command-palette and discoverability rules.
 
-```bash
-cargo check -p galaxy
-```
+After each logical batch, inspect the diff and run `git diff --check`. Run focused tests/checks only when permitted by the current `AGENTS.md`; fix regressions before taking another batch so failures remain attributable.
 
-## Path and naming adaptation
+## 5. Handle dependencies deliberately
 
-Upstream may still use Warp names while Galaxy has renamed crates and paths. Adapt imports to Galaxy's existing names rather than introducing new aliases or reverting Galaxy's naming:
+Do not run blanket `cargo update` as part of a normal upstream source sync.
 
-- `warpui` → `galaxyui`
-- `warpui_core` → `galaxyui_core`
-- `warp_core` → `galaxy_core`
-- `warp_terminal` → `galaxy_terminal`
-- `warp_editor` → `galaxy_editor`
+When an accepted change needs a dependency update:
 
-Preserve existing Galaxy aliases only where the codebase already requires them. Do not perform a repository-wide rename as part of an update.
+1. Reuse an equivalent workspace dependency when possible.
+2. Prefer `cargo update -p <package>` for lockfile-only movement.
+3. Update an exact Git `rev` explicitly when the manifest pins one; `cargo update` will not choose a different revision for it.
+4. Add only the smallest local/client-side dependency or feature required.
+5. Inspect `Cargo.toml` and `Cargo.lock` diffs separately from the source port.
 
-## Dependency policy
+Run broad dependency upgrades only when the user explicitly asks for dependency maintenance. Never introduce dependencies whose purpose is Warp services, hosted AI, auth, telemetry, billing, or cloud-only behavior.
 
-When a selected upstream change needs a new dependency:
+## 6. Validate in the repository's current order
 
-1. Check whether an equivalent dependency already exists in the Galaxy workspace.
-2. Add only the smallest required dependency or feature.
-3. Confirm it is local/client-side and not a Warp service crate.
-4. Run the narrowest affected `cargo check`.
+Use changed paths to choose focused tests and package checks. The current `AGENTS.md` controls whether interactive verification must happen before formatting or static checks.
 
-Do not add dependencies for Warp's proprietary APIs, cloud auth, telemetry, billing, or hosted AI.
+Before a requested commit or push:
 
-## AI and service boundary review
+1. Run the formatter required by `AGENTS.md`.
+2. Read `script/presubmit` and run its current Clippy commands exactly; do not hard-code obsolete `--all-features` behavior.
+3. Run targeted tests for the changed subsystem, plus broader checks proportional to the port.
+4. For interactive UI/terminal fixes, launch the exact development binary specified by `AGENTS.md` and leave it running when user verification is required.
 
-Before accepting a patch that touches shared app or agent code, inspect all new imports and calls. It must route AI requests through Galaxy's provider dispatch. Reject or adapt code containing concepts such as:
+Fix only failures caused by the port. Do not import excluded Warp infrastructure or weaken Galaxy invariants to make validation pass.
 
-- `api.warp.dev`, `warp.dev/v1`, Warp AI clients, hosted agent endpoints
-- Warp auth tokens or Warp account/session APIs
-- Warp telemetry/analytics senders
-- Warp billing/subscription/team APIs
-- Hosted orchestration/Oz dependencies
+## 7. Finish the review cursor and report
 
-Useful checks:
+After the processed range is fully classified, update `.galaxy/warp-upstream-last-reviewed` to the last contiguous reviewed upstream commit. This local cursor is operational state, not a source change.
 
-```bash
-grep -RInE 'api\.warp\.dev|warp\.dev/v1|WarpAIService|WarpAiClient|WARP_API_KEY|WARP_AUTH_TOKEN' app/src crates --include='*.rs'
-```
+Report:
 
-Existing intentional compatibility names or comments should be reviewed rather than mechanically deleted. New hits introduced by the update must be removed or adapted.
+- upstream URL, branch, reviewed range, and ending SHA;
+- commits auto-ported, adapted, or partially extracted;
+- already-present and skipped commits, grouped by reason;
+- Hold candidates and the single decision needed for each;
+- dependency and generated-file changes;
+- validation commands and results;
+- remaining unreviewed range, if the bounded batch did not reach upstream head;
+- current branch/worktree and whether commit/push authorization is still needed.
 
-## Phase 4: Validation
-
-Run focused checks first, then broader validation as appropriate:
-
-```bash
-cargo fmt --all -- --check
-git diff --check
-cargo check -p galaxy
-cargo check -p galaxy_terminal
-cargo check -p galaxyui
-cargo check -p galaxy_editor
-```
-
-For a release-ready update, run the repository-required checks:
-
-```bash
-./script/format
-cargo clippy --workspace --all-targets --all-features --tests -- -D warnings
-cargo build
-```
-
-If the build fails, fix only errors caused by the selected update. Do not solve incompatibilities by importing excluded Warp service code or weakening Galaxy's provider boundaries.
-
-## Reporting
-
-Report separately:
-
-- Dependencies updated by `cargo update`, including notable lockfile changes
-- Upstream commits or patches selectively ported
-- Files and functionality intentionally skipped because they were Warp-specific
-- Validation commands run and their results
-- Any candidate changes that need a future manual port
-
-Do not commit, push, or merge into `master` unless the user explicitly requests it.
-
-## Recommended fallback
-
-If upstream has accumulated a large architectural delta, stop doing a broad synchronization. Use the `bring-warp-feature-over` skill to identify and migrate individual eligible features. That workflow is safer for Galaxy than attempting to reconcile all of Warp's unrelated service and AI changes at once.
+For a specifically requested PR or named Warp feature, use `bring-warp-feature-over` instead of scanning recent history.

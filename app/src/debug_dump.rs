@@ -10,6 +10,11 @@ use galaxyui::windowing;
 
 pub(crate) fn run() -> anyhow::Result<()> {
     println!("Galaxy version: {:?}", ChannelState::app_version());
+    println!("Build profile: {}", crate::build_info::profile());
+    println!(
+        "Source commit: {}",
+        crate::build_info::source_revision_label()
+    );
 
     #[cfg(not(windows))]
     {
