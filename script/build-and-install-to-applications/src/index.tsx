@@ -172,6 +172,7 @@ function App() {
     (async () => {
       try {
         const appName = "Galaxy.app";
+        const appCrateDir = path.join(WORKSPACE_ROOT, "app");
         const bundleDir = path.join(WORKSPACE_ROOT, "target/debug/bundle/osx");
         const appPath = path.join(bundleDir, appName);
         const destPath = path.join("/Applications", appName);
@@ -179,9 +180,9 @@ function App() {
         // ─── Step 0: Build ──────────────────────────────────────────────
         updateStep(0, { status: "running" });
 
-        const buildCmd = "cargo bundle --bin galaxy-oss --package galaxy";
+        const buildCmd = "cargo bundle --bin galaxy-oss";
 
-        await runCommandStreaming(buildCmd, WORKSPACE_ROOT, (line) => appendLog(0, line));
+        await runCommandStreaming(buildCmd, appCrateDir, (line) => appendLog(0, line));
         updateStep(0, { status: "done" });
 
         // ─── Step 1: Copy to /Applications ─────────────────────────────
