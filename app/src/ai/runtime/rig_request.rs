@@ -807,7 +807,7 @@ fn build_system_prompt(
     match mode {
         RigRequestMode::Normal => {}
         RigRequestMode::Plan => prompt.push_str(
-            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions.\n\n",
+            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds.\n\n",
         ),
         RigRequestMode::Orchestrate => prompt.push_str(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",

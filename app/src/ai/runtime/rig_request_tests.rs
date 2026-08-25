@@ -201,6 +201,42 @@ fn normal_turn_advertises_plan_creation_and_corrects_false_unavailability_claims
 }
 
 #[test]
+fn plan_turn_requires_a_plan_tool_result() {
+    let mut params = RequestParams::new_for_test();
+    let mut input = user_query("Design the implementation");
+    let AIAgentInput::UserQuery {
+        user_query_mode, ..
+    } = &mut input
+    else {
+        unreachable!("user_query returns a user query input");
+    };
+    *user_query_mode = UserQueryMode::Plan;
+    params.input = vec![input];
+
+    let prepared = prepare_rig_turn(
+        &config(),
+        params,
+        vec![ToolType::CreateDocuments, ToolType::EditDocuments],
+        Vec::new(),
+    );
+    let prompt = prepared.request.system_prompt.expect("system prompt");
+
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "create_plan"));
+    assert!(prepared
+        .request
+        .tools
+        .iter()
+        .any(|tool| tool.name == "edit_plan"));
+    assert!(prompt.contains("finish by calling `create_plan`"));
+    assert!(prompt.contains("call `edit_plan` instead"));
+    assert!(prompt.contains("Do not return the plan only as prose"));
+}
+
+#[test]
 fn no_tools_turn_flattens_historical_tool_protocol_messages() {
     let mut params = RequestParams::new_for_test();
     params.message_history = vec![

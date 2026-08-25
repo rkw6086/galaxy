@@ -294,10 +294,41 @@ impl AIAgentActionResultType {
             | Self::FetchConversation(_)
             | Self::StartAgent(_)
             | Self::SendMessageToAgent(_)
-            | Self::AskUserQuestion(_)
             | Self::WaitForEvents(_) => self.to_string(),
+            Self::AskUserQuestion(result) => ask_user_question_result_content(result),
             Self::RunAgents(result) => result.model_content(),
         }
+    }
+}
+
+fn ask_user_question_result_content(result: &AskUserQuestionResult) -> String {
+    match result {
+        AskUserQuestionResult::Success { answers } => {
+            let answers = answers
+                .iter()
+                .map(|answer| match answer {
+                    AskUserQuestionAnswerItem::Answered {
+                        question_id,
+                        selected_options,
+                        other_text,
+                    } => serde_json::json!({
+                        "question_id": question_id,
+                        "selected_options": selected_options,
+                        "other_text": other_text,
+                    }),
+                    AskUserQuestionAnswerItem::Skipped { question_id } => serde_json::json!({
+                        "question_id": question_id,
+                        "skipped": true,
+                    }),
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({ "answers": answers }).to_string()
+        }
+        AskUserQuestionResult::SkippedByAutoApprove { question_ids } => serde_json::json!({
+            "skipped_by_auto_approve": question_ids,
+        })
+        .to_string(),
+        AskUserQuestionResult::Error(_) | AskUserQuestionResult::Cancelled => result.to_string(),
     }
 }
 

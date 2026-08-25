@@ -1,8 +1,25 @@
 use super::{
-    AIAgentActionResultType, RequestCommandOutputResult, RunAgentsAgentOutcome,
-    RunAgentsAgentOutcomeKind, RunAgentsLaunchedExecutionMode, RunAgentsResult, StartAgentResult,
-    StartAgentVersion,
+    AIAgentActionResultType, AskUserQuestionAnswerItem, AskUserQuestionResult,
+    RequestCommandOutputResult, RunAgentsAgentOutcome, RunAgentsAgentOutcomeKind,
+    RunAgentsLaunchedExecutionMode, RunAgentsResult, StartAgentResult, StartAgentVersion,
 };
+
+#[test]
+fn ask_user_question_model_content_includes_selected_answers() {
+    let result = AIAgentActionResultType::AskUserQuestion(AskUserQuestionResult::Success {
+        answers: vec![AskUserQuestionAnswerItem::Answered {
+            question_id: "scope".to_string(),
+            selected_options: vec!["Provider-neutral pane plus agent tool".to_string()],
+            other_text: String::new(),
+        }],
+    });
+
+    let content: serde_json::Value = serde_json::from_str(&result.model_content()).unwrap();
+    assert_eq!(
+        content["answers"][0]["selected_options"][0],
+        "Provider-neutral pane plus agent tool"
+    );
+}
 
 #[test]
 fn shell_execution_error_is_failed_but_not_cancelled() {
