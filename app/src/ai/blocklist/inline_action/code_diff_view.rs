@@ -395,6 +395,20 @@ impl CodeDiffState {
     fn is_waiting_for_user(&self) -> bool {
         matches!(self, CodeDiffState::WaitingForUser)
     }
+
+    fn sync_with_action_status(&mut self, status: Option<&AIActionStatus>) {
+        match status {
+            Some(AIActionStatus::Blocked) => *self = CodeDiffState::WaitingForUser,
+            Some(status) if status.is_cancelled() => *self = CodeDiffState::Rejected,
+            Some(
+                AIActionStatus::Preprocessing
+                | AIActionStatus::Queued
+                | AIActionStatus::RunningAsync
+                | AIActionStatus::Finished(_),
+            )
+            | None => {}
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -676,13 +690,21 @@ impl CodeDiffView {
         ctx: &mut ViewContext<Self>,
     ) -> Self {
         let is_passive = model.request_type(ctx).is_passive_code_diff();
-        let initial_state = if action_model.as_ref(ctx).is_view_only() {
+        let mut initial_state = if action_model.as_ref(ctx).is_view_only() {
             CodeDiffState::ViewOnly { is_complete: false }
         } else if model.is_first_action_in_output(action_id, ctx) {
             CodeDiffState::WaitingForUser
         } else {
             CodeDiffState::Queued
         };
+        if !action_model.as_ref(ctx).is_view_only() {
+            if let Some(conversation_id) = identifiers.client_conversation_id {
+                let status = action_model
+                    .as_ref(ctx)
+                    .get_action_status(conversation_id, action_id);
+                initial_state.sync_with_action_status(status.as_ref());
+            }
+        }
 
         let view = Self::build(
             action_id,
@@ -700,6 +722,18 @@ impl CodeDiffView {
         ctx.subscribe_to_model(
             &action_model,
             move |me, action_model, event, ctx| match event {
+                BlocklistAIActionEvent::ActionBlockedOnUserConfirmation {
+                    action_id: event_action_id,
+                    conversation_id: event_conversation_id,
+                    ..
+                } if !me.is_complete()
+                    && !matches!(me.state, CodeDiffState::ViewOnly { .. })
+                    && *event_action_id == me.action_id
+                    && me.identifiers.client_conversation_id == Some(*event_conversation_id) =>
+                {
+                    me.state = CodeDiffState::WaitingForUser;
+                    ctx.notify();
+                }
                 BlocklistAIActionEvent::FinishedAction {
                     action_id: event_action_id,
                     conversation_id: event_conversation_id,
@@ -715,18 +749,16 @@ impl CodeDiffView {
                         .as_ref(ctx)
                         .get_action_status(conversation_id, &me.action_id)
                     {
-                        Some(AIActionStatus::Blocked) => {
-                            me.state = CodeDiffState::WaitingForUser;
-                            ctx.notify();
-                        }
                         Some(status) => {
                             if matches!(me.state, CodeDiffState::ViewOnly { .. })
                                 && status.is_success()
                             {
                                 me.state = CodeDiffState::ViewOnly { is_complete: true };
                                 me.should_expand_when_complete = false;
-                            } else if status.is_cancelled() {
-                                me.state = CodeDiffState::Rejected;
+                            } else {
+                                me.state.sync_with_action_status(Some(&status));
+                            }
+                            if status.is_cancelled() {
                                 me.should_expand_when_complete = false;
                             }
                             ctx.notify();
@@ -3268,3 +3300,7 @@ fn editor_range_to_file_context_range(range: Range<usize>) -> Range<usize> {
 fn file_context_range_to_editor_range(range: Range<usize>) -> Range<usize> {
     range.start.saturating_sub(1)..range.end.saturating_sub(1)
 }
+
+#[cfg(test)]
+#[path = "code_diff_view_tests.rs"]
+mod tests;
