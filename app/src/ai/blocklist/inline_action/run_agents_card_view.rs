@@ -13,9 +13,9 @@ use ai::skills::SkillReference;
 use galaxy_core::send_telemetry_from_ctx;
 use pathfinder_geometry::vector::vec2f;
 use warpui::elements::{
-    Border, ChildAnchor, ChildView, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
-    MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius,
-    Stack, Text, Wrap,
+    Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Empty, Flex, MouseStateHandle, OffsetPositioning, ParentAnchor, ParentElement,
+    ParentOffsetBounds, Radius, Stack, Text, Wrap,
 };
 use warpui::keymap::FixedBinding;
 use warpui::{
@@ -128,14 +128,16 @@ impl RunAgentsEditState {
         if matches!(req.execution_mode, RunAgentsExecutionMode::Local) {
             orch.sanitize_for_local_execution();
         }
-        Self {
+        let mut state = Self {
             orch,
             agent_run_configs: req.agent_run_configs.clone(),
             base_prompt: req.base_prompt.clone(),
             summary: req.summary.clone(),
             skills: req.skills.clone(),
             plan_id: req.plan_id.clone(),
-        }
+        };
+        state.fill_missing_agent_models();
+        state
     }
 
     pub fn to_request(&self) -> RunAgentsRequest {
@@ -149,6 +151,14 @@ impl RunAgentsEditState {
             agent_run_configs: self.agent_run_configs.clone(),
             plan_id: self.plan_id.clone(),
             harness_auth_secret_name: self.orch.auth_secret_name().map(str::to_string),
+        }
+    }
+
+    fn fill_missing_agent_models(&mut self) {
+        for config in &mut self.agent_run_configs {
+            if config.model_id.trim().is_empty() {
+                config.model_id = self.orch.model_id.clone();
+            }
         }
     }
 }
@@ -197,6 +207,10 @@ pub enum RunAgentsCardViewAction {
     ModelChanged {
         model_id: String,
     },
+    AgentModelChanged {
+        agent_name: String,
+        model_id: String,
+    },
     HarnessChanged {
         harness_type: String,
     },
@@ -225,6 +239,8 @@ struct RunAgentsChildState {
     conversation_id: Option<AIConversationId>,
     removed: bool,
     mouse_state: MouseStateHandle,
+    model_picker:
+        Option<ViewHandle<crate::view_components::FilterableDropdown<RunAgentsCardViewAction>>>,
 }
 
 impl RunAgentsChildState {
@@ -234,6 +250,7 @@ impl RunAgentsChildState {
             conversation_id: None,
             removed: false,
             mouse_state: MouseStateHandle::default(),
+            model_picker: None,
         }
     }
 }
@@ -401,6 +418,7 @@ fn resolve_interactive_defaults(
             }
         }
     }
+    state.fill_missing_agent_models();
 }
 impl RunAgentsCardView {
     pub fn new(
@@ -537,6 +555,8 @@ impl RunAgentsCardView {
                     // to the full confirmation UI.
                     resolve_interactive_defaults(&mut me.state, &*me.block_model, ctx);
                     oc::repopulate_all_pickers(&mut me.state.orch, &me.handles.pickers, ctx);
+                    me.reconcile_agent_model_selections(ctx);
+                    me.repopulate_agent_model_pickers(ctx);
                     me.refresh_accept_button_state(ctx);
                     me.maybe_auto_open_create_modal(ctx);
                     if let Some(conversation_id) = me.block_model.conversation_id(ctx) {
@@ -548,7 +568,7 @@ impl RunAgentsCardView {
             }
         });
 
-        // Repopulate the model picker when available Warp LLMs change.
+        // Repopulate the model pickers when available Galaxy LLMs change.
         // Only relevant for Oz harness — non-Oz harnesses get their
         // model catalog from HarnessAvailabilityModel, not LLMPreferences.
         ctx.subscribe_to_model(&LLMPreferences::handle(ctx), |me, _, event, ctx| {
@@ -563,6 +583,8 @@ impl RunAgentsCardView {
                         ctx,
                     );
                 }
+                me.reconcile_agent_model_selections(ctx);
+                me.repopulate_agent_model_pickers(ctx);
             }
         });
 
@@ -582,6 +604,8 @@ impl RunAgentsCardView {
                         ctx,
                     );
                     oc::repopulate_all_pickers(&mut me.state.orch, &me.handles.pickers, ctx);
+                    me.reconcile_agent_model_selections(ctx);
+                    me.repopulate_agent_model_pickers(ctx);
                     me.refresh_accept_button_state(ctx);
                     ctx.notify();
                 }
@@ -593,6 +617,8 @@ impl RunAgentsCardView {
                     // Deleted events also force a repopulate so this card
                     // stops surfacing the deleted secret as an option.
                     oc::repopulate_all_pickers(&mut me.state.orch, &me.handles.pickers, ctx);
+                    me.reconcile_agent_model_selections(ctx);
+                    me.repopulate_agent_model_pickers(ctx);
                     me.refresh_accept_button_state(ctx);
                     me.maybe_auto_open_create_modal(ctx);
                     ctx.notify();
@@ -651,6 +677,7 @@ impl RunAgentsCardView {
         };
 
         view.ensure_pickers(ctx);
+        view.ensure_agent_model_pickers(ctx);
         view.refresh_accept_button_state(ctx);
         // No-ops if secrets are still in flight; the `AuthSecretsLoaded`
         // subscription will retry once they resolve.
@@ -683,6 +710,7 @@ impl RunAgentsCardView {
                 }
             }
         }
+        new_state.fill_missing_agent_models();
         // Re-seed an Unset selection from persisted per-harness settings,
         // honoring an explicit `Inherit` choice for this harness.
         if matches!(
@@ -699,10 +727,14 @@ impl RunAgentsCardView {
                 || self.state.orch.execution_mode != new_state.orch.execution_mode;
             self.state = new_state;
             self.sync_configured_children();
+            self.ensure_agent_model_pickers(ctx);
+            self.repopulate_agent_model_pickers(ctx);
             if harness_or_model_changed {
                 // Repopulate pickers and re-arm auto-open for the newly-
                 // streamed harness.
                 oc::repopulate_all_pickers(&mut self.state.orch, &self.handles.pickers, ctx);
+                self.reconcile_agent_model_selections(ctx);
+                self.repopulate_agent_model_pickers(ctx);
                 self.has_auto_opened_create_modal = false;
             }
             self.refresh_accept_button_state(ctx);
@@ -713,6 +745,76 @@ impl RunAgentsCardView {
 
     fn sync_configured_children(&mut self) {
         sync_run_agents_children(&mut self.children, &self.state.agent_run_configs);
+    }
+
+    fn reconcile_agent_model_selections(&mut self, ctx: &mut ViewContext<Self>) {
+        let harness_type = self.state.orch.harness_type.clone();
+        let is_local = !self.state.orch.execution_mode.is_remote();
+        let fallback = if oc::is_model_in_filtered_choices(
+            &self.state.orch.model_id,
+            &harness_type,
+            is_local,
+            ctx,
+        ) {
+            self.state.orch.model_id.clone()
+        } else {
+            oc::first_filtered_model_id(&harness_type, ctx).unwrap_or_default()
+        };
+        for config in &mut self.state.agent_run_configs {
+            if !oc::is_model_in_filtered_choices(&config.model_id, &harness_type, is_local, ctx) {
+                config.model_id = fallback.clone();
+            }
+        }
+    }
+
+    fn ensure_agent_model_pickers(&mut self, ctx: &mut ViewContext<Self>) {
+        let appearance = Appearance::as_ref(ctx);
+        let (styles, _) = oc::picker_styles(appearance);
+        let harness_type = self.state.orch.harness_type.clone();
+        let is_local = !self.state.orch.execution_mode.is_remote();
+        for (config, child) in self.state.agent_run_configs.iter().zip(&mut self.children) {
+            if child.model_picker.is_some() {
+                continue;
+            }
+            let handle = oc::new_standard_filterable_picker_dropdown(&styles, ctx);
+            Self::set_upward_filterable_menu_position(&handle, ctx);
+            let agent_name = config.name.clone();
+            oc::populate_model_picker_for_harness_with_action(
+                &handle,
+                &config.model_id,
+                &harness_type,
+                is_local,
+                move |model_id| RunAgentsCardViewAction::AgentModelChanged {
+                    agent_name: agent_name.clone(),
+                    model_id,
+                },
+                ctx,
+            );
+            Self::subscribe_filterable_picker_close(&handle, ctx);
+            child.model_picker = Some(handle);
+        }
+    }
+
+    fn repopulate_agent_model_pickers(&mut self, ctx: &mut ViewContext<Self>) {
+        let harness_type = self.state.orch.harness_type.clone();
+        let is_local = !self.state.orch.execution_mode.is_remote();
+        for (config, child) in self.state.agent_run_configs.iter().zip(&self.children) {
+            let Some(handle) = &child.model_picker else {
+                continue;
+            };
+            let agent_name = config.name.clone();
+            oc::populate_model_picker_for_harness_with_action(
+                handle,
+                &config.model_id,
+                &harness_type,
+                is_local,
+                move |model_id| RunAgentsCardViewAction::AgentModelChanged {
+                    agent_name: agent_name.clone(),
+                    model_id,
+                },
+                ctx,
+            );
+        }
     }
 
     fn link_child_conversation(&mut self, agent_name: &str, conversation_id: AIConversationId) {
@@ -1207,7 +1309,8 @@ impl View for RunAgentsCardView {
         }
 
         let is_blocked = matches!(status, Some(AIActionStatus::Blocked));
-        let card = render_confirmation_card(&self.state, &self.handles, is_blocked, app);
+        let card =
+            render_confirmation_card(&self.state, &self.handles, &self.children, is_blocked, app);
 
         let mut root_stack = Stack::new();
         root_stack.add_child(card);
@@ -1292,6 +1395,20 @@ impl TypedActionView for RunAgentsCardView {
                 self.refresh_accept_button_state(ctx);
                 ctx.notify();
             }
+            RunAgentsCardViewAction::AgentModelChanged {
+                agent_name,
+                model_id,
+            } => {
+                if let Some(config) = self
+                    .state
+                    .agent_run_configs
+                    .iter_mut()
+                    .find(|config| config.name == *agent_name)
+                {
+                    config.model_id = model_id.clone();
+                }
+                ctx.notify();
+            }
             RunAgentsCardViewAction::HarnessChanged { harness_type } => {
                 let block_model = self.block_model.clone();
                 oc::apply_harness_change(
@@ -1302,6 +1419,8 @@ impl TypedActionView for RunAgentsCardView {
                     |ctx| block_model.base_model(ctx).map(|id| id.to_string()),
                     ctx,
                 );
+                self.reconcile_agent_model_selections(ctx);
+                self.repopulate_agent_model_pickers(ctx);
                 // Harness change resets per-harness selection state, so
                 // give the new harness a fresh auto-open prompt.
                 self.has_auto_opened_create_modal = false;
@@ -1441,6 +1560,7 @@ fn diverged_orch_fields_against_config(
 fn render_confirmation_card(
     state: &RunAgentsEditState,
     handles: &RunAgentsCardHandles,
+    children: &[RunAgentsChildState],
     is_blocked: bool,
     app: &AppContext,
 ) -> Box<dyn Element> {
@@ -1448,7 +1568,7 @@ fn render_confirmation_card(
     let theme = appearance.theme();
 
     let header = render_header(handles, app);
-    let body = render_body(state, app);
+    let body = render_body(state, children, app);
 
     let mut content = Flex::column()
         .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -1492,13 +1612,17 @@ fn render_header(handles: &RunAgentsCardHandles, app: &AppContext) -> Box<dyn El
     config.render(app)
 }
 
-fn render_body(state: &RunAgentsEditState, app: &AppContext) -> Box<dyn Element> {
+fn render_body(
+    state: &RunAgentsEditState,
+    children: &[RunAgentsChildState],
+    app: &AppContext,
+) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let mut column = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
 
     column.add_child(render_summary(state, appearance));
-    column.add_child(render_agents_section(state, app));
+    column.add_child(render_agents_section(state, children, app));
 
     Container::new(column.finish())
         .with_horizontal_padding(16.)
@@ -1532,7 +1656,11 @@ fn render_summary(state: &RunAgentsEditState, appearance: &Appearance) -> Box<dy
         .finish()
 }
 
-fn render_agents_section(state: &RunAgentsEditState, app: &AppContext) -> Box<dyn Element> {
+fn render_agents_section(
+    state: &RunAgentsEditState,
+    children: &[RunAgentsChildState],
+    app: &AppContext,
+) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let label = Text::new(
@@ -1543,22 +1671,56 @@ fn render_agents_section(state: &RunAgentsEditState, app: &AppContext) -> Box<dy
     .with_color(blended_colors::text_disabled(theme, theme.background()))
     .finish();
 
-    let pills_row = Wrap::row()
+    let agent_cards = Wrap::row()
         .with_cross_axis_alignment(CrossAxisAlignment::Center)
-        .with_spacing(4.)
-        .with_run_spacing(4.)
+        .with_spacing(12.)
+        .with_run_spacing(8.)
         .with_children(
             state
                 .agent_run_configs
                 .iter()
-                .map(|cfg| render_static_agent_pill(&cfg.name, app)),
+                .zip(children)
+                .map(|(config, child)| render_agent_model_card(config, child, app)),
         )
         .finish();
 
     Flex::column()
         .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
         .with_child(Container::new(label).with_margin_bottom(6.).finish())
-        .with_child(pills_row)
+        .with_child(agent_cards)
+        .finish()
+}
+
+fn render_agent_model_card(
+    config: &RunAgentsAgentRunConfig,
+    child: &RunAgentsChildState,
+    app: &AppContext,
+) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
+    let model_label = Text::new(
+        "Model".to_string(),
+        appearance.ui_font_family(),
+        appearance.monospace_font_size() - 1.,
+    )
+    .with_color(blended_colors::text_disabled(
+        appearance.theme(),
+        appearance.theme().background(),
+    ))
+    .finish();
+    let picker = child
+        .model_picker
+        .as_ref()
+        .map(|picker| ChildView::new(picker).finish())
+        .unwrap_or_else(|| Empty::new().finish());
+    let content = Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_child(render_static_agent_pill(&config.name, app))
+        .with_child(Container::new(model_label).with_margin_top(6.).finish())
+        .with_child(picker)
+        .finish();
+
+    ConstrainedBox::new(content)
+        .with_width(oc::ORCHESTRATION_PICKER_MAX_WIDTH)
         .finish()
 }
 
@@ -1865,7 +2027,6 @@ fn render_editor(
     handles: &RunAgentsCardHandles,
     app: &AppContext,
 ) -> Box<dyn Element> {
-    use warpui::elements::ConstrainedBox;
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let mut column = Flex::column().with_cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -1889,11 +2050,24 @@ fn render_editor(
         .with_margin_top(12.)
         .finish(),
     );
-    column.add_child(oc::render_picker_row(
-        &state.orch,
-        &handles.pickers,
-        appearance,
-    ));
+    let harness_picker = handles
+        .pickers
+        .harness_picker
+        .as_ref()
+        .map(|picker| ChildView::new(picker).finish());
+    column.add_child(
+        Container::new(
+            ConstrainedBox::new(oc::render_picker_column(
+                "Agent harness",
+                harness_picker,
+                appearance,
+            ))
+            .with_width(oc::ORCHESTRATION_PICKER_MAX_WIDTH)
+            .finish(),
+        )
+        .with_margin_top(12.)
+        .finish(),
+    );
 
     if let Some(reason) = oc::accept_disabled_reason_with_auth(&state.orch, app) {
         column.add_child(oc::render_validation_error(

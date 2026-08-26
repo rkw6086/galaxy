@@ -31,6 +31,7 @@ async fn missing_cli_provider_route_falls_back_to_base_provider_profile() {
         ProviderConfig::OpenAI(openai_config("base-provider-model")),
         ProviderConfig::None,
         params,
+        Vec::new(),
     )
     .await
     .unwrap();

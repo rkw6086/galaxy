@@ -166,6 +166,7 @@ fn convert_run_agents(
                 name: config.name,
                 prompt: config.prompt,
                 title: config.title,
+                model_id: String::new(),
             })
             .collect(),
         plan_id,

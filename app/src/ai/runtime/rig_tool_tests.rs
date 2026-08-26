@@ -444,7 +444,8 @@ fn run_agents_calls_decode_to_local_domain_requests_with_safe_defaults() {
                     {
                         "name": "runtime",
                         "prompt": "Inspect runtime behavior",
-                        "title": "Runtime investigator"
+                        "title": "Runtime investigator",
+                        "model_id": "strong-model"
                     },
                     {
                         "name": "tests",
@@ -476,9 +477,11 @@ fn run_agents_calls_decode_to_local_domain_requests_with_safe_defaults() {
         "Inspect runtime behavior"
     );
     assert_eq!(request.agent_run_configs[0].title, "Runtime investigator");
+    assert_eq!(request.agent_run_configs[0].model_id, "strong-model");
     assert_eq!(request.agent_run_configs[1].name, "tests");
     assert_eq!(request.agent_run_configs[1].prompt, "Design focused tests");
     assert!(request.agent_run_configs[1].title.is_empty());
+    assert!(request.agent_run_configs[1].model_id.is_empty());
 }
 
 #[test]

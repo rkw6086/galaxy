@@ -81,10 +81,11 @@ use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
-    prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,
-    ProviderRunBlock, ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
-    ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
-    RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+    prepare_provider_run, provider_runtime_for_request, OrchestrationModelOption,
+    PreparedProviderRun, ProviderActionContext, ProviderRunBlock, ProviderRunCoordinator,
+    ProviderRunProfile, ProviderRunProjection, ProviderRunResponseProjector,
+    ProviderToolExecutionRef, ProviderToolLifecycleOutcome, RuntimeResponseConfig,
+    BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
 };
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -6296,10 +6297,27 @@ impl BlocklistAIController {
         request_params: api::RequestParams,
         ctx: &mut ModelContext<Self>,
     ) {
+        let orchestration_models = LLMPreferences::as_ref(ctx)
+            .get_base_llm_choices_for_agent_mode(ctx)
+            .filter(|model| model.disable_reason.is_none())
+            .map(|model| OrchestrationModelOption {
+                id: model.id.to_string(),
+                display_name: model.display_name.clone(),
+                provider: model.provider.display_name().to_string(),
+                quality: model.spec.as_ref().map(|spec| spec.quality),
+                cost: model.spec.as_ref().map(|spec| spec.cost),
+                credit_multiplier: model.usage_metadata.credit_multiplier,
+            })
+            .collect();
         let _ = ctx.spawn(
             async move {
-                prepare_provider_run(base_provider_config, cli_provider_config, request_params)
-                    .await
+                prepare_provider_run(
+                    base_provider_config,
+                    cli_provider_config,
+                    request_params,
+                    orchestration_models,
+                )
+                .await
             },
             move |me, result, ctx| {
                 me.handle_prepared_provider_run(conversation_id, stream_id, result, ctx);

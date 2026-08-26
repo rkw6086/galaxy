@@ -8,8 +8,8 @@ use galaxy_util::local_or_remote_path::LocalOrRemotePath;
 use warp_multi_agent_api::ToolType;
 
 use super::{
-    input_messages, prepare_bedrock_rig_turn, prepare_rig_turn, prepare_rig_turn_for_mode,
-    tool_definitions, RigRequestMode,
+    add_orchestration_model_options, input_messages, prepare_bedrock_rig_turn, prepare_rig_turn,
+    prepare_rig_turn_for_mode, tool_definitions, OrchestrationModelOption, RigRequestMode,
 };
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::task::TaskId;
@@ -629,6 +629,51 @@ fn modern_and_legacy_orchestration_tools_follow_subagent_capabilities() {
     assert!(!leaf_tools
         .iter()
         .any(|tool| matches!(tool.name.as_str(), "run_agents" | "start_agent")));
+}
+
+#[test]
+fn run_agents_tool_requires_a_best_fit_model_from_the_available_catalog() {
+    let (mut tools, _) = tool_definitions(&[ToolType::Subagent], None);
+    add_orchestration_model_options(
+        &mut tools,
+        &[
+            OrchestrationModelOption {
+                id: "strong-model".to_string(),
+                display_name: "Strong Model".to_string(),
+                provider: "Provider A".to_string(),
+                quality: Some(0.95),
+                cost: Some(0.8),
+                credit_multiplier: Some(2.0),
+            },
+            OrchestrationModelOption {
+                id: "efficient-model".to_string(),
+                display_name: "Efficient Model".to_string(),
+                provider: "Provider B".to_string(),
+                quality: Some(0.9),
+                cost: Some(0.3),
+                credit_multiplier: Some(0.5),
+            },
+        ],
+    );
+
+    let run_agents = tools
+        .iter()
+        .find(|tool| tool.name == "run_agents")
+        .expect("run_agents tool");
+    let model = &run_agents.input_schema["properties"]["agent_run_configs"]["items"]["properties"]
+        ["model_id"];
+    assert_eq!(
+        model["enum"],
+        serde_json::json!(["strong-model", "efficient-model"])
+    );
+    assert!(model["description"]
+        .as_str()
+        .is_some_and(|description| description.contains("Prioritize the model best suited")));
+    assert!(
+        run_agents.input_schema["properties"]["agent_run_configs"]["items"]["required"]
+            .as_array()
+            .is_some_and(|required| required.iter().any(|field| field == "model_id"))
+    );
 }
 
 #[test]

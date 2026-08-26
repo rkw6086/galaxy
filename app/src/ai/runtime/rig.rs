@@ -13,8 +13,9 @@ use uuid::Uuid;
 use warp_multi_agent_api::ToolType;
 
 use super::rig_request::{
-    prepare_bedrock_rig_turn_for_mode, prepare_rig_turn, prepare_rig_turn_for_mode, MCPToolTarget,
-    PreparedRigTurn, RigRequestMode,
+    add_orchestration_model_options, prepare_bedrock_rig_turn_for_mode, prepare_rig_turn,
+    prepare_rig_turn_for_mode, MCPToolTarget, OrchestrationModelOption, PreparedRigTurn,
+    RigRequestMode,
 };
 use super::rig_tool::action_from_tool_call;
 use super::ProviderRunProfile;
@@ -76,6 +77,7 @@ pub(crate) async fn prepare_provider_run(
     base_provider_config: crate::ai::provider::ProviderConfig,
     cli_provider_config: crate::ai::provider::ProviderConfig,
     mut params: RequestParams,
+    orchestration_models: Vec<OrchestrationModelOption>,
 ) -> anyhow::Result<PreparedProviderRun> {
     let (supported_tools, supported_cli_agent_tools) =
         crate::ai::agent::api::prepare_direct_provider_params(&mut params);
@@ -112,7 +114,7 @@ pub(crate) async fn prepare_provider_run(
         }
     };
 
-    let (base_runtime, prepared) = prepare_provider_profile(
+    let (base_runtime, mut prepared) = prepare_provider_profile(
         base_provider_config,
         params,
         supported_tools.clone(),
@@ -120,6 +122,7 @@ pub(crate) async fn prepare_provider_run(
         None,
     )
     .await?;
+    add_orchestration_model_options(&mut prepared.request.tools, &orchestration_models);
     let (cli_runtime, cli_prepared) = prepare_provider_profile(
         cli_provider_config,
         cli_params,

@@ -37,6 +37,7 @@ fn make_request_with_skills(
             name: "child".to_string(),
             prompt: "do work".to_string(),
             title: "Child agent".to_string(),
+            model_id: "auto".to_string(),
         }],
         plan_id: String::new(),
         harness_auth_secret_name: None,
@@ -257,6 +258,21 @@ fn to_request_preserves_fields_but_normalizes_execution_to_local() {
 }
 
 #[test]
+fn legacy_child_without_model_inherits_the_run_model() {
+    let mut request = make_request("oz", RunAgentsExecutionMode::Local);
+    request.model_id = "fallback-model".to_string();
+    request.agent_run_configs[0].model_id.clear();
+
+    let state = RunAgentsEditState::from_request(&request);
+
+    assert_eq!(state.agent_run_configs[0].model_id, "fallback-model");
+    assert_eq!(
+        state.to_request().agent_run_configs[0].model_id,
+        "fallback-model"
+    );
+}
+
+#[test]
 fn live_child_links_and_removal_survive_streaming_config_sync() {
     let first_id = AIConversationId::new();
     let replacement_id = AIConversationId::new();
@@ -275,11 +291,13 @@ fn live_child_links_and_removal_survive_streaming_config_sync() {
             name: "gamma".to_string(),
             prompt: "new work".to_string(),
             title: String::new(),
+            model_id: "model-gamma".to_string(),
         },
         RunAgentsAgentRunConfig {
             name: "alpha".to_string(),
             prompt: "updated work".to_string(),
             title: String::new(),
+            model_id: "model-alpha".to_string(),
         },
     ];
     sync_run_agents_children(&mut children, &configs);

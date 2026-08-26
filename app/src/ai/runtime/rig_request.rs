@@ -33,6 +33,91 @@ pub(crate) struct PreparedRigTurn {
     pub mcp_tool_aliases: HashMap<String, MCPToolTarget>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct OrchestrationModelOption {
+    pub id: String,
+    pub display_name: String,
+    pub provider: String,
+    pub quality: Option<f32>,
+    pub cost: Option<f32>,
+    pub credit_multiplier: Option<f32>,
+}
+
+pub(crate) fn add_orchestration_model_options(
+    tools: &mut [ToolDefinition],
+    models: &[OrchestrationModelOption],
+) {
+    if models.is_empty() {
+        return;
+    }
+    let Some(tool) = tools.iter_mut().find(|tool| tool.name == "run_agents") else {
+        return;
+    };
+
+    let catalog = models
+        .iter()
+        .map(|model| {
+            let mut details = vec![
+                format!("id={:?}", model.id),
+                format!("name={:?}", model.display_name),
+                format!("provider={:?}", model.provider),
+            ];
+            if let Some(quality) = model.quality {
+                details.push(format!("quality_score={quality:.2}"));
+            }
+            if let Some(cost) = model.cost {
+                details.push(format!("cost_score={cost:.2}"));
+            }
+            if let Some(multiplier) = model.credit_multiplier {
+                details.push(format!("credit_multiplier={multiplier:.2}x"));
+            }
+            format!("- {}", details.join(", "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let description = format!(
+        "Required model for this child. Select exactly one available model ID. Prioritize the model best suited to the child's task and most likely to succeed. Among similarly capable models, prefer the lower-cost option; do not sacrifice material capability merely to choose the cheapest model. Cost scores represent relative consumption, with higher values costing more.\nAvailable models:\n{catalog}"
+    );
+    let model_ids = models
+        .iter()
+        .map(|model| serde_json::Value::String(model.id.clone()))
+        .collect::<Vec<_>>();
+
+    let Some(agent_items) = tool
+        .input_schema
+        .get_mut("properties")
+        .and_then(|properties| properties.get_mut("agent_run_configs"))
+        .and_then(|configs| configs.get_mut("items"))
+    else {
+        return;
+    };
+    let Some(properties) = agent_items
+        .get_mut("properties")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    properties.insert(
+        "model_id".to_string(),
+        serde_json::json!({
+            "type": "string",
+            "enum": model_ids,
+            "description": description,
+        }),
+    );
+    let Some(required) = agent_items
+        .get_mut("required")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    if !required.iter().any(|field| field == "model_id") {
+        required.push(serde_json::Value::String("model_id".to_string()));
+    }
+
+    tool.description = "Start one or more child agents. Assign each child the best-fit, cost-effective model from its required model_id choices, prioritizing capability and likelihood of success over price. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string();
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct MCPToolTarget {
     pub server_id: Option<Uuid>,

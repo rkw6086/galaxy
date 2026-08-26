@@ -1247,7 +1247,7 @@ pub fn compose_run_agents_child_prompt(base_prompt: &str, per_agent_prompt: &str
     }
 }
 
-/// Translates run-wide config into a per-child
+/// Translates shared config and the child's model selection into a per-child
 /// [`StartAgentExecutionMode`]. Returns `Err` for rejected
 /// combinations (e.g. OpenCode+Remote).
 ///
@@ -1262,12 +1262,15 @@ pub fn run_agents_to_start_agent_mode(
     run_auth_secret_name: Option<&str>,
     cfg: &RunAgentsAgentRunConfig,
 ) -> Result<StartAgentExecutionMode, String> {
+    let child_model_id = if cfg.model_id.trim().is_empty() {
+        run_model_id.trim()
+    } else {
+        cfg.model_id.trim()
+    };
     match run_execution_mode {
         RunAgentsExecutionMode::Local => {
             let trimmed = run_harness_type.trim();
-            // Propagate run-wide model selection for local launches.
-            let trimmed_model_id = run_model_id.trim();
-            let model_id = (!trimmed_model_id.is_empty()).then(|| trimmed_model_id.to_string());
+            let model_id = (!child_model_id.is_empty()).then(|| child_model_id.to_string());
             if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("oz") {
                 Ok(StartAgentExecutionMode::Local {
                     harness_type: None,
@@ -1299,7 +1302,7 @@ pub fn run_agents_to_start_agent_mode(
             Ok(StartAgentExecutionMode::Remote {
                 environment_id: environment_id.clone(),
                 skill_references: run_skills.to_vec(),
-                model_id: run_model_id.to_string(),
+                model_id: child_model_id.to_string(),
                 computer_use_enabled: *computer_use_enabled,
                 worker_host: worker_host.clone(),
                 harness_type: run_harness_type.to_string(),

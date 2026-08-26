@@ -266,6 +266,7 @@ fn execute_denies_mixed_batch_containing_launched_agent() {
             name: "new-child".to_string(),
             prompt: "Do separate work".to_string(),
             title: String::new(),
+            model_id: String::new(),
         });
 
         let execution = state.executor.update(&mut app, |executor, ctx| {
@@ -306,6 +307,7 @@ fn validate_request_rejects_blank_and_duplicate_agent_names() {
         name: " child ".to_string(),
         prompt: "Do separate work".to_string(),
         title: String::new(),
+        model_id: String::new(),
     });
     assert_eq!(
         validate_request(&request),
@@ -323,6 +325,7 @@ fn validate_request_allows_unique_sibling_names() {
         name: "second-child".to_string(),
         prompt: "Do separate work".to_string(),
         title: String::new(),
+        model_id: String::new(),
     });
 
     assert_eq!(validate_request(&request), Ok(()));
@@ -384,6 +387,7 @@ fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_chil
             name: "missing-child".to_string(),
             prompt: "Do separate work".to_string(),
             title: String::new(),
+            model_id: String::new(),
         });
         state.executor.update(&mut app, |executor, _| {
             executor
@@ -454,12 +458,12 @@ fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_chil
         assert_eq!(agents.len(), 2);
         assert!(matches!(
             &agents[0].kind,
-            RunAgentsAgentOutcomeKind::Launched { agent_id }
+            RunAgentsAgentOutcomeKind::Completed { agent_id, .. }
                 if agent_id == &existing_child_id.to_string()
         ));
         assert!(matches!(
             &agents[1].kind,
-            RunAgentsAgentOutcomeKind::Launched { agent_id }
+            RunAgentsAgentOutcomeKind::Completed { agent_id, .. }
                 if agent_id == &missing_child_id.to_string()
         ));
     });
@@ -766,6 +770,7 @@ fn remote_run_agents_action(harness_type: &str) -> AIAgentAction {
                 name: "child".to_string(),
                 prompt: "Help".to_string(),
                 title: String::new(),
+                model_id: String::new(),
             }],
             plan_id: String::new(),
             harness_auth_secret_name: None,
@@ -789,6 +794,7 @@ fn local_codex_run_agents_maps_to_local_harness_mode_when_flag_enabled() {
         name: "child".to_string(),
         prompt: "Investigate the failure".to_string(),
         title: String::new(),
+        model_id: String::new(),
     };
 
     let mode = run_agents_to_start_agent_mode(
@@ -806,6 +812,34 @@ fn local_codex_run_agents_maps_to_local_harness_mode_when_flag_enabled() {
         StartAgentExecutionMode::Local {
             harness_type: Some("codex".to_string()),
             model_id: None,
+        }
+    );
+}
+
+#[test]
+fn child_model_overrides_the_run_wide_model() {
+    let cfg = RunAgentsAgentRunConfig {
+        name: "child".to_string(),
+        prompt: "Investigate".to_string(),
+        title: String::new(),
+        model_id: "child-model".to_string(),
+    };
+
+    let mode = run_agents_to_start_agent_mode(
+        &RunAgentsExecutionMode::Local,
+        "oz",
+        "fallback-model",
+        &[],
+        None,
+        &cfg,
+    )
+    .unwrap();
+
+    assert_eq!(
+        mode,
+        StartAgentExecutionMode::Local {
+            harness_type: None,
+            model_id: Some("child-model".to_string()),
         }
     );
 }

@@ -15,3 +15,4 @@ pub(crate) use provider_run_coordinator::{
 pub(crate) use rig::{
     prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,
 };
+pub(crate) use rig_request::OrchestrationModelOption;

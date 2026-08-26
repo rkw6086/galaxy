@@ -431,6 +431,30 @@ pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>
     is_local: bool,
     ctx: &mut ViewContext<V>,
 ) {
+    populate_model_picker_for_harness_with_action(
+        dropdown,
+        initial_model_id,
+        harness_type,
+        is_local,
+        A::model_changed,
+        ctx,
+    );
+}
+
+/// Populates an orchestration model picker while allowing the caller to
+/// attach extra identity (for example, a child-agent name) to model actions.
+pub fn populate_model_picker_for_harness_with_action<
+    A: OrchestrationControlAction,
+    V: View,
+    F: Fn(String) -> A + Clone,
+>(
+    dropdown: &ViewHandle<FilterableDropdown<A>>,
+    initial_model_id: &str,
+    harness_type: &str,
+    is_local: bool,
+    model_changed: F,
+    ctx: &mut ViewContext<V>,
+) {
     let initial_model_id = initial_model_id.to_string();
     let harness_type = harness_type.to_string();
     dropdown.update(ctx, |dropdown, ctx_dropdown| {
@@ -459,9 +483,7 @@ pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>
                 let items = available_model_menu_items(
                     ordered_choices,
                     move |llm| {
-                        DropdownAction::select_action_and_close(A::model_changed(
-                            llm.id.to_string(),
-                        ))
+                        DropdownAction::select_action_and_close(model_changed(llm.id.to_string()))
                     },
                     None,
                     None,
@@ -476,21 +498,22 @@ pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>
             }
             Some(Harness::Codex) if is_local => {
                 // Local Codex: only "Default model" entry.
-                let items = vec![default_model_menu_item::<A>()];
+                let items = vec![default_model_menu_item(model_changed)];
                 dropdown.set_rich_items(items, ctx_dropdown);
                 dropdown.set_selected_by_name(DEFAULT_MODEL_LABEL, ctx_dropdown);
             }
             Some(harness) => {
                 // Non-Oz harness: "Default model" at top, then server-provided
                 // harness models.
-                let mut items: Vec<MenuItem<DropdownAction>> = vec![default_model_menu_item::<A>()];
+                let mut items: Vec<MenuItem<DropdownAction>> =
+                    vec![default_model_menu_item(model_changed.clone())];
                 let availability = HarnessAvailabilityModel::as_ref(ctx_dropdown);
                 if let Some(models) = availability.models_for(harness) {
                     for model in models {
                         let model_id = model.id.clone();
                         let fields = MenuItemFields::new(&model.display_name)
                             .with_on_select_action(DropdownAction::select_action_and_close(
-                                A::model_changed(model_id),
+                                model_changed(model_id),
                             ));
                         items.push(MenuItem::Item(fields));
                     }
@@ -519,10 +542,12 @@ pub fn populate_model_picker_for_harness<A: OrchestrationControlAction, V: View>
 }
 
 /// Creates a "Default model" menu item that emits an empty model_id.
-fn default_model_menu_item<A: OrchestrationControlAction>() -> MenuItem<DropdownAction> {
+fn default_model_menu_item<A: OrchestrationControlAction>(
+    model_changed: impl Fn(String) -> A,
+) -> MenuItem<DropdownAction> {
     MenuItem::Item(
         MenuItemFields::new(DEFAULT_MODEL_LABEL).with_on_select_action(
-            DropdownAction::select_action_and_close(A::model_changed(String::new())),
+            DropdownAction::select_action_and_close(model_changed(String::new())),
         ),
     )
 }
@@ -598,6 +623,7 @@ pub fn populate_harness_picker<A: OrchestrationControlAction, V: View>(
         let harnesses = availability.available_harnesses();
 
         let resolve_entry_harness = |harness: Harness, display_name: &str| match harness {
+            Harness::Unknown if display_name == "Warp" => Harness::Oz,
             Harness::Unknown => [
                 Harness::Oz,
                 Harness::Claude,
@@ -644,11 +670,15 @@ pub fn populate_harness_picker<A: OrchestrationControlAction, V: View>(
             } else {
                 None
             };
-            // Use the server-provided display_name for the label so stale
-            // cache entries (where harness deserializes as Unknown) still
-            // show the correct name.
-            let mut fields = MenuItemFields::new(&entry.display_name)
-                .with_icon(harness_display::icon_for(harness));
+            // Oz is branded locally so stale server/cache values cannot
+            // reintroduce the legacy product name.
+            let display_name = if harness == Harness::Oz {
+                harness_display::display_name(harness)
+            } else {
+                &entry.display_name
+            };
+            let mut fields =
+                MenuItemFields::new(display_name).with_icon(harness_display::icon_for(harness));
             if let Some(color) = harness_display::brand_color(harness) {
                 fields = fields.with_override_icon_color(Fill::from(color));
             }
@@ -673,10 +703,10 @@ pub fn populate_harness_picker<A: OrchestrationControlAction, V: View>(
             // is Unknown but entry.display_name is still correct.
             if selected_name.is_none() {
                 if harness_str.eq_ignore_ascii_case(&initial_harness) {
-                    selected_name = Some(entry.display_name.clone());
+                    selected_name = Some(display_name.to_string());
                 } else if let Some(target_display) = target_display {
-                    if entry.display_name == target_display {
-                        selected_name = Some(entry.display_name.clone());
+                    if display_name == target_display {
+                        selected_name = Some(display_name.to_string());
                     }
                 }
             }

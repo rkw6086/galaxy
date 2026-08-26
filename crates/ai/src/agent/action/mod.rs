@@ -169,7 +169,8 @@ pub enum AIAgentActionType {
     },
 
     /// AI requested batched orchestration of one-or-more child agents that
-    /// share run-wide configuration (model, harness, execution mode).
+    /// share harness and execution-mode configuration. Each child may select
+    /// its own model, with the run-wide model retained as a legacy fallback.
     /// The full per-child prompt is computed at dispatch time as
     /// `base_prompt + "\n\n" + agent_run_configs[i].prompt` (or just
     /// `base_prompt` when the per-agent `prompt` is empty).
@@ -187,7 +188,7 @@ pub enum AIAgentActionType {
     },
 }
 
-/// Run-wide + per-agent configuration for a `RunAgents` tool call.
+/// Shared + per-agent configuration for a `RunAgents` tool call.
 ///
 /// Mirrors the proto `RunAgents` message. Server-resolved fields
 /// (`model_id`, `harness_type`, `execution_mode`'s remote details) are
@@ -229,6 +230,9 @@ pub struct RunAgentsAgentRunConfig {
     pub name: String,
     pub prompt: String,
     pub title: String,
+    /// Model selected for this child. An empty value falls back to the
+    /// run-wide model for backward compatibility with older tool calls.
+    pub model_id: String,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -181,6 +181,7 @@ pub(crate) fn action_from_tool_call(
                         name: required_nonempty_string(config, "name")?,
                         prompt: required_nonempty_string(config, "prompt")?,
                         title: optional_string(config, "title")?.unwrap_or_default(),
+                        model_id: optional_string(config, "model_id")?.unwrap_or_default(),
                     })
                 })
                 .collect::<Result<_, String>>()?,

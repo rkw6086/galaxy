@@ -483,6 +483,7 @@ fn agent_cfg() -> RunAgentsAgentRunConfig {
         name: "child".to_string(),
         prompt: "do X".to_string(),
         title: "Child".to_string(),
+        model_id: String::new(),
     }
 }
 
