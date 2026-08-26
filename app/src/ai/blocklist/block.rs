@@ -5287,9 +5287,18 @@ impl AIBlock {
     /// There **shouldn't** be more than one instance of selected text at any given time across
     /// any view within the same `AIBlock` view sub-hierarchy.
     pub fn selected_text(&self, ctx: &AppContext) -> Option<String> {
-        self.code_editor_views
-            .iter()
-            .find_map(|editor_view| editor_view.view.as_ref(ctx).selected_text(ctx))
+        // A completed block-level drag is the newest selection whenever it is present. Prefer it
+        // over stale nested selections that could not be cleared while their SelectableArea was
+        // still mid-drag; otherwise copy can return an older single-word child selection.
+        self.selected_text
+            .read()
+            .clone()
+            .filter(|selection| !selection.is_empty())
+            .or_else(|| {
+                self.code_editor_views
+                    .iter()
+                    .find_map(|editor_view| editor_view.view.as_ref(ctx).selected_text(ctx))
+            })
             .or_else(|| {
                 self.requested_commands
                     .values()
@@ -5315,7 +5324,6 @@ impl AIBlock {
                     .values()
                     .find_map(|comment| comment.rich_text_editor.as_ref(ctx).selected_text(ctx))
             })
-            .or_else(|| self.selected_text.read().clone())
             .filter(|selection| !selection.is_empty())
     }
 

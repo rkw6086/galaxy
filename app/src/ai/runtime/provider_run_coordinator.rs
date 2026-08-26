@@ -24,7 +24,7 @@ use crate::ai::model_output_logging;
 pub(crate) const BASE_PROVIDER_PROFILE: &str = "base";
 pub(crate) const CLI_MONITOR_PROVIDER_PROFILE: &str = "cli-monitor";
 const PROVIDER_MODEL_START_TIMEOUT: Duration = Duration::from_secs(120);
-const PROVIDER_MODEL_EVENT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const PROVIDER_MODEL_EVENT_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const PROVIDER_MODEL_RETRY_DELAYS: [Duration; 3] = [
     Duration::from_secs(1),
     Duration::from_secs(3),

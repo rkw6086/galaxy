@@ -16601,7 +16601,22 @@ impl TerminalView {
     }
 
     fn copy(&mut self, ctx: &mut ViewContext<Self>) {
-        // First check if there's selected text in the CLI subagent views
+        // Prefer the terminal model's active selection. Nested CLI views can retain stale text
+        // after focus moves, which otherwise makes copy return an older single-word selection.
+        let semantic_selection = SemanticSelection::as_ref(ctx);
+        if let Some(selected) = self.model.lock().selection_to_string(
+            semantic_selection,
+            self.is_inverted_blocklist(ctx),
+            ctx,
+        ) {
+            if !selected.is_empty() {
+                ctx.clipboard()
+                    .write(ClipboardContent::plain_text(selected));
+            }
+            return;
+        }
+
+        // Then check if there's selected text in the CLI subagent views.
         for subagent_view in self.cli_subagent_views.values() {
             if let Some(selected_text) = subagent_view.as_ref(ctx).selected_text(ctx) {
                 ctx.clipboard()
@@ -16620,19 +16635,6 @@ impl TerminalView {
                 ctx.clipboard().write(ClipboardContent::plain_text(text));
                 return;
             }
-        }
-
-        let semantic_selection = SemanticSelection::as_ref(ctx);
-        if let Some(selected) = self.model.lock().selection_to_string(
-            semantic_selection,
-            self.is_inverted_blocklist(ctx),
-            ctx,
-        ) {
-            if !selected.is_empty() {
-                ctx.clipboard()
-                    .write(ClipboardContent::plain_text(selected));
-            }
-            return;
         }
 
         // Prioritize selected text in the input over selected blocks (APP-4330):
