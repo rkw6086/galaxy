@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# install-galaxy.sh — Download, sign, and install Galaxy.app on macOS.
+# install-galaxy.sh — Download and install Galaxy.app on macOS.
 #
 # Usage:
 #   curl -fsSL https://mng-web-sharing.mini-games.tv/wst-data/ryan-share/galaxy/install-galaxy.sh | bash
@@ -44,15 +44,9 @@ if [[ ! -d "$TMP_DIR/$APP_NAME" ]]; then
     fail "$APP_NAME not found after extraction."
 fi
 
-# ---------- 3. Clear quarantine & ad-hoc sign ----------
-info "Clearing quarantine attributes..."
-/usr/bin/xattr -cr "$TMP_DIR/$APP_NAME" || fail "Failed to clear quarantine attributes."
-
-info "Ad-hoc code signing..."
-/usr/bin/codesign --force --deep --sign - "$TMP_DIR/$APP_NAME" || fail "Code signing failed."
-
-info "Verifying code signature..."
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$TMP_DIR/$APP_NAME" || fail "Code signature verification failed."
+# ---------- 3. Clear quarantine ----------
+info "Removing the macOS quarantine attribute..."
+/usr/bin/xattr -dr com.apple.quarantine "$TMP_DIR/$APP_NAME" 2>/dev/null || true
 
 # ---------- 4. Kill, remove, install, launch ----------
 info "Stopping any running Galaxy processes..."
@@ -65,9 +59,6 @@ STAGED_APP="$INSTALL_DIR/.$APP_NAME.new"
 info "Staging $APP_NAME in $INSTALL_DIR..."
 rm -rf "$STAGED_APP"
 cp -R "$TMP_DIR/$APP_NAME" "$STAGED_APP" || fail "Failed to copy $APP_NAME to $INSTALL_DIR."
-
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP" ||
-    fail "Installed application signature verification failed."
 
 if [[ -d "$INSTALLED_APP" ]]; then
     info "Removing existing $INSTALLED_APP..."

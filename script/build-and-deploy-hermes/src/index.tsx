@@ -267,7 +267,10 @@ function StepLine({ step }: { step: Step }) {
 
 function App() {
   const [steps, setSteps] = useState<Step[]>([
-    { label: "Build Galaxy", status: "pending" },
+    { label: "Check working directory", status: "pending" },
+    { label: "Pull current branch", status: "pending" },
+    { label: "Clean Cargo build artifacts", status: "pending" },
+    { label: "Bundle Galaxy", status: "pending" },
     { label: "Create Galaxy.zip", status: "pending" },
     { label: "Authenticate with Hermes", status: "pending" },
     { label: "Start multipart upload", status: "pending" },
@@ -293,17 +296,45 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        // ─── Step 0: Build ──────────────────────────────────────────────
+        // ─── Step 0: Check working directory ───────────────────────────
         updateStep(0, { status: "running" });
         await runCommandStreaming(
-          "cargo bundle --bin galaxy-oss --package galaxy",
+          `if [ -n "$(git status --porcelain)" ]; then git status --short; exit 1; fi`,
           WORKSPACE_ROOT,
           (line) => appendLog(0, line)
         );
         updateStep(0, { status: "done" });
 
-        // ─── Step 1: Zip ────────────────────────────────────────────────
+        // ─── Step 1: Pull current branch ────────────────────────────────
         updateStep(1, { status: "running" });
+        const branch = execSync("git branch --show-current", {
+          cwd: WORKSPACE_ROOT,
+          encoding: "utf8",
+        }).trim();
+        if (!branch) throw new Error("Cannot deploy from a detached HEAD");
+        await runCommandStreaming(
+          `git pull --ff-only origin "${branch}"`,
+          WORKSPACE_ROOT,
+          (line) => appendLog(1, line)
+        );
+        updateStep(1, { status: "done", detail: branch });
+
+        // ─── Step 2: Clean ──────────────────────────────────────────────
+        updateStep(2, { status: "running" });
+        await runCommandStreaming("cargo clean", WORKSPACE_ROOT, (line) => appendLog(2, line));
+        updateStep(2, { status: "done" });
+
+        // ─── Step 3: Bundle ─────────────────────────────────────────────
+        updateStep(3, { status: "running" });
+        await runCommandStreaming(
+          "cargo bundle --bin galaxy-oss --package galaxy",
+          WORKSPACE_ROOT,
+          (line) => appendLog(3, line)
+        );
+        updateStep(3, { status: "done" });
+
+        // ─── Step 4: Zip ────────────────────────────────────────────────
+        updateStep(4, { status: "running" });
 
         // Find the .app bundle — cargo bundle outputs to target/debug/bundle/osx/
         const appDir = path.join(
@@ -314,19 +345,19 @@ function App() {
 
         // Remove old zip if exists
         execSync(`rm -f "${zipPath}"`, { stdio: "pipe" });
-        // Zip the .app folder
+        // Preserve executable permissions, symlinks, and macOS bundle metadata.
         await runCommandStreaming(
-          `cd "${appDir}" && zip -r -y "${zipPath}" Galaxy.app`,
+          `ditto -c -k --keepParent "${path.join(appDir, "Galaxy.app")}" "${zipPath}"`,
           WORKSPACE_ROOT,
-          (line) => appendLog(1, line)
+          (line) => appendLog(4, line)
         );
 
         const fileSize = statSync(zipPath).size;
         const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
-        updateStep(1, { status: "done", detail: `${fileSizeMB} MB` });
+        updateStep(4, { status: "done", detail: `${fileSizeMB} MB` });
 
-        // ─── Step 2: Authenticate ───────────────────────────────────────
-        updateStep(2, { status: "running" });
+        // ─── Step 5: Authenticate ───────────────────────────────────────
+        updateStep(5, { status: "running" });
 
         const loginRes = await apiPost<{ token: string }>(
           `${BASE_URL}/api/auth/login`,
@@ -334,11 +365,11 @@ function App() {
           COMMON_HEADERS
         );
         const token = loginRes.token;
-        appendLog(2, `Authenticated as ${HERMES_USER}`);
-        updateStep(2, { status: "done" });
+        appendLog(5, `Authenticated as ${HERMES_USER}`);
+        updateStep(5, { status: "done" });
 
-        // ─── Step 3: Start upload ───────────────────────────────────────
-        updateStep(3, { status: "running" });
+        // ─── Step 6: Start upload ───────────────────────────────────────
+        updateStep(6, { status: "running" });
 
         const fileHash = computeFileHash(zipPath);
 
@@ -354,14 +385,14 @@ function App() {
         );
 
         const { uploadId, urls: partUrls, totalParts, partSize } = startRes;
-        appendLog(3, `Upload ID: ${uploadId.slice(0, 32)}...`);
-        appendLog(3, `File hash: ${fileHash}`);
-        appendLog(3, `File size: ${fileSizeMB} MB`);
-        appendLog(3, `Parts: ${totalParts}`);
-        updateStep(3, { status: "done", detail: `${totalParts} parts` });
+        appendLog(6, `Upload ID: ${uploadId.slice(0, 32)}...`);
+        appendLog(6, `File hash: ${fileHash}`);
+        appendLog(6, `File size: ${fileSizeMB} MB`);
+        appendLog(6, `Parts: ${totalParts}`);
+        updateStep(6, { status: "done", detail: `${totalParts} parts` });
 
-        // ─── Step 4: Upload parts ───────────────────────────────────────
-        updateStep(4, { status: "running", progress: { bytes: 0, totalBytes: fileSize } });
+        // ─── Step 7: Upload parts ───────────────────────────────────────
+        updateStep(7, { status: "running", progress: { bytes: 0, totalBytes: fileSize } });
 
         // Use the partSize from the server response
         const completedParts: { partNumber: number; etag: string }[] = [];
@@ -376,7 +407,7 @@ function App() {
             partSize,
             totalParts,
             (partBytes) => {
-              updateStep(4, {
+              updateStep(7, {
                 status: "running",
                 progress: { bytes: prevPartsBytes + partBytes, totalBytes: fileSize },
               });
@@ -403,14 +434,14 @@ function App() {
           );
         }
 
-        updateStep(4, {
+        updateStep(7, {
           status: "done",
           detail: `${fileSizeMB} MB uploaded`,
           progress: undefined,
         });
 
-        // ─── Step 5: Complete ────────────────────────────────────────────
-        updateStep(5, { status: "running" });
+        // ─── Step 8: Complete ────────────────────────────────────────────
+        updateStep(8, { status: "running" });
 
         await apiPost(
           `${BASE_URL}/api/uploads/complete`,
@@ -422,11 +453,11 @@ function App() {
           authHeaders(token)
         );
 
-        appendLog(5, `Key: ${UPLOAD_KEY}`);
-        updateStep(5, { status: "done" });
+        appendLog(8, `Key: ${UPLOAD_KEY}`);
+        updateStep(8, { status: "done" });
 
-        // ─── Step 6: Upload install-galaxy.sh ────────────────────────────
-        updateStep(6, { status: "running" });
+        // ─── Step 9: Upload install-galaxy.sh ────────────────────────────
+        updateStep(9, { status: "running" });
 
         const installScriptPath = path.join(WORKSPACE_ROOT, "script", "install-galaxy.sh");
         const scriptFileSize = statSync(installScriptPath).size;
@@ -446,7 +477,7 @@ function App() {
         const scriptCompletedParts: { partNumber: number; etag: string }[] = [];
         let scriptBytesUploaded = 0;
 
-        updateStep(6, { status: "running", progress: { bytes: 0, totalBytes: scriptFileSize } });
+        updateStep(9, { status: "running", progress: { bytes: 0, totalBytes: scriptFileSize } });
 
         for (const part of scriptStartRes.urls) {
           const prevBytes = scriptBytesUploaded;
@@ -457,7 +488,7 @@ function App() {
             scriptStartRes.partSize,
             scriptStartRes.totalParts,
             (partBytes) => {
-              updateStep(6, {
+              updateStep(9, {
                 status: "running",
                 progress: { bytes: prevBytes + partBytes, totalBytes: scriptFileSize },
               });
@@ -492,8 +523,8 @@ function App() {
           authHeaders(token)
         );
 
-        appendLog(6, `Key: ${INSTALL_SCRIPT_KEY}`);
-        updateStep(6, { status: "done", detail: `${(scriptFileSize / 1024).toFixed(1)} KB`, progress: undefined });
+        appendLog(9, `Key: ${INSTALL_SCRIPT_KEY}`);
+        updateStep(9, { status: "done", detail: `${(scriptFileSize / 1024).toFixed(1)} KB`, progress: undefined });
 
         // Cleanup zip
         execSync(`rm -f "${zipPath}"`, { stdio: "pipe" });

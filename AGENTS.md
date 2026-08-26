@@ -7,6 +7,10 @@ This file provides guidance when working with code in this repository.
 ### Build and Run
 - `cargo run` - Build and run Warp locally
 - `cargo bundle --bin warp` - Bundle the main app
+- `make run` - Build and run `galaxy-oss`
+- `make clean` - Remove Cargo build artifacts
+- `make deploy` - Validate, update, clean, bundle, and upload Galaxy to Hermes
+- `make install` - Validate, update, clean, bundle, and install Galaxy to `/Applications`
 
 ### Running with local warp-server
 To connect Warp client to a local warp-server instance:

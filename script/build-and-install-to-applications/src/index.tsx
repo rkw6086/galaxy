@@ -150,8 +150,12 @@ function StepLine({ step }: { step: Step }) {
 
 function App() {
   const [steps, setSteps] = useState<Step[]>([
-    { label: "Build Galaxy", status: "pending" },
+    { label: "Check working directory", status: "pending" },
+    { label: "Pull current branch", status: "pending" },
+    { label: "Clean Cargo build artifacts", status: "pending" },
+    { label: "Bundle Galaxy", status: "pending" },
     { label: "Copy to /Applications", status: "pending" },
+    { label: "Launch Galaxy", status: "pending" },
   ]);
 
   const updateStep = useCallback((index: number, update: Partial<Step>) => {
@@ -172,48 +176,74 @@ function App() {
     (async () => {
       try {
         const appName = "Galaxy.app";
-        const appCrateDir = path.join(WORKSPACE_ROOT, "app");
         const bundleDir = path.join(WORKSPACE_ROOT, "target/debug/bundle/osx");
         const appPath = path.join(bundleDir, appName);
         const destPath = path.join("/Applications", appName);
 
-        // ─── Step 0: Build ──────────────────────────────────────────────
+        // ─── Step 0: Check working directory ───────────────────────────
         updateStep(0, { status: "running" });
-
-        const buildCmd = "cargo bundle --bin galaxy-oss";
-
-        await runCommandStreaming(buildCmd, appCrateDir, (line) => appendLog(0, line));
+        await runCommandStreaming(
+          `if [ -n "$(git status --porcelain)" ]; then git status --short; exit 1; fi`,
+          WORKSPACE_ROOT,
+          (line) => appendLog(0, line)
+        );
         updateStep(0, { status: "done" });
 
-        // ─── Step 1: Copy to /Applications ─────────────────────────────
+        // ─── Step 1: Pull current branch ────────────────────────────────
         updateStep(1, { status: "running" });
+        const branch = execSync("git branch --show-current", {
+          cwd: WORKSPACE_ROOT,
+          encoding: "utf8",
+        }).trim();
+        if (!branch) throw new Error("Cannot install from a detached HEAD");
+        await runCommandStreaming(
+          `git pull --ff-only origin "${branch}"`,
+          WORKSPACE_ROOT,
+          (line) => appendLog(1, line)
+        );
+        updateStep(1, { status: "done", detail: branch });
+
+        // ─── Step 2: Clean ──────────────────────────────────────────────
+        updateStep(2, { status: "running" });
+        await runCommandStreaming("cargo clean", WORKSPACE_ROOT, (line) => appendLog(2, line));
+        updateStep(2, { status: "done" });
+
+        // ─── Step 3: Bundle ─────────────────────────────────────────────
+        updateStep(3, { status: "running" });
+        await runCommandStreaming(
+          "cargo bundle --bin galaxy-oss --package galaxy",
+          WORKSPACE_ROOT,
+          (line) => appendLog(3, line)
+        );
+        updateStep(3, { status: "done" });
+
+        // ─── Step 4: Copy to /Applications ─────────────────────────────
+        updateStep(4, { status: "running" });
 
         if (!fs.existsSync(appPath)) {
           throw new Error(`Built app not found at ${appPath}`);
         }
 
-        await stopApp("Galaxy", (line) => appendLog(1, line));
+        await stopApp("Galaxy", (line) => appendLog(4, line));
 
         if (fs.existsSync(destPath)) {
-          appendLog(1, `Removing existing ${destPath}`);
+          appendLog(4, `Removing existing ${destPath}`);
           execSync(`rm -rf "${destPath}"`, { stdio: "pipe" });
         }
 
-        appendLog(1, `Copying ${appPath} → ${destPath}`);
+        appendLog(4, `Copying ${appPath} → ${destPath}`);
         await runCommandStreaming(
           `ditto "${appPath}" "${destPath}"`,
           WORKSPACE_ROOT,
-          (line) => appendLog(1, line)
+          (line) => appendLog(4, line)
         );
 
-        updateStep(1, { status: "done", detail: destPath });
+        updateStep(4, { status: "done", detail: destPath });
 
-        // ─── Step 2: Launch ────────────────────────────────────────────
-        setSteps((prev) => [...prev, { label: "Launch Galaxy", status: "running" }]);
+        // ─── Step 5: Launch ────────────────────────────────────────────
+        updateStep(5, { status: "running" });
         execSync(`open "${destPath}"`, { stdio: "ignore" });
-        setSteps((prev) =>
-          prev.map((s, i) => (i === 2 ? { ...s, status: "done" } : s))
-        );
+        updateStep(5, { status: "done" });
       } catch (err: any) {
         setSteps((prev) =>
           prev.map((s) =>
