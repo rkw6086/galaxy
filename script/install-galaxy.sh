@@ -21,6 +21,15 @@ info()  { printf "\033[1;34m==>\033[0m %s\n" "$1"; }
 warn()  { printf "\033[1;33m==> WARNING:\033[0m %s\n" "$1"; }
 fail()  { printf "\033[1;31m==> ERROR:\033[0m %s\n" "$1"; exit 1; }
 
+USE_SUDO=false
+run_install_command() {
+    if [[ "$USE_SUDO" == true ]]; then
+        /usr/bin/sudo "$@"
+    else
+        "$@"
+    fi
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
     fail "This installer only supports macOS."
 fi
@@ -64,20 +73,29 @@ pkill -9 -x "$PROCESS_NAME" 2>/dev/null || true
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME"
 STAGED_APP="$INSTALL_DIR/.$APP_NAME.new"
 
+if [[ ! -w "$INSTALL_DIR" ]] ||
+    [[ -e "$INSTALLED_APP" && ! -w "$INSTALLED_APP" ]] ||
+    [[ -e "$STAGED_APP" && ! -w "$STAGED_APP" ]]; then
+    info "Administrator permission is required to update $INSTALL_DIR."
+    /usr/bin/sudo -v || fail "Administrator authentication failed."
+    USE_SUDO=true
+fi
+
 info "Staging $APP_NAME in $INSTALL_DIR..."
-rm -rf "$STAGED_APP"
-cp -R "$TMP_DIR/$APP_NAME" "$STAGED_APP" || fail "Failed to copy $APP_NAME to $INSTALL_DIR."
+run_install_command /bin/rm -rf "$STAGED_APP"
+run_install_command /bin/cp -R "$TMP_DIR/$APP_NAME" "$STAGED_APP" ||
+    fail "Failed to copy $APP_NAME to $INSTALL_DIR."
 
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$STAGED_APP" ||
     fail "Installed application signature verification failed."
 
 if [[ -d "$INSTALLED_APP" ]]; then
     info "Removing existing $INSTALLED_APP..."
-    rm -rf "$INSTALLED_APP"
+    run_install_command /bin/rm -rf "$INSTALLED_APP"
 fi
 
 info "Installing $APP_NAME to $INSTALL_DIR..."
-mv "$STAGED_APP" "$INSTALLED_APP" || fail "Failed to install $APP_NAME."
+run_install_command /bin/mv "$STAGED_APP" "$INSTALLED_APP" || fail "Failed to install $APP_NAME."
 
 info "Launching Galaxy..."
 /usr/bin/open "$INSTALLED_APP" || fail "macOS failed to launch Galaxy."
