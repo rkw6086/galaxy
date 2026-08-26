@@ -52,21 +52,34 @@ function runCommandStreaming(
       stdio: ["ignore", "pipe", "pipe"],
     });
 
-    let leftover = "";
-    const processChunk = (chunk: Buffer) => {
-      const text = leftover + chunk.toString();
-      const lines = text.split("\n");
-      leftover = lines.pop() || "";
-      for (const line of lines) {
-        if (line.trim()) onLog(line);
-      }
+    const createChunkProcessor = () => {
+      let leftover = "";
+      return {
+        process(chunk: Buffer) {
+          const text = leftover + chunk.toString();
+          // Cargo renders progress with carriage returns when attached to a terminal. Treat both
+          // carriage returns and newlines as line boundaries so build output appears live in Ink.
+          const lines = text.split(/\r\n|\r|\n/);
+          leftover = lines.pop() || "";
+          for (const line of lines) {
+            if (line.trim()) onLog(line);
+          }
+        },
+        flush() {
+          if (leftover.trim()) onLog(leftover);
+          leftover = "";
+        },
+      };
     };
+    const stdout = createChunkProcessor();
+    const stderr = createChunkProcessor();
 
-    child.stdout?.on("data", processChunk);
-    child.stderr?.on("data", processChunk);
+    child.stdout?.on("data", (chunk: Buffer) => stdout.process(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => stderr.process(chunk));
 
     child.on("close", (code) => {
-      if (leftover.trim()) onLog(leftover);
+      stdout.flush();
+      stderr.flush();
       if (code === 0) resolve();
       else reject(new Error(`Command failed with exit code ${code}`));
     });
