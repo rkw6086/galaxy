@@ -107,13 +107,19 @@ impl PaneGroup {
         child_conversation_id: AIConversationId,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
-        if self
-            .child_agent_panes
-            .get(&child_conversation_id)
-            .is_some_and(|pane_id| self.has_pane_id(*pane_id))
-        {
-            return true;
+        let tracked_child_pane = self.child_agent_panes.get(&child_conversation_id).copied();
+        match tracked_child_pane {
+            Some(pane_id) if self.has_pane_id(pane_id) => return true,
+            Some(pane_id) => {
+                log::warn!(
+                    "Repairing child conversation {child_conversation_id:?} with missing pane \
+                     {pane_id:?}"
+                );
+                self.child_agent_panes.remove(&child_conversation_id);
+            }
+            None => {}
         }
+        let had_stale_mapping = tracked_child_pane.is_some();
 
         let parent_conversation_id =
             BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
@@ -136,17 +142,41 @@ impl PaneGroup {
             });
 
         let Some(parent_conversation_id) = parent_conversation_id else {
-            return self
-                .terminal_view_id_for_owned_conversation(child_conversation_id, ctx)
-                .is_some();
+            return !had_stale_mapping
+                && self
+                    .terminal_view_id_for_owned_conversation(child_conversation_id, ctx)
+                    .is_some();
         };
 
         let child_owner_terminal_view_id =
             self.terminal_view_id_for_owned_conversation(child_conversation_id, ctx);
         let Some(parent_pane_id) = self.pane_id_for_owned_conversation(parent_conversation_id, ctx)
         else {
-            return child_owner_terminal_view_id.is_some();
+            return !had_stale_mapping && child_owner_terminal_view_id.is_some();
         };
+
+        if had_stale_mapping {
+            let child_conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&child_conversation_id)
+                .cloned()
+                .or_else(|| {
+                    RestoredAgentConversations::handle(ctx).update(ctx, |store, _| {
+                        store.take_conversation(&child_conversation_id)
+                    })
+                });
+            let Some(child_conversation) = child_conversation else {
+                log::warn!(
+                    "Cannot repair missing pane for child conversation \
+                     {child_conversation_id:?}: conversation not found"
+                );
+                return false;
+            };
+            self.create_hidden_child_agent_pane(child_conversation, parent_pane_id, ctx);
+            return self
+                .child_agent_panes
+                .get(&child_conversation_id)
+                .is_some_and(|pane_id| self.has_pane_id(*pane_id));
+        }
 
         if self.is_conversation_owned_outside_pane(child_conversation_id, parent_pane_id, ctx) {
             return true;

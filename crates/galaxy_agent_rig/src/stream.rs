@@ -395,9 +395,28 @@ fn completion_error_indicates_recoverable_transport(error: &CompletionError) -> 
     }
 }
 
+fn completion_error_indicates_transient_provider_failure(error: &CompletionError) -> bool {
+    error
+        .provider_response_body()
+        .is_some_and(text_indicates_transient_provider_failure)
+        || text_indicates_transient_provider_failure(&error.to_string())
+}
+
+fn text_indicates_transient_provider_failure(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    normalized.contains("server_is_overloaded")
+        || normalized.contains("service_unavailable_error")
+        || normalized.contains("temporarily unavailable")
+        || normalized.contains("service unavailable")
+        || normalized.contains("server is overloaded")
+        || normalized.contains("servers are currently overloaded")
+}
+
 fn map_completion_error(error: CompletionError) -> AgentError {
     let is_context_window_exceeded = completion_error_indicates_context_window_exceeded(&error);
     let is_recoverable_transport = completion_error_indicates_recoverable_transport(&error);
+    let is_transient_provider_failure =
+        completion_error_indicates_transient_provider_failure(&error);
     let status = error
         .provider_response_status()
         .map(|status| status.as_u16());
@@ -430,7 +449,8 @@ fn map_completion_error(error: CompletionError) -> AgentError {
     mapped.recoverable = matches!(
         kind,
         AgentErrorKind::RateLimited | AgentErrorKind::Transport
-    ) || status.is_some_and(|status| (500..=599).contains(&status));
+    ) || status.is_some_and(|status| (500..=599).contains(&status))
+        || is_transient_provider_failure;
     mapped
 }
 

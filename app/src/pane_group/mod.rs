@@ -4692,12 +4692,29 @@ impl PaneGroup {
         // transfer-on-close step below.
         if self.is_child_agent_pane(pane_id) {
             // Revert the swap if the child is currently swapped in.
-            if self.panes.original_pane_for_replacement(pane_id).is_some() {
-                self.panes.revert_temporary_replacement(pane_id);
+            if let Some(original_pane_id) = self.panes.original_pane_for_replacement(pane_id) {
+                if self.panes.revert_temporary_replacement(pane_id) != Some(original_pane_id) {
+                    log::error!("close_pane: failed to restore pane replaced by child {pane_id:?}");
+                    return;
+                }
+                self.remove_from_pane_history(pane_id);
+                self.focus_pane_preserving_maximized_state(original_pane_id, true, ctx);
+                self.update_pane_history(original_pane_id);
             }
             // Or remove the child from the tree if it was split off.
-            else if self.panes.is_pane_in_tree(pane_id) && !self.panes.remove(pane_id) {
-                log::error!("close_pane: failed to remove split-off child pane from tree");
+            else if self.panes.is_pane_in_tree(pane_id) {
+                // Focus must move while the child is still in the tree so
+                // pane ordering can select a valid sibling.
+                self.focus_next_terminal_pane_and_activate_session(
+                    pane_id,
+                    PaneRemovalReason::Close,
+                    ctx,
+                );
+                if !self.panes.remove(pane_id) {
+                    log::error!("close_pane: failed to remove split-off child pane from tree");
+                }
+            } else {
+                self.remove_from_pane_history(pane_id);
             }
             // Drop any leftover swap entry recording this child as the
             // original side. Otherwise a later revert of the surviving
@@ -4711,13 +4728,6 @@ impl PaneGroup {
                     view.clear_orchestration_split_off(ctx);
                 });
             }
-            self.panes.remove_hidden_pane(pane_id);
-            self.focus_next_terminal_pane_and_activate_session(
-                pane_id,
-                PaneRemovalReason::Close,
-                ctx,
-            );
-            self.pane_contents.remove(&pane_id);
             self.handle_pane_count_change(ctx);
             ctx.emit(Event::TerminalViewStateChanged);
             ctx.emit(Event::AppStateChanged);
@@ -6948,7 +6958,11 @@ impl PaneGroup {
         conversation_id: AIConversationId,
         ctx: &mut ViewContext<Self>,
     ) {
-        let from_child_panes = self.child_agent_panes.get(&conversation_id).copied();
+        let from_child_panes = self
+            .child_agent_panes
+            .get(&conversation_id)
+            .copied()
+            .filter(|pane_id| self.has_pane_id(*pane_id));
         let from_visible_pane = self
             .find_visible_terminal_pane_for_conversation(conversation_id, ctx)
             .map(PaneId::from);
@@ -7069,6 +7083,14 @@ impl PaneGroup {
         ctx: &mut ViewContext<Self>,
     ) -> Option<PaneId> {
         let child_pane_id = self.child_agent_panes.get(&conversation_id).copied()?;
+        if !self.has_pane_id(child_pane_id) {
+            log::error!(
+                "unhide_child_agent_pane_for_split_off: child conversation {conversation_id:?} \
+                 references missing pane {child_pane_id:?}"
+            );
+            self.child_agent_panes.remove(&conversation_id);
+            return None;
+        }
 
         // If the child was previously split off and then swapped over,
         // it's recorded as the original of an active swap. Revert that
