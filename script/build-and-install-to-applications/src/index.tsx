@@ -189,7 +189,7 @@ function App() {
     (async () => {
       try {
         const appName = "Galaxy.app";
-        const bundleDir = path.join(WORKSPACE_ROOT, "target/debug/bundle/osx");
+        const bundleDir = path.join(WORKSPACE_ROOT, "target/release/bundle/osx");
         const appPath = path.join(bundleDir, appName);
         const destPath = path.join("/Applications", appName);
 
@@ -224,7 +224,7 @@ function App() {
         // ─── Step 3: Bundle ─────────────────────────────────────────────
         updateStep(3, { status: "running" });
         await runCommandStreaming(
-          "cargo bundle --bin galaxy-oss --package galaxy",
+          "cargo bundle --release --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
           WORKSPACE_ROOT,
           (line) => appendLog(3, line)
         );

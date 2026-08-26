@@ -284,7 +284,7 @@ function App() {
     { label: "Pull current branch", status: "pending" },
     { label: "Clean Cargo build artifacts", status: "pending" },
     { label: "Bundle Galaxy", status: "pending" },
-    { label: "Create Galaxy.zip", status: "pending" },
+    { label: "Sign and create Galaxy.zip", status: "pending" },
     { label: "Authenticate with Hermes", status: "pending" },
     { label: "Start multipart upload", status: "pending" },
     { label: "Upload parts", status: "pending" },
@@ -340,27 +340,37 @@ function App() {
         // ─── Step 3: Bundle ─────────────────────────────────────────────
         updateStep(3, { status: "running" });
         await runCommandStreaming(
-          "cargo bundle --bin galaxy-oss --package galaxy",
+          "cargo bundle --release --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
           WORKSPACE_ROOT,
           (line) => appendLog(3, line)
         );
         updateStep(3, { status: "done" });
 
-        // ─── Step 4: Zip ────────────────────────────────────────────────
+        // ─── Step 4: Sign and zip ───────────────────────────────────────
         updateStep(4, { status: "running" });
 
-        // Find the .app bundle — cargo bundle outputs to target/debug/bundle/osx/
-        const appDir = path.join(
-          WORKSPACE_ROOT,
-          "target/debug/bundle/osx"
-        );
+        // Distribution bundles must use a release profile so rust-embed includes assets in the
+        // executable instead of resolving them from the build machine's checkout at runtime.
+        const appDir = path.join(WORKSPACE_ROOT, "target/release/bundle/osx");
+        const appPath = path.join(appDir, "Galaxy.app");
         const zipPath = path.join(WORKSPACE_ROOT, "Galaxy.zip");
+
+        await runCommandStreaming(
+          `/usr/bin/codesign --force --deep --sign - "${appPath}"`,
+          WORKSPACE_ROOT,
+          (line) => appendLog(4, line)
+        );
+        await runCommandStreaming(
+          `/usr/bin/codesign --verify --deep --strict --verbose=2 "${appPath}"`,
+          WORKSPACE_ROOT,
+          (line) => appendLog(4, line)
+        );
 
         // Remove old zip if exists
         execSync(`rm -f "${zipPath}"`, { stdio: "pipe" });
         // Preserve executable permissions, symlinks, and macOS bundle metadata.
         await runCommandStreaming(
-          `ditto -c -k --keepParent "${path.join(appDir, "Galaxy.app")}" "${zipPath}"`,
+          `ditto -c -k --keepParent "${appPath}" "${zipPath}"`,
           WORKSPACE_ROOT,
           (line) => appendLog(4, line)
         );
