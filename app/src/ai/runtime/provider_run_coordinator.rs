@@ -732,6 +732,13 @@ impl ProviderRunCoordinator {
                         return Ok(());
                     }
                 }
+                AgentEvent::ReasoningCompleted { text, signature }
+                    if text.is_empty() && signature.is_none() =>
+                {
+                    // Ignore provider heartbeat-shaped empty reasoning events. They are not
+                    // meaningful model progress and must not keep an otherwise idle turn alive.
+                    continue;
+                }
                 AgentEvent::ReasoningCompleted { text, signature } => {
                     if !self
                         .ensure_model_started_acknowledged(

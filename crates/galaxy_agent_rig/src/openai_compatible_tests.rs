@@ -87,6 +87,45 @@ async fn rig_stream_maps_reasoning_text_usage_and_stop() {
 }
 
 #[tokio::test]
+async fn rig_stream_ignores_empty_reasoning_heartbeats() {
+    let http_client = MockStreamingClient {
+        sse_bytes: sse(&[
+            r#"{"id":"cmpl-1","model":"test-model","choices":[{"delta":{"reasoning_content":"","tool_calls":[]},"finish_reason":null}],"usage":null}"#,
+            r#"{"id":"cmpl-1","model":"test-model","choices":[{"delta":{"content":"done","tool_calls":[]},"finish_reason":"stop"}],"usage":null}"#,
+            "[DONE]",
+        ]),
+    };
+    let client = openai::CompletionsClient::builder()
+        .api_key("test-key")
+        .base_url("http://localhost/v1")
+        .http_client(http_client)
+        .build()
+        .unwrap();
+    let model = client.completion_model("test-model");
+    let (_, control) = galaxy_agent_core::turn_control();
+
+    let events = start_model_turn(model, text_request(), control, None, true)
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        AgentEvent::ReasoningCompleted { text, signature }
+            if text.is_empty() && signature.is_none()
+    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done"))
+    );
+}
+
+#[tokio::test]
 async fn cancellation_before_stream_start_is_a_normal_stop() {
     let runtime = OpenAICompatibleRuntime::new(OpenAICompatibleRuntimeConfig {
         base_url: "http://localhost/v1".to_string(),

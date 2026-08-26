@@ -99,10 +99,13 @@ where
                         }
                         Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
                             let text = reasoning.display_text();
-                            yield Ok(AgentEvent::ReasoningCompleted {
-                                text,
-                                signature: reasoning.first_signature().map(str::to_string),
-                            });
+                            let signature = reasoning.first_signature().map(str::to_string);
+                            // Some Responses providers send empty reasoning blocks as heartbeats.
+                            // Do not expose them as model progress: doing so continually resets the
+                            // coordinator's idle timeout and can leave a turn stuck forever.
+                            if !text.is_empty() || signature.is_some() {
+                                yield Ok(AgentEvent::ReasoningCompleted { text, signature });
+                            }
                         }
                         Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
                             if !reasoning.is_empty() {
@@ -236,10 +239,11 @@ where
                     }
                 }
                 rig_core::completion::AssistantContent::Reasoning(reasoning) => {
-                    yield Ok(AgentEvent::ReasoningCompleted {
-                        text: reasoning.display_text(),
-                        signature: reasoning.first_signature().map(str::to_string),
-                    });
+                    let text = reasoning.display_text();
+                    let signature = reasoning.first_signature().map(str::to_string);
+                    if !text.is_empty() || signature.is_some() {
+                        yield Ok(AgentEvent::ReasoningCompleted { text, signature });
+                    }
                 }
                 rig_core::completion::AssistantContent::ToolCall(tool_call) => {
                     yield Ok(AgentEvent::Tool {
