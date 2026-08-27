@@ -6,10 +6,10 @@ workspace_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT
 
-bundle_dir="$temp_dir/GalaxyDev.app/Contents"
-wrapper_path="$bundle_dir/Resources/bin/galaxyctrl-dev"
-binary_path="$bundle_dir/MacOS/galaxy-dev"
-installed_path="$temp_dir/usr/local/bin/galaxyctrl-dev"
+bundle_dir="$temp_dir/Galaxy.app/Contents"
+wrapper_path="$bundle_dir/Resources/bin/galaxyctrl-oss"
+binary_path="$bundle_dir/MacOS/galaxy-oss"
+installed_path="$temp_dir/usr/local/bin/galaxyctrl-oss"
 forwarded_args_file="$temp_dir/forwarded-args"
 expected_args_file="$temp_dir/expected-args"
 
@@ -22,7 +22,7 @@ chmod +x "$binary_path"
 
 "$workspace_root/script/macos/create_galaxyctrl_wrapper" \
   "$wrapper_path" \
-  "../../MacOS/galaxy-dev"
+  "../../MacOS/galaxy-oss"
 
 cat > "$expected_args_file" << 'EOF'
 --galaxyctrl

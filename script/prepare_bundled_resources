@@ -12,8 +12,8 @@
 #   destination_directory:  The directory where resources should be installed.
 #                           Resources will be copied to subdirectories within
 #                           this path (e.g., $DEST_DIR/skills).
-#   channel:                (Optional) Release channel (local, dev, preview,
-#                           stable). Used to include channel-gated skills.
+#   channel:                (Optional) Release channel. OSS has no gated skills;
+#                           integration remains supported for test bundles.
 #   cargo_profile:          (Optional) Cargo build profile to use when
 #                           generating the settings schema. Reusing the same
 #                           profile as the main build avoids recompiling deps.
@@ -86,9 +86,14 @@ if [ -n "$GIT_RELEASE_TAG" ]; then
   printf '{\n  "warp_version": "%s"\n}\n' "$GIT_RELEASE_TAG" > "$VERSION_METADATA_PATH"
 fi
 
-# Copy channel-gated skills matching the current release channel.
+# OSS and integration bundles do not consume channel-gated skills.
 GATED_SRC="$REPO_ROOT/resources/channel-gated-skills"
 DEST_SKILLS="$DEST_DIR/bundled/skills"
+
+if [ -n "$CHANNEL" ] && [[ "$CHANNEL" != "oss" && "$CHANNEL" != "integration" ]]; then
+  echo "Error: unsupported release channel '$CHANNEL'" >&2
+  exit 1
+fi
 
 if [ -n "$CHANNEL" ] && [ -d "$GATED_SRC" ]; then
   echo "Copying channel-gated skills for channel '$CHANNEL'..."
@@ -156,10 +161,7 @@ if [ "${SKIP_SETTINGS_SCHEMA:-}" != "1" ]; then
     if [ -n "$CARGO_PROFILE" ]; then
       SCHEMA_CMD+=(--profile "$CARGO_PROFILE")
     fi
-    SCHEMA_CMD+=(--manifest-path "$REPO_ROOT/Cargo.toml" --bin generate_settings_schema --)
-    if [ -n "$CHANNEL" ]; then
-      SCHEMA_CMD+=(--channel "$CHANNEL")
-    fi
+    SCHEMA_CMD+=(--manifest-path "$REPO_ROOT/Cargo.toml" --bin generate_settings_schema -- --channel oss)
     SCHEMA_CMD+=("$SCHEMA_OUTPUT")
 
     "${SCHEMA_CMD[@]}"

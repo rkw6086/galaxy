@@ -1,18 +1,15 @@
-use super::is_warp_bundle;
+use super::is_galaxy_bundle;
 
 #[test]
-fn is_warp_bundle_recognises_warp_channels() {
-    assert!(is_warp_bundle("dev.warp.Warp"));
-    assert!(is_warp_bundle("dev.warp.WarpDev"));
-    assert!(is_warp_bundle("dev.warp.WarpPreview"));
-    assert!(is_warp_bundle("dev.warp.WarpOss"));
+fn is_galaxy_bundle_recognises_oss() {
+    assert!(is_galaxy_bundle("com.galaxy.GalaxyOss"));
 }
 
 #[test]
-fn is_warp_bundle_rejects_other_apps() {
-    assert!(!is_warp_bundle("com.microsoft.VSCode"));
-    assert!(!is_warp_bundle("com.apple.TextEdit"));
-    assert!(!is_warp_bundle("dev.zed.Zed"));
-    assert!(!is_warp_bundle("invalid"));
-    assert!(!is_warp_bundle(""));
+fn is_galaxy_bundle_rejects_other_apps() {
+    assert!(!is_galaxy_bundle("com.microsoft.VSCode"));
+    assert!(!is_galaxy_bundle("com.apple.TextEdit"));
+    assert!(!is_galaxy_bundle("dev.warp.WarpOss"));
+    assert!(!is_galaxy_bundle("invalid"));
+    assert!(!is_galaxy_bundle(""));
 }

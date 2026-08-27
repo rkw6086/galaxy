@@ -17,8 +17,8 @@ cleanup() {
 # Run cleanup() when the script terminates (whether it succeeded or failed).
 trap cleanup EXIT
 
-# By default we build dev bundles.
-RELEASE_CHANNEL="dev"
+# Build the OSS bundle.
+RELEASE_CHANNEL="oss"
 FEATURES="release_bundle"
 EXTRA_FEATURES=""
 PACKAGES=( appimage )
@@ -140,21 +140,10 @@ DIST_DIR="$CARGO_TARGET_OUTPUT_ROOT/dist"
 
 if [[ $DEBUG = true ]]; then
   CARGO_PROFILE="dev"
-elif [[ $RELEASE_CHANNEL = "local" || $RELEASE_CHANNEL = "dev" ]]; then
-  # For dev bundles, we want to enable debug assertions to
-  # catch violations that would otherwise silently pass in
-  # a normal release build (e.g. in stable).
-  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
-    CARGO_PROFILE="release-cli-debug_assertions"
-  else
-    CARGO_PROFILE="release-lto-debug_assertions"
-  fi
+elif [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
+  CARGO_PROFILE="release-cli"
 else
-  if [[ "$ARTIFACT" == "cli" || "$ARTIFACT" == "galaxyctrl" ]]; then
-    CARGO_PROFILE="release-cli"
-  else
-    CARGO_PROFILE="release-lto"
-  fi
+  CARGO_PROFILE="release-lto"
 fi
 
 if [[ "$CARGO_PROFILE" == "dev" ]]; then
@@ -168,54 +157,20 @@ fi
 OUT_DIR="$CARGO_TARGET_OUTPUT_DIR/bundle/linux"
 mkdir -p "$OUT_DIR"
 
-# Update parameters based on the target release channel.
-#
-# APP_NAME here must match the value used in Rust as the
-# application name; see app/src/channel.rs.
-#
-# GALAXY_BIN is the name of the binary produced by cargo;
-# BINARY_NAME is the desired name of the binary in the final package.
-if [[ $RELEASE_CHANNEL = "local" ]]; then
-  GALAXY_BIN="galaxy-local"
-  BINARY_NAME="galaxy-local"
-  APP_NAME="GalaxyLocal"
-  FEATURES="$FEATURES,agent_mode_debug"
-  export HANDLE_MARKDOWN=1
-elif [[ $RELEASE_CHANNEL = "dev" ]]; then
-  GALAXY_BIN="galaxy-dev"
-  BINARY_NAME="galaxy-dev"
-  APP_NAME="GalaxyDev"
-  FEATURES="$FEATURES,agent_mode_debug"
-  # Enable heap usage tracking & profiling using jemalloc through pprof.
-  FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
-  export HANDLE_MARKDOWN=1
-elif [[ $RELEASE_CHANNEL = "preview" ]]; then
-  GALAXY_BIN="galaxy-preview"
-  BINARY_NAME="galaxy-preview"
-  APP_NAME="GalaxyPreview"
-  FEATURES="$FEATURES,preview_channel"
-  # Enable heap usage tracking & profiling using jemalloc through pprof.
-  FEATURES="$FEATURES,jemalloc_pprof,heap_usage_tracking"
-elif [[ $RELEASE_CHANNEL = "stable" ]]; then
-  GALAXY_BIN="stable"
-  BINARY_NAME="galaxy"
-  APP_NAME="Galaxy"
-elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-  GALAXY_BIN="galaxy-oss"
-  BINARY_NAME="galaxy-oss"
-  APP_NAME="GalaxyOss"
+if [[ "$RELEASE_CHANNEL" != "oss" ]]; then
+  echo "Error: only the oss release channel is supported" >&2
+  exit 1
 fi
+
+# OSS is the only supported release channel.
+GALAXY_BIN="galaxy-oss"
+BINARY_NAME="galaxy-oss"
+APP_NAME="GalaxyOss"
 
 # Artifact-specific binary naming
 if [[ "$ARTIFACT" == "cli" ]]; then
   # Keep packaged CLI names aligned with `Channel::cli_command_name`.
-  case "$RELEASE_CHANNEL" in
-    stable) BINARY_NAME="galaxy-ai" ;;
-    preview) BINARY_NAME="galaxy-ai-preview" ;;
-    dev) BINARY_NAME="galaxy-ai-dev" ;;
-    local) BINARY_NAME="galaxy-ai-local" ;;
-    oss) BINARY_NAME="galaxy-ai-oss" ;;
-  esac
+  BINARY_NAME="galaxy-ai-oss"
 elif [[ "$ARTIFACT" == "galaxyctrl" ]]; then
   BINARY_NAME="galaxyctrl"
   PACKAGES=()
@@ -235,7 +190,7 @@ if [[ -n "$EXTRA_FEATURES" ]]; then
   FEATURES="$FEATURES,$EXTRA_FEATURES"
 fi
 
-BUNDLE_ID="dev.galaxy.$APP_NAME"
+BUNDLE_ID="com.galaxy.GalaxyOss"
 EXECUTABLE_PATH="$CARGO_TARGET_OUTPUT_DIR/$GALAXY_BIN"
 DEBUG_EXECUTABLE_PATH="$EXECUTABLE_PATH.debug"
 
@@ -261,15 +216,8 @@ if [[ "$BUILD" == "true" ]]; then
   cp "$EXECUTABLE_PATH" "$DEBUG_EXECUTABLE_PATH"
 
   echo "Stripping debug symbols from '$EXECUTABLE_PATH'"
-  if [[ $RELEASE_CHANNEL = "dev" ]]; then
-    # For dev builds, only strip debug symbols, as we want to keep some
-    # symbols for profiling purposes.
-    "${WARP_MUSL_STRIP:-strip}" --strip-debug "$EXECUTABLE_PATH"
-  else
-    # For production builds, strip all symbols, to keep the binary size
-    # smaller.
-    "${WARP_MUSL_STRIP:-strip}" --strip-all "$EXECUTABLE_PATH"
-  fi
+  # Strip all symbols to keep the shipped OSS binary small.
+  "${WARP_MUSL_STRIP:-strip}" --strip-all "$EXECUTABLE_PATH"
 else
   echo 'Skipping `cargo build` step due to --skip-build argument'
 fi

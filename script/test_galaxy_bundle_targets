@@ -19,17 +19,13 @@ assert_cargo_target() {
   grep -qx -- 'galaxy' "$args_file"
   grep -qx -- '--bin' "$args_file"
   grep -qx -- "$expected_bin" "$args_file"
-  if grep -Eqx -- 'warp|warp-oss|dev|preview' "$args_file"; then
+  if grep -Eqx -- 'warp|warp-oss|local|dev|preview|stable' "$args_file"; then
     echo "Found a removed Cargo package or binary target in $args_file" >&2
     exit 1
   fi
 }
 
 for channel_and_bin in \
-  "local galaxy-local" \
-  "dev galaxy-dev" \
-  "preview galaxy-preview" \
-  "stable stable" \
   "oss galaxy-oss"
 do
   channel="${channel_and_bin%% *}"
@@ -55,18 +51,14 @@ do
 done
 
 macos_bundle="$workspace_root/script/macos/bundle"
-grep -Fq -- 'CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai"' "$macos_bundle"
 grep -Fq -- 'CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai-oss"' "$macos_bundle"
-grep -Fq -- 'CLI_SCRIPT_PATH="$BUNDLED_RESOURCES_DIR/bin/galaxy-ai-$RELEASE_CHANNEL"' "$macos_bundle"
 if grep -Eq -- 'CLI_SCRIPT_PATH=.*(warp|oz)' "$macos_bundle"; then
   echo "Found a removed Warp/Oz CLI launcher in $macos_bundle" >&2
   exit 1
 fi
 
 windows_bundle="$workspace_root/script/windows/bundle.ps1"
-for expected_bin in galaxy-local galaxy-dev galaxy-preview stable galaxy-oss; do
-  grep -Fq -- "\$GALAXY_BIN = '$expected_bin'" "$windows_bundle"
-done
+grep -Fq -- "\$GALAXY_BIN = 'galaxy-oss'" "$windows_bundle"
 grep -Fq -- 'cargo check -p galaxy' "$windows_bundle"
 grep -Fq -- 'cargo build -p galaxy' "$windows_bundle"
 if grep -Eq -- "cargo (check|build) -p warp|\\\$GALAXY_BIN = '(warp|warp-oss|dev|preview)'" "$windows_bundle"; then
@@ -75,9 +67,8 @@ if grep -Eq -- "cargo (check|build) -p warp|\\\$GALAXY_BIN = '(warp|warp-oss|dev
 fi
 
 windows_installer="$workspace_root/script/windows/windows-installer.iss"
-grep -Fq -- "AppId=galaxy-terminal-{#ReleaseChannel}" "$windows_installer"
-grep -Fq -- "CmdScriptName := 'galaxy-ai.cmd'" "$windows_installer"
-grep -Fq -- "CmdScriptName := 'galaxy-ai-{#ReleaseChannel}.cmd'" "$windows_installer"
+grep -Fq -- "AppId=com.galaxy.GalaxyOss" "$windows_installer"
+grep -Fq -- "CmdScriptName := 'galaxy-ai-oss.cmd'" "$windows_installer"
 grep -Fq -- 'set "GALAXY_CLI_MODE=1"' "$windows_installer"
 grep -Fq -- 'WizardSmallImageFile="installer-images\galaxy-logo.bmp"' "$windows_installer"
 grep -Fq -- 'WizardImageFile="installer-images\galaxy-banner.bmp"' "$windows_installer"

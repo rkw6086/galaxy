@@ -1,12 +1,11 @@
 # A workflow to delete (soft-delete) a release branch by renaming it.
 #
 # The branch will be renamed from its original name to deleted/{original_name}.
-# For example, stable_release/v0.2025.01.01.00.00 becomes
-# deleted/stable_release/v0.2025.01.01.00.00.
+# For example, oss_release/v0.2025.01.01.00.00 becomes
+# deleted/oss_release/v0.2025.01.01.00.00.
 #
 # This workflow will fail if:
-# - The branch doesn't start with a release channel prefix
-#   (i.e.: stable_release/, preview_release/, or dev_release/)
+# - The branch doesn't start with the oss_release/ prefix
 # - The release has an entry in channel_versions.json (i.e., it's deployed)
 
 name: Delete Release
@@ -14,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'The release branch to delete (e.g., stable_release/v0.2025.01.01.00.00.stable)'
+        description: 'The OSS release branch to delete (e.g., oss_release/v0.2025.01.01.00.00.oss)'
         required: true
         type: string
       confirmation:
@@ -41,15 +40,15 @@ jobs:
         run: |
           BRANCH_NAME="${{ inputs.branch }}"
           
-          # Validate branch is a release branch and extract the channel
-          if [[ ! "$BRANCH_NAME" =~ ^(stable|preview|dev)_release/ ]]; then
-            echo "::error::Branch '$BRANCH_NAME' is not a release branch." && exit 1
+          # Validate that this is an OSS release branch.
+          if [[ ! "$BRANCH_NAME" =~ ^oss_release/ ]]; then
+            echo "::error::Branch '$BRANCH_NAME' is not an OSS release branch." && exit 1
           fi
-          CHANNEL="${BASH_REMATCH[1]}"
+          CHANNEL="oss"
           
           # Extract the version base from the branch name
-          # e.g., "stable_release/v0.2025.01.26.12.30.stable" -> "v0.2025.01.26.12.30.stable"
-          VERSION_BASE="$(echo $BRANCH_NAME | sed -r 's|^\w+_release/(.*)$|\1|')"
+          # e.g., "oss_release/v0.2025.01.26.12.30.oss" -> "v0.2025.01.26.12.30.oss"
+          VERSION_BASE="$(echo "$BRANCH_NAME" | sed -r 's|^oss_release/(.*)$|\1|')"
           
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           echo "new_branch_name=deleted/$BRANCH_NAME" >> $GITHUB_OUTPUT

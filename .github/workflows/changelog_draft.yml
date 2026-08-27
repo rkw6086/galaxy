@@ -5,16 +5,8 @@ on:
   # External contributors (fork-based) cannot trigger this workflow.
   workflow_dispatch:
     inputs:
-      channel:
-        description: "Release channel (stable, preview, dev)"
-        required: true
-        type: choice
-        options:
-          - stable
-          - preview
-          - dev
       release_tag:
-        description: "Release tag (e.g. v0.2026.05.06.09.12.stable_00)"
+        description: "Release tag (e.g. v0.2026.05.06.09.12.oss_00)"
         required: true
         type: string
       attribution:
@@ -49,7 +41,7 @@ jobs:
         uses: warpdotdev/oz-agent-action@ce1621abf6a8ed8afdd4e4cc994545ede8fe1c6f # main
         with:
           prompt: |
-            Generate a changelog draft for the ${{ inputs.channel }} channel, release tag ${{ inputs.release_tag }}.
+            Generate a changelog draft for the Galaxy OSS release, release tag ${{ inputs.release_tag }}.
 
             Attribution mode: ${{ inputs.attribution }}
             Output directory: ${{ runner.temp }}/changelog-draft

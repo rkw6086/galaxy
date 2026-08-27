@@ -3,14 +3,14 @@
 # Bundle the application for release.
 
 Param (
-    # Build dev bundles by default.
+    # Build a debug OSS bundle when requested.
     [Switch]$DEBUG_BUILD = $False,
 
     [Alias('check-only')]
     [Switch]$CHECK_ONLY,
 
-    [ValidateSet('local', 'dev', 'preview', 'stable', 'oss')]
-    [String]$CHANNEL = 'dev',
+    [ValidateSet('oss')]
+    [String]$CHANNEL = 'oss',
 
     [Alias('release-tag')]
     [String]$RELEASE_TAG = '',
@@ -65,11 +65,6 @@ $WINDOWS_INSTALLER_DIR = $WORKSPACE_ROOT_DIR + '\script\windows'
 
 if ($DEBUG_BUILD) {
     $CARGO_PROFILE = 'dev'
-} elseif (("$CHANNEL" -eq 'local') -or ("$CHANNEL" -eq 'dev')) {
-    # For dev bundles, we want to enable debug assertions to
-    # catch violations that would otherwise silently pass in
-    # a normal release build (e.g. in stable).
-    $CARGO_PROFILE = 'rltoda'
 } else {
     $CARGO_PROFILE = 'rlto'
 }
@@ -79,43 +74,17 @@ if ($CARGO_PROFILE -eq 'dev') {
 } else {
     $CARGO_TARGET_OUTPUT_DIR = "$CARGO_TARGET_DIR" + '\' + $PLATFORM_TARGET + '\' + "$CARGO_PROFILE"
 }
-# Update parameters based on the target release channel.
-#
-# APP_NAME here must match the value used in Rust as the
-# application name; see app/src/channel.rs.
-#
-# GALAXY_BIN is the name of the binary produced by cargo;
-# BINARY_NAME is the desired name of the binary in the final package.
-if ("$CHANNEL" -eq 'local') {
-    $GALAXY_BIN = 'galaxy-local'
-    $BINARY_NAME = 'galaxy-local.exe'
-    $APP_NAME = 'GalaxyLocal'
-} elseif ("$CHANNEL" -eq 'dev') {
-    $GALAXY_BIN = 'galaxy-dev'
-    $BINARY_NAME = 'galaxy-dev.exe'
-    $APP_NAME = 'GalaxyDev'
-    $FEATURES = "$FEATURES,agent_mode_debug"
-} elseif ("$CHANNEL" -eq 'preview') {
-    $GALAXY_BIN = 'galaxy-preview'
-    $BINARY_NAME = 'galaxy-preview.exe'
-    $APP_NAME = 'GalaxyPreview'
-    $FEATURES = "$FEATURES,preview_channel"
-} elseif ("$CHANNEL" -eq 'stable') {
-    $GALAXY_BIN = 'stable'
-    $BINARY_NAME = 'galaxy.exe'
-    $APP_NAME = 'Galaxy'
-} elseif ("$CHANNEL" -eq 'oss') {
-    $GALAXY_BIN = 'galaxy-oss'
-    $BINARY_NAME = 'galaxy-oss.exe'
-    $APP_NAME = 'GalaxyOss'
-    $FEATURES = 'release_bundle,gui'
-}
+# OSS is the only supported release channel.
+$GALAXY_BIN = 'galaxy-oss'
+$BINARY_NAME = 'galaxy-oss.exe'
+$APP_NAME = 'GalaxyOss'
+$FEATURES = 'release_bundle,gui'
 
-# All channels ship the v3 classifier and v2 heuristic.
+# The OSS bundle ships the v3 classifier and v2 heuristic.
 $FEATURES = "$FEATURES,nld_classifier_v3,nld_heuristic_v2"
 
 $BINARY_PATH = "$CARGO_TARGET_OUTPUT_DIR\$BINARY_NAME"
-$BUNDLE_ID = "samsung.galaxy.$APP_NAME"
+$BUNDLE_ID = 'com.galaxy.GalaxyOss'
 $INSTALLER_OUTPUT_DIR = "$WINDOWS_INSTALLER_DIR\Output"
 $INSTALLER_NAME = "$($APP_NAME)$($FILE_ENDING)"
 $INSTALLER_PATH = "$($INSTALLER_OUTPUT_DIR)\$($INSTALLER_NAME).exe"
@@ -143,7 +112,6 @@ if ($CHECK_ONLY) {
 
 if (-Not $SKIP_BUILD_BINARY) {
     Write-Output "Building Galaxy for channel $CHANNEL and bundle id $BUNDLE_ID"
-    $env:CARGO_BIN_NAME = $CHANNEL
     $env:GALAXY_APP_NAME = $APP_NAME
     cargo build -p galaxy --profile "$CARGO_PROFILE" --bin "$GALAXY_BIN" --features "$FEATURES" --target $PLATFORM_TARGET
     if (-Not $?) {

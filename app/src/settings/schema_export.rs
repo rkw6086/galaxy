@@ -64,11 +64,9 @@ fn active_flags_for_channel(channel: &str) -> HashSet<FeatureFlag> {
     let mut flags = HashSet::new();
 
     let flag_lists: &[&[FeatureFlag]] = match channel {
-        "stable" => &[RELEASE_FLAGS],
-        "preview" => &[RELEASE_FLAGS, PREVIEW_FLAGS],
-        "dev" => &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS],
+        "oss" | "integration" => &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS],
         other => {
-            log::warn!("Unknown settings schema channel '{other}', defaulting to dev");
+            log::warn!("Unknown settings schema channel '{other}', defaulting to oss");
             &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS]
         }
     };
@@ -190,9 +188,8 @@ pub fn generate_settings_schema(channel: &str) -> (String, usize) {
 
 fn runtime_schema_channel() -> &'static str {
     match ChannelState::channel() {
-        Channel::Stable => "stable",
-        Channel::Preview => "preview",
-        Channel::Dev | Channel::Local | Channel::Oss | Channel::Integration => "dev",
+        Channel::Stable | Channel::Preview | Channel::Dev | Channel::Local | Channel::Oss => "oss",
+        Channel::Integration => "integration",
     }
 }
 

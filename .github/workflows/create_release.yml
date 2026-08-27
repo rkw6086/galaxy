@@ -1,7 +1,4 @@
-# A reusable workflow that encapsulates all of the logic surrounding building
-# all bundles for a single release channel, either new releases (when run on the
-# `master` branch) or updated release candidates (when run within a `*_release`
-# branch).
+# A reusable workflow that builds all Galaxy OSS release bundles.
 #
 # This can either be triggered:
 # * Indirectly, using workflow_call, for creating real releases.
@@ -11,10 +8,6 @@ name: Create Release
 on:
   workflow_call:
     inputs:
-      channel:
-        description: The channel to create a release or release candidate for.
-        required: true
-        type: string
       build_linux:
         description: Build Linux artifacts.
         type: boolean
@@ -37,9 +30,6 @@ on:
         default: true
   workflow_dispatch:
     inputs:
-      channel:
-        type: string
-        required: true
       build_linux:
         description: Build Linux artifacts.
         type: boolean
@@ -59,7 +49,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  CONFIG_FILE: ".github/workflows/release_configurations.json"
 
 jobs:
   # Perform all once-per-release steps.  Dependent jobs will build release
@@ -74,13 +63,6 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - name: Set publish flag based on the workflow trigger
         id: set_publish
@@ -110,7 +92,7 @@ jobs:
           fi
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           # See https://github.com/orgs/community/discussions/151442 for why we need to use
           # a PAT here.
           GITHUB_TOKEN: ${{ secrets.CREATE_RELEASE_TAG_PUSH_PAT }}
@@ -120,11 +102,11 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
-          name: ${{ steps.get-config.outputs.release_base_name }} ${{ steps.create_branch_and_tag.outputs.tag }}
+          name: Galaxy OSS Release ${{ steps.create_branch_and_tag.outputs.tag }}
           tag_name: ${{ steps.create_branch_and_tag.outputs.tag }}
-          body: ${{ steps.get-config.outputs.release_body_text }}
+          body: Galaxy open-source release
           draft: false
-          prerelease: ${{ steps.get-config.outputs.is_prerelease }}
+          prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Sentry release
@@ -133,9 +115,9 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           SENTRY_ORG: warpdotdev
-          SENTRY_PROJECT: ${{ steps.get-config.outputs.sentry_project }}
+          SENTRY_PROJECT: galaxy-oss
         with:
-          environment: ${{ steps.get-config.outputs.sentry_environment }}
+          environment: oss_release
           version: ${{ steps.create_branch_and_tag.outputs.tag }}
 
   release_macos_single_arch:
@@ -161,7 +143,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       - name: Ensure rust target is installed
         run: rustup target add ${{ matrix.arch }}-apple-darwin
@@ -172,13 +153,6 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: stable
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - name: Install cargo-bundle
         run: script/install_cargo_bundle
@@ -192,7 +166,7 @@ jobs:
           script/bundle --read-passwords-from-env --channel $CHANNEL --arch ${{ matrix.arch }} --dmg-name-suffix "${{ matrix.dmg_name_suffix }}"
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
           WARP_DEVELOPER_ID_CERT: ${{ secrets.WARP_DEVELOPER_ID_CERT }}
           WARP_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.WARP_DEVELOPER_ID_CERT_PASSWORD }}
@@ -218,15 +192,15 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.bundle_app.outputs.dmg_path }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload DMG as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-macos-${{ matrix.arch }}-${{ steps.get-config.outputs.channel }}
+          name: release-macos-${{ matrix.arch }}-oss
           path: ${{ steps.bundle_app.outputs.dmg_path }}
 
       - name: Set up Sentry CLI
@@ -235,7 +209,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debug symbols from frameworks to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -260,7 +234,7 @@ jobs:
       - name: Archive ${{ matrix.arch }} build artifacts for universal build
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: macos-${{ matrix.arch }}-${{ steps.get-config.outputs.channel }}
+          name: macos-${{ matrix.arch }}-oss
           retention-days: 1
           # We compress the tar archive, so no need to re-compress.
           compression-level: 0
@@ -281,7 +255,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       # Install go toolchain, as it may be needed for some build steps.
       - name: Setup Go
@@ -289,17 +262,10 @@ jobs:
         with:
           go-version: stable
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
       - name: Download aarch64 build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: macos-aarch64-${{ steps.get-config.outputs.channel }}
+          name: macos-aarch64-oss
 
       - name: Extract aarch64 build artifacts
         run: tar xvfz build-artifacts.tar.gz
@@ -308,7 +274,7 @@ jobs:
       - name: Download x86_64 build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: macos-x86_64-${{ steps.get-config.outputs.channel }}
+          name: macos-x86_64-oss
 
       - name: Extract x86_64 build artifacts
         run: tar xvfz build-artifacts.tar.gz
@@ -326,7 +292,7 @@ jobs:
           script/bundle --skip-build --read-passwords-from-env --channel $CHANNEL
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
           WARP_DEVELOPER_ID_CERT: ${{ secrets.WARP_DEVELOPER_ID_CERT }}
           WARP_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.WARP_DEVELOPER_ID_CERT_PASSWORD }}
@@ -340,7 +306,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debugging symbols to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -393,18 +359,18 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.bundle_app.outputs.dmg_path }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload DMG as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-macos-universal-${{ steps.get-config.outputs.channel }}
+          name: release-macos-universal-oss
           path: ${{ steps.bundle_app.outputs.dmg_path }}
 
   release_macos_cli:
@@ -428,7 +394,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       - name: Ensure rust target is installed
         run: rustup target add ${{ matrix.arch }}-apple-darwin
@@ -440,20 +405,13 @@ jobs:
         with:
           go-version: stable
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
       - name: Build ${{ matrix.arch }} Galaxy CLI binary
         id: bundle_cli
         run: |
           script/bundle --read-passwords-from-env --channel "$CHANNEL" --arch ${{ matrix.arch }} --artifact cli --features galaxy_control_cli
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
           WARP_DEVELOPER_ID_CERT: ${{ secrets.WARP_DEVELOPER_ID_CERT }}
           WARP_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.WARP_DEVELOPER_ID_CERT_PASSWORD }}
@@ -464,11 +422,7 @@ jobs:
       - name: Package Galaxy CLI binary
         id: package_cli
         run: |
-          if [[ "$CHANNEL" == "stable" ]]; then
-            command_name="galaxy-ai"
-          else
-            command_name="galaxy-ai-$CHANNEL"
-          fi
+          command_name="galaxy-ai-oss"
 
           archive="galaxy-ai-$CHANNEL-macos-$ARCH.tar.gz"
           staging_dir="$(mktemp -d)"
@@ -481,7 +435,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           BINARY_PATH: ${{ steps.bundle_cli.outputs.binary_path }}
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
 
       - name: Create Galaxy Control wrapper
@@ -490,7 +444,7 @@ jobs:
           script/bundle --read-passwords-from-env --channel "$CHANNEL" --arch ${{ matrix.arch }} --artifact galaxyctrl --skip-build
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
           WARP_DEVELOPER_ID_CERT: ${{ secrets.WARP_DEVELOPER_ID_CERT }}
           WARP_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.WARP_DEVELOPER_ID_CERT_PASSWORD }}
@@ -501,24 +455,8 @@ jobs:
       - name: Package Galaxy Control wrapper
         id: package_galaxyctrl
         run: |
-          case "$CHANNEL" in
-            stable)
-              command_name="galaxyctrl"
-              forwarded_binary_name="stable"
-              ;;
-            local|dev|preview)
-              command_name="galaxyctrl-$CHANNEL"
-              forwarded_binary_name="galaxy-$CHANNEL"
-              ;;
-            oss)
-              command_name="galaxyctrl-oss"
-              forwarded_binary_name="galaxy-oss"
-              ;;
-            *)
-              echo "Unsupported release channel: $CHANNEL" >&2
-              exit 1
-              ;;
-          esac
+          command_name="galaxyctrl-oss"
+          forwarded_binary_name="galaxy-oss"
 
           artifact_dir="$(dirname "$WRAPPER_PATH")"
           forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
@@ -537,7 +475,7 @@ jobs:
         shell: bash
         env:
           ARCH: ${{ matrix.arch }}
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
           WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.binary_path }}
 
@@ -561,24 +499,24 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_cli.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy Control to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_galaxyctrl.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/macos/${{ matrix.arch }}
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy CLI artifacts as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-macos-cli-${{ matrix.arch }}-${{ steps.get-config.outputs.channel }}
+          name: release-macos-cli-${{ matrix.arch }}-oss
           path: |
             ${{ steps.package_cli.outputs.archive }}
             ${{ steps.package_galaxyctrl.outputs.archive }}
@@ -589,7 +527,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debugging symbols to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -622,7 +560,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       # Install gcc 10, as gcc 9.5 has a bug with memcmp that is incompatible
       # with aws-lc-rs (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189).
@@ -633,13 +570,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
           gcc --version
           g++ --version
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -696,13 +626,13 @@ jobs:
           script/bundle --channel $CHANNEL --packages appimage,deb,rpm
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Bundle Arch Linux package
         uses: ./.github/actions/bundle_arch_package
         with:
-          channel: ${{ steps.get-config.outputs.channel }}
+          channel: oss
           release-tag: ${{ needs.prepare_release.outputs.release_tag }}
           arch: x86_64
 
@@ -719,7 +649,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debugging symbols to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -746,18 +676,18 @@ jobs:
           # Only upload the files from within `packages_dir`, don't include the
           # (parent) folder itself.
           parent: false
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload packages as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-linux-x86_64-${{ steps.get-config.outputs.channel }}
+          name: release-linux-x86_64-oss
           path: ${{ steps.bundle_app.outputs.packages_dir }}
 
   release_linux_cli_x86:
@@ -779,7 +709,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       # Install gcc 10, as gcc 9.5 has a bug with memcmp that is incompatible
       # with aws-lc-rs (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189).
@@ -790,13 +719,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
           gcc --version
           g++ --version
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -850,17 +772,13 @@ jobs:
           script/bundle --channel "$CHANNEL" --artifact cli --packages deb,rpm --features galaxy_control_cli
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package Galaxy CLI tar.gz
         id: package_cli
         run: |
-          if [[ "$CHANNEL" == "stable" ]]; then
-            command_name="galaxy-ai"
-          else
-            command_name="galaxy-ai-$CHANNEL"
-          fi
+          command_name="galaxy-ai-oss"
 
           archive="galaxy-ai-$CHANNEL-linux-x86_64.tar.gz"
           staging_dir="$(mktemp -d)"
@@ -872,7 +790,7 @@ jobs:
         shell: bash
         env:
           BINARY_PATH: ${{ steps.bundle_cli.outputs.executable_path }}
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
 
       - name: Create Galaxy Control wrapper
@@ -881,30 +799,14 @@ jobs:
           script/bundle --channel "$CHANNEL" --artifact galaxyctrl --packages none --skip-build
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package Galaxy Control tar.gz
         id: package_galaxyctrl
         run: |
-          case "$CHANNEL" in
-            stable)
-              command_name="galaxyctrl"
-              forwarded_binary_name="stable"
-              ;;
-            local|dev|preview)
-              command_name="galaxyctrl-$CHANNEL"
-              forwarded_binary_name="galaxy-$CHANNEL"
-              ;;
-            oss)
-              command_name="galaxyctrl-oss"
-              forwarded_binary_name="galaxy-oss"
-              ;;
-            *)
-              echo "Unsupported release channel: $CHANNEL" >&2
-              exit 1
-              ;;
-          esac
+          command_name="galaxyctrl-oss"
+          forwarded_binary_name="galaxy-oss"
 
           artifact_dir="$(dirname "$WRAPPER_PATH")"
           forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
@@ -922,14 +824,14 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
           WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.executable_path }}
 
       - name: Bundle Arch Linux CLI package
         uses: ./.github/actions/bundle_arch_package
         with:
-          channel: ${{ steps.get-config.outputs.channel }}
+          channel: oss
           release-tag: ${{ needs.prepare_release.outputs.release_tag }}
           arch: x86_64
           artifact: cli
@@ -947,7 +849,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debugging symbols to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -974,12 +876,12 @@ jobs:
           # Only upload the files from within `packages_dir`, don't include the
           # (parent) folder itself.
           parent: false
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Add Galaxy CLI tar.gz files to GitHub release assets
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -996,24 +898,24 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_cli.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy Control tar.gz to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_galaxyctrl.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/x86_64
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy CLI packages as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-linux-cli-x86_64-${{ steps.get-config.outputs.channel }}
+          name: release-linux-cli-x86_64-oss
           path: |
             ${{ steps.bundle_cli.outputs.packages_dir }}
             ${{ steps.package_cli.outputs.archive }}
@@ -1042,7 +944,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       # Install gcc 10, as gcc 9.5 has a bug with memcmp that is incompatible
       # with aws-lc-rs (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189).
@@ -1065,13 +966,6 @@ jobs:
           fi
         shell: bash
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
@@ -1092,7 +986,7 @@ jobs:
           script/bundle --channel $CHANNEL --packages appimage
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package binaries
@@ -1112,7 +1006,7 @@ jobs:
       - name: Archive build files
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: built-arm64-linux-${{steps.get-config.outputs.channel}}
+          name: built-arm64-linux-oss
           retention-days: 1
           path: binaries.tar.gz
 
@@ -1131,7 +1025,6 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       # Install gcc 10, as gcc 9.5 has a bug with memcmp that is incompatible
       # with aws-lc-rs (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189).
@@ -1142,13 +1035,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 60 --slave /usr/bin/g++ g++ /usr/bin/g++-10
           gcc --version
           g++ --version
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -1168,7 +1054,7 @@ jobs:
           script/bundle --channel "$CHANNEL" --artifact cli --packages none --arch aarch64 --features galaxy_control_cli
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package binaries
@@ -1188,7 +1074,7 @@ jobs:
       - name: Archive build files
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: built-arm64-linux-cli-${{steps.get-config.outputs.channel}}
+          name: built-arm64-linux-cli-oss
           retention-days: 1
           path: binaries-cli.tar.gz
 
@@ -1210,13 +1096,6 @@ jobs:
         with:
           ref: ${{ needs.prepare_release.outputs.release_branch }}
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
@@ -1227,7 +1106,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       # Install gcc 10, as gcc 9.5 has a bug with memcmp that is incompatible
       # with aws-lc-rs (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95189).
@@ -1297,7 +1176,7 @@ jobs:
       - name: Download app build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: built-arm64-linux-${{steps.get-config.outputs.channel}}
+          name: built-arm64-linux-oss
 
       - name: Unpackage app binaries
         id: unpackage_app_binaries
@@ -1313,13 +1192,13 @@ jobs:
           script/bundle --channel $CHANNEL --skip-build --packages deb,rpm --arch aarch64
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Bundle Arch Linux app package
         uses: ./.github/actions/bundle_arch_package
         with:
-          channel: ${{ steps.get-config.outputs.channel }}
+          channel: oss
           release-tag: ${{ needs.prepare_release.outputs.release_tag }}
           arch: aarch64
           
@@ -1337,7 +1216,7 @@ jobs:
       - name: Download CLI build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: built-arm64-linux-cli-${{steps.get-config.outputs.channel}}
+          name: built-arm64-linux-cli-oss
 
       - name: Unpackage CLI binaries
         id: unpackage_cli_binaries
@@ -1351,17 +1230,13 @@ jobs:
           script/bundle --channel $CHANNEL --skip-build --arch aarch64 --packages deb,rpm --artifact cli
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package Galaxy CLI tar.gz
         id: package_cli
         run: |
-          if [[ "$CHANNEL" == "stable" ]]; then
-            command_name="galaxy-ai"
-          else
-            command_name="galaxy-ai-$CHANNEL"
-          fi
+          command_name="galaxy-ai-oss"
 
           archive="galaxy-ai-$CHANNEL-linux-aarch64.tar.gz"
           staging_dir="$(mktemp -d)"
@@ -1373,7 +1248,7 @@ jobs:
         shell: bash
         env:
           BINARY_PATH: ${{ steps.bundle_cli.outputs.executable_path }}
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_cli.outputs.bundled_resources_dir }}
 
       - name: Create Galaxy Control wrapper
@@ -1382,30 +1257,14 @@ jobs:
           script/bundle --channel "$CHANNEL" --skip-build --arch aarch64 --packages none --artifact galaxyctrl
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Package Galaxy Control tar.gz
         id: package_galaxyctrl
         run: |
-          case "$CHANNEL" in
-            stable)
-              command_name="galaxyctrl"
-              forwarded_binary_name="stable"
-              ;;
-            local|dev|preview)
-              command_name="galaxyctrl-$CHANNEL"
-              forwarded_binary_name="galaxy-$CHANNEL"
-              ;;
-            oss)
-              command_name="galaxyctrl-oss"
-              forwarded_binary_name="galaxy-oss"
-              ;;
-            *)
-              echo "Unsupported release channel: $CHANNEL" >&2
-              exit 1
-              ;;
-          esac
+          command_name="galaxyctrl-oss"
+          forwarded_binary_name="galaxy-oss"
 
           artifact_dir="$(dirname "$WRAPPER_PATH")"
           forwarded_binary_path="$artifact_dir/$forwarded_binary_name"
@@ -1423,14 +1282,14 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           RESOURCES_DIR: ${{ steps.bundle_galaxyctrl.outputs.bundled_resources_dir }}
           WRAPPER_PATH: ${{ steps.bundle_galaxyctrl.outputs.executable_path }}
 
       - name: Bundle Arch Linux CLI package
         uses: ./.github/actions/bundle_arch_package
         with:
-          channel: ${{ steps.get-config.outputs.channel }}
+          channel: oss
           release-tag: ${{ needs.prepare_release.outputs.release_tag }}
           arch: aarch64
           artifact: cli
@@ -1487,12 +1346,12 @@ jobs:
         with:
           path: ${{ steps.bundle_app.outputs.packages_dir }}
           parent: false
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload CLI packages to Google Cloud Storage
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
@@ -1500,36 +1359,36 @@ jobs:
         with:
           path: ${{ steps.bundle_cli.outputs.packages_dir }}
           parent: false
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy CLI tar.gz to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_cli.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload Galaxy Control tar.gz to Google Cloud Storage
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.package_galaxyctrl.outputs.archive }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}/cli/linux/aarch64
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload packages as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-linux-arm64-${{ steps.get-config.outputs.channel }}
+          name: release-linux-arm64-oss
           path: |
             ${{ steps.bundle_app.outputs.packages_dir }}
             ${{ steps.package_cli.outputs.archive }}
@@ -1549,14 +1408,6 @@ jobs:
           target_os: wasm
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
-
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
 
       - name: Bundle app
         id: bundle_app
@@ -1564,7 +1415,7 @@ jobs:
           script/wasm/bundle --channel $CHANNEL
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Brotli compress app bundle
@@ -1583,7 +1434,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload debugging symbols to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -1616,12 +1467,12 @@ jobs:
           # (parent) folder itself.
           gzip: false
           parent: false
-          destination: ${{ steps.get-config.outputs.web_gcs_bucket_prefix }}-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
             content-encoding: br
 
       - name: Upload assets to Google Cloud Storage
@@ -1632,7 +1483,7 @@ jobs:
           parent: false
           # All asset filenames contain the file hash for cashing purposes, so we store them all in
           # one directory so they can be cached across releases.
-          destination: ${{ steps.get-config.outputs.web_gcs_bucket_prefix }}-static-assets/
+          destination: warp-static-assets/
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
@@ -1646,7 +1497,7 @@ jobs:
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-web-${{ steps.get-config.outputs.channel }}
+          name: release-web-oss
           path: ${{ steps.bundle_app.outputs.packages_dir }}
 
   release_windows:
@@ -1676,26 +1527,18 @@ jobs:
           is_self_hosted: false
           ref: ${{ needs.prepare_release.outputs.release_branch }}
           install_release_deps: true
-          ssh_key: ${{ secrets.WARP_CHANNEL_CONFIG_ACCESS_SSH_KEY }}
 
       - name: Add arm64 target
         if: ${{ matrix.arch == 'arm64' }}
         run: rustup target add aarch64-pc-windows-msvc
         shell: bash
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
       - name: Build binary
         id: build_binary
         run: script/bundle -Channel $CHANNEL -skip_build_installer --arch ${{ matrix.arch }}
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
 
       - name: Sign the executables with Azure Trusted Signing
@@ -1748,7 +1591,7 @@ jobs:
         run: script/bundle -Channel $CHANNEL -skip_build_binary --arch ${{ matrix.arch }}
         shell: bash
         env:
-          CHANNEL: ${{ steps.get-config.outputs.channel }}
+          CHANNEL: oss
           GIT_RELEASE_TAG: ${{ needs.prepare_release.outputs.release_tag }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -1761,7 +1604,7 @@ jobs:
         with:
           token: ${{ secrets.SENTRY_RELEASE_TOKEN }}
           organization: warpdotdev
-          project: ${{ steps.get-config.outputs.sentry_project }}
+          project: galaxy-oss
 
       - name: Upload binary to Sentry
         if: ${{ needs.prepare_release.outputs.should_publish == 'true' }}
@@ -1798,18 +1641,18 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: ${{ steps.bundle_app.outputs.installer_path }}
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}
           # IMPORTANT: both the key and value of the cache-control header must be all lowercase;
           # uppercase values will not be respected by Cloud CDN and using "Cache-Control" will be
           # ignored by the upload-cloud-storage action.
           headers: |-
-            cache-control: ${{ steps.get-config.outputs.gcs_cache_control_value }}
+            cache-control: public, max-age=604800, immutable
 
       - name: Upload installer as workflow artifact
         if: ${{ needs.prepare_release.outputs.should_publish != 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-windows-${{ matrix.arch }}-${{ steps.get-config.outputs.channel }}
+          name: release-windows-${{ matrix.arch }}-oss
           path: ${{ steps.bundle_app.outputs.installer_path }}
 
   send_slack_notif_if_unsuccessful:
@@ -1850,7 +1693,7 @@ jobs:
           if [[ ${{ needs.release_linux_cli_x86.result }} != 'success' ]]; then
               FAILED+=("Linux CLI x86_64")
           fi
-          if [[ ${{ needs.release_web.result }} != 'success' && ${{ inputs.channel }} != 'preview' ]]; then
+          if [[ ${{ needs.release_web.result }} != 'success' ]]; then
               FAILED+=("WASM")
           fi
           if [[ ${{ needs.release_windows.result }} != 'success' ]]; then
@@ -1869,7 +1712,7 @@ jobs:
           channel-id: "#oncall-client"
           # Follows https://api.slack.com/reference/surfaces/formatting#mentioning-users.
           # S06N82RS7FA is the user group ID for @oncall-client-eng.
-          slack-message: "Failed to create ${{ steps.failed_releases.outputs.failed }} release artifacts for ${{ inputs.channel }}. See https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. cc: <!subteam^S06N82RS7FA>"
+          slack-message: "Failed to create ${{ steps.failed_releases.outputs.failed }} release artifacts for oss. See https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. cc: <!subteam^S06N82RS7FA>"
         env:
           SLACK_BOT_TOKEN: ${{ secrets.ACTION_MONITORING_SLACK }}
 
@@ -1895,23 +1738,12 @@ jobs:
           # in order to generate the changelog.
           fetch-depth: 0
 
-      - name: Get channel configuration
-        id: get-config
-        uses: ./.github/actions/get_channel_config/
-        with:
-          config_file: ${{ env.CONFIG_FILE }}
-          channel: ${{ inputs.channel }}
-
-      # Stable releases use the Oz changelog-draft agent for higher-quality,
-      # human-reviewable output. Non-stable channels (dev/preview/beta) use the
-      # legacy generate-changelog action to avoid spending Oz agent tokens on
-      # daily dev cuts and preview RCs.
-      - name: Generate changelog via Oz (stable only)
-        if: inputs.channel == 'stable'
+      # Generate the OSS changelog using the reviewable Oz workflow.
+      - name: Generate changelog via Oz
         uses: warpdotdev/oz-agent-action@ce1621abf6a8ed8afdd4e4cc994545ede8fe1c6f # main
         with:
           prompt: |
-            Generate a changelog draft for the ${{ inputs.channel }} channel, release tag ${{ needs.prepare_release.outputs.release_tag }}.
+            Generate a changelog draft for the Galaxy OSS release, release tag ${{ needs.prepare_release.outputs.release_tag }}.
 
             Output directory: ${{ runner.temp }}/changelog-draft
 
@@ -1924,8 +1756,7 @@ jobs:
             You are running in a GitHub Actions workflow. The repo is checked out at the default branch (HEAD) with full history. Use the release_tag input as the git range endpoint — do NOT check out the release tag. `gh` is authenticated. Do not commit, push, or create PRs.
           warp_api_key: ${{ secrets.WARP_API_KEY }}
           share: team
-      - name: Upload raw Markdown changelog artifact (stable only)
-        if: inputs.channel == 'stable'
+      - name: Upload raw Markdown changelog artifact
         id: upload_changelog_draft_markdown
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -1933,60 +1764,28 @@ jobs:
           path: ${{ runner.temp }}/changelog-draft/changelog-draft.md
           if-no-files-found: error
 
-      - name: Convert draft JSON to release format (stable only)
-        if: inputs.channel == 'stable'
+      - name: Convert draft JSON to release format
         shell: bash
         run: |
           python3 .agents/skills/changelog-draft/scripts/convert_to_release_json.py \
             --input "${{ runner.temp }}/changelog-draft/changelog-draft.json" \
             --output "${{ runner.temp }}/changelog-draft/changelog-release.json"
 
-      - name: Obtain a GitHub App Installation Access Token (non-stable only)
-        if: inputs.channel != 'stable'
-        id: github_app_auth
-        run: |
-          TOKEN="$(npx obtain-github-app-installation-access-token ci ${{ secrets.GH_APP_CREDENTIALS_TOKEN }})"
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
-
-      - name: Generate changelog via legacy action (non-stable only)
-        if: inputs.channel != 'stable'
-        id: legacy_changelog
-        uses: warpdotdev/generate-changelog@70f534c1e030dafb45046ae57e4aa4d43a2f5c84 # main
-        with:
-          channel: ${{ inputs.channel }}
-          github_auth_token: ${{ steps.github_app_auth.outputs.token }}
-          version: ${{ needs.prepare_release.outputs.release_tag }}
-
       - name: Load changelog into step output
         id: generate_changelog
         shell: bash
-        env:
-          LEGACY_CHANGELOG: ${{ steps.legacy_changelog.outputs.changelog }}
         run: |
-          # Bridge step: picks whichever generator ran for this channel and
-          # re-emits the changelog as outputs.changelog so downstream Slack/GCS
-          # steps work unchanged.
-          if [[ "${{ inputs.channel }}" == "stable" ]]; then
-            CHANGELOG_FILE="${{ runner.temp }}/changelog-draft/changelog-release.json"
-            if [ ! -f "$CHANGELOG_FILE" ]; then
-              echo "::error::changelog-release.json not found at $CHANGELOG_FILE"
-              exit 1
-            fi
-            jq empty "$CHANGELOG_FILE"
-            {
-              echo "changelog<<CHANGELOG_EOF"
-              cat "$CHANGELOG_FILE"
-              echo "CHANGELOG_EOF"
-            } >> $GITHUB_OUTPUT
-          else
-            echo "$LEGACY_CHANGELOG" | jq empty
-            {
-              echo "changelog<<CHANGELOG_EOF"
-              printf '%s\n' "$LEGACY_CHANGELOG"
-              echo "CHANGELOG_EOF"
-            } >> $GITHUB_OUTPUT
+          CHANGELOG_FILE="${{ runner.temp }}/changelog-draft/changelog-release.json"
+          if [ ! -f "$CHANGELOG_FILE" ]; then
+            echo "::error::changelog-release.json not found at $CHANGELOG_FILE"
+            exit 1
           fi
+          jq empty "$CHANGELOG_FILE"
+          {
+            echo "changelog<<CHANGELOG_EOF"
+            cat "$CHANGELOG_FILE"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build Slack changelog payload
         id: build_slack_payload
@@ -2023,7 +1822,7 @@ jobs:
         # in Cloud Storage.)
         continue-on-error: true
         with:
-          channel-id: ${{ steps.get-config.outputs.changelog_slack_channel }}
+          channel-id: "#release"
           payload: ${{ steps.build_slack_payload.outputs.payload }}
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_CHANGELOG_BOT }}
@@ -2060,4 +1859,4 @@ jobs:
         uses: google-github-actions/upload-cloud-storage@e95a15f226403ed658d3e65f40205649f342ba2c # v1
         with:
           path: changelog.json
-          destination: warp-releases/${{ steps.get-config.outputs.channel }}/${{ needs.prepare_release.outputs.release_tag }}
+          destination: warp-releases/oss/${{ needs.prepare_release.outputs.release_tag }}

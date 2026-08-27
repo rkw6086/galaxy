@@ -154,7 +154,7 @@
               "-p"
               "warp"
               "--bin"
-              "warp-oss"
+              "galaxy-oss"
               "--bin"
               "generate_settings_schema"
             ];
@@ -175,13 +175,13 @@
               let
                 installDir = "$out/opt/warpdotdev/warp-terminal-experimental";
                 resourcesDir = "${installDir}/resources";
-                releaseChannel = "stable";
+                releaseChannel = "oss";
                 libraryPath = lib.makeLibraryPath linuxRuntimeLibraries;
                 executablePath = lib.makeBinPath (with pkgs; [ xdg-utils ]);
               in
               ''
-                install -Dm755 "$out/bin/warp-oss" "${installDir}/warp-oss"
-                rm -f "$out/bin/warp-oss"
+                install -Dm755 "$out/bin/galaxy-oss" "${installDir}/galaxy-oss"
+                rm -f "$out/bin/galaxy-oss"
 
                 patchShebangs \
                   ./script/prepare_bundled_resources \
@@ -204,30 +204,30 @@
                 install -Dm644 LICENSE-AGPL "$out/share/licenses/warp-terminal-experimental/LICENSE-AGPL"
                 install -Dm644 LICENSE-MIT "$out/share/licenses/warp-terminal-experimental/LICENSE-MIT"
 
-                install -Dm644 app/channels/oss/dev.warp.WarpOss.desktop \
-                  "$out/share/applications/dev.warp.WarpOss.desktop"
-                substituteInPlace "$out/share/applications/dev.warp.WarpOss.desktop" \
-                  --replace-fail "Exec=warp-terminal-oss %U" "Exec=warp-terminal-experimental %U"
+                install -Dm644 app/channels/oss/com.galaxy.GalaxyOss.desktop \
+                  "$out/share/applications/com.galaxy.GalaxyOss.desktop"
+                substituteInPlace "$out/share/applications/com.galaxy.GalaxyOss.desktop" \
+                  --replace-fail "Exec=galaxy-oss %U" "Exec=warp-terminal-experimental %U"
 
                 for size in 16x16 32x32 64x64 128x128 256x256 512x512; do
                   icon="app/channels/oss/icon/no-padding/$size.png"
                   if [ -f "$icon" ]; then
                     install -Dm644 "$icon" \
-                      "$out/share/icons/hicolor/$size/apps/dev.warp.WarpOss.png"
+                      "$out/share/icons/hicolor/$size/apps/com.galaxy.GalaxyOss.png"
                   fi
                 done
 
-                wrapProgram "${installDir}/warp-oss" \
+                wrapProgram "${installDir}/galaxy-oss" \
                   --prefix LD_LIBRARY_PATH : "${libraryPath}" \
                   --prefix PATH : "${executablePath}"
 
                 mkdir -p "$out/bin"
-                ln -s "${installDir}/warp-oss" "$out/bin/warp-oss"
-                ln -s "${installDir}/warp-oss" "$out/bin/warp-terminal-experimental"
+                ln -s "${installDir}/galaxy-oss" "$out/bin/galaxy-oss"
+                ln -s "${installDir}/galaxy-oss" "$out/bin/galaxy-terminal-experimental"
               '';
 
             postFixup = lib.optionalString pkgs.stdenv.isLinux ''
-              wrapped="/opt/warpdotdev/warp-terminal-experimental/.warp-oss-wrapped"
+              wrapped="/opt/warpdotdev/warp-terminal-experimental/.galaxy-oss-wrapped"
               if [ -e "$out$wrapped" ] && ! patchelf --print-needed "$out$wrapped" | grep -q '^libfontconfig\.so\.1$'; then
                 patchelf --add-needed libfontconfig.so.1 "$out$wrapped"
               fi

@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     let mut state = ChannelState::new(
         Channel::Oss,
         ChannelConfig {
-            app_id: AppId::new("com", "galaxy", "Galaxy"),
+            app_id: AppId::new("com", "galaxy", "GalaxyOss"),
             logfile_name: "galaxy.log".into(),
             server_config: WarpServerConfig::disabled(),
             oz_config: OzConfig::production(),
@@ -68,7 +68,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>UIDesignRequiresCompatibility</key>
     <true/>
     <key>CFBundleURLTypes</key>
-    <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxy</string></array></dict></array>
+    <array><dict><key>CFBundleURLName</key><string>Galaxy</string><key>CFBundleURLSchemes</key><array><string>galaxyoss</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026, Galaxy Project</string>
     <key>NSDockTilePlugIn</key>

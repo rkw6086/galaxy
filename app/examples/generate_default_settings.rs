@@ -8,7 +8,7 @@
 //! per-generator registration list to keep in sync.
 //!
 //! Usage:
-//!   cargo run --example generate_default_settings -- [--channel dev|preview|stable] <output_path>
+//!   cargo run --example generate_default_settings -- [--channel oss] <output_path>
 //!
 //! Example:
 //!   cargo run --example generate_default_settings -- ./default_settings.toml
@@ -38,11 +38,9 @@ fn active_flags_for_channel(channel: &str) -> HashSet<FeatureFlag> {
     let mut flags = HashSet::new();
 
     let flag_lists: &[&[FeatureFlag]] = match channel {
-        "stable" => &[RELEASE_FLAGS],
-        "preview" => &[RELEASE_FLAGS, PREVIEW_FLAGS],
-        "dev" => &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS],
+        "oss" | "integration" => &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS],
         other => {
-            eprintln!("Unknown channel '{other}', defaulting to dev");
+            eprintln!("Unknown channel '{other}', defaulting to oss");
             &[RELEASE_FLAGS, PREVIEW_FLAGS, DOGFOOD_FLAGS, DEBUG_FLAGS]
         }
     };
@@ -61,7 +59,7 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let mut channel = "dev";
+    let mut channel = "oss";
     let mut output_path: Option<PathBuf> = None;
     let mut i = 1;
     while i < args.len() {
@@ -84,7 +82,7 @@ fn main() {
     }
 
     let Some(output_path) = output_path else {
-        eprintln!("Usage: generate_default_settings [--channel dev|preview|stable] <output_path>");
+        eprintln!("Usage: generate_default_settings [--channel oss] <output_path>");
         std::process::exit(1);
     };
 

@@ -5958,7 +5958,6 @@ dependencies = [
  "warp-command-signatures",
  "warp-workflows",
  "warp_assets",
- "warp_channel_config",
  "warp_multi_agent_api",
  "warp_search_core",
  "warp_server_auth",
@@ -16993,15 +16992,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "warp_channel_config"
-version = "0.0.0"
-dependencies = [
- "command",
- "galaxy_core",
- "serde_json",
-]
-
-[[package]]
 name = "warp_multi_agent_api"
 version = "0.0.0"
 source = "git+https://github.com/warpdotdev/warp-proto-apis.git?rev=45f9b1342b256b20f716aede64dc1b46a639e5e6#45f9b1342b256b20f716aede64dc1b46a639e5e6"
@@ -17083,7 +17073,6 @@ dependencies = [
  "string-offset",
  "sum_tree",
  "vec1",
- "warp_channel_config",
 ]
 
 [[package]]

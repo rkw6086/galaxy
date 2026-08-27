@@ -8,8 +8,8 @@
 #   - WORKSPACE_ROOT_DIR: The root directory of the Cargo workspace.
 #   - CARGO_TARGET_OUTPUT_DIR: The cargo target directory containing build output.
 #   - OPT_DIR: The absolute path to our install directory (under /opt) on the target machine.
-#   - RELEASE_CHANNEL: The release channel we're bundling (e.g.: "dev").
-#   - BUNDLE_ID: The app ID for the bundle (e.g.: "dev.galaxy.GalaxyDev").
+#   - RELEASE_CHANNEL: The release channel we're bundling ("oss").
+#   - BUNDLE_ID: The app ID for the bundle ("com.galaxy.GalaxyOss").
 #   - EXECUTABLE_PATH: The path to the compiled executable we want to install.
 #   - BINARY_NAME: The name that the compiled executable should have on the target machine.
 #   - ARTIFACT: Which artifact to build: app or cli.
@@ -52,9 +52,9 @@ EOF
     "${TARGET_DIR}/usr/bin/$GALAXY_AI_COMMAND_NAME" \
     "${TARGET_DIR}/usr/bin/$GALAXY_CONTROL_COMMAND_NAME"
 
-  install -Dm644 "$WORKSPACE_ROOT_DIR/app/channels/$RELEASE_CHANNEL/$BUNDLE_ID.desktop" "${TARGET_DIR}/usr/share/applications/$BUNDLE_ID.desktop"
+  install -Dm644 "$WORKSPACE_ROOT_DIR/app/channels/oss/$BUNDLE_ID.desktop" "${TARGET_DIR}/usr/share/applications/$BUNDLE_ID.desktop"
   for size in 16x16 32x32 64x64 128x128 256x256 512x512; do
-    src_path="$WORKSPACE_ROOT_DIR/app/channels/$RELEASE_CHANNEL/icon/no-padding/$size.png"
+    src_path="$WORKSPACE_ROOT_DIR/app/channels/oss/icon/no-padding/$size.png"
     if [[ -f "$src_path" ]]; then
       install -Dm644 "$src_path" "${TARGET_DIR}/usr/share/icons/hicolor/$size/apps/$BUNDLE_ID.png"
     fi

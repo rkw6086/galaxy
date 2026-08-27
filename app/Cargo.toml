@@ -13,9 +13,8 @@ license.workspace = true
 name = "galaxy"
 path = "src/lib.rs"
 
-# We define separate targets for each channel (stable, preview, dev) so that we can
-# bundle with its own icon, app name, and channel-specific configuration (such as
-# flag overrides). Otherwise these binaries are exactly identical to our main binary.
+# The OSS target is the shipped desktop application. Its identity and production
+# configuration are defined in app/src/bin/oss.rs.
 
 [[bin]]
 name = "galaxy-oss"
@@ -205,7 +204,6 @@ vte.workspace = true
 walkdir.workspace = true
 warp-workflows.workspace = true
 warp_assets.workspace = true
-warp_channel_config.workspace = true
 galaxy_completer.workspace = true
 galaxy_core.workspace = true
 galaxy_agent_core.workspace = true
@@ -951,7 +949,7 @@ prompt_cache_expiry_warning = []
 [package.metadata.bundle.bin.galaxy-oss]
 category = "public.app-category.developer-tools"
 copyright = "© 2026, Samsung Electronics Co., Ltd."
-identifier = "samsung.galaxy.GalaxyOss"
+identifier = "com.galaxy.GalaxyOss"
 name = "Galaxy"
 resources = ["assets/onboarding"]
 icon = ["channels/oss/icon/no-padding/512x512.png", "channels/oss/icon/no-padding/icon.ico"]

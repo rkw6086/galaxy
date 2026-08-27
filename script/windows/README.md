@@ -49,9 +49,9 @@ Usage: `iscc <script path> /D<name>[=<value>]`
 
 The following constants can be overwritten:
 * `MyAppVersion` (default: `0.1.0`)
-* `MyAppExeName` (default: `galaxy-dev.exe`)
-* `ReleaseChannel` (default: `dev`)
-* `TargetProfileDir` (default: `debug`)
+* `MyAppExeName` (default: `galaxy-oss.exe`)
+* `ReleaseChannel` (default: `oss`)
+* `TargetProfileDir` (default: `target\\rlto`)
 
 ### Option 2: Use the GUI
 1. Open the Inno Setup application and select this script.

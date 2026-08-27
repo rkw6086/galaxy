@@ -2,7 +2,7 @@
 //!
 //! Usage:
 //! ```
-//! cargo run --bin generate_settings_schema -- [--channel dev|preview|stable] [output_path]
+//! cargo run --bin generate_settings_schema -- [output_path]
 //! ```
 
 use std::io::Write;
@@ -19,7 +19,7 @@ fn main() {
     ensure_settings_linked();
 
     let args: Vec<String> = std::env::args().collect();
-    let mut channel = "dev";
+    let mut channel = "oss";
     let mut output_path: Option<&str> = None;
     let mut index = 1;
 

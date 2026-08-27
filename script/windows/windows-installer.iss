@@ -4,38 +4,33 @@
 
 #define MyAppPublisher "Galaxy"
 #ifndef MyAppName
-  #define MyAppName "GalaxyDev"
+#define MyAppName "GalaxyOss"
 #endif
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
 #ifndef MyAppExeName
-  #define MyAppExeName "galaxy-dev.exe"
+#define MyAppExeName "galaxy-oss.exe"
 #endif
 #ifndef ReleaseChannel
-  #define ReleaseChannel "dev"
+#define ReleaseChannel "oss"
 #endif
 #ifndef TargetProfileDir
-  #define TargetProfileDir "target\release-lto-debug_assertions"
+#define TargetProfileDir "target\rlto"
 #endif
 #define AssetsDir "..\..\app\assets\windows"
 
 // The mutex name must match what the Rust app creates in single_instance_manager.rs:
 #define ChannelPascalCase \
-  (ReleaseChannel == "stable") ? "Stable" : \
-  ((ReleaseChannel == "dev") ? "Dev" : \
-  ((ReleaseChannel == "preview") ? "Preview" : \
-  ((ReleaseChannel == "local") ? "Local" : \
-  ((ReleaseChannel == "integration") ? "Integration" : \
-  ((ReleaseChannel == "oss") ? "Oss" : \
-  "Unknown")))))
+  (ReleaseChannel == "oss") ? "Oss" : \
+  "Unknown"
 #define AppMutexName "Local\Galaxy" + ChannelPascalCase + "_SingleInstance"
 
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId=galaxy-terminal-{#ReleaseChannel}
+AppId=com.galaxy.GalaxyOss
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -55,7 +50,7 @@ SolidCompression=yes
 WizardStyle=modern
 WizardSmallImageFile="installer-images\galaxy-logo.bmp"
 WizardImageFile="installer-images\galaxy-banner.bmp"
-SetupIconFile="..\..\app\channels\{#ReleaseChannel}\icon\no-padding\icon.ico"
+SetupIconFile="..\..\app\channels\oss\icon\no-padding\icon.ico"
 UninstallDisplayIcon="{app}\icon.ico"
 ; Force close previous Galaxy if it hasn't shut down yet.
 ; In the update flow we already warn the user if they have something running and make them confirm
@@ -94,7 +89,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#TargetProfileDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\OpenConsole.exe"; DestDir: "{app}\{#Arch}"; Flags: ignoreversion
-Source: "..\..\app\channels\{#ReleaseChannel}\icon\no-padding\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\app\channels\oss\icon\no-padding\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AssetsDir}\{#Arch}\vcruntime140.dll"; DestDir: "{app}"
 Source: "{#AssetsDir}\{#Arch}\vcruntime140_1.dll"; DestDir: "{app}"
 Source: "{#AssetsDir}\{#Arch}\msvcp140.dll"; DestDir: "{app}"
@@ -136,8 +131,8 @@ Type: filesandordirs; Name: "{localappdata}\galaxy\{#MyAppName}"
 Type: filesandordirs; Name: "{app}\bin"
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; AppUserModelID: "samsung.galaxy.{#MyAppName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; AppUserModelID: "samsung.galaxy.{#MyAppName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; AppUserModelID: "com.galaxy.GalaxyOss"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icon.ico"; AppUserModelID: "com.galaxy.GalaxyOss"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: postinstall runhidden nowait
@@ -145,11 +140,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [Code]
 function IsNotStable(): Boolean;
 begin
-#if ReleaseChannel == "stable"
   Result := False;
-#else
-  Result := True;
-#endif
 end;
 
 { Returns true when the installer was launched by Galaxy's auto-update code.
@@ -199,7 +190,7 @@ begin
       if CheckForMutexes('{#AppMutexName}') then
       begin
         Log('Galaxy mutex still held after timeout; force-killing remaining processes.');
-        { Kill by image name. {#MyAppExeName} (e.g. galaxy.exe, galaxy-dev.exe) is unique
+        { Kill by image name. {#MyAppExeName} (galaxy-oss.exe) is unique
           enough that collateral damage is not a concern. OpenConsole.exe is NOT
           killed by name because it is shared with Windows Terminal; instead we
           rely on Galaxy's Job Object (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE) to
@@ -236,13 +227,8 @@ begin
     if not DirExists(BinDir) then
       CreateDir(BinDir);
 
-    { Determine the channel-specific script name.  These values must match
-      `Channel::cli_command_name` in the Rust source. }
-#if ReleaseChannel == "stable"
-    CmdScriptName := 'galaxy-ai.cmd';
-#else
-    CmdScriptName := 'galaxy-ai-{#ReleaseChannel}.cmd';
-#endif
+    { Keep this name aligned with `Channel::cli_command_name` in the Rust source. }
+    CmdScriptName := 'galaxy-ai-oss.cmd';
 
     { Create the helper CMD script }
     CmdScriptPath := BinDir + '\' + CmdScriptName;

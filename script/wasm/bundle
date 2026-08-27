@@ -18,8 +18,8 @@ fi
 WORKSPACE_ROOT_DIR="$(pwd)"
 CARGO_TARGET_DIR="$WORKSPACE_ROOT_DIR/target/wasm32-unknown-unknown"
 
-# By default we build dev bundles.
-RELEASE_CHANNEL="dev"
+# Build the OSS bundle.
+RELEASE_CHANNEL="oss"
 FEATURES="release_bundle,gui"
 DEBUG=false
 
@@ -84,11 +84,6 @@ eval set -- "$PARAMS"
 
 if [[ $DEBUG = true ]]; then
   CARGO_PROFILE="dev-wasm"
-elif [[ $RELEASE_CHANNEL = "local" || $RELEASE_CHANNEL = "dev" ]]; then
-  # For dev bundles, we want to enable debug assertions to
-  # catch violations that would otherwise silently pass in
-  # a normal release build (e.g. in stable).
-  CARGO_PROFILE="release-wasm-debug_assertions"
 else
   CARGO_PROFILE="release-wasm"
 fi
@@ -110,23 +105,13 @@ mkdir -p "$ASSET_TARGET_DIR"
 EXTRAS_DIR="$CARGO_TARGET_OUTPUT_DIR/bundle/extras"
 mkdir -p "$EXTRAS_DIR"
 
-# Update parameters based on the target release channel.
-#
-# GALAXY_BIN is the name of the binary produced by cargo.
-# N.B. The bundled outputs will always be galaxy.js and galaxy_bg.wasm.
-if [[ $RELEASE_CHANNEL = "local" ]]; then
-  GALAXY_BIN="galaxy-local"
-  FEATURES="$FEATURES,remote_tty"
-elif [[ $RELEASE_CHANNEL = "dev" ]]; then
-  GALAXY_BIN="galaxy-dev"
-elif [[ $RELEASE_CHANNEL = "preview" ]]; then
-  GALAXY_BIN="galaxy-preview"
-  FEATURES="$FEATURES,preview_channel"
-elif [[ $RELEASE_CHANNEL = "stable" ]]; then
-  GALAXY_BIN="stable"
-elif [[ $RELEASE_CHANNEL = "oss" ]]; then
-  GALAXY_BIN="galaxy-oss"
+if [[ "$RELEASE_CHANNEL" != "oss" ]]; then
+  echo "Error: only the oss release channel is supported" >&2
+  exit 1
 fi
+
+# OSS is the only supported release channel.
+GALAXY_BIN="galaxy-oss"
 
 if [ -n "${FEATURES_OVERRIDE+x}" ]; then
   FEATURES="$FEATURES_OVERRIDE"

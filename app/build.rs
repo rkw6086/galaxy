@@ -352,13 +352,7 @@ fn embed_resource_file(target_dir: &Path) {
 
     let version = env::var("GIT_RELEASE_TAG").unwrap_or("v0".to_owned());
     let app_name = env::var("GALAXY_APP_NAME").unwrap_or("Galaxy".to_owned());
-    let bin_name = env::var("CARGO_BIN_NAME").unwrap_or("local".to_owned());
-
-    let icon_path = Path::new("channels")
-        .join(bin_name)
-        .join("icon")
-        .join("no-padding")
-        .join("icon.ico");
+    let icon_path = Path::new("channels/oss/icon/no-padding/icon.ico");
 
     fs::copy(icon_path, target_dir.join("icon.ico"))
         .unwrap_or_else(|err| panic!("Could not copy icon: {err:#}"));

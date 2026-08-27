@@ -3,32 +3,19 @@
 # Derives Linux package metadata from Galaxy's release channel and artifact.
 # This file is sourced by the individual package builders.
 
-case "$RELEASE_CHANNEL" in
-  stable)
-    CHANNEL_SUFFIX=""
-    ;;
-  local|dev|preview|oss)
-    CHANNEL_SUFFIX="-$RELEASE_CHANNEL"
-    ;;
-  *)
-    echo "::error ::Unknown RELEASE_CHANNEL: $RELEASE_CHANNEL" >&2
-    return 1
-    ;;
-esac
+if [[ "$RELEASE_CHANNEL" != "oss" ]]; then
+  echo "::error ::Only the oss release channel is supported" >&2
+  return 1
+fi
+
+CHANNEL_SUFFIX="-oss"
 
 GALAXY_AI_COMMAND_NAME="galaxy-ai$CHANNEL_SUFFIX"
 GALAXY_CONTROL_COMMAND_NAME="galaxyctrl$CHANNEL_SUFFIX"
 
 case "$ARTIFACT" in
   app)
-    # The OSS desktop entry invokes the Cargo binary directly. Other channels
-    # expose the traditional `*-terminal` launcher independently of the Cargo
-    # binary name.
-    if [[ "$RELEASE_CHANNEL" == "oss" ]]; then
-      PACKAGE_NAME="galaxy-oss"
-    else
-      PACKAGE_NAME="galaxy-terminal$CHANNEL_SUFFIX"
-    fi
+    PACKAGE_NAME="galaxy-oss"
     ;;
   cli)
     PACKAGE_NAME="galaxy-ai$CHANNEL_SUFFIX"
@@ -41,4 +28,4 @@ esac
 
 # Repository provisioning still uses the existing release infrastructure and
 # templates. This name is intentionally independent of Galaxy package names.
-REPO_NAME="warpdotdev$CHANNEL_SUFFIX"
+REPO_NAME="galaxy-oss"
