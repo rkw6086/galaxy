@@ -448,7 +448,7 @@ impl TryFrom<GrepResult> for api::request::input::tool_call_result::Result {
 
     fn try_from(result: GrepResult) -> Result<Self, Self::Error> {
         match result {
-            GrepResult::Success { matched_files } => Ok(
+            GrepResult::Success { matched_files, .. } => Ok(
                 api::request::input::tool_call_result::Result::Grep(api::GrepResult {
                     result: Some(api::grep_result::Result::Success(
                         api::grep_result::Success {

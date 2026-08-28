@@ -834,7 +834,10 @@ pub(crate) fn convert_tool_call_result_to_input(
                         })
                         .collect();
 
-                    GrepResult::Success { matched_files }
+                    GrepResult::Success {
+                        matched_files,
+                        truncated: false,
+                    }
                 }
                 Some(api::grep_result::Result::Error(error)) => {
                     GrepResult::Error(error.message.clone())

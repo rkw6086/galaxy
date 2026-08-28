@@ -38,6 +38,8 @@ pub struct ScrollTarget {
 #[derive(Clone, Default)]
 pub struct ClippedScrollData {
     scroll_start_px: Pixels,
+    max_scroll_start_px: Pixels,
+    follow_end: bool,
     pub(super) scroll_to_position: Option<ScrollTarget>,
     selection_scroll_anchor: Option<ClippedSelectionScrollAnchor>,
 }
@@ -75,6 +77,36 @@ impl ClippedScrollStateHandle {
 
     pub fn scroll_start(&self) -> Pixels {
         self.clipped_scroll_data.lock().scroll_start_px
+    }
+
+    /// Returns whether the scrollable is currently at its maximum scroll position.
+    ///
+    /// The maximum is captured during layout, so consumers can implement follow-output
+    /// behavior without estimating content or viewport sizes themselves.
+    pub fn is_scrolled_to_end(&self) -> bool {
+        let data = self.clipped_scroll_data.lock();
+        data.scroll_start_px.as_f32() + 0.5 >= data.max_scroll_start_px.as_f32()
+    }
+
+    /// Controls whether layout should keep the scroll position docked to the content's end.
+    pub fn set_follow_end(&self, follow_end: bool) {
+        self.clipped_scroll_data.lock().follow_end = follow_end;
+    }
+
+    pub(in crate::elements) fn update_scroll_extent(
+        &self,
+        visible_px: Pixels,
+        total_size: Pixels,
+    ) -> Pixels {
+        let max_scroll_start_px = (total_size - visible_px).max(Pixels::zero());
+        let mut data = self.clipped_scroll_data.lock();
+        data.max_scroll_start_px = max_scroll_start_px;
+        data.scroll_start_px = if data.follow_end {
+            max_scroll_start_px
+        } else {
+            data.scroll_start_px.min(max_scroll_start_px)
+        };
+        data.scroll_start_px
     }
 
     pub fn scroll_by(&self, delta: Pixels) {
@@ -417,12 +449,8 @@ impl Element for ClippedScrollable {
         // Make sure that the new layout doesn't put the scroll bar in an invalid
         // location.
         if let Some(scroll_data) = self.scroll_data(app) {
-            let max_scroll_top =
-                (scroll_data.total_size - scroll_data.visible_px).max(Pixels::zero());
-            let scroll_top = scroll_data.scroll_start;
-            if scroll_top > max_scroll_top {
-                self.state.scroll_to(max_scroll_top);
-            }
+            self.state
+                .update_scroll_extent(scroll_data.visible_px, scroll_data.total_size);
         }
     }
 }

@@ -1343,10 +1343,19 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
                 FileGlobV2Result::Cancelled => write!(f, "\n_File glob cancelled_"),
             },
             AIAgentActionResultType::Grep(result) => match result {
-                GrepResult::Success { matched_files } => {
+                GrepResult::Success {
+                    matched_files,
+                    truncated,
+                } => {
                     write!(f, "\n\n**Grep Results:**\n\n")?;
                     for file in matched_files {
                         writeln!(f, "- **{}**", file.file_path)?;
+                    }
+                    if *truncated {
+                        writeln!(
+                            f,
+                            "\n_Additional matches omitted; narrow the query or path._"
+                        )?;
                     }
                     Ok(())
                 }

@@ -124,6 +124,20 @@ fn parallel_phase_only_admits_matching_autoexecutable_actions() {
 }
 
 #[test]
+fn parallel_user_started_action_allows_compatible_automatic_followups() {
+    let parallel = StartedAction::Async {
+        phase: RunningActionPhase::Parallel(execute::ParallelExecutionPolicy::ReadOnlyLocalContext),
+    };
+    let serial = StartedAction::Async {
+        phase: RunningActionPhase::Serial,
+    };
+
+    assert!(StartedAction::Sync.allows_compatible_following_actions());
+    assert!(parallel.allows_compatible_following_actions());
+    assert!(!serial.allows_compatible_following_actions());
+}
+
+#[test]
 fn phased_scheduling_stops_at_serial_barrier_and_resumes_afterward() {
     let read_only_phase =
         RunningActionPhase::Parallel(execute::ParallelExecutionPolicy::ReadOnlyLocalContext);

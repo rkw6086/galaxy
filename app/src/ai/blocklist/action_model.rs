@@ -274,6 +274,18 @@ enum StartedAction {
     Async { phase: RunningActionPhase },
 }
 
+impl StartedAction {
+    fn allows_compatible_following_actions(self) -> bool {
+        matches!(
+            self,
+            Self::Sync
+                | Self::Async {
+                    phase: RunningActionPhase::Parallel(_)
+                }
+        )
+    }
+}
+
 /// Returns whether another action may join the currently running phase.
 ///
 /// Parallel phases only admit additional actions that classify into the same group and
@@ -1421,7 +1433,7 @@ impl BlocklistAIActionModel {
                 ActionExecutionInitiator::User,
                 ctx,
             )
-            .is_some_and(|result| matches!(result, StartedAction::Sync))
+            .is_some_and(StartedAction::allows_compatible_following_actions)
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
         }
@@ -1441,7 +1453,7 @@ impl BlocklistAIActionModel {
                 ActionExecutionInitiator::User,
                 ctx,
             )
-            .is_some_and(|result| matches!(result, StartedAction::Sync))
+            .is_some_and(StartedAction::allows_compatible_following_actions)
         {
             self.try_to_execute_available_actions(conversation_id, ctx);
         }

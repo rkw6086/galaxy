@@ -1577,10 +1577,12 @@ impl SelectableElement for NewScrollable {
 
 impl ClippedScrollStateHandle {
     fn scroll_data(&self, viewport_size: Vector2F, child_size: Vector2F, axis: Axis) -> ScrollData {
+        let visible_px = viewport_size.along(axis).into_pixels();
+        let total_size = child_size.along(axis).into_pixels();
         ScrollData {
-            scroll_start: self.scroll_start(),
-            visible_px: (viewport_size.along(axis)).into_pixels(),
-            total_size: child_size.along(axis).into_pixels(),
+            scroll_start: self.update_scroll_extent(visible_px, total_size),
+            visible_px,
+            total_size,
         }
     }
 }

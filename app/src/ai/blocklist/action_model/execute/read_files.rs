@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use futures::future::BoxFuture;
+use futures::future::{join_all, BoxFuture};
 use futures::FutureExt;
 use galaxyui::{Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
@@ -236,14 +236,24 @@ impl ReadFilesExecutor {
         // Local path.
         ActionExecution::Async {
             execute_future: Box::pin(async move {
-                let result = read_local_file_context(
-                    &locations,
-                    current_working_directory,
-                    shell,
-                    None,
-                    None,
-                )
-                .await?;
+                let reads = locations.iter().map(|location| {
+                    read_local_file_context(
+                        std::slice::from_ref(location),
+                        current_working_directory.clone(),
+                        shell.clone(),
+                        None,
+                        None,
+                    )
+                });
+                let mut result = super::ReadFileContextResult {
+                    file_contexts: Vec::new(),
+                    missing_files: Vec::new(),
+                };
+                for file_result in join_all(reads).await {
+                    let file_result = file_result?;
+                    result.file_contexts.extend(file_result.file_contexts);
+                    result.missing_files.extend(file_result.missing_files);
+                }
                 if result.missing_files.is_empty() {
                     Ok(ReadFilesResult::Success {
                         files: result.file_contexts,

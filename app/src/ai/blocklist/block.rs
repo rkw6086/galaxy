@@ -28,7 +28,7 @@ use std::sync::Arc;
 use ai::agent::action::{AskUserQuestionItem, InsertReviewComment, RunAgentsRequest};
 use base64::Engine as _;
 use chrono::Duration;
-use cli_controller::{CLISubagentController, CLISubagentEvent};
+use cli_controller::{CLISubagentController, CLISubagentEvent, LongRunningCommandControlState};
 use find::FindState;
 use galaxy_agent_core::RuntimeActivityStatus;
 use galaxy_core::features::FeatureFlag;
@@ -1445,18 +1445,38 @@ impl AIBlock {
                     initial_requested_command_action_id: Some(initial_requested_command_action_id),
                     ..
                 } => {
-                    me.collapse_requested_command_view(initial_requested_command_action_id, ctx);
+                    let restore_completed_takeover = {
+                        let terminal_model = me.terminal_model.lock();
+                        terminal_model
+                            .block_list()
+                            .block_for_ai_action_id(initial_requested_command_action_id)
+                            .is_some_and(|block| {
+                                block.finished()
+                                    && block.long_running_control_state().is_some_and(
+                                        LongRunningCommandControlState::is_user_in_control,
+                                    )
+                            })
+                    };
+                    if restore_completed_takeover {
+                        me.expand_requested_command_view(initial_requested_command_action_id, ctx);
+                    } else {
+                        me.collapse_requested_command_view(
+                            initial_requested_command_action_id,
+                            ctx,
+                        );
+                    }
                 }
                 CLISubagentEvent::UpdatedControl {
                     requested_command_action_id: Some(requested_command_action_id),
+                    agent_has_control,
                     ..
                 } => {
-                    if let Some(requested_command_view) =
-                        me.requested_commands.get(requested_command_action_id)
-                    {
-                        requested_command_view
-                            .view
-                            .update(ctx, |_, ctx| ctx.notify());
+                    if *agent_has_control {
+                        me.expand_requested_command_view(requested_command_action_id, ctx);
+                    } else {
+                        me.requested_commands_to_auto_collapse
+                            .remove(requested_command_action_id);
+                        me.collapse_requested_command_view(requested_command_action_id, ctx);
                     }
                 }
                 _ => {}
@@ -1465,18 +1485,36 @@ impl AIBlock {
 
         ctx.subscribe_to_model(model_event_dispatcher, |me, _, event, ctx| {
             if let ModelEvent::BlockCompleted(block_completed_event) = event {
-                let terminal_model = me.terminal_model.lock();
-                if terminal_model
-                    .block_list()
-                    .block_with_id(&block_completed_event.block_id)
-                    .and_then(|block| block.agent_interaction_metadata())
-                    .is_some_and(|metadata| {
+                let (requested_action_id, should_restore_takeover) = {
+                    let mut terminal_model = me.terminal_model.lock();
+                    let command_metadata = terminal_model
+                        .block_list()
+                        .block_with_id(&block_completed_event.block_id)
+                        .and_then(|block| block.agent_interaction_metadata());
+                    let action_id = command_metadata
+                        .and_then(|metadata| metadata.requested_command_action_id().cloned())
+                        .filter(|id| me.requested_action_ids.contains(id));
+                    let should_restore = command_metadata.is_some_and(|metadata| {
                         metadata
-                            .requested_command_action_id()
-                            .is_some_and(|id| me.requested_action_ids.contains(id))
-                    })
-                {
-                    ctx.notify();
+                            .long_running_control_state()
+                            .is_some_and(LongRunningCommandControlState::is_user_in_control)
+                    });
+                    if should_restore {
+                        if let Some(action_id) = &action_id {
+                            terminal_model
+                                .block_list_mut()
+                                .set_visibility_of_block_for_ai_action(action_id, false);
+                        }
+                    }
+                    (action_id, should_restore)
+                };
+                if let Some(action_id) = requested_action_id {
+                    if should_restore_takeover {
+                        me.requested_commands_to_auto_collapse.remove(&action_id);
+                        me.expand_requested_command_view(&action_id, ctx);
+                    } else {
+                        ctx.notify();
+                    }
                 }
             }
         });
@@ -3702,12 +3740,17 @@ impl AIBlock {
                     .action_model
                     .as_ref(ctx)
                     .get_action_status(self.client_ids.conversation_id, action_id);
-                let has_finished_command_block = {
+                let (has_finished_command_block, user_controls_command) = {
                     let terminal_model = self.terminal_model.lock();
-                    terminal_model
+                    let command_block = terminal_model
                         .block_list()
-                        .block_for_ai_action_id(action_id)
-                        .is_some_and(|block| block.finished())
+                        .block_for_ai_action_id(action_id);
+                    (
+                        command_block.is_some_and(|block| block.finished()),
+                        command_block
+                            .and_then(|block| block.long_running_control_state())
+                            .is_some_and(LongRunningCommandControlState::is_user_in_control),
+                    )
                 };
                 if !has_finished_command_block
                     && !action_status.is_some_and(|a| a.is_running() || a.is_done())
@@ -3727,12 +3770,11 @@ impl AIBlock {
                     self.requested_commands_to_auto_collapse.remove(action_id);
                 }
 
-                // Requested-command output is rendered by the inline pane whenever it is
-                // expanded. Keep the backing terminal block hidden in both states so collapsing
-                // the pane does not move the output to the bottom of the conversation.
+                // Agent-owned command output stays contained in the inline pane. During user
+                // takeover, the same live backing terminal block becomes the interactive surface.
                 ctx.emit(AIBlockEvent::UpdateInlineActionVisibility {
                     action_id: action_id.clone(),
-                    is_visible: false,
+                    is_visible: user_controls_command && !has_finished_command_block,
                 });
                 ctx.notify();
             }
@@ -6103,6 +6145,15 @@ impl AIBlock {
         &self,
     ) -> impl Iterator<Item = (&AIAgentActionId, &RequestedCommand)> {
         self.requested_commands.iter()
+    }
+
+    pub(crate) fn requested_command_view(
+        &self,
+        action_id: &AIAgentActionId,
+    ) -> Option<ViewHandle<RequestedCommandView>> {
+        self.requested_commands
+            .get(action_id)
+            .map(|command| command.view.clone())
     }
 
     /// Collects all imported review comments stored in this block

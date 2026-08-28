@@ -143,9 +143,15 @@ pub mod text {
                     SearchCodebaseResult::Cancelled => todo!(),
                 },
                 AIAgentActionResultType::Grep(result) => match result {
-                    GrepResult::Success { matched_files } => {
+                    GrepResult::Success {
+                        matched_files,
+                        truncated,
+                    } => {
                         for file in matched_files {
                             writeln!(w, "- {file}")?;
+                        }
+                        if *truncated {
+                            writeln!(w, "Additional matches omitted; narrow the query or path.")?;
                         }
                         Ok(())
                     }
@@ -923,7 +929,7 @@ pub mod json {
                     SearchCodebaseResult::Cancelled => Some(JsonMessage::ToolCanceled),
                 },
                 AIAgentActionResultType::Grep(result) => match result {
-                    GrepResult::Success { matched_files } => {
+                    GrepResult::Success { matched_files, .. } => {
                         use crate::ai::agent::GrepFileMatch;
                         let files: Vec<JsonFile> = matched_files
                             .iter()

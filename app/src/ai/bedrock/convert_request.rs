@@ -743,7 +743,7 @@ fn tool_definition_for_name(name: &str) -> ToolDefinition {
         },
         "grep" => ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for patterns in files. Pass all search patterns in one call.".to_string(),
+            description: "Search for patterns in files. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Pass all search patterns in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

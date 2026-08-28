@@ -346,15 +346,20 @@ impl InteractionMode {
         task_id: &TaskId,
         conversation_id: AIConversationId,
     ) -> Result<Self, UpdateInteractionModeError> {
-        let requested_command_action_id = match self {
-            InteractionMode::User(_) => None,
-            InteractionMode::Agent(metadata) => {
-                if metadata.conversation_id != conversation_id {
-                    return Err(UpdateInteractionModeError::UnexpectedConversationId);
+        let (requested_command_action_id, has_agent_written_to_block, should_hide_block) =
+            match self {
+                InteractionMode::User(_) => (None, false, false),
+                InteractionMode::Agent(metadata) => {
+                    if metadata.conversation_id != conversation_id {
+                        return Err(UpdateInteractionModeError::UnexpectedConversationId);
+                    }
+                    (
+                        metadata.requested_command_action_id.clone(),
+                        metadata.has_agent_written_to_block,
+                        metadata.should_hide_block,
+                    )
                 }
-                metadata.requested_command_action_id.clone()
-            }
-        };
+            };
 
         Ok(Self::Agent(AgentInteractionMetadata {
             requested_command_action_id,
@@ -364,8 +369,8 @@ impl InteractionMode {
                 is_blocked: false,
                 should_hide_responses: false,
             }),
-            has_agent_written_to_block: false,
-            should_hide_block: false,
+            has_agent_written_to_block,
+            should_hide_block,
         }))
     }
 

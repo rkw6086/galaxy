@@ -17,7 +17,6 @@ use galaxyui::elements::{
 };
 use galaxyui::keymap::{Context, EditableBinding, FixedBinding, Keystroke};
 use galaxyui::ui_components::components::UiComponent as _;
-use galaxyui::units::IntoPixels;
 use galaxyui::{
     AppContext, Element, Entity, EntityId, EventContext, ModelHandle, SingletonEntity,
     TypedActionView, UpdateView, View, ViewContext, ViewHandle,
@@ -46,7 +45,6 @@ use crate::ai::blocklist::inline_action::inline_action_header::{
     ExpandedConfig, HeaderConfig, InteractionMode, RightClickConfig,
     INLINE_ACTION_HORIZONTAL_PADDING,
 };
-use crate::ai::blocklist::inline_action::requested_action::render_requested_action_body_text;
 use crate::ai::blocklist::inline_action::tool_pane::render_tool_pane_shell;
 use crate::ai::blocklist::model::{AIBlockModel, AIBlockModelHelper};
 use crate::ai::blocklist::{
@@ -57,9 +55,13 @@ use crate::cmd_or_ctrl_shift;
 use crate::code::editor::view::{CodeEditorEvent, CodeEditorRenderOptions, CodeEditorView};
 use crate::editor::InteractionState;
 use crate::menu::{Event as MenuEvent, Menu, MenuItemFields, MenuVariant};
-use crate::settings::InputModeSettings;
+use crate::settings::{FontSettings, InputModeSettings};
 use crate::terminal::block_list_viewport::InputMode;
+use crate::terminal::blockgrid_element::TerminalGridSnapshotElement;
+use crate::terminal::ligature_settings::should_use_ligature_rendering;
 use crate::terminal::model::block::Block;
+use crate::terminal::model::grid::Dimensions;
+use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::TerminalModel;
 use crate::ui_components::blended_colors;
 use crate::ui_components::json_tree::{JsonTreeState, PathSegment};
@@ -335,8 +337,6 @@ pub struct RequestedCommandView {
     header_mouse_state: MouseStateHandle,
     output_scroll_state: ClippedScrollStateHandle,
     follow_command_output: Cell<bool>,
-    last_command_output_len: Cell<usize>,
-    last_output_scroll_start: Cell<f32>,
     is_editing: bool,
 
     // A requested command can either be copied directly off of one citation (such as a Warp Drive
@@ -597,8 +597,6 @@ impl RequestedCommandView {
             header_mouse_state: Default::default(),
             output_scroll_state: ClippedScrollStateHandle::new(),
             follow_command_output: Cell::new(true),
-            last_command_output_len: Cell::new(0),
-            last_output_scroll_start: Cell::new(0.),
             copied_from_citation: None,
             derived_from_citations: Default::default(),
             citation_state_handles: Default::default(),
@@ -714,9 +712,7 @@ impl RequestedCommandView {
         self.is_header_expanded = value;
         if value && self.action_type.is_requested_command() {
             self.follow_command_output.set(true);
-            self.last_command_output_len.set(0);
-            self.last_output_scroll_start
-                .set(self.output_scroll_state.scroll_start().as_f32());
+            self.output_scroll_state.set_follow_end(true);
         }
         if is_user_initiated {
             self.is_user_expanded = value;
@@ -779,6 +775,21 @@ impl RequestedCommandView {
 
     pub fn is_header_expanded(&self) -> bool {
         self.is_header_expanded
+    }
+
+    fn is_user_controlling_command(&self) -> bool {
+        self.action_type.is_requested_command()
+            && self
+                .terminal_model
+                .lock()
+                .block_list()
+                .block_for_ai_action_id(&self.action_id)
+                .is_some_and(|block| {
+                    block.is_executing()
+                        && block
+                            .long_running_control_state()
+                            .is_some_and(LongRunningCommandControlState::is_user_in_control)
+                })
     }
 
     /// We use the requested command footer to show citations.
@@ -1548,26 +1559,6 @@ impl View for RequestedCommandView {
         let is_input_pinned_to_top =
             *InputModeSettings::as_ref(app).input_mode.value() == InputMode::PinnedToTop;
 
-        // Tracks whether the expanded command has a terminal output block directly below it.
-        // Used to remove the bottom margin for visual continuity with the terminal block.
-        let is_rendered_above_expanded_command_block = {
-            let terminal_model = self.terminal_model.lock();
-
-            is_last_output_message_in_output
-                && self.action_type.is_requested_command()
-                && action_status.as_ref().is_some_and(|status| {
-                    status.is_running() || (status.is_success() || status.is_failed())
-                })
-                && !is_input_pinned_to_top
-                && self.is_header_expanded
-                && terminal_model
-                    .block_list()
-                    .is_requested_command_block_immediately_after_ai_block(
-                        self.ai_block_view_id,
-                        &self.action_id,
-                    )
-        };
-
         // When the requested command is expanded but there is no subsequent block containing
         // command details beneath, then the command details must be rendered inline.
         let should_render_editor = self.is_header_expanded
@@ -1583,47 +1574,56 @@ impl View for RequestedCommandView {
             && self.action_type.is_mcp_tool()
             && !self.command_text.is_empty();
 
-        // Requested command blocks are hidden terminal blocks. Keep their output in this pane
-        // instead of revealing the terminal block below the pane when the header is expanded.
-        let command_output = if self.is_header_expanded && self.action_type.is_requested_command() {
-            let terminal_model = self.terminal_model.lock();
-            terminal_model
-                .block_list()
-                .block_for_ai_action_id(&self.action_id)
-                .map(|block| {
-                    let (command, output) = block.command_and_output_with_secret_obfuscated(false);
-                    if output.is_empty() {
-                        command
+        // Requested command blocks stay hidden terminal blocks. Snapshot their real terminal grid
+        // so ANSI styling, cursor state, alternate-screen TUIs, and images render inside this pane.
+        let command_output_grid =
+            if self.is_header_expanded && self.action_type.is_requested_command() {
+                let terminal_model = self.terminal_model.lock();
+                let requested_block = terminal_model
+                    .block_list()
+                    .block_for_ai_action_id(&self.action_id);
+                let active_block_owns_alt_screen = terminal_model.is_alt_screen_active()
+                    && terminal_model
+                        .block_list()
+                        .active_block()
+                        .requested_command_action_id()
+                        .is_some_and(|action_id| action_id == &self.action_id);
+
+                requested_block.and_then(|block| {
+                    let (grid, row_count) = if active_block_owns_alt_screen {
+                        let grid = terminal_model.alt_screen().grid_handler();
+                        (grid.clone(), grid.visible_rows())
                     } else {
-                        format!("{command}\n\n{output}")
-                    }
+                        let output_grid = block.output_grid();
+                        (
+                            output_grid.grid_handler().clone(),
+                            output_grid.len_displayed(),
+                        )
+                    };
+                    (row_count > 0).then_some((
+                        grid,
+                        row_count,
+                        terminal_model.colors(),
+                        terminal_model.override_colors(),
+                        terminal_model.image_id_to_metadata.clone(),
+                    ))
                 })
-                .filter(|output| !output.is_empty())
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
-        if let Some(output) = command_output.as_ref() {
-            let scroll_start = self.output_scroll_state.scroll_start().as_f32();
-            let last_scroll_start = self.last_output_scroll_start.get();
-
-            // Keep following live command output until the user deliberately scrolls upward.
-            // Collapsing and reopening the pane resumes following from the bottom.
-            if self.follow_command_output.get() && scroll_start + 0.5 < last_scroll_start {
+        if command_output_grid.is_some() {
+            let is_at_bottom = self.output_scroll_state.is_scrolled_to_end();
+            if self.follow_command_output.get() && !is_at_bottom {
                 self.follow_command_output.set(false);
+            } else if !self.follow_command_output.get() && is_at_bottom {
+                self.follow_command_output.set(true);
             }
 
-            if self.follow_command_output.get()
-                && output.len() != self.last_command_output_len.get()
-            {
-                // Clipped scrollables clamp this sentinel to their actual maximum during layout.
-                self.output_scroll_state.scroll_to(f32::MAX.into_pixels());
-            }
-
-            self.last_command_output_len.set(output.len());
-            self.last_output_scroll_start.set(scroll_start);
+            self.output_scroll_state
+                .set_follow_end(self.follow_command_output.get());
         }
-        let should_render_command_output = command_output.is_some();
+        let should_render_command_output = command_output_grid.is_some();
 
         let has_citations_footer =
             !self.derived_from_citations.is_empty() && !self.block_model.status(app).is_streaming();
@@ -1713,30 +1713,28 @@ impl View for RequestedCommandView {
             );
         }
 
-        if let Some(output) = command_output {
-            let output_text = render_requested_action_body_text(
-                output.as_str().into(),
-                appearance.monospace_font_family(),
+        if let Some((grid, row_count, colors, override_colors, image_metadata)) =
+            command_output_grid
+        {
+            let mut output_grid = TerminalGridSnapshotElement::new(
+                &grid,
+                row_count,
+                colors,
+                override_colors,
+                image_metadata,
+                appearance,
+                *FontSettings::as_ref(app).enforce_minimum_contrast,
+                get_secret_obfuscation_mode(app),
+                self.ai_block_view_id,
                 app,
-            )
-            .finish();
-            let content_selected_text = self.content_selected_text.clone();
-            let selectable_output = SelectableArea::new(
-                self.content_selection_handle.clone(),
-                #[allow(clippy::unwrap_used)]
-                move |selection_args, _, _| {
-                    *content_selected_text.write().unwrap() = selection_args.selection;
-                },
-                output_text,
-            )
-            .on_selection_updated(|ctx, _| {
-                ctx.dispatch_typed_action(RequestedCommandViewAction::SelectText);
-            })
-            .finish();
+            );
+            if should_use_ligature_rendering(app) {
+                output_grid = output_grid.with_ligature_rendering();
+            }
             let scrollable = NewScrollable::vertical(
                 SingleAxisConfig::Clipped {
                     handle: self.output_scroll_state.clone(),
-                    child: selectable_output,
+                    child: output_grid.finish(),
                 },
                 Fill::None,
                 Fill::None,
@@ -1765,18 +1763,17 @@ impl View for RequestedCommandView {
             .as_ref()
             .is_some_and(|status| status.is_blocked());
 
-        // If the requested command is expanded above a terminal block or
-        // the next exchange flows directly after, remove bottom margin for
-        // visual continuity.
-        let should_remove_bottom_margin = is_rendered_above_expanded_command_block
-            || ((self.action_type.is_requested_command() || self.action_type.is_mcp_tool())
-                && is_last_output_message_in_output
-                && (BlocklistAIHistoryModel::as_ref(app)
-                    .conversation(&self.client_ids.conversation_id)
-                    .is_some_and(|conversation| {
-                        // Prevents an issue where the bottom margin is removed when the requested command is the last message and we cancel it.
-                        // We want to keep the margin in this case so that there's visual separation between the cancelled command and footer.
-                        conversation.status() != &ConversationStatus::Cancelled
+        // If the next exchange flows directly after, remove bottom margin for visual continuity.
+        // The backing terminal command block remains hidden and does not participate in spacing.
+        let should_remove_bottom_margin = (self.action_type.is_requested_command()
+            || self.action_type.is_mcp_tool())
+            && is_last_output_message_in_output
+            && (BlocklistAIHistoryModel::as_ref(app)
+                .conversation(&self.client_ids.conversation_id)
+                .is_some_and(|conversation| {
+                    // Prevents an issue where the bottom margin is removed when the requested command is the last message and we cancel it.
+                    // We want to keep the margin in this case so that there's visual separation between the cancelled command and footer.
+                    conversation.status() != &ConversationStatus::Cancelled
                             // If the next exchange doesn't contain a user query, don't render bottom margin for continuity.
                             && conversation
                                 .root_task_exchanges()
@@ -1790,8 +1787,8 @@ impl View for RequestedCommandView {
                                         .iter()
                                         .any(|input| input.display_query().is_some())
                                 })
-                    }))
-                && !is_input_pinned_to_top);
+                }))
+            && !is_input_pinned_to_top;
 
         let container = render_tool_pane_shell(
             content.finish(),
@@ -1872,7 +1869,9 @@ impl TypedActionView for RequestedCommandView {
                 }
             }
             RequestedCommandViewAction::ToggleExpanded => {
-                self.set_is_header_expanded(!self.is_header_expanded, true, ctx)
+                if !self.is_user_controlling_command() {
+                    self.set_is_header_expanded(!self.is_header_expanded, true, ctx);
+                }
             }
             RequestedCommandViewAction::OpenActiveAgentProfileEditor => {
                 ctx.emit(RequestedCommandViewEvent::OpenActiveAgentProfileEditor)

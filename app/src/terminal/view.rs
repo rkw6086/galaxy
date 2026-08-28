@@ -6791,7 +6791,18 @@ impl TerminalView {
                 agent_has_control,
                 ..
             } => {
-                self.redetermine_terminal_focus(ctx);
+                if !*agent_has_control && ctx.is_self_or_child_focused() {
+                    let block_index = self.model.lock().block_list().block_index_for_id(block_id);
+                    if let Some(block_index) = block_index {
+                        self.update_scroll_position_locking(
+                            ScrollPositionUpdate::ScrollToBottomOfBlock { block_index },
+                            ctx,
+                        );
+                    }
+                    self.focus_terminal(ctx);
+                } else {
+                    self.redetermine_terminal_focus(ctx);
+                }
                 self.emit_long_running_command_agent_interaction_state_changed(
                     *agent_has_control,
                     block_id.clone(),
@@ -9744,12 +9755,54 @@ impl TerminalView {
             model.block_list_mut().update_active_block_height();
         }
         self.maybe_emit_terminal_view_state_changed_for_long_running_block(ctx);
+        self.notify_active_requested_command_output(ctx);
         self.use_agent_footer.update(ctx, |footer, ctx| {
             footer.notify_and_notify_children(ctx);
         });
 
         // Need to re-render both the alt screen and the blocklist on keypresses.
         ctx.notify();
+    }
+
+    /// Invalidates the nested tool pane that owns the active requested-command block.
+    ///
+    /// `TerminalView` and `RequestedCommandView` are independently cached views. A PTY wakeup
+    /// invalidates the former, but without this targeted notification the inline pane only sees
+    /// new output when a slower action or conversation event happens to invalidate it.
+    fn notify_active_requested_command_output(&self, ctx: &mut ViewContext<Self>) {
+        let active_command = {
+            let model = self.model.lock();
+            model
+                .block_list()
+                .active_block()
+                .agent_interaction_metadata()
+                .and_then(|metadata| {
+                    metadata
+                        .requested_command_action_id()
+                        .cloned()
+                        .map(|action_id| (action_id, *metadata.conversation_id()))
+                })
+        };
+        let Some((action_id, conversation_id)) = active_command else {
+            return;
+        };
+
+        let requested_command_view = self
+            .rich_content_views
+            .iter()
+            .rev()
+            .filter_map(|rich_content| rich_content.ai_block_metadata())
+            .filter(|metadata| metadata.conversation_id == conversation_id)
+            .find_map(|metadata| {
+                metadata
+                    .ai_block_handle
+                    .as_ref(ctx)
+                    .requested_command_view(&action_id)
+            });
+
+        if let Some(requested_command_view) = requested_command_view {
+            requested_command_view.update(ctx, |_, ctx| ctx.notify());
+        }
     }
 
     /// This function is invoked whenever we detect an SSH ControlMaster error,
@@ -18951,9 +19004,9 @@ impl TerminalView {
                 // Otherwise, if the agent is monitoring this long-running block,
                 // then clear just that block and leave the rest of the blocklist in tact.
                 self.model.lock().clear_screen(ClearMode::ActiveBlock);
-                // In the agent-driving-but-not-monitoring state the terminal block is hidden. Make
-                // it visible and expand the header immediately so the user sees the cleared state
-                // right away, rather than waiting for the auto-expand timer (~3 s).
+                // In the agent-driving-but-not-monitoring state the terminal block is hidden.
+                // Expand its inline tool pane immediately so the user sees the cleared state there,
+                // rather than revealing a duplicate terminal block below the conversation.
                 if is_agent_driving_command && !is_agent_monitoring {
                     let requested_command_action_id = self
                         .model
@@ -18963,10 +19016,6 @@ impl TerminalView {
                         .requested_command_action_id()
                         .cloned();
                     if let Some(action_id) = &requested_command_action_id {
-                        self.model
-                            .lock()
-                            .block_list_mut()
-                            .set_visibility_of_block_for_ai_action(action_id, true);
                         if let Some(ai_block_handle) = self.active_ai_block(ctx).cloned() {
                             ai_block_handle.update(ctx, |ai_block, ctx| {
                                 ai_block.expand_requested_command_view(action_id, ctx);

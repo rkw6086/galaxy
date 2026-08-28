@@ -24,10 +24,11 @@ pub(super) mod use_computer;
 pub(super) mod wait_for_events;
 
 use std::any::Any;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ai::agent::action_result::{InsertReviewCommentsResult, RequestCommandOutputResult};
 pub use ask_user_question::AskUserQuestionExecutor;
@@ -52,10 +53,11 @@ use galaxy_util::file_type::is_buffer_binary;
 use galaxyui::r#async::{Spawnable, SpawnableOutput};
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 use grep::GrepExecutor;
+use instant::Instant;
 #[cfg(feature = "local_fs")]
 use mime_guess::from_path;
 use notebooks::NotebookExecutor;
-use parking_lot::FairMutex;
+use parking_lot::{FairMutex, Mutex};
 use read_documents::ReadDocumentsExecutor;
 pub(super) use read_files::ReadFilesExecutor;
 use read_mcp_resource::ReadMCPResourceExecutor;
@@ -96,7 +98,7 @@ use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
 use crate::ai::{agent::AnyFileContent, paths::host_native_absolute_path};
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::terminal::model::session::command_executor::shell_quote_arg;
-use crate::terminal::model::session::{ExecuteCommandOptions, Session};
+use crate::terminal::model::session::{ExecuteCommandOptions, Session, SessionId};
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::shell::ShellType;
 use crate::terminal::{ShellLaunchData, TerminalModel};
@@ -144,6 +146,34 @@ pub(super) enum RunningActionPhase {
     Serial,
     /// A phase where several actions from the same compatibility group may be in flight together.
     Parallel(ParallelExecutionPolicy),
+}
+
+const GIT_REPOSITORY_CACHE_TTL: Duration = Duration::from_secs(60);
+type GitRepositoryCacheEntries = HashMap<(SessionId, String), (Instant, bool)>;
+
+#[derive(Clone, Default)]
+struct GitRepositoryCache {
+    entries: Arc<Mutex<GitRepositoryCacheEntries>>,
+}
+
+impl GitRepositoryCache {
+    fn get(&self, session_id: SessionId, path: &str) -> Option<bool> {
+        let key = (session_id, path.to_string());
+        let mut entries = self.entries.lock();
+        let (cached_at, is_repository) = entries.get(&key).copied()?;
+        if cached_at.elapsed() < GIT_REPOSITORY_CACHE_TTL {
+            Some(is_repository)
+        } else {
+            entries.remove(&key);
+            None
+        }
+    }
+
+    fn insert(&self, session_id: SessionId, path: String, is_repository: bool) {
+        let mut entries = self.entries.lock();
+        entries.retain(|_, (cached_at, _)| cached_at.elapsed() < GIT_REPOSITORY_CACHE_TTL);
+        entries.insert((session_id, path), (Instant::now(), is_repository));
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -355,10 +385,21 @@ impl BlocklistAIActionExecutor {
         let request_file_edits_executor = ctx.add_model(|ctx| {
             RequestFileEditsExecutor::new(active_session.clone(), terminal_view_id, ctx)
         });
-        let grep_executor =
-            ctx.add_model(|_| GrepExecutor::new(active_session.clone(), terminal_view_id));
-        let file_glob_executor =
-            ctx.add_model(|_| FileGlobExecutor::new(active_session.clone(), terminal_view_id));
+        let git_repository_cache = GitRepositoryCache::default();
+        let grep_executor = ctx.add_model(|_| {
+            GrepExecutor::new(
+                active_session.clone(),
+                terminal_view_id,
+                git_repository_cache.clone(),
+            )
+        });
+        let file_glob_executor = ctx.add_model(|_| {
+            FileGlobExecutor::new(
+                active_session.clone(),
+                terminal_view_id,
+                git_repository_cache,
+            )
+        });
         let read_mcp_resource_executor = ctx
             .add_model(|_| ReadMCPResourceExecutor::new(active_session.clone(), terminal_view_id));
         let call_mcp_tool_executor =
@@ -1550,8 +1591,15 @@ fn build_is_git_repository_command(absolute_path: &str, shell_type: ShellType) -
 }
 
 /// Returns true if the given path is a regular file on the session's filesystem.
-/// Runs a shell command on the session so it works for both local and remote sessions.
+/// Uses native metadata for compatible local sessions and a shell probe otherwise.
 async fn is_file_path(path: &str, session: &Session) -> bool {
+    #[cfg(feature = "local_fs")]
+    if session.is_local() && !session.is_wsl() && !session.is_msys2() {
+        return async_fs::metadata(path)
+            .await
+            .is_ok_and(|metadata| metadata.is_file());
+    }
+
     let command = build_is_file_path_command(path, session.shell().shell_type());
     session
         .execute_command(&command, None, None, ExecuteCommandOptions::default())
@@ -1572,6 +1620,20 @@ async fn is_git_repository(absolute_path: &str, session: &Session) -> anyhow::Re
         )
         .await?;
     Ok(command_output.success())
+}
+
+async fn is_git_repository_cached(
+    absolute_path: &str,
+    session: &Session,
+    cache: &GitRepositoryCache,
+) -> anyhow::Result<bool> {
+    if let Some(is_repository) = cache.get(session.id(), absolute_path) {
+        return Ok(is_repository);
+    }
+
+    let is_repository = is_git_repository(absolute_path, session).await?;
+    cache.insert(session.id(), absolute_path.to_string(), is_repository);
+    Ok(is_repository)
 }
 
 fn get_server_output_id(

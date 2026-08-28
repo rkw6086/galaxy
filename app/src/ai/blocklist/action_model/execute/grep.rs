@@ -5,14 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui::r#async::FutureExt as AsyncFutureExt;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
 
 use super::{
-    get_server_output_id, is_file_path, is_git_repository, ActionExecution, AnyActionExecution,
-    ExecuteActionInput, PreprocessActionInput,
+    get_server_output_id, is_file_path, is_git_repository_cached, ActionExecution,
+    AnyActionExecution, ExecuteActionInput, GitRepositoryCache, PreprocessActionInput,
 };
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::redaction::redact_secrets;
@@ -30,6 +30,8 @@ use crate::terminal::ShellLaunchData;
 use crate::{send_telemetry_from_app_ctx, PrivacySettings, TelemetryEvent};
 
 const GREP_TIMEOUT: Duration = Duration::from_secs(10);
+const GREP_MAX_MATCHES: usize = 1_000;
+const GREP_MAX_MATCHES_PER_FILE: usize = 50;
 const NON_ZERO_EXIT_CODE_ERROR: &str = "Grep command exited with non-zero exit code";
 
 /// Information about the Grep call that resulted in an error, used to send
@@ -179,13 +181,19 @@ fn log_grep_error(
 pub struct GrepExecutor {
     active_session: ModelHandle<ActiveSession>,
     terminal_view_id: EntityId,
+    git_repository_cache: GitRepositoryCache,
 }
 
 impl GrepExecutor {
-    pub fn new(active_session: ModelHandle<ActiveSession>, terminal_view_id: EntityId) -> Self {
+    pub(super) fn new(
+        active_session: ModelHandle<ActiveSession>,
+        terminal_view_id: EntityId,
+        git_repository_cache: GitRepositoryCache,
+    ) -> Self {
         Self {
             active_session,
             terminal_view_id,
+            git_repository_cache,
         }
     }
 
@@ -264,11 +272,18 @@ impl GrepExecutor {
         let absolute_path_clone = absolute_path.clone();
         let working_directory_clone = current_working_directory.clone();
         let conversation_id_clone = input.conversation_id;
+        let git_repository_cache = self.git_repository_cache.clone();
         ActionExecution::new_async(
             async move {
-                match run_grep(queries_clone, absolute_path, session, shell_launch_data)
-                    .with_timeout(GREP_TIMEOUT)
-                    .await
+                match run_grep(
+                    queries_clone,
+                    absolute_path,
+                    session,
+                    shell_launch_data,
+                    git_repository_cache,
+                )
+                .with_timeout(GREP_TIMEOUT)
+                .await
                 {
                     Ok(result) => result,
                     Err(_) => Err(GrepError::new("Grep operation timed out".to_string())),
@@ -345,6 +360,7 @@ async fn run_grep(
     absolute_path: String,
     session: Option<Arc<Session>>,
     shell_launch_data: Option<ShellLaunchData>,
+    git_repository_cache: GitRepositoryCache,
 ) -> Result<GrepResult, GrepError> {
     if queries.is_empty() {
         return Err(GrepError::new("No queries provided to grep".to_string()));
@@ -373,13 +389,13 @@ async fn run_grep(
         Cow::Borrowed(absolute_path.as_str())
     };
 
-    // TODO(CODE-239): Cache the result of this check.
-    let is_grep_in_git_repo = is_git_repository(&execute_directory, &session)
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to run command to check if in git repository: {e:?}");
-            false
-        });
+    let is_grep_in_git_repo =
+        is_git_repository_cached(&execute_directory, &session, &git_repository_cache)
+            .await
+            .unwrap_or_else(|e| {
+                log::error!("Failed to run command to check if in git repository: {e:?}");
+                false
+            });
     let shell_type = session.shell().shell_type();
 
     // The most optimized tool to perform the search is `git grep`;
@@ -428,10 +444,13 @@ async fn run_grep(
 #[cfg(not(target_family = "wasm"))]
 async fn run_ripgrep(queries: &[String], absolute_path: String) -> Result<GrepResult, GrepError> {
     let path = PathBuf::from(absolute_path);
-    let result = galaxy_ripgrep::search::search(queries, &[path], false, false).await;
+    let result = galaxy_ripgrep::search::search_streaming(queries, &[path], false, false);
 
     match result {
         Ok(matches) => {
+            let mut matches = matches.take(GREP_MAX_MATCHES + 1).collect::<Vec<_>>().await;
+            let truncated = matches.len() > GREP_MAX_MATCHES;
+            matches.truncate(GREP_MAX_MATCHES);
             let mut files_map: HashMap<PathBuf, Vec<GrepLineMatch>> = HashMap::new();
             for m in matches {
                 files_map
@@ -448,7 +467,10 @@ async fn run_ripgrep(queries: &[String], absolute_path: String) -> Result<GrepRe
                     matched_lines,
                 })
                 .collect();
-            Ok(GrepResult::Success { matched_files })
+            Ok(GrepResult::Success {
+                matched_files,
+                truncated,
+            })
         }
         Err(e) => Err(GrepError::new(format!("Ripgrep search failed: {e}"))),
     }
@@ -482,7 +504,10 @@ async fn run_git_grep_command(
             shell_launch_data,
             Some(execute_directory.to_string()),
         )
-        .map(|matched_files| GrepResult::Success { matched_files })
+        .map(|(matched_files, truncated)| GrepResult::Success {
+            matched_files,
+            truncated,
+        })
         .map_err(|e| {
             GrepError::new(e.to_string())
                 .with_command(grep_command)
@@ -496,6 +521,7 @@ async fn run_git_grep_command(
         // matches.
         Ok(GrepResult::Success {
             matched_files: vec![],
+            truncated: false,
         })
     } else {
         Err(GrepError::new_for_non_zero_exit_code()
@@ -531,7 +557,10 @@ async fn run_grep_command(
             shell_launch_data,
             Some(execute_directory.to_string()),
         )
-        .map(|matched_files| GrepResult::Success { matched_files })
+        .map(|(matched_files, truncated)| GrepResult::Success {
+            matched_files,
+            truncated,
+        })
         .map_err(|e| {
             GrepError::new(e.to_string())
                 .with_command(grep_command)
@@ -545,6 +574,7 @@ async fn run_grep_command(
         // matches.
         Ok(GrepResult::Success {
             matched_files: vec![],
+            truncated: false,
         })
     } else {
         Err(GrepError::new_for_non_zero_exit_code()
@@ -580,7 +610,10 @@ async fn run_select_string_command(
             shell_launch_data,
             Some(execute_directory.to_string()),
         )
-        .map(|matched_files| GrepResult::Success { matched_files })
+        .map(|(matched_files, truncated)| GrepResult::Success {
+            matched_files,
+            truncated,
+        })
         .map_err(|e| {
             GrepError::new(e.to_string())
                 .with_command(select_string_command)
@@ -595,7 +628,9 @@ async fn run_select_string_command(
 
 fn build_git_grep_command(queries: &[String], target_path: &str, shell_type: ShellType) -> String {
     // This command works on all the shells we support (even PowerShell).
-    let mut grep_command = "git --no-pager grep --color=never --untracked -nIE".to_string();
+    let mut grep_command = format!(
+        "git --no-pager grep --color=never --untracked -nIE -m {GREP_MAX_MATCHES_PER_FILE}"
+    );
     for query in queries {
         // Queries can originate from model output and project instructions. Keep
         // them as grep arguments so shell substitutions like $() are inert.
@@ -613,7 +648,8 @@ fn build_grep_command(queries: &[String], target_path: &str, shell_type: ShellTy
     // * "-I" ignores binary files
     // * "-H" prints file name headers
     // * "-E" uses extended regex expressions
-    let mut grep_command = "grep --color=never -nrIHE --devices=skip".to_string();
+    let mut grep_command =
+        format!("grep --color=never -nrIHE --devices=skip -m {GREP_MAX_MATCHES_PER_FILE}");
     for query in queries {
         // Queries can originate from model output and project instructions. Keep
         // them as grep arguments so shell substitutions like $() are inert.
@@ -627,7 +663,7 @@ fn build_select_string_command(queries: &[String], target_path: &str) -> String 
     // We enable the `-CaseSensitive` flag to match the default behavior of grep.
     // TODO(CODE-239): Make this command more efficient when searching a file.
     format!(
-        "Get-ChildItem -Path {} -Recurse -File | Select-String -NoEmphasis -CaseSensitive -Pattern {}",
+        "Get-ChildItem -Path {} -Recurse -File | Select-String -NoEmphasis -CaseSensitive -Pattern {} | Select-Object -First {}",
         shell_quote_arg(target_path, ShellType::PowerShell),
         queries
             .iter()
@@ -635,7 +671,8 @@ fn build_select_string_command(queries: &[String], target_path: &str) -> String 
             // strings, so patterns must be single-quoted data arguments.
             .map(|q| shell_quote_arg(q, ShellType::PowerShell))
             .collect::<Vec<_>>()
-            .join(",")
+            .join(","),
+        GREP_MAX_MATCHES + 1,
     )
 }
 
@@ -648,10 +685,11 @@ fn parse_grep_output(
     output: &str,
     shell_launch_data: Option<ShellLaunchData>,
     current_working_directory: Option<String>,
-) -> anyhow::Result<Vec<GrepFileMatch>> {
+) -> anyhow::Result<(Vec<GrepFileMatch>, bool)> {
     let mut matched_files = HashMap::new();
+    let mut lines = output.trim().lines();
 
-    for line in output.trim().split("\n") {
+    for line in lines.by_ref().take(GREP_MAX_MATCHES) {
         let mut parts = line.split(":");
         let file = parts.next();
         let line_number = parts.next();
@@ -677,17 +715,24 @@ fn parse_grep_output(
             .push(GrepLineMatch { line_number });
     }
 
-    Ok(matched_files
-        .into_iter()
-        .map(|(file, matched_lines)| GrepFileMatch {
-            file_path: host_native_absolute_path(
-                file,
-                &shell_launch_data,
-                &current_working_directory,
-            ),
-            matched_lines,
-        })
-        .collect())
+    let truncated = lines.next().is_some()
+        || matched_files
+            .values()
+            .any(|matched_lines| matched_lines.len() >= GREP_MAX_MATCHES_PER_FILE);
+    Ok((
+        matched_files
+            .into_iter()
+            .map(|(file, matched_lines)| GrepFileMatch {
+                file_path: host_native_absolute_path(
+                    file,
+                    &shell_launch_data,
+                    &current_working_directory,
+                ),
+                matched_lines,
+            })
+            .collect(),
+        truncated,
+    ))
 }
 
 impl Entity for GrepExecutor {

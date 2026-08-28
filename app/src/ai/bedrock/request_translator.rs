@@ -1783,7 +1783,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for regex patterns in files. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns file paths and matching line numbers. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
+            description: "Search for regex patterns in files. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

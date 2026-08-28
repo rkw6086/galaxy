@@ -711,6 +711,11 @@ impl CLISubagentController {
         let action_id = active_block.requested_command_action_id().cloned();
         let conversation_id = active_block.ai_conversation_id();
         let agent_has_control = active_block.is_agent_in_control();
+        if let Some(action_id) = &action_id {
+            terminal_model
+                .block_list_mut()
+                .set_visibility_of_block_for_ai_action(action_id, true);
+        }
         // Conversation cancellation potentially takes a lock on terminal model if the
         // cancelled action is a shell command action, so we have to drop the terminal
         // model lock before actually cancelling the conversation.
@@ -775,6 +780,11 @@ impl CLISubagentController {
         );
         let action_id = active_block.requested_command_action_id().cloned();
         let agent_has_control = active_block.is_agent_in_control();
+        if let Some(action_id) = &action_id {
+            terminal_model
+                .block_list_mut()
+                .set_visibility_of_block_for_ai_action(action_id, false);
+        }
         drop(terminal_model);
         if let Some(agent_view_controller) = &self.agent_view_controller {
             agent_view_controller.update(ctx, |controller, ctx| {

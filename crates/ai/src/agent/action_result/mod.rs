@@ -1166,15 +1166,22 @@ impl AIAgentActionResultType {
             Self::RequestFileEdits(RequestFileEditsResult::Cancelled) => {
                 "apply_file_diffs: cancelled".to_string()
             }
-            Self::Grep(GrepResult::Success { matched_files }) => {
-                format!(
+            Self::Grep(GrepResult::Success {
+                matched_files,
+                truncated,
+            }) => {
+                let mut summary = format!(
                     "grep: [{}]",
                     matched_files
                         .iter()
                         .map(|f| f.file_path.as_str())
                         .collect::<Vec<_>>()
                         .join(", ")
-                )
+                );
+                if *truncated {
+                    summary.push_str(" (additional matches omitted)");
+                }
+                summary
             }
             Self::Grep(GrepResult::Error(error)) => format!("grep: error={error}"),
             Self::Grep(GrepResult::Cancelled) => "grep: cancelled".to_string(),
@@ -1294,7 +1301,10 @@ impl AIAgentActionResultType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrepResult {
-    Success { matched_files: Vec<GrepFileMatch> },
+    Success {
+        matched_files: Vec<GrepFileMatch>,
+        truncated: bool,
+    },
     Error(String),
     Cancelled,
 }
@@ -1302,12 +1312,22 @@ pub enum GrepResult {
 impl Display for GrepResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GrepResult::Success { matched_files } => {
+            GrepResult::Success {
+                matched_files,
+                truncated,
+            } => {
                 write!(
                     f,
                     "Grep found matches in: [{}]",
                     matched_files.iter().format(", ")
-                )
+                )?;
+                if *truncated {
+                    write!(
+                        f,
+                        ". Additional matches were omitted; narrow the query or path to retrieve them"
+                    )?;
+                }
+                Ok(())
             }
             GrepResult::Error(error) => write!(f, "Grep error: {error}"),
             GrepResult::Cancelled => write!(f, "Grep cancelled"),

@@ -81,7 +81,7 @@ fn build_git_grep_command_single_quotes_shell_substitution() {
 
     assert_eq!(
         command,
-        "git --no-pager grep --color=never --untracked -nIE -e '$(touch /tmp/warp-poc); `id`' '/tmp/repo path'"
+        "git --no-pager grep --color=never --untracked -nIE -m 50 -e '$(touch /tmp/warp-poc); `id`' '/tmp/repo path'"
     );
 }
 
@@ -93,7 +93,7 @@ fn build_grep_command_escapes_single_quotes() {
 
     assert_eq!(
         command,
-        r#"grep --color=never -nrIHE --devices=skip -e 'owner'"'"'s code' '/tmp/repo'"#
+        r#"grep --color=never -nrIHE --devices=skip -m 50 -e 'owner'"'"'s code' '/tmp/repo'"#
     );
 }
 
@@ -105,6 +105,23 @@ fn build_select_string_command_single_quotes_powershell_substitution() {
 
     assert_eq!(
         command,
-        r#"Get-ChildItem -Path 'C:\repo path' -Recurse -File | Select-String -NoEmphasis -CaseSensitive -Pattern '$(New-Item C:\pwn); ''literal'''"#
+        r#"Get-ChildItem -Path 'C:\repo path' -Recurse -File | Select-String -NoEmphasis -CaseSensitive -Pattern '$(New-Item C:\pwn); ''literal''' | Select-Object -First 1001"#
     );
+}
+
+#[test]
+fn parse_grep_output_reports_when_results_reach_the_per_file_limit() {
+    let output = (1..=GREP_MAX_MATCHES_PER_FILE)
+        .map(|line| format!("src/lib.rs:{line}:match"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let (matched_files, truncated) = parse_grep_output(&output, None, None).unwrap();
+
+    assert_eq!(matched_files.len(), 1);
+    assert_eq!(
+        matched_files[0].matched_lines.len(),
+        GREP_MAX_MATCHES_PER_FILE
+    );
+    assert!(truncated);
 }

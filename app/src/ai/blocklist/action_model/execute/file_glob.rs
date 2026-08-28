@@ -26,13 +26,14 @@ use crate::{send_telemetry_from_app_ctx, TelemetryEvent};
 const FILE_GLOB_TIMEOUT: Duration = Duration::from_secs(10);
 
 use super::{
-    get_server_output_id, is_git_repository, ActionExecution, AnyActionExecution,
-    ExecuteActionInput, PreprocessActionInput,
+    get_server_output_id, is_git_repository_cached, ActionExecution, AnyActionExecution,
+    ExecuteActionInput, GitRepositoryCache, PreprocessActionInput,
 };
 
 pub struct FileGlobExecutor {
     active_session: ModelHandle<ActiveSession>,
     terminal_view_id: EntityId,
+    git_repository_cache: GitRepositoryCache,
 }
 
 fn log_file_glob_error(conversation_id: AIConversationId, ctx: &mut AppContext) {
@@ -41,10 +42,15 @@ fn log_file_glob_error(conversation_id: AIConversationId, ctx: &mut AppContext) 
 }
 
 impl FileGlobExecutor {
-    pub fn new(active_session: ModelHandle<ActiveSession>, terminal_view_id: EntityId) -> Self {
+    pub(super) fn new(
+        active_session: ModelHandle<ActiveSession>,
+        terminal_view_id: EntityId,
+        git_repository_cache: GitRepositoryCache,
+    ) -> Self {
         Self {
             active_session,
             terminal_view_id,
+            git_repository_cache,
         }
     }
 
@@ -134,11 +140,18 @@ impl FileGlobExecutor {
         let patterns_clone = patterns.clone();
         let conversation_id_clone = input.conversation_id;
         let is_file_glob_v2 = is_file_glob_v2(&input);
+        let git_repository_cache = self.git_repository_cache.clone();
         ActionExecution::new_async(
             async move {
-                match run_file_glob(patterns_clone, absolute_path, session, shell_launch_data)
-                    .with_timeout(FILE_GLOB_TIMEOUT)
-                    .await
+                match run_file_glob(
+                    patterns_clone,
+                    absolute_path,
+                    session,
+                    shell_launch_data,
+                    git_repository_cache,
+                )
+                .with_timeout(FILE_GLOB_TIMEOUT)
+                .await
                 {
                     Ok(result) => result,
                     Err(_) => Err(anyhow::anyhow!("File glob operation timed out")),
@@ -204,6 +217,7 @@ async fn run_file_glob(
     absolute_path: String,
     session: Option<Arc<Session>>,
     shell_launch_data: Option<ShellLaunchData>,
+    git_repository_cache: GitRepositoryCache,
 ) -> anyhow::Result<FileGlobV2Result> {
     if patterns.is_empty() {
         return Err(anyhow::anyhow!("No patterns provided to file_glob"));
@@ -213,12 +227,13 @@ async fn run_file_glob(
     };
     let shell_type = session.shell().shell_type();
 
-    let is_in_git_repo = is_git_repository(&absolute_path, session.as_ref())
-        .await
-        .unwrap_or_else(|e| {
-            log::error!("Failed to run command to check if in git repository: {e:?}");
-            false
-        });
+    let is_in_git_repo =
+        is_git_repository_cached(&absolute_path, session.as_ref(), &git_repository_cache)
+            .await
+            .unwrap_or_else(|e| {
+                log::error!("Failed to run command to check if in git repository: {e:?}");
+                false
+            });
 
     if is_in_git_repo {
         run_git_ls_files_command(
