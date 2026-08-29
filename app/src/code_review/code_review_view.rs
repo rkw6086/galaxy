@@ -20,7 +20,7 @@ use pathfinder_geometry::vector::{vec2f, Vector2F};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use string_offset::CharOffset;
-use vec1::Vec1;
+use vec1::{vec1, Vec1};
 use warp_editor::content::buffer::{AutoScrollBehavior, InitialBufferState, SelectionOffsets};
 use warp_editor::model::CoreEditorModel;
 use warp_editor::render::element::VerticalExpansionBehavior;
@@ -104,6 +104,7 @@ use crate::code_review::find_model::CodeReviewFindModel;
 use crate::code_review::git_repo_model::{GitRepoModels, GitRepoStatusEvent, GitRepoStatusModel};
 use crate::code_review::github_repo_model::{GitHubRepoEvent, GitHubRepoModel};
 use crate::code_review::hidden_lines::calculate_hidden_lines;
+use crate::code_review::merge_conflicts::{parse_conflicts, resolve_conflict, ConflictResolution};
 #[cfg(feature = "local_fs")]
 use crate::code_review::telemetry_event::DiffSetContextScope;
 use crate::code_review::telemetry_event::{
@@ -160,6 +161,8 @@ pub struct CodeReviewHeaderFields {
     pub diff_state_model: ModelHandle<DiffStateModel>,
     pub maximize_button: ViewHandle<ActionButton>,
     pub diff_selector: ViewHandle<DiffSelector>,
+    pub conflict_filter_button: ViewHandle<ActionButton>,
+    pub conflict_count: usize,
     pub header_menu: ViewHandle<Menu<CodeReviewAction>>,
     pub header_menu_open: bool,
     pub header_dropdown_button: ViewHandle<ActionButton>,
@@ -353,6 +356,12 @@ pub enum CodeReviewAction {
     ViewPr(String),
     PublishBranch,
     SubmitReviewComments,
+    ToggleConflictsOnly,
+    ResolveConflict {
+        path: String,
+        conflict_index: usize,
+        resolution: ConflictResolution,
+    },
 }
 
 pub struct FileState {
@@ -366,6 +375,10 @@ pub struct FileState {
     discard_button: ViewHandle<ActionButton>,
     add_context_button: ViewHandle<ActionButton>,
     copy_path_button: ViewHandle<ActionButton>,
+    /// Stable actions for the next unresolved conflict block. The live editor
+    /// is reparsed before each action, so edits remain safe after typing or
+    /// resolving another block.
+    conflict_action_buttons: Option<[ViewHandle<ActionButton>; 4]>,
 }
 
 pub(crate) struct LoadedState {
@@ -612,6 +625,11 @@ pub trait ReviewActionTargetProvider {
 /// State shared among the entire code review view.
 pub struct CodeReviewView {
     active_repo: Option<RepositoryState>,
+    conflict_filter_button: ViewHandle<ActionButton>,
+    /// When enabled, the file navigator shows only files with unresolved
+    /// conflict markers. This keeps merge work front and center without
+    /// changing the selected diff set.
+    conflicts_only: bool,
 
     focus_handle: Option<PaneFocusHandle>,
     maximize_button: ViewHandle<ActionButton>,
@@ -1165,6 +1183,13 @@ impl CodeReviewView {
                 .on_click(|ctx| ctx.dispatch_typed_action(CodeReviewAction::ToggleFileSidebar))
         });
 
+        let conflict_filter_button = ctx.add_typed_action_view(|_ctx| {
+            ActionButton::new("Conflicts only", SecondaryTheme)
+                .with_size(ButtonSize::Small)
+                .with_tooltip("Show only files with unresolved merge conflicts")
+                .on_click(|ctx| ctx.dispatch_typed_action(CodeReviewAction::ToggleConflictsOnly))
+        });
+
         let git_primary_action_button = ctx.add_typed_action_view(|_ctx| {
             ActionButton::new("Commit", SecondaryTheme)
                 .with_size(ButtonSize::Small)
@@ -1320,6 +1345,8 @@ impl CodeReviewView {
 
         let mut view = Self {
             active_repo,
+            conflict_filter_button,
+            conflicts_only: false,
             ui_state_handles,
             diff_state_model,
             focus_handle: None,
@@ -2703,6 +2730,56 @@ impl CodeReviewView {
                     })
             });
 
+            let conflict_action_buttons = if file.file_diff.status.is_conflicted()
+                && file.file_diff.conflict_count > 0
+                && FeatureFlag::CodeReviewSaveChanges.is_enabled()
+            {
+                let conflict_path = file.file_diff.file_path.clone();
+                Some(
+                    [
+                        ("Left", ConflictResolution::Ours),
+                        ("Right", ConflictResolution::Theirs),
+                        ("Both", ConflictResolution::Both),
+                        ("Smart", ConflictResolution::Smart),
+                    ]
+                    .map(|(label, resolution)| {
+                        let path = conflict_path.clone();
+                        ctx.add_typed_action_view(move |_ctx| {
+                            ActionButton::new(label, NakedTheme)
+                                .with_size(ButtonSize::InlineActionHeader)
+                                .with_tooltip(match resolution {
+                                    ConflictResolution::Ours => {
+                                        "Take left / ours for the next conflict"
+                                    }
+                                    ConflictResolution::Theirs => {
+                                        "Take right / theirs for the next conflict"
+                                    }
+                                    ConflictResolution::Both => {
+                                        "Keep both sides for the next conflict"
+                                    }
+                                    ConflictResolution::Smart => {
+                                        "Smart merge the next conflict using the common base"
+                                    }
+                                })
+                                .on_click({
+                                    let path = path.clone();
+                                    move |ctx| {
+                                        ctx.dispatch_typed_action(
+                                            CodeReviewAction::ResolveConflict {
+                                                path: path.clone(),
+                                                conflict_index: 0,
+                                                resolution,
+                                            },
+                                        )
+                                    }
+                                })
+                        })
+                    }),
+                )
+            } else {
+                None
+            };
+
             file_states.push(FileState {
                 file_diff: file.file_diff.clone(),
                 editor_state,
@@ -2712,6 +2789,7 @@ impl CodeReviewView {
                 discard_button,
                 add_context_button,
                 copy_path_button,
+                conflict_action_buttons,
                 sidebar_mouse_state: MouseStateHandle::default(),
                 header_mouse_state: MouseStateHandle::default(),
             })
@@ -2739,7 +2817,6 @@ impl CodeReviewView {
         let Some((_, file_state)) = diff_state.get_index(index) else {
             return Empty::new().finish();
         };
-
         self.render_file_diff(file_state, index, scroll_offset, appearance, app)
     }
 
@@ -2874,6 +2951,20 @@ impl CodeReviewView {
     /// Get mutable state of the current repo. Returns None if no repo.
     fn state_mut(&mut self) -> Option<&mut CodeReviewViewState> {
         Some(&mut self.active_repo.as_mut()?.state)
+    }
+
+    fn loaded_state(&self) -> Option<&LoadedState> {
+        match self.state() {
+            CodeReviewViewState::Loaded(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    fn loaded_state_mut(&mut self) -> Option<&mut LoadedState> {
+        match self.state_mut()? {
+            CodeReviewViewState::Loaded(state) => Some(state),
+            _ => None,
+        }
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -4189,6 +4280,12 @@ impl CodeReviewView {
             is_in_split_pane,
             maximize_button: self.maximize_button.clone(),
             diff_selector: self.diff_selector.clone(),
+            conflict_filter_button: self.conflict_filter_button.clone(),
+            conflict_count: state
+                .file_states
+                .values()
+                .map(|file| file.file_diff.conflict_count)
+                .sum(),
             header_menu: self.header_menu.clone(),
             header_menu_open: self.header_menu_open,
             diff_state_model: self.diff_state_model.clone(),
@@ -4562,7 +4659,16 @@ impl CodeReviewView {
             .with_main_axis_alignment(MainAxisAlignment::Start)
             .with_cross_axis_alignment(CrossAxisAlignment::Start);
 
-        for (file_index, file_state) in state.file_states.values().enumerate() {
+        let visible_files = state
+            .file_states
+            .values()
+            .enumerate()
+            .filter(|(_, file_state)| {
+                !self.conflicts_only || file_state.file_diff.conflict_count > 0
+            })
+            .collect::<Vec<_>>();
+
+        for (file_index, file_state) in visible_files {
             let file_row = self.render_file_sidebar_row(file_state, appearance);
             column.add_child(
                 Hoverable::new(file_state.sidebar_mouse_state.clone(), |mouse_state| {
@@ -4984,6 +5090,36 @@ impl CodeReviewView {
         let mut right_row = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::End)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
+
+        if file.file_diff.conflict_count > 0 {
+            if let Some(conflict_action_buttons) = &file.conflict_action_buttons {
+                right_row.add_child(
+                    Container::new(
+                        Text::new(
+                            "Next conflict",
+                            appearance.ui_font_family(),
+                            appearance.ui_font_size() * 0.85,
+                        )
+                        .with_color(theme.sub_text_color(theme.surface_2()).into())
+                        .finish(),
+                    )
+                    .with_margin_left(4.)
+                    .finish(),
+                );
+                for button in conflict_action_buttons {
+                    right_row.add_child(
+                        EventHandler::new(
+                            Container::new(ChildView::new(button).finish())
+                                .with_margin_left(4.)
+                                .finish(),
+                        )
+                        .on_left_mouse_up(|_, _, _| DispatchEventResult::StopPropagation)
+                        .on_left_mouse_down(|_, _, _| DispatchEventResult::StopPropagation)
+                        .finish(),
+                    );
+                }
+            }
+        }
 
         // Add file diff as context button (before remove button)
         if FeatureFlag::DiffSetAsContext.is_enabled() {
@@ -5666,6 +5802,7 @@ impl CodeReviewView {
                 );
             }
             CodeEditorEvent::ContentChanged { origin, .. } if origin.from_user() => {
+                self.update_conflict_count_for_file(&file_path, &editor, ctx);
                 if let Some((view_handle, content_version)) = self.last_revert.take() {
                     let same_content_version = content_version == editor.as_ref(ctx).version(ctx);
 
@@ -6246,6 +6383,100 @@ impl CodeReviewView {
         }
 
         diff_lines.join("\n")
+    }
+
+    fn update_conflict_count_for_file(
+        &mut self,
+        path: &str,
+        editor: &ViewHandle<CodeEditorView>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let should_track = self
+            .loaded_state()
+            .and_then(|state| state.file_states.get(path))
+            .is_some_and(|file| file.file_diff.status.is_conflicted());
+        if !should_track {
+            return;
+        }
+
+        let count = parse_conflicts(&editor.as_ref(ctx).text(ctx).into_string()).len();
+        if let Some(state) = self.loaded_state_mut() {
+            if let Some(file) = state.file_states.get_mut(path) {
+                if file.file_diff.conflict_count != count {
+                    file.file_diff.conflict_count = count;
+                    ctx.notify();
+                }
+            }
+        }
+        if self.loaded_state().is_some_and(|state| {
+            state
+                .file_states
+                .iter()
+                .all(|(_, file)| file.file_diff.conflict_count == 0)
+        }) && self.conflicts_only
+        {
+            self.conflicts_only = false;
+            self.conflict_filter_button.update(ctx, |button, ctx| {
+                button.set_active(false, ctx);
+            });
+            ctx.notify();
+        }
+    }
+
+    fn resolve_conflict_for_file(
+        &mut self,
+        path: &str,
+        conflict_index: usize,
+        resolution: ConflictResolution,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Some(editor) = self
+            .loaded_state()
+            .and_then(|state| state.file_states.get(path))
+            .and_then(|file| file.editor_state.as_ref())
+            .map(|editor_state| editor_state.editor.clone())
+        else {
+            return;
+        };
+
+        let current_text = editor
+            .as_ref(ctx)
+            .editor()
+            .as_ref(ctx)
+            .text(ctx)
+            .into_string();
+        let Some((byte_range, replacement)) =
+            resolve_conflict(&current_text, conflict_index, resolution)
+        else {
+            return;
+        };
+        let mut resolved_text = current_text.clone();
+        resolved_text.replace_range(byte_range.clone(), &replacement);
+        let remaining_conflicts = parse_conflicts(&resolved_text).len();
+        editor.update(ctx, |local_editor, ctx| {
+            let start = CharOffset::from(current_text[..byte_range.start].chars().count());
+            let end = CharOffset::from(current_text[..byte_range.end].chars().count());
+            local_editor.editor().update(ctx, |editor, ctx| {
+                editor.apply_edits(vec1![(replacement, start..end)], ctx);
+            });
+        });
+
+        if let Some(state) = self.loaded_state_mut() {
+            if let Some(file) = state.file_states.get_mut(path) {
+                file.file_diff.conflict_count = remaining_conflicts;
+                if remaining_conflicts == 0 {
+                    file.conflict_action_buttons = None;
+                }
+            }
+        }
+        if let Some(index) = self
+            .loaded_state()
+            .and_then(|state| state.file_states.get_index_of(path))
+        {
+            self.viewported_list_state
+                .invalidate_height_for_index(index);
+        }
+        ctx.notify();
     }
 
     fn save_files(&mut self, paths: &[String], ctx: &mut ViewContext<Self>) {
@@ -7199,6 +7430,24 @@ impl TypedActionView for CodeReviewView {
             }
             CodeReviewAction::SetDiffMode(mode) => {
                 self.apply_diff_mode(mode.clone(), ctx);
+            }
+            CodeReviewAction::ToggleConflictsOnly => {
+                if !self.file_sidebar_expanded {
+                    self.open_file_sidebar(ctx);
+                    self.update_file_nav_button_tooltip(ctx);
+                }
+                self.conflicts_only = !self.conflicts_only;
+                self.conflict_filter_button.update(ctx, |button, ctx| {
+                    button.set_active(self.conflicts_only, ctx);
+                });
+                ctx.notify();
+            }
+            CodeReviewAction::ResolveConflict {
+                path,
+                conflict_index,
+                resolution,
+            } => {
+                self.resolve_conflict_for_file(path, *conflict_index, *resolution, ctx);
             }
             CodeReviewAction::ToggleFileSidebar => {
                 if self.file_sidebar_expanded {

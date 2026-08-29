@@ -5,7 +5,7 @@ use galaxyui::elements::{
     Align, ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex,
     Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Shrinkable, SizeConstraintCondition, SizeConstraintSwitch,
-    Stack,
+    Stack, Text,
 };
 use galaxyui::fonts::{Properties, Weight};
 use galaxyui::platform::Cursor;
@@ -87,6 +87,7 @@ impl CodeReviewHeader {
         code_review_header_fields: &CodeReviewHeaderFields,
         app: &AppContext,
     ) -> Box<dyn Element> {
+        let theme = appearance.theme();
         let mut left_section_wide = Flex::row()
             .with_main_axis_size(MainAxisSize::Min)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
@@ -113,8 +114,40 @@ impl CodeReviewHeader {
 
         let mut right_section_wide = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::End)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(ChildView::new(&code_review_header_fields.diff_selector).finish());
+            .with_cross_axis_alignment(CrossAxisAlignment::Center);
+        if code_review_header_fields.conflict_count > 0 {
+            right_section_wide.add_child(
+                Container::new(
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(
+                            ChildView::new(&code_review_header_fields.conflict_filter_button)
+                                .finish(),
+                        )
+                        .with_child(
+                            Container::new(
+                                Text::new(
+                                    format!(
+                                        "{} unresolved",
+                                        code_review_header_fields.conflict_count
+                                    ),
+                                    appearance.ui_font_family(),
+                                    appearance.ui_font_size() * 0.85,
+                                )
+                                .with_color(theme.sub_text_color(theme.surface_2()).into())
+                                .finish(),
+                            )
+                            .with_margin_left(6.)
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .with_margin_right(4.)
+                .finish(),
+            );
+        }
+        right_section_wide
+            .add_child(ChildView::new(&code_review_header_fields.diff_selector).finish());
 
         let has_no_changes = state.to_diff_stats().has_no_changes();
 
@@ -169,6 +202,7 @@ impl CodeReviewHeader {
         code_review_header_fields: &CodeReviewHeaderFields,
         app: &AppContext,
     ) -> Box<dyn Element> {
+        let theme = appearance.theme();
         let mut left_section_compact = Flex::row()
             .with_main_axis_size(MainAxisSize::Min)
             .with_cross_axis_alignment(CrossAxisAlignment::Center);
@@ -228,12 +262,43 @@ impl CodeReviewHeader {
             ));
         }
 
-        let right_section_compact = Flex::row()
+        let mut right_section_compact = Flex::row()
             .with_main_axis_alignment(MainAxisAlignment::SpaceBetween)
             .with_main_axis_size(MainAxisSize::Max)
-            .with_cross_axis_alignment(CrossAxisAlignment::Center)
-            .with_child(ChildView::new(&code_review_header_fields.diff_selector).finish())
-            .with_child(Container::new(right_subsection_compact.finish()).finish());
+            .with_cross_axis_alignment(CrossAxisAlignment::Center);
+        if code_review_header_fields.conflict_count > 0 {
+            right_section_compact.add_child(
+                Container::new(
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(
+                            ChildView::new(&code_review_header_fields.conflict_filter_button)
+                                .finish(),
+                        )
+                        .with_child(
+                            Container::new(
+                                Text::new(
+                                    format!(
+                                        "{} unresolved",
+                                        code_review_header_fields.conflict_count
+                                    ),
+                                    appearance.ui_font_family(),
+                                    appearance.ui_font_size() * 0.85,
+                                )
+                                .with_color(theme.sub_text_color(theme.surface_2()).into())
+                                .finish(),
+                            )
+                            .with_margin_left(6.)
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .with_margin_right(4.)
+                .finish(),
+            );
+        }
+        right_section_compact.add_child(ChildView::new(&code_review_header_fields.diff_selector).finish());
+        right_section_compact.add_child(Container::new(right_subsection_compact.finish()).finish());
 
         Clipped::new(
             Shrinkable::new(

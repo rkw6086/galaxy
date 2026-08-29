@@ -23,6 +23,7 @@ pub(crate) mod diff_menu;
 pub(crate) mod diff_selector;
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub(crate) mod file_invalidation_queue;
+pub(crate) mod merge_conflicts;
 
 use std::path::{Path, PathBuf};
 

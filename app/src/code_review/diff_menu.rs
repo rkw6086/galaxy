@@ -1,6 +1,7 @@
 //! Overlay menu for the code review diff selector: pinned search input and
 //! a filtered list of label-only rows with a left check slot.
 use std::cmp;
+use std::sync::Arc;
 
 use fuzzy_match::{match_indices_case_insensitive, FuzzyMatchResult};
 use galaxy_core::ui::theme::Fill;
@@ -85,6 +86,9 @@ pub struct CodeReviewDiffMenu {
     /// current filter. Original target order is preserved; the match result
     /// carries indices for bolding matched characters in the label.
     filtered: Vec<(usize, Option<FuzzyMatchResult>)>,
+    /// Cached render rows. The Arc lets each virtualized list closure retain
+    /// stable data without cloning every target on every frame.
+    filtered_snapshot: Arc<Vec<(DiffTarget, Option<FuzzyMatchResult>)>>,
     /// Index into `filtered` of the keyboard-focused row.
     selected_index: Option<usize>,
     search_input: ViewHandle<EditorView>,
@@ -135,6 +139,7 @@ impl CodeReviewDiffMenu {
         Self {
             targets: Vec::new(),
             filtered: Vec::new(),
+            filtered_snapshot: Arc::new(Vec::new()),
             selected_index: None,
             search_input,
             search_query: String::new(),
@@ -145,6 +150,9 @@ impl CodeReviewDiffMenu {
 
     /// Replace the row set and reset filter/scroll to the top.
     pub fn set_targets(&mut self, targets: Vec<DiffTarget>, ctx: &mut ViewContext<Self>) {
+        if self.targets == targets {
+            return;
+        }
         self.targets = targets;
         self.refresh_filtered();
         self.scroll_list_to_top();
@@ -192,6 +200,12 @@ impl CodeReviewDiffMenu {
                 })
                 .collect();
         }
+        self.filtered_snapshot = Arc::new(
+            self.filtered
+                .iter()
+                .filter_map(|(i, m)| self.targets.get(*i).cloned().map(|t| (t, m.clone())))
+                .collect(),
+        );
         self.selected_index = if self.filtered.is_empty() {
             None
         } else {
@@ -302,11 +316,7 @@ impl CodeReviewDiffMenu {
         let appearance = Appearance::as_ref(ctx);
         let theme = appearance.theme();
         let selected = self.selected_index;
-        let filtered_snapshot: Vec<(DiffTarget, Option<FuzzyMatchResult>)> = self
-            .filtered
-            .iter()
-            .filter_map(|(i, m)| self.targets.get(*i).cloned().map(|t| (t, m.clone())))
-            .collect();
+        let filtered_snapshot = self.filtered_snapshot.clone();
         let filtered_len = filtered_snapshot.len();
 
         let list = UniformList::new(

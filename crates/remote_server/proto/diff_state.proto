@@ -126,6 +126,8 @@ message FileDiff {
   // files whose content exceeds the per-file wire budget (size =
   // DIFF_SIZE_UNRENDERABLE_FILE_TOO_LARGE), or when git show fails.
   optional string content_at_base = 9;
+  // Number of complete conflict-marker blocks in the working-tree file.
+  uint64 conflict_count = 10;
 }
 
 // Represents the complete git diff information for a repository. Mirrors GitDiffData in Rust.

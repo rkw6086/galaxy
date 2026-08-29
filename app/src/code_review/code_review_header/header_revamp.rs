@@ -9,7 +9,7 @@ use galaxy_core::features::FeatureFlag;
 use galaxyui::elements::{
     ChildAnchor, ChildView, Clipped, ConstrainedBox, Container, CrossAxisAlignment, Flex,
     MainAxisAlignment, MainAxisSize, OffsetPositioning, ParentAnchor, ParentElement,
-    ParentOffsetBounds, Shrinkable, Stack,
+    ParentOffsetBounds, Shrinkable, Stack, Text,
 };
 use galaxyui::{Element, ViewHandle};
 use pathfinder_geometry::vector::vec2f;
@@ -38,6 +38,43 @@ impl CodeReviewHeader {
 
         if let Some(git_button) = Self::render_git_operations_button(code_review_header_fields) {
             right_section.add_child(git_button);
+        }
+
+        if code_review_header_fields.conflict_count > 0 {
+            right_section.add_child(
+                Container::new(
+                    Flex::row()
+                        .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                        .with_child(
+                            ChildView::new(&code_review_header_fields.conflict_filter_button)
+                                .finish(),
+                        )
+                        .with_child(
+                            Container::new(
+                                Text::new(
+                                    format!(
+                                        "{} unresolved",
+                                        code_review_header_fields.conflict_count
+                                    ),
+                                    appearance.ui_font_family(),
+                                    appearance.ui_font_size() * 0.85,
+                                )
+                                .with_color(
+                                    appearance
+                                        .theme()
+                                        .sub_text_color(appearance.theme().surface_2())
+                                        .into(),
+                                )
+                                .finish(),
+                            )
+                            .with_margin_left(6.)
+                            .finish(),
+                        )
+                        .finish(),
+                )
+                .with_margin_right(4.)
+                .finish(),
+            );
         }
 
         if let Some(nav_button) = &code_review_header_fields.file_nav_button {

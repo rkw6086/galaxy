@@ -24,7 +24,7 @@ use crate::code_review::diff_state::DiffMode;
 use crate::ui_components::icons::Icon;
 
 /// A single selectable target in the diff selector menu.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffTarget {
     pub label: String,
     pub mode: DiffMode,
