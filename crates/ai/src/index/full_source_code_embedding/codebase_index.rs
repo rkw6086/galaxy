@@ -812,7 +812,11 @@ impl CodebaseIndex {
             path: Some(repo_path.to_string_lossy().to_string()),
         };
         let store_client = self.store_client.clone();
-        let max_num_files_limit = Some(max_files_repo_limit);
+        // The codebase embedding index requires a complete Merkle tree so
+        // incremental updates and snapshots remain correct. Do not apply the
+        // repository metadata file-count cap here: a partial lazy tree cannot
+        // represent or update files that were left behind the cutoff.
+        let max_num_files_limit = None;
 
         let abort_handle = ctx
             .spawn(
@@ -933,12 +937,11 @@ impl CodebaseIndex {
         // We need to canonicalize the path to make sure build tree can apply gitignores correctly.
         let mut gitignores = Self::construct_initial_ignores(&repo_path);
 
-        // First traverse the repo path to retrieve all files we want to parse.
+        // Traverse the complete repository. The embedding index must retain
+        // a complete Merkle tree so incremental updates and snapshots can
+        // account for every file; partial lazy trees are not valid here.
         let mut files = Vec::new();
         let mut remaining_file_quotas = max_num_files_limit;
-        // Codebase embedding must not operate on a partial tree: the file limit
-        // is an intentional cost cap, so exceeding it fails the build rather
-        // than silently indexing a breadth-first subset of the repository.
         let entry = Entry::build_tree(
             &repo_path,
             &mut files,
@@ -1924,7 +1927,10 @@ impl CodebaseIndex {
         let mut gitignores = Self::construct_initial_ignores(&repo_path);
 
         let mut changed_files = ChangedFiles::default();
-        let mut remaining_file_quotas = Some(max_files_repo_limit);
+        // Snapshot validation also needs to inspect the complete tree. A file
+        // count cutoff here would make a valid large index fail on every
+        // restore once it exceeds the configured repository metadata quota.
+        let mut remaining_file_quotas = None;
         CodebaseIndex::diff_merkle_node(
             &mut changed_files,
             &tree.root_node(),
