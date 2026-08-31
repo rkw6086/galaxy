@@ -196,6 +196,8 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(voice_input::VoiceInput::new);
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    app.add_singleton_model(ai::index::local_project_index::LocalProjectIndexManager::new);
     app.add_singleton_model(SkillManager::new);
     app.add_singleton_model(FileSearchModel::new);
     app.add_singleton_model(|_| crate::code_review::git_repo_model::GitRepoModels::new());

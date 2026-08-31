@@ -1558,6 +1558,11 @@ pub fn extract_system_prompt(
         ));
     }
     let has_tool = |name: &str| tool_names.iter().any(|tool_name| tool_name == name);
+    if has_tool("search_codebase") {
+        prompt.push_str(
+            "- For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context.\n",
+        );
+    }
     if [
         "read_files",
         "apply_file_diffs",
@@ -1569,7 +1574,7 @@ pub fn extract_system_prompt(
     .any(has_tool)
     {
         prompt.push_str(
-            "- Use filesystem/search tools to understand the codebase and focused diff tools to edit \
+            "- Use the appropriate filesystem/search tool to understand the codebase and focused diff tools to edit \
              it. Use paths rooted in the working directory and absolute paths when a schema requires \
              them.\n",
         );
@@ -1783,7 +1788,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_string(),
-            description: "Search for regex patterns in files. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
+            description: "Search for regex patterns in files. Use only for exact known text in non-code files; never use this to discover or search source code when search_codebase is available. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches. Pass ALL patterns you need in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1795,7 +1800,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "file_glob".to_string(),
-            description: "Find files matching glob patterns. Uses git ls-files in git repos. Returns absolute file paths of matches. Common patterns: '**/*.rs', 'src/**/*.ts', '**/Cargo.toml'. Pass ALL patterns in one call.".to_string(),
+            description: "Find filenames matching glob patterns. Use this to locate files, not to search their contents. Uses git ls-files in git repos. Returns absolute file paths of matches. Common patterns: '**/*.rs', 'src/**/*.ts', '**/Cargo.toml'. Pass ALL patterns in one call.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1807,7 +1812,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "search_codebase".to_string(),
-            description: "Semantic code search across the indexed codebase. Use for finding relevant code by meaning rather than exact text match. Better than grep for conceptual queries like 'authentication logic' or 'error handling for database connections'.".to_string(),
+            description: "Primary tool for discovering relevant source code across the indexed codebase. MUST use this first for all source-code discovery and conceptual, semantic, or structural searches such as authentication logic or database error handling. Never use grep to search source code when this tool is available.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

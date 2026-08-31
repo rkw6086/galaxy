@@ -16,6 +16,7 @@ mod prompt_builder_tests {
         assert!(prompt.system_prompt.contains("Galaxy"));
         assert!(prompt.system_prompt.contains("coding mode"));
         assert!(prompt.system_prompt.contains("/home/user/project"));
+        assert!(prompt.system_prompt.contains("search_codebase` first"));
         assert!(!prompt.tools.is_empty());
         // Code mode should have apply_file_diffs
         assert!(prompt.tools.iter().any(|t| t.name == "apply_file_diffs"));
@@ -31,6 +32,33 @@ mod prompt_builder_tests {
         assert!(!prompt.tools.iter().any(|t| t.name == "apply_file_diffs"));
         // But should have read_files
         assert!(prompt.tools.iter().any(|t| t.name == "read_files"));
+        assert!(prompt.system_prompt.contains("search_codebase` first"));
+    }
+
+    #[test]
+    fn test_semantic_search_is_advertised_before_regex_search() {
+        let prompt = PromptBuilder::new(Mode::Code, Provider::Anthropic).build();
+        let search_index = prompt
+            .tools
+            .iter()
+            .position(|tool| tool.name == "search_codebase")
+            .expect("search_codebase tool");
+        let grep_index = prompt
+            .tools
+            .iter()
+            .position(|tool| tool.name == "grep")
+            .expect("grep tool");
+        assert!(search_index < grep_index);
+        assert!(prompt
+            .tools
+            .iter()
+            .find(|tool| tool.name == "search_codebase")
+            .is_some_and(|tool| tool.description.contains("all source-code discovery")));
+        assert!(prompt
+            .tools
+            .iter()
+            .find(|tool| tool.name == "grep")
+            .is_some_and(|tool| tool.description.contains("non-code files")));
     }
 
     #[test]

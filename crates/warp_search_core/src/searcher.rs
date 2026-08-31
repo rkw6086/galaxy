@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
+use std::path::Path;
 use std::sync::Arc;
 use std::thread::available_parallelism;
 use std::time::Duration;
@@ -474,7 +475,7 @@ impl SearcherWriterWrapper {
             MAX_THREADS_PER_INDEX_WRITER,
         );
         let writer = search_index
-            .writer_with_num_threads(memory_budget, num_threads)
+            .writer_with_num_threads(num_threads, memory_budget)
             .ok();
 
         SearcherWriterWrapper {
@@ -653,40 +654,99 @@ pub struct SimpleFullTextSearcher<C: SearchSchemaConfig> {
 
 impl<C: SearchSchemaConfig> SimpleFullTextSearcher<C> {
     pub fn new(schema: &FullTextSearchSchema<C>, memory_budget: usize) -> Self {
-        let mut schema_builder = Schema::builder();
+        let (
+            tantivy_schema,
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+        ) = build_tantivy_schema(schema);
+        Self::new_with_index(
+            Arc::new(Index::create_in_ram(tantivy_schema)),
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+            memory_budget,
+        )
+    }
 
-        // Add composite key field for efficient term querying
-        let composite_key_field = schema_builder.add_bytes_field(
-            COMPOSITE_KEY_FIELD,
-            BytesOptions::default().set_indexed().set_stored(),
-        );
-
-        let mut weighted_search_fields = HashMap::new();
-        let mut normalizing_factor = 0.0;
-        for (field_name, weight) in schema.weighted_search_fields.iter() {
-            let text_indexing = TEXT
-                .get_indexing_options()
-                .cloned()
-                .unwrap_or(
-                    TextFieldIndexing::default()
-                        .set_index_option(IndexRecordOption::WithFreqsAndPositions),
-                )
-                .set_tokenizer("custom");
-            let text_option = TEXT.clone().set_indexing_options(text_indexing) | STORED;
-
-            let field = schema_builder.add_text_field(field_name, text_option);
-            weighted_search_fields.insert(field_name.clone(), (field, *weight));
-            normalizing_factor += weight;
+    /// Opens an existing Tantivy index in `directory` and validates its schema.
+    pub fn open_in_dir(
+        schema: &FullTextSearchSchema<C>,
+        memory_budget: usize,
+        directory: &Path,
+    ) -> anyhow::Result<Self> {
+        let (
+            expected_schema,
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+        ) = build_tantivy_schema(schema);
+        let search_index = Index::open_in_dir(directory)?;
+        if search_index.schema() != expected_schema {
+            anyhow::bail!("Persistent Tantivy index schema does not match the requested schema");
         }
+        Ok(Self::new_with_index(
+            Arc::new(search_index),
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+            memory_budget,
+        ))
+    }
 
-        let mut id_fields = HashMap::new();
-        for (field_name, field_type) in schema.id_fields.iter() {
-            let field =
-                schema_builder.add_field(field_type.field_entry_from_name(field_name.clone()));
-            id_fields.insert(field_name.clone(), (field, *field_type));
+    /// Creates a new Tantivy index in `directory` and validates its schema.
+    pub fn create_in_dir(
+        schema: &FullTextSearchSchema<C>,
+        memory_budget: usize,
+        directory: &Path,
+    ) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(directory)?;
+        let (
+            tantivy_schema,
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+        ) = build_tantivy_schema(schema);
+        let search_index = Index::create_in_dir(directory, tantivy_schema)?;
+        Ok(Self::new_with_index(
+            Arc::new(search_index),
+            composite_key_field,
+            weighted_search_fields,
+            id_fields,
+            normalizing_factor,
+            memory_budget,
+        ))
+    }
+
+    /// Opens or creates a Tantivy index in `directory`.
+    ///
+    /// This compatibility constructor is intended for callers that explicitly accept the
+    /// open-or-create behavior. Persistent committed generations should use [`Self::open_in_dir`]
+    /// and new temporary generations should use [`Self::create_in_dir`].
+    pub fn new_in_dir(
+        schema: &FullTextSearchSchema<C>,
+        memory_budget: usize,
+        directory: &Path,
+    ) -> anyhow::Result<Self> {
+        match Self::open_in_dir(schema, memory_budget, directory) {
+            Ok(searcher) => Ok(searcher),
+            Err(_) => Self::create_in_dir(schema, memory_budget, directory),
         }
+    }
 
-        let search_index = Arc::new(Index::create_in_ram(schema_builder.build()));
+    fn new_with_index(
+        search_index: Arc<Index>,
+        composite_key_field: Field,
+        weighted_search_fields: HashMap<String, (Field, f32)>,
+        id_fields: HashMap<String, (Field, FullTextSearchFieldTypes)>,
+        normalizing_factor: f32,
+        memory_budget: usize,
+    ) -> Self {
         search_index
             .tokenizers()
             .register("custom", CustomTokenizer::default());
@@ -695,10 +755,8 @@ impl<C: SearchSchemaConfig> SimpleFullTextSearcher<C> {
             search_index,
             weighted_search_fields,
             id_fields,
-            // The normalization is done via division, so in order to boost the score, we divide by the boost factor.
-            normalizing_factor / schema.boost_factor,
+            normalizing_factor,
         )));
-
         let writer = Arc::new(Mutex::new(SearcherWriterWrapper::new(
             reader.clone(),
             composite_key_field,
@@ -839,6 +897,59 @@ impl<C: SearchSchemaConfig> SimpleFullTextSearcher<C> {
             })
             .collect())
     }
+}
+
+type TantivySchemaParts = (
+    Schema,
+    Field,
+    HashMap<String, (Field, f32)>,
+    HashMap<String, (Field, FullTextSearchFieldTypes)>,
+    f32,
+);
+
+fn build_tantivy_schema<C: SearchSchemaConfig>(
+    schema: &FullTextSearchSchema<C>,
+) -> TantivySchemaParts {
+    let mut schema_builder = Schema::builder();
+    let composite_key_field = schema_builder.add_bytes_field(
+        COMPOSITE_KEY_FIELD,
+        BytesOptions::default().set_indexed().set_stored(),
+    );
+
+    let mut weighted_search_fields = HashMap::new();
+    let mut normalizing_factor = 0.0;
+    let mut weighted_fields = schema.weighted_search_fields.iter().collect_vec();
+    weighted_fields.sort_by_key(|(left, _)| *left);
+    for (field_name, weight) in weighted_fields {
+        let text_indexing = TEXT
+            .get_indexing_options()
+            .cloned()
+            .unwrap_or(
+                TextFieldIndexing::default()
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_tokenizer("custom");
+        let text_option = TEXT.clone().set_indexing_options(text_indexing) | STORED;
+        let field = schema_builder.add_text_field(field_name, text_option);
+        weighted_search_fields.insert(field_name.clone(), (field, *weight));
+        normalizing_factor += weight;
+    }
+
+    let mut id_fields = HashMap::new();
+    let mut id_field_entries = schema.id_fields.iter().collect_vec();
+    id_field_entries.sort_by_key(|(left, _)| *left);
+    for (field_name, field_type) in id_field_entries {
+        let field = schema_builder.add_field(field_type.field_entry_from_name(field_name.clone()));
+        id_fields.insert(field_name.clone(), (field, *field_type));
+    }
+
+    (
+        schema_builder.build(),
+        composite_key_field,
+        weighted_search_fields,
+        id_fields,
+        normalizing_factor / schema.boost_factor,
+    )
 }
 
 fn build_term_query(term: Term) -> Box<BooleanQuery> {

@@ -35,13 +35,33 @@ impl ExecutionMode {
 pub struct AppExecutionMode {
     mode: ExecutionMode,
     is_sandboxed: bool,
+    local_project_indexing_enabled: bool,
 }
 
 impl AppExecutionMode {
     /// Create an `AppExecutionMode` model with the execution mode set.
-    pub fn new(mode: ExecutionMode, is_sandboxed: bool, _ctx: &mut ModelContext<Self>) -> Self {
+    pub fn new(mode: ExecutionMode, is_sandboxed: bool, ctx: &mut ModelContext<Self>) -> Self {
+        Self::new_with_local_project_indexing(
+            mode,
+            is_sandboxed,
+            matches!(mode, ExecutionMode::App | ExecutionMode::Sdk),
+            ctx,
+        )
+    }
+
+    /// Create an execution-mode model with an explicit local project-index capability.
+    pub fn new_with_local_project_indexing(
+        mode: ExecutionMode,
+        is_sandboxed: bool,
+        local_project_indexing_enabled: bool,
+        _ctx: &mut ModelContext<Self>,
+    ) -> Self {
         let _ = GLOBAL_EXECUTION_MODE.set(mode);
-        Self { mode, is_sandboxed }
+        Self {
+            mode,
+            is_sandboxed,
+            local_project_indexing_enabled,
+        }
     }
 
     /// True if running as the full desktop app.
@@ -120,6 +140,18 @@ impl AppExecutionMode {
     /// on a user machine.
     pub fn is_sandboxed(&self) -> bool {
         self.is_sandboxed
+    }
+
+    /// Returns whether this process is the remote-server daemon. Native local app and SDK
+    /// sessions use the local project index, while the daemon must retain its remote indexing
+    /// pipeline.
+    pub fn is_remote_server_daemon(&self) -> bool {
+        matches!(self.mode, ExecutionMode::RemoteServerDaemon)
+    }
+
+    /// Returns whether local project indexing is registered and may be used in this process.
+    pub fn local_project_indexing_enabled(&self) -> bool {
+        self.local_project_indexing_enabled
     }
 }
 

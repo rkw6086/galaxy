@@ -1,17 +1,17 @@
 use super::*;
 
 #[test]
-fn local_auto_indexing_requires_full_source_code_embedding_codebase_context_and_auto_indexing() {
+fn local_auto_indexing_requires_codebase_context_and_auto_indexing() {
     {
         let _flag = FeatureFlag::FullSourceCodeEmbedding.override_enabled(false);
-        assert!(!codebase_auto_indexing_enabled(
+        assert!(codebase_auto_indexing_enabled(
             CodebaseAutoIndexingSurface::Local,
             true,
             true,
         ));
     }
     {
-        let _flag = FeatureFlag::FullSourceCodeEmbedding.override_enabled(true);
+        let _flag = FeatureFlag::FullSourceCodeEmbedding.override_enabled(false);
         assert!(codebase_auto_indexing_enabled(
             CodebaseAutoIndexingSurface::Local,
             true,

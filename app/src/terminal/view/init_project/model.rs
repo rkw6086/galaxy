@@ -1,6 +1,11 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::{
+    LocalIndexStatus, LocalProjectIndexEvent, LocalProjectIndexManager,
+};
 use ai::project_context::model::ProjectContextModel;
 use enum_iterator::Sequence;
 use galaxy_util::local_or_remote_path::LocalOrRemotePath;
@@ -10,7 +15,6 @@ use lsp::supported_servers::LSPServerType;
 use repo_metadata::repositories::DetectedRepositories;
 
 use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::settings::CodeSettings;
 use crate::terminal::view::init_project::lsp_server_selector::LSPServerInfo;
 use crate::terminal::view::init_project::{
     CodebaseIndexingResult, CreateEnvironmentResult, InitActionResult, LanguageServersResult,
@@ -124,7 +128,11 @@ impl InitProjectModel {
         path_env_var: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let is_already_setup = !Self::should_have_available_steps(&pwd_path, ctx);
+        #[cfg(feature = "local_fs")]
+        let root_path = dunce::canonicalize(&pwd_path).unwrap_or(pwd_path);
+        #[cfg(not(feature = "local_fs"))]
+        let root_path = pwd_path;
+        let is_already_setup = !Self::should_have_available_steps(&root_path, ctx);
 
         Self {
             steps: [None, None, None, None, None],
@@ -132,7 +140,7 @@ impl InitProjectModel {
             is_cancelled: false,
             is_already_setup,
             #[cfg(feature = "local_fs")]
-            root_path: pwd_path,
+            root_path,
             path_env_var,
         }
     }
@@ -154,6 +162,17 @@ impl InitProjectModel {
         );
 
         // Start async computations for subsequent steps
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        {
+            let local_index_manager = LocalProjectIndexManager::handle(ctx);
+            ctx.subscribe_to_model(&local_index_manager, |model, _, event, ctx| {
+                if let LocalProjectIndexEvent::StatusChanged { root_path, status } = event {
+                    if root_path == &model.root_path {
+                        model.handle_local_index_status(status, ctx);
+                    }
+                }
+            });
+        }
         self.compute_codebase_context_step(&pwd_path, ctx);
         if self.path_env_var.is_some() {
             self.compute_language_servers_step(&pwd_path, ctx);
@@ -176,20 +195,30 @@ impl InitProjectModel {
 
     /// Check if there are any steps that need user action
     pub fn should_have_available_steps(path: &Path, ctx: &galaxyui::AppContext) -> bool {
-        // Note that we consider auto-indexing setting to true to satisfy the codebase context step.
-        // This avoids the potential race condition with the banner showing just when we start auto-indexing.
+        // /init is an explicit user request, so its indexing step must remain available even
+        // when background auto-indexing is enabled. The auto-index setting only controls whether
+        // navigation/startup starts indexing without this explicit action.
         let has_pending_codebase_context = UserWorkspaces::as_ref(ctx)
             .is_codebase_context_enabled(ctx)
-            && CodebaseIndexManager::as_ref(ctx)
-                .get_codebase_index_status_for_path(path, ctx)
-                .is_none()
-            && !*CodeSettings::as_ref(ctx).auto_indexing_enabled;
+            && !Self::codebase_index_ready(path, ctx);
 
         let has_pending_project_scoped_rules = ProjectContextModel::as_ref(ctx)
             .find_applicable_project_rules(&LocalOrRemotePath::Local(path.to_path_buf()))
             .is_none();
 
         has_pending_codebase_context || has_pending_project_scoped_rules
+    }
+
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    fn codebase_index_ready(path: &Path, ctx: &galaxyui::AppContext) -> bool {
+        LocalProjectIndexManager::as_ref(ctx).is_ready_for_path(path)
+    }
+
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+    fn codebase_index_ready(path: &Path, ctx: &galaxyui::AppContext) -> bool {
+        CodebaseIndexManager::as_ref(ctx)
+            .get_codebase_index_status_for_path(path, ctx)
+            .is_some()
     }
 
     pub fn get_step(&self, kind: InitStepKind) -> Option<&InitStep> {
@@ -368,9 +397,12 @@ impl InitProjectModel {
             return;
         }
 
-        let codebase_index_manager = CodebaseIndexManager::handle(ctx);
-        let is_indexed = codebase_index_manager
-            .as_ref(ctx)
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let is_indexed = LocalProjectIndexManager::as_ref(ctx)
+            .status_for_path(pwd_path)
+            .is_some_and(|(_, status)| matches!(status, LocalIndexStatus::Ready { .. }));
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+        let is_indexed = CodebaseIndexManager::as_ref(ctx)
             .get_codebase_index_status_for_path(pwd_path, ctx)
             .is_some();
 
@@ -394,6 +426,47 @@ impl InitProjectModel {
                     },
                 )),
             );
+        }
+    }
+
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    fn handle_local_index_status(
+        &mut self,
+        status: &LocalIndexStatus,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        if !matches!(
+            self.get_step(InitStepKind::CodebaseContext)
+                .map(|step| &step.status),
+            Some(InitStepStatus::Running)
+        ) {
+            return;
+        }
+        let root_path = self.root_path.clone();
+        let Some(step) = self.get_step_mut(InitStepKind::CodebaseContext) else {
+            return;
+        };
+        match status {
+            LocalIndexStatus::Indexing => {
+                step.status = InitStepStatus::Running;
+                ctx.notify();
+            }
+            LocalIndexStatus::Ready { .. } => {
+                step.status = InitStepStatus::Completed(InitActionResult::CodebaseContext(
+                    CodebaseIndexingResult::Accepted,
+                ));
+                ctx.emit(InitProjectModelEvent::StepCompleted(
+                    InitStepKind::CodebaseContext,
+                ));
+                self.maybe_emit_next_step(ctx);
+            }
+            LocalIndexStatus::Failed { message } => {
+                step.status = InitStepStatus::Ready(InitStepData::CodebaseContext {
+                    pwd_path: root_path,
+                });
+                ctx.notify();
+                ctx.emit(InitProjectModelEvent::CodebaseIndexFailed(message.clone()));
+            }
         }
     }
 
@@ -584,6 +657,8 @@ pub enum InitProjectModelEvent {
     InitCompleted,
     /// Trigger AGENTS.md generation slash command
     GenerateProjectRules,
+    /// The local index failed and can be retried from the same step.
+    CodebaseIndexFailed(String),
     /// Trigger AGENTS.md regeneration
     RegenerateProjectRules,
     /// View codebase context status

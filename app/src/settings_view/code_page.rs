@@ -2,11 +2,17 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexFinishedStatus, CodebaseIndexManager, CodebaseIndexManagerEvent,
     CodebaseIndexStatus, CodebaseIndexingError,
 };
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::SyncProgress;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::{
+    LocalIndexStatus, LocalProjectIndexEvent, LocalProjectIndexManager,
+};
 use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
 use ai::workspace::WorkspaceMetadata;
 use galaxy_core::features::FeatureFlag;
@@ -170,6 +176,44 @@ enum IndexingRefreshAction {
     RequestRemote,
     Resync,
 }
+
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+fn local_status_presentation(
+    status: Option<&LocalIndexStatus>,
+    appearance: &Appearance,
+) -> IndexingStatusPresentation {
+    let theme = appearance.theme();
+    match status {
+        None => IndexingStatusPresentation {
+            text: Cow::from("No index created"),
+            color: theme.disabled_ui_text_color().into_solid(),
+            icon: Some(Icon::SlashCircle),
+            refresh_action: None,
+            show_delete: false,
+        },
+        Some(LocalIndexStatus::Indexing) => IndexingStatusPresentation {
+            text: Cow::from("Indexing..."),
+            color: theme.disabled_ui_text_color().into_solid(),
+            icon: None,
+            refresh_action: None,
+            show_delete: true,
+        },
+        Some(LocalIndexStatus::Ready { file_count }) => IndexingStatusPresentation {
+            text: Cow::from(format!("Ready ({file_count} files)")),
+            color: theme.ansi_fg_green(),
+            icon: Some(Icon::Check),
+            refresh_action: Some(IndexingRefreshAction::Resync),
+            show_delete: true,
+        },
+        Some(LocalIndexStatus::Failed { .. }) => IndexingStatusPresentation {
+            text: Cow::from("Failed"),
+            color: theme.ui_error_color(),
+            icon: Some(Icon::AlertTriangle),
+            refresh_action: Some(IndexingRefreshAction::Resync),
+            show_delete: true,
+        },
+    }
+}
 pub struct CodeSettingsPageView {
     page: PageType<Self>,
     active_subpage: Option<CodeSubpage>,
@@ -196,34 +240,52 @@ pub struct CodeSettingsPageView {
 
 impl CodeSettingsPageView {
     pub fn new(ctx: &mut ViewContext<CodeSettingsPageView>) -> Self {
-        let index_manager = CodebaseIndexManager::handle(ctx);
-        let codebase_count = index_manager
-            .as_ref(ctx)
-            .get_codebase_index_statuses(ctx)
-            .count();
-
-        ctx.subscribe_to_model(&index_manager, |me, index, event, ctx| {
-            if matches!(
-                event,
-                CodebaseIndexManagerEvent::SyncStateUpdated { .. }
-                    | CodebaseIndexManagerEvent::NewIndexCreated { .. }
-            ) {
-                let codebase_count = index.as_ref(ctx).get_codebase_index_statuses(ctx).count();
-
-                // Only update mouse states if the number of codebases changed
-                if me.codebase_manual_resync_mouse_states.len() != codebase_count {
-                    // Resize the vector to match the new codebase count, but preserve the existing mouse states
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let codebase_count = {
+            let index_manager = LocalProjectIndexManager::handle(ctx);
+            let count = index_manager.as_ref(ctx).statuses().count();
+            ctx.subscribe_to_model(&index_manager, |me, index, event, ctx| {
+                if matches!(
+                    event,
+                    LocalProjectIndexEvent::StatusChanged { .. }
+                        | LocalProjectIndexEvent::IndexRemoved { .. }
+                ) {
+                    let count = index.as_ref(ctx).statuses().count();
                     me.codebase_manual_resync_mouse_states
-                        .resize_with(codebase_count, Default::default);
+                        .resize_with(count, Default::default);
                     me.codebase_delete_mouse_states
-                        .resize_with(codebase_count, Default::default);
+                        .resize_with(count, Default::default);
+                    me.resize_workspace_mouse_states(ctx);
+                    ctx.notify();
                 }
+            });
+            count
+        };
 
-                me.resize_workspace_mouse_states(ctx);
-
-                ctx.notify();
-            }
-        });
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+        let codebase_count = {
+            let index_manager = CodebaseIndexManager::handle(ctx);
+            let count = index_manager
+                .as_ref(ctx)
+                .get_codebase_index_statuses(ctx)
+                .count();
+            ctx.subscribe_to_model(&index_manager, |me, index, event, ctx| {
+                if matches!(
+                    event,
+                    CodebaseIndexManagerEvent::SyncStateUpdated { .. }
+                        | CodebaseIndexManagerEvent::NewIndexCreated { .. }
+                ) {
+                    let count = index.as_ref(ctx).get_codebase_index_statuses(ctx).count();
+                    me.codebase_manual_resync_mouse_states
+                        .resize_with(count, Default::default);
+                    me.codebase_delete_mouse_states
+                        .resize_with(count, Default::default);
+                    me.resize_workspace_mouse_states(ctx);
+                    ctx.notify();
+                }
+            });
+            count
+        };
 
         #[cfg(not(target_family = "wasm"))]
         let remote_codebase_count = {
@@ -552,6 +614,18 @@ impl CodeSettingsPageView {
                     if let Some(directory_path) = paths.first() {
                         let path = PathBuf::from(directory_path);
 
+                        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                        PersistedWorkspace::handle(ctx).update(ctx, |workspace, ctx| {
+                            workspace.user_added_workspace(path.clone(), ctx);
+                            if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                                .update(ctx, |manager, ctx| {
+                                    manager.index_directory(path.clone(), ctx)
+                                })
+                            {
+                                log::warn!("Failed to start local project indexing: {error:#}");
+                            }
+                        });
+                        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                         CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
                             manager.index_directory(path, ctx);
                         });
@@ -697,11 +771,25 @@ impl TypedActionView for CodeSettingsPageView {
                 ctx.notify();
             }
             CodeSettingsPageAction::ManualResync(repo_path) => {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                    .update(ctx, |manager, ctx| {
+                        manager.index_directory(repo_path.clone(), ctx)
+                    })
+                {
+                    log::warn!("Failed to refresh local project index: {error:#}");
+                }
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.try_manual_resync_codebase(repo_path, ctx);
                 });
             }
             CodeSettingsPageAction::DeleteIndex(repo_path) => {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                LocalProjectIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+                    manager.remove_index_for_path(repo_path.clone(), ctx);
+                });
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
                     manager.drop_index(repo_path.clone(), ctx);
                 });
@@ -1112,6 +1200,7 @@ impl CodePageWidget {
             ),
         ];
 
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         if codebase_indexing_enabled && !CodebaseIndexManager::as_ref(app).can_create_new_indices()
         {
             rows.push(self.render_settings_subtext(
@@ -1372,7 +1461,10 @@ impl CodePageWidget {
             Vec::new()
         };
 
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         let codebase_manager = CodebaseIndexManager::as_ref(app);
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let local_index_manager = LocalProjectIndexManager::as_ref(app);
         let lsp_manager = LspManagerModel::as_ref(app);
         let persisted_workspace = PersistedWorkspace::as_ref(app);
 
@@ -1383,6 +1475,11 @@ impl CodePageWidget {
             let workspace_path = &workspace.path;
 
             // Get codebase index status if it exists
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            let local_status = local_index_manager
+                .status_for_path(workspace_path)
+                .map(|(_, status)| status);
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
             let index_status =
                 codebase_manager.get_codebase_index_status_for_path(workspace_path, app);
 
@@ -1403,7 +1500,17 @@ impl CodePageWidget {
                 .unwrap_or_default();
 
             // Skip workspaces that have neither an index nor any LSP servers
-            if index_status.is_none() && all_servers.is_empty() {
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            let (has_index, index_presentation) = (
+                local_status.is_some(),
+                local_status_presentation(local_status, appearance),
+            );
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+            let (has_index, index_presentation) = (
+                index_status.is_some(),
+                self.local_indexing_status_presentation(index_status.as_ref(), appearance),
+            );
+            if !has_index && all_servers.is_empty() {
                 continue;
             }
 
@@ -1431,7 +1538,7 @@ impl CodePageWidget {
 
             content.add_child(self.render_workspace_row(
                 workspace_path,
-                index_status.as_ref(),
+                index_presentation,
                 &all_servers,
                 lsp_manager,
                 resync_mouse,
@@ -1485,7 +1592,7 @@ impl CodePageWidget {
     fn render_workspace_row(
         &self,
         workspace_path: &Path,
-        index_status: Option<&CodebaseIndexStatus>,
+        index_presentation: IndexingStatusPresentation,
         all_servers: &[(LSPServerType, EnablementState)],
         lsp_manager: &LspManagerModel,
         resync_mouse: MouseStateHandle,
@@ -1568,7 +1675,7 @@ impl CodePageWidget {
         // Indexing section (always rendered per design)
         workspace_content.add_child(self.render_indexing_subsection(
             workspace_path,
-            index_status,
+            index_presentation,
             resync_mouse,
             delete_mouse,
             appearance,
@@ -1671,13 +1778,13 @@ impl CodePageWidget {
     fn render_indexing_subsection(
         &self,
         workspace_path: &Path,
-        index_status: Option<&CodebaseIndexStatus>,
+        presentation: IndexingStatusPresentation,
         resync_mouse: MouseStateHandle,
         delete_mouse: MouseStateHandle,
         appearance: &Appearance,
     ) -> Box<dyn Element> {
         self.render_indexing_subsection_for_target(
-            self.local_indexing_status_presentation(index_status, appearance),
+            presentation,
             Some(LocalOrRemotePath::Local(workspace_path.to_path_buf())),
             resync_mouse,
             delete_mouse,
@@ -1730,6 +1837,7 @@ impl CodePageWidget {
         column.finish()
     }
 
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
     fn local_indexing_status_presentation(
         &self,
         index_state: Option<&CodebaseIndexStatus>,
@@ -2569,6 +2677,7 @@ impl SettingsWidget for CodebaseIndexingCategorizedWidget {
                 Some(AUTO_INDEX_DESCRIPTION.into()),
             ));
 
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
             if !CodebaseIndexManager::as_ref(app).can_create_new_indices() {
                 content.add_child(
                     ui_builder

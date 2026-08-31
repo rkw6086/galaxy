@@ -917,13 +917,19 @@ fn build_system_prompt(
                 .join(", "),
         );
         prompt.push_str(".\nNever invent tool names or parameters. Check command exit codes and tool error results before claiming success.\n");
+        let has_search_codebase = tools.iter().any(|tool| tool.name == "search_codebase");
+        if has_search_codebase {
+            prompt.push_str(
+                "For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context.\n",
+            );
+        }
         if tools.iter().any(|tool| tool.name == "run_shell_command") {
             let has_file_tools = tools
                 .iter()
                 .any(|tool| matches!(tool.name.as_str(), "file_glob" | "grep" | "read_files"));
             if has_file_tools {
                 prompt.push_str(
-                    "Prefer `file_glob`, `grep`, and `read_files` for file discovery, content search, and file reading when they are available. Reserve `run_shell_command` for operations those specialized tools cannot perform; do not use shell `find`, `grep`, `rg`, `cat`, `head`, or `tail` as substitutes.\n",
+                    "Prefer `file_glob` for filenames and `read_files` for focused content when they are available. Reserve `run_shell_command` for operations specialized tools cannot perform; do not use shell `find`, `grep`, `rg`, `cat`, `head`, or `tail` as substitutes.\n",
                 );
             }
         }

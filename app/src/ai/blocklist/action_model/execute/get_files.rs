@@ -226,6 +226,7 @@ impl GetFilesExecutor {
                                     GetRelevantFilesError::Missing => {
                                         "The current directory isn't within a git repository, which is necessary to search for relevant files.".to_owned()
                                     }
+                                    GetRelevantFilesError::LocalIndexUnavailable(message) => message,
                                 };
                                 ActionExecution::Sync(AIAgentActionResultType::GetFiles(
                                     GetFilesResult::Error(error_message),

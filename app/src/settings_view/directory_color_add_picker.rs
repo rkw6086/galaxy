@@ -1,9 +1,12 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
 };
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::{LocalProjectIndexEvent, LocalProjectIndexManager};
 use galaxy_util::path::user_friendly_path;
 use galaxyui::elements::{
     Border, ChildView, ConstrainedBox, Container, CrossAxisAlignment, Flex, Hoverable,
@@ -76,6 +79,19 @@ pub(super) enum DirectoryColorAddPickerEvent {
 
 impl DirectoryColorAddPicker {
     pub(super) fn new(ctx: &mut ViewContext<Self>) -> Self {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let local_index_manager = LocalProjectIndexManager::handle(ctx);
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        ctx.subscribe_to_model(&local_index_manager, |me, _, event, ctx| {
+            if matches!(
+                event,
+                LocalProjectIndexEvent::StatusChanged { .. }
+                    | LocalProjectIndexEvent::IndexRemoved { .. }
+            ) {
+                me.refresh_items(ctx);
+            }
+        });
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         ctx.subscribe_to_model(&CodebaseIndexManager::handle(ctx), |me, _, event, ctx| {
             // Refresh for any event that may change the set of indexed codebase paths or
             // persisted workspaces: new index created, sync state updated (which covers
@@ -190,6 +206,12 @@ impl DirectoryColorAddPicker {
     }
 
     fn refresh_items(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        let indexed_paths: HashSet<PathBuf> = LocalProjectIndexManager::as_ref(ctx)
+            .statuses()
+            .map(|(path, _)| path.clone())
+            .collect();
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         let indexed_paths: HashSet<PathBuf> = CodebaseIndexManager::as_ref(ctx)
             .get_codebase_paths()
             .cloned()

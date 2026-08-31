@@ -231,6 +231,8 @@ pub(crate) fn initialize_app(app: &mut App) {
 
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    app.add_singleton_model(ai::index::local_project_index::LocalProjectIndexManager::new);
     app.add_singleton_model(search::files::model::FileSearchModel::new);
 
     #[cfg(windows)]
