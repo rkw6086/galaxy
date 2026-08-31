@@ -5,13 +5,9 @@ use std::{
 };
 
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
-#[cfg(all(
-    feature = "local_fs",
-    not(target_family = "wasm"),
-    not(any(test, feature = "integration_tests"))
-))]
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManagerEvent;
+use ai::index::local_project_index::LocalProjectIndexEvent;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::{LocalIndexStatus, LocalProjectIndexManager};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::paths::home_relative_path;
 use galaxy_core::ui::theme::color::internal_colors;
@@ -129,23 +125,17 @@ impl AgentAssistedEnvironmentModal {
             create_button,
         };
 
-        #[cfg(all(
-            feature = "local_fs",
-            not(target_family = "wasm"),
-            not(any(test, feature = "integration_tests"))
-        ))]
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
         {
-            let index_manager = CodebaseIndexManager::handle(ctx);
+            let index_manager = LocalProjectIndexManager::handle(ctx);
             ctx.subscribe_to_model(&index_manager, |me, _, event, ctx| {
                 if !me.visible {
                     return;
                 }
 
                 match event {
-                    CodebaseIndexManagerEvent::SyncStateUpdated { .. }
-                    | CodebaseIndexManagerEvent::NewIndexCreated { .. }
-                    | CodebaseIndexManagerEvent::RemoveExpiredIndexMetadata { .. }
-                    | CodebaseIndexManagerEvent::IndexMetadataUpdated { .. } => {
+                    LocalProjectIndexEvent::StatusChanged { .. }
+                    | LocalProjectIndexEvent::IndexRemoved { .. } => {
                         me.refresh_available_repos(ctx);
                         if me.available_repos.is_empty() {
                             me.maybe_start_available_repos_loading(ctx);
@@ -734,20 +724,19 @@ impl View for AgentAssistedEnvironmentModal {
 fn available_indexed_repos(app: &AppContext) -> Vec<RepoEntry> {
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     {
-        let mut repos: Vec<RepoEntry> = CodebaseIndexManager::as_ref(app)
-            .get_codebase_index_statuses(app)
-            .filter_map(|(root, status)| {
-                status.has_synced_version().then(|| {
-                    let name = root
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .map(ToOwned::to_owned)
-                        .unwrap_or_else(|| root.to_string_lossy().into_owned());
-                    RepoEntry {
-                        name,
-                        path: root.clone(),
-                    }
-                })
+        let mut repos: Vec<RepoEntry> = LocalProjectIndexManager::as_ref(app)
+            .statuses()
+            .filter(|(_, status)| matches!(status, LocalIndexStatus::Ready { .. }))
+            .map(|(root, _)| {
+                let name = root
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| root.to_string_lossy().into_owned());
+                RepoEntry {
+                    name,
+                    path: root.clone(),
+                }
             })
             .collect();
 

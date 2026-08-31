@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use galaxy_core::ui::appearance::Appearance;
 use galaxyui::elements::{ChildView, Empty};
 use galaxyui::platform::WindowStyle;
@@ -17,8 +20,11 @@ fn init_modal_test_models(app: &mut App) {
     app.add_singleton_model(|_| Appearance::mock());
     app.add_singleton_model(|_| ToastStack);
 
-    // The modal queries CodebaseIndexManager for locally indexed repos.
-    // Register a test instance so `available_indexed_repos(...)` doesn't panic.
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    app.add_singleton_model(|ctx| {
+        LocalProjectIndexManager::new_at(tempfile::tempdir().unwrap().keep(), ctx)
+    });
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
     app.add_singleton_model(|ctx| {
         CodebaseIndexManager::new_for_test(ServerApiProvider::as_ref(ctx).get(), ctx)
     });

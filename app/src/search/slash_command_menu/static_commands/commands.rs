@@ -209,9 +209,9 @@ pub const OPEN_CODE_REVIEW: StaticCommand = StaticCommand {
 
 pub const INDEX: StaticCommand = StaticCommand {
     name: "/index",
-    description: "Index this codebase",
+    description: "Build or refresh the local project index",
     icon_path: "bundled/svg/find-all.svg",
-    availability: Availability::REPOSITORY
+    availability: Availability::LOCAL
         .union(Availability::CODEBASE_CONTEXT)
         .union(Availability::AI_ENABLED),
     auto_enter_ai_mode: false,
@@ -220,11 +220,9 @@ pub const INDEX: StaticCommand = StaticCommand {
 
 pub const INIT: StaticCommand = StaticCommand {
     name: "/init",
-    description: "Index this codebase and generate an AGENTS.md file",
+    description: "Build a local project index and generate an AGENTS.md file",
     icon_path: "bundled/svg/warp-2.svg",
-    availability: Availability::REPOSITORY
-        .union(Availability::AGENT_VIEW)
-        .union(Availability::AI_ENABLED),
+    availability: Availability::LOCAL.union(Availability::AI_ENABLED),
     auto_enter_ai_mode: true,
     argument: None,
 };

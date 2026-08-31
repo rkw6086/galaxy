@@ -2,7 +2,10 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use markdown_parser::FormattedTextFragment;
 use rand::seq::SliceRandom;
 use warpui::keymap::Keystroke;
@@ -411,6 +414,9 @@ impl AITip for AgentTip {
             else {
                 return true;
             };
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            return !LocalProjectIndexManager::as_ref(app).is_ready_for_path(root);
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
             return CodebaseIndexManager::as_ref(app)
                 .get_codebase_index_status_for_path(root, app)
                 .is_none();

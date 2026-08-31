@@ -4,8 +4,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
+};
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::{
+    LocalIndexStatus, LocalProjectIndexEvent, LocalProjectIndexManager,
 };
 use futures::channel::oneshot;
 use futures::future::join_all;
@@ -90,6 +95,9 @@ pub fn prepare_environment(
         if should_subscribe_to_index_updates && result.is_err() {
             let _ = spawner
                 .spawn(|_, ctx| {
+                    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                    ctx.unsubscribe_from_model(&LocalProjectIndexManager::handle(ctx));
+                    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                     ctx.unsubscribe_from_model(&CodebaseIndexManager::handle(ctx));
                 })
                 .await;
@@ -201,6 +209,9 @@ async fn prepare_environment_impl(
     } else if should_index_codebase && source_repos.is_empty() {
         let _ = spawner
             .spawn(|_, ctx| {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                ctx.unsubscribe_from_model(&LocalProjectIndexManager::handle(ctx));
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 ctx.unsubscribe_from_model(&CodebaseIndexManager::handle(ctx));
             })
             .await;
@@ -235,6 +246,9 @@ fn record_codebase_indexing(
         setup_events.record_value_detached(SetupStep::EnvironmentCodebaseIndexing, async move {
             let _ = spawner
                 .spawn(|_, ctx| {
+                    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                    ctx.unsubscribe_from_model(&LocalProjectIndexManager::handle(ctx));
+                    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                     ctx.unsubscribe_from_model(&CodebaseIndexManager::handle(ctx));
                 })
                 .await;
@@ -255,6 +269,9 @@ fn record_codebase_indexing(
         }
         let _ = spawner
             .spawn(|_, ctx| {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                ctx.unsubscribe_from_model(&LocalProjectIndexManager::handle(ctx));
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 ctx.unsubscribe_from_model(&CodebaseIndexManager::handle(ctx));
             })
             .await;
@@ -489,6 +506,7 @@ pub(super) async fn register_cloned_repo(
     Ok(())
 }
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 async fn subscribe_to_codebase_index_events(
     spawner: &ModelSpawner<TerminalDriver>,
     repo_channels: Arc<Mutex<HashMap<PathBuf, oneshot::Sender<()>>>>,
@@ -496,11 +514,10 @@ async fn subscribe_to_codebase_index_events(
     spawner
         .spawn(move |_, ctx| {
             let repo_channels = Arc::clone(&repo_channels);
-            ctx.subscribe_to_model(&CodebaseIndexManager::handle(ctx), move |_, _, event, ctx| {
-                    if !matches!(
-                        event,
-                        CodebaseIndexManagerEvent::SyncStateUpdated { .. }
-                    ) {
+            ctx.subscribe_to_model(
+                &CodebaseIndexManager::handle(ctx),
+                move |_, _, event, ctx| {
+                    if !matches!(event, CodebaseIndexManagerEvent::SyncStateUpdated { .. }) {
                         return;
                     }
 
@@ -511,22 +528,15 @@ async fn subscribe_to_codebase_index_events(
                         .expect("repo channel map lock should not be poisoned");
 
                     for repo in channels.keys() {
-                        let Some(status) =
-                            manager.get_codebase_index_status_for_path(repo, ctx)
+                        let Some(status) = manager.get_codebase_index_status_for_path(repo, ctx)
                         else {
                             continue;
                         };
 
-                        if status.has_synced_version() {
-                            repos_to_notify.push(repo.clone());
-                            continue;
-                        }
-
-                        if !status.has_pending() && status.last_sync_successful() == Some(false) {
-                            safe_warn!(
-                                safe: ("Codebase index sync failed for a repo; unblocking environment setup"),
-                                full: ("Codebase index sync failed for {repo:?}; unblocking environment setup")
-                            );
+                        if status.has_synced_version()
+                            || (!status.has_pending()
+                                && status.last_sync_successful() == Some(false))
+                        {
                             repos_to_notify.push(repo.clone());
                         }
                     }
@@ -536,12 +546,58 @@ async fn subscribe_to_codebase_index_events(
                             let _ = tx.send(());
                         }
                     }
-                });
+                },
+            );
         })
         .await
         .map_err(|_| PrepareEnvironmentError::InvalidRuntimeState)
 }
 
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+async fn subscribe_to_codebase_index_events(
+    spawner: &ModelSpawner<TerminalDriver>,
+    repo_channels: Arc<Mutex<HashMap<PathBuf, oneshot::Sender<()>>>>,
+) -> Result<(), PrepareEnvironmentError> {
+    spawner
+        .spawn(move |_, ctx| {
+            let repo_channels = Arc::clone(&repo_channels);
+            ctx.subscribe_to_model(
+                &LocalProjectIndexManager::handle(ctx),
+                move |_, _, event, _ctx| {
+                    if !matches!(event, LocalProjectIndexEvent::StatusChanged { .. }) {
+                        return;
+                    }
+
+                    let mut repos_to_notify = Vec::new();
+                    let mut channels = repo_channels
+                        .lock()
+                        .expect("repo channel map lock should not be poisoned");
+                    for repo in channels.keys() {
+                        // The manager event identifies the changed root, while the channel map can
+                        // contain nested paths. Re-check each path so a root-level completion wakes
+                        // the exact environment request that owns it.
+                        if LocalProjectIndexManager::as_ref(_ctx).is_ready_for_path(repo)
+                            || matches!(
+                                LocalProjectIndexManager::as_ref(_ctx).status_for_path(repo),
+                                Some((_, LocalIndexStatus::Failed { .. }))
+                            )
+                        {
+                            repos_to_notify.push(repo.clone());
+                        }
+                    }
+                    for repo in repos_to_notify {
+                        if let Some(tx) = channels.remove(&repo) {
+                            let _ = tx.send(());
+                        }
+                    }
+                },
+            );
+        })
+        .await
+        .map_err(|_| PrepareEnvironmentError::InvalidRuntimeState)
+}
+
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 #[tracing::instrument(skip_all, err, fields(tags.cloud_agent = true, repo = %repo_name))]
 async fn index_repo_codebase(
     repo_name: &str,
@@ -586,6 +642,57 @@ async fn index_repo_codebase(
                         .insert(repo_path_for_spawn, tx);
                     Some(rx)
                 }
+            }
+        })
+        .await
+        .map_err(|_| PrepareEnvironmentError::InvalidRuntimeState)
+}
+
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+#[tracing::instrument(skip_all, err, fields(tags.cloud_agent = true, repo = %repo_name))]
+async fn index_repo_codebase(
+    repo_name: &str,
+    working_dir: &Path,
+    repo_channels: Arc<Mutex<HashMap<PathBuf, oneshot::Sender<()>>>>,
+    spawner: &ModelSpawner<TerminalDriver>,
+) -> Result<Option<oneshot::Receiver<()>>, PrepareEnvironmentError> {
+    let repo_path = working_dir.join(repo_name);
+
+    safe_info!(
+        safe: ("Trying to index repository for codebase context"),
+        full: ("Trying to index {:?} for codebase context", repo_path)
+    );
+
+    let repo_path_for_spawn = repo_path.clone();
+    spawner
+        .spawn(move |_, ctx| {
+            let (tx, rx) = oneshot::channel::<()>();
+            repo_channels
+                .lock()
+                .expect("repo channel map lock should not be poisoned")
+                .insert(repo_path_for_spawn.clone(), tx);
+
+            let indexing_result = LocalProjectIndexManager::handle(ctx)
+                .update(ctx, |manager, ctx| {
+                    manager.index_directory(repo_path_for_spawn.clone(), ctx)
+                });
+            if let Err(error) = indexing_result {
+                log::warn!("Failed to start local project indexing: {error:#}");
+                repo_channels
+                    .lock()
+                    .expect("repo channel map lock should not be poisoned")
+                    .remove(&repo_path_for_spawn);
+                return None;
+            }
+
+            if LocalProjectIndexManager::as_ref(ctx).is_ready_for_path(&repo_path_for_spawn) {
+                repo_channels
+                    .lock()
+                    .expect("repo channel map lock should not be poisoned")
+                    .remove(&repo_path_for_spawn);
+                None
+            } else {
+                Some(rx)
             }
         })
         .await

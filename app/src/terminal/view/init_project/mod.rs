@@ -3,7 +3,10 @@ pub mod model;
 
 use std::path::{Path, PathBuf};
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use galaxy_core::ui::theme::Fill;
 use lsp::supported_servers::LSPServerType;
 use lsp_server_selector::{create_lsp_server_selector, LSPServerInfo};
@@ -40,7 +43,7 @@ use crate::view_components::DismissibleToast;
 use crate::workspace::ToastStack;
 use crate::{send_telemetry_from_ctx, TelemetryEvent};
 
-const ONBOARDING_TEXT: &str = "Great - let's begin setting up this project! Would you like to give me permission to index this codebase? It allows me to quickly understand context and provide more targeted solutions when working in this codebase. No code is stored on Galaxy servers.";
+const ONBOARDING_TEXT: &str = "Great - let's begin setting up this project! Would you like to let Galaxy build a local project index? It allows me to quickly understand context and provide more targeted solutions while keeping the index on your device.";
 const ALREADY_SETUP_TEXT: &str = "It looks like this project has already been initialized. You can re-generate the GALAXY.md for this codebase by clicking the button below.";
 // Native Galaxy rules file format.
 pub const FILES_TO_CHECK: [&str; 4] = ["GALAXY.md", "AGENTS.md", "WARP.md", "CLAUDE.md"];
@@ -644,10 +647,11 @@ impl InitStepBlock {
                 .render(app)
                 .finish()
             }
-            InitStepStatus::Running => {
-                // Codebase context doesn't have a "running" state
-                Empty::new().finish()
-            }
+            InitStepStatus::Running => RenderableAction::new("Building local project index", app)
+                .with_icon(in_progress_icon(Appearance::as_ref(app)).finish())
+                .with_content_item_spacing()
+                .render(app)
+                .finish(),
             InitStepStatus::Completed(result) => {
                 self.render_completed_codebase_context(result, app)
             }
@@ -1053,15 +1057,30 @@ impl TypedActionView for InitStepBlock {
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
             InitProjectBlockAction::IndexCodebase(directory) => {
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                    .update(ctx, |manager, ctx| {
+                        manager.index_directory(directory.clone(), ctx)
+                    })
+                {
+                    log::warn!("Failed to start local project indexing: {error:#}");
+                    return;
+                }
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+                CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+                    manager.index_directory(directory.clone(), ctx);
+                });
                 send_telemetry_from_ctx!(
                     TelemetryEvent::AgentModeSetupCodebaseContextAction {
                         action: AgentModeSetupCodebaseContextActionType::IndexCodebase,
                     },
                     ctx
                 );
-                CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-                    manager.index_directory(directory.clone(), ctx);
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                self.model.update(ctx, |model, ctx| {
+                    model.mark_step_running(InitStepKind::CodebaseContext, ctx);
                 });
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 self.model.update(ctx, |model, ctx| {
                     model.mark_step_completed(
                         InitStepKind::CodebaseContext,

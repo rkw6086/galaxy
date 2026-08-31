@@ -156,6 +156,8 @@ pub fn initialize_app_for_terminal_view(app: &mut App) {
         model
     });
     app.add_singleton_model(FileSearchModel::new);
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    app.add_singleton_model(ai::index::local_project_index::LocalProjectIndexManager::new);
     app.add_singleton_model(|_| GitRepoModels::new());
     app.add_singleton_model(RepoOutlines::new_for_test);
     app.add_singleton_model(HomeDirectoryWatcher::new_for_test);

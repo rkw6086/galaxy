@@ -1155,10 +1155,15 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
             .spawn(galaxy_logging::rotate_log_files())
             .detach();
 
+        let local_project_indexing_enabled = matches!(
+            launch_mode,
+            LaunchMode::App { .. } | LaunchMode::CommandLine { .. } | LaunchMode::Test { .. }
+        );
         ctx.add_singleton_model(|ctx| {
-            AppExecutionMode::new(
+            AppExecutionMode::new_with_local_project_indexing(
                 launch_mode.execution_mode(),
                 launch_mode.is_sandboxed(),
+                local_project_indexing_enabled,
                 ctx,
             )
         });
@@ -1988,6 +1993,14 @@ pub(crate) fn initialize_app(
     } else {
         ctx.add_singleton_model(|ctx| RepoOutlines::new_with_indexing_enabled(false, ctx));
     }
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    if matches!(
+        launch_mode,
+        LaunchMode::App { .. } | LaunchMode::CommandLine { .. } | LaunchMode::Test { .. }
+    ) {
+        ctx.add_singleton_model(::ai::index::local_project_index::LocalProjectIndexManager::new);
+    }
+
     ctx.add_singleton_model(|ctx| {
         galaxy_core::sync_queue::SyncQueue::<SyncTask>::new_with_rate_limit(
             &ctx.background_executor(),
@@ -2215,7 +2228,10 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(DefaultTerminal::new);
 
     ctx.add_singleton_model(|ctx| {
-        let should_restore_indices = launch_mode.supports_indexing()
+        let legacy_indexing_enabled = matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. })
+            || !cfg!(all(feature = "local_fs", not(target_family = "wasm")));
+        let should_restore_indices = legacy_indexing_enabled
+            && launch_mode.supports_indexing()
             && (matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. })
                 || UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx));
         let indices_to_restore = if should_restore_indices {
@@ -2231,7 +2247,7 @@ pub(crate) fn initialize_app(
             codebase_limits.max_files_per_repo,
             codebase_limits.embedding_generation_batch_size,
             server_api_provider.as_ref(ctx).get(),
-            launch_mode.supports_indexing(),
+            launch_mode.supports_indexing() && legacy_indexing_enabled,
         );
         if matches!(launch_mode, LaunchMode::RemoteServerDaemon { .. }) {
             codebase_index_config = codebase_index_config.defer_persisted_index_restore();

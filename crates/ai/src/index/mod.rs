@@ -1,4 +1,6 @@
 mod file_outline;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+pub mod local_project_index;
 pub mod locations;
 pub const DEFAULT_SYNC_REQUESTS_PER_MIN: u32 = 600;
 

@@ -23,9 +23,9 @@ fn code_tools() -> Vec<ToolDefinition> {
         run_shell_command(),
         read_files(),
         apply_file_diffs(),
-        grep(),
-        file_glob(),
         search_codebase(),
+        file_glob(),
+        grep(),
         write_to_long_running_shell_command(),
         interrupt_shell_command(),
         read_shell_command_output(),
@@ -48,9 +48,9 @@ fn code_tools() -> Vec<ToolDefinition> {
 fn plan_tools() -> Vec<ToolDefinition> {
     vec![
         read_files(),
-        grep(),
-        file_glob(),
         search_codebase(),
+        file_glob(),
+        grep(),
         run_shell_command_readonly(),
         ask_user_question(),
         start_agent(),
@@ -64,9 +64,9 @@ fn plan_tools() -> Vec<ToolDefinition> {
 fn review_tools() -> Vec<ToolDefinition> {
     vec![
         read_files(),
-        grep(),
-        file_glob(),
         search_codebase(),
+        file_glob(),
+        grep(),
         run_shell_command_readonly(),
     ]
 }
@@ -136,7 +136,7 @@ fn apply_file_diffs() -> ToolDefinition {
 fn grep() -> ToolDefinition {
     ToolDefinition {
         name: "grep".to_string(),
-        description: "Search for up to 3 focused regex patterns per call. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
+        description: "Search for up to 3 focused regex patterns per call. Use only for exact known text in non-code files; never use this to discover or search source code when search_codebase is available. Uses git grep in git repos (respects .gitignore) or ripgrep otherwise. Returns up to 1,000 matching line locations and reports when additional matches were omitted. Use read_files afterward to see context around matches.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -151,7 +151,7 @@ fn grep() -> ToolDefinition {
 fn file_glob() -> ToolDefinition {
     ToolDefinition {
         name: "file_glob".to_string(),
-        description: "Find files matching up to 3 focused glob patterns per call. Uses git ls-files in git repos. Returns absolute file paths of matches. Make another call for more patterns.".to_string(),
+        description: "Find filenames matching up to 3 focused glob patterns per call. Use this to locate files, not to search their contents. Uses git ls-files in git repos. Returns absolute file paths of matches. Make another call for more patterns.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -166,7 +166,7 @@ fn file_glob() -> ToolDefinition {
 fn search_codebase() -> ToolDefinition {
     ToolDefinition {
         name: "search_codebase".to_string(),
-        description: "Semantic code search across the indexed codebase. Use for finding relevant code by meaning rather than exact text match. Better than grep for conceptual queries like 'authentication logic' or 'error handling for database connections'.".to_string(),
+        description: "Primary tool for discovering relevant source code in the local project index. Use this first for all source-code discovery and conceptual, semantic, or structural searches before reading files. Never use grep to search source code when this tool is available.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {

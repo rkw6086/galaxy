@@ -2742,7 +2742,15 @@ fn openai_model_context_window(
         is_configurable: max_context_size > default_context_size,
         min: default_context_size,
         max: max_context_size,
-        default_max: default_context_size,
+        // ChatGPT's catalog exposes `context_window` as the effective window
+        // and `max_context_window` as the model's actual maximum. Use the
+        // latter as the default so model refreshes do not reset the profile
+        // to the smaller effective window (for example, 272k).
+        default_max: if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
+            max_context_size
+        } else {
+            default_context_size
+        },
     }
 }
 

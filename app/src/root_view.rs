@@ -8,6 +8,8 @@ use cfg_if::cfg_if;
 use galaxy_core::context_flag::ContextFlag;
 use galaxy_core::safe_error;
 use galaxy_core::user_preferences::GetUserPreferences as _;
+#[cfg(feature = "voice_input")]
+use galaxyui_core::event::KeyState;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use onboarding::{

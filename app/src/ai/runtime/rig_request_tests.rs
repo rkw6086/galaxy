@@ -154,15 +154,18 @@ fn builds_a_rig_turn_directly_from_galaxy_request_state() {
 }
 
 #[test]
-fn system_prompt_prefers_specialized_file_tools_over_shell_substitutes() {
+fn system_prompt_prioritizes_semantic_code_search_over_regex_search() {
     let mut params = RequestParams::new_for_test();
-    params.input = vec![user_query("Find every Rust file containing ProviderRun")];
+    params.input = vec![user_query(
+        "Find the implementation that handles ProviderRun",
+    )];
 
     let prepared = prepare_rig_turn(
         &config(),
         params,
         vec![
             ToolType::RunShellCommand,
+            ToolType::SearchCodebase,
             ToolType::FileGlob,
             ToolType::Grep,
             ToolType::ReadFiles,
@@ -171,7 +174,11 @@ fn system_prompt_prefers_specialized_file_tools_over_shell_substitutes() {
     );
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
-    assert!(prompt.contains("Prefer `file_glob`, `grep`, and `read_files`"));
+    assert!(prompt.contains("MUST use `search_codebase` first"));
+    assert!(prompt.contains("Never use `grep` to discover or search source code"));
+    assert!(
+        prompt.contains("Prefer `file_glob` for filenames and `read_files` for focused content")
+    );
     assert!(prompt.contains("do not use shell `find`, `grep`, `rg`, `cat`, `head`, or `tail`"));
 }
 

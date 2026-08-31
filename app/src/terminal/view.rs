@@ -71,6 +71,8 @@ use action::RememberForWormholing;
 pub use action::{AgentOnboardingVersion, OnboardingIntention, OnboardingVersion, TerminalAction};
 use ai::api_keys::{ApiKeyManager, AwsCredentialsState};
 use ai::index::full_source_code_embedding::manager::{BuildSource, CodebaseIndexManager};
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use async_channel::{Receiver, Sender};
 use base64::Engine as _;
 use block_banner::{render_wormholing_banner, WormholeBannerState};
@@ -7362,6 +7364,15 @@ impl TerminalView {
             BlocklistAIActionEvent::InitProject(_) => {
                 self.on_next_conversation_finished(|me, _reason, ctx| {
                     if let Some(path) = me.pwd() {
+                        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                        if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                            .update(ctx, |manager, ctx| {
+                                manager.index_directory(PathBuf::from(path), ctx)
+                            })
+                        {
+                            log::warn!("Failed to start local project indexing: {error:#}");
+                        }
+                        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                         CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
                             manager.index_directory(PathBuf::from(path), ctx);
                         });
@@ -10619,7 +10630,16 @@ impl TerminalView {
                         });
                     }
 
-                    // Index the codebase
+                    // Index the project.
+                    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                    if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                        .update(ctx, |manager, ctx| {
+                            manager.index_directory(banner_state.repo_path.clone(), ctx)
+                        })
+                    {
+                        log::warn!("Failed to start local project indexing: {error:#}");
+                    }
+                    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                     CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
                         manager.index_directory(banner_state.repo_path.clone(), ctx);
                     });
@@ -13835,6 +13855,13 @@ impl TerminalView {
         self.update_focused_terminal_info(ctx);
 
         if let Some(working_directory) = self.active_session_path_if_local(ctx) {
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            if let Err(error) = LocalProjectIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+                manager.index_directory(working_directory.clone(), ctx)
+            }) {
+                log::warn!("Failed to start local project indexing: {error:#}");
+            }
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
             CodebaseIndexManager::handle(ctx).update(ctx, |manager, _ctx| {
                 manager.handle_session_bootstrapped(&working_directory);
             });
@@ -14200,10 +14227,7 @@ impl TerminalView {
             return;
         }
 
-        let Some(pwd_path) = self
-            .pwd()
-            .and_then(|pwd| Path::new(&pwd).canonicalize().ok())
-        else {
+        let Some(pwd_path) = self.active_session_path_if_local(ctx) else {
             return;
         };
 
@@ -14246,6 +14270,18 @@ impl TerminalView {
                     me.redetermine_terminal_focus(ctx);
                 }
                 InitProjectModelEvent::StepCompleted(_) => {}
+                InitProjectModelEvent::CodebaseIndexFailed(message) => {
+                    let window_id = ctx.window_id();
+                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                        toast_stack.add_ephemeral_toast(
+                            DismissibleToast::error(format!(
+                                "Local project indexing failed: {message}"
+                            )),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                }
                 InitProjectModelEvent::Cancelled => {
                     me.active_init_project_model = None;
                     // Mark conversation as cancelled
@@ -26002,6 +26038,13 @@ impl TerminalView {
             return;
         };
 
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if let Err(error) = LocalProjectIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+            manager.index_directory(active_session_path.clone(), ctx)
+        }) {
+            log::warn!("Failed to start local project indexing: {error:#}");
+        }
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
             manager.build_and_sync_codebase_index(
                 BuildSource::FromPath(active_session_path.as_path()),
@@ -26011,7 +26054,7 @@ impl TerminalView {
     }
 
     fn write_codebase_index(&self, _ctx: &mut ViewContext<Self>) {
-        #[cfg(feature = "local_fs")]
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         {
             let Some(working_directory_str) = self.pwd() else {
                 log::error!("No working directory found for terminal session");
@@ -27431,25 +27474,37 @@ impl TypedActionView for TerminalView {
             }
             SummarizeConversation => self.summarize_conversation(ctx),
             IndexProjectSpeedbump => {
-                let codebase_context_enabled =
-                    UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx);
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                if let Some(repo_path) = self
+                    .active_session_path_if_local(ctx)
+                    .and_then(|path| dunce::canonicalize(path).ok())
+                {
+                    if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                        .update(ctx, |manager, ctx| {
+                            manager.index_directory(repo_path.clone(), ctx)
+                        })
+                    {
+                        log::warn!("Failed to start local project indexing: {error:#}");
+                    }
+                    self.remove_codebase_index_speedbump_banner(ctx);
+                    self.insert_codebase_index_speedbump_banner(
+                        repo_path, true, /* show_is_indexing */
+                        ctx,
+                    );
+                }
 
-                if FeatureFlag::FullSourceCodeEmbedding.is_enabled() && codebase_context_enabled {
-                    #[cfg(feature = "local_fs")]
-                    if let Some(current_dir) = self.pwd() {
-                        let directory = PathBuf::from(&current_dir);
-
-                        if let Ok(repo_path) = directory.canonicalize() {
-                            // Start indexing the codebase
-                            CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
-                                manager.index_directory(repo_path.clone(), ctx);
-                            });
-
-                            self.remove_codebase_index_speedbump_banner(ctx);
-                            self.insert_codebase_index_speedbump_banner(
-                                repo_path, true, /* show_is_indexing */
-                                ctx,
-                            );
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+                {
+                    let codebase_context_enabled =
+                        UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx);
+                    if codebase_context_enabled {
+                        if let Some(current_dir) = self.pwd() {
+                            let directory = PathBuf::from(&current_dir);
+                            if let Ok(repo_path) = directory.canonicalize() {
+                                CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+                                    manager.index_directory(repo_path.clone(), ctx);
+                                });
+                            }
                         }
                     }
                 }

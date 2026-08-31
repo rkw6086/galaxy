@@ -3,15 +3,21 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::{
     CodebaseIndexManager, CodebaseIndexManagerEvent,
 };
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use ai::project_context::model::{ProjectContextModel, ProjectContextModelEvent};
 use ai::workspace::{WorkspaceMetadata, WorkspaceMetadataEvent};
 use anyhow::Context;
 use chrono::Utc;
 #[cfg(feature = "local_fs")]
 use galaxy_core::channel::ChannelState;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use galaxy_core::execution_mode::AppExecutionMode;
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use galaxy_core::features::FeatureFlag;
 #[cfg(feature = "local_fs")]
 use galaxy_util::{local_or_remote_path::LocalOrRemotePath, standardized_path::StandardizedPath};
@@ -46,6 +52,7 @@ use crate::code::lsp_telemetry::LspTelemetryEvent;
 use crate::persistence::ModelEvent;
 #[cfg(feature = "local_fs")]
 use crate::server::server_api::ServerApiProvider;
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use crate::settings::CodeSettings;
 #[cfg(feature = "local_fs")]
 use crate::terminal::local_shell::LocalShellState;
@@ -54,6 +61,12 @@ use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_if_error, send_telemetry_from_ctx, TelemetryEvent};
 #[cfg(feature = "local_fs")]
 use crate::{view_components::DismissibleToast, workspace::ToastStack};
+
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+fn local_project_indexing_enabled(ctx: &AppContext) -> bool {
+    ctx.try_get_singleton_model_as_ref::<AppExecutionMode>()
+        .is_some_and(|mode| mode.local_project_indexing_enabled())
+}
 
 /// Represents whether an LSP server is enabled or disabled for a workspace.
 ///
@@ -239,6 +252,7 @@ impl PersistedWorkspace {
             })
             .collect();
 
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         if FeatureFlag::FullSourceCodeEmbedding.is_enabled() {
             ctx.subscribe_to_model(&CodebaseIndexManager::handle(ctx), |me, _, event, ctx| {
                 match event {
@@ -266,7 +280,7 @@ impl PersistedWorkspace {
                         ..
                     } = event
                     {
-                        #[cfg(feature = "local_fs")]
+                        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                         me.clean_up_deleted_indices(ctx);
 
                         me.trigger_incremental_sync_for_conversation(*terminal_surface_id, ctx);
@@ -310,12 +324,68 @@ impl PersistedWorkspace {
             });
         }
 
-        #[cfg(feature = "local_fs")]
-        if !cfg!(any(
-            test,
-            feature = "fast_dev",
-            feature = "integration_tests"
-        )) && CodebaseIndexManager::as_ref(ctx).is_indexing_enabled()
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if local_project_indexing_enabled(ctx) {
+            ctx.subscribe_to_model(
+                &UserWorkspaces::handle(ctx),
+                |me, _, user_workspaces_event, ctx| {
+                    if let UserWorkspacesEvent::CodebaseContextEnablementChanged =
+                        user_workspaces_event
+                    {
+                        me.on_settings_changed(ctx);
+                    }
+                },
+            );
+        }
+
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if local_project_indexing_enabled(ctx) {
+            ctx.subscribe_to_model(
+                &BlocklistAIHistoryModel::handle(ctx),
+                |me, _, event, ctx| {
+                    if let BlocklistAIHistoryEvent::StartedNewConversation {
+                        terminal_surface_id,
+                        ..
+                    } = event
+                    {
+                        me.trigger_incremental_sync_for_conversation(*terminal_surface_id, ctx);
+                    }
+                },
+            );
+        }
+
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if local_project_indexing_enabled(ctx) {
+            ctx.subscribe_to_model(&ProjectContextModel::handle(ctx), |me, _, event, _ctx| {
+                if let ProjectContextModelEvent::KnownRulesChanged(delta) = event {
+                    let mut events = vec![];
+
+                    if !delta.discovered_rules.is_empty() {
+                        events.push(ModelEvent::UpsertProjectRules {
+                            project_rule_paths: delta.discovered_rules.clone(),
+                        });
+                    }
+
+                    if !delta.deleted_rules.is_empty() {
+                        events.push(ModelEvent::DeleteProjectRules {
+                            path: delta.deleted_rules.clone(),
+                        });
+                    }
+
+                    if !events.is_empty() {
+                        me.save_to_db(events);
+                    }
+                }
+            });
+        }
+
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if local_project_indexing_enabled(ctx)
+            && !cfg!(any(
+                test,
+                feature = "fast_dev",
+                feature = "integration_tests"
+            ))
         {
             ctx.subscribe_to_model(&DetectedRepositories::handle(ctx), |me, _, event, ctx| {
                 let DetectedRepositoriesEvent::DetectedGitRepo { repository, .. } = event;
@@ -634,6 +704,33 @@ impl PersistedWorkspace {
 
     /// Enables or disables codebase indexing according to the setting.
     fn maybe_enable_codebase_indexing(ctx: &mut ModelContext<Self>) {
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        {
+            if local_project_indexing_enabled(ctx)
+                && should_auto_index_codebase(CodebaseAutoIndexingSurface::Local, ctx)
+            {
+                for root in auto_index_candidate_roots(
+                    all_working_directories(ctx)
+                        .into_iter()
+                        .filter_map(|directory| {
+                            DetectedRepositories::as_ref(ctx)
+                                .get_root_for_path(&LocalOrRemotePath::Local(directory))
+                                .and_then(|root| root.to_local_path().map(Path::to_path_buf))
+                        }),
+                    |_| true,
+                ) {
+                    if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                        .update(ctx, |manager, ctx| {
+                            manager.index_directory(root.to_path_buf(), ctx)
+                        })
+                    {
+                        log::warn!("Failed to start local project indexing: {error:#}");
+                    }
+                }
+            }
+        }
+
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         CodebaseIndexManager::handle(ctx).update(ctx, |manager, ctx| {
             if !manager.is_indexing_enabled() {
                 return;
@@ -648,6 +745,7 @@ impl PersistedWorkspace {
         });
     }
 
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
     fn enable_codebase_indexing(
         manager: &mut CodebaseIndexManager,
         ctx: &mut ModelContext<CodebaseIndexManager>,
@@ -661,7 +759,7 @@ impl PersistedWorkspace {
             ctx,
         );
 
-        #[cfg(feature = "local_fs")]
+        #[cfg(all(feature = "local_fs", target_family = "wasm"))]
         if should_auto_index_codebase(CodebaseAutoIndexingSurface::Local, ctx) {
             let roots = all_working_directories(ctx).into_iter().filter_map(|dir| {
                 DetectedRepositories::as_ref(ctx)
@@ -683,6 +781,17 @@ impl PersistedWorkspace {
                 ctx,
             );
         });
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if local_project_indexing_enabled(ctx)
+            && should_auto_index_codebase(CodebaseAutoIndexingSurface::Local, ctx)
+        {
+            if let Err(error) = LocalProjectIndexManager::handle(ctx).update(ctx, |manager, ctx| {
+                manager.index_directory(directory_path.clone(), ctx)
+            }) {
+                log::warn!("Failed to start local project indexing: {error:#}");
+            }
+        }
+        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
         if FeatureFlag::FullSourceCodeEmbedding.is_enabled()
             && UserWorkspaces::as_ref(ctx).is_codebase_context_enabled(ctx)
             && *CodeSettings::as_ref(ctx).auto_indexing_enabled
@@ -700,6 +809,8 @@ impl PersistedWorkspace {
     /// scanning, and emits
     /// [`PersistedWorkspaceEvent::WorkspaceAdded`] so subscribers can refresh their UI.
     pub fn user_added_workspace(&mut self, path: PathBuf, ctx: &mut ModelContext<Self>) {
+        #[cfg(feature = "local_fs")]
+        let path = dunce::canonicalize(&path).unwrap_or(path);
         let now = Utc::now();
 
         match self.workspaces.get_mut(&path) {
@@ -850,7 +961,15 @@ impl PersistedWorkspace {
                     if let Some(pwd) = pwd {
                         let directory_path = PathBuf::from(pwd);
 
-                        // Trigger an incremental sync through the CodebaseIndexManager
+                        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                        if let Err(error) = LocalProjectIndexManager::handle(ctx)
+                            .update(ctx, |manager, ctx| {
+                                manager.index_directory(directory_path.clone(), ctx)
+                            })
+                        {
+                            log::warn!("Failed to refresh local project index: {error:#}");
+                        }
+                        #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                         CodebaseIndexManager::handle(ctx).update(ctx, |codebase_manager, ctx| {
                             if let Err(e) = codebase_manager
                                 .trigger_incremental_sync_for_path(&directory_path, ctx)
@@ -907,7 +1026,7 @@ impl PersistedWorkspace {
         }));
     }
 
-    #[cfg(feature = "local_fs")]
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
     fn clean_up_deleted_indices(&self, ctx: &mut ModelContext<Self>) {
         CodebaseIndexManager::handle(ctx).update(ctx, |codebase_manager, ctx| {
             codebase_manager.clean_up_deleted_indices(ctx);
@@ -1417,6 +1536,13 @@ impl PersistedWorkspace {
 }
 
 fn send_active_indexed_repos_changed_telemetry<T: Entity>(ctx: &mut ModelContext<T>) {
+    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    let total = if local_project_indexing_enabled(ctx) {
+        LocalProjectIndexManager::as_ref(ctx).statuses().count()
+    } else {
+        0
+    };
+    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
     let total = CodebaseIndexManager::as_ref(ctx).num_active_indices();
     let hit_max = AIRequestUsageModel::as_ref(ctx).hit_codebase_index_limit(total);
     send_telemetry_from_ctx!(

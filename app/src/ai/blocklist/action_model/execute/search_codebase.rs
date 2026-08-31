@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -273,6 +275,7 @@ impl SearchCodebaseExecutor {
                     ),
                 },
                 Err(e) => {
+                    self.active_searches.remove(id);
                     log::warn!("Failed to send remote get_relevant_files request: {e:?}");
                     ActionExecution::Sync(AIAgentActionResultType::SearchCodebase(
                         SearchCodebaseResult::Failed {
@@ -385,6 +388,7 @@ impl SearchCodebaseExecutor {
                     ),
                 },
                 Err(e) => {
+                    self.active_searches.remove(id);
                     log::warn!("Failed to send get_relevant_files request for directory: {e:?}");
 
                     let error_message = match e {
@@ -397,6 +401,7 @@ impl SearchCodebaseExecutor {
                             GetRelevantFilesError::Missing => {
                                 "The current directory isn't within a git repository, which is necessary to search for relevant files.".to_owned()
                             }
+                            GetRelevantFilesError::LocalIndexUnavailable(message) => message,
                         };
                     ActionExecution::Sync(AIAgentActionResultType::SearchCodebase(
                         SearchCodebaseResult::Failed {
@@ -465,6 +470,13 @@ impl SearchCodebaseExecutor {
             pwd
         };
 
+        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        if let Some(root) = app
+            .try_get_singleton_model_as_ref::<LocalProjectIndexManager>()
+            .and_then(|manager| manager.root_for_path(&search_dir))
+        {
+            return Some(root);
+        }
         self.get_relevant_files_controller
             .as_ref(app)
             .root_directory_for_search(&search_dir, app)

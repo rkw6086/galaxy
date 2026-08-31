@@ -1,7 +1,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalIndexStatus;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use galaxyui::integration::{AssertionOutcome, StepData, TestStep};
 use galaxyui::{async_assert, App, ReadModel, SingletonEntity, UpdateModel, WindowId};
 use settings::Setting;
@@ -51,6 +56,11 @@ pub fn sync_current_codebase_index() -> TestStep {
             };
 
             // Kick off codebase indexing at the current directory.
+            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            app.update_model(&LocalProjectIndexManager::handle(app), |manager, ctx| {
+                let _ = manager.index_directory(canonicalized_path.clone(), ctx);
+            });
+            #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
             app.update_model(&CodebaseIndexManager::handle(app), |manager, ctx| {
                 manager.index_directory(canonicalized_path.clone(), ctx);
             });
@@ -67,10 +77,29 @@ pub fn sync_current_codebase_index() -> TestStep {
                     .get::<String, PathBuf>(CWD_DATA_KEY.into())
                     .expect("No cwd");
 
+                #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                let status =
+                    app.read_model(&LocalProjectIndexManager::handle(app), |manager, _ctx| {
+                        manager
+                            .status_for_path(cwd)
+                            .map(|(_, status)| status.clone())
+                    });
+                #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                 let status = app.read_model(&CodebaseIndexManager::handle(app), |manager, ctx| {
                     manager.get_codebase_index_status_for_path(cwd, ctx)
                 });
                 match status {
+                    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                    Some(LocalIndexStatus::Ready { .. }) => AssertionOutcome::Success,
+                    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+                    Some(status) => {
+                        async_assert!(
+                            matches!(status, LocalIndexStatus::Ready { .. }),
+                            "Codebase index for {} should be ready",
+                            cwd.display()
+                        )
+                    }
+                    #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
                     Some(status) => {
                         async_assert!(
                             status.has_synced_version()

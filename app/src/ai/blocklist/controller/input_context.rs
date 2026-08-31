@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use ai::index::local_project_index::LocalProjectIndexManager;
 use chrono::Local;
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::generic_string_object::GenericStringObjectFormat as GraphQLFormat;
@@ -65,10 +66,12 @@ pub(super) fn input_context_for_request(
         context.push(AIAgentContext::ExecutionEnvironment(env));
     }
 
-    if FeatureFlag::FullSourceCodeEmbedding.is_enabled()
-        && FeatureFlag::CrossRepoContext.is_enabled()
-    {
-        let session_context = SessionContext::from_session(active_session, app);
+    let session_context = SessionContext::from_session(active_session, app);
+    let should_add_codebase_context = FeatureFlag::CrossRepoContext.is_enabled()
+        && ((session_context.is_remote() && FeatureFlag::FullSourceCodeEmbedding.is_enabled())
+            || (!session_context.is_remote()
+                && cfg!(all(feature = "local_fs", not(target_family = "wasm")))));
+    if should_add_codebase_context {
         if session_context.is_remote() {
             add_remote_codebase_context(&mut context, &session_context, app);
         } else {
@@ -91,26 +94,27 @@ pub(super) fn input_context_for_request(
     context.into()
 }
 
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 fn add_local_codebase_context(context: &mut Vec<AIAgentContext>, app: &AppContext) {
-    for (codebase_path, status) in
-        CodebaseIndexManager::as_ref(app).get_codebase_index_statuses(app)
-    {
-        // TODO(daniel): We should figure out a mechanism for handling stale codebases.
-        if status.has_synced_version() {
-            // For now, we pass the name of the directory as the name of the
-            // codebase.
+    for (codebase_path, status) in LocalProjectIndexManager::as_ref(app).statuses() {
+        if matches!(
+            status,
+            ai::index::local_project_index::LocalIndexStatus::Ready { .. }
+        ) {
             let codebase_name = codebase_path
                 .file_name()
                 .map(|name| name.to_string_lossy())
                 .unwrap_or_default();
-
             context.push(AIAgentContext::Codebase {
                 name: codebase_name.into(),
                 path: codebase_path.to_string_lossy().into(),
-            })
+            });
         }
     }
 }
+
+#[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
+fn add_local_codebase_context(_context: &mut Vec<AIAgentContext>, _app: &AppContext) {}
 
 #[cfg(not(target_family = "wasm"))]
 fn add_remote_codebase_context(

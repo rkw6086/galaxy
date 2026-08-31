@@ -108,6 +108,38 @@ fn advertised_tools_follow_client_capabilities_and_include_local_subagents() {
 }
 
 #[test]
+fn bedrock_prompt_prioritizes_semantic_code_search_over_regex_search() {
+    let request = api::Request {
+        settings: Some(api::request::Settings {
+            supported_tools: vec![
+                api::ToolType::SearchCodebase.into(),
+                api::ToolType::Grep.into(),
+                api::ToolType::FileGlob.into(),
+                api::ToolType::ReadFiles.into(),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let prompt = extract_system_prompt(&request, &[]).expect("system prompt");
+    assert!(prompt.contains("MUST use `search_codebase` first"));
+    assert!(prompt.contains("Never use `grep` to discover or search source code"));
+
+    let tools = extract_tools(&request);
+    let search_codebase = tools
+        .iter()
+        .find(|tool| tool.name == "search_codebase")
+        .expect("search_codebase tool");
+    let grep = tools
+        .iter()
+        .find(|tool| tool.name == "grep")
+        .expect("grep tool");
+    assert!(search_codebase.description.contains("MUST use this first"));
+    assert!(grep.description.contains("non-code files"));
+}
+
+#[test]
 fn direct_provider_advertises_local_tool_history_recall() {
     let request = api::Request {
         settings: Some(api::request::Settings::default()),
