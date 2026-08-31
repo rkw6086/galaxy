@@ -813,7 +813,7 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     );
     assert!(configurable.is_configurable);
     assert_eq!(configurable.min, 258_400);
-    assert_eq!(configurable.default_max, 258_400);
+    assert_eq!(configurable.default_max, 828_400);
     assert_eq!(configurable.max, 828_400);
 
     let fixed =
@@ -829,6 +829,8 @@ fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     let mut existing = openai_model("gpt-5.6-sol");
     existing.enabled = false;
     existing.use_rig = false;
+    existing.context_size = 272_000;
+    existing.max_input_tokens = Some(272_000);
     existing.capability_overrides.insert(
         "vision".to_string(),
         crate::settings::ModelCapabilityOverride::Unsupported,
@@ -839,11 +841,15 @@ fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     discovered.display_name = "GPT-5.6-Sol".to_string();
     discovered.vision_supported = true;
     discovered.use_rig = true;
+    discovered.context_size = 828_400;
+    discovered.max_input_tokens = Some(258_400);
 
     let merged = merge_discovered_chatgpt_subscription_models(&[existing, stale], vec![discovered]);
 
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].model_id, "gpt-5.6-sol");
+    assert_eq!(merged[0].context_size, 828_400);
+    assert_eq!(merged[0].max_input_tokens, Some(258_400));
     assert!(!merged[0].enabled);
     assert!(!merged[0].use_rig);
     assert_eq!(
