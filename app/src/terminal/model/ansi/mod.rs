@@ -653,10 +653,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
     fn handle_decoded_data(&mut self, decoded_data: Result<Vec<u8>, hex::FromHexError>) {
         match decoded_data {
             Ok(decoded_data) => {
-                safe_debug!(
-                    safe: ("Decoded payload"),
-                    full: ("Decoded payload string: {:?}", std::str::from_utf8(&decoded_data))
-                );
+                log::debug!("Decoded shell hook payload; bytes={}", decoded_data.len());
 
                 let hook = serde_json::from_slice::<DProtoHook>(&decoded_data);
                 if let Ok(hook) = &hook {
@@ -691,10 +688,7 @@ impl<'a, H: Handler + 'a, W: io::Write> Performer<'a, H, W> {
                         return;
                     }
                 };
-                safe_debug!(
-                    safe: ("Decoded payload"),
-                    full: ("Decoded payload string: {:?}", serde_json::to_string(&hook))
-                );
+                log::debug!("Decoded key-value shell hook payload");
                 self.handle_decoded_hook(Ok(hook));
             }
             Some(&WARP_KV_ENTRY_BYTE) => {
@@ -888,7 +882,7 @@ where
                         .map(|parts| parts.join(";").trim().to_owned());
                     if let Ok(body) = body {
                         if !body.is_empty() {
-                            log::info!("Received OSC 9 notification: {}", body);
+                            log::info!("Received OSC 9 notification; bytes={}", body.len());
                             self.handler.pluggable_notification(None, body);
                             return;
                         }

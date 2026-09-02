@@ -229,6 +229,7 @@ dependencies = [
  "dirs 6.0.0",
  "dunce",
  "filetime",
+ "fs4",
  "futures",
  "galaxy_core",
  "galaxy_graphql",

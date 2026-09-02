@@ -269,11 +269,17 @@ impl CurrentPrompt {
 
                     if let Some(session) = session {
                         let buffer_text = editor.as_ref(ctx).buffer_text(ctx);
+                        let mut should_notify = false;
                         for (kind, state) in me.states.iter_mut() {
-                            state.should_render =
-                                kind.should_render(&buffer_text, session.aliases());
+                            let should_render = kind.should_render(&buffer_text, session.aliases());
+                            if state.should_render != should_render {
+                                state.should_render = should_render;
+                                should_notify = true;
+                            }
                         }
-                        ctx.notify();
+                        if should_notify {
+                            ctx.notify();
+                        }
                     }
                 }
             }
@@ -321,7 +327,10 @@ impl CurrentPrompt {
     }
 
     fn update_chip_value(&mut self, chip_kind: &ContextChipKind, value: Option<ChipValue>) {
-        log::debug!("Updating prompt value of {chip_kind:?} to {value:?}");
+        log::trace!(
+            "Updating prompt value of {chip_kind:?}; has_value={}",
+            value.is_some()
+        );
         if let Some(state) = self.states.get_mut(chip_kind) {
             if state.last_computed_value != value {
                 state.last_computed_value = value;
@@ -332,14 +341,19 @@ impl CurrentPrompt {
     }
 
     fn update_on_click_value(&mut self, chip_kind: &ContextChipKind, value: Option<Vec<String>>) {
-        log::debug!("Updating prompt on_click value of {chip_kind:?} to {value:?}");
+        log::trace!(
+            "Updating prompt on_click value of {chip_kind:?}; item_count={}",
+            value.as_ref().map_or(0, Vec::len)
+        );
         let filter_values = match chip_kind {
             ContextChipKind::ShellGitBranch => self.filter_git_branch_on_click_values(value),
             _ => value,
         };
         if let Some(state) = self.states.get_mut(chip_kind) {
-            state.last_on_click_values = filter_values;
-            let _ = self.update_tx.try_send(());
+            if state.last_on_click_values != filter_values {
+                state.last_on_click_values = filter_values;
+                let _ = self.update_tx.try_send(());
+            }
         }
     }
 

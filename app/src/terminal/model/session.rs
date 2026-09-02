@@ -356,7 +356,6 @@ impl Sessions {
         let session = Session::new(session_info.clone(), command_executor);
 
         log::info!("Shell is bootstrapped with session_id {:?}", session.id());
-        log::debug!("Session details: {session:?}");
 
         let session = Arc::new(session);
         self.sessions.insert(session.id(), session.clone());

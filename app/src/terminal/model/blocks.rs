@@ -3058,7 +3058,6 @@ impl BlockList {
 
         if let Some(prompt_snapshot) = &block.prompt_snapshot {
             if let Ok(prompt_snapshot) = serde_json::from_str(prompt_snapshot) {
-                log::debug!("Restored prompt: {prompt_snapshot:?}");
                 self.active_block_mut().set_prompt_snapshot(prompt_snapshot);
             }
         }

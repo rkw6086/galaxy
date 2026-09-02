@@ -1471,7 +1471,6 @@ impl Element for NewScrollable {
         app: &AppContext,
     ) -> bool {
         let Some(z_index) = self.child_max_z_index else {
-            log::warn!("Tried to handle event in scrollable before the element is painted");
             return false;
         };
 

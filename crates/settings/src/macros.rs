@@ -254,11 +254,7 @@ macro_rules! define_setting {
                     },
                     None => {
                         let default_value = Self::default_value();
-                        log::debug!(
-                            "Initializing {} to default value: {:?}",
-                            Self::setting_name(),
-                            default_value
-                        );
+                        log::debug!("Initializing {} to its default value", Self::setting_name());
                         Self {
                             inner: default_value,
                             is_explicitly_set: false,

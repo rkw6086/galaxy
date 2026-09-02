@@ -2396,7 +2396,7 @@ pub(crate) fn app_callbacks(
             // Persist the final app state before tearing down the writer.
             // This ensures the latest session (tabs, CWD, conversations) is saved
             // even if the termination bypassed individual window-close events.
-            ctx.dispatch_global_action("workspace:save_app", &());
+            workspace::save_app_urgently(ctx);
 
             NotebookManager::handle(ctx).update(ctx, |manager, ctx| {
                 // Notebooks are only saved periodically, so ensure that any pending changes have
@@ -2634,7 +2634,7 @@ pub(crate) fn app_callbacks(
                     stack.handle_window_closed(window_data, ctx);
                 });
             }
-            ctx.dispatch_global_action("workspace:save_app", &());
+            workspace::save_app_urgently(ctx);
         })),
         on_window_moved: Some(Box::new(move |ctx| {
             ctx.dispatch_global_action("workspace:save_app", &());

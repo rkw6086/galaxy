@@ -216,13 +216,6 @@ impl BedrockClient {
             tools.len()
         );
 
-        log::info!(
-            "[bedrock] Sending request payload to Bedrock:\nSystem Prompt: {:?}\nMessages: {:#?}\nTools: {:#?}",
-            system_prompt,
-            messages,
-            tools
-        );
-
         let converted = build_converse_request(
             messages.clone(),
             system_prompt.clone(),

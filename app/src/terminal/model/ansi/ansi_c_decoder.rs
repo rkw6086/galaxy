@@ -19,7 +19,10 @@ pub(super) fn parse_ansi_c_quoted_string(quoted_string: String) -> String {
     if quoted_string.trim().is_empty() {
         return quoted_string;
     }
-    log::debug!("Attempting to parse the following ANSI C escaped shell output: {quoted_string}");
+    log::debug!(
+        "Attempting to parse ANSI-C escaped shell output; bytes={}",
+        quoted_string.len()
+    );
 
     let Some(quoted_string_without_prefix) = quoted_string.strip_prefix("$\'") else {
         log::warn!("Tried to parse ANSI-C quoted string but $\' prefix was not present");

@@ -1,14 +1,16 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use ::settings::ToggleableSetting;
 use galaxy_core::execution_mode::AppExecutionMode;
 use galaxy_graphql::mutations::create_anonymous_user::AnonymousUserType;
+use galaxyui::r#async::{SpawnedFutureHandle, Timer};
 use galaxyui::windowing::WindowManager;
-use galaxyui::{AppContext, SingletonEntity, TypedActionView};
+use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, TypedActionView};
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;
-use crate::app_state::get_app_state;
+use crate::app_state::{get_app_state, AppState};
 use crate::network::NetworkStatus;
 use crate::persistence::ModelEvent;
 use crate::root_view::OpenPath;
@@ -19,6 +21,102 @@ use crate::undo_close::UndoCloseStack;
 use crate::workspace::cross_window_tab_drag::CrossWindowTabDrag;
 use crate::workspace::{Workspace, WorkspaceAction};
 use crate::{auth, GlobalResourceHandlesProvider};
+
+const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
+
+pub(crate) struct SessionSaveCoordinator {
+    last_enqueued_state: Option<AppState>,
+    pending_save: bool,
+    timer_generation: u64,
+    timer: Option<SpawnedFutureHandle>,
+}
+
+impl SessionSaveCoordinator {
+    pub(crate) fn new() -> Self {
+        Self {
+            last_enqueued_state: None,
+            pending_save: false,
+            timer_generation: 0,
+            timer: None,
+        }
+    }
+
+    fn request_save(&mut self, ctx: &mut ModelContext<Self>) {
+        if !session_save_is_enabled(ctx) {
+            return;
+        }
+
+        if self.timer.is_none() {
+            self.save_if_changed(ctx);
+        } else {
+            self.pending_save = true;
+        }
+        self.restart_timer(ctx);
+    }
+
+    fn save_urgently(&mut self, ctx: &mut ModelContext<Self>) {
+        self.timer_generation = self.timer_generation.wrapping_add(1);
+        if let Some(timer) = self.timer.take() {
+            timer.abort();
+        }
+        self.pending_save = false;
+
+        if session_save_is_enabled(ctx) {
+            self.save_if_changed(ctx);
+        }
+    }
+
+    fn restart_timer(&mut self, ctx: &mut ModelContext<Self>) {
+        if let Some(timer) = self.timer.take() {
+            timer.abort();
+        }
+        self.timer_generation = self.timer_generation.wrapping_add(1);
+        let generation = self.timer_generation;
+        self.timer = Some(ctx.spawn(
+            async move { Timer::after(SESSION_SAVE_DEBOUNCE).await },
+            move |coordinator, _, ctx| {
+                if coordinator.timer_generation != generation {
+                    return;
+                }
+                coordinator.timer = None;
+                if std::mem::take(&mut coordinator.pending_save) {
+                    coordinator.save_if_changed(ctx);
+                }
+            },
+        ));
+    }
+
+    fn save_if_changed(&mut self, ctx: &mut ModelContext<Self>) {
+        let Some(model_event_sender) = GlobalResourceHandlesProvider::as_ref(ctx)
+            .get()
+            .model_event_sender
+            .clone()
+        else {
+            return;
+        };
+        let app_state = get_app_state(ctx);
+        if self.last_enqueued_state.as_ref() == Some(&app_state) {
+            return;
+        }
+        if let Err(err) = model_event_sender.send(ModelEvent::Snapshot(app_state.clone())) {
+            log::error!("Error trying to send model event {err:?}");
+            return;
+        }
+        self.last_enqueued_state = Some(app_state);
+    }
+}
+
+impl Entity for SessionSaveCoordinator {
+    type Event = ();
+}
+
+impl SingletonEntity for SessionSaveCoordinator {}
+
+fn session_save_is_enabled(ctx: &AppContext) -> bool {
+    AppExecutionMode::as_ref(ctx).can_save_session()
+        && *GeneralSettings::as_ref(ctx).restore_session
+        && !CrossWindowTabDrag::as_ref(ctx).is_active()
+}
 
 /// Specifies where a forked conversation should be opened.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -130,41 +228,15 @@ fn toggle_focus_reporting(_: &(), ctx: &mut AppContext) {
 }
 
 fn save_app(_: &(), ctx: &mut AppContext) {
-    if !AppExecutionMode::as_ref(ctx).can_save_session() {
-        return;
-    }
+    SessionSaveCoordinator::handle(ctx).update(ctx, |coordinator, ctx| {
+        coordinator.request_save(ctx);
+    });
+}
 
-    if !*GeneralSettings::as_ref(ctx).restore_session {
-        return;
-    }
-
-    // While a cross-window tab drag is active, the dragged tab's pane group
-    // is in flight between source and preview windows and `get_app_state`
-    // would produce a snapshot with zero windows. Persisting that snapshot
-    // wipes the on-disk session via `save_app_state`'s delete-then-insert
-    // transaction. `save_app` fires from window move / focus / resize /
-    // close callbacks (see `app_callbacks` in `lib.rs`), all of which run
-    // during a drag, so we have to short-circuit at this boundary. The
-    // first save after the drag finalizes will rewrite the snapshot.
-    if CrossWindowTabDrag::as_ref(ctx).is_active() {
-        return;
-    }
-
-    let Some(model_event_sender) = GlobalResourceHandlesProvider::as_ref(ctx)
-        .get()
-        .model_event_sender
-        .clone()
-    else {
-        return;
-    };
-
-    // Only compute the app state if we're definitely going to use it.
-    let app_state = get_app_state(ctx);
-    let event = ModelEvent::Snapshot(app_state);
-
-    if let Err(err) = model_event_sender.send(event) {
-        log::error!("Error trying to send model event {err:?}");
-    }
+pub(crate) fn save_app_urgently(ctx: &mut AppContext) {
+    SessionSaveCoordinator::handle(ctx).update(ctx, |coordinator, ctx| {
+        coordinator.save_urgently(ctx);
+    });
 }
 
 fn toggle_debug_network_status(_: &(), ctx: &mut AppContext) {

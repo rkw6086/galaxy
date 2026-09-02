@@ -154,7 +154,7 @@ impl JsonRpcService {
                 break;
             }
 
-            log::trace!("JSON-RPC: received message: {message}");
+            log::trace!("JSON-RPC: received {} bytes", message.len());
             if let Err(e) = Self::handle_message(
                 &transport,
                 &message,
@@ -319,7 +319,7 @@ impl JsonRpcService {
         method: String,
         params: Value,
     ) -> Result<Value> {
-        log::trace!("Sending request {request_id}: {method}: {params}");
+        log::trace!("Sending request {request_id}: {method}");
 
         let request = Request {
             jsonrpc: JSON_RPC_VERSION,

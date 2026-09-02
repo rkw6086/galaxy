@@ -22,6 +22,10 @@ const CLI_LOG_SUBDIRECTORY: &str = "oz";
 const SESSION_LOG_SUBDIRECTORY: &str = "session-logs";
 const TEMP_LOG_FILE_SUFFIX: &str = "old.temp";
 const INPUT_CLASSIFIER_LOG_TARGET: &str = "input_classifier";
+const FILE_WATCHER_LOG_TARGET: &str = "notify";
+const FILE_WATCHER_DEBOUNCER_LOG_TARGET: &str = "notify_debouncer_full";
+const GLOBSET_LOG_TARGET: &str = "globset";
+const IGNORE_WALKER_LOG_TARGET: &str = "ignore";
 const TERMINAL_ANSI_HANDLER_LOG_TARGET: &str =
     "galaxy::terminal::model::grid::grid_handler::ansi_handler";
 
@@ -593,6 +597,17 @@ fn init_internal(
         // info/debug records. Keep initialization failures and classification errors, but omit the
         // noisy pre-submission decision trail from full-session logs.
         .filter(Some(INPUT_CLASSIFIER_LOG_TARGET), LevelFilter::Warn)
+        // notify logs every platform event and the debouncer logs every raw event at TRACE. A
+        // repository index can generate hundreds of thousands of these records, multiplying the
+        // underlying filesystem work with synchronous formatting and log-file writes. Keep
+        // watcher lifecycle information and all warnings while suppressing per-event payloads.
+        .filter(Some(FILE_WATCHER_LOG_TARGET), LevelFilter::Info)
+        .filter(Some(FILE_WATCHER_DEBOUNCER_LOG_TARGET), LevelFilter::Info)
+        // globset and ignore describe every compiled glob and opened ignore file at DEBUG. Those
+        // records are useful to their crate maintainers but scale with repository traversal and do
+        // not help diagnose Galaxy sessions. Preserve informational failures and summaries.
+        .filter(Some(GLOBSET_LOG_TARGET), LevelFilter::Info)
+        .filter(Some(IGNORE_WALKER_LOG_TARGET), LevelFilter::Info)
         // Since we always pair an insertion with a deletion to avoid duplicate,
         // tantivy will log a lot of warnings for deleting a non-existing doc.
         .filter(Some("tantivy"), LevelFilter::Error)

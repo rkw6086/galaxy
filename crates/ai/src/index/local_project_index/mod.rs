@@ -6,12 +6,14 @@
 #![cfg(all(feature = "local_fs", not(target_family = "wasm")))]
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use galaxy_core::paths::state_dir;
 use galaxy_util::standardized_path::StandardizedPath;
+use galaxyui_core::r#async::Timer;
 use galaxyui_core::{Entity, ModelContext, SingletonEntity};
 use itertools::Itertools;
 use repo_metadata::{RepoMetadataEvent, RepositoryIdentifier};
@@ -29,6 +31,7 @@ const MAX_INDEXED_BODY_BYTES: usize = 256_000;
 const INDEX_DIRECTORY_NAME: &str = "local_project_indices";
 const CURRENT_FILE_NAME: &str = "CURRENT";
 const METADATA_FILE_NAME: &str = "metadata.json";
+const INDEX_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 // Field weights intentionally prioritize symbols and paths over implementation text.
 define_search_schema!(
@@ -240,6 +243,7 @@ impl LocalProjectIndexManager {
                     });
                     let should_rebuild = manager.pending_rebuilds.remove(&root_path);
                     cleanup_old_generations(&manager.storage_root, &root_path);
+                    drop(built_index.repository_lock);
                     if should_rebuild {
                         manager.start_rebuild(root_path, ctx);
                     }
@@ -286,7 +290,6 @@ impl LocalProjectIndexManager {
             });
         }
         let should_rebuild = self.pending_rebuilds.remove(&root_path);
-        cleanup_old_generations(&self.storage_root, &root_path);
         if should_rebuild {
             self.start_rebuild(root_path, ctx);
         }
@@ -350,7 +353,7 @@ impl LocalProjectIndexManager {
     /// Removes a local project index and its persisted generations.
     pub fn remove_index_for_path(&mut self, root_path: PathBuf, ctx: &mut ModelContext<Self>) {
         let root_path = dunce::canonicalize(&root_path).unwrap_or(root_path);
-        self.remove_index(&root_path);
+        self.remove_index(&root_path, ctx);
         ctx.emit(LocalProjectIndexEvent::IndexRemoved { root_path });
     }
 
@@ -374,7 +377,7 @@ impl LocalProjectIndexManager {
                 let local_path = path.to_local_path_lossy();
                 let root_path = dunce::canonicalize(&local_path).unwrap_or(local_path);
                 if self.statuses.contains_key(&root_path) {
-                    self.remove_index(&root_path);
+                    self.remove_index(&root_path, ctx);
                     ctx.emit(LocalProjectIndexEvent::IndexRemoved { root_path });
                 }
                 return;
@@ -408,19 +411,30 @@ impl LocalProjectIndexManager {
         }
     }
 
-    fn remove_index(&mut self, root_path: &Path) {
+    fn remove_index(&mut self, root_path: &Path, ctx: &mut ModelContext<Self>) {
         let root_path = dunce::canonicalize(root_path).unwrap_or_else(|_| root_path.to_path_buf());
         self.indices.remove(&root_path);
         self.statuses.remove(&root_path);
         self.pending_rebuilds.remove(&root_path);
         let epoch = self.rebuild_epochs.entry(root_path.clone()).or_default();
         *epoch += 1;
-        let directory = repository_storage_directory(&self.storage_root, &root_path);
-        if let Err(error) = fs::remove_dir_all(directory) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                log::warn!("Failed to remove local project index: {error}");
-            }
-        }
+        let storage_root = self.storage_root.clone();
+        ctx.spawn(
+            async move {
+                let _repository_lock = acquire_repository_lock(&storage_root, &root_path).await?;
+                let directory = repository_storage_directory(&storage_root, &root_path);
+                match fs::remove_dir_all(directory) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => Err(anyhow::Error::new(error)),
+                }
+            },
+            |_, result, _| {
+                if let Err(error) = result {
+                    log::warn!("Failed to remove local project index: {error:#}");
+                }
+            },
+        );
     }
 
     fn restore_persisted_indices(&mut self) {
@@ -503,6 +517,7 @@ struct BuiltLocalProjectIndex {
     searcher: SimpleFullTextSearcher<LocalProjectIndexSchema>,
     generation: String,
     generation_directory: PathBuf,
+    repository_lock: File,
 }
 
 async fn build_persisted_index(
@@ -511,6 +526,10 @@ async fn build_persisted_index(
 ) -> std::result::Result<(PathBuf, BuiltLocalProjectIndex, usize), (PathBuf, anyhow::Error)> {
     let error_root_path = root_path.clone();
     let result = async {
+        // A desktop app and one or more CLI processes can share this storage root. Keep the
+        // repository snapshot, generation publication, and cleanup in one exclusive section so
+        // one process cannot delete another process's in-progress Tantivy generation.
+        let repository_lock = acquire_repository_lock(&storage_root, &root_path).await?;
         let documents = build_documents(&root_path).await?;
         let index_directory = repository_storage_directory(&storage_root, &root_path);
         fs::create_dir_all(index_directory.join("generations"))?;
@@ -565,6 +584,7 @@ async fn build_persisted_index(
                 searcher,
                 generation,
                 generation_directory,
+                repository_lock,
             },
             documents.len(),
         ))
@@ -643,9 +663,31 @@ fn repository_storage_directory(storage_root: &Path, root_path: &Path) -> PathBu
     storage_root.join(format_storage_directory_name(root_path))
 }
 
+fn repository_lock_path(storage_root: &Path, root_path: &Path) -> PathBuf {
+    storage_root.join(format!("{}.lock", format_storage_directory_name(root_path)))
+}
+
+async fn acquire_repository_lock(storage_root: &Path, root_path: &Path) -> Result<File> {
+    fs::create_dir_all(storage_root)?;
+    let lock_path = repository_lock_path(storage_root, root_path);
+    let lock_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&lock_path)
+        .with_context(|| format!("Failed to open local index lock {}", lock_path.display()))?;
+    loop {
+        if fs4::fs_std::FileExt::try_lock_exclusive(&lock_file)? {
+            return Ok(lock_file);
+        }
+        Timer::after(INDEX_LOCK_RETRY_INTERVAL).await;
+    }
+}
+
 fn publish_generation(storage_root: &Path, root_path: &Path, generation: &str) -> Result<()> {
     let index_directory = repository_storage_directory(storage_root, root_path);
-    let temporary_current = index_directory.join(format!(".{CURRENT_FILE_NAME}.tmp"));
+    let temporary_current =
+        index_directory.join(format!(".{CURRENT_FILE_NAME}.{}.tmp", uuid::Uuid::new_v4()));
     fs::write(&temporary_current, generation.as_bytes())?;
     fs::rename(&temporary_current, index_directory.join(CURRENT_FILE_NAME))?;
     Ok(())

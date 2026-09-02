@@ -47,7 +47,6 @@ impl PromptSnapshot {
             })
             .collect_vec();
 
-        log::debug!("Current prompt snapshot: {chips:?}");
         Self {
             chips,
             same_line_prompt_enabled: current_prompt.same_line_prompt_enabled(),

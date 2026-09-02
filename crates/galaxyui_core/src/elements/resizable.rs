@@ -458,9 +458,8 @@ impl Element for Resizable {
             }
             crate::Event::MouseMoved { position, .. } => {
                 // A mouse event over the dragbar should set the cursor
-                let Some(z_index) = self.z_index() else {
-                    log::warn!("self.z_index() was None in `Resizable`");
-                    return false;
+                let Some(z_index) = self.dragbar.z_index else {
+                    return child_handled;
                 };
                 let hovering_dragbar = self.is_mouse_hovering_dragbar(ctx, *position);
                 let was_already_hovering =

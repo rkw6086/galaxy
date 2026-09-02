@@ -433,11 +433,7 @@ pub trait Setting {
             };
             match <Self::Value as SettingsValue>::from_file_value(&json_value) {
                 Some(val) => {
-                    log::debug!(
-                        "Loaded {} from settings file; value: {:?}",
-                        Self::setting_name(),
-                        val
-                    );
+                    log::debug!("Loaded {} from settings file", Self::setting_name());
                     return Some(val);
                 }
                 None => {
@@ -453,11 +449,7 @@ pub trait Setting {
 
         match serde_json::from_str(&value) {
             Ok(val) => {
-                log::debug!(
-                    "Loaded {} from user defaults; value: {:?}",
-                    Self::setting_name(),
-                    val
-                );
+                log::debug!("Loaded {} from user defaults", Self::setting_name());
                 Some(val)
             }
             Err(err) => {
@@ -516,10 +508,9 @@ pub trait Setting {
 
         if !stored_value_matches {
             log::debug!(
-                "Writing new value of {} to storage; key: {}; value: {:?}",
+                "Writing new value of {} to storage; key: {}",
                 Self::setting_name(),
-                key,
-                value
+                key
             );
             let _ = preferences.write_value_with_hierarchy(
                 key,

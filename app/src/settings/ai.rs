@@ -1000,7 +1000,7 @@ pub enum OpenAIProviderKind {
 ///
 /// Multiple providers can be configured simultaneously. Each provider has its own endpoint,
 /// credentials, and model list.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 #[schemars(description = "Configuration for a direct model provider endpoint.")]
 pub struct OpenAIProviderConfig {
     #[serde(default)]
@@ -1025,6 +1025,22 @@ pub struct OpenAIProviderConfig {
     #[serde(default)]
     #[schemars(description = "Models available from this provider.")]
     pub models: Vec<OpenAIModelConfig>,
+}
+
+impl std::fmt::Debug for OpenAIProviderConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpenAIProviderConfig")
+            .field("kind", &self.kind)
+            .field("enabled", &self.enabled)
+            .field("name", &self.name)
+            .field("base_url", &self.base_url)
+            .field("api_key_configured", &self.api_key.is_some())
+            .field("project_id", &self.project_id)
+            .field("location", &self.location)
+            .field("models", &self.models)
+            .finish()
+    }
 }
 
 impl settings_value::SettingsValue for OpenAIProviderConfig {}

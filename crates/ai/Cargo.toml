@@ -49,6 +49,7 @@ strsim.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 futures.workspace = true
+fs4.workspace = true
 generic-array = "0.14.7"
 derivative.workspace = true
 galaxy_core.workspace = true

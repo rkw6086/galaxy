@@ -264,11 +264,11 @@ fn add_local_machine_env(env: &mut BTreeMap<OsString, EnvEntry>) {
         let Ok(value) = reg_value_to_string(&value, &name) else {
             safe_info!(
                 safe: ("Unable to convert value for key {name:?}"),
-                full: ("Unable to convert value for key {name:?}: {:?}", value.bytes)
+                full: ("Unable to convert value for key {name:?}")
             );
             continue;
         };
-        log::trace!("adding SYS env: {name:?} = {value:?}");
+        log::trace!("adding SYS env: {name:?}");
         env.insert(
             map_key(name.clone().into()),
             EnvEntry {
@@ -289,7 +289,7 @@ fn add_user_env(env: &mut BTreeMap<OsString, EnvEntry>) {
         let Ok(value) = reg_value_to_string(&value, &name) else {
             safe_info!(
                 safe: ("Unable to convert value for key {name:?}"),
-                full: ("Unable to convert value for key {name:?}: {:?}", value.bytes)
+                full: ("Unable to convert value for key {name:?}")
             );
             continue;
         };
@@ -309,7 +309,7 @@ fn add_user_env(env: &mut BTreeMap<OsString, EnvEntry>) {
             value
         };
 
-        log::trace!("adding USER env: {name:?} = {value:?}");
+        log::trace!("adding USER env: {name:?}");
         env.insert(
             map_key(name.clone().into()),
             EnvEntry {

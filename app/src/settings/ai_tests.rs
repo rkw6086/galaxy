@@ -391,6 +391,9 @@ fn native_provider_settings_roundtrip_with_vertex_configuration() {
     }))
     .expect("Native OpenAI provider settings should deserialize");
     assert_eq!(native_openai.kind, OpenAIProviderKind::OpenAI);
+    let debug_output = format!("{native_openai:?}");
+    assert!(!debug_output.contains("sk-test"));
+    assert!(debug_output.contains("api_key_configured: true"));
 }
 
 #[test]

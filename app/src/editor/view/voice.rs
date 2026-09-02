@@ -492,7 +492,10 @@ impl EditorView {
         self.stop_transcribing_voice_input(ctx);
         match result {
             Ok(transcribe_response) => {
-                log::debug!("Transcribed voice input: {transcribe_response:?}");
+                log::debug!(
+                    "Transcribed voice input; characters={}",
+                    transcribe_response.chars().count()
+                );
                 self.user_insert(&transcribe_response, ctx);
             }
             Err(e) => match e {

@@ -30,6 +30,7 @@ pub use action::{
 };
 pub use active_session::ActiveSession;
 use galaxy_core::context_flag::ContextFlag;
+pub(crate) use global_actions::save_app_urgently;
 pub use global_actions::{
     ForkAIConversationParams, ForkFromExchange, ForkedConversationDestination,
 };
@@ -78,6 +79,7 @@ use crate::workspace::view::{
 pub fn init(app: &mut AppContext) {
     app.add_singleton_model(|_| WorkspaceRegistry::new());
     app.add_singleton_model(|_| cross_window_tab_drag::CrossWindowTabDrag::new());
+    app.add_singleton_model(|_| global_actions::SessionSaveCoordinator::new());
     use galaxyui::keymap::macros::*;
     app.register_binding_validator::<Workspace>(is_binding_pty_compliant);
 
