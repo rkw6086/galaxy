@@ -11,21 +11,23 @@ use galaxy_agent_core::{
 };
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
+use warp_multi_agent_api as api;
 use warp_multi_agent_api::ToolType;
 
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::{AIAgentContext, AIAgentInput, MCPContext, UserQueryMode};
-use crate::ai::bedrock::request_translator::{
-    default_tool_definitions, sanitize_messages_for_bedrock, tool_name_is_supported,
-};
 use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::request_translator::sanitize_messages_for_openai;
+use crate::ai::provider::request_translator::{
+    default_tool_definitions, sanitize_messages_for_bedrock, tool_name_is_supported,
+};
 use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
 
 pub(crate) struct PreparedRigTurn {
     pub task_id: String,
     pub needs_create_task: bool,
     pub user_query: Option<String>,
+    pub todo_items: Option<Vec<api::TodoItem>>,
     pub request: TurnRequest,
     pub persistent_messages: Vec<ConversationMessage>,
     pub tool_result_archive: Vec<ConversationMessage>,
@@ -226,6 +228,8 @@ fn prepare_rig_turn_for_provider(
         ..
     } = params;
 
+    let todo_items = todo_items_from_tasks(&tasks);
+
     let task_id = root_task_id
         .or_else(|| tasks.first().map(|task| task.id.clone()))
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -299,12 +303,36 @@ fn prepare_rig_turn_for_provider(
         task_id,
         needs_create_task,
         user_query,
+        todo_items,
         request,
         persistent_messages,
         tool_result_archive,
         messages_sent,
         mcp_tool_aliases,
     }
+}
+
+// Reuse a plan emitted by the model when the existing transcript contains one. This keeps
+// direct-provider projection aligned with UpdateTodos instead of inventing a second plan.
+fn todo_items_from_tasks(tasks: &[api::Task]) -> Option<Vec<api::TodoItem>> {
+    let mut items = None;
+    for task in tasks {
+        for message in &task.messages {
+            let Some(api::message::Message::UpdateTodos(update)) = &message.message else {
+                continue;
+            };
+            match update.operation.as_ref()? {
+                api::message::update_todos::Operation::CreateTodoList(create) => {
+                    items = Some(create.initial_todos.clone());
+                }
+                api::message::update_todos::Operation::UpdatePendingTodos(update) => {
+                    items = Some(update.updated_pending_todos.clone());
+                }
+                api::message::update_todos::Operation::MarkTodosCompleted(_) => {}
+            }
+        }
+    }
+    items.filter(|items| !items.is_empty())
 }
 
 fn input_messages(

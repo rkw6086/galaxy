@@ -102,7 +102,7 @@ pub(crate) fn action_from_tool_call(
                     optional_bounded_u64(
                         input,
                         "wait_seconds",
-                        crate::ai::bedrock::request_translator::COMMAND_MONITOR_MAX_POLL_SECONDS,
+                        crate::ai::provider::request_translator::COMMAND_MONITOR_MAX_POLL_SECONDS,
                     )?
                     .unwrap_or(2),
                 ))),

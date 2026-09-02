@@ -1754,23 +1754,77 @@ impl BlocklistAIActionModel {
         batch: &PendingToolBatch,
         ctx: &mut ModelContext<Self>,
     ) -> Result<(), ProviderActionQueueError> {
-        let refs = provider_action_correlations(&actions, conversation_id, batch)?;
-        for ((_, action_id), _) in &refs {
-            if self
-                .provider_tool_executions
-                .contains_key(&(conversation_id, action_id.clone()))
+        let action_ids = self.provider_action_ids_to_enqueue(&actions, conversation_id, batch)?;
+        let refs = provider_action_correlations(&actions, conversation_id, batch)?
+            .into_iter()
+            .filter(|((_, action_id), _)| action_ids.contains(action_id));
+        self.provider_tool_executions.extend(refs);
+        self.executor.update(ctx, |executor, ctx| {
+            executor.mark_restored_actions(conversation_id, &recovery_action_ids, ctx);
+        });
+        let actions: Vec<AIAgentAction> = actions
+            .into_iter()
+            .filter(|action| action_ids.contains(&action.id))
+            .collect();
+        if !actions.is_empty() {
+            self.queue_actions(actions, conversation_id, ctx);
+        }
+        Ok(())
+    }
+
+    pub(super) fn provider_action_ids_to_enqueue(
+        &self,
+        actions: &[AIAgentAction],
+        conversation_id: AIConversationId,
+        batch: &PendingToolBatch,
+    ) -> Result<HashSet<AIAgentActionId>, ProviderActionQueueError> {
+        Self::provider_action_ids_to_enqueue_from(
+            &self.provider_tool_executions,
+            actions,
+            conversation_id,
+            batch,
+        )
+    }
+
+    fn provider_action_ids_to_enqueue_from(
+        existing_correlations: &HashMap<
+            (AIConversationId, AIAgentActionId),
+            ProviderToolExecutionRef,
+        >,
+        actions: &[AIAgentAction],
+        conversation_id: AIConversationId,
+        batch: &PendingToolBatch,
+    ) -> Result<HashSet<AIAgentActionId>, ProviderActionQueueError> {
+        let refs = provider_action_correlations(actions, conversation_id, batch)?;
+        let mut action_ids = HashSet::with_capacity(refs.len());
+        let mut seen_refs = HashSet::with_capacity(refs.len());
+        for ((_, action_id), execution_ref) in &refs {
+            if !seen_refs.insert(execution_ref.clone()) {
+                return Err(ProviderActionQueueError::ExistingCorrelation {
+                    call_id: action_id.to_string(),
+                });
+            }
+            if let Some(existing_ref) =
+                existing_correlations.get(&(conversation_id, action_id.clone()))
+            {
+                if existing_ref == execution_ref {
+                    continue;
+                }
+                return Err(ProviderActionQueueError::ExistingCorrelation {
+                    call_id: action_id.to_string(),
+                });
+            }
+            if existing_correlations
+                .values()
+                .any(|existing_ref| existing_ref == execution_ref)
             {
                 return Err(ProviderActionQueueError::ExistingCorrelation {
                     call_id: action_id.to_string(),
                 });
             }
+            action_ids.insert(action_id.clone());
         }
-        self.provider_tool_executions.extend(refs);
-        self.executor.update(ctx, |executor, ctx| {
-            executor.mark_restored_actions(conversation_id, &recovery_action_ids, ctx);
-        });
-        self.queue_actions(actions, conversation_id, ctx);
-        Ok(())
+        Ok(action_ids)
     }
 
     /// Queues the `actions` in the given iterator for the given conversation,

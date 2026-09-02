@@ -88,7 +88,6 @@ pub async fn discover_available_models(
                 model_id: model_id.to_owned(),
                 display_name,
                 vision_supported,
-                use_rig: true,
             })
         }
     });

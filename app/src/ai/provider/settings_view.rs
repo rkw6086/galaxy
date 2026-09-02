@@ -3,8 +3,8 @@ use galaxyui::elements::{
 };
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
-use crate::ai::bedrock::convert::CachingConfig;
-use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+use crate::ai::provider::convert::CachingConfig;
+use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 

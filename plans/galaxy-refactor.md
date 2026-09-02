@@ -273,10 +273,10 @@ These are bugs in the current branch that must be addressed regardless of phase:
 | 🟠 HIGH | Windows registry login item `"Warp"` keys | `app/src/login_item/windows.rs` | 3c |
 | 🟠 HIGH | Config migration missing `.warp` origin | `crates/warp_core/src/paths.rs` | 6e |
 | 🟠 HIGH | `needs_create_task` false negative | `app/src/ai/agent/api/impl.rs` | 6f |
-| 🟡 MEDIUM | `TEXT_FLUSH_THRESHOLD` text discard | `app/src/ai/bedrock/stream.rs` | 6b |
-| 🟡 MEDIUM | Empty synthesized tool results | `app/src/ai/bedrock/convert_request.rs` | 6c |
-| 🟡 MEDIUM | 9-param `converse_stream()` | `app/src/ai/bedrock/client.rs` | 6a |
-| 🟡 MEDIUM | Diagnostic logger privacy | `app/src/ai/bedrock/diagnostic.rs` | 6d |
+| 🟡 MEDIUM | `TEXT_FLUSH_THRESHOLD` text discard | `app/src/ai/provider/stream.rs` | 6b |
+| 🟡 MEDIUM | Empty synthesized tool results | `app/src/ai/provider/convert_request.rs` | 6c |
+| 🟡 MEDIUM | 9-param `converse_stream()` | `app/src/ai/provider/client.rs` | 6a |
+| 🟡 MEDIUM | Diagnostic logger privacy | `app/src/ai/provider/diagnostic.rs` | 6d |
 
 ---
 

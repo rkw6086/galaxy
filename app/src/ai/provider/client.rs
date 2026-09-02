@@ -38,7 +38,6 @@ pub struct BedrockClientConfig {
     pub secret_access_key: String,
     pub session_token: Option<String>,
     pub cross_region_inference: bool,
-    pub use_rig: bool,
 }
 
 impl BedrockClientConfig {

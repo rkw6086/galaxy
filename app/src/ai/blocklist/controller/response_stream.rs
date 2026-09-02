@@ -32,11 +32,11 @@ use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::AIAgentInput;
 use crate::ai::agent::{AIIdentifiers, CancellationReason};
-use crate::ai::bedrock::client::BedrockClientConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::blocklist::BlocklistAIPermissions;
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::openai::client::OpenAIClientConfig;
+use crate::ai::provider::client::BedrockClientConfig;
 use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
@@ -181,7 +181,6 @@ impl ResponseStream {
                 reasoning_effort: client_config.reasoning_effort.clone(),
                 max_input_tokens: client_config.max_input_tokens,
                 max_output_tokens: client_config.max_output_tokens,
-                use_rig: client_config.use_rig,
                 supports_system_messages: client_config.supports_system_messages,
             });
         }
@@ -191,12 +190,6 @@ impl ResponseStream {
             let auth_method = *settings.bedrock_auth_method.value();
             let region = settings.bedrock_region.value().clone();
             let cross_region_inference = *settings.bedrock_cross_region_inference.value();
-            let use_rig = crate::ai::bedrock::models::configured_model_uses_rig(
-                model_id,
-                settings.bedrock_models.value(),
-                &region,
-                cross_region_inference,
-            );
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
             let mut config = BedrockClientConfig {
                 auth_method,
@@ -206,7 +199,6 @@ impl ResponseStream {
                 secret_access_key: settings.bedrock_secret_access_key.value().clone(),
                 session_token: None,
                 cross_region_inference,
-                use_rig,
             };
 
             if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
@@ -236,7 +228,7 @@ impl ResponseStream {
                 format!("bedrock:{:?}:region={region}", config.auth_method)
             }
             ProviderConfig::OpenAI(config) => {
-                format!("openai:{:?}:rig={}", config.kind, config.use_rig)
+                format!("openai:{:?}", config.kind)
             }
             ProviderConfig::None => "none".to_string(),
         }

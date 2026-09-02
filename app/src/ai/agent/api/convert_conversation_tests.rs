@@ -2145,7 +2145,7 @@ fn test_internal_command_completion_assessment_restores_output_without_visible_i
     };
     mark_internal_command_completion_assessment(&mut hidden_assessment);
     let provider_history =
-        crate::ai::bedrock::request_translator::convert_proto_message(&hidden_assessment)
+        crate::ai::provider::request_translator::convert_proto_message(&hidden_assessment)
             .expect("hidden assessment should remain in provider history");
     assert_eq!(
         provider_history.role,

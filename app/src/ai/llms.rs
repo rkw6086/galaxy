@@ -779,7 +779,7 @@ impl LLMPreferences {
         if !*settings.bedrock_enabled.value() {
             return;
         }
-        let config = crate::ai::bedrock::client::BedrockClientConfig {
+        let config = crate::ai::provider::client::BedrockClientConfig {
             auth_method: *settings.bedrock_auth_method.value(),
             profile: settings.bedrock_profile.value().clone(),
             region: settings.bedrock_region.value().clone(),
@@ -787,11 +787,10 @@ impl LLMPreferences {
             secret_access_key: settings.bedrock_secret_access_key.value().clone(),
             session_token: None,
             cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-            use_rig: false,
         };
 
         let _ = ctx.spawn(
-            async move { crate::ai::bedrock::discovery::discover_available_models(config).await },
+            async move { crate::ai::provider::discovery::discover_available_models(config).await },
             |me, result, ctx| match result {
                 Ok(models) => {
                     AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -839,7 +838,7 @@ impl LLMPreferences {
         let cross_region = *settings.bedrock_cross_region_inference.value();
 
         // Check if user wants only 1-hour cache models
-        use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+        use crate::ai::provider::external_config::ExternalBedrockConfig;
         let external_config = ExternalBedrockConfig::load();
         let require_1h_cache = external_config.enable_prompt_caching_1h;
 
@@ -885,7 +884,7 @@ impl LLMPreferences {
             }
 
             let model_id = if cross_region && !region.is_empty() {
-                super::bedrock::models::apply_cross_region_prefix(&model.model_id, &region)
+                super::provider::models::apply_cross_region_prefix(&model.model_id, &region)
             } else {
                 model.model_id.clone()
             };
@@ -1173,11 +1172,6 @@ impl LLMPreferences {
                         reasoning_effort: reasoning_effort.clone(),
                         max_input_tokens: Some(openai_model_context_size(model)),
                         max_output_tokens: model.max_output_tokens,
-                        use_rig: model.use_rig
-                            || !matches!(
-                                provider_kind,
-                                OpenAIProviderKind::OpenAI | OpenAIProviderKind::LiteLLM
-                            ),
                         supports_system_messages: model.supports_system_messages(),
                     };
                     self.openai_provider_routing
@@ -1841,7 +1835,6 @@ impl LLMPreferences {
                 max_input_tokens: model.context_size,
                 max_output_tokens: None,
                 provider: None,
-                use_rig: true,
                 supports_system_messages: Some(true),
                 capability_overrides: std::collections::HashMap::new(),
                 reasoning_efforts: Vec::new(),
@@ -2658,15 +2651,12 @@ pub(crate) fn merge_discovered_provider_models(
         {
             discovered.display_name = existing.display_name.clone();
             discovered.enabled = existing.enabled;
-            discovered.use_rig = existing.use_rig;
             if existing.supports_system_messages.is_some() {
                 discovered.supports_system_messages = existing.supports_system_messages;
             }
             if discovered.provider.is_none() {
                 discovered.provider = existing.provider.clone();
             }
-        } else {
-            discovered.use_rig = true;
         }
         if discovered.model_id.starts_with("codex-gpt-") {
             discovered.supports_system_messages = Some(false);
@@ -2707,7 +2697,6 @@ pub(crate) fn merge_discovered_chatgpt_subscription_models(
             .find(|model| model.model_id == discovered.model_id)
         {
             discovered.enabled = existing.enabled;
-            discovered.use_rig = existing.use_rig;
             if existing.supports_system_messages.is_some() {
                 discovered.supports_system_messages = existing.supports_system_messages;
             }
@@ -2934,7 +2923,6 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                 max_input_tokens,
                 max_output_tokens: None,
                 provider: Some("openai".to_string()),
-                use_rig: true,
                 supports_system_messages: Some(true),
                 capability_overrides: std::collections::HashMap::new(),
                 reasoning_efforts,
@@ -3056,7 +3044,6 @@ async fn fetch_from_litellm_model_info(
                 max_input_tokens,
                 max_output_tokens,
                 provider,
-                use_rig: false,
                 supports_system_messages: if model_name.starts_with("codex-gpt-") {
                     Some(false)
                 } else {
@@ -3186,7 +3173,6 @@ async fn fetch_from_openai_models(
                 max_input_tokens,
                 max_output_tokens,
                 provider,
-                use_rig: false,
                 supports_system_messages: if id.starts_with("codex-gpt-") {
                     Some(false)
                 } else {

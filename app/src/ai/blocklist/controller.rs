@@ -5895,6 +5895,7 @@ impl BlocklistAIController {
                 return;
             }
         };
+        coordinator.set_max_context_tokens(response_config.max_context_tokens);
         if let Some(reason) = cancellation_reason {
             if !coordinator.run().is_terminal() {
                 if let Err(error) = coordinator.run_mut().cancel(reason.to_string()) {
@@ -6368,6 +6369,7 @@ impl BlocklistAIController {
                 return;
             }
         };
+        coordinator.set_max_context_tokens(response_config.max_context_tokens);
         if let Some(profile) = cli_monitor_profile {
             if let Err(error) = coordinator.insert_profile(
                 CLI_MONITOR_PROVIDER_PROFILE,
@@ -6961,7 +6963,7 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         let usage_u32 = |tokens: u64| u32::try_from(tokens).unwrap_or(u32::MAX);
-        let cost_cents = crate::ai::bedrock::response_translator::estimate_cost_cents(
+        let cost_cents = crate::ai::provider::response_translator::estimate_cost_cents(
             usage_u32(usage.input_tokens),
             usage_u32(usage.output_tokens),
             usage_u32(usage.cached_input_tokens),
@@ -6997,6 +6999,13 @@ impl BlocklistAIController {
             return;
         }
         self.begin_active_provider_progressive_summary(conversation_id, ctx);
+        if matches!(
+            self.active_provider_progressive_summaries
+                .get(&conversation_id),
+            Some(ActiveProviderProgressiveSummaryState::InFlight { .. })
+        ) {
+            return;
+        }
         let Some(slot) = self.active_provider_runs.get_mut(&conversation_id) else {
             return;
         };
@@ -7452,6 +7461,24 @@ impl BlocklistAIController {
             }
         };
         match block {
+            ProviderRunBlock::ContextWindowExceeded => {
+                slot.run = Some(run);
+                if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!("failed to persist context compaction boundary: {error}"),
+                        ctx,
+                    );
+                    return;
+                }
+                if !self.begin_active_provider_progressive_summary(conversation_id, ctx) {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        "provider context overflow could not start compaction".to_string(),
+                        ctx,
+                    );
+                }
+            }
             ProviderRunBlock::ReadyToCallModel => {
                 slot.run = Some(run);
                 if let Err(error) = self.persist_active_provider_run(conversation_id, ctx) {
@@ -7539,7 +7566,7 @@ impl BlocklistAIController {
         else {
             return;
         };
-        let (converted_actions, invalid_results) =
+        let (mut converted_actions, invalid_results) =
             convert_provider_tool_batch(&run.action_context, &batch);
         for result in &invalid_results {
             if let Err(error) = run
@@ -7586,6 +7613,30 @@ impl BlocklistAIController {
                 };
             }
         }
+        let action_ids_to_enqueue = match self.action_model.update(ctx, |action_model, _| {
+            action_model.provider_action_ids_to_enqueue(
+                &converted_actions
+                    .iter()
+                    .map(|(action, _)| action.clone())
+                    .collect::<Vec<_>>(),
+                conversation_id,
+                &executable_batch,
+            )
+        }) {
+            Ok(action_ids) => action_ids,
+            Err(error) => {
+                self.fail_active_provider_run(conversation_id, error.to_string(), ctx);
+                return;
+            }
+        };
+        converted_actions.retain(|(action, _)| action_ids_to_enqueue.contains(&action.id));
+        let queued_call_ids = converted_actions
+            .iter()
+            .map(|(action, _)| action.id.to_string())
+            .collect::<HashSet<_>>();
+        executable_batch
+            .calls
+            .retain(|call| queued_call_ids.contains(&call.call.id));
         let stream_id = self.active_provider_runs[&conversation_id]
             .stream_id
             .clone();
@@ -9522,7 +9573,7 @@ impl BlocklistAIController {
             }
             Some(warp_multi_agent_api::response_event::stream_finished::Reason::ContextWindowExceeded(_)) => {
                 let error_message = "Input exceeded context window limit.";
-                crate::ai::bedrock::crash_log::log_crash(
+                crate::ai::provider::crash_log::log_crash(
                     "ContextWindowExceeded",
                     error_message,
                     "unknown",
@@ -9615,7 +9666,7 @@ impl BlocklistAIController {
                 let error_message = format!(
                     "Response stream finished unexpectedly with internal error: {message}",
                 );
-                crate::ai::bedrock::crash_log::log_crash(
+                crate::ai::provider::crash_log::log_crash(
                     "InternalError",
                     &error_message,
                     "unknown",
@@ -9640,7 +9691,7 @@ impl BlocklistAIController {
             }
             Some(warp_multi_agent_api::response_event::stream_finished::Reason::MaxTokenLimit(_)) => {
                 let error_message = "Input exceeded context window limit.";
-                crate::ai::bedrock::crash_log::log_crash(
+                crate::ai::provider::crash_log::log_crash(
                     "MaxTokenLimit",
                     error_message,
                     "unknown",
@@ -9940,7 +9991,7 @@ impl BlocklistAIController {
                             u32::try_from(tokens).unwrap_or(u32::MAX)
                         };
                         let cost_cents =
-                            crate::ai::bedrock::response_translator::estimate_cost_cents(
+                            crate::ai::provider::response_translator::estimate_cost_cents(
                                 usage_u32(usage.input_tokens),
                                 usage_u32(usage.output_tokens),
                                 usage_u32(usage.cached_input_tokens),

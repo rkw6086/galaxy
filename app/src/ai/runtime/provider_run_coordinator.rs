@@ -82,6 +82,7 @@ pub(crate) enum ProviderRunProjection {
 pub(crate) enum ProviderRunBlock {
     Tools(PendingToolBatch),
     ReadyToCallModel,
+    ContextWindowExceeded,
     AwaitingDriver {
         work_id: ExternalWorkId,
         stop_reason: StopReason,
@@ -175,6 +176,8 @@ pub(crate) struct ProviderRunCoordinator {
     profiles: BTreeMap<String, ProviderRunProfile>,
     model_start_timeout: Duration,
     model_event_idle_timeout: Duration,
+    context_compaction_requested: bool,
+    max_context_tokens: Option<u32>,
 }
 
 impl ProviderRunCoordinator {
@@ -218,6 +221,8 @@ impl ProviderRunCoordinator {
             profiles,
             model_start_timeout: PROVIDER_MODEL_START_TIMEOUT,
             model_event_idle_timeout: PROVIDER_MODEL_EVENT_IDLE_TIMEOUT,
+            context_compaction_requested: false,
+            max_context_tokens: None,
         })
     }
 
@@ -237,6 +242,10 @@ impl ProviderRunCoordinator {
 
     pub(crate) fn profile_request(&self, profile: &str) -> Option<&TurnRequest> {
         self.profiles.get(profile).map(|profile| &profile.request)
+    }
+
+    pub(crate) fn set_max_context_tokens(&mut self, max_context_tokens: Option<u32>) {
+        self.max_context_tokens = max_context_tokens;
     }
 
     pub(crate) fn insert_profile(
@@ -364,8 +373,16 @@ impl ProviderRunCoordinator {
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
                         return self.terminal_block();
                     }
+                    if self.request_needs_context_compaction(&call) {
+                        self.run.prepare_context_compaction(&call.work_id)?;
+                        return Ok(ProviderRunBlock::ContextWindowExceeded);
+                    }
                     self.drive_model_call_acknowledged(call, control.clone(), &mut project)
                         .await?;
+                    if self.context_compaction_requested {
+                        self.context_compaction_requested = false;
+                        return Ok(ProviderRunBlock::ContextWindowExceeded);
+                    }
                 }
                 Some(ProviderRunStep::DispatchTools(batch)) => {
                     if !self.checkpoint_or_fail(&mut checkpoint).await? {
@@ -426,6 +443,17 @@ impl ProviderRunCoordinator {
                 },
             }
         }
+    }
+
+    fn request_needs_context_compaction(&self, call: &ProviderModelCall) -> bool {
+        let Some(max_context_tokens) = self.max_context_tokens else {
+            return false;
+        };
+        let Some(profile) = self.profiles.get(call.profile.as_str()) else {
+            return false;
+        };
+        let request = request_for_model_call(profile.request.clone(), call);
+        estimate_turn_request_tokens(&request) >= u64::from(max_context_tokens)
     }
 
     async fn checkpoint_or_fail<C>(
@@ -830,6 +858,11 @@ impl ProviderRunCoordinator {
                         self.run.cancel("provider model call was cancelled")?;
                         return Ok(());
                     }
+                    if reason == StopReason::ContextWindowExceeded {
+                        self.run.prepare_context_compaction(&call.work_id)?;
+                        self.context_compaction_requested = true;
+                        return Ok(());
+                    }
                     let turn = buffer.complete(reason, advertised_tools);
                     if let Err(error) = self.run.accept_model_turn(&call.work_id, turn) {
                         self.run.fail(
@@ -925,6 +958,11 @@ impl ProviderRunCoordinator {
             "payload": &error,
         }));
         let error_message = error.message.clone();
+        if error.kind == AgentErrorKind::ContextWindowExceeded {
+            self.run.prepare_context_compaction(&call.work_id)?;
+            self.context_compaction_requested = true;
+            return Ok(());
+        }
         let disposition = self
             .run
             .register_model_failure(&call.work_id, error.clone())?;
@@ -1080,6 +1118,44 @@ fn request_for_model_call(mut template: TurnRequest, call: &ProviderModelCall) -
     template.prompt = None;
     template.messages = call.messages.clone();
     template
+}
+
+const ESTIMATED_CHARS_PER_TOKEN: u64 = 4;
+
+/// Deliberately overestimates request size without requiring provider-specific tokenizers.
+fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
+    let mut chars = request
+        .system_prompt
+        .as_deref()
+        .map_or(0, |text| text.chars().count());
+    chars += request.prompt.as_ref().map_or(0, |prompt| {
+        serde_json::to_string(prompt)
+            .unwrap_or_default()
+            .chars()
+            .count()
+    });
+    chars += request
+        .messages
+        .iter()
+        .map(|message| {
+            serde_json::to_string(message)
+                .unwrap_or_default()
+                .chars()
+                .count()
+        })
+        .sum::<usize>();
+    chars += request
+        .tools
+        .iter()
+        .map(|tool| {
+            serde_json::to_string(tool)
+                .unwrap_or_default()
+                .chars()
+                .count()
+        })
+        .sum::<usize>();
+    let input_tokens = (chars as u64).div_ceil(ESTIMATED_CHARS_PER_TOKEN);
+    input_tokens.saturating_add(request.max_output_tokens.unwrap_or_default())
 }
 
 fn tool_event_call_id(event: &ToolEvent) -> Result<&str, ProviderRunCoordinatorError> {

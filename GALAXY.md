@@ -56,11 +56,11 @@ This is a Rust-based terminal emulator with a custom UI framework called **Galax
 ### AI Architecture
 
 Galaxy uses **Amazon Bedrock** as the sole AI provider. The client calls Bedrock directly:
-- `app/src/ai/bedrock/client.rs` - AWS Bedrock client (`BedrockClient::converse_stream`)
-- `app/src/ai/bedrock/convert_request.rs` - System prompt construction, message/tool extraction
-- `app/src/ai/bedrock/convert.rs` - Conversion to Bedrock wire format
-- `app/src/ai/bedrock/tool_docs.rs` - Tool documentation (served via `get_tool_documentation` meta-tool)
-- `app/src/ai/bedrock/stream.rs` - Response stream processing
+- `app/src/ai/provider/client.rs` - AWS Bedrock client (`BedrockClient::converse_stream`)
+- `app/src/ai/provider/convert_request.rs` - System prompt construction, message/tool extraction
+- `app/src/ai/provider/convert.rs` - Conversion to Bedrock wire format
+- `app/src/ai/provider/tool_docs.rs` - Tool documentation (served via `get_tool_documentation` meta-tool)
+- `app/src/ai/provider/stream.rs` - Response stream processing
 
 System prompt is dynamically built from request context (OS, shell, pwd, git, project rules, global rules, skills, MCP servers).
 
@@ -68,7 +68,7 @@ Global rules are loaded from `~/.galaxy-ai/rules/*.md` (filename = rule name, co
 
 Project rules are loaded from `GALAXY.md` or `AGENTS.md` files found in the project directory tree.
 
-**Model Discovery** (`app/src/ai/bedrock/discovery.rs`):
+**Model Discovery** (`app/src/ai/provider/discovery.rs`):
 At startup (and on manual refresh from the Bedrock settings page), Galaxy discovers available models using the user-selected auth settings (profile/SSO/static keys — no external config fallback) via:
 1. **STS GetCallerIdentity** — validates AWS credentials before proceeding
 2. **ListInferenceProfiles** (system-defined) + **ListFoundationModels** (TEXT output, ON_DEMAND) — fetched in parallel; results are deduplicated by underlying foundation model ID with inference profiles taking priority (they include cross-region routing)
@@ -80,14 +80,14 @@ The settings page refresh (`RefreshAwsBedrock` in `app/src/settings_view/ai_page
 
 The `[1m]` suffix is an internal marker stripped by `strip_context_marker()` in `client.rs` before API calls. It's used by `context_window_for_model()` in `response_translator.rs` to report the correct context window size.
 
-**External Config Fallback** (`app/src/ai/bedrock/external_config.rs`):
+**External Config Fallback** (`app/src/ai/provider/external_config.rs`):
 When Galaxy's own Bedrock settings are at defaults, it falls back to configurations from:
 1. **Claude Code** (`~/.claude/settings.json`) — reads `env.AWS_PROFILE`, `env.AWS_REGION`, and `env.DCP_MODEL_MAP` (ARN-based model mappings)
 2. **OpenCode** (`~/.config/opencode/opencode.json`) — reads `provider.amazon-bedrock.options.profile` and `.region`
 
 Priority: Galaxy explicit settings > Claude Code > OpenCode > hardcoded defaults. Fallback only applies when profile is `"default"` (for profile) or empty (for region/models). External model ARNs are merged with Galaxy's built-in default model list.
 
-**Token Usage & Cost Tracking** (`app/src/ai/bedrock/response_translator.rs`):
+**Token Usage & Cost Tracking** (`app/src/ai/provider/response_translator.rs`):
 The Bedrock stream extracts full token metadata from responses: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_write_input_tokens`. These flow through `build_stream_finished` → `TokenUsage` struct → `conversation.update_cost_and_usage_for_request()`. Cost is estimated per-model using Bedrock pricing. Displayed in:
 - **Agent management cards** — total token count in metadata row
 - **Conversation usage footer** — full breakdown (input/output/cache read/cache write) + estimated cost
@@ -100,7 +100,7 @@ When context window usage reaches 85%, Galaxy automatically summarizes older mes
 - No UI shown — user only sees context usage drop
 - `recall_tool_history` tool lets the agent retrieve past tool outputs that were summarized away
 
-**Failed Tool Call Visibility** (`app/src/ai/bedrock/response_translator.rs`):
+**Failed Tool Call Visibility** (`app/src/ai/provider/response_translator.rs`):
 When the model calls an unknown/hallucinated tool name, the response translator now emits a visible `AgentOutput` text message to the UI (via `build_add_agent_output_message`) showing what tool was attempted and the error. Previously, synthetic error results were only stored in history (for Bedrock message ordering) but never rendered.
 
 **Loop Prevention Guardrail** (`app/src/ai/blocklist/controller.rs`):

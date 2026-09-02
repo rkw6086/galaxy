@@ -27,3 +27,58 @@ fn flattened_streamed_provider_overload_is_recoverable() {
     assert_eq!(mapped.kind, AgentErrorKind::Provider);
     assert!(mapped.recoverable);
 }
+
+#[test]
+fn transient_http_statuses_are_recoverable() {
+    for status_code in [408, 425, 502, 503, 504] {
+        let status = rig_core::http_client::Response::builder()
+            .status(status_code)
+            .body(())
+            .unwrap()
+            .status();
+        let error = CompletionError::from_http_response(status, "transient failure");
+
+        let mapped = map_completion_error(error);
+
+        assert!(mapped.recoverable, "HTTP {status_code} should be retryable");
+        assert_eq!(
+            mapped.kind,
+            if matches!(status_code, 408 | 425) {
+                AgentErrorKind::Transport
+            } else {
+                AgentErrorKind::Provider
+            },
+            "unexpected classification for HTTP {status_code}"
+        );
+    }
+}
+
+#[test]
+fn transient_gateway_upstream_and_overload_messages_are_recoverable() {
+    for message in [
+        "502 Bad Gateway",
+        "upstream request timeout",
+        "upstream timed out",
+        "The server is overloaded; retry later",
+    ] {
+        let mapped = map_completion_error(CompletionError::ProviderError(message.to_string()));
+
+        assert_eq!(mapped.kind, AgentErrorKind::Provider);
+        assert!(mapped.recoverable, "message should be retryable: {message}");
+    }
+}
+
+#[test]
+fn interrupted_stream_messages_are_recoverable_transport() {
+    for message in [
+        "Http client error: unexpected EOF",
+        "Http client error: stream terminated unexpectedly",
+        "Http client error: connection reset by peer",
+        "unexpected EOF",
+    ] {
+        let mapped = map_completion_error(CompletionError::ProviderError(message.to_string()));
+
+        assert_eq!(mapped.kind, AgentErrorKind::Transport);
+        assert!(mapped.recoverable, "message should be retryable: {message}");
+    }
+}

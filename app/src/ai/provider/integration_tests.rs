@@ -24,7 +24,6 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         secret_access_key: String::new(),
         session_token: None,
         cross_region_inference: false,
-        use_rig: false,
     })
 }
 

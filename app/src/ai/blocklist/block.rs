@@ -4390,7 +4390,9 @@ impl AIBlock {
 
         // If auto-login is enabled, run the login command automatically
         if auto_login_enabled {
-            ctx.emit(AIBlockEvent::RunAwsLoginCommand);
+            // Try the SDK chain first. This handles credentials that were refreshed by
+            // another AWS process without unnecessarily launching an interactive SSO flow.
+            ctx.emit(AIBlockEvent::RefreshAwsCredentials);
         }
 
         let model_name = model_name.clone();
@@ -6498,6 +6500,8 @@ pub enum AIBlockEvent {
     OpenActiveAgentProfileEditor,
     /// Run the configured AWS auth refresh command to fix expired Bedrock credentials
     RunAwsLoginCommand,
+    /// Reload credentials and fall back to the configured auth command if needed.
+    RefreshAwsCredentials,
     /// Emitted when a passive code diff has loaded its diffs and is ready to display.
     /// This is used to trigger height recalculation since the diffs are loaded asynchronously
     /// after the initial output completes.

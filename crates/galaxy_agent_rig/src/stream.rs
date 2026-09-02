@@ -392,10 +392,12 @@ fn completion_error_indicates_recoverable_transport(error: &CompletionError) -> 
         // Rig flattens non-status SSE transport failures into ProviderError.
         // Preserve their transport semantics so the durable provider run can
         // retry a truncated or otherwise interrupted response stream.
-        CompletionError::ProviderError(message) => message
-            .to_ascii_lowercase()
-            .starts_with("http client error:"),
-        _ => false,
+        CompletionError::ProviderError(message) => {
+            let normalized = message.to_ascii_lowercase();
+            normalized.starts_with("http client error:")
+                || text_indicates_interrupted_stream(&normalized)
+        }
+        _ => text_indicates_interrupted_stream(&error.to_string().to_ascii_lowercase()),
     }
 }
 
@@ -414,10 +416,29 @@ fn text_indicates_transient_provider_failure(text: &str) -> bool {
         || normalized.contains("service unavailable")
         || normalized.contains("server is overloaded")
         || normalized.contains("servers are currently overloaded")
+        || normalized.contains("overload")
+        || normalized.contains("bad gateway")
+        || normalized.contains("gateway timeout")
+        || normalized.contains("upstream connect error")
+        || normalized.contains("upstream request timeout")
+        || normalized.contains("upstream timed out")
+        || normalized.contains("upstream unavailable")
+}
+
+fn text_indicates_interrupted_stream(text: &str) -> bool {
+    text.contains("unexpected eof")
+        || text.contains("unexpected end of file")
+        || text.contains("stream terminated")
+        || text.contains("stream ended")
+        || text.contains("stream closed")
+        || text.contains("connection reset")
+        || text.contains("connection closed")
+        || text.contains("incomplete message")
 }
 
 fn map_completion_error(error: CompletionError) -> AgentError {
     let is_context_window_exceeded = completion_error_indicates_context_window_exceeded(&error);
+    let is_authentication_failure = completion_error_indicates_authentication_failure(&error);
     let is_recoverable_transport = completion_error_indicates_recoverable_transport(&error);
     let is_transient_provider_failure =
         completion_error_indicates_transient_provider_failure(&error);
@@ -426,7 +447,13 @@ fn map_completion_error(error: CompletionError) -> AgentError {
         .map(|status| status.as_u16());
     let kind = if is_context_window_exceeded {
         AgentErrorKind::ContextWindowExceeded
-    } else if is_recoverable_transport {
+    } else if is_authentication_failure {
+        // Bedrock sometimes returns credential errors as a provider error with no
+        // HTTP status (and Rig can flatten the response body). Classify by the
+        // service error code as well as status so the host can run its existing
+        // credential refresh/login flow.
+        AgentErrorKind::Authentication
+    } else if is_recoverable_transport || matches!(status, Some(408 | 425)) {
         AgentErrorKind::Transport
     } else {
         match status {
@@ -450,12 +477,45 @@ fn map_completion_error(error: CompletionError) -> AgentError {
         }
     };
     let mut mapped = AgentError::new(kind, error.to_string());
+    if is_authentication_failure {
+        mapped.user_message = Some(
+            "AWS credentials for Bedrock are missing or expired. Refresh your AWS login and try again."
+                .to_string(),
+        );
+    }
     mapped.recoverable = matches!(
         kind,
         AgentErrorKind::RateLimited | AgentErrorKind::Transport
-    ) || status.is_some_and(|status| (500..=599).contains(&status))
-        || is_transient_provider_failure;
+    ) || status.is_some_and(|status| {
+        matches!(status, 408 | 425 | 502 | 503 | 504) || (500..=599).contains(&status)
+    }) || is_transient_provider_failure;
     mapped
+}
+
+fn completion_error_indicates_authentication_failure(error: &CompletionError) -> bool {
+    error
+        .provider_response_body()
+        .is_some_and(text_indicates_authentication_failure)
+        || text_indicates_authentication_failure(&error.to_string())
+}
+
+fn text_indicates_authentication_failure(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [
+        "accessdenied",
+        "access denied",
+        "expiredtoken",
+        "expired token",
+        "invalidclienttokenid",
+        "invalid client token",
+        "unrecognizedclient",
+        "unrecognized client",
+        "security token included in the request is invalid",
+        "unable to locate credentials",
+        "credential should be scoped to a valid region",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
 }
 
 #[cfg(test)]
@@ -559,6 +619,20 @@ mod tests {
         let mapped = map_completion_error(error);
         assert_eq!(mapped.kind, AgentErrorKind::Provider);
         assert!(mapped.recoverable);
+    }
+
+    #[test]
+    fn flattened_bedrock_credential_errors_are_authentication_failures() {
+        for message in [
+            r#"{"__type":"ExpiredTokenException","message":"The security token included in the request is expired"}"#,
+            "UnrecognizedClientException: The security token included in the request is invalid",
+            "AccessDeniedException: not authorized to perform bedrock:ConverseStream",
+        ] {
+            let mapped = map_completion_error(CompletionError::ProviderError(message.to_string()));
+            assert_eq!(mapped.kind, AgentErrorKind::Authentication);
+            assert!(!mapped.recoverable);
+            assert!(mapped.user_message.is_some());
+        }
     }
 }
 

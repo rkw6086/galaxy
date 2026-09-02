@@ -6,7 +6,7 @@ use super::{
     extract_tools, inject_input_messages_into_task, sanitize_messages_for_bedrock,
 };
 use crate::ai::agent::api::is_internal_command_completion_assessment;
-use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
+use crate::ai::provider::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 
 #[test]
 fn test_sanitize_messages_prepends_synthetic_tool_result_before_existing_user_text() {

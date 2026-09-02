@@ -1,6 +1,4 @@
 use super::models::*;
-use crate::settings::ai::BedrockModelConfig;
-
 #[test]
 fn test_cross_region_prefix_us_east() {
     assert_eq!(
@@ -82,33 +80,4 @@ fn test_cross_region_prefix_unknown_region() {
 fn test_cross_region_prefix_skips_arn() {
     let arn = "arn:aws:bedrock:us-east-1:156729649053:application-inference-profile/fma5bsw4oxhy";
     assert_eq!(apply_cross_region_prefix(arn, "us-east-1"), arn);
-}
-
-#[test]
-fn rig_opt_in_matches_context_markers_and_resolved_inference_profiles() {
-    let configured = vec![BedrockModelConfig {
-        model_id: "anthropic.claude-test[1m]".to_string(),
-        display_name: "Claude Test".to_string(),
-        vision_supported: false,
-        use_rig: true,
-    }];
-
-    assert!(configured_model_uses_rig(
-        "us.anthropic.claude-test",
-        &configured,
-        "us-east-1",
-        true,
-    ));
-    assert!(configured_model_uses_rig(
-        "anthropic.claude-test[1M]",
-        &configured,
-        "us-east-1",
-        false,
-    ));
-    assert!(!configured_model_uses_rig(
-        "anthropic.other-model",
-        &configured,
-        "us-east-1",
-        false,
-    ));
 }

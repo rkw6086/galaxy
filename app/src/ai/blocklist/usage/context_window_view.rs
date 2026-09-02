@@ -3,7 +3,7 @@ use galaxyui::elements::{
 };
 use galaxyui::{AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext};
 
-use crate::ai::bedrock::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
+use crate::ai::provider::convert::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 

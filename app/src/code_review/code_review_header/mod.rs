@@ -297,7 +297,8 @@ impl CodeReviewHeader {
                 .finish(),
             );
         }
-        right_section_compact.add_child(ChildView::new(&code_review_header_fields.diff_selector).finish());
+        right_section_compact
+            .add_child(ChildView::new(&code_review_header_fields.diff_selector).finish());
         right_section_compact.add_child(Container::new(right_subsection_compact.finish()).finish());
 
         Clipped::new(

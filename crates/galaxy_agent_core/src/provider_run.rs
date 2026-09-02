@@ -1010,6 +1010,29 @@ impl ProviderRun {
         Ok(ModelFailureDisposition::RunFailed)
     }
 
+    /// Parks a failed model call so its transcript can be compacted before retrying it.
+    /// The run and current work identity are intentionally unchanged.
+    pub fn prepare_context_compaction(
+        &mut self,
+        work_id: &ExternalWorkId,
+    ) -> Result<(), ProviderRunProtocolError> {
+        let call = match &self.state {
+            ProviderRunState::AwaitingModel { call } => call,
+            ProviderRunState::ReadyToCallModel
+            | ProviderRunState::ResolvingModel { .. }
+            | ProviderRunState::AwaitingTools { .. }
+            | ProviderRunState::AwaitingDriver { .. }
+            | ProviderRunState::Done { .. }
+            | ProviderRunState::Failed { .. }
+            | ProviderRunState::Cancelled { .. } => {
+                return Err(self.unexpected_state(ProviderRunPhase::AwaitingModel));
+            }
+        };
+        validate_work_id(&call.work_id, work_id)?;
+        self.state = ProviderRunState::ReadyToCallModel;
+        Ok(())
+    }
+
     pub fn request_tool_permission(
         &mut self,
         work_id: &ExternalWorkId,

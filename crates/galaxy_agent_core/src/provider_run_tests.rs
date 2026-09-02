@@ -1266,6 +1266,19 @@ fn transcript_compaction_is_rejected_during_a_model_call() {
 }
 
 #[test]
+fn context_compaction_preserves_run_and_work_identity() {
+    let mut run = run();
+    let call = next_model_call(&mut run);
+    let run_id = run.id().clone();
+
+    run.prepare_context_compaction(&call.work_id).unwrap();
+
+    assert_eq!(run.id(), &run_id);
+    assert_eq!(run.ready_work_id(), Some(call.work_id));
+    assert_eq!(run.state().phase(), ProviderRunPhase::ReadyToCallModel);
+}
+
+#[test]
 fn restore_normalization_commits_a_fully_resolved_batch() {
     let mut run = run();
     let batch = accept_tool_turn(

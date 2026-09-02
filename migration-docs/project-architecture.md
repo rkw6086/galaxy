@@ -18,7 +18,7 @@ Galaxy is a fork of Warp (the terminal emulator) rebranded under Samsung/Ryan Wa
 
 ## Critical Architecture Decisions
 
-1. **AI flows through Bedrock exclusively** — `app/src/ai/bedrock/client.rs` (`BedrockClient::converse_stream`)
+1. **AI flows through Bedrock exclusively** — `app/src/ai/provider/client.rs` (`BedrockClient::converse_stream`)
 2. **Models:** Default = Claude Opus 4.6 on Bedrock; also supports Claude Sonnet, Haiku, Nova Pro/Lite/Micro, DeepSeek R1
 3. **Bedrock auth methods:** AWS Profile (default), Static Keys, SSO
 4. **Cross-region inference:** Auto-prefixes model IDs (us., eu., jp., apac., au.) based on configured region
@@ -31,7 +31,7 @@ Galaxy is a fork of Warp (the terminal emulator) rebranded under Samsung/Ryan Wa
 
 - `app/` — Main binary and application logic
   - `app/src/ai/` — AI module (agent, bedrock, mcp, skills, ambient agents, etc.)
-  - `app/src/ai/bedrock/` — Direct Bedrock client (client.rs, convert.rs, stream.rs, models.rs, convert_request.rs)
+  - `app/src/ai/provider/` — Direct Bedrock client (client.rs, convert.rs, stream.rs, models.rs, convert_request.rs)
   - `app/src/settings/ai.rs` — AI settings (Bedrock config, permissions, autoexecution rules)
   - `app/src/terminal/` — Terminal emulation
   - `app/src/code/` — Code editor mode

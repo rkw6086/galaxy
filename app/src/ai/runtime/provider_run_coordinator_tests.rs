@@ -164,6 +164,48 @@ fn request() -> TurnRequest {
     request
 }
 
+#[test]
+fn estimates_turn_request_with_system_tools_messages_and_output() {
+    let mut request = TurnRequest::new(
+        "test-model",
+        vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("12345678".to_string()),
+        }],
+    );
+    request.system_prompt = Some("1234".to_string());
+    request.tools = vec![ToolDefinition {
+        name: "tool".to_string(),
+        description: "description".to_string(),
+        input_schema: serde_json::json!({"type": "object"}),
+    }];
+    request.max_output_tokens = Some(10);
+
+    let expected_input = (request.system_prompt.as_deref().unwrap().len()
+        + serde_json::to_string(&request.messages[0]).unwrap().len()
+        + serde_json::to_string(&request.tools[0]).unwrap().len()) as u64;
+    assert_eq!(
+        estimate_turn_request_tokens(&request),
+        expected_input.div_ceil(ESTIMATED_CHARS_PER_TOKEN) + 10
+    );
+}
+
+#[tokio::test]
+async fn proactively_compacts_before_starting_an_oversized_request() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = coordinator(runtime.clone());
+    coordinator.set_max_context_tokens(Some(1));
+    let (_sender, control) = turn_control();
+
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+
+    assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
+    assert!(runtime.requests().is_empty());
+}
+
 fn started(id: &str) -> ScriptedEvent {
     Ok(AgentEvent::TurnStarted {
         runtime_request_id: id.to_string(),
@@ -1166,6 +1208,7 @@ async fn transcript_projector_emits_one_ui_stream_for_the_whole_run() {
         max_context_tokens: Some(100_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     });
     let mut ui_events = Vec::new();
     let (_sender, control) = turn_control();
@@ -1224,6 +1267,7 @@ fn transcript_projector_preserves_provider_failure_message() {
         max_context_tokens: Some(100_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     });
     let events = projector
         .finish(

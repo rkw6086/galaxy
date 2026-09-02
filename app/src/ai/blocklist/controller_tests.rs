@@ -267,6 +267,7 @@ fn provider_snapshot(conversation_id: AIConversationId) -> super::ActiveProvider
             max_context_tokens: Some(128_000),
             capabilities: RuntimeCapabilities::provider(),
             empty_output_message: None,
+            todo_items: None,
         },
         action_context: crate::ai::runtime::ProviderActionContext::new_for_test(
             task_id.to_string(),

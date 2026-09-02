@@ -26,7 +26,7 @@ pub use prompts::provider::Provider;
 #[allow(unused_imports)]
 pub use tools::tools_for_mode;
 
-use crate::ai::bedrock::convert::ToolDefinition;
+use crate::ai::provider::convert::ToolDefinition;
 
 /// The fully-resolved prompt configuration ready to send to a model.
 #[derive(Debug, Clone)]

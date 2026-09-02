@@ -949,7 +949,7 @@ impl ProviderSetupView {
                 return;
             }
             ProviderSetupProviderType::Bedrock => {
-                let config = crate::ai::bedrock::client::BedrockClientConfig {
+                let config = crate::ai::provider::client::BedrockClientConfig {
                     auth_method: self.draft_bedrock.auth_method,
                     profile: self.draft_bedrock.profile.clone(),
                     region: self.draft_bedrock.region.clone(),
@@ -957,11 +957,10 @@ impl ProviderSetupView {
                     secret_access_key: self.draft_bedrock.secret_access_key.clone(),
                     session_token: None,
                     cross_region_inference: self.draft_bedrock.cross_region_inference,
-                    use_rig: false,
                 };
                 ctx.spawn(
                     async move {
-                        crate::ai::bedrock::discovery::discover_available_models(config).await
+                        crate::ai::provider::discovery::discover_available_models(config).await
                     },
                     move |me, result, ctx| match result {
                         Ok(models) => {

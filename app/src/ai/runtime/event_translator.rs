@@ -10,11 +10,11 @@ use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use super::provider_run_coordinator::ProviderRunProjection;
 use crate::ai::agent::runtime_activity;
-use crate::ai::bedrock::response_translator::{
+use crate::ai::openai::response_translator::{build_stream_finished, StreamUsage};
+use crate::ai::provider::response_translator::{
     build_add_agent_output_message, build_append_text, build_create_task, build_stream_init,
     build_user_query_message,
 };
-use crate::ai::openai::response_translator::{build_stream_finished, StreamUsage};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RuntimeResponseConfig {
@@ -26,6 +26,9 @@ pub(crate) struct RuntimeResponseConfig {
     pub(crate) max_context_tokens: Option<u32>,
     pub(crate) capabilities: RuntimeCapabilities,
     pub(crate) empty_output_message: Option<String>,
+    /// Todo items supplied by the existing task transcript, when one is available.
+    #[serde(skip)]
+    pub(crate) todo_items: Option<Vec<api::TodoItem>>,
 }
 
 /// Converts the provider-neutral runtime lifecycle into Galaxy's existing
@@ -51,6 +54,7 @@ pub(crate) struct RuntimeResponseTranslator {
 pub(crate) struct ProviderRunResponseProjector {
     translator: RuntimeResponseTranslator,
     has_started_model_turn: bool,
+    todo_phase: usize,
     finished: bool,
 }
 
@@ -59,6 +63,7 @@ impl ProviderRunResponseProjector {
         Self {
             translator: RuntimeResponseTranslator::new(config),
             has_started_model_turn: false,
+            todo_phase: 0,
             finished: false,
         }
     }
@@ -70,6 +75,8 @@ impl ProviderRunResponseProjector {
         Self {
             translator: RuntimeResponseTranslator::restored(config, projection_was_initialized),
             has_started_model_turn: false,
+            // Task-list events are part of the already persisted projection.
+            todo_phase: usize::MAX,
             finished: false,
         }
     }
@@ -87,17 +94,46 @@ impl ProviderRunResponseProjector {
                     self.translator.begin_followup_turn();
                 }
                 self.has_started_model_turn = true;
-                self.translator.translate(AgentEvent::TurnStarted {
+                let mut events = self.translator.translate(AgentEvent::TurnStarted {
                     runtime_request_id: String::new(),
-                })
+                })?;
+                events.extend(self.todo_phase_events());
+                Ok(events)
             }
             ProviderRunProjection::ModelEvent { event, .. } => self.translator.translate(event),
             ProviderRunProjection::ModelRetry { .. } => {
                 Ok(self.translator.discard_failed_turn_output())
             }
             ProviderRunProjection::ModelTurnRequested { .. }
-            | ProviderRunProjection::ModelTurnFinished { .. }
-            | ProviderRunProjection::ToolBatchReady { .. } => Ok(Vec::new()),
+            | ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
+            ProviderRunProjection::ToolBatchReady { .. } => {
+                let todo_index = self.todo_phase.saturating_sub(1);
+                let Some(todo) = self.todo_items().get(todo_index).cloned() else {
+                    return Ok(Vec::new());
+                };
+                self.todo_phase += 1;
+                let mut events = vec![build_todo_update(
+                    &self.translator.config.task_id,
+                    api::message::update_todos::Operation::MarkTodosCompleted(
+                        api::MarkTodosCompleted {
+                            todo_ids: vec![todo.id],
+                        },
+                    ),
+                )];
+                events.push(build_todo_update(
+                    &self.translator.config.task_id,
+                    api::message::update_todos::Operation::UpdatePendingTodos(
+                        api::UpdatePendingTodos {
+                            updated_pending_todos: self
+                                .todo_items()
+                                .into_iter()
+                                .skip(self.todo_phase)
+                                .collect(),
+                        },
+                    ),
+                ));
+                Ok(events)
+            }
         }
     }
 
@@ -115,16 +151,153 @@ impl ProviderRunResponseProjector {
         }
         self.finished = true;
         match outcome {
-            ProviderRunOutcome::Completed(completion) => Ok(self
-                .translator
-                .finish_provider_run(completion.stop_reason.clone(), aggregate_usage)),
-            ProviderRunOutcome::Failed(failure) => Ok(self
-                .translator
-                .provider_failure(&failure.message, aggregate_usage)),
+            ProviderRunOutcome::Completed(completion) => {
+                let mut events = self.todo_completion_events();
+                events.extend(
+                    self.translator
+                        .finish_provider_run(completion.stop_reason.clone(), aggregate_usage),
+                );
+                Ok(events)
+            }
+            ProviderRunOutcome::Failed(failure) => Ok(self.translator.provider_failure(
+                &failure.message,
+                failure.source.as_ref(),
+                aggregate_usage,
+            )),
             ProviderRunOutcome::Cancelled { .. } => Ok(self
                 .translator
                 .finish_provider_run(StopReason::Cancelled, aggregate_usage)),
         }
+    }
+
+    // Keep the direct-provider workflow visible in the existing task list protocol. These are
+    // response events, so the normal history model remains the sole owner of task-list state.
+    fn todo_phase_events(&mut self) -> Vec<ResponseEvent> {
+        let events = match self.todo_phase {
+            0 => vec![build_todo_update(
+                &self.translator.config.task_id,
+                api::message::update_todos::Operation::CreateTodoList(api::CreateTodoList {
+                    initial_todos: self.todo_items(),
+                }),
+            )],
+            _ => Vec::new(),
+        };
+        // The first model turn owns the first phase. Tool batches advance it; this keeps
+        // arbitrary plan lengths aligned with the UpdateTodos protocol.
+        if self.todo_phase == 0 {
+            self.todo_phase = 1;
+        }
+        events
+    }
+
+    fn todo_completion_events(&self) -> Vec<ResponseEvent> {
+        if self.todo_phase == 0 || self.todo_phase == usize::MAX {
+            return Vec::new();
+        }
+        let todos = self.todo_items();
+        if todos.is_empty() {
+            return Vec::new();
+        }
+        vec![
+            build_todo_update(
+                &self.translator.config.task_id,
+                api::message::update_todos::Operation::MarkTodosCompleted(
+                    api::MarkTodosCompleted {
+                        todo_ids: todos.iter().map(|todo| todo.id.clone()).collect(),
+                    },
+                ),
+            ),
+            build_todo_update(
+                &self.translator.config.task_id,
+                api::message::update_todos::Operation::UpdatePendingTodos(
+                    api::UpdatePendingTodos {
+                        updated_pending_todos: Vec::new(),
+                    },
+                ),
+            ),
+        ]
+    }
+    fn todo_items(&self) -> Vec<api::TodoItem> {
+        self.translator
+            .config
+            .todo_items
+            .clone()
+            .unwrap_or_else(default_workflow_todos)
+    }
+}
+
+fn default_workflow_todos() -> Vec<api::TodoItem> {
+    [
+        api::TodoItem {
+            id: "direct-provider-research".to_owned(),
+            title: "Research the request".to_owned(),
+            description: "Inspect the repository and gather relevant evidence".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-plan".to_owned(),
+            title: "Create an implementation plan".to_owned(),
+            description: "Choose an approach grounded in the repository".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-critique".to_owned(),
+            title: "Critique the approach".to_owned(),
+            description: "Check assumptions, risks, and missing cases".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-revise".to_owned(),
+            title: "Revise the plan".to_owned(),
+            description: "Incorporate findings before editing".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-implement".to_owned(),
+            title: "Implement the change".to_owned(),
+            description: "Make the requested edits".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-verify".to_owned(),
+            title: "Verify the result".to_owned(),
+            description: "Run proportionate checks".to_owned(),
+        },
+        api::TodoItem {
+            id: "direct-provider-repair".to_owned(),
+            title: "Repair validation issues".to_owned(),
+            description: "Fix failures found during verification".to_owned(),
+        },
+    ]
+    .to_vec()
+}
+
+fn build_todo_update(
+    task_id: &str,
+    operation: api::message::update_todos::Operation,
+) -> ResponseEvent {
+    let message = api::Message {
+        id: Uuid::new_v4().to_string(),
+        task_id: task_id.to_owned(),
+        request_id: String::new(),
+        timestamp: None,
+        server_message_data: String::new(),
+        citations: Vec::new(),
+        fetched_memories: Vec::new(),
+        message: Some(api::message::Message::UpdateTodos(
+            api::message::UpdateTodos {
+                operation: Some(operation),
+            },
+        )),
+    };
+    ResponseEvent {
+        r#type: Some(api::response_event::Type::ClientActions(
+            api::response_event::ClientActions {
+                actions: vec![api::ClientAction {
+                    action: Some(api::client_action::Action::AddMessagesToTask(
+                        api::client_action::AddMessagesToTask {
+                            task_id: task_id.to_owned(),
+                            messages: vec![message],
+                        },
+                    )),
+                }],
+            },
+        )),
     }
 }
 
@@ -421,15 +594,27 @@ impl RuntimeResponseTranslator {
         self.finished_with_reason(map_stop_reason(reason))
     }
 
-    fn provider_failure(&mut self, message: &str, aggregate_usage: &Usage) -> Vec<ResponseEvent> {
+    fn provider_failure(
+        &mut self,
+        message: &str,
+        source: Option<&galaxy_agent_core::AgentError>,
+        aggregate_usage: &Usage,
+    ) -> Vec<ResponseEvent> {
         let mut events = Vec::new();
         self.initialize(&mut events);
-        events.push(self.finished_with_usage(
+        let reason = if source
+            .is_some_and(|error| error.kind == galaxy_agent_core::AgentErrorKind::Authentication)
+        {
+            stream_finished::Reason::InvalidApiKey(stream_finished::InvalidApiKey {
+                provider: warp_multi_agent_api::LlmProvider::AwsBedrock as i32,
+                model_name: self.config.model_id.clone(),
+            })
+        } else {
             stream_finished::Reason::InternalError(stream_finished::InternalError {
                 message: message.to_owned(),
-            }),
-            aggregate_usage,
-        ));
+            })
+        };
+        events.push(self.finished_with_usage(reason, aggregate_usage));
         events
     }
 

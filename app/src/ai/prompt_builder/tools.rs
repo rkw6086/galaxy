@@ -3,7 +3,7 @@
 //! Each mode has a different set of tools available. Code mode gets everything,
 //! Plan mode gets read-only tools, Review mode gets read + search, etc.
 
-use crate::ai::bedrock::convert::ToolDefinition;
+use crate::ai::provider::convert::ToolDefinition;
 use crate::ai::prompt_builder::mode::Mode;
 
 /// Returns the tool definitions available for the given mode.

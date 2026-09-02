@@ -228,6 +228,7 @@ fn response_translator(
         max_context_tokens: None,
         capabilities: RuntimeCapabilities::session_runtime(),
         empty_output_message: Some("> ACP agent completed without a text response.".to_owned()),
+        todo_items: None,
     })
 }
 

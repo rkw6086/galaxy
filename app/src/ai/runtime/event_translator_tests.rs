@@ -17,6 +17,7 @@ fn provider_translator() -> RuntimeResponseTranslator {
         max_context_tokens: Some(1_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     })
 }
 
@@ -30,6 +31,7 @@ fn session_translator() -> RuntimeResponseTranslator {
         max_context_tokens: None,
         capabilities: RuntimeCapabilities::session_runtime(),
         empty_output_message: Some("> runtime completed without text".to_owned()),
+        todo_items: None,
     })
 }
 
@@ -44,6 +46,7 @@ fn restored_provider_projection_skips_stream_initialization() {
         max_context_tokens: Some(1_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     };
     let mut projector = ProviderRunResponseProjector::restored(config, true);
     let work_id = galaxy_agent_core::ExternalWorkId {
@@ -83,6 +86,109 @@ fn restored_provider_projection_skips_stream_initialization() {
 }
 
 #[test]
+fn provider_projection_uses_supplied_todos_and_advances_each_id() {
+    let todos = vec![
+        warp_multi_agent_api::TodoItem {
+            id: "research".to_owned(),
+            title: "Research".to_owned(),
+            description: "Inspect".to_owned(),
+        },
+        warp_multi_agent_api::TodoItem {
+            id: "implement".to_owned(),
+            title: "Implement".to_owned(),
+            description: "Edit".to_owned(),
+        },
+        warp_multi_agent_api::TodoItem {
+            id: "verify".to_owned(),
+            title: "Verify".to_owned(),
+            description: "Check".to_owned(),
+        },
+    ];
+    let mut projector = ProviderRunResponseProjector::new(RuntimeResponseConfig {
+        task_id: "task".to_owned(),
+        conversation_id: "conversation".to_owned(),
+        needs_create_task: false,
+        user_query: None,
+        model_id: "model".to_owned(),
+        max_context_tokens: Some(1_000),
+        capabilities: RuntimeCapabilities::provider(),
+        empty_output_message: None,
+        todo_items: Some(todos),
+    });
+    let work_id = galaxy_agent_core::ExternalWorkId {
+        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+        epoch: galaxy_agent_core::RunEpoch::new(1),
+    };
+    let initial = projector
+        .project(ProviderRunProjection::ModelTurnStarted {
+            work_id: work_id.clone(),
+            profile: galaxy_agent_core::ProviderRequestProfile::new("base"),
+            runtime_id: "runtime".to_owned(),
+            model_id: "model".to_owned(),
+            runtime_request_id: "request".to_owned(),
+            retry_attempt: 0,
+            elapsed_ms: 1,
+        })
+        .unwrap();
+    assert_eq!(initial.len(), 2);
+    let first = projector
+        .project(ProviderRunProjection::ToolBatchReady {
+            batch: galaxy_agent_core::PendingToolBatch {
+                work_id: galaxy_agent_core::ExternalWorkId {
+                    run_id: galaxy_agent_core::ProviderRunId::new("run"),
+                    epoch: galaxy_agent_core::RunEpoch::new(1),
+                },
+                calls: Vec::new(),
+            },
+        })
+        .unwrap();
+    let second = projector
+        .project(ProviderRunProjection::ToolBatchReady {
+            batch: galaxy_agent_core::PendingToolBatch {
+                work_id: galaxy_agent_core::ExternalWorkId {
+                    run_id: galaxy_agent_core::ProviderRunId::new("run"),
+                    epoch: galaxy_agent_core::RunEpoch::new(1),
+                },
+                calls: Vec::new(),
+            },
+        })
+        .unwrap();
+    let ids = |events: &[warp_multi_agent_api::ResponseEvent]| {
+        events
+            .iter()
+            .flat_map(|event| match &event.r#type {
+                Some(response_event::Type::ClientActions(actions)) => actions
+                    .actions
+                    .iter()
+                    .filter_map(|action| match &action.action {
+                        Some(client_action::Action::AddMessagesToTask(add)) => add
+                            .messages
+                            .iter()
+                            .filter_map(|message| match &message.message {
+                                Some(message::Message::UpdateTodos(update)) => match update
+                                    .operation
+                                    .as_ref()
+                                {
+                                    Some(message::update_todos::Operation::MarkTodosCompleted(
+                                        mark,
+                                    )) => Some(mark.todo_ids[0].clone()),
+                                    _ => None,
+                                },
+                                _ => None,
+                            })
+                            .next(),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&first), vec!["research"]);
+    assert_eq!(ids(&second), vec!["implement"]);
+}
+
+#[test]
 fn restored_uninitialized_projection_replays_init_before_live_delta() {
     let config = RuntimeResponseConfig {
         task_id: "task".to_owned(),
@@ -93,6 +199,7 @@ fn restored_uninitialized_projection_replays_init_before_live_delta() {
         max_context_tokens: Some(1_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     };
     let mut projector = ProviderRunResponseProjector::restored(config, false);
     let work_id = galaxy_agent_core::ExternalWorkId {
@@ -120,10 +227,17 @@ fn restored_uninitialized_projection_replays_init_before_live_delta() {
         })
         .unwrap();
 
-    assert_eq!(started.len(), 1);
+    assert_eq!(started.len(), 2);
     assert!(matches!(
         started[0].r#type,
         Some(response_event::Type::Init(_))
+    ));
+    let Some(response_event::Type::ClientActions(actions)) = &started[1].r#type else {
+        panic!("initial provider turn should publish its task list");
+    };
+    assert!(matches!(
+        actions.actions[0].action,
+        Some(client_action::Action::AddMessagesToTask(_))
     ));
     assert_eq!(delta.len(), 1);
     assert!(matches!(
@@ -143,6 +257,7 @@ fn provider_followup_turn_starts_a_distinct_text_message() {
         max_context_tokens: Some(1_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     });
     let first_work_id = galaxy_agent_core::ExternalWorkId {
         run_id: galaxy_agent_core::ProviderRunId::new("run"),
@@ -366,6 +481,7 @@ fn provider_retry_clears_failed_attempt_output_before_new_messages() {
         max_context_tokens: Some(1_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
+        todo_items: None,
     });
     let work_id = galaxy_agent_core::ExternalWorkId {
         run_id: galaxy_agent_core::ProviderRunId::new("run"),

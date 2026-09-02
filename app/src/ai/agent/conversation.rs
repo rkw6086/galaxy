@@ -334,8 +334,8 @@ pub struct AIConversation {
     /// Whether the user has pinned this child agent in the orchestration
     /// pill bar. Persisted via `AgentConversationData.pinned`.
     pinned: bool,
-    bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage>,
-    tool_result_archive: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+    bedrock_message_history: Vec<crate::ai::provider::convert::ConversationMessage>,
+    tool_result_archive: Vec<crate::ai::provider::convert::ConversationMessage>,
     progressive_summary: Option<String>,
     messages_summarized_up_to: usize,
     current_context_tokens: u32,
@@ -448,10 +448,10 @@ impl AIConversation {
         tasks: Vec<api::Task>,
         conversation_data: Option<AgentConversationData>,
     ) -> Result<Self, RestoreConversationError> {
-        let bedrock_message_history: Vec<crate::ai::bedrock::convert::ConversationMessage> = tasks
+        let bedrock_message_history: Vec<crate::ai::provider::convert::ConversationMessage> = tasks
             .iter()
             .flat_map(|task| task.messages.iter())
-            .filter_map(crate::ai::bedrock::request_translator::convert_proto_message)
+            .filter_map(crate::ai::provider::request_translator::convert_proto_message)
             .collect();
 
         let (task_store, todo_lists, status) = if tasks.is_empty() {
@@ -800,32 +800,32 @@ impl AIConversation {
         self.has_pending_progressive_summary = val;
     }
 
-    pub fn bedrock_message_history(&self) -> &[crate::ai::bedrock::convert::ConversationMessage] {
+    pub fn bedrock_message_history(&self) -> &[crate::ai::provider::convert::ConversationMessage] {
         &self.bedrock_message_history
     }
 
     pub fn bedrock_message_history_mut(
         &mut self,
-    ) -> &mut Vec<crate::ai::bedrock::convert::ConversationMessage> {
+    ) -> &mut Vec<crate::ai::provider::convert::ConversationMessage> {
         &mut self.bedrock_message_history
     }
 
-    pub fn tool_result_archive(&self) -> &[crate::ai::bedrock::convert::ConversationMessage] {
+    pub fn tool_result_archive(&self) -> &[crate::ai::provider::convert::ConversationMessage] {
         &self.tool_result_archive
     }
 
     pub fn archive_tool_results(
         &mut self,
-        messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+        messages: Vec<crate::ai::provider::convert::ConversationMessage>,
     ) {
-        use crate::ai::bedrock::convert::{ContentPart, MessageContent};
+        use crate::ai::provider::convert::{ContentPart, MessageContent};
 
         // Cap the archive to prevent unbounded growth. The archive is only used by
         // `recall_tool_history` which already truncates individual results to 50K chars,
         // so retaining the most recent entries is sufficient for lookup.
         const MAX_TOOL_RESULT_ARCHIVE_ENTRIES: usize = 400;
 
-        let mut pending_tool_uses: Vec<crate::ai::bedrock::convert::ConversationMessage> =
+        let mut pending_tool_uses: Vec<crate::ai::provider::convert::ConversationMessage> =
             Vec::new();
 
         for msg in messages {
@@ -873,7 +873,7 @@ impl AIConversation {
 
     pub fn append_to_bedrock_history(
         &mut self,
-        messages: Vec<crate::ai::bedrock::convert::ConversationMessage>,
+        messages: Vec<crate::ai::provider::convert::ConversationMessage>,
     ) {
         self.bedrock_message_history.extend(messages);
     }

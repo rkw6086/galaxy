@@ -21,9 +21,9 @@ use super::rig_tool::action_from_tool_call;
 use super::ProviderRunProfile;
 use crate::ai::agent::api::RequestParams;
 use crate::ai::agent::AIAgentAction;
-use crate::ai::bedrock::client::BedrockClient;
-use crate::ai::bedrock::convert::CachingConfig;
-use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+use crate::ai::provider::client::BedrockClient;
+use crate::ai::provider::convert::CachingConfig;
+use crate::ai::provider::external_config::ExternalBedrockConfig;
 use crate::ai::provider::types::ConversationMessage;
 use crate::ai::runtime::RuntimeResponseConfig;
 use crate::settings::OpenAIProviderKind;
@@ -137,6 +137,7 @@ pub(crate) async fn prepare_provider_run(
         task_id,
         needs_create_task,
         user_query,
+        todo_items,
         request,
         persistent_messages,
         tool_result_archive,
@@ -159,6 +160,7 @@ pub(crate) async fn prepare_provider_run(
         max_context_tokens,
         capabilities: base_runtime.descriptor().capabilities.clone(),
         empty_output_message: None,
+        todo_items,
     };
     Ok(PreparedProviderRun {
         base_profile: ProviderRunProfile::new(base_runtime, request),

@@ -10,7 +10,7 @@ use warp_multi_agent_api::response_event::stream_finished;
 use warp_multi_agent_api::{self as api, ClientAction, ResponseEvent};
 
 use crate::ai::agent::api::LegacyEvent;
-use crate::ai::bedrock::response_translator::{
+use crate::ai::provider::response_translator::{
     build_create_task, build_stream_init, context_window_for_model,
 };
 use crate::ai::provider::types::{ContentPart, ConversationMessage, MessageContent, MessageRole};
@@ -531,7 +531,7 @@ fn build_tool_call_message(
     tool_input_json: &str,
 ) -> ResponseEvent {
     // Reuse the Bedrock tool call message builder since the proto output is identical
-    crate::ai::bedrock::response_translator::build_tool_call_message(
+    crate::ai::provider::response_translator::build_tool_call_message(
         task_id,
         tool_use_id,
         tool_name,

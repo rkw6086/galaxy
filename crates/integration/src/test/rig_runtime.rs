@@ -383,7 +383,6 @@ base_url = "http://{address}/v1"
 model_id = "{MODEL_ID}"
 display_name = "Rig Integration Model"
 context_size = 128000
-use_rig = true
 supports_system_messages = false
 "#
     );

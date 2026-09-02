@@ -194,18 +194,18 @@ This is the primary new feature. A complete AWS Bedrock direct-call path runs al
 
 | File | Purpose |
 |---|---|
-| `app/src/ai/bedrock/diagnostic.rs` | `BedrockDiagnosticLogger` — file-based diagnostic logging, activated via `GALAXY_BEDROCK_DIAGNOSTICS=1`, 10MB rotation |
-| `app/src/ai/bedrock/e2e_tests.rs` | Comprehensive E2E integration tests (requires `BEDROCK_INTEGRATION_TEST` env var) |
-| `app/src/ai/bedrock/integration_tests.rs` | Unit-level stream output collection tests |
+| `app/src/ai/provider/diagnostic.rs` | `BedrockDiagnosticLogger` — file-based diagnostic logging, activated via `GALAXY_BEDROCK_DIAGNOSTICS=1`, 10MB rotation |
+| `app/src/ai/provider/e2e_tests.rs` | Comprehensive E2E integration tests (requires `BEDROCK_INTEGRATION_TEST` env var) |
+| `app/src/ai/provider/integration_tests.rs` | Unit-level stream output collection tests |
 
 ### Modified Files
 
 | File | Key Change |
 |---|---|
-| `app/src/ai/bedrock/client.rs` | Added `needs_create_task: bool` and `diagnostic_logger` params to `converse_stream()` |
-| `app/src/ai/bedrock/convert.rs` | Added `Clone`, `Debug`, `PartialEq` derives to core types |
-| `app/src/ai/bedrock/convert_request.rs` | New input type handlers: `InitProjectRules`, `CreateEnvironment`, `CreateNewProject`, `CloneRepository`, `AutoCodeDiffQuery`, `ResumeConversation`, `QueryWithCannedResponse`, `CodeReview` |
-| `app/src/ai/bedrock/stream.rs` | Buffered text flush threshold, `needs_create_task` / `CreateTask` event, reasoning content discarded |
+| `app/src/ai/provider/client.rs` | Added `needs_create_task: bool` and `diagnostic_logger` params to `converse_stream()` |
+| `app/src/ai/provider/convert.rs` | Added `Clone`, `Debug`, `PartialEq` derives to core types |
+| `app/src/ai/provider/convert_request.rs` | New input type handlers: `InitProjectRules`, `CreateEnvironment`, `CreateNewProject`, `CloneRepository`, `AutoCodeDiffQuery`, `ResumeConversation`, `QueryWithCannedResponse`, `CodeReview` |
+| `app/src/ai/provider/stream.rs` | Buffered text flush threshold, `needs_create_task` / `CreateTask` event, reasoning content discarded |
 | `app/src/ai/agent/api/impl.rs` | `needs_create_task` detection, diagnostic logger wiring, verbose debug logging |
 | `app/src/ai/llms.rs` | Bedrock models added to `coding` and `cli_agent` feature slots (previously only `agent_mode`) |
 
@@ -220,26 +220,26 @@ This is the primary new feature. A complete AWS Bedrock direct-call path runs al
 **`needs_create_task` detection logic** (`app/src/ai/agent/api/impl.rs`)  
 Detected via `task_context.tasks.is_empty()`. If the tasks list is populated with a placeholder or shell task entry before the first real task is submitted, this flag will be `false` and `CreateTask` will never be emitted, silently breaking the task creation flow for Bedrock on the first turn.
 
-**E2E test tool_use_id mismatch** (`app/src/ai/bedrock/e2e_tests.rs`)  
+**E2E test tool_use_id mismatch** (`app/src/ai/provider/e2e_tests.rs`)
 In `test_agent_multi_turn_tool_use_produces_output`, the test synthesizes tool result IDs as `tool_{total_turns}`, but the actual tool call ID emitted from the stream is a different value. This means the tool_call_id round-trip assertion will fail or be skipped silently. The test may pass vacuously.
 
-**`ensure_tool_results_paired()` synthesized results** (`app/src/ai/bedrock/convert_request.rs`)  
+**`ensure_tool_results_paired()` synthesized results** (`app/src/ai/provider/convert_request.rs`)
 This function inserts placeholder tool results for orphaned tool calls. The synthesized content is empty/default, which could confuse the model on subsequent turns. The synthesized result should include a meaningful message like `"Tool result not available"` rather than empty content.
 
 #### 🟡 Medium
 
-**`TEXT_FLUSH_THRESHOLD = 20`** (`app/src/ai/bedrock/stream.rs`)  
+**`TEXT_FLUSH_THRESHOLD = 20`** (`app/src/ai/provider/stream.rs`)
 Text fragments shorter than 20 characters before a tool call boundary are silently discarded. This can drop model preamble text such as `"Let me look at that..."` or `"OK."`. Consider buffering until a natural boundary (tool call or stop event) rather than a character threshold, or surface buffered content even if short.
 
-**`converse_stream()` wide parameter surface** (`app/src/ai/bedrock/client.rs`)  
+**`converse_stream()` wide parameter surface** (`app/src/ai/provider/client.rs`)
 The function now takes 9 parameters including `needs_create_task` in the middle of the list. This is fragile and hard to read at call sites. Recommend grouping into a `BedrockConversationConfig` struct.
 
-**Diagnostic logger privacy concern** (`app/src/ai/bedrock/diagnostic.rs`)  
+**Diagnostic logger privacy concern** (`app/src/ai/provider/diagnostic.rs`)
 `log_protobuf_input` uses Rust's `{:?}` debug format rather than structured JSON. This is inconsistent with the rest of the logger (which emits JSON) and may dump sensitive content (full conversation history, file contents) to disk in an unstructured format. Consider either JSON serialization or explicit redaction.
 
 #### 🟢 Low
 
-**Reasoning content silently discarded** (`app/src/ai/bedrock/stream.rs`)  
+**Reasoning content silently discarded** (`app/src/ai/provider/stream.rs`)
 Reasoning/thinking content from models that emit it (e.g., Claude 3.7 extended thinking) is currently discarded. This is an intentional product decision but should be documented in a comment so future contributors understand why.
 
 **`diagnostic.rs` log path** — Uses `warp_logging::log_directory()`. The log file will land in the `warp_logging`-configured directory. Verify this resolves to the correct Galaxy AI log directory on all platforms.
@@ -316,7 +316,7 @@ All internal crates retain `warp_*` naming:
 |---|---|---|
 | C1 | `WARP_INTEGRATION` / `GALAXY_INTEGRATION` split — breaks integration test detection at runtime | `app/src/lib.rs:658` |
 | C2 | Windows TTY env vars completely skipped — Windows shell integration broken | `app/src/terminal/local_tty/windows/environment.rs` |
-| C3 | E2E test tool_use_id mismatch — multi-turn tool use test may be vacuously passing | `app/src/ai/bedrock/e2e_tests.rs` |
+| C3 | E2E test tool_use_id mismatch — multi-turn tool use test may be vacuously passing | `app/src/ai/provider/e2e_tests.rs` |
 
 ### 🟠 High — Fix Before Beta
 
@@ -335,11 +335,11 @@ All internal crates retain `warp_*` naming:
 | # | Issue | File(s) |
 |---|---|---|
 | M1 | All `warp.dev` URLs untouched — wrong privacy policy, docs, and external links | `app/src/util/links.rs` + 7 other files |
-| M2 | `converse_stream()` 9-param signature — should use config struct | `app/src/ai/bedrock/client.rs` |
-| M3 | `TEXT_FLUSH_THRESHOLD = 20` may silently discard model preamble text | `app/src/ai/bedrock/stream.rs` |
-| M4 | `ensure_tool_results_paired()` synthesizes empty tool results — may confuse model | `app/src/ai/bedrock/convert_request.rs` |
+| M2 | `converse_stream()` 9-param signature — should use config struct | `app/src/ai/provider/client.rs` |
+| M3 | `TEXT_FLUSH_THRESHOLD = 20` may silently discard model preamble text | `app/src/ai/provider/stream.rs` |
+| M4 | `ensure_tool_results_paired()` synthesizes empty tool results — may confuse model | `app/src/ai/provider/convert_request.rs` |
 | M5 | `WARP_CHANNEL_VERSIONS_PATH` not renamed in autoupdate | `app/src/autoupdate/` |
-| M6 | Diagnostic logger `log_protobuf_input` uses debug format, not JSON | `app/src/ai/bedrock/diagnostic.rs` |
+| M6 | Diagnostic logger `log_protobuf_input` uses debug format, not JSON | `app/src/ai/provider/diagnostic.rs` |
 | M7 | `WARP_USER_SECRET` build-time env not renamed | `app/src/auth/auth_state.rs:107` |
 | M8 | `DEFAULT_UI_FONT_NAME = ""` sentinel is a code smell | `app/src/settings/font.rs` |
 | M9 | Referral theme display names still say `"Warp Referral"` | `app/src/themes/theme.rs` |
@@ -351,7 +351,7 @@ All internal crates retain `warp_*` naming:
 | # | Issue | File(s) |
 |---|---|---|
 | L1 | Stale comment: *"Use the word 'Warp'..."* | `app/src/workspace/view.rs:546` |
-| L2 | Reasoning content discard should be documented with a comment | `app/src/ai/bedrock/stream.rs` |
+| L2 | Reasoning content discard should be documented with a comment | `app/src/ai/provider/stream.rs` |
 | L3 | `warp_*` crate naming — document intent (internal stable vs. rebrand needed) | All `Cargo.toml` files |
 | L4 | `apply_samsung_brand_preset()` full implementation not reviewed | `app/src/settings_view/appearance_page.rs` |
 | L5 | `WARP.md` build commands still reference `cargo bundle --bin warp` — should be updated | `WARP.md` |

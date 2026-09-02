@@ -444,7 +444,6 @@ fn orchestration_is_enabled_when_ai_is_enabled() {
                         model_id: "test-model".to_string(),
                         display_name: "Test model".to_string(),
                         vision_supported: false,
-                        use_rig: false,
                     }],
                     ctx,
                 )

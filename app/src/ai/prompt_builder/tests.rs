@@ -103,7 +103,7 @@ mod prompt_builder_tests {
 
     #[test]
     fn test_mcp_tools_appended() {
-        use crate::ai::bedrock::convert::ToolDefinition;
+        use crate::ai::provider::convert::ToolDefinition;
 
         let mcp_tool = ToolDefinition {
             name: "mcp__github__create_pr".to_string(),

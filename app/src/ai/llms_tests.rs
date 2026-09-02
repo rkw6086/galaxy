@@ -151,7 +151,6 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
         max_input_tokens: None,
         max_output_tokens: None,
         provider: None,
-        use_rig: false,
         supports_system_messages: None,
         capability_overrides: std::collections::HashMap::new(),
         reasoning_efforts: Vec::new(),
@@ -164,7 +163,6 @@ fn bedrock_model(model_id: &str) -> BedrockModelConfig {
         model_id: model_id.to_string(),
         display_name: model_id.to_string(),
         vision_supported: false,
-        use_rig: true,
     }
 }
 
@@ -308,7 +306,6 @@ fn provider_discovery_preserves_local_model_overrides() {
     existing.display_name = "My Codex".to_string();
     existing.context_size = 100_000;
     existing.provider = Some("openai".to_string());
-    existing.use_rig = true;
     // Even stale or incorrect endpoint metadata must not opt ChatGPT-backed
     // Codex models back into the system role.
     existing.supports_system_messages = Some(true);
@@ -325,7 +322,6 @@ fn provider_discovery_preserves_local_model_overrides() {
     assert_eq!(merged[0].display_name, "My Codex");
     assert_eq!(merged[0].context_size, 400_000);
     assert_eq!(merged[0].max_output_tokens, Some(32_000));
-    assert!(merged[0].use_rig);
     assert_eq!(merged[0].supports_system_messages, Some(false));
     assert_eq!(merged[0].provider.as_deref(), Some("openai"));
 }
@@ -725,7 +721,7 @@ fn disabled_providers_do_not_leave_models_in_the_runtime_inventory() {
 }
 
 #[test]
-fn provider_discovery_enables_rig_for_new_models_and_keeps_manual_models() {
+fn provider_discovery_keeps_new_and_manual_models() {
     let manual = openai_model("manual-model");
     let discovered = openai_model("codex-gpt-new");
 
@@ -733,7 +729,6 @@ fn provider_discovery_enables_rig_for_new_models_and_keeps_manual_models() {
 
     assert_eq!(merged.len(), 2);
     assert_eq!(merged[0].model_id, "codex-gpt-new");
-    assert!(merged[0].use_rig);
     assert_eq!(merged[0].supports_system_messages, Some(false));
     assert_eq!(merged[1].model_id, "manual-model");
 }
@@ -798,7 +793,6 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     assert_eq!(models[0].context_size, 828_400);
     assert_eq!(models[0].max_input_tokens, Some(258_400));
     assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
-    assert!(models[0].use_rig);
     assert_eq!(models[0].provider.as_deref(), Some("openai"));
     assert_eq!(models[0].supports_system_messages, Some(true));
 
@@ -828,7 +822,6 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
 fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     let mut existing = openai_model("gpt-5.6-sol");
     existing.enabled = false;
-    existing.use_rig = false;
     existing.context_size = 272_000;
     existing.max_input_tokens = Some(272_000);
     existing.capability_overrides.insert(
@@ -840,7 +833,6 @@ fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     let mut discovered = openai_model("gpt-5.6-sol");
     discovered.display_name = "GPT-5.6-Sol".to_string();
     discovered.vision_supported = true;
-    discovered.use_rig = true;
     discovered.context_size = 828_400;
     discovered.max_input_tokens = Some(258_400);
 
@@ -851,7 +843,6 @@ fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     assert_eq!(merged[0].context_size, 828_400);
     assert_eq!(merged[0].max_input_tokens, Some(258_400));
     assert!(!merged[0].enabled);
-    assert!(!merged[0].use_rig);
     assert_eq!(
         merged[0].capability_override("vision"),
         crate::settings::ModelCapabilityOverride::Unsupported

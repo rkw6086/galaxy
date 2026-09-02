@@ -78,7 +78,7 @@ ACP: controller.rs → ResponseStream → acp_output_stream (session-owned lifec
 - `types.rs` — `ConversationMessage`, `MessageRole`, `MessageContent`, `ContentPart`, `ToolDefinition`
 - `mod.rs` — `ProviderConfig` enum (Bedrock | OpenAI | None)
 
-**Bedrock provider** in `app/src/ai/bedrock/`:
+**Bedrock provider** in `app/src/ai/provider/`:
 - `runtime.rs` — Native one-call `AgentRuntime` over `ConverseStream`, including cancellation, reasoning signatures, token usage, and stop/error classification
 - `request_translator.rs` — Shared Bedrock message sanitization and tool definitions
 - `response_translator.rs` — Compatibility conversion helpers used by tests and background flows

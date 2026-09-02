@@ -269,7 +269,6 @@ fn get_test_config() -> Option<BedrockClientConfig> {
         secret_access_key: String::new(),
         session_token: None,
         cross_region_inference: false,
-        use_rig: false,
     })
 }
 
@@ -280,7 +279,7 @@ fn get_test_model() -> String {
 }
 
 fn sample_project_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/ai/bedrock/test_fixtures/sample_project")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/ai/provider/test_fixtures/sample_project")
 }
 
 fn agent_tools() -> Vec<ToolDefinition> {

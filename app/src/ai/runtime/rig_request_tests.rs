@@ -32,7 +32,6 @@ fn config() -> OpenAIClientConfig {
         reasoning_effort: None,
         max_input_tokens: Some(128_000),
         max_output_tokens: Some(8_192),
-        use_rig: true,
         supports_system_messages: true,
     }
 }

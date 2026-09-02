@@ -1189,21 +1189,21 @@ impl Input {
                         .enumerate()
                         .map(|(i, msg)| {
                             let content_str = match &msg.content {
-                                crate::ai::bedrock::convert::MessageContent::Text(t) => {
+                                crate::ai::provider::convert::MessageContent::Text(t) => {
                                     if t.len() > 500 {
                                         format!("{}... ({} chars total)", &t[..500], t.len())
                                     } else {
                                         t.clone()
                                     }
                                 }
-                                crate::ai::bedrock::convert::MessageContent::ToolUse {
+                                crate::ai::provider::convert::MessageContent::ToolUse {
                                     name,
                                     tool_use_id,
                                     ..
                                 } => {
                                     format!("ToolUse(name={name}, id={tool_use_id})")
                                 }
-                                crate::ai::bedrock::convert::MessageContent::ToolResult {
+                                crate::ai::provider::convert::MessageContent::ToolResult {
                                     tool_use_id,
                                     content,
                                     is_error,
@@ -1217,7 +1217,7 @@ impl Input {
                                         "ToolResult(id={tool_use_id}, err={is_error}): {truncated}"
                                     )
                                 }
-                                crate::ai::bedrock::convert::MessageContent::MultiPart(parts) => {
+                                crate::ai::provider::convert::MessageContent::MultiPart(parts) => {
                                     format!("MultiPart({} parts)", parts.len())
                                 }
                             };

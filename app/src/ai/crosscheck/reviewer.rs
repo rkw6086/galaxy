@@ -175,7 +175,6 @@ impl CrosscheckReviewer {
                 reasoning_effort: client_config.reasoning_effort.clone(),
                 max_input_tokens: client_config.max_input_tokens,
                 max_output_tokens: Some(REVIEWER_MAX_OUTPUT_TOKENS),
-                use_rig: client_config.use_rig,
                 supports_system_messages: client_config.supports_system_messages,
             });
         }
@@ -184,7 +183,7 @@ impl CrosscheckReviewer {
         if *settings.bedrock_enabled.value() {
             let auth_method = *settings.bedrock_auth_method.value();
             let api_key_manager = ::ai::api_keys::ApiKeyManager::as_ref(ctx);
-            let mut config = crate::ai::bedrock::client::BedrockClientConfig {
+            let mut config = crate::ai::provider::client::BedrockClientConfig {
                 auth_method,
                 profile: settings.bedrock_profile.value().clone(),
                 region: settings.bedrock_region.value().clone(),
@@ -192,7 +191,6 @@ impl CrosscheckReviewer {
                 secret_access_key: settings.bedrock_secret_access_key.value().clone(),
                 session_token: None,
                 cross_region_inference: *settings.bedrock_cross_region_inference.value(),
-                use_rig: false,
             };
 
             if let ::ai::api_keys::AwsCredentialsState::Loaded { credentials, .. } =
@@ -339,9 +337,9 @@ impl CrosscheckReviewer {
     async fn invoke_via_bedrock(
         agent_output: String,
         model_id: String,
-        config: crate::ai::bedrock::client::BedrockClientConfig,
+        config: crate::ai::provider::client::BedrockClientConfig,
     ) -> Result<String, String> {
-        use crate::ai::bedrock::client::BedrockClient;
+        use crate::ai::provider::client::BedrockClient;
         use crate::ai::provider::types::{ConversationMessage, MessageContent, MessageRole};
 
         let cross_region_inference = config.cross_region_inference;

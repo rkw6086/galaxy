@@ -6994,7 +6994,7 @@ impl TerminalView {
     }
 
     fn toggle_settings_view(&mut self, ctx: &mut ViewContext<Self>) {
-        use crate::ai::bedrock::settings_view::SettingsView;
+        use crate::ai::provider::settings_view::SettingsView;
 
         // If already showing, remove it
         if let Some(view_id) = self.settings_view_id.take() {
@@ -10912,7 +10912,7 @@ impl TerminalView {
         // Use the configured command, but if it's the bare default ("aws sso login")
         // prefer the external config's auth_refresh_command which includes --profile.
         let login_command = if settings_command == "aws sso login" {
-            use crate::ai::bedrock::external_config::ExternalBedrockConfig;
+            use crate::ai::provider::external_config::ExternalBedrockConfig;
             let external = ExternalBedrockConfig::load();
             external.auth_refresh_command.unwrap_or(settings_command)
         } else {
@@ -10948,34 +10948,37 @@ impl TerminalView {
             |_me, result, ctx| {
                 match result {
                     Ok(()) => {
-                        log::info!("[bedrock] AWS login completed successfully, refreshing credentials and resuming");
-                        // Refresh credentials from the updated SSO cache
-                        ApiKeyManager::handle(ctx).update(
-                            ctx,
-                            |manager, ctx| {
-                                drop(crate::ai::aws_credentials::refresh_aws_credentials(manager, ctx));
-                            },
-                        );
-                        // Resume the conversation after a short delay to let credentials load
-                        let _ = ctx.spawn(
-                            async move {
-                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            },
-                            |me, _, ctx| {
-                                // Find the active conversation and resume it directly
-                                let conversation_id = if FeatureFlag::AgentView.is_enabled() {
-                                    me.agent_view_controller
-                                        .as_ref(ctx)
-                                        .agent_view_state()
-                                        .active_conversation_id()
-                                } else {
-                                    BlocklistAIHistoryModel::as_ref(ctx).last_conversation_id(me.id())
-                                };
-                                if let Some(conversation_id) = conversation_id {
-                                    me.handle_resume_conversation(&conversation_id, ctx);
+                        log::info!("[bedrock] AWS login completed successfully; reloading credentials before resuming");
+
+                        // Refresh through ApiKeyManager and wait for its completion. A fixed
+                        // delay can resume the request while the SDK still has stale SSO data.
+                        let refresh = ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
+                            crate::ai::aws_credentials::refresh_aws_credentials(manager, ctx)
+                        });
+                        let _ = ctx.spawn(refresh, |me, result, ctx| {
+                            match result {
+                                Ok(()) => {
+                                    log::info!("[bedrock] AWS credentials refreshed; resuming conversation");
+                                    let conversation_id = if FeatureFlag::AgentView.is_enabled() {
+                                        me.agent_view_controller
+                                            .as_ref(ctx)
+                                            .agent_view_state()
+                                            .active_conversation_id()
+                                    } else {
+                                        BlocklistAIHistoryModel::as_ref(ctx)
+                                            .last_conversation_id(me.id())
+                                    };
+                                    if let Some(conversation_id) = conversation_id {
+                                        me.handle_resume_conversation(&conversation_id, ctx);
+                                    }
                                 }
-                            },
-                        );
+                                Err(error) => {
+                                    log::error!(
+                                        "[bedrock] AWS login succeeded but credential reload failed; not resuming: {error}"
+                                    );
+                                }
+                            }
+                        });
                     }
                     Err(e) => {
                         log::error!("[bedrock] AWS login failed: {e}");
@@ -20645,6 +20648,35 @@ impl TerminalView {
             }
             AIBlockEvent::RunAwsLoginCommand => {
                 self.run_aws_login_command(ctx);
+            }
+            AIBlockEvent::RefreshAwsCredentials => {
+                let refresh = ApiKeyManager::handle(ctx).update(ctx, |manager, ctx| {
+                    crate::ai::aws_credentials::refresh_aws_credentials(manager, ctx)
+                });
+                let _ = ctx.spawn(refresh, |me, result, ctx| {
+                    match result {
+                        Ok(()) => {
+                            log::info!("[bedrock] AWS credentials reloaded; resuming conversation");
+                            let conversation_id = if FeatureFlag::AgentView.is_enabled() {
+                                me.agent_view_controller
+                                    .as_ref(ctx)
+                                    .agent_view_state()
+                                    .active_conversation_id()
+                            } else {
+                                BlocklistAIHistoryModel::as_ref(ctx).last_conversation_id(me.id())
+                            };
+                            if let Some(conversation_id) = conversation_id {
+                                me.handle_resume_conversation(&conversation_id, ctx);
+                            }
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "[bedrock] AWS credential reload failed; starting configured login command: {error}"
+                            );
+                            me.run_aws_login_command(ctx);
+                        }
+                    }
+                });
             }
         }
         ctx.notify();

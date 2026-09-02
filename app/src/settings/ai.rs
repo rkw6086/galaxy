@@ -828,11 +828,6 @@ pub struct BedrockModelConfig {
     #[serde(default)]
     #[schemars(description = "Whether the model supports image/vision input.")]
     pub vision_supported: bool,
-    #[serde(default)]
-    #[schemars(
-        description = "Route this model through Galaxy's Rig Bedrock runtime. Disabled by default while compatibility validation is in progress."
-    )]
-    pub use_rig: bool,
 }
 
 impl settings_value::SettingsValue for BedrockModelConfig {}
@@ -883,11 +878,6 @@ pub struct OpenAIModelConfig {
         description = "Optional provider hint (e.g. anthropic, openai, google) for icon display."
     )]
     pub provider: Option<String>,
-    #[serde(default)]
-    #[schemars(
-        description = "Route this model through Galaxy's Rig runtime. This is an opt-in migration path."
-    )]
-    pub use_rig: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(
         description = "Whether this endpoint accepts system-role messages. Set false for ChatGPT-backed LiteLLM models that reject them."

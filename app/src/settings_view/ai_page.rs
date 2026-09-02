@@ -7251,9 +7251,6 @@ impl ProviderSettingsWidget {
         if model.effective_vision_supported() {
             details.push("Images".to_string());
         }
-        if model.use_rig {
-            details.push("Rig".to_string());
-        }
         if !model.reasoning_efforts.is_empty() {
             details.push(format!("Reasoning: {}", model.reasoning_efforts.join(", ")));
         }
@@ -7360,9 +7357,6 @@ impl ProviderSettingsWidget {
                 let mut details = Vec::new();
                 if model.vision_supported {
                     details.push("Images".to_string());
-                }
-                if model.use_rig {
-                    details.push("Rig".to_string());
                 }
                 Self::render_model_row(
                     model.display_name.clone(),
