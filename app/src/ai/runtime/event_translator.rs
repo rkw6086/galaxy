@@ -55,15 +55,18 @@ pub(crate) struct ProviderRunResponseProjector {
     translator: RuntimeResponseTranslator,
     has_started_model_turn: bool,
     todo_phase: usize,
+    todo_started: bool,
     finished: bool,
 }
 
 impl ProviderRunResponseProjector {
     pub(crate) fn new(config: RuntimeResponseConfig) -> Self {
+        let todo_started = config.todo_items.is_some();
         Self {
             translator: RuntimeResponseTranslator::new(config),
             has_started_model_turn: false,
             todo_phase: 0,
+            todo_started,
             finished: false,
         }
     }
@@ -77,6 +80,7 @@ impl ProviderRunResponseProjector {
             has_started_model_turn: false,
             // Task-list events are part of the already persisted projection.
             todo_phase: usize::MAX,
+            todo_started: true,
             finished: false,
         }
     }
@@ -106,7 +110,22 @@ impl ProviderRunResponseProjector {
             }
             ProviderRunProjection::ModelTurnRequested { .. }
             | ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
-            ProviderRunProjection::ToolBatchReady { .. } => {
+            ProviderRunProjection::ToolBatchReady { batch } => {
+                if !self.todo_started {
+                    if let Some(todos) = todos_from_plan_batch(&batch) {
+                        self.todo_started = true;
+                        self.todo_phase = 1;
+                        return Ok(vec![build_todo_update(
+                            &self.translator.config.task_id,
+                            api::message::update_todos::Operation::CreateTodoList(
+                                api::CreateTodoList {
+                                    initial_todos: todos,
+                                },
+                            ),
+                        )]);
+                    }
+                    return Ok(Vec::new());
+                }
                 let todo_index = self.todo_phase.saturating_sub(1);
                 let Some(todo) = self.todo_items().get(todo_index).cloned() else {
                     return Ok(Vec::new());
@@ -173,21 +192,7 @@ impl ProviderRunResponseProjector {
     // Keep the direct-provider workflow visible in the existing task list protocol. These are
     // response events, so the normal history model remains the sole owner of task-list state.
     fn todo_phase_events(&mut self) -> Vec<ResponseEvent> {
-        let events = match self.todo_phase {
-            0 => vec![build_todo_update(
-                &self.translator.config.task_id,
-                api::message::update_todos::Operation::CreateTodoList(api::CreateTodoList {
-                    initial_todos: self.todo_items(),
-                }),
-            )],
-            _ => Vec::new(),
-        };
-        // The first model turn owns the first phase. Tool batches advance it; this keeps
-        // arbitrary plan lengths aligned with the UpdateTodos protocol.
-        if self.todo_phase == 0 {
-            self.todo_phase = 1;
-        }
-        events
+        Vec::new()
     }
 
     fn todo_completion_events(&self) -> Vec<ResponseEvent> {
@@ -222,49 +227,59 @@ impl ProviderRunResponseProjector {
             .config
             .todo_items
             .clone()
-            .unwrap_or_else(default_workflow_todos)
+            .unwrap_or_default()
     }
 }
 
-fn default_workflow_todos() -> Vec<api::TodoItem> {
-    [
-        api::TodoItem {
-            id: "direct-provider-research".to_owned(),
-            title: "Research the request".to_owned(),
-            description: "Inspect the repository and gather relevant evidence".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-plan".to_owned(),
-            title: "Create an implementation plan".to_owned(),
-            description: "Choose an approach grounded in the repository".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-critique".to_owned(),
-            title: "Critique the approach".to_owned(),
-            description: "Check assumptions, risks, and missing cases".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-revise".to_owned(),
-            title: "Revise the plan".to_owned(),
-            description: "Incorporate findings before editing".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-implement".to_owned(),
-            title: "Implement the change".to_owned(),
-            description: "Make the requested edits".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-verify".to_owned(),
-            title: "Verify the result".to_owned(),
-            description: "Run proportionate checks".to_owned(),
-        },
-        api::TodoItem {
-            id: "direct-provider-repair".to_owned(),
-            title: "Repair validation issues".to_owned(),
-            description: "Fix failures found during verification".to_owned(),
-        },
-    ]
-    .to_vec()
+fn todos_from_plan_batch(
+    batch: &galaxy_agent_core::PendingToolBatch,
+) -> Option<Vec<api::TodoItem>> {
+    let plan_call = batch.calls.iter().find(|pending| {
+        matches!(
+            pending.call.name.as_str(),
+            "create_plan" | "create_documents"
+        )
+    })?;
+    let documents = plan_call.call.arguments.get("documents")?.as_array()?;
+    let content = documents.first()?.get("content")?.as_str()?;
+    let section = content
+        .split_once("## Tasks")
+        .or_else(|| content.split_once("## Implementation Tasks"))
+        .map(|(_, section)| section)
+        .unwrap_or(content);
+    let todos = section
+        .lines()
+        .filter_map(|line| {
+            let item = line
+                .trim()
+                .strip_prefix("- [ ]")
+                .or_else(|| line.trim().strip_prefix("-"))?
+                .trim();
+            if item.is_empty() {
+                return None;
+            }
+            let title = item
+                .split_once(" - ")
+                .map_or(item, |(title, _)| title)
+                .trim();
+            let id = format!(
+                "plan-{}",
+                title
+                    .chars()
+                    .filter_map(|character| character
+                        .is_ascii_alphanumeric()
+                        .then_some(character.to_ascii_lowercase()))
+                    .collect::<String>()
+            );
+            Some(api::TodoItem {
+                id,
+                title: title.to_owned(),
+                description: item.to_owned(),
+            })
+        })
+        .take(50)
+        .collect::<Vec<_>>();
+    (!todos.is_empty()).then_some(todos)
 }
 
 fn build_todo_update(

@@ -228,14 +228,15 @@ fn prepare_rig_turn_for_provider(
         ..
     } = params;
 
-    let todo_items = todo_items_from_tasks(&tasks);
-
     let task_id = root_task_id
         .or_else(|| tasks.first().map(|task| task.id.clone()))
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let needs_create_task = tasks.is_empty();
     let user_query = input.iter().find_map(input_user_query);
     let mode = mode_override.unwrap_or_else(|| request_mode(&input));
+    // Only an LLM-authored UpdateTodos message creates the checklist. Ordinary turns
+    // and orchestration prompts must not receive a fabricated plan.
+    let todo_items = todo_items_from_tasks(&tasks);
     let available_tools = match mode {
         RigRequestMode::Cli => supported_cli_agent_tools,
         RigRequestMode::CompletedCommandAssessment => Vec::new(),
@@ -920,7 +921,7 @@ fn build_system_prompt(
     match mode {
         RigRequestMode::Normal => {}
         RigRequestMode::Plan => prompt.push_str(
-            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds.\n\n",
+            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. Include a concise `## Tasks` section in the document with short, specific `- [ ]` items. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds. Once the plan is created, avoid asking follow-up questions unless you are genuinely blocked or materially uncertain about the next step.\n\n",
         ),
         RigRequestMode::Orchestrate => prompt.push_str(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",
@@ -963,7 +964,7 @@ fn build_system_prompt(
         }
         if tools.iter().any(|tool| tool.name == "create_plan") {
             prompt.push_str(
-                "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve.\n",
+                "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. Include a concise `## Tasks` section with short, specific `- [ ]` items so the user can track progress. If the plan structure changes materially, invalidate it and create a replacement; status changes should update the existing task list instead. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve. Once a plan and task list exist, continue working against them and avoid follow-up questions unless genuinely blocked or materially uncertain.\n",
             );
         }
     }

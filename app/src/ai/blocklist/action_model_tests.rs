@@ -112,16 +112,14 @@ fn exact_provider_action_correlation_is_idempotent() {
     let execution_ref = ProviderToolExecutionRef::new(conversation_id, &batch.work_id, "first");
     let existing = HashMap::from([((conversation_id, actions[0].id.clone()), execution_ref)]);
 
-    assert!(
-        BlocklistAIActionModel::provider_action_ids_to_enqueue_from(
-            &existing,
-            &actions,
-            conversation_id,
-            &batch,
-        )
-            .unwrap()
-            .is_empty()
-    );
+    assert!(BlocklistAIActionModel::provider_action_ids_to_enqueue_from(
+        &existing,
+        &actions,
+        conversation_id,
+        &batch,
+    )
+    .unwrap()
+    .is_empty());
 }
 
 #[test]
