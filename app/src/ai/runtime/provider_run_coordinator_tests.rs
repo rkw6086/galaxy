@@ -734,7 +734,7 @@ async fn execution_failure_commits_one_correlated_error_result() {
 }
 
 #[tokio::test]
-async fn inline_tool_batches_continue_without_leaving_the_coordinator() {
+async fn inline_tool_batches_commit_before_the_next_model_boundary() {
     let recall_turn = Ok(vec![
         started("request-recall"),
         Ok(AgentEvent::Tool {
@@ -759,6 +759,13 @@ async fn inline_tool_batches_continue_without_leaving_the_coordinator() {
         .await
         .unwrap();
 
+    assert!(matches!(block, ProviderRunBlock::ReadyToCallModel));
+    assert_eq!(runtime.requests().len(), 1);
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, collect_projection(&mut projections))
+        .await
+        .unwrap();
     assert!(matches!(block, ProviderRunBlock::AwaitingDriver { .. }));
     assert_eq!(runtime.requests().len(), 2);
     assert!(projections.iter().any(|projection| matches!(
@@ -1208,7 +1215,6 @@ async fn transcript_projector_emits_one_ui_stream_for_the_whole_run() {
         max_context_tokens: Some(100_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
-        todo_items: None,
     });
     let mut ui_events = Vec::new();
     let (_sender, control) = turn_control();
@@ -1267,7 +1273,6 @@ fn transcript_projector_preserves_provider_failure_message() {
         max_context_tokens: Some(100_000),
         capabilities: RuntimeCapabilities::provider(),
         empty_output_message: None,
-        todo_items: None,
     });
     let events = projector
         .finish(

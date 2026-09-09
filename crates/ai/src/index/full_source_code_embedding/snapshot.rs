@@ -157,7 +157,6 @@ pub(super) fn read_snapshot(
     store_client: Arc<dyn StoreClient>,
     snapshot_dir: &Path,
     repository: ModelHandle<Repository>,
-    max_files_repo_limit: usize,
     embedding_generation_batch_size: usize,
     ctx: &mut ModelContext<CodebaseIndex>,
 ) -> anyhow::Result<CodebaseIndex> {
@@ -171,7 +170,6 @@ pub(super) fn read_snapshot(
         store_client.clone(),
         EmbeddingConfig::default(),
         snapshot_bytes,
-        max_files_repo_limit,
         embedding_generation_batch_size,
         ctx,
     );

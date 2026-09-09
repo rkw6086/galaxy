@@ -8230,3 +8230,82 @@ fn cmd_k_in_agent_view_cancels_in_progress_conversation_and_starts_new_one() {
         });
     })
 }
+
+#[test]
+fn child_prompt_waits_for_bootstrap_and_does_not_restart_cancelled_child() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |view, ctx| {
+            let terminal_view_id = ctx.view_id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(terminal_view_id, true, false, false, ctx)
+                });
+            view.is_login_shell_bootstrapped = false;
+            view.send_child_agent_query_when_ready(
+                "child prompt".to_string(),
+                conversation_id,
+                ctx,
+            );
+            assert_eq!(
+                view.pending_child_agent_query,
+                Some((conversation_id, "child prompt".to_string()))
+            );
+            assert!(BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap()
+                .latest_exchange()
+                .is_none());
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history.update_conversation_status(
+                    terminal_view_id,
+                    conversation_id,
+                    ConversationStatus::Cancelled,
+                    ctx,
+                );
+            });
+            view.is_login_shell_bootstrapped = true;
+            let (conversation_id, prompt) = view.pending_child_agent_query.take().unwrap();
+            view.send_child_agent_query_when_ready(prompt, conversation_id, ctx);
+            assert!(view.pending_child_agent_query.is_none());
+            assert_eq!(
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .unwrap()
+                    .status(),
+                &ConversationStatus::Cancelled
+            );
+        });
+    });
+}
+
+#[test]
+fn child_shell_startup_failure_finishes_the_waiting_conversation() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |view, ctx| {
+            let terminal_view_id = ctx.view_id();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(terminal_view_id, true, false, false, ctx)
+                });
+            view.is_login_shell_bootstrapped = false;
+            view.send_child_agent_query_when_ready(
+                "child prompt".to_string(),
+                conversation_id,
+                ctx,
+            );
+            view.fail_pending_child_agent_query("shell failed".to_string(), ctx);
+            assert!(view.pending_child_agent_query.is_none());
+            assert_eq!(
+                BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .unwrap()
+                    .status(),
+                &ConversationStatus::Error
+            );
+        });
+    });
+}

@@ -58,7 +58,7 @@ impl ConflictBlock {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ConflictResolution {
+pub enum ConflictResolution {
     Ours,
     Theirs,
     Both,

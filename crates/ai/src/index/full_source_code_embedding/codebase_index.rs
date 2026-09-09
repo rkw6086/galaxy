@@ -386,7 +386,6 @@ impl CodebaseIndex {
         repository: ModelHandle<Repository>,
         store_client: Arc<dyn StoreClient>,
         embedding_config: EmbeddingConfig,
-        max_files_repo_limit: usize,
         embedding_generation_batch_size: usize,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
@@ -398,7 +397,7 @@ impl CodebaseIndex {
             ctx,
         );
 
-        if let Err(err) = index.build_and_sync_from_repository_root(max_files_repo_limit, ctx) {
+        if let Err(err) = index.build_and_sync_from_repository_root(ctx) {
             safe_error!(
                 safe: ("Failed to build index: {err:?}"),
                 full: ("Failed to build index at root {}: {err:?}", index.repo_path.display())
@@ -803,7 +802,6 @@ impl CodebaseIndex {
     #[cfg(feature = "local_fs")]
     fn build_and_sync_from_repository_root(
         &mut self,
-        max_files_repo_limit: usize,
         ctx: &mut ModelContext<'_, Self>,
     ) -> Result<(), Error> {
         let repo_path = self.repo_path.clone();
@@ -1127,13 +1125,9 @@ impl CodebaseIndex {
     /// Performs a full reparse of the merkle tree, followed by a full server sync. This force evicts the
     /// existing merkle tree state.
     #[cfg(feature = "local_fs")]
-    pub(super) fn full_sync_index(
-        &mut self,
-        max_files_repo_limit: usize,
-        ctx: &mut ModelContext<Self>,
-    ) -> Result<(), Error> {
+    pub(super) fn full_sync_index(&mut self, ctx: &mut ModelContext<Self>) -> Result<(), Error> {
         self.update_tree_sync_state(TreeSourceSyncState::unsynced(), ctx);
-        self.build_and_sync_from_repository_root(max_files_repo_limit, ctx)
+        self.build_and_sync_from_repository_root(ctx)
     }
 
     /// Attempt to perform a full SERVER sync on the current index. We only proceed with the sync if there is
@@ -1328,7 +1322,6 @@ impl CodebaseIndex {
     #[cfg(not(feature = "local_fs"))]
     pub fn build_and_sync_from_repository_root(
         &mut self,
-        _max_num_files_limit: usize,
         _ctx: &mut ModelContext<'_, Self>,
     ) -> Result<(), Error> {
         Err(Error::UnsupportedPlatform)
@@ -1705,7 +1698,6 @@ impl CodebaseIndex {
         store_client: Arc<dyn StoreClient>,
         embedding_config: EmbeddingConfig,
         snapshot_bytes: Vec<u8>,
-        max_files_repo_limit: usize,
         embedding_generation_batch_size: usize,
         ctx: &mut ModelContext<Self>,
     ) -> Result<Self, Error> {
@@ -1716,7 +1708,7 @@ impl CodebaseIndex {
             embedding_generation_batch_size,
             ctx,
         );
-        index.rebuild_and_sync_from_snapshot(snapshot_bytes, max_files_repo_limit, ctx);
+        index.rebuild_and_sync_from_snapshot(snapshot_bytes, ctx);
         Ok(index)
     }
 
@@ -1724,7 +1716,6 @@ impl CodebaseIndex {
     fn rebuild_and_sync_from_snapshot(
         &mut self,
         snapshot_bytes: Vec<u8>,
-        max_files_repo_limit: usize,
         ctx: &mut ModelContext<'_, Self>,
     ) {
         let repo_metadata = RepoMetadata {
@@ -1756,7 +1747,6 @@ impl CodebaseIndex {
                     let (changed_files, gitignores) = Self::diff_filesystem_with_tree(
                         repo_path.clone(),
                         &tree,
-                        max_files_repo_limit,
                     )
                     .map_err(SnapshotLoadError::DiffFailed)?;
 
@@ -1922,7 +1912,6 @@ impl CodebaseIndex {
     fn diff_filesystem_with_tree(
         repo_path: PathBuf,
         tree: &MerkleTree,
-        max_files_repo_limit: usize,
     ) -> Result<(ChangedFiles, Vec<Gitignore>), Error> {
         let mut gitignores = Self::construct_initial_ignores(&repo_path);
 

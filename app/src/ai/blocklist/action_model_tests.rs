@@ -7,6 +7,7 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionResultType, AIAgentActionType, AnyFileContent, FileContext,
     GrepResult, ReadFilesResult,
 };
+use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
 fn make_action_result(id: &str) -> Arc<AIAgentActionResult> {
     Arc::new(AIAgentActionResult {
@@ -52,6 +53,75 @@ fn pending_tool_batch(call_ids: &[&str]) -> PendingToolBatch {
             })
             .collect(),
     }
+}
+
+#[test]
+fn readiness_retry_cannot_preprocess_across_a_serial_barrier_or_skip_a_pending_tool() {
+    warpui::App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |view, ctx| {
+            let terminal_view_id = ctx.view_id();
+            let relevant_files = ctx.add_model(GetRelevantFilesController::new);
+            let action_model = ctx.add_model(|ctx| {
+                BlocklistAIActionModel::new(
+                    view.model.clone(),
+                    view.active_session().clone(),
+                    view.model_event_dispatcher(),
+                    relevant_files,
+                    terminal_view_id,
+                    ctx,
+                )
+            });
+            action_model.update(ctx, |model, ctx| {
+                let conversation_id = AIConversationId::new();
+                let batch = pending_tool_batch(&["first", "second"]);
+                let actions = vec![action("first"), action("second")];
+                model.provider_tool_executions.extend(
+                    provider_action_correlations(&actions, conversation_id, &batch).unwrap(),
+                );
+                for action in &actions {
+                    model
+                        .deferred_provider_preprocessing
+                        .insert((conversation_id, action.id.clone()), false);
+                }
+                model
+                    .pending_actions
+                    .insert(conversation_id, actions.clone().into());
+                model.add_running_action(
+                    conversation_id,
+                    AIAgentActionId::from("running".to_string()),
+                    RunningActionPhase::Serial,
+                );
+                assert!(model
+                    .start_pending_action_by_id(
+                        &actions[0].id,
+                        conversation_id,
+                        ActionExecutionInitiator::Automatic,
+                        ctx
+                    )
+                    .is_none());
+                assert!(
+                    !model.deferred_provider_preprocessing
+                        [&(conversation_id, actions[0].id.clone())]
+                );
+                model.running_actions.remove(&conversation_id);
+                assert!(model
+                    .start_pending_action_by_id(
+                        &actions[1].id,
+                        conversation_id,
+                        ActionExecutionInitiator::User,
+                        ctx
+                    )
+                    .is_none());
+                assert!(
+                    !model.deferred_provider_preprocessing
+                        [&(conversation_id, actions[1].id.clone())]
+                );
+                assert_eq!(model.pending_actions[&conversation_id].len(), 2);
+            });
+        });
+    });
 }
 
 fn count_startable_actions_for_pass(phases: &[(RunningActionPhase, bool)]) -> usize {

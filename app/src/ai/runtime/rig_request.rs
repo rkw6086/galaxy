@@ -27,7 +27,6 @@ pub(crate) struct PreparedRigTurn {
     pub task_id: String,
     pub needs_create_task: bool,
     pub user_query: Option<String>,
-    pub todo_items: Option<Vec<api::TodoItem>>,
     pub request: TurnRequest,
     pub persistent_messages: Vec<ConversationMessage>,
     pub tool_result_archive: Vec<ConversationMessage>,
@@ -234,9 +233,6 @@ fn prepare_rig_turn_for_provider(
     let needs_create_task = tasks.is_empty();
     let user_query = input.iter().find_map(input_user_query);
     let mode = mode_override.unwrap_or_else(|| request_mode(&input));
-    // Only an LLM-authored UpdateTodos message creates the checklist. Ordinary turns
-    // and orchestration prompts must not receive a fabricated plan.
-    let todo_items = todo_items_from_tasks(&tasks);
     let available_tools = match mode {
         RigRequestMode::Cli => supported_cli_agent_tools,
         RigRequestMode::CompletedCommandAssessment => Vec::new(),
@@ -304,36 +300,12 @@ fn prepare_rig_turn_for_provider(
         task_id,
         needs_create_task,
         user_query,
-        todo_items,
         request,
         persistent_messages,
         tool_result_archive,
         messages_sent,
         mcp_tool_aliases,
     }
-}
-
-// Reuse a plan emitted by the model when the existing transcript contains one. This keeps
-// direct-provider projection aligned with UpdateTodos instead of inventing a second plan.
-fn todo_items_from_tasks(tasks: &[api::Task]) -> Option<Vec<api::TodoItem>> {
-    let mut items = None;
-    for task in tasks {
-        for message in &task.messages {
-            let Some(api::message::Message::UpdateTodos(update)) = &message.message else {
-                continue;
-            };
-            match update.operation.as_ref()? {
-                api::message::update_todos::Operation::CreateTodoList(create) => {
-                    items = Some(create.initial_todos.clone());
-                }
-                api::message::update_todos::Operation::UpdatePendingTodos(update) => {
-                    items = Some(update.updated_pending_todos.clone());
-                }
-                api::message::update_todos::Operation::MarkTodosCompleted(_) => {}
-            }
-        }
-    }
-    items.filter(|items| !items.is_empty())
 }
 
 fn input_messages(
@@ -759,6 +731,9 @@ fn build_system_prompt(
     prompt.push_str(
         "## Execution Contract\nContinue until the user's requested outcome is complete and validated. Do not stop at an intermediate analysis, plan, status update, or promise of future work, and do not ask the user to say \"continue\". After each tool result, choose and perform the next necessary step. Stop only when the request is fulfilled or a concrete blocker requires user input; identify that blocker explicitly.\n\n",
     );
+    prompt.push_str(
+        "## Task Tracking\nUse task tracking only for substantial work with multiple concrete steps, after planning has established those steps or when the user provides an actionable plan. Skip it for simple requests, questions, and exploratory planning. Each task must name a specific change or deliverable with a clear completion condition. Do not create generic workflow items such as 'research the request', 'critique the plan', 'execute the plan', or 'verify the result'. Update tasks only when their actual work is complete; a tool call or model turn alone is not evidence of completion.\n\n",
+    );
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;
@@ -921,7 +896,7 @@ fn build_system_prompt(
     match mode {
         RigRequestMode::Normal => {}
         RigRequestMode::Plan => prompt.push_str(
-            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. Include a concise `## Tasks` section in the document with short, specific `- [ ]` items. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds. Once the plan is created, avoid asking follow-up questions unless you are genuinely blocked or materially uncertain about the next step.\n\n",
+            "## Plan Mode\nInspect and produce an implementation-ready plan. Do not edit files or perform state-changing actions. Research as needed, then finish by calling `create_plan` to write the plan with the built-in planning tools. For multi-step implementation work, include a concise `## Tasks` section in the document with short, specific `- [ ]` items. If a plan document already exists for this task, call `edit_plan` instead. Do not return the plan only as prose, and do not claim completion until the plan tool succeeds. Once the plan is created, avoid asking follow-up questions unless you are genuinely blocked or materially uncertain about the next step.\n\n",
         ),
         RigRequestMode::Orchestrate => prompt.push_str(
             "## Orchestration Mode\nDelegate only independent, bounded work where parallelism materially helps, then synthesize the results.\n\n",
@@ -964,7 +939,7 @@ fn build_system_prompt(
         }
         if tools.iter().any(|tool| tool.name == "create_plan") {
             prompt.push_str(
-                "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. Include a concise `## Tasks` section with short, specific `- [ ]` items so the user can track progress. If the plan structure changes materially, invalidate it and create a replacement; status changes should update the existing task list instead. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve. Once a plan and task list exist, continue working against them and avoid follow-up questions unless genuinely blocked or materially uncertain.\n",
+                "Plan document creation is available through `create_plan`. When the user asks you to create a plan for review, research first as needed, then call `create_plan`; do not merely return the plan as prose or claim that no plan-creation tool is available. For multi-step implementation work, include a concise `## Tasks` section with short, specific `- [ ]` items so the user can track progress. If the plan structure changes materially, invalidate it and create a replacement; status changes should update the existing task list instead. If the user asks to review the plan before implementation, creating the document and presenting it for review is the requested outcome; do not implement it until they approve. Once a plan and task list exist, continue working against them and avoid follow-up questions unless genuinely blocked or materially uncertain.\n",
             );
         }
     }

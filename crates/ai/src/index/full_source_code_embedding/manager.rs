@@ -723,7 +723,7 @@ impl CodebaseIndexManager {
                     ))
                 ) {
                     index.update(_ctx, |code_index, ctx| {
-                        let _ = code_index.full_sync_index(self.max_files_repo_limit, ctx);
+                        let _ = code_index.full_sync_index(ctx);
                     });
                 }
             }
@@ -940,7 +940,6 @@ impl CodebaseIndexManager {
                 let index = Self::build_and_sync_codebase_index_internal(
                     self.store_client.clone(),
                     handle,
-                    self.max_files_repo_limit,
                     self.embedding_generation_batch_size,
                     #[cfg(feature = "local_fs")]
                     snapshot_storage,
@@ -967,7 +966,6 @@ impl CodebaseIndexManager {
     fn build_and_sync_codebase_index_internal(
         store_client: Arc<dyn StoreClient>,
         repository: ModelHandle<Repository>,
-        max_files_repo_limit: usize,
         embedding_generation_batch_size: usize,
         #[cfg(feature = "local_fs")] snapshot_storage: Option<SnapshotStorage>,
         ctx: &mut ModelContext<Self>,
@@ -991,7 +989,6 @@ impl CodebaseIndexManager {
                         store_client.clone(),
                         snapshot_storage.path(),
                         repository.clone(),
-                        max_files_repo_limit,
                         embedding_generation_batch_size,
                         ctx,
                     ) {
@@ -1020,7 +1017,6 @@ impl CodebaseIndexManager {
                 repository,
                 store_client,
                 EmbeddingConfig::default(),
-                max_files_repo_limit,
                 embedding_generation_batch_size,
                 ctx,
             )
@@ -1185,7 +1181,7 @@ impl CodebaseIndexManager {
         };
 
         codebase_index.update(ctx, |index, ctx| {
-            let _ = index.full_sync_index(self.max_files_repo_limit, ctx);
+            let _ = index.full_sync_index(ctx);
         })
     }
 

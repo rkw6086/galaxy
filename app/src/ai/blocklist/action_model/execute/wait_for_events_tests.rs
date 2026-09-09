@@ -19,6 +19,7 @@ use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStream
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::server::server_api::ai::{AIClient, MockAIClient};
 use crate::server::server_api::ServerApiProvider;
+use crate::test_util::settings::initialize_history_persistence_for_tests;
 
 #[test]
 fn watchdog_timeout_constants_match_documented_values() {
@@ -88,23 +89,11 @@ fn execute_invokes_parent_registration_and_honors_child_short_circuit() {
     // without a server fetch (asserted via the mock's times(0) expectation),
     // and the wait still flips the conversation into WaitingForEvents.
     App::test((), |mut app| async move {
+        initialize_history_persistence_for_tests(&mut app);
         let _flag_guard = FeatureFlag::WaitForEventsParentRegistration.override_enabled(true);
 
         let terminal_view_id = EntityId::new();
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
-
-        // A streamer whose server fetch must never be called: the child
-        // short-circuit precedes any `get_ambient_agent_task` call.
-        let mut mock = MockAIClient::new();
-        mock.expect_get_ambient_agent_task().times(0);
-        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
-        let server_api = ServerApiProvider::new_for_test().get();
-        // Held for the lifetime of the test so the mock's times(0) expectation
-        // is verified on drop; resolved internally by `execute()` via
-        // `OrchestrationEventStreamer::handle`.
-        let _streamer = app.add_singleton_model(|ctx| {
-            OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
-        });
 
         let executor = app.add_model(|ctx| WaitForEventsExecutor::new(terminal_view_id, ctx));
 
@@ -121,6 +110,21 @@ fn execute_invokes_parent_registration_and_honors_child_short_circuit() {
                 ConversationStatus::InProgress,
                 ctx,
             );
+        });
+
+        // Subscribe after restoring the fixture so unrelated restore-time harness
+        // discovery does not count as a parent-registration fetch.
+        // A streamer whose server fetch must never be called: the child
+        // short-circuit precedes any `get_ambient_agent_task` call.
+        let mut mock = MockAIClient::new();
+        mock.expect_get_ambient_agent_task().times(0);
+        let ai_client: Arc<dyn AIClient> = Arc::new(mock);
+        let server_api = ServerApiProvider::new_for_test().get();
+        // Held for the lifetime of the test so the mock's times(0) expectation
+        // is verified on drop; resolved internally by `execute()` via
+        // `OrchestrationEventStreamer::handle`.
+        let _streamer = app.add_singleton_model(|ctx| {
+            OrchestrationEventStreamer::new_with_clients_for_test(ai_client, server_api, ctx)
         });
 
         let action = AIAgentAction {

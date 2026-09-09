@@ -1742,15 +1742,11 @@ fn launch_local_no_harness_child(
                     });
 
                     new_terminal_view.update(ctx, |terminal_view, ctx| {
-                        terminal_view
-                            .ai_controller()
-                            .update(ctx, |controller, ctx| {
-                                controller.send_agent_query_in_conversation(
-                                    prompt.clone(),
-                                    conversation_id,
-                                    ctx,
-                                );
-                            });
+                        terminal_view.send_child_agent_query_when_ready(
+                            prompt.clone(),
+                            conversation_id,
+                            ctx,
+                        );
 
                         terminal_view.enter_agent_view(
                             None,
@@ -1852,11 +1848,7 @@ fn launch_direct_provider_child(
     });
 
     terminal_view.update(ctx, |terminal_view, ctx| {
-        terminal_view
-            .ai_controller()
-            .update(ctx, |controller, ctx| {
-                controller.send_agent_query_in_conversation(prompt, conversation_id, ctx);
-            });
+        terminal_view.send_child_agent_query_when_ready(prompt, conversation_id, ctx);
         terminal_view.enter_agent_view(
             None,
             Some(conversation_id),

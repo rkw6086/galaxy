@@ -517,7 +517,9 @@ fn lrc_snapshot_follow_up_uses_the_cli_monitor_prompt_and_tools() {
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
     assert!(prompt.contains("## Running Command Monitor"));
-    assert!(prompt.contains("`read_shell_command_output` with a short delay"));
+    assert!(
+        prompt.contains("Use the command ID from the tool result for every read/write operation")
+    );
     assert!(prompt.contains("one concise, user-facing sentence"));
     assert!(prompt.contains("Do not send a text-only progress response"));
     assert!(prompt.contains("alternate screen containing `(END)` is `less`"));

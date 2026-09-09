@@ -16,10 +16,22 @@ use crate::test_util::settings::initialize_history_persistence_for_tests;
 
 const FIRST_REQUEST_ID: StartAgentRequestId = StartAgentRequestId::from_raw_for_test(0);
 
-/// Stable placeholder run_id assigned to the parent conversation in tests
-/// that exercise the server-backed Oz child path. Tests without this id
-/// exercise the direct-provider local child path instead.
+/// Stable server run ID for parent conversations. Child execution mode, rather
+/// than the presence of this ID, selects startup versus completion waits.
 const PARENT_RUN_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+fn remote_execution_mode() -> StartAgentExecutionMode {
+    StartAgentExecutionMode::Remote {
+        environment_id: "env-123".to_string(),
+        skill_references: vec![],
+        model_id: String::new(),
+        computer_use_enabled: false,
+        worker_host: String::new(),
+        harness_type: "oz".to_string(),
+        title: String::new(),
+        auth_secret_name: None,
+    }
+}
 
 #[derive(Default)]
 struct CapturedDirectProviderChildLinks(Vec<(AIAgentActionId, AIConversationId, AIConversationId)>);
@@ -394,10 +406,7 @@ fn execute_returns_error_when_child_startup_is_blocked_before_initialization() {
                 ctx,
             );
         });
-        let action = build_start_agent_action(
-            StartAgentVersion::V1,
-            StartAgentExecutionMode::local_with_defaults(),
-        );
+        let action = build_start_agent_action(StartAgentVersion::V1, remote_execution_mode());
 
         let execution = executor.update(&mut app, |executor, ctx| {
             let input = ExecuteActionInput {
@@ -581,10 +590,7 @@ fn execute_resolves_success_when_request_linkage_happens_after_child_already_sta
                 ctx,
             );
         });
-        let action = build_start_agent_action(
-            StartAgentVersion::V1,
-            StartAgentExecutionMode::local_with_defaults(),
-        );
+        let action = build_start_agent_action(StartAgentVersion::V1, remote_execution_mode());
 
         let execution = executor.update(&mut app, |executor, ctx| {
             let input = ExecuteActionInput {
@@ -739,10 +745,7 @@ fn hosted_child_link_does_not_publish_direct_provider_panel_event() {
                 ctx,
             );
         });
-        let action = build_start_agent_action(
-            StartAgentVersion::V1,
-            StartAgentExecutionMode::local_with_defaults(),
-        );
+        let action = build_start_agent_action(StartAgentVersion::V1, remote_execution_mode());
 
         let execution = executor.update(&mut app, |executor, ctx| {
             let input = ExecuteActionInput {
@@ -1769,7 +1772,7 @@ struct PendingChildLaunch {
     child_conversation_id: AIConversationId,
 }
 
-/// Dispatches a local child launch and creates (but does not yet link) its
+/// Dispatches a remote child launch and creates (but does not yet link) its
 /// child conversation, leaving one in-flight pending in the executor with a
 /// model subscribed to capture `CleanupFailedChildLaunch` events. Tests link
 /// the child and drive it to a terminal state, then assert on cleanup. The
@@ -1803,10 +1806,7 @@ fn dispatch_pending_child_launch(
             ctx,
         );
     });
-    let action = build_start_agent_action(
-        StartAgentVersion::V1,
-        StartAgentExecutionMode::local_with_defaults(),
-    );
+    let action = build_start_agent_action(StartAgentVersion::V1, remote_execution_mode());
     // The pending lives in the executor regardless of the returned execution,
     // and cleanup is emitted synchronously from the child status update, so the
     // action-result plumbing is discarded.

@@ -243,14 +243,5 @@ fn native_descriptor(provider: &str, model: &str) -> RuntimeDescriptor {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::native_descriptor;
-
-    #[test]
-    fn native_descriptors_are_provider_specific() {
-        let descriptor = native_descriptor("anthropic", "claude-sonnet");
-
-        assert_eq!(descriptor.id, "rig-anthropic:claude-sonnet");
-        assert_eq!(descriptor.display_name, "Rig / anthropic / claude-sonnet");
-    }
-}
+#[path = "native_tests.rs"]
+mod tests;

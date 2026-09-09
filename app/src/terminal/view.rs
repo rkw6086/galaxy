@@ -2610,6 +2610,8 @@ pub struct TerminalView {
 
     bootstrap_start: Option<Instant>,
     is_login_shell_bootstrapped: bool,
+    /// A child prompt must wait for the shell's session context to be available.
+    pending_child_agent_query: Option<(AIConversationId, String)>,
     /// Set when a pending command is submitted to the shell. Cleared on the
     /// next `AfterBlockCompleted`, at which point `Event::PendingCommandCompleted`
     /// is emitted so subscribers know the command has finished.
@@ -4362,6 +4364,7 @@ impl TerminalView {
             last_hover_fragment_boundary: None,
             bootstrap_start: None,
             is_login_shell_bootstrapped: false,
+            pending_child_agent_query: None,
             awaiting_pending_command_completion: false,
             pending_command_queue: Default::default(),
             enter_agent_view_after_pending_commands: false,
@@ -11992,6 +11995,10 @@ impl TerminalView {
                 // bootstrap block so the user might be able to see what went wrong.
                 if !self.is_login_shell_bootstrapped {
                     self.show_initialization_block();
+                    self.fail_pending_child_agent_query(
+                        "Child agent shell exited before initialization completed.".to_string(),
+                        ctx,
+                    );
                 }
 
                 if !self.pty_spawn_failed {
@@ -13937,6 +13944,9 @@ impl TerminalView {
         }
 
         self.refresh_warp_prompt(ctx);
+        if let Some((conversation_id, prompt)) = self.pending_child_agent_query.take() {
+            self.send_child_agent_query_when_ready(prompt, conversation_id, ctx);
+        }
         ctx.emit(Event::SessionBootstrapped);
     }
 
@@ -16194,6 +16204,58 @@ impl TerminalView {
 
     pub fn is_login_shell_bootstrapped(&self) -> bool {
         self.is_login_shell_bootstrapped
+    }
+
+    fn fail_pending_child_agent_query(&mut self, message: String, ctx: &mut ViewContext<Self>) {
+        let Some((conversation_id, _)) = self.pending_child_agent_query.take() else {
+            return;
+        };
+        let terminal_view_id = ctx.view_id();
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+            if history
+                .conversation(&conversation_id)
+                .is_some_and(|conversation| {
+                    matches!(conversation.status(), ConversationStatus::InProgress)
+                })
+            {
+                history.update_conversation_status_with_error(
+                    terminal_view_id,
+                    conversation_id,
+                    ConversationStatus::Error,
+                    Some(RenderableAIError::other(message, false)),
+                    ctx,
+                );
+            }
+        });
+    }
+
+    pub(crate) fn send_child_agent_query_when_ready(
+        &mut self,
+        prompt: String,
+        conversation_id: AIConversationId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let can_start = BlocklistAIHistoryModel::as_ref(ctx)
+            .conversation(&conversation_id)
+            .is_some_and(|conversation| {
+                matches!(conversation.status(), ConversationStatus::InProgress)
+            });
+        if !can_start {
+            return;
+        }
+        if !self.is_login_shell_bootstrapped {
+            self.pending_child_agent_query = Some((conversation_id, prompt));
+            if self.pty_spawn_failed {
+                self.fail_pending_child_agent_query(
+                    "Child agent shell failed to start.".to_string(),
+                    ctx,
+                );
+            }
+            return;
+        }
+        self.ai_controller.update(ctx, |controller, ctx| {
+            controller.send_agent_query_in_conversation(prompt, conversation_id, ctx);
+        });
     }
     pub fn has_pending_command_or_awaiting_completion(&self, ctx: &AppContext) -> bool {
         self.awaiting_pending_command_completion
@@ -26203,6 +26265,10 @@ impl TerminalSurface for TerminalView {
     #[cfg(feature = "local_tty")]
     fn on_pty_spawn_failed(&mut self, error: anyhow::Error, ctx: &mut ViewContext<Self>) {
         self.pty_spawn_failed = true;
+        self.fail_pending_child_agent_query(
+            format!("Child agent shell failed to start: {error:#}"),
+            ctx,
+        );
         // Emit before the banner so the terminal driver can cancel its
         // bootstrap wait immediately, without waiting for the 60 s timeout.
         let reason = format!("{error:#}");

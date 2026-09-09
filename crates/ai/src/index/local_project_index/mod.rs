@@ -674,6 +674,7 @@ async fn acquire_repository_lock(storage_root: &Path, root_path: &Path) -> Resul
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&lock_path)
         .with_context(|| format!("Failed to open local index lock {}", lock_path.display()))?;
     loop {

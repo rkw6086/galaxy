@@ -1044,6 +1044,9 @@ impl ProviderRun {
                 call.state = PendingToolCallState::PermissionPending { request };
                 Ok(())
             }
+            PendingToolCallState::PermissionPending { request: pending } if pending == &request => {
+                Ok(())
+            }
             PendingToolCallState::Resolved { .. } => {
                 Err(ProviderRunProtocolError::DuplicateToolUpdate {
                     call_id: call.call.id.clone(),
@@ -1068,6 +1071,12 @@ impl ProviderRun {
         let call = self.pending_tool_call_mut(work_id, call_id)?;
         let pending_request_id = match &call.state {
             PendingToolCallState::PermissionPending { request } => request.id.clone(),
+            PendingToolCallState::Approved {
+                request_id: approved_request_id,
+                decision: approved_decision,
+            } if approved_request_id == request_id && approved_decision == &decision => {
+                return Ok(());
+            }
             PendingToolCallState::Resolved { .. } => {
                 return Err(ProviderRunProtocolError::DuplicateToolUpdate {
                     call_id: call.call.id.clone(),

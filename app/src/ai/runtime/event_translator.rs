@@ -26,9 +26,6 @@ pub(crate) struct RuntimeResponseConfig {
     pub(crate) max_context_tokens: Option<u32>,
     pub(crate) capabilities: RuntimeCapabilities,
     pub(crate) empty_output_message: Option<String>,
-    /// Todo items supplied by the existing task transcript, when one is available.
-    #[serde(skip)]
-    pub(crate) todo_items: Option<Vec<api::TodoItem>>,
 }
 
 /// Converts the provider-neutral runtime lifecycle into Galaxy's existing
@@ -54,19 +51,16 @@ pub(crate) struct RuntimeResponseTranslator {
 pub(crate) struct ProviderRunResponseProjector {
     translator: RuntimeResponseTranslator,
     has_started_model_turn: bool,
-    todo_phase: usize,
-    todo_started: bool,
+    plan_tasks_projected: bool,
     finished: bool,
 }
 
 impl ProviderRunResponseProjector {
     pub(crate) fn new(config: RuntimeResponseConfig) -> Self {
-        let todo_started = config.todo_items.is_some();
         Self {
             translator: RuntimeResponseTranslator::new(config),
             has_started_model_turn: false,
-            todo_phase: 0,
-            todo_started,
+            plan_tasks_projected: false,
             finished: false,
         }
     }
@@ -78,9 +72,7 @@ impl ProviderRunResponseProjector {
         Self {
             translator: RuntimeResponseTranslator::restored(config, projection_was_initialized),
             has_started_model_turn: false,
-            // Task-list events are part of the already persisted projection.
-            todo_phase: usize::MAX,
-            todo_started: true,
+            plan_tasks_projected: true,
             finished: false,
         }
     }
@@ -98,11 +90,9 @@ impl ProviderRunResponseProjector {
                     self.translator.begin_followup_turn();
                 }
                 self.has_started_model_turn = true;
-                let mut events = self.translator.translate(AgentEvent::TurnStarted {
+                self.translator.translate(AgentEvent::TurnStarted {
                     runtime_request_id: String::new(),
-                })?;
-                events.extend(self.todo_phase_events());
-                Ok(events)
+                })
             }
             ProviderRunProjection::ModelEvent { event, .. } => self.translator.translate(event),
             ProviderRunProjection::ModelRetry { .. } => {
@@ -111,10 +101,9 @@ impl ProviderRunResponseProjector {
             ProviderRunProjection::ModelTurnRequested { .. }
             | ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
             ProviderRunProjection::ToolBatchReady { batch } => {
-                if !self.todo_started {
+                if !self.plan_tasks_projected {
                     if let Some(todos) = todos_from_plan_batch(&batch) {
-                        self.todo_started = true;
-                        self.todo_phase = 1;
+                        self.plan_tasks_projected = true;
                         return Ok(vec![build_todo_update(
                             &self.translator.config.task_id,
                             api::message::update_todos::Operation::CreateTodoList(
@@ -124,34 +113,9 @@ impl ProviderRunResponseProjector {
                             ),
                         )]);
                     }
-                    return Ok(Vec::new());
                 }
-                let todo_index = self.todo_phase.saturating_sub(1);
-                let Some(todo) = self.todo_items().get(todo_index).cloned() else {
-                    return Ok(Vec::new());
-                };
-                self.todo_phase += 1;
-                let mut events = vec![build_todo_update(
-                    &self.translator.config.task_id,
-                    api::message::update_todos::Operation::MarkTodosCompleted(
-                        api::MarkTodosCompleted {
-                            todo_ids: vec![todo.id],
-                        },
-                    ),
-                )];
-                events.push(build_todo_update(
-                    &self.translator.config.task_id,
-                    api::message::update_todos::Operation::UpdatePendingTodos(
-                        api::UpdatePendingTodos {
-                            updated_pending_todos: self
-                                .todo_items()
-                                .into_iter()
-                                .skip(self.todo_phase)
-                                .collect(),
-                        },
-                    ),
-                ));
-                Ok(events)
+                // Tool batches indicate runtime activity, not completion of planned work.
+                Ok(Vec::new())
             }
         }
     }
@@ -170,14 +134,9 @@ impl ProviderRunResponseProjector {
         }
         self.finished = true;
         match outcome {
-            ProviderRunOutcome::Completed(completion) => {
-                let mut events = self.todo_completion_events();
-                events.extend(
-                    self.translator
-                        .finish_provider_run(completion.stop_reason.clone(), aggregate_usage),
-                );
-                Ok(events)
-            }
+            ProviderRunOutcome::Completed(completion) => Ok(self
+                .translator
+                .finish_provider_run(completion.stop_reason.clone(), aggregate_usage)),
             ProviderRunOutcome::Failed(failure) => Ok(self.translator.provider_failure(
                 &failure.message,
                 failure.source.as_ref(),
@@ -188,49 +147,10 @@ impl ProviderRunResponseProjector {
                 .finish_provider_run(StopReason::Cancelled, aggregate_usage)),
         }
     }
-
-    // Keep the direct-provider workflow visible in the existing task list protocol. These are
-    // response events, so the normal history model remains the sole owner of task-list state.
-    fn todo_phase_events(&mut self) -> Vec<ResponseEvent> {
-        Vec::new()
-    }
-
-    fn todo_completion_events(&self) -> Vec<ResponseEvent> {
-        if self.todo_phase == 0 || self.todo_phase == usize::MAX {
-            return Vec::new();
-        }
-        let todos = self.todo_items();
-        if todos.is_empty() {
-            return Vec::new();
-        }
-        vec![
-            build_todo_update(
-                &self.translator.config.task_id,
-                api::message::update_todos::Operation::MarkTodosCompleted(
-                    api::MarkTodosCompleted {
-                        todo_ids: todos.iter().map(|todo| todo.id.clone()).collect(),
-                    },
-                ),
-            ),
-            build_todo_update(
-                &self.translator.config.task_id,
-                api::message::update_todos::Operation::UpdatePendingTodos(
-                    api::UpdatePendingTodos {
-                        updated_pending_todos: Vec::new(),
-                    },
-                ),
-            ),
-        ]
-    }
-    fn todo_items(&self) -> Vec<api::TodoItem> {
-        self.translator
-            .config
-            .todo_items
-            .clone()
-            .unwrap_or_default()
-    }
 }
 
+// Only explicit multi-step checklists in a plan become tasks. Other document bullets
+// (risks, examples, requirements) are not executable tasks.
 fn todos_from_plan_batch(
     batch: &galaxy_agent_core::PendingToolBatch,
 ) -> Option<Vec<api::TodoItem>> {
@@ -240,46 +160,33 @@ fn todos_from_plan_batch(
             "create_plan" | "create_documents"
         )
     })?;
-    let documents = plan_call.call.arguments.get("documents")?.as_array()?;
-    let content = documents.first()?.get("content")?.as_str()?;
-    let section = content
-        .split_once("## Tasks")
-        .or_else(|| content.split_once("## Implementation Tasks"))
-        .map(|(_, section)| section)
-        .unwrap_or(content);
-    let todos = section
-        .lines()
-        .filter_map(|line| {
-            let item = line
-                .trim()
-                .strip_prefix("- [ ]")
-                .or_else(|| line.trim().strip_prefix("-"))?
-                .trim();
-            if item.is_empty() {
-                return None;
-            }
-            let title = item
+    let content = plan_call
+        .call
+        .arguments
+        .get("documents")?
+        .as_array()?
+        .first()?
+        .get("content")?
+        .as_str()?;
+    let mut lines = content.lines();
+    lines.find(|line| matches!(line.trim(), "## Tasks" | "## Implementation Tasks"))?;
+    let todos = lines
+        .take_while(|line| !line.trim().starts_with("## "))
+        .filter_map(|line| line.trim().strip_prefix("- [ ]").map(str::trim))
+        .filter(|item| !item.is_empty())
+        .take(50)
+        .enumerate()
+        .map(|(index, item)| api::TodoItem {
+            id: format!("plan-{}-{index}", plan_call.call.id),
+            title: item
                 .split_once(" - ")
                 .map_or(item, |(title, _)| title)
-                .trim();
-            let id = format!(
-                "plan-{}",
-                title
-                    .chars()
-                    .filter_map(|character| character
-                        .is_ascii_alphanumeric()
-                        .then_some(character.to_ascii_lowercase()))
-                    .collect::<String>()
-            );
-            Some(api::TodoItem {
-                id,
-                title: title.to_owned(),
-                description: item.to_owned(),
-            })
+                .trim()
+                .to_owned(),
+            description: item.to_owned(),
         })
-        .take(50)
         .collect::<Vec<_>>();
-    (!todos.is_empty()).then_some(todos)
+    (todos.len() > 1).then_some(todos)
 }
 
 fn build_todo_update(

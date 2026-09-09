@@ -529,6 +529,61 @@ fn exact_batch_submission_rejects_missing_duplicate_and_unknown_results_without_
 }
 
 #[test]
+fn repeated_permission_notifications_preserve_pending_sibling_tools() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("first", "run_shell_command"),
+                tool_call("second", "run_shell_command"),
+            ],
+            &["run_shell_command"],
+        ),
+    );
+    let request = PermissionRequest {
+        id: "permission-first".to_string(),
+        call_id: "first".to_string(),
+        kind: PermissionKind::Execute,
+        reason: Some("run a command".to_string()),
+    };
+    run.request_tool_permission(&batch.work_id, request.clone())
+        .unwrap();
+    run.request_tool_permission(&batch.work_id, request.clone())
+        .unwrap();
+    let mut conflicting = request;
+    conflicting.id = "different-permission".to_string();
+    assert!(
+        run.request_tool_permission(&batch.work_id, conflicting)
+            .is_err()
+    );
+    for _ in 0..2 {
+        run.resolve_tool_permission(
+            &batch.work_id,
+            "first",
+            "permission-first",
+            PermissionDecision::AllowOnce,
+        )
+        .unwrap();
+    }
+    assert!(
+        run.resolve_tool_permission(
+            &batch.work_id,
+            "first",
+            "permission-first",
+            PermissionDecision::AlwaysAllow,
+        )
+        .is_err()
+    );
+    run.start_tool(&batch.work_id, "first").unwrap();
+    let ProviderRunState::AwaitingTools { batch } = run.state() else {
+        panic!("permission notifications must leave the batch pending");
+    };
+    assert_eq!(batch.calls[0].state, PendingToolCallState::Executing);
+    assert_eq!(batch.calls[1].state, PendingToolCallState::Proposed);
+}
+
+#[test]
 fn permission_denial_becomes_one_correlated_result() {
     let mut run = run();
     let batch = accept_tool_turn(

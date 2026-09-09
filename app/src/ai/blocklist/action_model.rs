@@ -780,9 +780,14 @@ pub struct BlocklistAIActionModel {
 
     /// Permission-card rejections whose cancelled action result must not emit a second provider event.
     denied_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
+    pending_permissions: HashSet<(AIConversationId, AIAgentActionId)>,
 
     /// Actions parked because their executor-specific UI or state was not ready yet.
     not_ready_actions: NotReadyActionTracker,
+
+    /// Provider preprocessing waits for execution order, since it can read file contents.
+    /// The value is true while preprocessing is in flight.
+    deferred_provider_preprocessing: HashMap<(AIConversationId, AIAgentActionId), bool>,
 
     /// Durable provider work identity for actions owned by an active provider run.
     provider_tool_executions:
@@ -899,7 +904,9 @@ impl BlocklistAIActionModel {
             running_actions: Default::default(),
             action_order: Default::default(),
             denied_permissions: Default::default(),
+            pending_permissions: Default::default(),
             not_ready_actions: Default::default(),
+            deferred_provider_preprocessing: Default::default(),
             provider_tool_executions: Default::default(),
             terminal_view_id,
             pending_preprocessed_actions: Default::default(),
@@ -1280,6 +1287,13 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         id: &AIAgentActionId,
     ) -> Option<AIActionStatus> {
+        if self
+            .deferred_provider_preprocessing
+            .get(&(conversation_id, id.clone()))
+            == Some(&true)
+        {
+            return Some(AIActionStatus::Preprocessing);
+        }
         if let Some(status) = pending_action_status(
             &self.pending_actions,
             &self.running_actions,
@@ -1507,7 +1521,7 @@ impl BlocklistAIActionModel {
     }
 
     fn handle_not_executed_action(
-        &self,
+        &mut self,
         action: &AIAgentAction,
         reason: NotExecutedReason,
         conversation_id: AIConversationId,
@@ -1515,6 +1529,12 @@ impl BlocklistAIActionModel {
     ) {
         match reason {
             NotExecutedReason::NeedsConfirmation => {
+                if !self
+                    .pending_permissions
+                    .insert((conversation_id, action.id.clone()))
+                {
+                    return;
+                }
                 #[cfg(not(target_family = "wasm"))]
                 log_tool_event(
                     ctx,
@@ -1624,6 +1644,42 @@ impl BlocklistAIActionModel {
             .get(&conversation_id)
             .and_then(|queue| queue.iter().position(|action| &action.id == action_id))?;
 
+        let key = (conversation_id, action_id.clone());
+        if self.provider_tool_executions.contains_key(&key) && idx != 0 {
+            return None;
+        }
+        // Readiness callbacks also enter here directly, bypassing the normal queue loop.
+        // They must obey the same serial barriers before preprocessing or executing.
+        if let Some(current_phase) = self.action_execution_phase(conversation_id) {
+            let action = self.pending_actions[&conversation_id][idx].clone();
+            if !self.can_start_action_in_current_phase(&action, conversation_id, current_phase, ctx)
+            {
+                return None;
+            }
+        }
+        if let Some(in_flight) = self.deferred_provider_preprocessing.get_mut(&key) {
+            if *in_flight {
+                return None;
+            }
+            *in_flight = true;
+            let action = self.pending_actions[&conversation_id][idx].clone();
+            let execution_ref = self.provider_tool_execution_ref(conversation_id, action_id);
+            let future = self.preprocess_action(&action, conversation_id, ctx);
+            ctx.spawn(future, move |me, (), ctx| {
+                // A cancelled or replaced generation must never restart this action.
+                if me.provider_tool_execution_ref(conversation_id, &action.id) != execution_ref {
+                    return;
+                }
+                me.deferred_provider_preprocessing.remove(&key);
+                if is_user_initiated {
+                    me.execute_action(&action.id, conversation_id, ctx);
+                } else {
+                    me.try_to_execute_available_actions(conversation_id, ctx);
+                }
+            });
+            return None;
+        }
+
         let action = self
             .pending_actions
             .get_mut(&conversation_id)?
@@ -1640,7 +1696,13 @@ impl BlocklistAIActionModel {
             "permission_kind": format!("{:?}", permission_kind_for_action(&action.action)),
             "phase": format!("{phase:?}"),
         });
-        if is_user_initiated {
+        let resolves_permission = self.pending_permissions.contains(&key)
+            && (is_user_initiated
+                || self.executor.update(ctx, |executor, ctx| {
+                    executor.can_autoexecute_action(&action, conversation_id, ctx)
+                }));
+        if resolves_permission {
+            self.pending_permissions.remove(&key);
             #[cfg(not(target_family = "wasm"))]
             log_tool_event(
                 ctx,
@@ -1884,7 +1946,15 @@ impl BlocklistAIActionModel {
 
         for action in actions.iter() {
             action_ids.insert(action.id.clone());
-            preprocess_future.push(self.preprocess_action(action, conversation_id, ctx));
+            if self
+                .provider_tool_executions
+                .contains_key(&(conversation_id, action.id.clone()))
+            {
+                self.deferred_provider_preprocessing
+                    .insert((conversation_id, action.id.clone()), false);
+            } else {
+                preprocess_future.push(self.preprocess_action(action, conversation_id, ctx));
+            }
         }
 
         let preprocess_id = self
@@ -2053,6 +2123,8 @@ impl BlocklistAIActionModel {
         reason: Option<CancellationReason>,
         ctx: &mut ModelContext<Self>,
     ) {
+        self.deferred_provider_preprocessing
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.executor.update(ctx, |executor, ctx| {
             executor.cancel_all_running_async_actions_for_conversation(conversation_id, reason, ctx)
         });
@@ -2253,11 +2325,15 @@ impl BlocklistAIActionModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
+        self.deferred_provider_preprocessing
+            .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.past_action_results
             .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.provider_tool_executions
             .retain(|(conv_id, _), _| *conv_id != conversation_id);
         self.denied_permissions
+            .retain(|(conv_id, _)| *conv_id != conversation_id);
+        self.pending_permissions
             .retain(|(conv_id, _)| *conv_id != conversation_id);
         self.pending_actions.remove(&conversation_id);
         self.running_actions.remove(&conversation_id);
@@ -2371,6 +2447,10 @@ impl BlocklistAIActionModel {
 
         let execution_ref = self
             .provider_tool_executions
+            .remove(&(conversation_id, action_result.id.clone()));
+        self.deferred_provider_preprocessing
+            .remove(&(conversation_id, action_result.id.clone()));
+        self.pending_permissions
             .remove(&(conversation_id, action_result.id.clone()));
         let permission_denied = self
             .denied_permissions

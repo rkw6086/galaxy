@@ -1,7 +1,6 @@
 pub mod types;
 
 use crate::ai::openai::client::OpenAIClientConfig;
-
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::provider::client::BedrockClientConfig;
 

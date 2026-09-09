@@ -137,7 +137,6 @@ pub(crate) async fn prepare_provider_run(
         task_id,
         needs_create_task,
         user_query,
-        todo_items,
         request,
         persistent_messages,
         tool_result_archive,
@@ -160,7 +159,6 @@ pub(crate) async fn prepare_provider_run(
         max_context_tokens,
         capabilities: base_runtime.descriptor().capabilities.clone(),
         empty_output_message: None,
-        todo_items,
     };
     Ok(PreparedProviderRun {
         base_profile: ProviderRunProfile::new(base_runtime, request),
