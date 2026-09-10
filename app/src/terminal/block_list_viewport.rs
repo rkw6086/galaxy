@@ -136,6 +136,9 @@ impl ScrollLines {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ScrollPosition {
+    /// Follow newly inserted content at the top of an inverted block list.
+    FollowsTopOfMostRecentBlock,
+
     /// The scrolling follows the bottom of the most recently executed block.
     /// In terms of scroll_top, this implies scrolling stays locked to max_scroll_top.
     FollowsBottomOfMostRecentBlock,
@@ -645,6 +648,7 @@ impl<'a> ViewportState<'a> {
     /// How far the view is scrolled from the top of all blocks in lines.
     pub fn scroll_top_in_lines(&self) -> Lines {
         match (self.input_mode, self.scroll_position) {
+            (_, ScrollPosition::FollowsTopOfMostRecentBlock) => Lines::zero(),
             (
                 InputMode::PinnedToBottom,
                 ScrollPosition::FollowsBottomOfMostRecentBlock
@@ -775,7 +779,17 @@ impl<'a> ViewportState<'a> {
                     return self.scroll_position;
                 }
 
-                self.scroll_position_after_command_execution(app)
+                // Keep an established live-edge pin across tool/response insertion.
+                // Recomputing a waterfall gap offset here can turn it into a fixed offset.
+                match self.scroll_position {
+                    ScrollPosition::FollowsTopOfMostRecentBlock
+                    | ScrollPosition::FollowsBottomOfMostRecentBlock => self.scroll_position,
+                    ScrollPosition::WaterfallGapFollowsBottomOfMostRecentBlock { .. }
+                    | ScrollPosition::FixedAtPosition { .. }
+                    | ScrollPosition::FixedWithinLongRunningBlock { .. } => {
+                        self.scroll_position_after_command_execution(app)
+                    }
+                }
             }
             ScrollPositionUpdate::AfterKeydownOnTerminal
             | ScrollPositionUpdate::AfterTypedCharacters
@@ -821,34 +835,19 @@ impl<'a> ViewportState<'a> {
                     self.scroll_position
                 }
             }
-            ScrollPositionUpdate::AfterPageUp => {
-                let new_scroll_top = (self.scroll_top_in_lines()
-                    - self.content_element_height_lines()
-                    + 1.0.into_lines())
-                .max(Lines::zero());
-                ScrollPosition::FixedAtPosition {
-                    scroll_lines: self.scroll_lines_from_scroll_top(new_scroll_top),
-                }
-            }
-            ScrollPositionUpdate::AfterPageDown => {
-                let total_block_heights = self.block_list.block_heights().summary().height;
-                let visible_rows = self.content_element_height_lines();
-                let current_position = self.scroll_top_in_lines();
-                if current_position + visible_rows - 1.0.into_lines()
-                    > (total_block_heights - visible_rows).max(Lines::zero())
-                {
-                    ScrollPosition::FollowsBottomOfMostRecentBlock
+            ScrollPositionUpdate::AfterPageUp => self
+                .scroll_position_for_delta(self.content_element_height_lines() - 1.0.into_lines()),
+            ScrollPositionUpdate::AfterPageDown => self
+                .scroll_position_for_delta(1.0.into_lines() - self.content_element_height_lines()),
+            ScrollPositionUpdate::AfterHome => self.scroll_position_for_offset(Lines::zero()),
+            ScrollPositionUpdate::AfterEnterAgentView => {
+                if self.input_mode.is_inverted_blocklist() {
+                    ScrollPosition::FollowsTopOfMostRecentBlock
                 } else {
-                    let new_scroll_top = current_position + visible_rows - 1.0.into_lines();
-                    ScrollPosition::FixedAtPosition {
-                        scroll_lines: self.scroll_lines_from_scroll_top(new_scroll_top),
-                    }
+                    ScrollPosition::FollowsBottomOfMostRecentBlock
                 }
             }
-            ScrollPositionUpdate::AfterHome => ScrollPosition::FixedAtPosition {
-                scroll_lines: self.scroll_lines_from_scroll_top(Lines::zero()),
-            },
-            ScrollPositionUpdate::AfterEnd | ScrollPositionUpdate::AfterEnterAgentView => {
+            ScrollPositionUpdate::AfterEnd => {
                 if matches!(
                     self.input_mode,
                     InputMode::PinnedToBottom | InputMode::Waterfall
@@ -904,7 +903,8 @@ impl<'a> ViewportState<'a> {
     ) -> ScrollPosition {
         if matches!(
             self.scroll_position,
-            ScrollPosition::FollowsBottomOfMostRecentBlock
+            ScrollPosition::FollowsTopOfMostRecentBlock
+                | ScrollPosition::FollowsBottomOfMostRecentBlock
                 | ScrollPosition::WaterfallGapFollowsBottomOfMostRecentBlock { .. }
         ) {
             return self.scroll_position;
@@ -975,7 +975,8 @@ impl<'a> ViewportState<'a> {
     ) -> ScrollPosition {
         if matches!(
             self.scroll_position,
-            ScrollPosition::FollowsBottomOfMostRecentBlock
+            ScrollPosition::FollowsTopOfMostRecentBlock
+                | ScrollPosition::FollowsBottomOfMostRecentBlock
                 | ScrollPosition::WaterfallGapFollowsBottomOfMostRecentBlock { .. }
         ) {
             return self.scroll_position;
@@ -1203,9 +1204,8 @@ impl<'a> ViewportState<'a> {
 
     fn scroll_position_after_clear(&self) -> ScrollPosition {
         match self.input_mode {
-            InputMode::PinnedToTop | InputMode::PinnedToBottom => {
-                ScrollPosition::FollowsBottomOfMostRecentBlock
-            }
+            InputMode::PinnedToTop => ScrollPosition::FollowsTopOfMostRecentBlock,
+            InputMode::PinnedToBottom => ScrollPosition::FollowsBottomOfMostRecentBlock,
             InputMode::Waterfall => ScrollPosition::WaterfallGapFollowsBottomOfMostRecentBlock {
                 scroll_top_in_lines: self.max_scroll_top_in_lines(),
             },
@@ -1254,6 +1254,7 @@ impl<'a> ViewportState<'a> {
     // Returns the scroll position to set after a command has finished executing
     fn scroll_position_after_command_execution(&self, app: &AppContext) -> ScrollPosition {
         match (self.input_mode, self.block_list.active_gap()) {
+            (InputMode::PinnedToTop, _) => ScrollPosition::FollowsTopOfMostRecentBlock,
             (InputMode::Waterfall, Some(gap)) => {
                 // In gap waterfall mode, the logic is somewhat complex for how to adjust scroll position
                 // after a command is executed.  The basic result we want is:
@@ -1297,13 +1298,20 @@ impl<'a> ViewportState<'a> {
         let current_top = self.scroll_top_in_lines();
 
         let new_top = (current_top - delta).max(Lines::zero()).min(max_scroll_top);
-        let fix_to_bottom = new_top >= max_scroll_top
-            && matches!(
-                self.input_mode,
-                InputMode::PinnedToBottom | InputMode::Waterfall
-            );
+        // Horizontal wheel gestures and no-op events must not change follow state.
+        if delta == Lines::zero() {
+            return self.scroll_position;
+        }
+        self.scroll_position_for_offset(new_top)
+    }
 
-        if fix_to_bottom {
+    fn scroll_position_for_offset(&self, new_top: Lines) -> ScrollPosition {
+        let tolerance = Pixels::new(0.5).to_lines(self.size_info.cell_height_px());
+        if self.input_mode.is_inverted_blocklist() && new_top <= tolerance {
+            ScrollPosition::FollowsTopOfMostRecentBlock
+        } else if !self.input_mode.is_inverted_blocklist()
+            && new_top + tolerance >= self.max_scroll_top_in_lines()
+        {
             ScrollPosition::FollowsBottomOfMostRecentBlock
         } else if self.block_list.active_block().is_active_and_long_running()
             && self.does_block_exceed_viewport(self.block_list.active_block_index(), new_top)

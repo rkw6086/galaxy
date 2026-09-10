@@ -3433,7 +3433,7 @@ fn test_viewport_most_recent_at_top() {
                     },
                     ctx
                 ),
-                ScrollPosition::FixedAtPosition { .. }
+                ScrollPosition::FollowsTopOfMostRecentBlock
             ));
             assert_eq!(
                 Lines::zero(),
@@ -8306,6 +8306,124 @@ fn child_shell_startup_failure_finishes_the_waiting_conversation() {
                     .status(),
                 &ConversationStatus::Error
             );
+        });
+    });
+}
+
+#[test]
+fn scrolling_to_live_edge_repins_both_blocklist_directions() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |view, ctx| {
+            for mode in [
+                InputMode::PinnedToBottom,
+                InputMode::Waterfall,
+                InputMode::PinnedToTop,
+            ] {
+                let mut model = view.model.lock();
+                for _ in 0..100 {
+                    model.simulate_block("echo", "output");
+                }
+                let pinned = if mode.is_inverted_blocklist() {
+                    ScrollPosition::FollowsTopOfMostRecentBlock
+                } else {
+                    ScrollPosition::FollowsBottomOfMostRecentBlock
+                };
+                view.scroll_position = ScrollState::new(pinned);
+                let away = if mode.is_inverted_blocklist() {
+                    -5.0
+                } else {
+                    5.0
+                };
+                let viewport = view.viewport_state(model.block_list(), mode, ctx);
+                let unpinned = viewport.next_scroll_position(
+                    ScrollPositionUpdate::AfterScrollEvent {
+                        scroll_delta: away.into_lines(),
+                    },
+                    ctx,
+                );
+                assert!(matches!(unpinned, ScrollPosition::FixedAtPosition { .. }));
+                view.scroll_position = ScrollState::new(unpinned);
+                model.simulate_block("echo", "new output");
+                assert_eq!(view.scroll_position(), unpinned);
+                let viewport = view.viewport_state(model.block_list(), mode, ctx);
+                let toward = if mode.is_inverted_blocklist() {
+                    10000.0
+                } else {
+                    -10000.0
+                };
+                let repinned = viewport.next_scroll_position(
+                    ScrollPositionUpdate::AfterScrollEvent {
+                        scroll_delta: toward.into_lines(),
+                    },
+                    ctx,
+                );
+                assert_eq!(repinned, pinned);
+                view.scroll_position = ScrollState::new(repinned);
+                model.simulate_block("echo", "more output");
+                let viewport = view.viewport_state(model.block_list(), mode, ctx);
+                assert_eq!(
+                    viewport
+                        .next_scroll_position(ScrollPositionUpdate::AfterRichBlockInserted, ctx),
+                    pinned
+                );
+                assert_eq!(
+                    viewport.next_scroll_position(
+                        ScrollPositionUpdate::AfterScrollEvent {
+                            scroll_delta: Lines::zero()
+                        },
+                        ctx
+                    ),
+                    pinned
+                );
+                if mode.is_inverted_blocklist() {
+                    assert_eq!(viewport.scroll_top_in_lines(), Lines::zero());
+                } else {
+                    assert_eq!(
+                        viewport.scroll_top_in_lines(),
+                        viewport.max_scroll_top_in_lines()
+                    );
+                }
+            }
+        });
+    });
+}
+
+#[test]
+fn hidden_tool_control_changes_preserve_pinned_and_unpinned_scroll() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |view, ctx| {
+            view.focus_terminal(ctx);
+            assert!(ctx.is_self_or_child_focused());
+            let block_id = {
+                let mut model = view.model.lock();
+                model.simulate_cmd("echo tool output");
+                let block = model.block_list_mut().active_block_mut();
+                block.hide();
+                block.id().clone()
+            };
+            for position in [
+                ScrollPosition::FollowsBottomOfMostRecentBlock,
+                ScrollPosition::FollowsTopOfMostRecentBlock,
+                ScrollPosition::FixedAtPosition {
+                    scroll_lines: ScrollLines::ScrollTop(2.0.into_lines()),
+                },
+            ] {
+                view.scroll_position = ScrollState::new(position);
+                view.handle_cli_subagent_controller_event(
+                    view.cli_subagent_controller.clone(),
+                    &CLISubagentEvent::UpdatedControl {
+                        block_id: block_id.clone(),
+                        requested_command_action_id: None,
+                        agent_has_control: false,
+                    },
+                    ctx,
+                );
+                assert_eq!(view.scroll_position(), position);
+            }
         });
     });
 }

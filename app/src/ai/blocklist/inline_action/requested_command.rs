@@ -8,7 +8,9 @@ use std::sync::Arc;
 use galaxy_core::ui::appearance::Appearance;
 use galaxy_core::ui::Icon;
 use galaxy_editor::render::element::VerticalExpansionBehavior;
-use galaxyui::elements::new_scrollable::SingleAxisConfig;
+use galaxyui::elements::new_scrollable::{
+    ClippedAxisConfiguration, DualAxisConfig, ScrollableAppearance,
+};
 use galaxyui::elements::{
     Align, Border, ChildView, Clipped, ClippedScrollStateHandle, ConstrainedBox, Container,
     CornerRadius, CrossAxisAlignment, Expanded, Fill, Flex, MainAxisSize, MouseStateHandle,
@@ -336,6 +338,7 @@ pub struct RequestedCommandView {
     is_user_expanded: bool,
     header_mouse_state: MouseStateHandle,
     output_scroll_state: ClippedScrollStateHandle,
+    output_horizontal_scroll_state: ClippedScrollStateHandle,
     follow_command_output: Cell<bool>,
     is_editing: bool,
 
@@ -596,6 +599,7 @@ impl RequestedCommandView {
             is_user_expanded: false,
             header_mouse_state: Default::default(),
             output_scroll_state: ClippedScrollStateHandle::new(),
+            output_horizontal_scroll_state: ClippedScrollStateHandle::new(),
             follow_command_output: Cell::new(true),
             copied_from_citation: None,
             derived_from_citations: Default::default(),
@@ -1731,15 +1735,27 @@ impl View for RequestedCommandView {
             if should_use_ligature_rendering(app) {
                 output_grid = output_grid.with_ligature_rendering();
             }
-            let scrollable = NewScrollable::vertical(
-                SingleAxisConfig::Clipped {
-                    handle: self.output_scroll_state.clone(),
+            // The terminal grid can be wider than this padded tool pane. Lay it out
+            // at its natural width so every column remains reachable by scrolling.
+            let scrollable = NewScrollable::horizontal_and_vertical(
+                DualAxisConfig::Clipped {
+                    horizontal: ClippedAxisConfiguration {
+                        handle: self.output_horizontal_scroll_state.clone(),
+                        max_size: None,
+                        stretch_child: false,
+                    },
+                    vertical: ClippedAxisConfiguration {
+                        handle: self.output_scroll_state.clone(),
+                        max_size: None,
+                        stretch_child: false,
+                    },
                     child: output_grid.finish(),
                 },
-                Fill::None,
-                Fill::None,
+                theme.nonactive_ui_detail().into(),
+                theme.active_ui_detail().into(),
                 Fill::None,
             )
+            .with_horizontal_scrollbar(ScrollableAppearance::new(SCROLLBAR_WIDTH, false))
             .with_propagate_mousewheel_if_not_handled(true)
             .finish();
             let output_body = ConstrainedBox::new(scrollable)

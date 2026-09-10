@@ -6797,7 +6797,17 @@ impl TerminalView {
                 ..
             } => {
                 if !*agent_has_control && ctx.is_self_or_child_focused() {
-                    let block_index = self.model.lock().block_list().block_index_for_id(block_id);
+                    // Tool output is rendered in its agent card. Its hidden shell block
+                    // must not steal the viewport or clear the user's follow-scroll state.
+                    let block_index = {
+                        let model = self.model.lock();
+                        let blocks = model.block_list();
+                        blocks.block_index_for_id(block_id).filter(|index| {
+                            blocks
+                                .block_at(*index)
+                                .is_some_and(|block| block.is_visible(blocks.agent_view_state()))
+                        })
+                    };
                     if let Some(block_index) = block_index {
                         self.update_scroll_position_locking(
                             ScrollPositionUpdate::ScrollToBottomOfBlock { block_index },
