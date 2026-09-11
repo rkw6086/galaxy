@@ -1720,7 +1720,7 @@ impl AIBlock {
                 me.finish(FinishReason::Complete, ctx);
             }
             AIBlockOutputStatus::Failed { error, .. } => {
-                me.maybe_create_aws_bedrock_credentials_error_view(&error, ctx);
+                me.maybe_create_aws_bedrock_credentials_error_view(&error, false, ctx);
                 me.finish(FinishReason::Error, ctx);
             }
             AIBlockOutputStatus::Cancelled { .. } => {
@@ -2119,7 +2119,7 @@ impl AIBlock {
                     },
                     ctx
                 );
-                self.maybe_create_aws_bedrock_credentials_error_view(&error, ctx);
+                self.maybe_create_aws_bedrock_credentials_error_view(&error, true, ctx);
                 // There are no actions to be taken in this block, it is finished.
                 self.finish(FinishReason::Error, ctx);
             }
@@ -4372,6 +4372,7 @@ impl AIBlock {
     fn maybe_create_aws_bedrock_credentials_error_view(
         &mut self,
         error: &RenderableAIError,
+        attempt_auto_login: bool,
         ctx: &mut ViewContext<Self>,
     ) {
         // Only create the view for AWS Bedrock credentials errors
@@ -4386,7 +4387,8 @@ impl AIBlock {
 
         let ai_settings = AISettings::as_ref(ctx);
         let login_command = ai_settings.bedrock_auth_refresh_command.value().clone();
-        let auto_login_enabled = *ai_settings.bedrock_auto_login.value();
+        // Recreating a historical error view must not restart authentication.
+        let auto_login_enabled = attempt_auto_login && *ai_settings.bedrock_auto_login.value();
 
         // If auto-login is enabled, run the login command automatically
         if auto_login_enabled {

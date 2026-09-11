@@ -782,6 +782,7 @@ impl ProviderSetupView {
                         if let Ok(context_size) = editor.as_ref(ctx).buffer_text(ctx).parse() {
                             model.context_size = context_size;
                             model.max_input_tokens = Some(context_size);
+                            model.default_context_size = Some(context_size);
                         }
                     }
                     me.update_next_button(ctx);

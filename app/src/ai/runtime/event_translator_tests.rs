@@ -640,3 +640,63 @@ fn plan_tasks_require_multiple_explicit_checklist_items_in_a_task_section() {
     assert_eq!(todos[1].title, "Test stale callbacks");
     assert_ne!(todos[0].id, todos[1].id);
 }
+
+#[test]
+fn authentication_failures_identify_the_requested_transport_before_stream_start() {
+    for (runtime, expected) in [
+        (
+            "rig-openai-compatible",
+            warp_multi_agent_api::LlmProvider::Openai,
+        ),
+        (
+            "rig-chatgpt-subscription",
+            warp_multi_agent_api::LlmProvider::Openai,
+        ),
+        ("rig-bedrock", warp_multi_agent_api::LlmProvider::AwsBedrock),
+        (
+            "rig-anthropic",
+            warp_multi_agent_api::LlmProvider::Anthropic,
+        ),
+        ("rig-gemini", warp_multi_agent_api::LlmProvider::Google),
+        ("rig-vertex-ai", warp_multi_agent_api::LlmProvider::Google),
+        ("unrecognized", warp_multi_agent_api::LlmProvider::Unknown),
+    ] {
+        let mut projector = ProviderRunResponseProjector::new(provider_translator().config);
+        // A previous Bedrock turn must not leak its identity into the next request.
+        for runtime_id in [
+            "rig-bedrock:old-model".to_owned(),
+            format!("{runtime}:new-model"),
+        ] {
+            projector
+                .project(ProviderRunProjection::ModelTurnRequested {
+                    work_id: galaxy_agent_core::ExternalWorkId {
+                        run_id: galaxy_agent_core::ProviderRunId::new("run"),
+                        epoch: galaxy_agent_core::RunEpoch::new(1),
+                    },
+                    profile: galaxy_agent_core::ProviderRequestProfile::new("cli"),
+                    runtime_id,
+                    model_id: "new-model".to_owned(),
+                    retry_attempt: 0,
+                })
+                .expect("requested turn projection");
+        }
+        let error = galaxy_agent_core::AgentError::new(
+            galaxy_agent_core::AgentErrorKind::Authentication,
+            "Unauthorized",
+        );
+        let events =
+            projector
+                .translator
+                .provider_failure("Unauthorized", Some(&error), &Usage::default());
+        let Some(response_event::Type::Finished(finished)) = &events.last().unwrap().r#type else {
+            panic!("expected a finished event");
+        };
+        let Some(response_event::stream_finished::Reason::InvalidApiKey(details)) =
+            &finished.reason
+        else {
+            panic!("expected authentication failure");
+        };
+        assert_eq!(details.provider, expected as i32, "{runtime}");
+        assert_eq!(details.model_name, "new-model");
+    }
+}

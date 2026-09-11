@@ -7242,6 +7242,9 @@ impl ProviderSettingsWidget {
             format!("Context: {}", model.context_size),
         ];
 
+        if let Some(default_context_size) = model.default_context_size {
+            details.push(format!("Default context: {default_context_size}"));
+        }
         if let Some(max_input_tokens) = model.max_input_tokens {
             details.push(format!("Max input: {max_input_tokens}"));
         }

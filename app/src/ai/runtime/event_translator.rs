@@ -43,6 +43,8 @@ pub(crate) struct RuntimeResponseTranslator {
     /// Usage for the most recent model call.
     usage: Usage,
     context_usage: Option<(u64, u64)>,
+    // Set before starting each model call, including failures before TurnStarted.
+    authentication_target: Option<(api::LlmProvider, String)>,
 }
 
 /// Projects a multi-turn provider run into one existing Galaxy response stream.
@@ -98,8 +100,16 @@ impl ProviderRunResponseProjector {
             ProviderRunProjection::ModelRetry { .. } => {
                 Ok(self.translator.discard_failed_turn_output())
             }
-            ProviderRunProjection::ModelTurnRequested { .. }
-            | ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
+            ProviderRunProjection::ModelTurnRequested {
+                runtime_id,
+                model_id,
+                ..
+            } => {
+                self.translator.authentication_target =
+                    Some((authentication_provider_for_runtime(&runtime_id), model_id));
+                Ok(Vec::new())
+            }
+            ProviderRunProjection::ModelTurnFinished { .. } => Ok(Vec::new()),
             ProviderRunProjection::ToolBatchReady { batch } => {
                 if !self.plan_tasks_projected {
                     if let Some(todos) = todos_from_plan_batch(&batch) {
@@ -146,6 +156,19 @@ impl ProviderRunResponseProjector {
                 .translator
                 .finish_provider_run(StopReason::Cancelled, aggregate_usage)),
         }
+    }
+}
+
+// Runtime IDs identify the transport, unlike model IDs: a Bedrock-backed model
+// behind LiteLLM still authenticates against the OpenAI-compatible endpoint.
+fn authentication_provider_for_runtime(runtime_id: &str) -> api::LlmProvider {
+    match runtime_id.split_once(':').map(|(runtime, _)| runtime) {
+        Some("rig-bedrock") => api::LlmProvider::AwsBedrock,
+        Some("rig-openai-compatible" | "rig-chatgpt-subscription") => api::LlmProvider::Openai,
+        Some("rig-anthropic") => api::LlmProvider::Anthropic,
+        Some("rig-gemini" | "rig-vertex-ai") => api::LlmProvider::Google,
+        // Unrecognized runtimes must never trigger provider-specific login commands.
+        Some(_) | None => api::LlmProvider::Unknown,
     }
 }
 
@@ -251,6 +274,7 @@ impl RuntimeResponseTranslator {
             has_visible_output: false,
             usage: Usage::default(),
             context_usage: None,
+            authentication_target: None,
         }
     }
 
@@ -528,8 +552,15 @@ impl RuntimeResponseTranslator {
             .is_some_and(|error| error.kind == galaxy_agent_core::AgentErrorKind::Authentication)
         {
             stream_finished::Reason::InvalidApiKey(stream_finished::InvalidApiKey {
-                provider: warp_multi_agent_api::LlmProvider::AwsBedrock as i32,
-                model_name: self.config.model_id.clone(),
+                provider: self
+                    .authentication_target
+                    .as_ref()
+                    .map_or(api::LlmProvider::Unknown, |(provider, _)| *provider)
+                    as i32,
+                model_name: self
+                    .authentication_target
+                    .as_ref()
+                    .map_or_else(|| self.config.model_id.clone(), |(_, model)| model.clone()),
             })
         } else {
             stream_finished::Reason::InternalError(stream_finished::InternalError {

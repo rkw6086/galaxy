@@ -1046,7 +1046,9 @@ impl LLMPreferences {
             configured_models
         };
 
-        if !single_provider_models.is_empty() {
+        // The registry replaces legacy settings. Otherwise stale legacy credentials
+        // win duplicate model IDs before the configured provider is considered.
+        if settings.openai_providers.value().is_empty() && !single_provider_models.is_empty() {
             let base_url = settings.openai_base_url.value().clone();
             let api_key = {
                 let key = settings.openai_api_key.value().clone();
@@ -1170,7 +1172,7 @@ impl LLMPreferences {
                         location: provider_location.clone(),
                         model: Some(model.model_id.clone()),
                         reasoning_effort: reasoning_effort.clone(),
-                        max_input_tokens: Some(openai_model_context_size(model)),
+                        max_input_tokens: Some(openai_model_context_size(model, provider_kind)),
                         max_output_tokens: model.max_output_tokens,
                         supports_system_messages: model.supports_system_messages(),
                     };
@@ -1487,7 +1489,7 @@ impl LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     pub fn fetch_openai_models_from_endpoint(&mut self, ctx: &mut ModelContext<Self>) {
         let settings = AISettings::as_ref(ctx);
-        if !settings.is_openai_provider_enabled() {
+        if !settings.is_openai_provider_enabled() || !settings.openai_providers.value().is_empty() {
             return;
         }
 
@@ -1833,6 +1835,7 @@ impl LLMPreferences {
                 vision_supported: true,
                 context_size: model.context_size.unwrap_or(128_000),
                 max_input_tokens: model.context_size,
+                default_context_size: None,
                 max_output_tokens: None,
                 provider: None,
                 supports_system_messages: Some(true),
@@ -2626,8 +2629,18 @@ fn get_new_agent_mode_choices(
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn openai_model_context_size(model: &OpenAIModelConfig) -> u32 {
-    model.max_input_tokens.unwrap_or(model.context_size)
+fn openai_model_context_size(model: &OpenAIModelConfig, provider_kind: OpenAIProviderKind) -> u32 {
+    // Older saved ChatGPT catalogs stored the default window in max_input_tokens.
+    // Preserve their larger usable window until the catalog refresh separates them.
+    if provider_kind == OpenAIProviderKind::ChatGPTSubscription
+        && model.default_context_size.is_none()
+    {
+        return model.context_size;
+    }
+    model
+        .max_input_tokens
+        .unwrap_or(model.context_size)
+        .min(model.context_size)
 }
 
 /// Merges endpoint metadata into a provider's configured models without
@@ -2721,25 +2734,24 @@ fn openai_model_context_window(
     model: &OpenAIModelConfig,
     provider_kind: OpenAIProviderKind,
 ) -> LLMContextWindow {
-    let default_context_size = openai_model_context_size(model);
-    let max_context_size = if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-        model.context_size.max(default_context_size)
-    } else {
-        default_context_size
-    };
+    let max_context_size = openai_model_context_size(model, provider_kind);
+    let default_context_size = model
+        .default_context_size
+        .or_else(|| {
+            // Compatibility with saved catalogs from before the fields were separated.
+            (provider_kind == OpenAIProviderKind::ChatGPTSubscription)
+                .then_some(model.max_input_tokens)
+                .flatten()
+        })
+        .unwrap_or(max_context_size)
+        .min(max_context_size);
     LLMContextWindow {
         is_configurable: max_context_size > default_context_size,
         min: default_context_size,
         max: max_context_size,
-        // ChatGPT's catalog exposes `context_window` as the effective window
-        // and `max_context_window` as the model's actual maximum. Use the
-        // latter as the default so model refreshes do not reset the profile
-        // to the smaller effective window (for example, 272k).
-        default_max: if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-            max_context_size
-        } else {
-            default_context_size
-        },
+        // Use the full usable window; the catalog default remains available as
+        // the smaller configurable budget, not as a hard input ceiling.
+        default_max: max_context_size,
     }
 }
 
@@ -2888,7 +2900,9 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                 u32::try_from(u64::from(context_size) * u64::from(effective_context_percent) / 100)
                     .unwrap_or(context_size)
             };
-            let max_input_tokens = Some(effective_context_size(default_context_size));
+            let default_context_size = Some(effective_context_size(default_context_size));
+            let max_input_tokens =
+                u32_from_json_any(model, &["max_input_tokens"]).map(effective_context_size);
             let context_size = effective_context_size(max_context_size);
 
             let vision_supported = model["input_modalities"]
@@ -2921,6 +2935,7 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                 vision_supported,
                 context_size,
                 max_input_tokens,
+                default_context_size,
                 max_output_tokens: None,
                 provider: Some("openai".to_string()),
                 supports_system_messages: Some(true),
@@ -2991,7 +3006,12 @@ async fn fetch_from_litellm_model_info(
             let max_output_tokens = model_info["max_output_tokens"]
                 .as_u64()
                 .and_then(|v| u32::try_from(v).ok());
-            let context_size = max_input_tokens.unwrap_or(200_000);
+            let context_size = u32_from_json_any(
+                model_info,
+                &["max_context_window", "context_window", "max_model_len"],
+            )
+            .or(max_input_tokens)
+            .unwrap_or(200_000);
 
             let vision_supported = model_info["supports_vision"].as_bool().unwrap_or(true);
 
@@ -3042,6 +3062,7 @@ async fn fetch_from_litellm_model_info(
                 vision_supported,
                 context_size,
                 max_input_tokens,
+                default_context_size: None,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if model_name.starts_with("codex-gpt-") {
@@ -3122,9 +3143,17 @@ async fn fetch_from_openai_models(
                 m,
                 &["max_input_tokens", "input_token_limit", "max_prompt_tokens"],
             );
-            let context_size = u32_from_any(m, &["max_model_len", "context_window", "token_size"])
-                .or(max_input_tokens)
-                .unwrap_or(200_000);
+            let context_size = u32_from_any(
+                m,
+                &[
+                    "max_context_window",
+                    "max_model_len",
+                    "context_window",
+                    "token_size",
+                ],
+            )
+            .or(max_input_tokens)
+            .unwrap_or(200_000);
             let max_output_tokens = u32_from_any(
                 m,
                 &[
@@ -3171,6 +3200,7 @@ async fn fetch_from_openai_models(
                     .unwrap_or(true),
                 context_size,
                 max_input_tokens,
+                default_context_size: None,
                 max_output_tokens,
                 provider,
                 supports_system_messages: if id.starts_with("codex-gpt-") {

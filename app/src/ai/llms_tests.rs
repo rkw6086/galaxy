@@ -149,6 +149,7 @@ fn openai_model(model_id: &str) -> OpenAIModelConfig {
         vision_supported: false,
         context_size: 200_000,
         max_input_tokens: None,
+        default_context_size: None,
         max_output_tokens: None,
         provider: None,
         supports_system_messages: None,
@@ -210,8 +211,18 @@ fn acp_agent(
 }
 
 fn empty_preferences() -> LLMPreferences {
+    // Production defaults include a UI placeholder; inventory tests start empty.
+    let mut models_by_feature = ModelsByFeature::default();
+    models_by_feature.agent_mode.choices.clear();
+    models_by_feature.coding.choices.clear();
+    if let Some(cli) = &mut models_by_feature.cli_agent {
+        cli.choices.clear();
+    }
+    if let Some(computer_use) = &mut models_by_feature.computer_use {
+        computer_use.choices.clear();
+    }
     LLMPreferences {
-        models_by_feature: ModelsByFeature::default(),
+        models_by_feature,
         last_update: None,
         base_llm_for_terminal_view: HashMap::new(),
         custom_llms: Vec::new(),
@@ -791,7 +802,8 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     assert_eq!(models[0].display_name, "GPT-5.6-Sol");
     assert!(models[0].vision_supported);
     assert_eq!(models[0].context_size, 828_400);
-    assert_eq!(models[0].max_input_tokens, Some(258_400));
+    assert_eq!(models[0].max_input_tokens, None);
+    assert_eq!(models[0].default_context_size, Some(258_400));
     assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
     assert_eq!(models[0].provider.as_deref(), Some("openai"));
     assert_eq!(models[0].supports_system_messages, Some(true));
@@ -799,7 +811,8 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     assert_eq!(models[1].model_id, "gpt-text-only");
     assert!(!models[1].vision_supported);
     assert_eq!(models[1].context_size, 115_200);
-    assert_eq!(models[1].max_input_tokens, Some(115_200));
+    assert_eq!(models[1].max_input_tokens, None);
+    assert_eq!(models[1].default_context_size, Some(115_200));
 
     let configurable = openai_model_context_window(
         &models[0],
@@ -812,10 +825,10 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
 
     let fixed =
         openai_model_context_window(&models[0], crate::settings::OpenAIProviderKind::LiteLLM);
-    assert!(!fixed.is_configurable);
+    assert!(fixed.is_configurable);
     assert_eq!(fixed.min, 258_400);
-    assert_eq!(fixed.default_max, 258_400);
-    assert_eq!(fixed.max, 258_400);
+    assert_eq!(fixed.default_max, 828_400);
+    assert_eq!(fixed.max, 828_400);
 }
 
 #[test]
@@ -834,17 +847,100 @@ fn chatgpt_catalog_merge_drops_stale_models_but_preserves_overrides() {
     discovered.display_name = "GPT-5.6-Sol".to_string();
     discovered.vision_supported = true;
     discovered.context_size = 828_400;
-    discovered.max_input_tokens = Some(258_400);
+    discovered.default_context_size = Some(258_400);
 
     let merged = merge_discovered_chatgpt_subscription_models(&[existing, stale], vec![discovered]);
 
     assert_eq!(merged.len(), 1);
     assert_eq!(merged[0].model_id, "gpt-5.6-sol");
     assert_eq!(merged[0].context_size, 828_400);
-    assert_eq!(merged[0].max_input_tokens, Some(258_400));
+    assert_eq!(merged[0].max_input_tokens, None);
+    assert_eq!(merged[0].default_context_size, Some(258_400));
     assert!(!merged[0].enabled);
     assert_eq!(
         merged[0].capability_override("vision"),
         crate::settings::ModelCapabilityOverride::Unsupported
     );
+}
+
+#[test]
+fn provider_context_budget_respects_hard_input_and_total_limits() {
+    let mut model = openai_model("limited-model");
+    model.context_size = 872_000;
+    model.max_input_tokens = Some(272_000);
+    let window = openai_model_context_window(&model, OpenAIProviderKind::LiteLLM);
+    assert_eq!(window.max, 272_000);
+    assert_eq!(window.default_max, 272_000);
+    assert!(!window.is_configurable);
+
+    model.max_input_tokens = Some(1_000_000);
+    assert_eq!(
+        openai_model_context_size(&model, OpenAIProviderKind::LiteLLM),
+        872_000
+    );
+
+    model.default_context_size = Some(272_000);
+    model.max_input_tokens = Some(400_000);
+    let window = openai_model_context_window(&model, OpenAIProviderKind::ChatGPTSubscription);
+    assert_eq!(window.min, 272_000);
+    assert_eq!(window.max, 400_000);
+    assert_eq!(
+        openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
+        window.max
+    );
+}
+
+#[test]
+fn legacy_chatgpt_default_does_not_limit_routing() {
+    let mut model = openai_model("legacy-model");
+    model.context_size = 872_000;
+    model.max_input_tokens = Some(272_000);
+    let window = openai_model_context_window(&model, OpenAIProviderKind::ChatGPTSubscription);
+    assert_eq!(window.min, 272_000);
+    assert_eq!(window.max, 872_000);
+    assert_eq!(
+        openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
+        window.max
+    );
+}
+
+#[test]
+fn provider_registry_overrides_legacy_endpoint_for_duplicate_models() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings.openai_enabled.set_value(true, ctx).unwrap();
+            settings
+                .openai_base_url
+                .set_value("https://stale.test/v1".to_owned(), ctx)
+                .unwrap();
+            settings
+                .openai_models
+                .set_value(vec![openai_model("shared-model")], ctx)
+                .unwrap();
+            settings
+                .openai_providers
+                .set_value(
+                    vec![OpenAIProviderConfig {
+                        kind: OpenAIProviderKind::LiteLLM,
+                        enabled: true,
+                        name: "Current LiteLLM".to_owned(),
+                        base_url: "https://current.test/v1".to_owned(),
+                        api_key: Some("current-key".to_owned()),
+                        project_id: None,
+                        location: None,
+                        models: vec![openai_model("shared-model")],
+                    }],
+                    ctx,
+                )
+                .unwrap();
+        });
+        let mut preferences = empty_preferences();
+        app.read(|ctx| preferences.inject_openai_models(ctx));
+        let config = preferences
+            .openai_client_config_for_model("shared-model")
+            .unwrap();
+        assert_eq!(config.base_url, "https://current.test/v1");
+        assert_eq!(config.api_key.as_deref(), Some("current-key"));
+    });
 }

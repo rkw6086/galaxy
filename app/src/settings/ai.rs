@@ -857,13 +857,19 @@ pub struct OpenAIModelConfig {
         default = "default_context_size",
         alias = "token_size",
         alias = "max_model_len",
-        alias = "context_window"
+        alias = "context_window",
+        alias = "max_context_window"
     )]
     #[schemars(description = "Maximum context window size in tokens.")]
     pub context_size: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(description = "Optional maximum input tokens supported by this model.")]
     pub max_input_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(
+        description = "Optional default context budget, distinct from the hard input limit."
+    )]
+    pub default_context_size: Option<u32>,
     #[serde(
         default,
         alias = "output_token_limit",
