@@ -3702,17 +3702,11 @@ pub fn action_icon<V: View>(
     app: &AppContext,
 ) -> galaxyui::elements::Icon {
     let appearance = Appearance::as_ref(app);
-    let status = ai_block_model
-        .conversation_id(app)
-        .and_then(|conversation_id| {
-            action_model
-                .as_ref(app)
-                .get_action_status(conversation_id, action_id)
-        });
+    let status = ai_block_model.action_status_for_display(action_model.as_ref(app), action_id, app);
     match status {
         Some(status) => match status {
             AIActionStatus::Preprocessing => icons::gray_circle_icon(appearance),
-            AIActionStatus::Queued => icons::gray_stop_icon(appearance),
+            AIActionStatus::Queued => icons::gray_clock_icon(appearance),
             AIActionStatus::Blocked => icons::yellow_stop_icon(appearance),
             AIActionStatus::RunningAsync => icons::yellow_running_icon(appearance),
             AIActionStatus::Finished(result) => {
@@ -3741,8 +3735,13 @@ pub fn action_icon<V: View>(
                 } else {
                     icons::gray_circle_icon(appearance)
                 }
-            } else {
+            } else if ai_block_model
+                .conversation(app)
+                .is_some_and(|conversation| conversation.status().is_cancelled())
+            {
                 inline_action_icons::cancelled_icon(appearance)
+            } else {
+                icons::gray_circle_icon(appearance)
             }
         }
     }

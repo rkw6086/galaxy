@@ -1171,10 +1171,11 @@ impl RequestedCommandView {
         app: &AppContext,
     ) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
-        let action_status = self
-            .action_model
-            .as_ref(app)
-            .get_action_status(self.client_ids.conversation_id, &self.action_id);
+        let action_status = self.block_model.action_status_for_display(
+            self.action_model.as_ref(app),
+            &self.action_id,
+            app,
+        );
 
         let mut title: Cow<'static, str>;
         let mut font_override = None;
@@ -1541,10 +1542,11 @@ impl View for RequestedCommandView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
-        let action_status = self
-            .action_model
-            .as_ref(app)
-            .get_action_status(self.client_ids.conversation_id, &self.action_id);
+        let action_status = self.block_model.action_status_for_display(
+            self.action_model.as_ref(app),
+            &self.action_id,
+            app,
+        );
 
         let is_last_output_message_in_output = self
             .block_model

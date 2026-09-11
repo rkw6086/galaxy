@@ -6,6 +6,7 @@ use crate::ai::agent::{
     AIAgentAction, AIAgentActionId, AIAgentActionType, AIAgentInput, AIAgentOutputMessageType,
     SummarizationType,
 };
+use crate::ai::blocklist::action_model::AIActionStatus;
 use crate::ai::blocklist::BlocklistAIActionModel;
 use crate::BlocklistAIHistoryModel;
 
@@ -14,6 +15,12 @@ use crate::BlocklistAIHistoryModel;
 // These are defined within a separate trait rather than default implementations of `AIBlockModel`
 // so implementations cannot errantly override them.
 pub trait AIBlockModelHelper {
+    fn action_status_for_display(
+        &self,
+        action_model: &BlocklistAIActionModel,
+        action_id: &AIAgentActionId,
+        app: &AppContext,
+    ) -> Option<AIActionStatus>;
     fn is_first_action_in_output(&self, action_id: &AIAgentActionId, app: &AppContext) -> bool;
     fn conversation<'a>(&self, app: &'a AppContext) -> Option<&'a AIConversation>;
 
@@ -41,6 +48,26 @@ pub trait AIBlockModelHelper {
 }
 
 impl<T: ?Sized + AIBlockModel> AIBlockModelHelper for T {
+    fn action_status_for_display(
+        &self,
+        action_model: &BlocklistAIActionModel,
+        action_id: &AIAgentActionId,
+        app: &AppContext,
+    ) -> Option<AIActionStatus> {
+        let conversation = self.conversation(app)?;
+        let status = action_model.get_action_status(conversation.id(), action_id);
+        // Proposals appear before the full batch is handed to the executor. A
+        // finished output message is not evidence that an unstarted tool was cancelled.
+        status.or_else(|| {
+            (!conversation.status().is_done()
+                && self.is_latest_visible_exchange_in_root_task(app)
+                && self.status(app).output_to_render().is_some_and(|output| {
+                    output.get().actions().any(|action| action.id == *action_id)
+                }))
+            .then_some(AIActionStatus::Queued)
+        })
+    }
+
     fn is_first_action_in_output(&self, action_id: &AIAgentActionId, app: &AppContext) -> bool {
         self.status(app).output_to_render().is_some_and(|output| {
             output

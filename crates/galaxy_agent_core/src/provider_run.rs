@@ -90,14 +90,15 @@ impl From<&str> for ProviderRequestProfile {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRunLimits {
-    pub max_model_turns: u32,
+    /// Optional lifetime budget. Interactive runs continue until completion or cancellation.
+    pub max_model_turns: Option<u32>,
     pub max_model_retries_per_turn: u32,
 }
 
 impl Default for ProviderRunLimits {
     fn default() -> Self {
         Self {
-            max_model_turns: 100,
+            max_model_turns: None,
             // Three retries means the initial call plus three delayed retries;
             // the fourth failure is surfaced to the user.
             max_model_retries_per_turn: 3,
@@ -453,7 +454,7 @@ impl ProviderRun {
         profile: impl Into<ProviderRequestProfile>,
         mut limits: ProviderRunLimits,
     ) -> Self {
-        limits.max_model_turns = limits.max_model_turns.max(1);
+        limits.max_model_turns = limits.max_model_turns.map(|limit| limit.max(1));
         Self {
             id: id.into(),
             epoch: RunEpoch::default(),
@@ -562,13 +563,15 @@ impl ProviderRun {
         if self.profile.as_str().is_empty() {
             return Err(invalid("request profile must not be empty".to_string()));
         }
-        if self.limits.max_model_turns == 0 {
+        if self.limits.max_model_turns == Some(0) {
             return Err(invalid("model-turn limit must be at least one".to_string()));
         }
-        if self.model_turns > self.limits.max_model_turns {
+        if let Some(limit) = self.limits.max_model_turns
+            && self.model_turns > limit
+        {
             return Err(invalid(format!(
-                "model-turn counter {} exceeds limit {}",
-                self.model_turns, self.limits.max_model_turns
+                "model-turn counter {} exceeds limit {limit}",
+                self.model_turns
             )));
         }
         if self.epoch.get() < u64::from(self.model_turns) {
@@ -595,7 +598,7 @@ impl ProviderRun {
         match &self.state {
             ProviderRunState::ReadyToCallModel => {}
             ProviderRunState::AwaitingModel { call } => {
-                if self.model_turns >= self.limits.max_model_turns {
+                if self.model_turn_limit_reached() {
                     return Err(invalid(
                         "awaiting a model call after reaching the model-turn limit".to_string(),
                     ));
@@ -724,9 +727,7 @@ impl ProviderRun {
                         "retry-limit failure lacks a recoverable source".to_string(),
                     ));
                 }
-                ProviderRunFailureKind::TurnLimitExceeded
-                    if self.model_turns < self.limits.max_model_turns =>
-                {
+                ProviderRunFailureKind::TurnLimitExceeded if !self.model_turn_limit_reached() => {
                     return Err(invalid(
                         "turn-limit failure occurred before reaching the limit".to_string(),
                     ));
@@ -864,17 +865,26 @@ impl ProviderRun {
         matches!(self.state, ProviderRunState::ReadyToCallModel).then(|| self.current_work_id())
     }
 
+    fn model_turn_limit_reached(&self) -> bool {
+        self.limits
+            .max_model_turns
+            .is_some_and(|limit| self.model_turns >= limit)
+    }
+
     pub fn next_step(&mut self) -> Result<Option<ProviderRunStep>, ProviderRunProtocolError> {
         loop {
             match self.state.clone() {
                 ProviderRunState::ReadyToCallModel => {
-                    if self.model_turns >= self.limits.max_model_turns {
+                    if let Some(limit) = self
+                        .limits
+                        .max_model_turns
+                        .filter(|limit| self.model_turns >= *limit)
+                    {
                         self.state = ProviderRunState::Failed {
                             failure: ProviderRunFailure {
                                 kind: ProviderRunFailureKind::TurnLimitExceeded,
                                 message: format!(
-                                    "provider run reached its {} model-turn limit",
-                                    self.limits.max_model_turns
+                                    "provider run reached its {limit} model-turn limit"
                                 ),
                                 source: None,
                             },

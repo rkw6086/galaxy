@@ -154,7 +154,7 @@ fn stale_model_completion_is_rejected_without_mutation() {
 #[test]
 fn model_retries_reuse_work_identity_and_stop_at_the_budget() {
     let mut run = run_with_limits(ProviderRunLimits {
-        max_model_turns: 5,
+        max_model_turns: Some(5),
         max_model_retries_per_turn: 1,
     });
     let call = next_model_call(&mut run);
@@ -752,7 +752,7 @@ fn failure_while_tools_are_pending_records_correlated_errors_before_terminal_sta
 #[test]
 fn turn_limit_cannot_finish_successfully_after_tools_require_another_model_turn() {
     let mut run = run_with_limits(ProviderRunLimits {
-        max_model_turns: 1,
+        max_model_turns: Some(1),
         max_model_retries_per_turn: 0,
     });
     let batch = accept_tool_turn(
@@ -1383,4 +1383,46 @@ fn restore_normalization_commits_a_fully_resolved_batch() {
             ..
         } if tool_use_id == "resolved"
     ));
+}
+
+#[test]
+fn default_run_continues_past_one_hundred_tool_turns_and_restores() {
+    let mut run = run();
+    for index in 0..150 {
+        let id = format!("poll-{index}");
+        let batch = accept_tool_turn(
+            &mut run,
+            tool_turn(
+                vec![tool_call(&id, "read_shell_command_output")],
+                &["read_shell_command_output"],
+            ),
+        );
+        run.complete_tool(&batch.work_id, successful_result(&id, "still running"))
+            .unwrap();
+        run.commit_tool_batch(&batch.work_id).unwrap();
+        if index == 99 {
+            run = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();
+            run.validate_restored_state().unwrap();
+        }
+    }
+    assert_eq!(run.model_turns(), 150);
+    let call = next_model_call(&mut run);
+    run.accept_model_turn(&call.work_id, text_turn("Finished"))
+        .unwrap();
+    assert_eq!(run.next_step().unwrap(), None);
+    assert!(matches!(
+        run.state(),
+        ProviderRunState::AwaitingDriver { .. }
+    ));
+}
+
+#[test]
+fn serialized_numeric_turn_budgets_remain_explicit_limits() {
+    let limits: ProviderRunLimits = serde_json::from_value(json!({
+        "max_model_turns": 100,
+        "max_model_retries_per_turn": 3
+    }))
+    .unwrap();
+    assert_eq!(limits.max_model_turns, Some(100));
+    assert_eq!(ProviderRunLimits::default().max_model_turns, None);
 }
