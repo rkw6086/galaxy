@@ -165,7 +165,6 @@ function App() {
   const [steps, setSteps] = useState<Step[]>([
     { label: "Check working directory", status: "pending" },
     { label: "Pull current branch", status: "pending" },
-    { label: "Clean Cargo build artifacts", status: "pending" },
     { label: "Bundle Galaxy", status: "pending" },
     { label: "Copy to /Applications", status: "pending" },
     { label: "Launch Galaxy", status: "pending" },
@@ -216,47 +215,42 @@ function App() {
         );
         updateStep(1, { status: "done", detail: branch });
 
-        // ─── Step 2: Clean ──────────────────────────────────────────────
+        // ─── Step 2: Bundle ─────────────────────────────────────────────
         updateStep(2, { status: "running" });
-        await runCommandStreaming("cargo clean", WORKSPACE_ROOT, (line) => appendLog(2, line));
-        updateStep(2, { status: "done" });
-
-        // ─── Step 3: Bundle ─────────────────────────────────────────────
-        updateStep(3, { status: "running" });
         await runCommandStreaming(
           "cargo bundle --release --bin galaxy-oss --package galaxy --features release_bundle,extern_plist",
           WORKSPACE_ROOT,
-          (line) => appendLog(3, line)
+          (line) => appendLog(2, line)
         );
-        updateStep(3, { status: "done" });
+        updateStep(2, { status: "done" });
 
-        // ─── Step 4: Copy to /Applications ─────────────────────────────
-        updateStep(4, { status: "running" });
+        // ─── Step 3: Copy to /Applications ─────────────────────────────
+        updateStep(3, { status: "running" });
 
         if (!fs.existsSync(appPath)) {
           throw new Error(`Built app not found at ${appPath}`);
         }
 
-        await stopApp("Galaxy", (line) => appendLog(4, line));
+        await stopApp("Galaxy", (line) => appendLog(3, line));
 
         if (fs.existsSync(destPath)) {
-          appendLog(4, `Removing existing ${destPath}`);
+          appendLog(3, `Removing existing ${destPath}`);
           execSync(`rm -rf "${destPath}"`, { stdio: "pipe" });
         }
 
-        appendLog(4, `Copying ${appPath} → ${destPath}`);
+        appendLog(3, `Copying ${appPath} → ${destPath}`);
         await runCommandStreaming(
           `ditto "${appPath}" "${destPath}"`,
           WORKSPACE_ROOT,
-          (line) => appendLog(4, line)
+          (line) => appendLog(3, line)
         );
 
-        updateStep(4, { status: "done", detail: destPath });
+        updateStep(3, { status: "done", detail: destPath });
 
-        // ─── Step 5: Launch ────────────────────────────────────────────
-        updateStep(5, { status: "running" });
+        // ─── Step 4: Launch ────────────────────────────────────────────
+        updateStep(4, { status: "running" });
         execSync(`open "${destPath}"`, { stdio: "ignore" });
-        updateStep(5, { status: "done" });
+        updateStep(4, { status: "done" });
       } catch (err: any) {
         setSteps((prev) =>
           prev.map((s) =>

@@ -3,6 +3,7 @@
 run:
 	cargo run --bin galaxy-oss
 
+# Explicit cleanup; deploy and install preserve Cargo build artifacts.
 clean:
 	cargo clean
 
