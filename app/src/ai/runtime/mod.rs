@@ -13,6 +13,7 @@ pub(crate) use provider_run_coordinator::{
     CLI_MONITOR_PROVIDER_PROFILE,
 };
 pub(crate) use rig::{
-    prepare_provider_run, provider_runtime_for_request, PreparedProviderRun, ProviderActionContext,
+    prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
+    PreparedProviderRun, ProviderActionContext,
 };
 pub(crate) use rig_request::OrchestrationModelOption;

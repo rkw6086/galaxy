@@ -818,10 +818,10 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
         &models[0],
         crate::settings::OpenAIProviderKind::ChatGPTSubscription,
     );
-    assert!(configurable.is_configurable);
+    assert!(!configurable.is_configurable);
     assert_eq!(configurable.min, 258_400);
-    assert_eq!(configurable.default_max, 828_400);
-    assert_eq!(configurable.max, 828_400);
+    assert_eq!(configurable.default_max, 258_400);
+    assert_eq!(configurable.max, 258_400);
 
     let fixed =
         openai_model_context_window(&models[0], crate::settings::OpenAIProviderKind::LiteLLM);
@@ -883,7 +883,7 @@ fn provider_context_budget_respects_hard_input_and_total_limits() {
     model.max_input_tokens = Some(400_000);
     let window = openai_model_context_window(&model, OpenAIProviderKind::ChatGPTSubscription);
     assert_eq!(window.min, 272_000);
-    assert_eq!(window.max, 400_000);
+    assert_eq!(window.max, 272_000);
     assert_eq!(
         openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
         window.max
@@ -891,13 +891,15 @@ fn provider_context_budget_respects_hard_input_and_total_limits() {
 }
 
 #[test]
-fn legacy_chatgpt_default_does_not_limit_routing() {
+fn legacy_chatgpt_default_limits_routing() {
     let mut model = openai_model("legacy-model");
     model.context_size = 872_000;
     model.max_input_tokens = Some(272_000);
     let window = openai_model_context_window(&model, OpenAIProviderKind::ChatGPTSubscription);
     assert_eq!(window.min, 272_000);
-    assert_eq!(window.max, 872_000);
+    assert_eq!(window.max, 272_000);
+    assert_eq!(window.default_max, 272_000);
+    assert!(!window.is_configurable);
     assert_eq!(
         openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
         window.max
@@ -943,4 +945,20 @@ fn provider_registry_overrides_legacy_endpoint_for_duplicate_models() {
         assert_eq!(config.base_url, "https://current.test/v1");
         assert_eq!(config.api_key.as_deref(), Some("current-key"));
     });
+}
+
+#[test]
+fn chatgpt_default_window_limits_routing_without_a_separate_input_limit() {
+    let mut model = openai_model("subscription-model");
+    model.context_size = 872_000;
+    model.default_context_size = Some(272_000);
+    model.max_input_tokens = None;
+    let window = openai_model_context_window(&model, OpenAIProviderKind::ChatGPTSubscription);
+    assert_eq!(window.default_max, 272_000);
+    assert_eq!(window.max, 272_000);
+    assert!(!window.is_configurable);
+    assert_eq!(
+        openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
+        272_000
+    );
 }

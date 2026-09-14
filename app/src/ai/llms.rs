@@ -2630,17 +2630,20 @@ fn get_new_agent_mode_choices(
 
 #[cfg(not(target_family = "wasm"))]
 fn openai_model_context_size(model: &OpenAIModelConfig, provider_kind: OpenAIProviderKind) -> u32 {
-    // Older saved ChatGPT catalogs stored the default window in max_input_tokens.
-    // Preserve their larger usable window until the catalog refresh separates them.
-    if provider_kind == OpenAIProviderKind::ChatGPTSubscription
-        && model.default_context_size.is_none()
-    {
-        return model.context_size;
-    }
-    model
+    let input_limit = model
         .max_input_tokens
         .unwrap_or(model.context_size)
-        .min(model.context_size)
+        .min(model.context_size);
+    if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
+        // The catalog's default window is the supported session budget. The
+        // advertised maximum must not silently opt subscriptions into long context.
+        // Older saved catalogs kept the default in max_input_tokens instead.
+        return model
+            .default_context_size
+            .unwrap_or(input_limit)
+            .min(input_limit);
+    }
+    input_limit
 }
 
 /// Merges endpoint metadata into a provider's configured models without
@@ -2749,8 +2752,7 @@ fn openai_model_context_window(
         is_configurable: max_context_size > default_context_size,
         min: default_context_size,
         max: max_context_size,
-        // Use the full usable window; the catalog default remains available as
-        // the smaller configurable budget, not as a hard input ceiling.
+        // Subscription limits are already capped to the catalog's default above.
         default_max: max_context_size,
     }
 }

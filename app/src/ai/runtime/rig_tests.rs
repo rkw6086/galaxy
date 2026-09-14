@@ -55,3 +55,21 @@ async fn missing_cli_provider_route_falls_back_to_base_provider_profile() {
         .iter()
         .any(|tool| tool.name == "read_shell_command_output"));
 }
+
+#[test]
+fn subscription_context_budget_uses_catalog_limit_and_clamps_stale_overrides() {
+    let mut config = openai_config("subscription-model");
+    config.kind = OpenAIProviderKind::ChatGPTSubscription;
+    config.max_input_tokens = Some(272_000);
+    let provider = ProviderConfig::OpenAI(config);
+    for (selected, expected) in [
+        (None, 272_000),
+        (Some(872_000), 272_000),
+        (Some(128_000), 128_000),
+    ] {
+        assert_eq!(
+            super::provider_context_window_tokens(&provider, "subscription-model", selected),
+            Some(expected)
+        );
+    }
+}

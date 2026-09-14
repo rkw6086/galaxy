@@ -293,18 +293,22 @@ fn bedrock_max_output_tokens(model: &str) -> u64 {
         .unwrap_or(64_000)
 }
 
-fn provider_context_window_tokens(
+pub(crate) fn provider_context_window_tokens(
     provider_config: &crate::ai::provider::ProviderConfig,
     model: &str,
     configured_limit: Option<u32>,
 ) -> Option<u32> {
-    configured_limit.or_else(|| match provider_config {
+    let provider_limit = match provider_config {
         crate::ai::provider::ProviderConfig::Bedrock(_) => {
             model_metadata(model).and_then(|metadata| metadata.context_window_tokens)
         }
-        crate::ai::provider::ProviderConfig::OpenAI(_)
-        | crate::ai::provider::ProviderConfig::None => None,
-    })
+        crate::ai::provider::ProviderConfig::OpenAI(config) => config.max_input_tokens,
+        crate::ai::provider::ProviderConfig::None => None,
+    };
+    match (configured_limit, provider_limit) {
+        (Some(configured), Some(provider)) => Some(configured.min(provider)),
+        (configured, provider) => configured.or(provider),
+    }
 }
 
 #[cfg(test)]

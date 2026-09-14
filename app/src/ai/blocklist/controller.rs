@@ -81,11 +81,11 @@ use crate::ai::provider::ProviderConfig;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::remote_logging::{self, RemoteLogLevel, RemoteLogRecord};
 use crate::ai::runtime::{
-    prepare_provider_run, provider_runtime_for_request, OrchestrationModelOption,
-    PreparedProviderRun, ProviderActionContext, ProviderRunBlock, ProviderRunCoordinator,
-    ProviderRunProfile, ProviderRunProjection, ProviderRunResponseProjector,
-    ProviderToolExecutionRef, ProviderToolLifecycleOutcome, RuntimeResponseConfig,
-    BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
+    prepare_provider_run, provider_context_window_tokens, provider_runtime_for_request,
+    OrchestrationModelOption, PreparedProviderRun, ProviderActionContext, ProviderRunBlock,
+    ProviderRunCoordinator, ProviderRunProfile, ProviderRunProjection,
+    ProviderRunResponseProjector, ProviderToolExecutionRef, ProviderToolLifecycleOutcome,
+    RuntimeResponseConfig, BASE_PROVIDER_PROFILE, CLI_MONITOR_PROVIDER_PROFILE,
 };
 use crate::ai::AIRequestUsageModel;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -112,7 +112,7 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const PROGRESSIVE_SUMMARY_TRIGGER_USAGE: f32 = 0.70;
 const PROGRESSIVE_SUMMARY_RETAINED_USAGE: f32 = 0.50;
-const PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES: usize = 20;
+const PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES: usize = 1;
 const PROGRESSIVE_SUMMARY_OUTPUT_TOKENS: u32 = 8_000;
 const PROGRESSIVE_SUMMARY_CONTEXT_SAFETY_TOKENS: u32 = 2_000;
 const PROGRESSIVE_SUMMARY_START_TIMEOUT: Duration = Duration::from_secs(120);
@@ -199,7 +199,7 @@ fn progressive_summary_candidate(
 }
 
 fn estimated_text_tokens(text: &str) -> u32 {
-    u32::try_from(text.chars().count().div_ceil(4)).unwrap_or(u32::MAX)
+    u32::try_from(text.len().div_ceil(3)).unwrap_or(u32::MAX)
 }
 
 fn estimated_message_tokens(message: &ConversationMessage) -> u32 {
@@ -259,6 +259,8 @@ fn progressive_summary_split_point(
     for index in (0..messages.len()).rev() {
         let message_tokens = estimated_message_tokens(&messages[index]);
         let retained_count = messages.len() - index;
+        // Keep the latest message, then retain only as much history as fits.
+        // A fixed message-count floor can retain many oversized file reads.
         if retained_count > PROGRESSIVE_SUMMARY_MIN_RECENT_MESSAGES
             && retained_tokens.saturating_add(message_tokens) > retained_token_budget
         {
@@ -276,6 +278,17 @@ fn progressive_summary_split_point(
             .is_some_and(|message| content_contains_tool_result(&message.content))
     {
         split_point -= 1;
+    }
+
+    // A single large tool batch can exceed the entire retained budget. Summarize
+    // the complete batch rather than keeping an oversized call/result pair forever.
+    // Its original results remain available in the tool-result archive.
+    if messages
+        .last()
+        .is_some_and(|message| content_contains_tool_result(&message.content))
+        && estimated_history_tokens(&messages[split_point..]) > retained_token_budget
+    {
+        return messages.len();
     }
 
     split_point
@@ -5678,13 +5691,19 @@ impl BlocklistAIController {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
         }
+        let base_provider_config =
+            ResponseStream::resolve_provider_config(snapshot.base_request.model.as_str(), ctx);
+        // A restored checkpoint may contain an older, larger catalog budget.
+        // Reconcile it before any resumed model call and persist the corrected limit.
+        snapshot.response_config.max_context_tokens = provider_context_window_tokens(
+            &base_provider_config,
+            snapshot.base_request.model.as_str(),
+            snapshot.response_config.max_context_tokens,
+        );
         if let Err(error) = self.persist_provider_run_snapshot(conversation_id, &snapshot, ctx) {
             self.fail_restored_provider_run(conversation_id, error, ctx);
             return;
         }
-
-        let base_provider_config =
-            ResponseStream::resolve_provider_config(snapshot.base_request.model.as_str(), ctx);
         let cli_provider_config = snapshot
             .cli_monitor_request
             .as_ref()
@@ -6583,6 +6602,7 @@ impl BlocklistAIController {
     fn begin_active_provider_progressive_summary(
         &mut self,
         conversation_id: AIConversationId,
+        force: bool,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
         if self
@@ -6623,28 +6643,38 @@ impl BlocklistAIController {
                 return false;
             };
             (
-                conversation
-                    .current_context_tokens()
-                    .min(active_context_limit),
+                conversation.current_context_tokens(),
                 conversation.has_pending_progressive_summary(),
             )
         };
+        let transcript = active_run.coordinator.run().transcript();
+        let (estimated_context_tokens, persistent_context_tokens) = active_run
+            .coordinator
+            .estimated_context_tokens()
+            .unwrap_or_else(|| {
+                (
+                    current_context_tokens,
+                    current_context_tokens.saturating_sub(estimated_history_tokens(transcript)),
+                )
+            });
+        let current_context_tokens = current_context_tokens.max(estimated_context_tokens);
+        // Trigger and retain against the space history can actually use. Fixed
+        // prompts and a large output reservation cannot be reduced by summarizing.
+        let history_capacity = active_context_limit.saturating_sub(persistent_context_tokens);
+        let current_history_tokens =
+            current_context_tokens.saturating_sub(persistent_context_tokens);
         if summary_pending
             || last_failure_context_tokens == Some(current_context_tokens)
-            || current_context_tokens as f32 / (active_context_limit as f32)
-                < PROGRESSIVE_SUMMARY_TRIGGER_USAGE
+            || (!force
+                && current_history_tokens as f32 / (history_capacity.max(1) as f32)
+                    < PROGRESSIVE_SUMMARY_TRIGGER_USAGE)
         {
             return false;
         }
-
-        let transcript = active_run.coordinator.run().transcript();
-        let transcript_tokens = estimated_history_tokens(transcript);
-        let persistent_context_tokens = current_context_tokens.saturating_sub(transcript_tokens);
-        let retained_total_budget =
-            (active_context_limit as f32 * PROGRESSIVE_SUMMARY_RETAINED_USAGE) as u32;
-        let retained_history_budget = retained_total_budget
-            .saturating_sub(persistent_context_tokens)
-            .saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS);
+        let retained_history_budget =
+            (history_capacity as f32 * PROGRESSIVE_SUMMARY_RETAINED_USAGE) as u32;
+        let retained_history_budget =
+            retained_history_budget.saturating_sub(PROGRESSIVE_SUMMARY_OUTPUT_TOKENS);
         let split_point = progressive_summary_split_point(transcript, retained_history_budget);
         if split_point == 0 {
             return false;
@@ -6851,6 +6881,16 @@ impl BlocklistAIController {
         let mut summary_applied = false;
         let mut recorded_usage = None;
         match result {
+            Ok((summary, usage, summarizer_model_id))
+                if estimated_history_tokens(&progressive_summary_messages(summary.clone()))
+                    >= estimated_history_tokens(&plan.summarized_prefix) =>
+            {
+                log::warn!(
+                    "[progressive-summary] Summary did not reduce context for conversation {:?}",
+                    conversation_id,
+                );
+                recorded_usage = Some((usage, summarizer_model_id));
+            }
             Ok((summary, usage, summarizer_model_id)) => {
                 let Some(run) = self
                     .active_provider_runs
@@ -6925,10 +6965,6 @@ impl BlocklistAIController {
             }
         }
 
-        let failure_context_tokens = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .map(AIConversation::current_context_tokens)
-            .unwrap_or(plan.trigger_context_tokens);
         if let Some(run) = self
             .active_provider_runs
             .get_mut(&conversation_id)
@@ -6938,7 +6974,7 @@ impl BlocklistAIController {
                 None
             } else {
                 // Fail open and suppress another request at this unchanged context boundary.
-                Some(failure_context_tokens)
+                Some(plan.trigger_context_tokens)
             };
         }
         if let Some((usage, summarizer_model_id)) = recorded_usage {
@@ -6998,7 +7034,7 @@ impl BlocklistAIController {
         if self.apply_ready_active_provider_progressive_summary(conversation_id, ctx) {
             return;
         }
-        self.begin_active_provider_progressive_summary(conversation_id, ctx);
+        self.begin_active_provider_progressive_summary(conversation_id, false, ctx);
         if matches!(
             self.active_provider_progressive_summaries
                 .get(&conversation_id),
@@ -7471,7 +7507,7 @@ impl BlocklistAIController {
                     );
                     return;
                 }
-                if !self.begin_active_provider_progressive_summary(conversation_id, ctx) {
+                if !self.begin_active_provider_progressive_summary(conversation_id, true, ctx) {
                     self.fail_active_provider_run(
                         conversation_id,
                         "provider context overflow could not start compaction".to_string(),

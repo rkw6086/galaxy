@@ -3734,3 +3734,81 @@ fn optimistic_cli_subagent_completion_with_in_flight_stream_reports_success() {
         });
     });
 }
+
+#[test]
+fn progressive_summary_compacts_short_histories_to_the_token_budget() {
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("large project context".repeat(1_000)),
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Working on the requested change".to_string()),
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("Please continue".to_string()),
+        },
+    ];
+    assert_eq!(super::progressive_summary_split_point(&messages, 100), 1);
+}
+
+#[test]
+fn progressive_summary_includes_an_oversized_final_tool_batch() {
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "read".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "large.rs"}),
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "read".to_string(),
+                content: "file contents".repeat(1_000),
+                is_error: false,
+            },
+        },
+    ];
+    assert_eq!(super::progressive_summary_split_point(&messages, 100), 2);
+    assert_eq!(
+        super::progressive_summary_split_point(&messages, 100_000),
+        0
+    );
+}
+
+#[test]
+fn progressive_summary_keeps_retained_tool_results_paired() {
+    let messages = vec![
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::Text("old project context".repeat(1_000)),
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::ToolUse {
+                tool_use_id: "read".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({"path": "small.rs"}),
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "read".to_string(),
+                content: "file contents".to_string(),
+                is_error: false,
+            },
+        },
+        ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("I found the issue".to_string()),
+        },
+    ];
+    let budget = super::estimated_history_tokens(&messages[2..]);
+    assert_eq!(super::progressive_summary_split_point(&messages, budget), 1);
+}

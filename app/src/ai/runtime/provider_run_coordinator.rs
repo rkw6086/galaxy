@@ -244,6 +244,21 @@ impl ProviderRunCoordinator {
         self.profiles.get(profile).map(|profile| &profile.request)
     }
 
+    /// Includes the current transcript, fixed request context, tools, and output reservation.
+    /// Read at the model boundary so newly committed tool output is included.
+    pub(crate) fn estimated_context_tokens(&self) -> Option<(u32, u32)> {
+        let profile = self.profiles.get(self.run.profile().as_str())?;
+        let mut request = profile.request.clone();
+        request.prompt = None;
+        request.messages.clear();
+        let persistent_tokens = estimate_turn_request_tokens(&request);
+        request.messages = self.run.transcript().to_vec();
+        Some((
+            u32::try_from(estimate_turn_request_tokens(&request)).unwrap_or(u32::MAX),
+            u32::try_from(persistent_tokens).unwrap_or(u32::MAX),
+        ))
+    }
+
     pub(crate) fn set_max_context_tokens(&mut self, max_context_tokens: Option<u32>) {
         self.max_context_tokens = max_context_tokens;
     }
@@ -453,7 +468,10 @@ impl ProviderRunCoordinator {
             return false;
         };
         let request = request_for_model_call(profile.request.clone(), call);
-        estimate_turn_request_tokens(&request) >= u64::from(max_context_tokens)
+        // Provider tokenizers and request envelopes differ. Compact before the
+        // estimate reaches the advertised limit, leaving room for that uncertainty.
+        let safe_context_tokens = u64::from(max_context_tokens) * 9 / 10;
+        estimate_turn_request_tokens(&request) >= safe_context_tokens
     }
 
     async fn checkpoint_or_fail<C>(
@@ -1120,42 +1138,33 @@ fn request_for_model_call(mut template: TurnRequest, call: &ProviderModelCall) -
     template
 }
 
-const ESTIMATED_CHARS_PER_TOKEN: u64 = 4;
+const ESTIMATED_BYTES_PER_TOKEN: u64 = 3;
+const ESTIMATED_REQUEST_OVERHEAD_TOKENS: u64 = 512;
 
-/// Deliberately overestimates request size without requiring provider-specific tokenizers.
+/// Conservative estimate, not an exact tokenizer count. UTF-8 bytes account for
+/// non-ASCII content better than character counts; the caller also leaves headroom.
 fn estimate_turn_request_tokens(request: &TurnRequest) -> u64 {
-    let mut chars = request
+    let mut bytes = request
         .system_prompt
         .as_deref()
-        .map_or(0, |text| text.chars().count());
-    chars += request.prompt.as_ref().map_or(0, |prompt| {
-        serde_json::to_string(prompt)
-            .unwrap_or_default()
-            .chars()
-            .count()
+        .map_or(0, |text| text.len());
+    bytes += request.prompt.as_ref().map_or(0, |prompt| {
+        serde_json::to_string(prompt).unwrap_or_default().len()
     });
-    chars += request
+    bytes += request
         .messages
         .iter()
-        .map(|message| {
-            serde_json::to_string(message)
-                .unwrap_or_default()
-                .chars()
-                .count()
-        })
+        .map(|message| serde_json::to_string(message).unwrap_or_default().len())
         .sum::<usize>();
-    chars += request
+    bytes += request
         .tools
         .iter()
-        .map(|tool| {
-            serde_json::to_string(tool)
-                .unwrap_or_default()
-                .chars()
-                .count()
-        })
+        .map(|tool| serde_json::to_string(tool).unwrap_or_default().len())
         .sum::<usize>();
-    let input_tokens = (chars as u64).div_ceil(ESTIMATED_CHARS_PER_TOKEN);
-    input_tokens.saturating_add(request.max_output_tokens.unwrap_or_default())
+    let input_tokens = (bytes as u64).div_ceil(ESTIMATED_BYTES_PER_TOKEN);
+    input_tokens
+        .saturating_add(ESTIMATED_REQUEST_OVERHEAD_TOKENS)
+        .saturating_add(request.max_output_tokens.unwrap_or_default())
 }
 
 fn tool_event_call_id(event: &ToolEvent) -> Result<&str, ProviderRunCoordinatorError> {

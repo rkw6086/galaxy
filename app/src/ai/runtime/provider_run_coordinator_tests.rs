@@ -186,7 +186,7 @@ fn estimates_turn_request_with_system_tools_messages_and_output() {
         + serde_json::to_string(&request.tools[0]).unwrap().len()) as u64;
     assert_eq!(
         estimate_turn_request_tokens(&request),
-        expected_input.div_ceil(ESTIMATED_CHARS_PER_TOKEN) + 10
+        expected_input.div_ceil(ESTIMATED_BYTES_PER_TOKEN) + ESTIMATED_REQUEST_OVERHEAD_TOKENS + 10
     );
 }
 
@@ -1369,4 +1369,59 @@ fn session_runtime_is_rejected_before_any_turn_can_start() {
         error,
         ProviderRunCoordinatorError::InvalidRuntime(_)
     ));
+}
+
+#[test]
+fn context_estimate_tracks_live_transcript_and_reserves_fixed_context() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![]));
+    let mut request = request();
+    request.system_prompt = Some("project instructions".repeat(100));
+    request.max_output_tokens = Some(4_000);
+    let mut coordinator = ProviderRunCoordinator::from_request(
+        "context-budget",
+        runtime,
+        request,
+        Vec::new(),
+        ProviderRunLimits::default(),
+    )
+    .unwrap();
+    let (before, fixed_before) = coordinator.estimated_context_tokens().unwrap();
+    assert!(fixed_before > 4_000);
+    coordinator
+        .run_mut()
+        .compact_transcript_at_model_boundary(
+            1,
+            vec![ConversationMessage {
+                role: MessageRole::User,
+                content: MessageContent::Text("new large tool output".repeat(1_000)),
+            }],
+        )
+        .unwrap();
+    let (after, fixed_after) = coordinator.estimated_context_tokens().unwrap();
+    assert!(after > before + 4_000);
+    assert_eq!(fixed_before, fixed_after);
+}
+
+#[tokio::test]
+async fn preflight_leaves_headroom_before_the_advertised_context_limit() {
+    let runtime = Arc::new(ScriptedRuntime::new(vec![answer_turn()]));
+    let mut coordinator = coordinator(runtime.clone());
+    let (estimated_tokens, _) = coordinator.estimated_context_tokens().unwrap();
+    coordinator.set_max_context_tokens(Some(estimated_tokens + 1));
+    let (_sender, control) = turn_control();
+    let block = coordinator
+        .drive_until_blocked(control, |_| Ok(()))
+        .await
+        .unwrap();
+    assert_eq!(block, ProviderRunBlock::ContextWindowExceeded);
+    assert!(runtime.requests().is_empty());
+}
+
+#[test]
+fn request_estimate_accounts_for_multibyte_text() {
+    let mut request = request();
+    request.system_prompt = Some("a".repeat(1_000));
+    let ascii_tokens = estimate_turn_request_tokens(&request);
+    request.system_prompt = Some("界".repeat(1_000));
+    assert!(estimate_turn_request_tokens(&request) > ascii_tokens + 600);
 }
