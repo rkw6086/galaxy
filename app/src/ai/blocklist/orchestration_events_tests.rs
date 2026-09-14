@@ -355,3 +355,39 @@ fn test_has_pending_events_tracks_any_event_kind() {
     service.pending_events.remove(&conversation_id);
     assert!(!service.has_pending_events(conversation_id));
 }
+
+#[test]
+fn local_follow_up_is_delivered_once_and_acknowledged_without_server_echo() {
+    let conversation_id = AIConversationId::new();
+    let mut service = OrchestrationEventService::new_without_subscriptions();
+    service.pending_events.insert(
+        conversation_id,
+        vec![
+            PendingEvent {
+                event_id: "local-1".to_string(),
+                source_agent_id: "parent".to_string(),
+                attempt_count: 0,
+                detail: PendingEventDetail::LocalMessage {
+                    message_id: "local-1".to_string(),
+                    subject: "Correction".to_string(),
+                    message_body: "Continue the existing task.".to_string(),
+                },
+            },
+            message_pending_event("hosted-1"),
+        ],
+    );
+    assert!(service.has_pending_local_message(conversation_id));
+    let inputs = service.drain_and_convert_events(conversation_id);
+    let AIAgentInput::MessagesReceivedFromAgents { messages } = &inputs[0] else {
+        panic!("Expected child follow-up input");
+    };
+    assert_eq!(messages[0].sender_agent_id, "parent");
+    assert_eq!(messages[0].message_body, "Continue the existing task.");
+    assert_eq!(messages[0].addresses, vec![conversation_id.to_string()]);
+    assert!(service.drain_and_convert_events(conversation_id).is_empty());
+    service.confirm_local_messages(conversation_id);
+    let awaiting = &service.awaiting_server_echo_events[&conversation_id];
+    assert_eq!(awaiting.len(), 1);
+    assert_eq!(awaiting[0].event_id, "hosted-1");
+    assert!(!service.has_pending_local_message(conversation_id));
+}

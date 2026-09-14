@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -16,13 +17,15 @@ use galaxy_util::standardized_path::StandardizedPath;
 use galaxyui_core::r#async::Timer;
 use galaxyui_core::{Entity, ModelContext, SingletonEntity};
 use itertools::Itertools;
-use repo_metadata::{RepoMetadataEvent, RepositoryIdentifier};
+use repo_metadata::entry::{BudgetExceededBehavior, IgnoredPathStrategy};
+use repo_metadata::file_tree_update::RepoNodeMetadata;
+use repo_metadata::{Entry, MetadataUpdateType, RepoMetadataEvent, RepositoryIdentifier};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use warp_search_core::define_search_schema;
 use warp_search_core::searcher::{SimpleFullTextSearcher, DEFAULT_MEMORY_BUDGET};
 
-use crate::index::build_outline;
+use crate::index::file_outline::parse_file_outline_content;
 
 const INDEX_SCHEMA_VERSION: u32 = 1;
 const MAX_INDEX_FILES: usize = 5_000;
@@ -31,6 +34,7 @@ const MAX_INDEXED_BODY_BYTES: usize = 256_000;
 const INDEX_DIRECTORY_NAME: &str = "local_project_indices";
 const CURRENT_FILE_NAME: &str = "CURRENT";
 const METADATA_FILE_NAME: &str = "metadata.json";
+const UPDATE_DEBOUNCE: Duration = Duration::from_millis(300);
 const INDEX_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 // Field weights intentionally prioritize symbols and paths over implementation text.
@@ -108,10 +112,18 @@ impl LocalProjectIndex {
     }
 }
 
+/// Paths are re-read at execution time, so repeated saves and rename sequences coalesce.
+#[derive(Default)]
+struct PendingUpdate {
+    full_rebuild: bool,
+    paths: HashSet<PathBuf>,
+}
+
 pub struct LocalProjectIndexManager {
     indices: HashMap<PathBuf, LocalProjectIndex>,
     statuses: HashMap<PathBuf, LocalIndexStatus>,
-    pending_rebuilds: HashSet<PathBuf>,
+    pending_updates: HashMap<PathBuf, PendingUpdate>,
+    scheduled_updates: HashSet<PathBuf>,
     rebuild_epochs: HashMap<PathBuf, u64>,
     storage_root: PathBuf,
 }
@@ -125,15 +137,13 @@ impl SingletonEntity for LocalProjectIndexManager {}
 impl LocalProjectIndexManager {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
         let repo_metadata = repo_metadata::RepoMetadataModel::handle(ctx);
-        let manager = Self::new_at(state_dir().join(INDEX_DIRECTORY_NAME), ctx);
+        let mut manager = Self::new_at(state_dir().join(INDEX_DIRECTORY_NAME), ctx);
         ctx.subscribe_to_model(&repo_metadata, |manager, _, event, ctx| {
             manager.handle_repo_metadata_event(event, ctx);
         });
 
-        // Re-register restored roots with repository metadata so filesystem updates continue to
-        // refresh the local index after an app restart. RepositoryUpdated is intentionally ignored
-        // below; the restored generation is already usable and only file-tree updates need a
-        // rebuild.
+        // Re-register watchers and reconcile changes made while the app was closed. The restored
+        // snapshot remains searchable during this one-time rebuild.
         let restored_roots: Vec<PathBuf> = manager.statuses.keys().cloned().collect();
         for root_path in restored_roots {
             let Ok(standardized_root) = StandardizedPath::from_local_canonicalized(&root_path)
@@ -143,6 +153,7 @@ impl LocalProjectIndexManager {
             let _ = repo_metadata.update(ctx, |model, ctx| {
                 model.index_local_directory_path(&standardized_root, ctx)
             });
+            manager.start_rebuild(root_path, ctx);
         }
         manager
     }
@@ -152,7 +163,8 @@ impl LocalProjectIndexManager {
         let mut manager = Self {
             indices: HashMap::new(),
             statuses: HashMap::new(),
-            pending_rebuilds: HashSet::new(),
+            pending_updates: HashMap::new(),
+            scheduled_updates: HashSet::new(),
             rebuild_epochs: HashMap::new(),
             storage_root,
         };
@@ -179,7 +191,10 @@ impl LocalProjectIndexManager {
             self.statuses.get(&root_path),
             Some(LocalIndexStatus::Indexing)
         ) {
-            self.pending_rebuilds.insert(root_path);
+            self.pending_updates
+                .entry(root_path)
+                .or_default()
+                .full_rebuild = true;
             return Ok(());
         }
 
@@ -196,6 +211,47 @@ impl LocalProjectIndexManager {
     }
 
     fn start_rebuild(&mut self, root_path: PathBuf, ctx: &mut ModelContext<Self>) {
+        self.start_update(
+            root_path,
+            PendingUpdate {
+                full_rebuild: true,
+                paths: HashSet::new(),
+            },
+            ctx,
+        );
+    }
+
+    fn schedule_update(&mut self, root_path: PathBuf, ctx: &mut ModelContext<Self>) {
+        if matches!(
+            self.statuses.get(&root_path),
+            Some(LocalIndexStatus::Indexing)
+        ) || !self.pending_updates.contains_key(&root_path)
+            || !self.scheduled_updates.insert(root_path.clone())
+        {
+            return;
+        }
+        let epoch = self.rebuild_epochs.get(&root_path).copied();
+        ctx.spawn(
+            async { Timer::after(UPDATE_DEBOUNCE).await },
+            move |manager, _, ctx| {
+                if manager.rebuild_epochs.get(&root_path).copied() != epoch {
+                    return;
+                }
+                manager.scheduled_updates.remove(&root_path);
+                if let Some(update) = manager.pending_updates.remove(&root_path) {
+                    manager.start_update(root_path, update, ctx);
+                }
+            },
+        );
+    }
+
+    fn start_update(
+        &mut self,
+        root_path: PathBuf,
+        update: PendingUpdate,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.scheduled_updates.remove(&root_path);
         let rebuild_epoch = {
             let epoch = self.rebuild_epochs.entry(root_path.clone()).or_default();
             *epoch += 1;
@@ -210,12 +266,34 @@ impl LocalProjectIndexManager {
 
         let storage_root = self.storage_root.clone();
         ctx.spawn(
-            async move { build_persisted_index(root_path, storage_root).await },
+            async move {
+                if update.full_rebuild {
+                    build_persisted_index(root_path, storage_root).await
+                } else {
+                    match update_persisted_index(
+                        root_path.clone(),
+                        storage_root.clone(),
+                        update.paths,
+                    )
+                    .await
+                    {
+                        Ok(result) => Ok(result),
+                        Err(error) => {
+                            log::warn!(
+                                "Incremental local index update failed; rebuilding: {error:#}"
+                            );
+                            build_persisted_index(root_path, storage_root).await
+                        }
+                    }
+                }
+            },
             move |manager, result, ctx| match result {
                 Ok((root_path, built_index, file_count)) => {
                     if manager.rebuild_epochs.get(&root_path).copied() != Some(rebuild_epoch) {
                         drop(built_index.searcher);
-                        let _ = fs::remove_dir_all(&built_index.generation_directory);
+                        if built_index.new_generation {
+                            let _ = fs::remove_dir_all(&built_index.generation_directory);
+                        }
                         return;
                     }
                     if let Err(error) = publish_generation(
@@ -241,12 +319,10 @@ impl LocalProjectIndexManager {
                         root_path: root_path.clone(),
                         status,
                     });
-                    let should_rebuild = manager.pending_rebuilds.remove(&root_path);
+
                     cleanup_old_generations(&manager.storage_root, &root_path);
                     drop(built_index.repository_lock);
-                    if should_rebuild {
-                        manager.start_rebuild(root_path, ctx);
-                    }
+                    manager.schedule_update(root_path, ctx);
                 }
                 Err((root_path, error)) => {
                     if manager.rebuild_epochs.get(&root_path).copied() != Some(rebuild_epoch) {
@@ -289,10 +365,7 @@ impl LocalProjectIndexManager {
                 status,
             });
         }
-        let should_rebuild = self.pending_rebuilds.remove(&root_path);
-        if should_rebuild {
-            self.start_rebuild(root_path, ctx);
-        }
+        self.schedule_update(root_path, ctx);
     }
 
     /// Returns the most specific indexed root containing `path`.
@@ -362,15 +435,65 @@ impl LocalProjectIndexManager {
         event: &RepoMetadataEvent,
         ctx: &mut ModelContext<Self>,
     ) {
-        let local_root = match event {
+        match event {
             RepoMetadataEvent::FileTreeEntryUpdated {
                 id: RepositoryIdentifier::Local(path),
-                ..
-            } => path.to_local_path(),
+                update_type,
+            } => {
+                let Some(root) = path.to_local_path() else {
+                    return;
+                };
+                let root = dunce::canonicalize(&root).unwrap_or(root);
+                if !self.statuses.contains_key(&root) {
+                    return;
+                }
+                let pending = self.pending_updates.entry(root.clone()).or_default();
+                match update_type {
+                    MetadataUpdateType::FullReplace => pending.full_rebuild = true,
+                    MetadataUpdateType::IncrementalUpdate(update) if !pending.full_rebuild => {
+                        pending.paths.extend(
+                            update
+                                .remove_entries
+                                .iter()
+                                .filter_map(StandardizedPath::to_local_path),
+                        );
+                        for entry in &update.update_entries {
+                            for node in &entry.subtree_metadata {
+                                let path = match node {
+                                    RepoNodeMetadata::File(file) => &file.path,
+                                    RepoNodeMetadata::Directory(directory) => &directory.path,
+                                };
+                                if let Some(path) = path.to_local_path() {
+                                    pending.paths.insert(path);
+                                }
+                            }
+                        }
+                        pending.paths.retain(|path| {
+                            path.starts_with(&root)
+                                && !path.components().any(|part| part.as_os_str() == ".git")
+                        });
+                        if pending.paths.len() > MAX_INDEX_FILES
+                            || pending.paths.iter().any(|path| {
+                                path.file_name().is_some_and(|name| name == ".gitignore")
+                            })
+                        {
+                            pending.full_rebuild = true;
+                        }
+                    }
+                    MetadataUpdateType::IncrementalUpdate(_) => {}
+                }
+                if pending.full_rebuild {
+                    pending.paths.clear();
+                }
+                if !pending.full_rebuild && pending.paths.is_empty() {
+                    self.pending_updates.remove(&root);
+                    return;
+                }
+                self.schedule_update(root, ctx);
+            }
             // FileTreeUpdated is emitted before repository mutations are applied. The
-            // post-application FileTreeEntryUpdated event below is the rebuild trigger; using
-            // both would start duplicate full rebuilds for every watcher batch.
-            RepoMetadataEvent::FileTreeUpdated { .. } => None,
+            // post-application delta is the update trigger; using both duplicates each batch.
+            RepoMetadataEvent::FileTreeUpdated { .. } => (),
             RepoMetadataEvent::RepositoryRemoved {
                 id: RepositoryIdentifier::Local(path),
             } => {
@@ -380,7 +503,6 @@ impl LocalProjectIndexManager {
                     self.remove_index(&root_path, ctx);
                     ctx.emit(LocalProjectIndexEvent::IndexRemoved { root_path });
                 }
-                return;
             }
             RepoMetadataEvent::RepositoryUpdated { .. }
             | RepoMetadataEvent::RepositoryRemoved {
@@ -392,22 +514,7 @@ impl LocalProjectIndexManager {
             }
             | RepoMetadataEvent::UpdatingRepositoryFailed { .. }
             | RepoMetadataEvent::StandingQueryResultsUpdated { .. }
-            | RepoMetadataEvent::IncrementalUpdateReady { .. } => None,
-        };
-
-        let Some(local_root) = local_root else {
-            return;
-        };
-        let canonical_root = dunce::canonicalize(&local_root).unwrap_or(local_root);
-        if self.statuses.contains_key(&canonical_root) {
-            if matches!(
-                self.statuses.get(&canonical_root),
-                Some(LocalIndexStatus::Indexing)
-            ) {
-                self.pending_rebuilds.insert(canonical_root);
-            } else {
-                self.start_rebuild(canonical_root, ctx);
-            }
+            | RepoMetadataEvent::IncrementalUpdateReady { .. } => (),
         }
     }
 
@@ -415,7 +522,8 @@ impl LocalProjectIndexManager {
         let root_path = dunce::canonicalize(root_path).unwrap_or_else(|_| root_path.to_path_buf());
         self.indices.remove(&root_path);
         self.statuses.remove(&root_path);
-        self.pending_rebuilds.remove(&root_path);
+        self.pending_updates.remove(&root_path);
+        self.scheduled_updates.remove(&root_path);
         let epoch = self.rebuild_epochs.entry(root_path.clone()).or_default();
         *epoch += 1;
         let storage_root = self.storage_root.clone();
@@ -486,20 +594,19 @@ impl LocalProjectIndexManager {
                 &generation_path,
             ) {
                 Ok(searcher) => {
+                    let Ok(file_count) = searcher.get_all_doc_ids().map(|ids| ids.len()) else {
+                        continue;
+                    };
                     self.indices.insert(
                         root_path.clone(),
                         LocalProjectIndex {
                             root_path: root_path.clone(),
                             searcher,
-                            file_count: metadata.file_count,
+                            file_count,
                         },
                     );
-                    self.statuses.insert(
-                        root_path,
-                        LocalIndexStatus::Ready {
-                            file_count: metadata.file_count,
-                        },
-                    );
+                    self.statuses
+                        .insert(root_path, LocalIndexStatus::Ready { file_count });
                 }
                 Err(error) => {
                     log::warn!(
@@ -518,6 +625,7 @@ struct BuiltLocalProjectIndex {
     generation: String,
     generation_directory: PathBuf,
     repository_lock: File,
+    new_generation: bool,
 }
 
 async fn build_persisted_index(
@@ -531,6 +639,7 @@ async fn build_persisted_index(
         // one process cannot delete another process's in-progress Tantivy generation.
         let repository_lock = acquire_repository_lock(&storage_root, &root_path).await?;
         let documents = build_documents(&root_path).await?;
+        let file_count = documents.len();
         let index_directory = repository_storage_directory(&storage_root, &root_path);
         fs::create_dir_all(index_directory.join("generations"))?;
         let generation = format!("generation-{}", uuid::Uuid::new_v4());
@@ -552,7 +661,7 @@ async fn build_persisted_index(
                 return Err(error);
             }
         };
-        if let Err(error) = searcher.build_index(build_search_documents(&documents)) {
+        if let Err(error) = searcher.build_index(build_search_documents(documents)) {
             let _ = fs::remove_dir_all(&temporary_directory);
             return Err(error);
         }
@@ -571,7 +680,7 @@ async fn build_persisted_index(
             root_path: root_path.to_string_lossy().into_owned(),
             schema_version: INDEX_SCHEMA_VERSION,
             generation: generation.clone(),
-            file_count: documents.len(),
+            file_count,
         };
         let metadata_json = serde_json::to_vec_pretty(&metadata)?;
         // Store metadata inside the generation so an interrupted refresh cannot replace the
@@ -585,8 +694,9 @@ async fn build_persisted_index(
                 generation,
                 generation_directory,
                 repository_lock,
+                new_generation: true,
             },
-            documents.len(),
+            file_count,
         ))
     }
     .await;
@@ -602,11 +712,10 @@ struct LocalProjectDocument {
 }
 
 fn build_search_documents(
-    documents: &[LocalProjectDocument],
-) -> impl Iterator<Item = LocalProjectSearchDocument> + '_ {
+    documents: Vec<LocalProjectDocument>,
+) -> impl Iterator<Item = LocalProjectSearchDocument> {
     documents
-        .iter()
-        .cloned()
+        .into_iter()
         .map(|document| LocalProjectSearchDocument {
             symbol: document.symbol,
             path: document.file_path.clone(),
@@ -617,40 +726,202 @@ fn build_search_documents(
 }
 
 async fn build_documents(root_path: &Path) -> Result<Vec<LocalProjectDocument>> {
-    let root_path = dunce::canonicalize(root_path).with_context(|| {
-        format!(
-            "Failed to canonicalize project root {}",
-            root_path.display()
-        )
-    })?;
-    let outline = build_outline(&root_path, Some(MAX_INDEX_FILES)).await?;
-    let mut documents = Vec::new();
-    for file in outline.to_file_symbols(None) {
-        let relative_path = PathBuf::from(&file.path);
-        let absolute_path = root_path.join(&relative_path);
-        let Ok(bytes) = fs::read(&absolute_path) else {
-            continue;
-        };
-        if bytes.is_empty() || bytes.len() > MAX_INDEXED_FILE_BYTES {
-            continue;
+    let root_path = dunce::canonicalize(root_path)?;
+    documents_under_path(&root_path, &root_path, MAX_INDEX_FILES)
+}
+
+/// Enumerate only the affected subtree, preserving the outline's existing ignore policy.
+fn documents_under_path(
+    root: &Path,
+    path: &Path,
+    limit: usize,
+) -> Result<Vec<LocalProjectDocument>> {
+    if !path.starts_with(root)
+        || limit == 0
+        || path.components().any(|part| part.as_os_str() == ".git")
+    {
+        return Ok(Vec::new());
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() {
+        return Ok(Vec::new());
+    }
+    // A watcher path below a symlink must follow the same exclusion policy as a full scan.
+    for ancestor in path
+        .ancestors()
+        .skip(1)
+        .take_while(|ancestor| ancestor.starts_with(root) && *ancestor != root)
+    {
+        if fs::symlink_metadata(ancestor)?.file_type().is_symlink() {
+            return Ok(Vec::new());
         }
-        let Ok(content) = String::from_utf8(bytes) else {
-            continue;
-        };
-        let body = content.chars().take(MAX_INDEXED_BODY_BYTES).collect();
-        let extension = absolute_path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default();
-        let metadata = format!("{extension} {}", file.symbols);
-        documents.push(LocalProjectDocument {
-            file_path: absolute_path.to_string_lossy().into_owned(),
-            symbol: file.symbols,
-            metadata,
-            body,
-        });
+    }
+    let mut ignores = repo_metadata::gitignores_for_directory(root);
+    if let Some(parent) = path.parent() {
+        let mut ancestors: Vec<_> = parent
+            .ancestors()
+            .take_while(|ancestor| ancestor.starts_with(root) && *ancestor != root)
+            .collect();
+        ancestors.reverse();
+        for ancestor in ancestors {
+            let ignore_path = ancestor.join(".gitignore");
+            if ignore_path.is_file() {
+                ignores.push(ignore::gitignore::Gitignore::new(ignore_path).0);
+            }
+        }
+    }
+    if repo_metadata::matches_gitignores(path, metadata.is_dir(), &ignores, true) {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    let mut budget = limit;
+    Entry::build_tree(
+        path,
+        &mut files,
+        &mut ignores,
+        Some(&mut budget),
+        200,
+        0,
+        &IgnoredPathStrategy::Exclude,
+        BudgetExceededBehavior::StopAndLazyLoad,
+    )?;
+    let mut documents = Vec::new();
+    for file in files {
+        if let Some(document) = build_document(&file.path.to_local_path_lossy())? {
+            documents.push(document);
+        }
     }
     Ok(documents)
+}
+
+fn build_document(path: &Path) -> Result<Option<LocalProjectDocument>> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            return Ok(None)
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_INDEXED_FILE_BYTES as u64 {
+        return Ok(None);
+    }
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            return Ok(None)
+        }
+        Err(error) => return Err(error.into()),
+    };
+    // The read limit also covers files growing between stat and read.
+    let mut bytes = Vec::new();
+    file.take(MAX_INDEXED_FILE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.is_empty() || bytes.len() > MAX_INDEXED_FILE_BYTES {
+        return Ok(None);
+    }
+    let Ok(mut content) = String::from_utf8(bytes) else {
+        return Ok(None);
+    };
+    let symbol = parse_file_outline_content(path, &content)
+        .unwrap_or_default()
+        .to_string()
+        .unwrap_or_default();
+    let mut end = content.len().min(MAX_INDEXED_BODY_BYTES);
+    while !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    content.truncate(end);
+    content.shrink_to_fit();
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    Ok(Some(LocalProjectDocument {
+        file_path: path.to_string_lossy().into_owned(),
+        metadata: format!("{extension} {symbol}"),
+        symbol,
+        body: content,
+    }))
+}
+
+async fn update_persisted_index(
+    root_path: PathBuf,
+    storage_root: PathBuf,
+    paths: HashSet<PathBuf>,
+) -> Result<(PathBuf, BuiltLocalProjectIndex, usize)> {
+    let repository_lock = acquire_repository_lock(&storage_root, &root_path).await?;
+    let directory = repository_storage_directory(&storage_root, &root_path);
+    let metadata = read_metadata(&directory)?;
+    anyhow::ensure!(
+        metadata.schema_version == INDEX_SCHEMA_VERSION,
+        "Local index schema changed"
+    );
+    let generation_directory = directory.join("generations").join(&metadata.generation);
+    let searcher = SimpleFullTextSearcher::open_in_dir(
+        &LOCAL_PROJECT_INDEX_SCHEMA,
+        DEFAULT_MEMORY_BUDGET,
+        &generation_directory,
+    )?;
+    let existing = searcher.get_all_doc_ids()?;
+    // Collapse directory/child events so no subtree is parsed more than once per batch.
+    let mut paths: Vec<_> = paths
+        .into_iter()
+        .filter(|path| path.starts_with(&root_path))
+        .collect();
+    paths.sort();
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        if !roots.iter().any(|root| path.starts_with(root)) {
+            roots.push(path);
+        }
+    }
+    let existing_count = existing.len();
+    let deleted: Vec<_> = existing
+        .into_iter()
+        .filter(|id| {
+            roots
+                .iter()
+                .any(|path| Path::new(&id.file_path).starts_with(path))
+        })
+        .collect();
+    let retained = existing_count - deleted.len();
+    let mut documents = Vec::new();
+    for path in roots {
+        documents.extend(documents_under_path(
+            &root_path,
+            &path,
+            MAX_INDEX_FILES.saturating_sub(retained + documents.len()),
+        )?);
+    }
+    if !deleted.is_empty() || !documents.is_empty() {
+        searcher.update_documents(deleted, build_search_documents(documents))?;
+    }
+    let file_count = searcher.get_all_doc_ids()?.len();
+    Ok((
+        root_path,
+        BuiltLocalProjectIndex {
+            searcher,
+            generation: metadata.generation,
+            generation_directory,
+            repository_lock,
+            new_generation: false,
+        },
+        file_count,
+    ))
 }
 
 fn format_storage_directory_name(root_path: &Path) -> String {

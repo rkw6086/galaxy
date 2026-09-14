@@ -21,7 +21,7 @@ use instant::Instant;
 
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent::SearchCodebaseFailureReason;
-use crate::ai::agent::{AIAgentActionId, SearchCodebaseResult};
+use crate::ai::agent::{AIAgentActionId, SearchCodebaseResult, MAX_SEARCH_CODEBASE_FILES};
 use crate::ai::blocklist::SessionContext;
 #[cfg(any(not(feature = "local_fs"), target_family = "wasm"))]
 use crate::ai::get_relevant_files::api::{FileContext as FileContextRequest, GetRelevantFiles};
@@ -362,6 +362,7 @@ impl GetRelevantFilesController {
                     .search(directory, &query, partial_path_segments.map(Vec::as_slice))
                     .map_err(|error| LocalIndexUnavailable(error.to_string()))?
                     .into_iter()
+                    .take(MAX_SEARCH_CODEBASE_FILES)
                     .map(|hit| CodeContextLocation::WholeFile(hit.path))
                     .collect();
                 let file_paths = locations

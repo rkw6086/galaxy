@@ -232,19 +232,26 @@ fn parse_file_outline(path: &Path) -> anyhow::Result<FileOutline> {
     if !is_file_parsable(path)? {
         return Err(anyhow!("File exceeds max file size limit for parsing"));
     }
+    let content = fs::read_to_string(path)?;
+    parse_file_outline_content(path, &content)
+}
+
+pub(crate) fn parse_file_outline_content(
+    path: &Path,
+    content: &str,
+) -> anyhow::Result<FileOutline> {
     let standardized_path = StandardizedPath::try_from_local(path)?;
     let Some(language) = languages::language_by_filename(&standardized_path) else {
         return Err(anyhow!("Language unsupported for file {:?}", path));
     };
-    let content = fs::read_to_string(path)?;
 
     let mut parser = Parser::new();
     parser.set_language(&language.grammar)?;
-    let Some(tree) = parser.parse(&content, None) else {
+    let Some(tree) = parser.parse(content, None) else {
         return Err(anyhow!("Couldn't parse AST"));
     };
     let symbols = language.symbols_query.as_ref().map(|query| {
-        get_symbols(query, &tree, &content)
+        get_symbols(query, &tree, content)
             .into_iter()
             .map(|(fn_name, type_prefix, comments, line_number)| Symbol {
                 name: fn_name.to_owned(),
@@ -285,7 +292,7 @@ fn parse_file_outline(path: &Path) -> anyhow::Result<FileOutline> {
 fn get_symbols<'a>(
     query: &'a Query,
     tree: &Tree,
-    file_content: &'a String,
+    file_content: &'a str,
 ) -> Vec<(&'a str, Option<&'a str>, Vec<&'a str>, usize)> {
     struct PendingComment<'a> {
         lines: Vec<&'a str>,

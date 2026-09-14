@@ -3948,6 +3948,11 @@ impl BlocklistAIController {
             });
         }
 
+        if has_piggybacked_events && result.is_ok() {
+            OrchestrationEventService::handle(ctx).update(ctx, |svc, _| {
+                svc.confirm_local_messages(conversation_id);
+            });
+        }
         self.pending_passive_follow_ups.remove(&conversation_id);
     }
 
@@ -4102,8 +4107,13 @@ impl BlocklistAIController {
         let is_ready_status = matches!(
             conversation.status(),
             ConversationStatus::Success | ConversationStatus::WaitingForEvents,
-        );
-        if !owns || has_active_stream || !is_ready_status {
+        ) || (matches!(conversation.status(), ConversationStatus::Error)
+            && OrchestrationEventService::as_ref(ctx).has_pending_local_message(conversation_id));
+        // A direct-provider wait can yield to a queued successor. send_request_input
+        // checkpoints that successor and cancels the old generation before resuming.
+        let provider_wait = self.active_provider_runs.contains_key(&conversation_id)
+            && matches!(conversation.status(), ConversationStatus::WaitingForEvents);
+        if !owns || (has_active_stream && !provider_wait) || !is_ready_status {
             log::info!(
                 "Pending events are not ready: conversation_id={conversation_id:?} owns_conversation={owns} has_active_stream={has_active_stream} status={:?}",
                 conversation.status()
@@ -4316,6 +4326,17 @@ impl BlocklistAIController {
             return;
         };
 
+        // A provider wait owns a durable run. Terminalize that generation before
+        // queuing the message turn, just as for a same-conversation follow-up.
+        if self.active_provider_runs.contains_key(&conversation_id) {
+            self.cancel_active_provider_run(
+                conversation_id,
+                CancellationReason::FollowUpSubmitted {
+                    is_for_same_conversation: true,
+                },
+                ctx,
+            );
+        }
         // The resume request supersedes any in-flight wait_for_events.
         self.action_model.update(ctx, |action_model, ctx| {
             action_model.cancel_wait_for_events_for_conversation(conversation_id, ctx);
@@ -4348,6 +4369,10 @@ impl BlocklistAIController {
             // user resume can carry them along.
             OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
                 svc.requeue_awaiting_events(conversation_id, ctx);
+            });
+        } else {
+            OrchestrationEventService::handle(ctx).update(ctx, |svc, _| {
+                svc.confirm_local_messages(conversation_id);
             });
         }
     }
@@ -8372,6 +8397,9 @@ impl BlocklistAIController {
         });
         self.maybe_refresh_ai_overages(ctx);
         self.start_next_queued_provider_run(conversation_id, ctx);
+        // Status notifications may arrive before the stream releases its slot.
+        // Retry queued child messages now that terminal cleanup is complete.
+        self.handle_pending_events_ready(conversation_id, ctx);
     }
 
     fn start_next_queued_provider_run(

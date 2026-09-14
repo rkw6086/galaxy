@@ -924,7 +924,7 @@ fn build_system_prompt(
         let has_search_codebase = tools.iter().any(|tool| tool.name == "search_codebase");
         if has_search_codebase {
             prompt.push_str(
-                "For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context.\n",
+                "For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
             );
         }
         if tools.iter().any(|tool| tool.name == "run_shell_command") {

@@ -1560,7 +1560,7 @@ pub fn extract_system_prompt(
     let has_tool = |name: &str| tool_names.iter().any(|tool_name| tool_name == name);
     if has_tool("search_codebase") {
         prompt.push_str(
-            "- For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context.\n",
+            "- For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
         );
     }
     if [
@@ -1701,7 +1701,9 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
         "read_plan" | "read_notebook" => has(ToolType::ReadDocuments),
         "create_plan" | "create_notebook" => has(ToolType::CreateDocuments),
         "edit_plan" | "edit_notebook" => has(ToolType::EditDocuments),
-        "run_agents" | "start_agent" => has(ToolType::Subagent) || has(ToolType::StartAgentV2),
+        "run_agents" | "start_agent" | "send_message_to_agent" | "wait_for_events" => {
+            has(ToolType::Subagent) || has(ToolType::StartAgentV2)
+        }
         "ask_user_question" => has(ToolType::AskUserQuestion),
         "read_skill" => has(ToolType::ReadSkill),
         "fetch_conversation" => has(ToolType::FetchConversation),
@@ -2030,9 +2032,15 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                 "required": ["name", "prompt"]
             }),
         },
-        // send_message_to_agent removed — child agents in local/Bedrock mode
-        // run autonomously and cannot receive messages. Exposing this tool
-        // causes the model to poll in a loop.
+        ToolDefinition {
+            name: "send_message_to_agent".to_string(),
+            description: "Continue an existing child agent with a corrective instruction or follow-up. Use the child agent_id returned by run_agents, including IDs in failure messages. A failed local child resumes with its existing context; at most two recovery attempts are allowed. Diagnose the error first, avoid blind retries, never override cancellation or permission blocks, and never spawn a duplicate replacement. Delivery is not completion: use wait_for_events for the child's updated result.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object", "properties": {
+                    "agent_id": {"type": "string"}, "message": {"type": "string"}
+                }, "required": ["agent_id", "message"]
+            }),
+        },
         ToolDefinition {
             name: "ask_user_question".to_string(),
             description: "Ask the user a question when you need clarification or a decision. Present clear options when possible. Use sparingly — prefer making reasonable assumptions.".to_string(),
@@ -2274,6 +2282,19 @@ fn extract_tool_result_content(result: &api::request::input::ToolCallResult) -> 
                         (format!("MCP tool error: {}", error.message), true)
                     }
                     None => ("MCP tool completed.".to_string(), false),
+                }
+            }
+            api::request::input::tool_call_result::Result::SendMessageToAgent(result) => {
+                match &result.result {
+                    Some(api::send_message_to_agent_result::Result::Success(success)) => (
+                        format!("Follow-up queued (message {}). Delivery is not completion; use wait_for_events for the child's updated result.", success.message_id),
+                        false,
+                    ),
+                    Some(api::send_message_to_agent_result::Result::Error(error)) => (
+                        format!("Agent message failed: {}", error.message),
+                        true,
+                    ),
+                    None => ("Agent message returned no delivery result.".to_string(), true),
                 }
             }
             api::request::input::tool_call_result::Result::SearchCodebase(search_result) => {

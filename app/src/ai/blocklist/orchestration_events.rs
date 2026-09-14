@@ -47,6 +47,12 @@ impl LifecycleEventDetailStage {
 /// Type-specific queued data.
 #[derive(Debug, Clone)]
 pub enum PendingEventDetail {
+    /// A locally authorized parent/child message; never sent through the hosted messaging API.
+    LocalMessage {
+        message_id: String,
+        subject: String,
+        message_body: String,
+    },
     Message {
         message_id: String,
         addresses: Vec<String>,
@@ -90,6 +96,7 @@ pub struct OrchestrationEventService {
     pending_events: HashMap<AIConversationId, Vec<PendingEvent>>,
     awaiting_server_echo_events: HashMap<AIConversationId, Vec<PendingEvent>>,
     conversation_statuses: HashMap<AIConversationId, ConversationStatus>,
+    restarted_children: HashSet<AIConversationId>,
 }
 
 impl OrchestrationEventService {
@@ -106,6 +113,7 @@ impl OrchestrationEventService {
             pending_events: HashMap::new(),
             awaiting_server_echo_events: HashMap::new(),
             conversation_statuses: HashMap::new(),
+            restarted_children: HashSet::new(),
         }
     }
 
@@ -148,6 +156,7 @@ impl OrchestrationEventService {
                 self.pending_events.remove(conversation_id);
                 self.awaiting_server_echo_events.remove(conversation_id);
                 self.conversation_statuses.remove(conversation_id);
+                self.restarted_children.remove(conversation_id);
             }
             _ => {}
         }
@@ -184,8 +193,12 @@ impl OrchestrationEventService {
             conversation.status().clone()
         };
 
-        self.conversation_statuses
+        let previous = self
+            .conversation_statuses
             .insert(conversation_id, current_status.clone());
+        if !is_restored && previous.as_ref() != Some(&current_status) {
+            self.report_restarted_child(conversation_id, previous.as_ref(), &current_status, ctx);
+        }
         let has_pending = self
             .pending_events
             .get(&conversation_id)
@@ -196,14 +209,146 @@ impl OrchestrationEventService {
         // the stream finishes — either to `Success` or to
         // `WaitingForEvents` via a `wait_for_events` yield.
         if !is_restored
-            && matches!(
+            && (matches!(
                 &current_status,
                 ConversationStatus::Success | ConversationStatus::WaitingForEvents
-            )
+            ) || (matches!(current_status, ConversationStatus::Error)
+                && self.has_pending_local_message(conversation_id)))
             && has_pending
         {
             ctx.emit(OrchestrationEventServiceEvent::EventsReady { conversation_id });
         }
+    }
+
+    pub fn has_pending_local_message(&self, conversation_id: AIConversationId) -> bool {
+        self.pending_events
+            .get(&conversation_id)
+            .is_some_and(|events| {
+                events
+                    .iter()
+                    .any(|event| matches!(event.detail, PendingEventDetail::LocalMessage { .. }))
+            })
+    }
+
+    /// Local providers commit the input directly and do not emit a hosted message echo.
+    pub fn confirm_local_messages(&mut self, conversation_id: AIConversationId) {
+        if let Some(events) = self.awaiting_server_echo_events.get_mut(&conversation_id) {
+            events.retain(|event| !matches!(event.detail, PendingEventDetail::LocalMessage { .. }));
+            if events.is_empty() {
+                self.awaiting_server_echo_events.remove(&conversation_id);
+            }
+        }
+    }
+
+    pub fn send_local_follow_up(
+        &mut self,
+        parent: AIConversationId,
+        child: AIConversationId,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) -> String {
+        self.restarted_children.insert(child);
+        self.enqueue_local_message(
+            child,
+            parent,
+            "Follow-up from your orchestrator",
+            message,
+            ctx,
+        )
+    }
+
+    fn enqueue_local_message(
+        &mut self,
+        target: AIConversationId,
+        source: AIConversationId,
+        subject: &str,
+        message_body: String,
+        ctx: &mut ModelContext<Self>,
+    ) -> String {
+        let message_id = Uuid::new_v4().to_string();
+        self.enqueue_event_batch(
+            target,
+            vec![PendingEvent {
+                event_id: message_id.clone(),
+                source_agent_id: source.to_string(),
+                attempt_count: 0,
+                detail: PendingEventDetail::LocalMessage {
+                    message_id: message_id.clone(),
+                    subject: subject.to_string(),
+                    message_body,
+                },
+            }],
+            ctx,
+        );
+        message_id
+    }
+
+    fn report_restarted_child(
+        &mut self,
+        child: AIConversationId,
+        previous: Option<&ConversationStatus>,
+        status: &ConversationStatus,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let Some(conversation) = history.conversation(&child) else {
+            return;
+        };
+        if conversation.is_remote_child() {
+            return;
+        }
+        let Some(parent) = conversation.parent_conversation_id() else {
+            return;
+        };
+        let restarting = matches!(
+            previous,
+            Some(
+                ConversationStatus::Error
+                    | ConversationStatus::Cancelled
+                    | ConversationStatus::Success
+            )
+        ) && matches!(
+            status,
+            ConversationStatus::InProgress | ConversationStatus::TransientError
+        );
+        if restarting {
+            self.restarted_children.insert(child);
+        }
+        if !self.restarted_children.contains(&child) {
+            return;
+        }
+        let name = conversation.agent_name().unwrap_or("child agent");
+        let message = if restarting {
+            format!("Child {name} ({child}) has restarted. Its earlier terminal result is no longer the final outcome. Keep tracking this child; do not spawn a replacement. A completion update will follow.")
+        } else if matches!(status, ConversationStatus::Success) {
+            let output = conversation
+                .all_exchanges()
+                .into_iter()
+                .rev()
+                .filter_map(|exchange| exchange.output_status.output())
+                .map(|output| output.get().format_for_copy(None))
+                .find(|text| !text.is_empty())
+                .unwrap_or_default();
+            let mut end = output.len().min(16_000);
+            while !output.is_char_boundary(end) {
+                end -= 1;
+            }
+            format!("Restarted child {name} ({child}) completed successfully. Incorporate this result into your task, even if an earlier attempt failed.\n{}{}", &output[..end], if end < output.len() { "\n[Output excerpt truncated; inspect the child conversation for more.]" } else { "" })
+        } else if matches!(
+            status,
+            ConversationStatus::Error | ConversationStatus::Cancelled
+        ) {
+            format!("Restarted child {name} ({child}) ended with {status:?}: {}. Diagnose the failure before retrying; do not loop or override a user cancellation.", conversation.status_error_message().unwrap_or_default())
+        } else {
+            return;
+        };
+        if matches!(
+            status,
+            ConversationStatus::Success | ConversationStatus::Error | ConversationStatus::Cancelled
+        ) {
+            self.restarted_children.remove(&child);
+        }
+        self.enqueue_local_message(parent, child, "Child agent progress update", message, ctx);
     }
 
     fn enqueue_lifecycle_event(
@@ -305,6 +450,20 @@ impl OrchestrationEventService {
         let mut server_bound_events = Vec::new();
         for event in deliverable {
             match &event.detail {
+                PendingEventDetail::LocalMessage {
+                    message_id,
+                    subject,
+                    message_body,
+                } => {
+                    messages.push(ReceivedMessageInput {
+                        message_id: message_id.clone(),
+                        sender_agent_id: event.source_agent_id.clone(),
+                        addresses: vec![conversation_id.to_string()],
+                        subject: subject.clone(),
+                        message_body: message_body.clone(),
+                    });
+                    server_bound_events.push(event);
+                }
                 PendingEventDetail::Message {
                     message_id,
                     addresses,
@@ -625,7 +784,8 @@ fn did_event_round_trip_through_server(
     echoed_lifecycle_event_ids: &HashSet<&str>,
 ) -> bool {
     match &pending_event.detail {
-        PendingEventDetail::Message { message_id, .. } => {
+        PendingEventDetail::Message { message_id, .. }
+        | PendingEventDetail::LocalMessage { message_id, .. } => {
             echoed_message_ids.contains(message_id.as_str())
         }
         PendingEventDetail::Lifecycle { event } => {

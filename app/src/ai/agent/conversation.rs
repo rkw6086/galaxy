@@ -818,57 +818,7 @@ impl AIConversation {
         &mut self,
         messages: Vec<crate::ai::provider::convert::ConversationMessage>,
     ) {
-        use crate::ai::provider::convert::{ContentPart, MessageContent};
-
-        // Cap the archive to prevent unbounded growth. The archive is only used by
-        // `recall_tool_history` which already truncates individual results to 50K chars,
-        // so retaining the most recent entries is sufficient for lookup.
-        const MAX_TOOL_RESULT_ARCHIVE_ENTRIES: usize = 400;
-
-        let mut pending_tool_uses: Vec<crate::ai::provider::convert::ConversationMessage> =
-            Vec::new();
-
-        for msg in messages {
-            match &msg.content {
-                MessageContent::ToolUse { .. } => pending_tool_uses.push(msg),
-                MessageContent::ToolResult { .. } => {
-                    if !pending_tool_uses.is_empty() {
-                        let tool_use = pending_tool_uses.remove(pending_tool_uses.len() - 1);
-                        self.tool_result_archive.push(tool_use);
-                    }
-                    self.tool_result_archive.push(msg);
-                }
-                MessageContent::MultiPart(parts) => {
-                    for part in parts {
-                        match part {
-                            ContentPart::ToolUse { .. } => {
-                                pending_tool_uses.push(msg.clone());
-                            }
-                            ContentPart::ToolResult { .. } => {
-                                if !pending_tool_uses.is_empty() {
-                                    let tool_use =
-                                        pending_tool_uses.remove(pending_tool_uses.len() - 1);
-                                    self.tool_result_archive.push(tool_use);
-                                }
-                                self.tool_result_archive.push(msg.clone());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        for tool_use in pending_tool_uses {
-            self.tool_result_archive.push(tool_use);
-        }
-
-        // Evict oldest entries if the archive exceeds the cap.
-        if self.tool_result_archive.len() > MAX_TOOL_RESULT_ARCHIVE_ENTRIES {
-            let excess = self.tool_result_archive.len() - MAX_TOOL_RESULT_ARCHIVE_ENTRIES;
-            self.tool_result_archive.drain(0..excess);
-        }
+        galaxy_agent_core::archive_tool_results(&mut self.tool_result_archive, messages);
     }
 
     pub fn append_to_bedrock_history(

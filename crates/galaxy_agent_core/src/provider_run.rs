@@ -495,6 +495,7 @@ impl ProviderRun {
 
     pub fn replace_tool_result_archive(&mut self, archive: Vec<ConversationMessage>) {
         self.tool_result_archive = archive;
+        archive_tool_results(&mut self.tool_result_archive, Vec::new());
     }
 
     /// Replaces a summarized prefix while the run is parked between model calls.
@@ -782,6 +783,7 @@ impl ProviderRun {
         &mut self,
         recoverable_call_ids: &HashSet<String>,
     ) -> Result<ProviderRunRestoreNormalization, ProviderRunProtocolError> {
+        archive_tool_results(&mut self.tool_result_archive, Vec::new());
         if matches!(self.state, ProviderRunState::AwaitingModel { .. }) {
             self.state = ProviderRunState::Failed {
                 failure: ProviderRunFailure {
@@ -1740,43 +1742,42 @@ fn add_usage(total: &mut Usage, turn: &Usage) {
         .saturating_add(turn.cache_creation_input_tokens);
 }
 
-fn archive_tool_results(
+/// Retain tool history once per call/result ID, including when repairing older archives.
+/// A multipart message is appended once, never once per tool contained in it.
+pub fn archive_tool_results(
     archive: &mut Vec<ConversationMessage>,
     messages: Vec<ConversationMessage>,
 ) {
     const MAX_TOOL_RESULT_ARCHIVE_ENTRIES: usize = 400;
-
-    let mut pending_tool_uses = Vec::new();
-    for message in messages {
-        match &message.content {
-            MessageContent::ToolUse { .. } => pending_tool_uses.push(message),
-            MessageContent::ToolResult { .. } => {
-                if let Some(tool_use) = pending_tool_uses.pop() {
-                    archive.push(tool_use);
-                }
-                archive.push(message);
+    let mut seen_uses = HashSet::new();
+    let mut seen_results = HashSet::new();
+    let previous = std::mem::take(archive);
+    for mut message in previous.into_iter().chain(messages) {
+        let keep = match &mut message.content {
+            MessageContent::ToolUse { tool_use_id, .. } => seen_uses.insert(tool_use_id.clone()),
+            MessageContent::ToolResult { tool_use_id, .. } => {
+                seen_results.insert(tool_use_id.clone())
             }
             MessageContent::MultiPart(parts) => {
-                for part in parts {
-                    match part {
-                        ContentPart::ToolUse { .. } => pending_tool_uses.push(message.clone()),
-                        ContentPart::ToolResult { .. } => {
-                            if let Some(tool_use) = pending_tool_uses.pop() {
-                                archive.push(tool_use);
-                            }
-                            archive.push(message.clone());
-                        }
-                        ContentPart::Text(_)
-                        | ContentPart::Reasoning { .. }
-                        | ContentPart::Image { .. } => {}
+                parts.retain(|part| match part {
+                    ContentPart::ToolUse { tool_use_id, .. } => {
+                        seen_uses.insert(tool_use_id.clone())
                     }
-                }
+                    ContentPart::ToolResult { tool_use_id, .. } => {
+                        seen_results.insert(tool_use_id.clone())
+                    }
+                    ContentPart::Text(_)
+                    | ContentPart::Reasoning { .. }
+                    | ContentPart::Image { .. } => false,
+                });
+                !parts.is_empty()
             }
-            MessageContent::Text(_) => {}
+            MessageContent::Text(_) => false,
+        };
+        if keep {
+            archive.push(message);
         }
     }
-    archive.extend(pending_tool_uses);
-
     if archive.len() > MAX_TOOL_RESULT_ARCHIVE_ENTRIES {
         archive.drain(0..archive.len() - MAX_TOOL_RESULT_ARCHIVE_ENTRIES);
     }

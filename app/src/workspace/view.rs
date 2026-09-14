@@ -3580,6 +3580,23 @@ impl Workspace {
         event: &BlocklistAIHistoryEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        if let BlocklistAIHistoryEvent::UpdatedConversationStatus {
+            conversation_id,
+            update,
+            ..
+        } = event
+        {
+            if !matches!(
+                update,
+                crate::ai::blocklist::history_model::ConversationStatusUpdate::Restored
+            ) {
+                let conversation_id = *conversation_id;
+                // Defer pane movement until completion subscribers have captured the result.
+                ctx.spawn(async {}, move |workspace, (), ctx| {
+                    workspace.close_completed_child_views(conversation_id, ctx);
+                });
+            }
+        }
         #[cfg(target_family = "wasm")]
         if self
             .current_workspace_state
@@ -3621,6 +3638,58 @@ impl Workspace {
 
         if self.agent_conversation_event_affects_vertical_tabs(event, ctx) {
             ctx.notify();
+        }
+    }
+
+    fn close_completed_child_views(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let Some(conversation) = history.conversation(&conversation_id) else {
+            return;
+        };
+        if conversation.parent_conversation_id().is_none()
+            || !matches!(
+                conversation.status(),
+                crate::ai::agent::conversation::ConversationStatus::Success
+            )
+        {
+            return;
+        }
+        let Some(owner) = history.terminal_surface_id_for_conversation(&conversation_id) else {
+            return;
+        };
+        // Do not close a pane the user has repurposed for a different conversation.
+        if history
+            .active_conversation(owner)
+            .is_none_or(|active| active.id() != conversation_id)
+        {
+            return;
+        }
+        let detached_tabs: Vec<_> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                let group = tab.pane_group.as_ref(ctx);
+                group
+                    .child_agent_origin()
+                    .is_some_and(|origin| origin.conversation_id == conversation_id)
+                    .then_some(index)
+            })
+            .collect();
+        for index in detached_tabs.into_iter().rev() {
+            if self.tabs.len() > 1 && self.try_re_adopt_split_off_child_agent_tab(index, ctx) {
+                self.remove_tab(index, false, false, ctx);
+            }
+        }
+        let groups: Vec<_> = self.tabs.iter().map(|tab| tab.pane_group.clone()).collect();
+        for group in groups {
+            group.update(ctx, |group, ctx| {
+                group.hide_completed_child_agent(conversation_id, ctx)
+            });
         }
     }
 

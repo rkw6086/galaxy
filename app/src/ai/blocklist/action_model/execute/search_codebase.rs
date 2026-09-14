@@ -27,12 +27,21 @@ use crate::features::FeatureFlag;
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::{send_telemetry_from_ctx, TelemetryEvent};
 
+#[path = "search_codebase_context.rs"]
+mod context;
+use context::{bound_search_result, MAX_SEARCH_FILES, MAX_SEARCH_SCAN_BYTES};
+
+struct PendingSearch {
+    sender: oneshot::Sender<SearchCodebaseResult>,
+    query: String,
+}
+
 pub struct SearchCodebaseExecutor {
     active_session: ModelHandle<ActiveSession>,
     get_relevant_files_controller: ModelHandle<GetRelevantFilesController>,
     /// Per-action response channels for searches that are still waiting on
     /// `GetRelevantFilesController`.
-    active_searches: HashMap<AIAgentActionId, oneshot::Sender<SearchCodebaseResult>>,
+    active_searches: HashMap<AIAgentActionId, PendingSearch>,
     /// Cached repo roots derived during preprocessing so permission checks and execution can agree
     /// on which repository the action actually targets.
     root_repo_paths: HashMap<AIAgentActionId, PathBuf>,
@@ -59,9 +68,7 @@ impl SearchCodebaseExecutor {
                     let Some(result_tx) = me.active_searches.remove(action_id) else {
                         return;
                     };
-                    if let Err(e) = result_tx.send(result.clone()) {
-                        log::warn!("Failed to send search codebase results to receiver {e:?}.");
-                    }
+                    Self::send_bounded_result(result_tx, result.clone(), ctx);
                 }
                 GetRelevantFilesControllerEvent::Success {
                     result: GetRelevantFilesControllerResult::Locations(fragments),
@@ -70,6 +77,8 @@ impl SearchCodebaseExecutor {
                     let action_id = event.action_id().clone();
                     let locations = fragments
                         .iter()
+                        .sorted_by_key(|location| location.path())
+                        .take(MAX_SEARCH_FILES)
                         .map(|location| location.into())
                         .collect_vec();
                     let current_working_directory = me
@@ -84,13 +93,15 @@ impl SearchCodebaseExecutor {
                                 &locations,
                                 current_working_directory,
                                 shell,
-                                None,
-                                None,
+                                Some(MAX_SEARCH_SCAN_BYTES),
+                                Some(MAX_SEARCH_SCAN_BYTES * MAX_SEARCH_FILES),
                             )
                             .await
                             {
                                 Ok(result) => {
-                                    if !result.missing_files.is_empty() {
+                                    if result.file_contexts.is_empty()
+                                        && !result.missing_files.is_empty()
+                                    {
                                         let missing_files = result.missing_files.join(", ");
                                         SearchCodebaseResult::Failed {
                                             message: format!(
@@ -110,15 +121,11 @@ impl SearchCodebaseExecutor {
                                 },
                             }
                         },
-                        move |me, result, _| {
+                        move |me, result, ctx| {
                             let Some(result_tx) = me.active_searches.remove(&action_id) else {
                                 return;
                             };
-                            if let Err(e) = result_tx.send(result) {
-                                log::warn!(
-                                    "Failed to send search codebase results to receiver {e:?}."
-                                );
-                            }
+                            Self::send_bounded_result(result_tx, result, ctx);
                         },
                     );
                 }
@@ -126,7 +133,7 @@ impl SearchCodebaseExecutor {
                     let Some(result_tx) = me.active_searches.remove(action_id) else {
                         return;
                     };
-                    if let Err(e) = result_tx.send(SearchCodebaseResult::Failed {
+                    if let Err(e) = result_tx.sender.send(SearchCodebaseResult::Failed {
                         message: "The search failed. Try another way to locate the relevant files."
                             .to_owned(),
                         reason: SearchCodebaseFailureReason::GetRelevantFilesError,
@@ -144,6 +151,21 @@ impl SearchCodebaseExecutor {
             root_repo_paths: HashMap::new(),
             terminal_view_id,
         }
+    }
+
+    fn send_bounded_result(
+        pending: PendingSearch,
+        result: SearchCodebaseResult,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        ctx.spawn(
+            async move { (pending.sender, bound_search_result(result, &pending.query)) },
+            |_, (sender, result), _| {
+                if let Err(error) = sender.send(result) {
+                    log::debug!("Search result receiver was dropped: {error:?}");
+                }
+            },
+        );
     }
 
     pub(super) fn should_autoexecute(
@@ -245,7 +267,13 @@ impl SearchCodebaseExecutor {
             });
 
             let (result_tx, result_rx) = oneshot::channel();
-            self.active_searches.insert(id.clone(), result_tx);
+            self.active_searches.insert(
+                id.clone(),
+                PendingSearch {
+                    sender: result_tx,
+                    query: query.clone(),
+                },
+            );
 
             match self
                 .get_relevant_files_controller
@@ -358,7 +386,13 @@ impl SearchCodebaseExecutor {
             });
 
             let (result_tx, result_rx) = oneshot::channel();
-            self.active_searches.insert(id.clone(), result_tx);
+            self.active_searches.insert(
+                id.clone(),
+                PendingSearch {
+                    sender: result_tx,
+                    query: query.clone(),
+                },
+            );
 
             // Start the actual search.
             match self

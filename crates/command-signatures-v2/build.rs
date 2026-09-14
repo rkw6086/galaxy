@@ -8,6 +8,8 @@ fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=js/build");
     println!("cargo:rerun-if-changed=js/package.json");
     println!("cargo:rerun-if-changed=js/tsconfig.json");
+    println!("cargo:rerun-if-changed=js/yarn.lock");
+    println!("cargo:rerun-if-changed=js/.yarnrc.yml");
 
     if let Err(e) = build_command_signatures() {
         if !Path::new(format!("{}/js/build", env!("CARGO_MANIFEST_DIR")).as_str()).exists() {
@@ -31,8 +33,8 @@ If you continue to encounter issues, ensure you don't have conflicting Node inst
 }
 
 fn build_command_signatures() -> anyhow::Result<()> {
-    match Command::new("yarn")
-        .arg("build")
+    match Command::new("corepack")
+        .args(["yarn", "build"])
         .current_dir(format!("{}/js", env!("CARGO_MANIFEST_DIR")))
         .output()
     {

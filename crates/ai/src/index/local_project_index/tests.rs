@@ -86,3 +86,130 @@ fn partial_paths_filter_local_search_results() {
     assert_eq!(matches.len(), 1);
     assert!(matches[0].path.ends_with("src/lib.rs"));
 }
+
+#[test]
+fn incremental_commit_replaces_and_removes_files_without_reparsing_unchanged_files() {
+    let root = TempDir::new().unwrap();
+    let storage = TempDir::new().unwrap();
+    let root = dunce::canonicalize(root.path()).unwrap();
+    fs::write(root.join("changed.rs"), "fn old_symbol() {}\n").unwrap();
+    fs::write(root.join("untouched.rs"), "fn retained_symbol() {}\n").unwrap();
+    fs::write(root.join("removed.rs"), "fn removed_symbol() {}\n").unwrap();
+    let (_, initial, _) = futures::executor::block_on(build_persisted_index(
+        root.clone(),
+        storage.path().to_path_buf(),
+    ))
+    .unwrap();
+    publish_generation(storage.path(), &root, &initial.generation).unwrap();
+    // Keep the old reader open, as UI searches do during an update.
+    drop(initial.repository_lock);
+    fs::write(root.join("changed.rs"), "fn replacement_symbol() {}\n").unwrap();
+    fs::write(root.join("untouched.rs"), "fn must_not_be_read() {}\n").unwrap();
+    fs::remove_file(root.join("removed.rs")).unwrap();
+    fs::write(root.join("added.rs"), "fn added_symbol() {}\n").unwrap();
+    let paths = ["changed.rs", "removed.rs", "added.rs"]
+        .map(|path| root.join(path))
+        .into_iter()
+        .collect();
+    let (_, updated, count) = futures::executor::block_on(update_persisted_index(
+        root.clone(),
+        storage.path().to_path_buf(),
+        paths,
+    ))
+    .unwrap();
+    assert_eq!(count, 3);
+    assert_eq!(updated.generation, initial.generation);
+    assert_eq!(updated.searcher.search_id("old_symbol").unwrap().len(), 0);
+    assert_eq!(
+        updated.searcher.search_id("removed_symbol").unwrap().len(),
+        0
+    );
+    for symbol in ["replacement_symbol", "retained_symbol", "added_symbol"] {
+        assert_eq!(updated.searcher.search_id(symbol).unwrap().len(), 1);
+    }
+    assert_eq!(
+        updated
+            .searcher
+            .search_id("must_not_be_read")
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(initial.searcher.search_id("old_symbol").unwrap().len(), 1);
+    // A second writer can open while both readers are still alive; persisted contents survive reopen.
+    drop(updated.repository_lock);
+    let (_, reopened, count) = futures::executor::block_on(update_persisted_index(
+        root.clone(),
+        storage.path().to_path_buf(),
+        HashSet::from([root.join("added.rs")]),
+    ))
+    .unwrap();
+    assert_eq!(count, 3);
+    assert_eq!(
+        reopened
+            .searcher
+            .search_id("replacement_symbol")
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn indexed_body_is_capped_at_a_utf8_boundary_and_oversized_files_are_skipped() {
+    let root = TempDir::new().unwrap();
+    let path = root.path().join("unicode.txt");
+    let content = "€".repeat(MAX_INDEXED_BODY_BYTES);
+    fs::write(&path, &content).unwrap();
+    let document = build_document(&path).unwrap().unwrap();
+    assert_eq!(
+        document.body.len(),
+        MAX_INDEXED_BODY_BYTES - MAX_INDEXED_BODY_BYTES % 3
+    );
+    assert!(content.starts_with(&document.body));
+    let oversized = root.path().join("oversized.rs");
+    File::create(&oversized)
+        .unwrap()
+        .set_len(MAX_INDEXED_FILE_BYTES as u64 + 1)
+        .unwrap();
+    assert!(build_document(&oversized).unwrap().is_none());
+    let binary = root.path().join("binary.dat");
+    fs::write(&binary, [255, 254]).unwrap();
+    assert!(build_document(&binary).unwrap().is_none());
+}
+
+#[test]
+fn subtree_updates_respect_inherited_ignores_and_remove_renamed_paths() {
+    let root = TempDir::new().unwrap();
+    let storage = TempDir::new().unwrap();
+    let root = dunce::canonicalize(root.path()).unwrap();
+    fs::create_dir(root.join("old")).unwrap();
+    fs::write(root.join(".gitignore"), "ignored.rs\n").unwrap();
+    fs::write(root.join("old/keep.rs"), "fn kept_symbol() {}\n").unwrap();
+    fs::write(root.join("old/ignored.rs"), "fn excluded_symbol() {}\n").unwrap();
+    let (_, initial, _) = futures::executor::block_on(build_persisted_index(
+        root.clone(),
+        storage.path().to_path_buf(),
+    ))
+    .unwrap();
+    publish_generation(storage.path(), &root, &initial.generation).unwrap();
+    drop(initial);
+    fs::rename(root.join("old"), root.join("new")).unwrap();
+    let paths = HashSet::from([root.join("old"), root.join("new"), root.join("new/keep.rs")]);
+    let (_, updated, _) = futures::executor::block_on(update_persisted_index(
+        root.clone(),
+        storage.path().to_path_buf(),
+        paths,
+    ))
+    .unwrap();
+    let hits = updated.searcher.search_id("kept_symbol").unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        Path::new(&hits[0].values.file_path),
+        root.join("new/keep.rs")
+    );
+    assert_eq!(
+        updated.searcher.search_id("excluded_symbol").unwrap().len(),
+        0
+    );
+}

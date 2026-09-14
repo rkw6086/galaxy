@@ -4,6 +4,7 @@
 //! exclusively by local settings and should only receive operational metadata:
 //! provider/model IDs, lifecycle states, counts, timings, and sanitized errors.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 #[cfg(all(feature = "remote_logs_local_file", not(target_family = "wasm")))]
 use std::{
@@ -25,6 +26,13 @@ use crate::AISettings;
 const DEFAULT_LOGS_PATH: &str = "/api/logs";
 const REMOTE_LOG_SERVICE: &str = "galaxy-ai";
 const REMOTE_LOG_TIMEOUT: Duration = Duration::from_secs(5);
+// Authentication and endpoint selection remain scoped to each request.
+static REMOTE_LOG_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(REMOTE_LOG_TIMEOUT)
+        .build()
+        .map_err(|error| format!("could not create HTTP client: {error}"))
+});
 const MAX_ERROR_CHARS: usize = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,10 +233,7 @@ fn app_context() -> Value {
 }
 
 async fn send_remote_log(config: RemoteLogConfig, payload: RemoteLogPayload) -> Result<(), String> {
-    let client = reqwest::Client::builder()
-        .timeout(REMOTE_LOG_TIMEOUT)
-        .build()
-        .map_err(|error| format!("could not create HTTP client: {error}"))?;
+    let client = REMOTE_LOG_CLIENT.as_ref().map_err(Clone::clone)?;
 
     let response = client
         .post(&config.endpoint)

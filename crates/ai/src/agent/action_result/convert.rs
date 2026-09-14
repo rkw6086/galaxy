@@ -306,6 +306,11 @@ impl TryFrom<SearchCodebaseResult> for api::request::input::tool_call_result::Re
                                 files: files
                                     .into_iter()
                                     .flat_map(Into::<Vec<api::FileContent>>::into)
+                                    .map(|mut file| {
+                                        let range = file.line_range.as_ref().map(|range| format!(" (lines {}-{})", range.start, range.end)).unwrap_or_default();
+                                        file.content = format!("Bounded search excerpt{range}; more matches/content may be omitted. Use read_files for focused follow-up.\n{}", file.content);
+                                        file
+                                    })
                                     .collect(),
                             },
                         )),

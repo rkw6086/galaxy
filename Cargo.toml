@@ -4,6 +4,7 @@ members = [
   "app",
 ]
 resolver = "2"
+exclude = ["vendor/block"]
 
 # Include only the application and core libraries used by the shipped local
 # client. Integration-only and server-only crates remain outside default builds.
@@ -532,6 +533,8 @@ inherits = "dev"
 opt-level = "s"
 
 [patch.crates-io]
+# Keep the legacy Blocks ABI while fixing its uninhabited external static.
+block = { path = "vendor/block" }
 # Pinned to the merge commit of servo/core-foundation-rs#746, which fixes a
 # double-retain bug in `CTFontCollection::get_descriptors` that leaks the
 # CoreText font-descriptor NSArray on every call. The fix is not yet in any

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 #[cfg(not(target_family = "wasm"))]
 use std::time::Duration;
 
@@ -13,12 +14,13 @@ use warpui::r#async::Timer;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
-use crate::ai::agent::conversation::AIConversationId;
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::{
     AIAgentAction, AIAgentActionResultType, AIAgentActionType, SendMessageToAgentResult,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
+use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
 use crate::ai::blocklist::telemetry::{
     BlocklistOrchestrationTelemetryEvent, TeamAgentCommunicationFailedEvent,
     TeamAgentCommunicationFailureReason, TeamAgentCommunicationKind,
@@ -32,6 +34,7 @@ const SEND_AGENT_MESSAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct SendMessageToAgentExecutor {
     ambient_agent_task_id: Option<AmbientAgentTaskId>,
+    local_recovery_attempts: HashMap<AIConversationId, usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +124,7 @@ impl SendMessageToAgentExecutor {
     pub fn new() -> Self {
         Self {
             ambient_agent_task_id: None,
+            local_recovery_attempts: HashMap::new(),
         }
     }
 
@@ -158,6 +162,68 @@ impl SendMessageToAgentExecutor {
         let addresses = addresses.clone();
         let subject = subject.clone();
         let message_body = message.clone();
+
+        // Resolve only an actual child of this sender; local routing never trusts an arbitrary
+        // conversation ID as authority to resume another task.
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let local_children = history.child_conversations_of(conversation_id);
+        let local_child = if addresses.len() == 1 {
+            local_children.iter().find(|child| {
+                !child.is_remote_child()
+                    && (child.id().to_string() == addresses[0]
+                        || child.orchestration_agent_id().as_deref() == Some(addresses[0].as_str()))
+            })
+        } else {
+            None
+        };
+        if let Some(child) = local_child {
+            let child_id = child.id();
+            let error = if message_body.trim().is_empty() {
+                Some("A corrective instruction or follow-up message is required.")
+            } else if matches!(child.status(), ConversationStatus::Cancelled) {
+                Some("The child was cancelled. Ask the user to resume it; do not override cancellation.")
+            } else if matches!(child.status(), ConversationStatus::Blocked { .. }) {
+                Some("The child is blocked on permission or user input. Resolve that block rather than restarting it.")
+            } else if matches!(child.status(), ConversationStatus::Error)
+                && self
+                    .local_recovery_attempts
+                    .get(&child_id)
+                    .copied()
+                    .unwrap_or(0)
+                    >= 2
+            {
+                Some("This child has exhausted two orchestrator recovery attempts. Report the blocker to the user.")
+            } else {
+                None
+            };
+            if let Some(error) = error {
+                return ActionExecution::<()>::Sync(AIAgentActionResultType::SendMessageToAgent(
+                    SendMessageToAgentResult::Error(error.to_string()),
+                ))
+                .into();
+            }
+            if matches!(child.status(), ConversationStatus::Error) {
+                *self.local_recovery_attempts.entry(child_id).or_default() += 1;
+            }
+            let message_id = OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                service.send_local_follow_up(conversation_id, child_id, message_body, ctx)
+            });
+            return ActionExecution::<()>::Sync(AIAgentActionResultType::SendMessageToAgent(
+                SendMessageToAgentResult::Success { message_id },
+            ))
+            .into();
+        }
+        if history
+            .conversation(&conversation_id)
+            .is_some_and(|parent| parent.run_id().is_none())
+            || addresses.iter().any(|address| {
+                history.all_live_conversations().iter().any(|(_, target)| {
+                    !target.is_remote_child() && target.id().to_string() == *address
+                })
+            })
+        {
+            return ActionExecution::<()>::Sync(AIAgentActionResultType::SendMessageToAgent(SendMessageToAgentResult::Error("The target must be one existing child of this orchestrator. Use its agent_id from run_agents; do not message unrelated conversations.".to_string()))).into();
+        }
 
         let (sender_run_id, task_id, task_resolution) =
             sender_run_id_and_task_id_for_send(conversation_id, self.ambient_agent_task_id, ctx);

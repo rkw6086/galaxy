@@ -878,6 +878,9 @@ pub enum SearchCodebaseFailureReason {
     MissingCurrentWorkingDirectory,
 }
 
+/// Maximum number of files returned by a codebase discovery search.
+pub const MAX_SEARCH_CODEBASE_FILES: usize = 8;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SearchCodebaseResult {
     Success {

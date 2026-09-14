@@ -313,6 +313,11 @@ impl StartAgentExecutor {
         let Some(pending) = self.pending.remove(&request_id) else {
             return;
         };
+        let error_msg = if matches!(pending.wait_policy, StartAgentWaitPolicy::Completion) {
+            format!("Child agent {child_conversation_id} failed: {error_msg}. For a recoverable error (never a user cancellation), use send_message_to_agent with this agent_id and a corrective instruction to continue the same child; do not create a duplicate.")
+        } else {
+            error_msg
+        };
         let _ = pending.sender.try_send(StartAgentOutcome::Error(error_msg));
         // Only startup acknowledgements may clean up a conversation that never
         // initialized. Direct-provider completion waits preserve the terminal

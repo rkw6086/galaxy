@@ -470,19 +470,12 @@ impl SearcherWriterWrapper {
         let guard = handle_copy.read();
         let memory_budget = memory_budget.max(MIN_MEMORY_BUDGET);
         let search_index = guard.search_index.clone();
-        let num_threads = std::cmp::min(
-            available_parallelism().map(|ap| ap.get()).unwrap_or(1),
-            MAX_THREADS_PER_INDEX_WRITER,
-        );
-        let writer = search_index
-            .writer_with_num_threads(num_threads, memory_budget)
-            .ok();
 
         SearcherWriterWrapper {
             search_index,
             memory_budget,
             composite_key_field,
-            writer,
+            writer: None,
             reader_handle,
             id_field_names: guard.id_fields.keys().cloned().collect(),
         }
@@ -627,7 +620,13 @@ impl SearcherWriterWrapper {
 
     fn writer(&mut self) -> anyhow::Result<&mut IndexWriter<TantivyDocument>> {
         if self.writer.is_none() {
-            let writer = self.search_index.writer(self.memory_budget)?;
+            let num_threads = std::cmp::min(
+                available_parallelism().map(|ap| ap.get()).unwrap_or(1),
+                MAX_THREADS_PER_INDEX_WRITER.min(self.memory_budget / MIN_MEMORY_BUDGET),
+            );
+            let writer = self
+                .search_index
+                .writer_with_num_threads(num_threads, self.memory_budget)?;
             self.writer = Some(writer);
         }
 
@@ -783,6 +782,46 @@ impl<C: SearchSchemaConfig> SimpleFullTextSearcher<C> {
                 .into_iter()
                 .map(|entry| SearcherEvent::DocumentInserted(entry.into_document_entry())),
         )
+    }
+
+    /// Atomically apply deletions and replacements in one commit, then release the writer.
+    /// Read-only handles remain usable without holding a disk writer lock or worker threads.
+    pub fn update_documents(
+        &self,
+        deleted: impl IntoIterator<Item = C::SearchIdEntry>,
+        documents: impl IntoIterator<Item = C::SearchDocEntry>,
+    ) -> anyhow::Result<()> {
+        let mut writer = self.writer.lock();
+        let result = writer.execute_operations(
+            deleted
+                .into_iter()
+                .map(|entry| SearcherEvent::DocumentDeleted(entry.into_identifying_entry()))
+                .chain(
+                    documents
+                        .into_iter()
+                        .map(|entry| SearcherEvent::DocumentInserted(entry.into_document_entry())),
+                ),
+        );
+        let rollback = if result.is_err() {
+            writer
+                .writer
+                .as_mut()
+                .map(|active_writer| active_writer.rollback())
+                .transpose()
+        } else {
+            Ok(None)
+        };
+        // Let committed segment merges finish before releasing the disk lock. Dropping the
+        // writer immediately cancels merges and would accumulate small segments on every save.
+        let merges = writer
+            .writer
+            .take()
+            .map(|active_writer| active_writer.wait_merging_threads())
+            .transpose();
+        rollback?;
+        result?;
+        merges?;
+        Ok(())
     }
 
     #[allow(unused)]

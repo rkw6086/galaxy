@@ -196,6 +196,7 @@ fn initialize_app(app: &mut App) {
     app.add_singleton_model(voice_input::VoiceInput::new);
     #[cfg(feature = "local_fs")]
     app.add_singleton_model(RepoMetadataModel::new);
+    app.add_singleton_model(|_| ProjectContextModel::default());
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     app.add_singleton_model(ai::index::local_project_index::LocalProjectIndexManager::new);
     app.add_singleton_model(SkillManager::new);
@@ -209,7 +210,6 @@ fn initialize_app(app: &mut App) {
         CodebaseIndexManager::new_for_test(ServerApiProvider::as_ref(ctx).get(), ctx)
     });
     app.add_singleton_model(|ctx| PersistedWorkspace::new(vec![], HashMap::new(), None, ctx));
-    app.add_singleton_model(|_| ProjectContextModel::default());
     app.add_singleton_model(|ctx| crate::ai::agent_tips::AITipModel::new_for_agent_tips(ctx));
     app.add_singleton_model(|_| RestoredAgentConversations::new(vec![]));
     app.add_singleton_model(OneTimeModalModel::new);
@@ -3387,4 +3387,64 @@ fn decide_remote_child_hydration_empty_token_falls_back() {
             "empty/whitespace token={empty_token:?} must fall through to Fallback",
         );
     }
+}
+
+#[test]
+fn test_auto_hiding_completed_child_preserves_parent_focus_and_reopen() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let pane_group = mock_pane_group(&mut app, Default::default());
+
+        pane_group.update(&mut app, |panes, ctx| {
+            let parent_pane_id = get_newly_created_pane_id(panes, &[]);
+            let parent_conversation_id = start_parent_conversation(panes, parent_pane_id, ctx);
+            let child = create_hidden_child_agent_conversation(
+                panes,
+                HiddenChildAgentConversationRequest {
+                    parent_pane_id,
+                    name: "Agent 1".to_string(),
+                    parent_conversation_id,
+                    orchestration_harness: None,
+                    env_vars: HashMap::new(),
+                    task_context: None,
+                    is_shared_session_creator: IsSharedSessionCreator::No,
+                },
+                ctx,
+            )
+            .expect("fresh hidden child conversation should be created");
+            let child_pane_id = panes
+                .child_agent_panes
+                .get(&child.conversation_id)
+                .copied()
+                .expect("fresh hidden child pane should be tracked");
+
+            assert_eq!(
+                panes.unhide_child_agent_pane_for_split_off(child.conversation_id, ctx),
+                Some(child_pane_id)
+            );
+            assert!(panes.panes.is_pane_in_tree(child_pane_id));
+
+            panes.hide_completed_child_agent(child.conversation_id, ctx);
+
+            assert_eq!(panes.focused_pane_id(ctx), parent_pane_id);
+            assert!(panes.has_pane_id(child_pane_id));
+            assert_eq!(
+                panes.child_agent_panes.get(&child.conversation_id),
+                Some(&child_pane_id)
+            );
+            assert!(!panes.panes.is_pane_in_tree(child_pane_id));
+
+            assert_eq!(
+                panes.unhide_child_agent_pane_for_split_off(child.conversation_id, ctx),
+                Some(child_pane_id)
+            );
+            assert_eq!(panes.focused_pane_id(ctx), child_pane_id);
+            assert!(panes.panes.is_pane_in_tree(child_pane_id));
+            assert!(panes
+                .panes
+                .pane_ids()
+                .into_iter()
+                .all(|pane_id| panes.has_pane_id(pane_id)));
+        });
+    });
 }

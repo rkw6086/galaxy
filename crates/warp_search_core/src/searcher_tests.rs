@@ -310,3 +310,36 @@ fn test_searcher_async() {
         "the index should be cleared and contain no documents"
     );
 }
+
+#[test]
+fn minimum_memory_budget_supports_repeated_atomic_updates() {
+    define_search_schema!(
+        schema_name: BUDGET_SCHEMA,
+        config_name: BudgetSchema,
+        search_doc: BudgetDocument,
+        identifying_doc: BudgetId,
+        search_fields: [name: 1.0],
+        id_fields: [id: u64]
+    );
+    let searcher = BUDGET_SCHEMA.create_searcher(MIN_MEMORY_BUDGET);
+    searcher
+        .update_documents(
+            Vec::<BudgetId>::new(),
+            [BudgetDocument {
+                id: 1,
+                name: "initial".into(),
+            }],
+        )
+        .unwrap();
+    searcher
+        .update_documents(
+            [BudgetId { id: 1 }],
+            [BudgetDocument {
+                id: 2,
+                name: "replacement".into(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(searcher.search_id("initial").unwrap().len(), 0);
+    assert_eq!(searcher.search_id("replacement").unwrap().len(), 1);
+}

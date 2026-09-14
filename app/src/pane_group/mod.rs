@@ -6949,6 +6949,25 @@ impl PaneGroup {
         None
     }
 
+    /// Close only the child presentation; retain its live view and history for later inspection.
+    pub fn hide_completed_child_agent(
+        &mut self,
+        conversation_id: AIConversationId,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Some(pane_id) = self.child_agent_panes.get(&conversation_id).copied() else {
+            return;
+        };
+        if !self.panes.is_pane_in_tree(pane_id)
+            && self.panes.original_pane_for_replacement(pane_id).is_none()
+        {
+            return;
+        }
+        if let Some(pane_content) = self.take_child_agent_pane_for_split_off(conversation_id, ctx) {
+            self.re_adopt_child_agent_pane(pane_content, conversation_id, ctx);
+        }
+    }
+
     /// Make the pane that owns `conversation_id` the visible one in the
     /// focused pane's slot via temporary replacement. The previous occupant
     /// is restored on revert (back-button, ESC, pill-click, close, split-off).

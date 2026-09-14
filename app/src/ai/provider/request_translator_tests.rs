@@ -101,7 +101,9 @@ fn advertised_tools_follow_client_capabilities_and_include_local_subagents() {
             "run_shell_command",
             "read_files",
             "run_agents",
+            "wait_for_events",
             "start_agent",
+            "send_message_to_agent",
             "recall_tool_history"
         ]
     );
@@ -679,4 +681,27 @@ fn injected_user_query_persists_images_for_session_restore() {
         ContentPart::Image { data, mime_type }
             if data == b"\x89PNG\r\n\x1a\npersisted" && mime_type == "image/png"
     ));
+}
+
+#[test]
+fn leaf_capabilities_do_not_advertise_child_recovery_or_delegation() {
+    let request = api::Request {
+        settings: Some(api::request::Settings {
+            supported_tools: vec![api::ToolType::ReadFiles.into()],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let names = extract_tools(&request)
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    for name in [
+        "run_agents",
+        "start_agent",
+        "send_message_to_agent",
+        "wait_for_events",
+    ] {
+        assert!(!names.iter().any(|advertised| advertised == name));
+    }
 }

@@ -4,6 +4,7 @@ cfg_if::cfg_if! {
     if #[cfg(not(target_arch = "wasm32"))] {
         mod native;
         pub use native::build_outline;
+        pub(crate) use native::parse_file_outline_content;
     }
 }
 

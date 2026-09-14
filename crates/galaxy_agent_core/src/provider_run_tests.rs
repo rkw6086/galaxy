@@ -1426,3 +1426,42 @@ fn serialized_numeric_turn_budgets_remain_explicit_limits() {
     assert_eq!(limits.max_model_turns, Some(100));
     assert_eq!(ProviderRunLimits::default().max_model_turns, None);
 }
+
+#[test]
+fn multipart_archive_is_not_multiplied_and_legacy_duplicates_are_repaired() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            (0..4)
+                .map(|id| tool_call(&format!("search-{id}"), "search_codebase"))
+                .collect(),
+            &["search_codebase"],
+        ),
+    );
+    for id in 0..4 {
+        run.complete_tool(
+            &batch.work_id,
+            successful_result(&format!("search-{id}"), &format!("file contents {id}")),
+        )
+        .unwrap();
+    }
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    let transcript = run.transcript().to_vec();
+    let mut archive = Vec::new();
+    archive_tool_results(&mut archive, transcript.clone());
+    assert_eq!(archive.len(), 2);
+    for message in &archive {
+        let MessageContent::MultiPart(parts) = &message.content else {
+            panic!("expected multipart tools");
+        };
+        assert_eq!(parts.len(), 4);
+    }
+    let expected = archive.clone();
+    let duplicated: Vec<_> = (0..4).flat_map(|_| expected.clone()).collect();
+    run.replace_tool_result_archive(duplicated);
+    assert_eq!(run.tool_result_archive(), expected);
+    // A repeated compaction callback must not grow the archive either.
+    archive_tool_results(&mut archive, transcript);
+    assert_eq!(archive, expected);
+}
