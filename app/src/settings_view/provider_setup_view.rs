@@ -19,7 +19,7 @@ use pathfinder_color::ColorU;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::chatgpt_auth::{ChatGPTAuthModel, ChatGPTAuthModelEvent, ChatGPTAuthState};
 use crate::ai::harness_display;
-use crate::ai::llms::{merge_discovered_provider_models, LLMPreferences};
+use crate::ai::llms::{merge_discovered_provider_models, replace_litellm_catalog, LLMPreferences};
 use crate::appearance::Appearance;
 use crate::editor::{
     EditorView, Event as EditorEvent, SingleLineEditorOptions, TextColors, TextOptions,
@@ -1000,11 +1000,16 @@ impl ProviderSetupView {
 
         let provider = self.draft_provider();
         let existing_models = self.draft_models.clone();
+        let authoritative_catalog = provider.kind == OpenAIProviderKind::LiteLLM;
         ctx.spawn(
             async move { LLMPreferences::discover_openai_provider_models(provider).await },
             move |me, result, ctx| match result {
                 Ok(models) => {
-                    me.draft_models = merge_discovered_provider_models(&existing_models, models);
+                    me.draft_models = if authoritative_catalog {
+                        replace_litellm_catalog(&existing_models, models)
+                    } else {
+                        merge_discovered_provider_models(&existing_models, models)
+                    };
                     me.discovery_state = DiscoveryState::Idle;
                     me.step = ProviderSetupStep::Models;
                     me.sync_model_switches(ctx);

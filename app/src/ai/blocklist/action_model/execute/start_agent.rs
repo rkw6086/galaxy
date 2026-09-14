@@ -19,6 +19,7 @@ use crate::ai::agent::{
 };
 use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer;
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 
 /// Per-request outcome of a StartAgent dispatch.
@@ -707,6 +708,32 @@ impl StartAgentExecutor {
 
         let (prompt, execution_mode) =
             normalize_legacy_local_child_harness_command(prompt, execution_mode);
+        if parent_run_id.is_none() {
+            if let StartAgentExecutionMode::Local {
+                harness_type: None,
+                model_id: Some(model_id),
+            } = &execution_mode
+            {
+                if ctx
+                    .try_get_singleton_model_as_ref::<LLMPreferences>()
+                    .is_some_and(|preferences| {
+                        preferences
+                            .get_llm_info(&LLMId::from(model_id.as_str()))
+                            .is_none()
+                    })
+                {
+                    let _ = sender.try_send(StartAgentOutcome::Error(format!(
+                        "Model '{model_id}' is no longer available. Refresh the provider models and select an available model before launching this agent."
+                    )));
+                    return StartAgentDispatch {
+                        request_id,
+                        receiver,
+                        wait_policy,
+                        detached,
+                    };
+                }
+            }
+        }
         let prompt = compose_leaf_agent_prompt(&prompt);
         self.pending.insert(
             request_id,

@@ -17,6 +17,7 @@ use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::icons::Icon;
 use galaxy_core::user_preferences::GetUserPreferences;
 use galaxyui::r#async::Timer;
+use galaxyui::windowing::WindowManager;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity};
 use parking_lot::FairMutex;
 use serde::{de, Deserialize, Serialize};
@@ -37,6 +38,8 @@ use crate::settings::{
     OpenAIProviderConfig, OpenAIProviderKind,
 };
 use crate::user_config::{WarpConfig, WarpConfigUpdateEvent};
+use crate::view_components::DismissibleToast;
+use crate::workspace::ToastStack;
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::{report_error, AISettings};
 
@@ -597,6 +600,10 @@ pub struct LLMPreferences {
     #[cfg(not(target_family = "wasm"))]
     fetched_openai_models: Vec<OpenAIModelConfig>,
     #[cfg(not(target_family = "wasm"))]
+    litellm_connections: Vec<OpenAIProviderConfig>,
+    #[cfg(not(target_family = "wasm"))]
+    catalog_refresh_generations: HashMap<Option<usize>, u64>,
+    #[cfg(not(target_family = "wasm"))]
     chatgpt_subscription_models_refresh_in_flight: bool,
     #[cfg(not(target_family = "wasm"))]
     acp_selections: HashMap<LLMId, AcpModelSelection>,
@@ -702,6 +709,7 @@ impl LLMPreferences {
                     | AISettingsChangedEvent::AcpAgentId { .. }
                     | AISettingsChangedEvent::BedrockModels { .. }
             ) {
+                let previous_ids: Vec<_> = me.openai_provider_routing.keys().cloned().collect();
                 me.inject_bedrock_models(ctx);
                 me.inject_openai_models(ctx);
                 if matches!(
@@ -717,9 +725,28 @@ impl LLMPreferences {
                 {
                     me.refresh_bedrock_models(ctx);
                 }
+                me.refresh_changed_litellm_connections(ctx);
                 // Safety: ensure the default model is still present in choices.
                 // If all provider models were removed, the default_id would dangle.
                 me.ensure_default_model_present();
+                let removed: HashSet<_> = previous_ids
+                    .into_iter()
+                    .map(LLMId::from)
+                    .filter(|id| me.get_llm_info(id).is_none())
+                    .collect();
+                if !removed.is_empty() {
+                    me.base_llm_for_terminal_view
+                        .retain(|_, id| !removed.contains(id));
+                    if ctx
+                        .try_get_singleton_model_as_ref::<AIExecutionProfilesModel>()
+                        .is_some()
+                    {
+                        me.reconcile_disabled_model_preferences(ctx);
+                    }
+                    me.trigger_snapshot_save(ctx);
+                    ctx.emit(LLMPreferencesEvent::UpdatedActiveAgentModeLLM);
+                    ctx.emit(LLMPreferencesEvent::UpdatedActiveCodingLLM);
+                }
                 ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
             }
         });
@@ -737,6 +764,10 @@ impl LLMPreferences {
             openai_provider_routing: HashMap::new(),
             #[cfg(not(target_family = "wasm"))]
             fetched_openai_models: Vec::new(),
+            #[cfg(not(target_family = "wasm"))]
+            litellm_connections: Vec::new(),
+            #[cfg(not(target_family = "wasm"))]
+            catalog_refresh_generations: HashMap::new(),
             #[cfg(not(target_family = "wasm"))]
             chatgpt_subscription_models_refresh_in_flight: false,
             #[cfg(not(target_family = "wasm"))]
@@ -766,6 +797,7 @@ impl LLMPreferences {
             me.inject_openai_models(ctx);
             me.ensure_default_model_present();
             me.fetch_openai_models_from_endpoint(ctx);
+            me.refresh_changed_litellm_connections(ctx);
             me.refresh_chatgpt_subscription_models(ctx);
             me.schedule_chatgpt_subscription_model_refresh(ctx);
         }
@@ -1507,6 +1539,11 @@ impl LLMPreferences {
             }
         };
 
+        let generation = self.catalog_refresh_generations.entry(None).or_default();
+        *generation += 1;
+        let generation = *generation;
+        let requested_base_url = base_url.clone();
+        let requested_api_key = settings.openai_api_key.value().clone();
         let _ = ctx.spawn(
             async move {
                 let base = base_url.trim_end_matches('/');
@@ -1515,35 +1552,89 @@ impl LLMPreferences {
                     .build()
                     .unwrap_or_default();
 
-                // Try LiteLLM /model/info first for rich metadata
-                if let Some(models) =
-                    fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
-                {
-                    return models;
-                }
-
-                // Fallback to standard OpenAI /models endpoint
-                fetch_from_openai_models(base, api_key.as_deref(), &client).await
+                fetch_litellm_catalog(base, api_key.as_deref(), &client).await
             },
-            |me, models, ctx| {
-                if !models.is_empty() {
-                    me.fetched_openai_models = models.clone();
-                    AISettings::handle(ctx).update(ctx, |settings, ctx| {
-                        if let Err(err) = settings.openai_models.set_value(models, ctx) {
-                            report_error!(err.context("Failed to persist fetched OpenAI models"));
-                        }
-                    });
-                    me.inject_openai_models(ctx);
-                    ctx.emit(LLMPreferencesEvent::UpdatedAvailableLLMs);
+            move |me, result, ctx| {
+                if me.catalog_refresh_generations.get(&None) != Some(&generation) {
+                    return;
+                }
+                let settings = AISettings::as_ref(ctx);
+                if settings.openai_base_url.value() != &requested_base_url
+                    || settings.openai_api_key.value() != &requested_api_key
+                    || !settings.openai_providers.value().is_empty()
+                {
+                    return;
+                }
+                match result {
+                    Ok(models) => {
+                        let models =
+                            replace_litellm_catalog(settings.openai_models.value(), models);
+                        me.fetched_openai_models = models.clone();
+                        AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                            if let Err(err) = settings.openai_models.set_value(models, ctx) {
+                                report_error!(
+                                    err.context("Failed to persist fetched OpenAI models")
+                                );
+                            }
+                        });
+                    }
+                    Err(error) => Self::report_catalog_refresh_error(error, ctx),
                 }
             },
         );
     }
 
+    #[cfg(not(target_family = "wasm"))]
+    fn report_catalog_refresh_error(error: String, ctx: &mut ModelContext<Self>) {
+        log::warn!("Model refresh failed; keeping cached catalog: {error}");
+        if let Some(window_id) = WindowManager::as_ref(ctx).active_window() {
+            ToastStack::handle(ctx).update(ctx, |stack, ctx| {
+                stack.add_ephemeral_toast(
+                    DismissibleToast::error(format!(
+                        "Model refresh failed. Keeping saved models. {error}"
+                    )),
+                    window_id,
+                    ctx,
+                );
+            });
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn refresh_changed_litellm_connections(&mut self, ctx: &mut ModelContext<Self>) {
+        let settings = AISettings::as_ref(ctx);
+        if !settings.is_openai_provider_enabled() {
+            self.litellm_connections.clear();
+            return;
+        }
+        let connections: Vec<_> = settings
+            .openai_providers
+            .value()
+            .iter()
+            .cloned()
+            .map(|mut provider| {
+                provider.models.clear();
+                provider
+            })
+            .collect();
+        let changed: Vec<_> = connections
+            .iter()
+            .enumerate()
+            .filter_map(|(index, provider)| {
+                (provider.enabled
+                    && provider.kind == OpenAIProviderKind::LiteLLM
+                    && self.litellm_connections.get(index) != Some(provider))
+                .then_some(index)
+            })
+            .collect();
+        self.litellm_connections = connections;
+        for index in changed {
+            self.fetch_openai_provider_models(index, ctx);
+        }
+    }
+
     /// Explicitly refreshes the models for one entry in the OpenAI-compatible
-    /// provider registry. Unlike the legacy endpoint refresh, this is only
-    /// called from a user action so configured remote endpoints are never
-    /// contacted merely because Galaxy started.
+    /// provider registry. LiteLLM also refreshes on startup and connector changes.
     #[cfg(not(target_family = "wasm"))]
     pub fn fetch_openai_provider_models(
         &mut self,
@@ -1569,68 +1660,54 @@ impl LLMPreferences {
             return;
         }
 
-        let provider_kind = provider.kind;
-        let requested_base_url = provider.base_url;
-        let requested_provider_kind = provider_kind;
-        let api_key = provider.api_key.filter(|key| !key.is_empty());
-        let request_base_url = requested_base_url.clone();
-
+        let generation = self
+            .catalog_refresh_generations
+            .entry(Some(provider_index))
+            .or_default();
+        *generation += 1;
+        let generation = *generation;
+        let requested_provider = provider.clone();
         let _ = ctx.spawn(
-            async move {
-                if provider_kind == OpenAIProviderKind::ChatGPTSubscription {
-                    return match Self::discover_chatgpt_subscription_models().await {
-                        Ok(models) => models,
-                        Err(error) => {
-                            log::warn!(
-                                "[chatgpt/models] Failed to discover ChatGPT subscription models: {error}"
-                            );
-                            Vec::new()
-                        }
-                    };
-                }
-
-                let base = request_base_url.trim_end_matches('/');
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10))
-                    .build()
-                    .unwrap_or_default();
-
-                if provider_kind == OpenAIProviderKind::LiteLLM {
-                    if let Some(models) =
-                        fetch_from_litellm_model_info(base, api_key.as_deref(), &client).await
-                    {
-                        return models;
-                    }
-                }
-
-                fetch_from_openai_models(base, api_key.as_deref(), &client).await
-            },
-            move |_, discovered_models, ctx| {
-                if discovered_models.is_empty() {
+            async move { Self::discover_openai_provider_models(provider).await },
+            move |me, result, ctx| {
+                if me.catalog_refresh_generations.get(&Some(provider_index)) != Some(&generation) {
                     return;
                 }
-
+                let discovered_models = match result {
+                    Ok(models) => models,
+                    Err(error) => {
+                        Self::report_catalog_refresh_error(error, ctx);
+                        return;
+                    }
+                };
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
                     let mut providers = settings.openai_providers.value().clone();
                     let Some(provider) = providers.get_mut(provider_index) else {
                         return;
                     };
-
-                    // Do not apply a response to an entry that was edited or
-                    // reordered while its discovery request was in flight.
-                    if provider.kind != requested_provider_kind
-                        || provider.base_url != requested_base_url
-                    {
+                    let mut current_connection = provider.clone();
+                    current_connection.models.clear();
+                    let mut requested_connection = requested_provider.clone();
+                    requested_connection.models.clear();
+                    if current_connection != requested_connection {
                         return;
                     }
-
-                    provider.models = if provider.kind == OpenAIProviderKind::ChatGPTSubscription {
-                        merge_discovered_chatgpt_subscription_models(
-                            &provider.models,
-                            discovered_models,
-                        )
-                    } else {
-                        merge_discovered_provider_models(&provider.models, discovered_models)
+                    provider.models = match provider.kind {
+                        OpenAIProviderKind::ChatGPTSubscription => {
+                            merge_discovered_chatgpt_subscription_models(
+                                &provider.models,
+                                discovered_models,
+                            )
+                        }
+                        OpenAIProviderKind::LiteLLM => {
+                            replace_litellm_catalog(&provider.models, discovered_models)
+                        }
+                        OpenAIProviderKind::OpenAI
+                        | OpenAIProviderKind::Anthropic
+                        | OpenAIProviderKind::Gemini
+                        | OpenAIProviderKind::VertexAI => {
+                            merge_discovered_provider_models(&provider.models, discovered_models)
+                        }
                     };
                     if let Err(err) = settings.openai_providers.set_value(providers, ctx) {
                         report_error!(err.context("Failed to persist discovered provider models"));
@@ -1714,28 +1791,11 @@ impl LLMPreferences {
             .map_err(|error| format!("Could not create the provider client: {error}"))?;
         let api_key = provider.api_key.as_deref().filter(|key| !key.is_empty());
 
-        let models = if provider.kind == OpenAIProviderKind::LiteLLM {
-            if let Some(models) = fetch_from_litellm_model_info(&base_url, api_key, &client).await {
-                models
-            } else {
-                fetch_from_openai_models(&base_url, api_key, &client).await
-            }
+        if provider.kind == OpenAIProviderKind::LiteLLM {
+            fetch_litellm_catalog(&base_url, api_key, &client).await
         } else {
             fetch_from_openai_models(&base_url, api_key, &client).await
-        };
-
-        if models.is_empty() {
-            let endpoint_description = if provider.kind == OpenAIProviderKind::LiteLLM {
-                "/model/info or /models"
-            } else {
-                "/models"
-            };
-            return Err(format!(
-                "The provider responded, but no models were found at {endpoint_description}."
-            ));
         }
-
-        Ok(models)
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -2690,6 +2750,28 @@ pub(crate) fn merge_discovered_provider_models(
     merged
 }
 
+/// A successful LiteLLM /models response owns catalog membership.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn replace_litellm_catalog(
+    existing: &[OpenAIModelConfig],
+    discovered: Vec<OpenAIModelConfig>,
+) -> Vec<OpenAIModelConfig> {
+    let retained: Vec<_> = existing
+        .iter()
+        .filter(|old| discovered.iter().any(|new| new.model_id == old.model_id))
+        .cloned()
+        .collect();
+    let mut models = merge_discovered_provider_models(&retained, discovered);
+    for model in &mut models {
+        if let Some(old) = retained.iter().find(|old| old.model_id == model.model_id) {
+            model
+                .capability_overrides
+                .extend(old.capability_overrides.clone());
+        }
+    }
+    models
+}
+
 /// Merges ChatGPT subscription model metadata as a backend-owned catalog.
 ///
 /// Unlike generic OpenAI-compatible providers, ChatGPT subscription models come
@@ -3093,40 +3175,64 @@ async fn fetch_from_litellm_model_info(
 /// Fetches models from the standard OpenAI-compatible `/models` endpoint.
 /// Used as a fallback when `/model/info` is unavailable.
 #[cfg(not(target_family = "wasm"))]
+async fn fetch_litellm_catalog(
+    base_url: &str,
+    api_key: Option<&str>,
+    client: &reqwest::Client,
+) -> Result<Vec<OpenAIModelConfig>, String> {
+    let models = fetch_from_openai_models(base_url, api_key, client).await?;
+    if models.is_empty() {
+        return Ok(models);
+    }
+    let metadata = fetch_from_litellm_model_info(base_url, api_key, client)
+        .await
+        .unwrap_or_default();
+    Ok(models
+        .into_iter()
+        .map(|model| {
+            metadata
+                .iter()
+                .find(|info| info.model_id == model.model_id)
+                .cloned()
+                .unwrap_or(model)
+        })
+        .collect())
+}
+
+#[cfg(not(target_family = "wasm"))]
 async fn fetch_from_openai_models(
     base_url: &str,
     api_key: Option<&str>,
     client: &reqwest::Client,
-) -> Vec<OpenAIModelConfig> {
+) -> Result<Vec<OpenAIModelConfig>, String> {
     let url = format!("{base_url}/models");
     let mut request = client.get(&url);
     if let Some(key) = api_key {
         request = request.header("Authorization", format!("Bearer {key}"));
     }
-
-    let response = match request.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!("[openai/litellm] Failed to fetch models from /models endpoint: {e}");
-            return Vec::new();
-        }
-    };
-
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("Could not refresh /models: {error}"))?;
     if !response.status().is_success() {
-        log::warn!(
-            "[openai/litellm] /models returned HTTP {}",
+        return Err(format!(
+            "Model refresh failed: /models returned HTTP {}",
             response.status()
-        );
-        return Vec::new();
+        ));
     }
-
-    let body: serde_json::Value = match response.json().await {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("[openai/litellm] Failed to parse /models response: {e}");
-            return Vec::new();
-        }
-    };
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("Invalid /models response: {error}"))?;
+    let entries = body["data"]
+        .as_array()
+        .ok_or_else(|| "Invalid /models response: missing data array".to_string())?;
+    if entries
+        .iter()
+        .any(|entry| entry["id"].as_str().is_none_or(|id| id.trim().is_empty()))
+    {
+        return Err("Invalid /models response: model ID is missing or empty".to_string());
+    }
 
     fn u32_from_any(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
         keys.iter()
@@ -3134,10 +3240,7 @@ async fn fetch_from_openai_models(
             .and_then(|value| u32::try_from(value).ok())
     }
 
-    let models: Vec<OpenAIModelConfig> = body["data"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
+    let models: Vec<OpenAIModelConfig> = entries
         .iter()
         .filter_map(|m| {
             let id = m["id"].as_str()?;
@@ -3221,7 +3324,7 @@ async fn fetch_from_openai_models(
         "[openai/litellm] Fetched {} model(s) from /models endpoint",
         models.len()
     );
-    models
+    Ok(models)
 }
 
 /// Gets the last cached LLM metadata.

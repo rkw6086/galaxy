@@ -229,6 +229,8 @@ fn empty_preferences() -> LLMPreferences {
         custom_model_routers: Vec::new(),
         openai_provider_routing: HashMap::new(),
         fetched_openai_models: Vec::new(),
+        litellm_connections: Vec::new(),
+        catalog_refresh_generations: HashMap::new(),
         chatgpt_subscription_models_refresh_in_flight: false,
         acp_selections: HashMap::new(),
     }
@@ -394,6 +396,8 @@ fn acp_models_are_injected_only_while_acp_is_enabled() {
             custom_model_routers: Vec::new(),
             openai_provider_routing: HashMap::new(),
             fetched_openai_models: Vec::new(),
+            litellm_connections: Vec::new(),
+            catalog_refresh_generations: HashMap::new(),
             chatgpt_subscription_models_refresh_in_flight: false,
             acp_selections: HashMap::new(),
         };
@@ -961,4 +965,79 @@ fn chatgpt_default_window_limits_routing_without_a_separate_input_limit() {
         openai_model_context_size(&model, OpenAIProviderKind::ChatGPTSubscription),
         272_000
     );
+}
+
+#[test]
+fn litellm_refresh_replaces_membership_and_preserves_preferences() {
+    let mut retained = openai_model("retained");
+    retained.enabled = false;
+    retained.display_name = "My model".to_string();
+    retained.capability_overrides.insert(
+        "vision".to_string(),
+        crate::settings::ModelCapabilityOverride::Unsupported,
+    );
+    let removed = openai_model("removed");
+    let mut updated = openai_model("retained");
+    updated.context_size = 300_000;
+    let models = replace_litellm_catalog(&[retained, removed], vec![updated, openai_model("new")]);
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].model_id, "retained");
+    assert_eq!(models[0].context_size, 300_000);
+    assert_eq!(models[0].display_name, "My model");
+    assert!(!models[0].enabled);
+    assert_eq!(
+        models[0].capability_override("vision"),
+        crate::settings::ModelCapabilityOverride::Unsupported
+    );
+    assert_eq!(models[1].model_id, "new");
+    assert!(replace_litellm_catalog(&models, vec![]).is_empty());
+}
+
+#[tokio::test]
+async fn litellm_models_endpoint_owns_membership_even_with_extra_metadata_models() {
+    let mut server = mockito::Server::new_async().await;
+    let catalog = server
+        .mock("GET", "/models")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"data":[{"id":"current"}]}"#)
+        .create_async()
+        .await;
+    let metadata = server.mock("GET", "/model/info")
+        .with_status(200).with_header("content-type", "application/json")
+        .with_body(r#"{"data":[{"model_name":"removed","model_info":{"max_input_tokens":100000}},{"model_name":"current","model_info":{"max_input_tokens":128000}}]}"#)
+        .create_async().await;
+    let models = fetch_litellm_catalog(&server.url(), None, &reqwest::Client::new())
+        .await
+        .unwrap();
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].model_id, "current");
+    catalog.assert_async().await;
+    metadata.assert_async().await;
+}
+
+#[tokio::test]
+async fn model_refresh_distinguishes_empty_catalog_from_failure() {
+    let mut server = mockito::Server::new_async().await;
+    for (status, body, succeeds) in [
+        (200, r#"{"data":[]}"#, true),
+        (200, r#"{"error":"unavailable"}"#, false),
+        (200, r#"{"data":[{}]}"#, false),
+        (401, r#"{"error":"unauthorized"}"#, false),
+    ] {
+        let response = server
+            .mock("GET", "/models")
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create_async()
+            .await;
+        let result = fetch_litellm_catalog(&server.url(), None, &reqwest::Client::new()).await;
+        assert_eq!(result.is_ok(), succeeds);
+        if let Ok(models) = result {
+            assert!(models.is_empty());
+        }
+        response.assert_async().await;
+        response.remove_async().await;
+    }
 }
