@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 /// Sources produced by the input classifier pipeline.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputClassifierDecisionSource {
+    /// Classification from the local generative language model.
+    LocalLanguageModel,
     // Classification result coming from Onnx classifier
     InputClassifier,
     // Classification result coming from fall back heuristic classifier when onnx classifier panicked

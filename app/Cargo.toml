@@ -107,7 +107,6 @@ lsp-types = "0.97.0"
 indexmap = { version = "2.0.2", features = ["serde"] }
 input_classifier.workspace = true
 instant.workspace = true
-local_inference = { workspace = true, optional = true }
 ipc.workspace = true
 iso8601-duration.workspace = true
 itertools.workspace = true
@@ -247,6 +246,7 @@ galaxy_managed_secrets.workspace = true
 local_control.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+local_inference = { workspace = true, features = ["metal"] }
 block.workspace = true
 cocoa.workspace = true
 core-foundation.workspace = true
@@ -277,6 +277,7 @@ winit = { workspace = true }
 wgpu.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
+local_inference.workspace = true
 app-installation-detection.workspace = true
 async-io.workspace = true
 axum.workspace = true

@@ -1235,9 +1235,8 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
     }
-    // Whether to use the local AI model for input classification and suggestions
-    // instead of making Bedrock API calls. When enabled, SmolLM2-135M handles
-    // autodetection, prompt suggestions, and code banners locally.
+    // Use SmolLM2-135M for input classification instead of legacy heuristics.
+    // The model is downloaded once and inference stays on the device.
     use_local_model: UseLocalModel {
         type: bool,
         default: true,
@@ -1245,7 +1244,7 @@ define_settings_group!(AISettings, settings: [
         sync_to_cloud: SyncToCloud::Never,
         private: false,
         toml_path: "agents.warp_agent.input.use_local_model",
-        description: "Use a locally downloaded AI model for command recognition and suggestions instead of Bedrock.",
+        description: "Use a locally downloaded AI model to distinguish commands from agent messages instead of legacy heuristics.",
     },
     // This field should not be referenced directly to lookup intelligent autosuggestion enablement
     // -- use the `is_intelligent_autosuggestions_enabled()` getter.

@@ -28,6 +28,7 @@ Environment variables:
 - `WS_SERVER_URL` - WebSocket endpoint (default: `ws://localhost:8080/graphql/v2`)
 
 ### Testing
+- Before launching `galaxy-oss`, check for existing app instances and close the prior development instance so only one app instance runs at a time. Distinguish the app process from its `terminal-server` helper; do not count the helper as a duplicate app. Leave the newly launched instance running for the user.
 - During interactive feature and bug-fix verification, make the requested code changes first and run only `cargo run --bin galaxy-oss` for the user to verify. Leave the app running for the user; do not stop it or treat the command timeout as a failure. Do not run `cargo fmt`, `cargo check`, `cargo test`, `cargo clippy`, presubmit, or other validation commands until the user confirms the behavior. Run formatting, tests, and linting only as the final cleanup step after interactive approval.
 - `cargo nextest run --no-fail-fast --workspace --exclude command-signatures-v2` - Run tests with nextest
 - `cargo nextest run -p galaxy_completer --features v2` - Run completer tests with v2 features

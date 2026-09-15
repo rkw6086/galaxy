@@ -70,6 +70,8 @@ mod interval_timer;
 mod linear;
 #[cfg(feature = "local_fs")]
 mod local_control;
+#[cfg(not(target_family = "wasm"))]
+mod local_inference;
 mod local_object_repository;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;

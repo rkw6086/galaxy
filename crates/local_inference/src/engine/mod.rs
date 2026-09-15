@@ -60,11 +60,11 @@ impl Device {
     pub fn best_available() -> Self {
         #[cfg(feature = "metal")]
         {
-            return Device::Metal;
+            Device::Metal
         }
-        #[cfg(feature = "cuda")]
+        #[cfg(all(feature = "cuda", not(feature = "metal")))]
         {
-            return Device::Cuda(0);
+            Device::Cuda(0)
         }
         #[cfg(not(any(feature = "metal", feature = "cuda")))]
         {
@@ -144,6 +144,53 @@ impl InferenceEngine {
 
     pub fn device(&self) -> &candle_core::Device {
         &self.device
+    }
+
+    /// Score fixed, single-token labels in one forward pass. This avoids free-form
+    /// generation and parsing failures for small classification tasks.
+    pub async fn classify_labels(
+        &self,
+        prompt: &str,
+        labels: [&str; 2],
+        cancel: &CancellationToken,
+    ) -> Result<[f32; 2]> {
+        let mut label_ids = Vec::with_capacity(2);
+        for label in labels {
+            let encoding = self
+                .tokenizer
+                .encode(label, false)
+                .map_err(|error| anyhow::anyhow!("{error}"))?;
+            anyhow::ensure!(
+                encoding.get_ids().len() == 1,
+                "classification label must be one token: {label}"
+            );
+            label_ids.push(encoding.get_ids()[0] as usize);
+        }
+        let encoding = self
+            .tokenizer
+            .encode(prompt, true)
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        let model = self.model.lock().await;
+        let mut cache = self.cache.lock().await;
+        anyhow::ensure!(!cancel.is_cancelled(), "classification cancelled");
+        *cache = Cache::new(true, DType::F32, &self.config, &self.device)?;
+        let input = Tensor::new(encoding.get_ids(), &self.device)?.unsqueeze(0)?;
+        let logits = model
+            .forward(&input, 0, &mut cache)?
+            .squeeze(0)?
+            .to_dtype(DType::F32)?
+            .to_vec1::<f32>()?;
+        anyhow::ensure!(!cancel.is_cancelled(), "classification cancelled");
+        let first = logits[label_ids[0]];
+        let second = logits[label_ids[1]];
+        anyhow::ensure!(
+            first.is_finite() && second.is_finite(),
+            "non-finite classification scores"
+        );
+        let maximum = first.max(second);
+        let first = (first - maximum).exp();
+        let second = (second - maximum).exp();
+        Ok([first / (first + second), second / (first + second)])
     }
 
     pub async fn generate_cancellable(

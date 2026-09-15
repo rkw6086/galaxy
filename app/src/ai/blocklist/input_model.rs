@@ -219,6 +219,7 @@ pub struct BlocklistAIInputModel {
     terminal_surface_id: EntityId,
 
     autodetect_abort_handle: Option<AbortHandle>,
+    autodetection_generation: u64,
     model: Arc<FairMutex<TerminalModel>>,
 }
 
@@ -405,6 +406,7 @@ impl BlocklistAIInputModel {
             last_explicit_input_type_set_at: None,
             was_lock_set_with_empty_buffer: false,
             autodetect_abort_handle: None,
+            autodetection_generation: 0,
             model,
         }
     }
@@ -683,6 +685,7 @@ impl BlocklistAIInputModel {
 
     /// Aborts any in progress work for autodetection.
     pub fn abort_in_progress_detection(&mut self) {
+        self.autodetection_generation = self.autodetection_generation.wrapping_add(1);
         if let Some(handle) = self.autodetect_abort_handle.take() {
             handle.abort();
         }
@@ -786,9 +789,35 @@ impl BlocklistAIInputModel {
         };
 
         let classifier = InputClassifierModel::as_ref(ctx).classifier();
+        let generation = self.autodetection_generation;
+        #[cfg(not(target_family = "wasm"))]
+        let use_local_model = AISettings::as_ref(ctx).should_use_local_model();
         let handle = ctx
             .spawn(
                 async move {
+                    #[cfg(not(target_family = "wasm"))]
+                    if use_local_model {
+                        // A cancelled debounce never starts inference. The local worker
+                        // also cancels obsolete requests already queued or generating.
+                        warpui::r#async::Timer::after(std::time::Duration::from_millis(300)).await;
+                        let result = crate::local_inference::classify(
+                            buffer_cloned.to_string(),
+                            history_entries.as_deref().unwrap_or_default(),
+                            is_agent_follow_up,
+                        )
+                        .await;
+                        return match result {
+                            Some(input_type) => (
+                                input_type,
+                                InputClassifierDecisionSource::LocalLanguageModel.into(),
+                            ),
+                            None => (
+                                current_input_type,
+                                InputClassifierDecisionSource::InputClassifierFallbackCurrentInput
+                                    .into(),
+                            ),
+                        };
+                    }
                     // First check if the token is a natural language word, if current input type is AI
                     if matches!(current_input_type, InputType::AI)
                         && is_one_off_natural_language_word(first_token_str.to_lowercase().as_str())
@@ -852,7 +881,9 @@ impl BlocklistAIInputModel {
                     // If the autodetect abort handle is none, it means we aborted autodetection.
                     // It's possible that the future already completed before we aborted, and then we reach this callback after abort.
                     // In this case, don't set the input type.
-                    if me.autodetect_abort_handle.is_none() {
+                    if me.autodetect_abort_handle.is_none()
+                        || me.autodetection_generation != generation
+                    {
                         return;
                     }
                     me.set_input_config_internal(

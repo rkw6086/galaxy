@@ -410,3 +410,41 @@ async fn test_deterministic_classification() {
         "deterministic classification should yield consistent results"
     );
 }
+
+#[tokio::test]
+async fn literal_git_pull_is_shell_with_and_without_agent_follow_up() {
+    let engine = InferenceEngine::new(Device::best_available())
+        .await
+        .unwrap();
+    for is_follow_up in [false, true] {
+        for (input, expected) in [
+            ("git pull origin CI", InputCategory::Shell),
+            ("git pull origin main", InputCategory::Shell),
+            ("git fetch --prune", InputCategory::Shell),
+            ("hello, there!", InputCategory::AgentPrompt),
+            ("hey, how are you?", InputCategory::AgentPrompt),
+            ("thanks, that helped", InputCategory::AgentPrompt),
+            ("echo 'hello, there!'", InputCategory::Shell),
+            (
+                "why did git pull origin CI fail?",
+                InputCategory::AgentPrompt,
+            ),
+        ] {
+            let result = InputClassificationTask
+                .run(
+                    &engine,
+                    InputClassificationInput {
+                        user_input: input.to_string(),
+                        recent_commands: vec!["git status".to_string()],
+                        is_follow_up,
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                result.category, expected,
+                "input={input}, follow_up={is_follow_up}"
+            );
+        }
+    }
+}
