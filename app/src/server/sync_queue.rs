@@ -1828,7 +1828,7 @@ impl SyncQueue {
 
     /// If a request succeeds, update the dependency map by removing it from all dependency sets
     fn handle_dependency_success(&mut self, dependency: &QueueDependency) {
-        for (_, dependencies) in self.queue_dependencies.iter_mut() {
+        for dependencies in self.queue_dependencies.values_mut() {
             dependencies.remove(dependency);
         }
     }

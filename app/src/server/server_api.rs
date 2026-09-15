@@ -1121,7 +1121,7 @@ impl ServerApi {
         }
 
         let time_endpoint = format!("{}/current_time", ChannelState::server_root_url());
-        log::info!("Sending server time request to {}", &time_endpoint);
+        log::info!("Sending server time request to {}", time_endpoint);
         let res = self
             .base_client
             .http_client()
@@ -1138,7 +1138,7 @@ impl ServerApi {
                 let time_response: TimeResponse = res.json().await?;
                 log::info!(
                     "Received current time from server: {:?}",
-                    &time_response.current_time
+                    time_response.current_time
                 );
                 let server_time = ServerTime {
                     time_at_fetch: time_response.current_time,

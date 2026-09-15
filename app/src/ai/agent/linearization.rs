@@ -80,7 +80,7 @@ pub fn compute_active_task_ids<'a>(
 /// missing task are assigned depth 0.
 pub fn compute_task_depths(tasks: &HashMap<String, api::Task>) -> HashMap<&str, usize> {
     let mut depths = HashMap::new();
-    for (task_id, _) in tasks.iter() {
+    for task_id in tasks.keys() {
         let mut depth = 0;
         let mut current_id: &str = task_id;
         let mut visited = HashSet::new();

@@ -5667,7 +5667,7 @@ fn test_move_object_personal_to_team_success() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertNotebook { notebook } if notebook.id == sync_id),
             "Expected upsert of notebook, got {:?}",
-            &events[0]
+            events[0]
         );
     });
 }
@@ -5870,7 +5870,7 @@ fn test_move_cloud_environment_personal_to_team_success() {
         let events = db_events(&update_manager_struct);
         assert_eq!(events.len(), 1);
         let ModelEvent::UpsertGenericStringObject { object } = &events[0] else {
-            panic!("Expected upsert of cloud environment, got {:?}", &events[0])
+            panic!("Expected upsert of cloud environment, got {:?}", events[0])
         };
         assert_eq!(object.id(), sync_id);
     });
@@ -5981,18 +5981,18 @@ fn test_move_workflow_with_enums_personal_to_team_success() {
         let events = db_events(&update_manager_struct);
         assert_eq!(events.len(), 3);
         let ModelEvent::UpsertGenericStringObject { object } = &events[0] else {
-            panic!("Expected upsert of workflow enum, got {:?}", &events[0])
+            panic!("Expected upsert of workflow enum, got {:?}", events[0])
         };
         let new_enum_id = object.id();
         assert!(
             matches!(&events[1], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
             "Expected upsert of workflow, got {:?}",
-            &events[0]
+            events[0]
         );
         assert!(
             matches!(&events[2], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
             "Expected upsert of workflow, got {:?}",
-            &events[2]
+            events[2]
         );
 
         // Assert that the new enum ID is in the team space, but the old one remains in the personal space
@@ -6133,18 +6133,18 @@ fn test_move_workflow_with_enums_personal_to_team_failure() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertGenericStringObject { .. }),
             "Expected upsert of GSO, got {:?}",
-            &events[0]
+            events[0]
         );
         assert!(
             matches!(&events[1], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
             "Expected upsert of workflow, got {:?}",
-            &events[0]
+            events[0]
         );
 
         assert!(
             matches!(&events[2], ModelEvent::UpsertWorkflow { workflow } if workflow.id == workflow_sync_id),
             "Expected upsert of workflow, got {:?}",
-            &events[2]
+            events[2]
         );
 
         // Assert that the workflow update references the old enum ID
@@ -6253,7 +6253,7 @@ fn test_move_object_root_to_folder_success() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertNotebook { notebook } if notebook.id == sync_id),
             "Expected upsert of notebook, got {:?}",
-            &events[0]
+            events[0]
         );
     });
 }
@@ -6445,7 +6445,7 @@ fn test_move_object_folder_to_root_success() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertNotebook { notebook } if notebook.id == sync_id),
             "Expected upsert of notebook, got {:?}",
-            &events[0]
+            events[0]
         );
     });
 }
@@ -6639,7 +6639,7 @@ fn test_move_object_folder_to_folder_success() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertNotebook { notebook } if notebook.id == sync_id),
             "Expected upsert of notebook, got {:?}",
-            &events[0]
+            events[0]
         );
     });
 }
@@ -7422,7 +7422,7 @@ fn test_add_guest_success() {
         assert!(
             matches!(&events[0], ModelEvent::UpsertNotebook { notebook } if notebook.id == sync_id),
             "Expected upsert of notebook, got {:?}",
-            &events[0]
+            events[0]
         );
         assert!(matches!(&events[1], ModelEvent::UpsertUserProfiles { .. }));
     });

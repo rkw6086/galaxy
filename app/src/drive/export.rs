@@ -520,7 +520,7 @@ fn make_forbidden_filenames_matcher() -> AhoCorasick {
     // NTFS (Windows) disallows ASCII control characters in path names.
     let ascii_control = 0x00..0x1f;
     // These characters are disallowed by UNIX filesystems, APFS or HFS+ (macOS), or NTFS.
-    let forbidden = [b'/', b':', b'#', b'*', b'<', b'>', b'?', b'\\', b'|'];
+    let forbidden = *b"/:#*<>?\\|";
 
     let patterns = ascii_control.chain(forbidden).map(|ch| [ch]);
     AhoCorasick::builder()

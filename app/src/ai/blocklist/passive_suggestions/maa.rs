@@ -365,8 +365,7 @@ impl PassiveSuggestionsModel {
         #[cfg(feature = "local_fs")]
         if is_passive_code_diffs_enabled {
             if let Some(current_working_directory) = block_completed.serialized_block.pwd.clone() {
-                let block_contents =
-                    format!("{}\n{}", &block_context.command, &block_context.output);
+                let block_contents = format!("{}\n{}", block_context.command, block_context.output);
                 let shell = self.active_session.as_ref(ctx).shell_launch_data(ctx);
                 let shell_for_detection = shell.clone();
                 let current_working_directory_for_detection = current_working_directory.clone();

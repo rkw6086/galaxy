@@ -2118,15 +2118,15 @@ impl CodeDiffView {
     }
 
     fn position_id_for_file(&self, i: usize) -> String {
-        format!("CodeDiffView-{}-tab-{i}", &self.position_id_prefix)
+        format!("CodeDiffView-{}-tab-{i}", self.position_id_prefix)
     }
 
     fn position_id_for_inline_editor(&self) -> String {
-        format!("CodeDiffView-inline-editor-{}", &self.position_id_prefix)
+        format!("CodeDiffView-inline-editor-{}", self.position_id_prefix)
     }
 
     fn position_id_for_inline_speedbump(&self) -> String {
-        format!("CodeDiffView-inline-speedbump-{}", &self.position_id_prefix)
+        format!("CodeDiffView-inline-speedbump-{}", self.position_id_prefix)
     }
 
     fn position_id_for_accept_split_button(&self) -> String {

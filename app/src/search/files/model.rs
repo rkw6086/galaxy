@@ -423,12 +423,11 @@ impl FileSearchModel {
         let mut all_matched_indices = Vec::new();
 
         for query_part in &query_parts {
-            if let Some(part_result) = Self::fuzzy_match_path_single(path, query_part) {
+            {
+                // If any part doesn't match, the entire query fails
+                let part_result = Self::fuzzy_match_path_single(path, query_part)?;
                 combined_score += part_result.score;
                 all_matched_indices.extend(part_result.matched_indices);
-            } else {
-                // If any part doesn't match, the entire query fails
-                return None;
             }
         }
 

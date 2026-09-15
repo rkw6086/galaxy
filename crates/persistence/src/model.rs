@@ -1088,6 +1088,9 @@ pub struct LocalAgentGroup {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentConversationData {
+    /// Display-only tool intent, scoped to this conversation and keyed by call ID.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tool_titles: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "AgentBackend::is_provider")]
     pub agent_backend: AgentBackend,
     /// Versioned application-owned snapshot for an active direct-provider run.

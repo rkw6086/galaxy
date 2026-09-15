@@ -945,6 +945,7 @@ impl TerminalView {
             agent_backend: Default::default(),
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: Default::default(),
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids: None,

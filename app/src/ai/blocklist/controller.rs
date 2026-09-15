@@ -122,7 +122,8 @@ const PROGRESSIVE_SUMMARY_PROMPT: &str = "Create a concise, factual task-state c
     - Decisions made and the rationale needed to continue\n\
     - Files changed and the material result of each change\n\
     - Significant tool outcomes, errors, identifiers, and unresolved blockers\n\
-    - Current progress and the next concrete steps\n\n\
+    - Current progress and the next concrete steps; distinguish completed work from intentions\n\
+    - Delegated scope, concrete findings with file paths or tool-result IDs, and the exact remaining uncertainty\n\n\
     Omit greetings, agreement, praise, reassurance, filler, routine status narration, repeated content, and stylistic assistant phrasing. Summarize completed tool work by outcome instead of listing every call. Do not quote prior assistant wording unless its exact text is task-critical. Return only the checkpoint, structured for another agent to resume the work.";
 
 #[derive(Clone)]
@@ -7634,6 +7635,15 @@ impl BlocklistAIController {
         else {
             return;
         };
+        let tool_titles = batch
+            .calls
+            .iter()
+            .filter_map(|pending| {
+                run.action_context
+                    .tool_call_title(&pending.call)
+                    .map(|title| (pending.call.id.clone(), title))
+            })
+            .collect::<HashMap<_, _>>();
         let (mut converted_actions, invalid_results) =
             convert_provider_tool_batch(&run.action_context, &batch);
         for result in &invalid_results {
@@ -7742,6 +7752,13 @@ impl BlocklistAIController {
             } else {
                 let apply_result =
                     BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+                        if let Some(title) = tool_titles.get(&action.id.to_string()) {
+                            if let Some(conversation) =
+                                history_model.conversation_mut(&conversation_id)
+                            {
+                                conversation.set_tool_title(&action.id, title.clone());
+                            }
+                        }
                         history_model.apply_domain_tool_proposal(
                             &stream_id,
                             conversation_id,

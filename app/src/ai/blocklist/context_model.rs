@@ -729,14 +729,8 @@ impl BlocklistAIContextModel {
     ) -> Option<&'a AIAgentTodoList> {
         self.selected_conversation(ctx)
             .and_then(|c| c.active_todo_list())
-            .and_then(|todo_list| {
-                // Don't show todo list if it's empty or finished
-                if todo_list.is_empty() || todo_list.is_finished() {
-                    None
-                } else {
-                    Some(todo_list)
-                }
-            })
+            // Don't show todo list if it's empty or finished
+            .filter(|&todo_list| !(todo_list.is_empty() || todo_list.is_finished()))
     }
 
     pub fn pending_query_autoexecute_override(

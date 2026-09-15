@@ -840,3 +840,25 @@ fn progressive_summary_is_provider_context_not_persistent_history() {
         MessageContent::Text(text) if text == "Continue"
     ));
 }
+
+#[test]
+fn tool_title_schema_preserves_existing_parameters() {
+    let mut schema = serde_json::json!({
+        "type": "object",
+        "properties": {"_galaxy_tool_title": {"type": "integer"}},
+        "required": ["_galaxy_tool_title"],
+        "additionalProperties": false
+    });
+    let parameter = super::add_tool_title_parameter(&mut schema);
+    assert_eq!(parameter, "_galaxy_tool_title_");
+    assert_eq!(
+        schema["properties"]["_galaxy_tool_title"]["type"],
+        "integer"
+    );
+    assert_eq!(schema["properties"][&parameter]["type"], "string");
+    assert_eq!(
+        schema["required"],
+        serde_json::json!(["_galaxy_tool_title", "_galaxy_tool_title_"])
+    );
+    assert_eq!(schema["additionalProperties"], false);
+}

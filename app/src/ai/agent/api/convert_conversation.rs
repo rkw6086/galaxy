@@ -75,6 +75,7 @@ pub fn convert_conversation_data_to_ai_conversation(
             agent_backend: Default::default(),
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: Default::default(),
             server_conversation_token: None,
             conversation_usage_metadata: usage_metadata,
             reverted_action_ids: None,
@@ -100,6 +101,7 @@ pub fn convert_conversation_data_to_ai_conversation(
             agent_backend: Default::default(),
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: Default::default(),
             server_conversation_token: Some(
                 metadata.server_conversation_token.as_str().to_string(),
             ),

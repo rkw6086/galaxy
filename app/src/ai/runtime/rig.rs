@@ -63,6 +63,26 @@ impl ProviderActionContext {
         }
     }
 
+    pub(crate) fn tool_call_title(&self, call: &ToolCall) -> Option<String> {
+        let parameter = match self.mcp_tool_aliases.get(&call.name) {
+            Some(target) => target.title_parameter.as_deref()?,
+            None => super::rig_request::TOOL_TITLE_PARAMETER,
+        };
+        call.arguments
+            .get(parameter)
+            .and_then(serde_json::Value::as_str)
+            .map(|title| {
+                title
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .chars()
+                    .take(120)
+                    .collect::<String>()
+            })
+            .filter(|title| !title.is_empty())
+    }
+
     pub(crate) fn action_from_tool_call(&self, call: &ToolCall) -> Result<AIAgentAction, String> {
         action_from_tool_call(
             &self.task_id,

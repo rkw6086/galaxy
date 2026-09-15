@@ -196,7 +196,7 @@ pub fn write_histfiles_for_test<P>(
                 contents
             }
         };
-        println!("histfile path:{:?}", &path);
+        println!("histfile path:{:?}", path);
         if let Err(e) = write(&path, histfile_contents.as_bytes()) {
             panic!("Could not write histfile {:?}: {}", path.to_str(), e);
         }

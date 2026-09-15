@@ -1,4 +1,6 @@
-use super::prepare_provider_run;
+use galaxy_agent_core::ToolCall;
+
+use super::{prepare_provider_run, ProviderActionContext};
 use crate::ai::agent::api::RequestParams;
 use crate::ai::llms::LLMId;
 use crate::ai::openai::client::OpenAIClientConfig;
@@ -72,4 +74,24 @@ fn subscription_context_budget_uses_catalog_limit_and_clamps_stale_overrides() {
             Some(expected)
         );
     }
+}
+
+#[test]
+fn tool_titles_are_optional_and_normalized_for_display() {
+    let context = ProviderActionContext::new_for_test("task");
+    let mut call = ToolCall {
+        id: "call".to_string(),
+        name: "read_files".to_string(),
+        arguments: serde_json::json!({"_galaxy_tool_title": "  Read\n cache   configuration "}),
+    };
+    assert_eq!(
+        context.tool_call_title(&call).as_deref(),
+        Some("Read cache configuration")
+    );
+    call.arguments = serde_json::json!({"_galaxy_tool_title": "界".repeat(200)});
+    assert_eq!(context.tool_call_title(&call).unwrap().chars().count(), 120);
+    call.arguments = serde_json::json!({"_galaxy_tool_title": "  "});
+    assert_eq!(context.tool_call_title(&call), None);
+    call.arguments = serde_json::json!({});
+    assert_eq!(context.tool_call_title(&call), None);
 }

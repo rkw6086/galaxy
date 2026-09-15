@@ -2438,7 +2438,7 @@ impl FeaturesPageView {
             editor.set_buffer_text(
                 &format!(
                     "{}",
-                    &KeysSettings::handle(ctx)
+                    KeysSettings::handle(ctx)
                         .as_ref(ctx)
                         .quake_mode_settings
                         .value()
@@ -2483,7 +2483,7 @@ impl FeaturesPageView {
             editor.set_buffer_text(
                 &format!(
                     "{}",
-                    &KeysSettings::handle(ctx)
+                    KeysSettings::handle(ctx)
                         .as_ref(ctx)
                         .quake_mode_settings
                         .value()

@@ -172,7 +172,7 @@ pub(super) fn relaunch() -> Result<()> {
 pub async fn cleanup(update_id: &str) {
     let download_dir = get_download_dir(update_id);
     if download_dir.exists() {
-        log::info!("Cleaning up download dir {:?}", &download_dir);
+        log::info!("Cleaning up download dir {:?}", download_dir);
         if let Err(e) = async_fs::remove_dir_all(&download_dir).await {
             safe_error!(
                 safe: ("Error cleaning up download dir: {e:?}"),
@@ -427,7 +427,7 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
         );
     }
 
-    log::info!("Setting installed version to {:?}", &version_info);
+    log::info!("Setting installed version to {:?}", version_info);
     log::info!("Applied update in {:?}", update_start.elapsed());
 
     Ok(())
@@ -524,11 +524,11 @@ async fn download_and_extract_binary(
 
     log::info!(
         "Downloading update, version {} on channel {channel}",
-        &version_info.version,
+        version_info.version,
     );
 
     let download_dir = get_download_dir(update_id);
-    log::info!("Creating download dir {:?}", &download_dir);
+    log::info!("Creating download dir {:?}", download_dir);
     async_fs::create_dir_all(&download_dir).await?;
 
     let dmg_path = download_dmg(&channel, version_info, update_id, client).await?;
@@ -608,11 +608,7 @@ const DMG_TIMEOUT_S: u64 = 600;
 /// The temporary path for downloading the new dmg into.
 fn dmg_path(channel: &Channel, version_info: &VersionInfo, update_id: &str) -> PathBuf {
     let mut dir = get_download_dir(update_id);
-    let file_name = format!(
-        "{}.{}.dmg",
-        &version_info.version,
-        app_name_prefix(*channel)
-    );
+    let file_name = format!("{}.{}.dmg", version_info.version, app_name_prefix(*channel));
     dir.push(file_name);
     dir
 }
@@ -655,7 +651,7 @@ async fn download_dmg(
     .await?;
     file.sync_data().await?;
 
-    log::info!("Wrote DMG to tempfile at {:?}", &dmg_file);
+    log::info!("Wrote DMG to tempfile at {:?}", dmg_file);
     Ok(dmg_file)
 }
 

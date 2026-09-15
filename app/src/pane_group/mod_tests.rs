@@ -390,6 +390,7 @@ fn persisted_remote_child_conversation(
                 agent_backend: Default::default(),
                 active_provider_run_json: None,
                 local_agent_groups: Vec::new(),
+                tool_titles: Default::default(),
                 server_conversation_token: Some("restored-child-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

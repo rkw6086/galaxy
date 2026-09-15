@@ -184,14 +184,14 @@ impl SecretManager {
     ) -> ErrorMessageAndCommand {
         match error_type {
             SecretErrorType::NotInstalled => {
-                let message = format!("{} CLI is not installed", &self);
+                let message = format!("{} CLI is not installed", self);
 
                 let (link, link_message) = (
                     match self {
                         SecretManager::OnePassword => Some(ONEPASSWORD_DOCS_LINK.to_owned()),
                         SecretManager::LastPass => Some(LASTPASS_DOCS_LINK.to_owned()),
                     },
-                    Some(format!("View {} CLI installation documentation", &self)),
+                    Some(format!("View {} CLI installation documentation", self)),
                 );
 
                 ErrorMessageAndCommand {
@@ -211,7 +211,7 @@ impl SecretManager {
                 ErrorMessageAndCommand {
                     message: format!(
                         "{} didn't return secrets (likely not configured or authenticated)",
-                        &self
+                        self
                     ),
                     link,
                     link_message,

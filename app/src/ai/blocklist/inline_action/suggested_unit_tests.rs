@@ -139,7 +139,7 @@ impl SuggestedUnitTestsView {
     fn position_id_for_speedbump(&self) -> String {
         format!(
             "SuggestedUnitTestsView-speedbump-{}",
-            &self.position_id_prefix
+            self.position_id_prefix
         )
     }
 

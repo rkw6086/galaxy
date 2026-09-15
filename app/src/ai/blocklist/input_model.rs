@@ -799,7 +799,7 @@ impl BlocklistAIInputModel {
                     if use_local_model {
                         // A cancelled debounce never starts inference. The local worker
                         // also cancels obsolete requests already queued or generating.
-                        warpui::r#async::Timer::after(std::time::Duration::from_millis(300)).await;
+                        warpui::r#async::Timer::after(std::time::Duration::from_millis(100)).await;
                         let result = crate::local_inference::classify(
                             buffer_cloned.to_string(),
                             history_entries.as_deref().unwrap_or_default(),

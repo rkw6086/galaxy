@@ -123,6 +123,8 @@ pub(crate) fn add_orchestration_model_options(
 pub(crate) struct MCPToolTarget {
     pub server_id: Option<Uuid>,
     pub name: String,
+    #[serde(default)]
+    pub title_parameter: Option<String>,
 }
 
 pub(crate) fn prepare_rig_turn(
@@ -256,6 +258,12 @@ fn prepare_rig_turn_for_provider(
             mcp_tool_aliases.clear();
         }
         RigRequestMode::Normal | RigRequestMode::Plan | RigRequestMode::Orchestrate => {}
+    }
+    for tool in &mut tools {
+        let parameter = add_tool_title_parameter(&mut tool.input_schema);
+        if let Some(target) = mcp_tool_aliases.get_mut(&tool.name) {
+            target.title_parameter = Some(parameter);
+        }
     }
     let system_prompt = build_system_prompt(&input, &tools, &global_rules, mode);
 
@@ -631,6 +639,7 @@ fn tool_definitions(
                     MCPToolTarget {
                         server_id: Uuid::parse_str(&server.id).ok(),
                         name: tool.name.to_string(),
+                        title_parameter: None,
                     },
                 );
                 tools.push(ToolDefinition {
@@ -654,6 +663,7 @@ fn tool_definitions(
                 MCPToolTarget {
                     server_id: None,
                     name: tool.name.to_string(),
+                    title_parameter: None,
                 },
             );
             tools.push(ToolDefinition {
@@ -668,6 +678,33 @@ fn tool_definitions(
         }
     }
     (tools, mcp_tool_aliases)
+}
+
+pub(crate) const TOOL_TITLE_PARAMETER: &str = "_galaxy_tool_title";
+
+fn add_tool_title_parameter(schema: &mut serde_json::Value) -> String {
+    let properties = schema["properties"].as_object_mut();
+    let mut parameter = TOOL_TITLE_PARAMETER.to_string();
+    if let Some(properties) = properties {
+        while properties.contains_key(&parameter) {
+            parameter.push('_');
+        }
+    } else {
+        schema["properties"] = serde_json::json!({});
+    }
+    schema["properties"][&parameter] = serde_json::json!({
+        "type": "string",
+        "description": "Short pane title stating this call's specific purpose, e.g. Find cache invalidation paths. Use 3–10 words; no greetings, status filler, or secrets.",
+        "maxLength": 120
+    });
+    if !schema["required"].is_array() {
+        schema["required"] = serde_json::json!([]);
+    }
+    schema["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(parameter.clone().into());
+    parameter
 }
 
 fn tools_are_inline_only(tools: &[ToolDefinition]) -> bool {
@@ -726,10 +763,10 @@ fn build_system_prompt(
         "You are Galaxy, a local-first software-engineering and terminal agent. Complete the user's task through inspection, implementation, and proportionate validation. Galaxy owns tool permissions and execution; use only the tools advertised in this request and treat every result as authoritative evidence.\n\n",
     );
     prompt.push_str(
-        "## Communication Style\nSpeak naturally, warmly, and directly, like a thoughtful collaborator working alongside the user. Default to short responses and expand only when complexity or the user's request warrants it. Acknowledge a correction once when useful; do not repeatedly agree that the user is right, praise them, or add generic reassurance. For nontrivial work, briefly tell the user what you are checking before the first tool call. Between dependent tool calls, add a concise update only when a result materially changes what you learned or what you will do next; ground it in specifics instead of generic activity narration. Do not narrate every routine read, repeat the plan, or end a turn with only a progress update when useful work can continue. In the final response, lead with the outcome and keep the handoff compact.\n\n",
+        "## Communication Style\nSpeak naturally, warmly, and directly, like a thoughtful collaborator working alongside the user. Default to short responses and expand only when complexity or the user's request warrants it. Acknowledge a correction once when useful; do not repeatedly agree that the user is right, praise them, or add generic reassurance. For nontrivial work, briefly tell the user what you are checking once before the first tool call of a new user request. Tool results and compaction checkpoints continue the same request: resume the work without another greeting, acknowledgement, or restatement of the plan. Supply the short purpose title requested by each tool schema. Between dependent tool calls, add a concise update only when a result materially changes what you learned or what you will do next; ground it in specifics instead of generic activity narration. Do not narrate every routine read, repeat the plan, or end a turn with only a progress update when useful work can continue. In the final response, lead with the outcome and keep the handoff compact.\n\n",
     );
     prompt.push_str(
-        "## Execution Contract\nContinue until the user's requested outcome is complete and validated. Do not stop at an intermediate analysis, plan, status update, or promise of future work, and do not ask the user to say \"continue\". After each tool result, choose and perform the next necessary step. Stop only when the request is fulfilled or a concrete blocker requires user input; identify that blocker explicitly.\n\n",
+        "## Execution Contract\nBefore another read or search, identify the missing fact it will resolve. Reuse findings already present in the conversation. Once enough evidence exists for the requested change, implement it and validate; additional inspection should resolve a specific uncertainty. Batch independent reads within the tool limits and wait for results before dependent work. Continue until the user's requested outcome is complete and validated. Do not stop at an intermediate analysis, plan, status update, or promise of future work, and do not ask the user to say \"continue\". After each tool result, choose and perform the next necessary step. Stop only when the request is fulfilled or a concrete blocker requires user input; identify that blocker explicitly.\n\n",
     );
     prompt.push_str(
         "## Task Tracking\nUse task tracking only for substantial work with multiple concrete steps, after planning has established those steps or when the user provides an actionable plan. Skip it for simple requests, questions, and exploratory planning. Each task must name a specific change or deliverable with a clear completion condition. Do not create generic workflow items such as 'research the request', 'critique the plan', 'execute the plan', or 'verify the result'. Update tasks only when their actual work is complete; a tool call or model turn alone is not evidence of completion.\n\n",

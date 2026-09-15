@@ -139,6 +139,7 @@ fn agent_conversation_data_roundtrips_last_event_sequence() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -243,6 +244,7 @@ fn agent_conversation_data_roundtrips_remote_child_marker() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -272,6 +274,7 @@ fn agent_conversation_data_roundtrips_optimistic_root_marker() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -313,6 +316,7 @@ fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -344,6 +348,7 @@ fn agent_conversation_data_roundtrips_pinned() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -373,6 +378,7 @@ fn agent_conversation_data_skips_serializing_unpinned() {
         agent_backend: Default::default(),
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -435,4 +441,17 @@ fn model_token_usage_replay_skips_non_custom_endpoint_entries() {
         ..Default::default()
     };
     assert!(warp_only.to_proto_custom_endpoint_usage().is_none());
+}
+
+#[test]
+fn tool_titles_survive_roundtrip_and_are_optional_for_old_conversations() {
+    let mut data = AgentConversationData::default();
+    data.tool_titles
+        .insert("call-1".into(), "Find cache invalidation paths".into());
+    let mut json = serde_json::to_value(&data).unwrap();
+    let restored: AgentConversationData = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(restored.tool_titles, data.tool_titles);
+    json.as_object_mut().unwrap().remove("tool_titles");
+    let legacy: AgentConversationData = serde_json::from_value(json).unwrap();
+    assert!(legacy.tool_titles.is_empty());
 }

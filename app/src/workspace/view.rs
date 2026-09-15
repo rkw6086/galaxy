@@ -13444,13 +13444,7 @@ impl Workspace {
             .map(|(terminal_surface_id, _)| terminal_surface_id);
 
         // An empty prompt should not be provided as a query for the new forked conversation.
-        let initial_prompt = initial_prompt.and_then(|prompt| {
-            if prompt.trim().is_empty() {
-                None
-            } else {
-                Some(prompt)
-            }
-        });
+        let initial_prompt = initial_prompt.filter(|prompt| !prompt.trim().is_empty());
 
         // True when the fork is paired with a follow-up that fires immediately after restore
         // (a prompt to send, or a `/summarize` triggered by `summarize_after_fork`).

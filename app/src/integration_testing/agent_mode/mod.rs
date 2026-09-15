@@ -275,7 +275,7 @@ pub fn output_conversation_debug_info(
             for input in &exchange.input {
                 write_to_debug_file(&format!("\nInput:\n\n{input}\n"));
             }
-            write_to_debug_file(&format!("Output:\n{}", &exchange.output_status))
+            write_to_debug_file(&format!("Output:\n{}", exchange.output_status))
         }
 
         // Add completion timestamp

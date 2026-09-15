@@ -568,7 +568,7 @@ impl DiffModel {
                 move |model, (change_mapping, deletion_mapping), ctx| {
                     model.status.change_mapping = change_mapping;
                     model.status.deletion_mapping = deletion_mapping;
-                    log::debug!("diff status updated: {:#?}", &model.status);
+                    log::debug!("diff status updated: {:#?}", model.status);
                     ctx.emit(DiffModelEvent::DiffUpdated {
                         should_recalculate_hidden_lines,
                         version,

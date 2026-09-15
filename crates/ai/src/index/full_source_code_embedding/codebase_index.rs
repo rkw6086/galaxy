@@ -664,7 +664,7 @@ impl CodebaseIndex {
             if galaxy_core::channel::ChannelState::enable_debug_features() {
                 log::debug!(
                     "Trying to upsert changed files: {:?}",
-                    &changed_files.upsertions
+                    changed_files.upsertions
                 );
             }
             let (upserted_nodes, upsertion_fragment_metadata_updates) =

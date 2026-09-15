@@ -76,7 +76,7 @@ pub fn open_context_menu_for_selected_block() -> Vec<TestStep> {
 /// with results.
 pub fn run_completer(tab_index: usize, input_text: impl Into<String>) -> TestStep {
     let input_text = input_text.into();
-    new_step_with_default_assertions(&format!("Type {} and hit tab", &input_text))
+    new_step_with_default_assertions(&format!("Type {} and hit tab", input_text))
         .with_typed_characters(&[&input_text])
         .with_keystrokes(&["tab"])
         .set_timeout(Duration::from_secs(2))

@@ -234,6 +234,7 @@ pub struct AIConversation {
     /// Opaque, versioned snapshot of the active direct-provider run.
     active_provider_run_json: Option<String>,
     local_agent_groups: Vec<LocalAgentGroup>,
+    tool_titles: HashMap<String, String>,
 
     /// The server-generated unique "token" for this conversation.
     ///
@@ -389,6 +390,7 @@ impl AIConversation {
             agent_backend,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: HashMap::new(),
             server_conversation_token: None,
             task_id: None,
             forked_from_server_conversation_token: None,
@@ -547,6 +549,10 @@ impl AIConversation {
             (task_store, todo_lists, status)
         };
 
+        let tool_titles = conversation_data
+            .as_ref()
+            .map(|data| data.tool_titles.clone())
+            .unwrap_or_default();
         let local_agent_groups = conversation_data
             .as_ref()
             .map(|data| data.local_agent_groups.clone())
@@ -682,6 +688,7 @@ impl AIConversation {
             agent_backend,
             active_provider_run_json,
             local_agent_groups,
+            tool_titles,
             server_conversation_token,
             task_id: run_id.as_deref().and_then(|id| id.parse().ok()),
             forked_from_server_conversation_token,
@@ -723,6 +730,14 @@ impl AIConversation {
 
     pub fn agent_backend(&self) -> &AgentBackend {
         &self.agent_backend
+    }
+
+    pub(crate) fn tool_titles(&self) -> &HashMap<String, String> {
+        &self.tool_titles
+    }
+
+    pub(crate) fn set_tool_title(&mut self, action_id: &AIAgentActionId, title: String) {
+        self.tool_titles.insert(action_id.to_string(), title);
     }
 
     pub(crate) fn local_agent_groups(&self) -> &[LocalAgentGroup] {
@@ -4050,6 +4065,7 @@ impl AIConversation {
                 agent_backend: self.agent_backend.clone(),
                 active_provider_run_json: self.active_provider_run_json.clone(),
                 local_agent_groups: self.local_agent_groups.clone(),
+                tool_titles: self.tool_titles.clone(),
                 server_conversation_token: self
                     .server_conversation_token
                     .clone()

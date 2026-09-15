@@ -202,6 +202,7 @@ impl BlockListSelection {
         let head_is_below_tail = (self.head.point.row > self.tail.point.row
             && !block_list.is_inverted)
             || (self.head.point.row < self.tail.point.row && block_list.is_inverted);
+        // select-up and select-down do nothing when there's no rendered selection.
         let (mut head, mut tail) = if head_is_below_tail {
             (self.tail, self.head)
         } else {
@@ -478,40 +479,38 @@ impl BlockList {
     ) -> Option<BlockListPoint> {
         let tail = match self.expand_selection(semantic_selection, inverted_blocklist) {
             Some(selection) => selection.tail().within_grid_point,
-            None => match self.selection.take() {
-                None => return None,
-                Some(mut selection) => {
-                    // In this case, there's an underlying selection that spans an empty range
-                    // and has no rendering.
-                    //
-                    // The selection is in one of two formats:
-                    // (row: x, col: y, side: R) --> (row: x, col: y + 1, side: L)
-                    // (row: x, col: y + 1, side: L) --> (row: x, col: y, side: R)
-                    // And we should update the selection to this:
-                    // (row: x, col: y, side: R) --> (row: x, col: y, side: L)
-                    let start_anchor = selection.start_anchor().point;
+            None => {
+                let mut selection = self.selection.take()?;
+                // In this case, there's an underlying selection that spans an empty range
+                // and has no rendering.
+                //
+                // The selection is in one of two formats:
+                // (row: x, col: y, side: R) --> (row: x, col: y + 1, side: L)
+                // (row: x, col: y + 1, side: L) --> (row: x, col: y, side: R)
+                // And we should update the selection to this:
+                // (row: x, col: y, side: R) --> (row: x, col: y, side: L)
+                let start_anchor = selection.start_anchor().point;
 
-                    selection.tail.point = start_anchor;
-                    selection.tail.side = Side::Left;
-                    selection.head.point = start_anchor;
-                    selection.head.side = Side::Right;
-                    self.set_selection(selection);
-                    return Some(start_anchor);
-                }
-            },
+                selection.tail.point = start_anchor;
+                selection.tail.side = Side::Left;
+                selection.head.point = start_anchor;
+                selection.head.side = Side::Right;
+                self.set_selection(selection);
+                return Some(start_anchor);
+            }
         };
 
         let mut selection = self.selection.take()?;
 
         let tail_point = tail.get();
-        let grid = match self.block_at(tail.block_index) {
-            None => return None,
-            Some(block) => match tail.grid {
+        let grid = {
+            let block = self.block_at(tail.block_index)?;
+            match tail.grid {
                 GridType::Prompt => block.prompt_grid(),
                 GridType::PromptAndCommand => block.prompt_and_command_grid(),
                 GridType::Rprompt => block.rprompt_grid(),
                 GridType::Output => block.output_grid(),
-            },
+            }
         };
 
         // There are two cases:
@@ -559,40 +558,38 @@ impl BlockList {
     ) -> Option<BlockListPoint> {
         let tail = match self.expand_selection(semantic_selection, inverted_blocklist) {
             Some(selection) => selection.tail().within_grid_point,
-            None => match self.selection.take() {
-                None => return None,
-                Some(mut selection) => {
-                    // In this case, there's an underlying selection that spans an empty range
-                    // and has no rendering.
-                    //
-                    // The selection is in one of two formats:
-                    // (row: x, col: y, side: R) --> (row: x, col: y + 1, side: L)
-                    // (row: x, col: y + 1, side: L) --> (row: x, col: y, side: R)
-                    // And we should update the selection to this:
-                    // (row: x, col: y + 1, side: L) --> (row: x, col: y + 1, side: R)
-                    let end_anchor = selection.end_anchor().point;
+            None => {
+                let mut selection = self.selection.take()?;
+                // In this case, there's an underlying selection that spans an empty range
+                // and has no rendering.
+                //
+                // The selection is in one of two formats:
+                // (row: x, col: y, side: R) --> (row: x, col: y + 1, side: L)
+                // (row: x, col: y + 1, side: L) --> (row: x, col: y, side: R)
+                // And we should update the selection to this:
+                // (row: x, col: y + 1, side: L) --> (row: x, col: y + 1, side: R)
+                let end_anchor = selection.end_anchor().point;
 
-                    selection.head.point = end_anchor;
-                    selection.head.side = Side::Left;
-                    selection.tail.point = end_anchor;
-                    selection.tail.side = Side::Right;
-                    self.set_selection(selection);
-                    return Some(end_anchor);
-                }
-            },
+                selection.head.point = end_anchor;
+                selection.head.side = Side::Left;
+                selection.tail.point = end_anchor;
+                selection.tail.side = Side::Right;
+                self.set_selection(selection);
+                return Some(end_anchor);
+            }
         };
 
         let mut selection = self.selection.take()?;
 
         let tail_point = tail.get();
-        let grid = match self.block_at(tail.block_index) {
-            None => return None,
-            Some(block) => match tail.grid {
+        let grid = {
+            let block = self.block_at(tail.block_index)?;
+            match tail.grid {
                 GridType::Prompt => block.prompt_grid(),
                 GridType::PromptAndCommand => block.prompt_and_command_grid(),
                 GridType::Rprompt => block.rprompt_grid(),
                 GridType::Output => block.output_grid(),
-            },
+            }
         };
         let num_rows_in_grid = grid.len_displayed();
 
@@ -639,15 +636,14 @@ impl BlockList {
         semantic_selection: &SemanticSelection,
         inverted_blocklist: bool,
     ) -> Option<BlockListPoint> {
-        let (mut head, mut tail) =
-            match self.expand_selection(semantic_selection, inverted_blocklist) {
-                Some(selection) => (
-                    selection.head().within_grid_point,
-                    selection.tail().within_grid_point,
-                ),
-                // select-up and select-down do nothing when there's no rendered selection.
-                None => return None,
-            };
+        // select-up and select-down do nothing when there's no rendered selection.
+        let (mut head, mut tail) = {
+            let selection = self.expand_selection(semantic_selection, inverted_blocklist)?;
+            (
+                selection.head().within_grid_point,
+                selection.tail().within_grid_point,
+            )
+        };
 
         let mut selection = self.selection.take()?;
 
@@ -663,14 +659,14 @@ impl BlockList {
         }
 
         let tail_point = tail.get();
-        let grid = match self.block_at(tail.block_index) {
-            None => return None,
-            Some(block) => match tail.grid {
+        let grid = {
+            let block = self.block_at(tail.block_index)?;
+            match tail.grid {
                 GridType::Prompt => block.prompt_grid(),
                 GridType::PromptAndCommand => block.prompt_and_command_grid(),
                 GridType::Rprompt => block.rprompt_grid(),
                 GridType::Output => block.output_grid(),
-            },
+            }
         };
 
         // There are two cases:
@@ -719,15 +715,14 @@ impl BlockList {
         semantic_selection: &SemanticSelection,
         inverted_blocklist: bool,
     ) -> Option<BlockListPoint> {
-        let (mut head, mut tail) =
-            match self.expand_selection(semantic_selection, inverted_blocklist) {
-                Some(selection) => (
-                    selection.head().within_grid_point,
-                    selection.tail().within_grid_point,
-                ),
-                // select-up and select-down do nothing when there's no rendered selection.
-                None => return None,
-            };
+        // select-up and select-down do nothing when there's no rendered selection.
+        let (mut head, mut tail) = {
+            let selection = self.expand_selection(semantic_selection, inverted_blocklist)?;
+            (
+                selection.head().within_grid_point,
+                selection.tail().within_grid_point,
+            )
+        };
 
         let mut selection = self.selection.take()?;
 
@@ -766,14 +761,14 @@ impl BlockList {
         inverted_blocklist: bool,
     ) -> Option<(WithinBlock<Point>, bool)> {
         let tail_point = tail.get();
-        let grid = match self.block_at(tail.block_index) {
-            None => return None,
-            Some(block) => match tail.grid {
+        let grid = {
+            let block = self.block_at(tail.block_index)?;
+            match tail.grid {
                 GridType::Prompt => block.prompt_grid(),
                 GridType::PromptAndCommand => block.prompt_and_command_grid(),
                 GridType::Rprompt => block.rprompt_grid(),
                 GridType::Output => block.output_grid(),
-            },
+            }
         };
         let num_rows_in_grid = grid.len_displayed();
         let mut is_at_bottom = false;

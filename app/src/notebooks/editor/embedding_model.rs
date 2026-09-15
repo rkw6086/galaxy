@@ -187,13 +187,7 @@ impl NotebookEmbed {
         cloud_model
             .get_by_uid(&id.to_server_id().uid())
             .and_then(|object| object.as_any().downcast_ref::<CloudWorkflow>())
-            .and_then(|workflow| {
-                if workflow.is_trashed(cloud_model) {
-                    None
-                } else {
-                    Some(workflow)
-                }
-            })
+            .filter(|&workflow| !workflow.is_trashed(cloud_model))
     }
 
     pub fn start_offset(&self, ctx: &impl ModelAsRef) -> Option<CharOffset> {

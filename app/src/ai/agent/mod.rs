@@ -1211,10 +1211,7 @@ impl<'a> std::fmt::Display for MarkdownActionResult<'a> {
         match self.0 {
             AIAgentActionResultType::RequestCommandOutput(result) => match result {
                 RequestCommandOutputResult::Completed {
-                    command,
-                    output,
-                    exit_code: _,
-                    ..
+                    command, output, ..
                 } => {
                     write!(
                         f,

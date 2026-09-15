@@ -7898,7 +7898,7 @@ impl Input {
         // Emit the a11y content as the last step so that it overwrites any of the a11y content
         // emitted by the editor (if multiple `AccessibilityContent`s are emitted within the same
         // event loop, the last one wins).
-        let mut accessibility_text = format!("Workflow command {} inserted.", &command_to_insert);
+        let mut accessibility_text = format!("Workflow command {} inserted.", command_to_insert);
         if let Some(a11y_content) = self.selected_workflow_a11y_text(ctx) {
             let _ = write!(accessibility_text, " {a11y_content}");
         }

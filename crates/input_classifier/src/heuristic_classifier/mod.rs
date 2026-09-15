@@ -43,7 +43,7 @@ impl InputClassifier for HeuristicClassifier {
 
         log::info!(
             "[input-classifier] detect_input_type called: buffer={:?}, word_tokens={}, current={:?}",
-            &input.buffer_text,
+            input.buffer_text,
             total_word_token_count,
             context.current_input_type
         );

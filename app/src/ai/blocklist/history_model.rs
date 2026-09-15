@@ -1705,6 +1705,7 @@ impl BlocklistAIHistoryModel {
             agent_backend: source_conversation.agent_backend().for_fork(),
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: source_conversation.tool_titles().clone(),
             server_conversation_token: None,
             conversation_usage_metadata: Some(source_conversation.usage_metadata()),
             reverted_action_ids,
@@ -1871,6 +1872,7 @@ impl BlocklistAIHistoryModel {
             agent_backend: conversation.agent_backend().for_fork(),
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
+            tool_titles: conversation.tool_titles().clone(),
             server_conversation_token: None,
             conversation_usage_metadata: None,
             reverted_action_ids,
@@ -2882,6 +2884,7 @@ fn merged_remote_child_placeholder_conversation_data(
         // Active process-local provider runs cannot be merged from a cloud transcript.
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
+        tool_titles: Default::default(),
 
         // Cloud authoritative.
         server_conversation_token: cloud_conversation

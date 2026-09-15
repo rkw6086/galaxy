@@ -35,7 +35,13 @@ pub(crate) fn action_from_tool_call(
         AIAgentActionType::CallMCPTool {
             server_id: target.server_id,
             name: target.name.clone(),
-            input: input.clone(),
+            input: {
+                let mut arguments = input.clone();
+                if let Some(parameter) = &target.title_parameter {
+                    arguments.as_object_mut().unwrap().remove(parameter);
+                }
+                arguments
+            },
         }
     } else {
         match call.name.as_str() {

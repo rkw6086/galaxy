@@ -1263,7 +1263,7 @@ impl ProfileModelSelector {
         if let Some(llm) = self.get_selected_llm_info(MenuType::Sidecar, index, ctx) {
             log::info!(
                 "Selecting base agent model {} (from model selector)",
-                &llm.id
+                llm.id
             );
             LLMPreferences::handle(ctx).update(ctx, |preferences, ctx| {
                 preferences.update_preferred_agent_mode_llm(&llm.id, self.terminal_view_id, ctx);

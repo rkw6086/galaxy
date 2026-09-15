@@ -504,7 +504,7 @@ impl SecretRedactionState {
                     // the case where a secret is split across streaming chunks.
                     let combined_text = format!(
                         "{}{}",
-                        &self.last_word_to_rescan_for_redaction,
+                        self.last_word_to_rescan_for_redaction,
                         &text[self.last_scanned_secret_redaction_byte_index..]
                     );
                     let secret_ranges_with_levels =

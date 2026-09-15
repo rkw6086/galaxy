@@ -430,6 +430,9 @@ debug = 1
 split-debuginfo = "packed"
 
 [profile.dev]
+# Optimize the large debug binary to keep its unwind tables within macOS's
+# compact-unwind offset limit, while retaining debug assertions and symbols.
+opt-level = 2
 # Use line-tables-only to speed up dev builds. Change to `debug = true` if you
 # need full debuginfo for step-through debugging (gdb/lldb).
 debug = "line-tables-only"

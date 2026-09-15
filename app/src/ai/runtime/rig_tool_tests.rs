@@ -381,6 +381,7 @@ fn provider_safe_mcp_aliases_resolve_to_the_original_tool() {
         MCPToolTarget {
             server_id: Some(server_id),
             name: "performance_analyze_insight".to_string(),
+            title_parameter: None,
         },
     )]);
 
@@ -549,4 +550,33 @@ fn unknown_tools_are_rejected_before_the_permission_boundary() {
     .unwrap_err();
 
     assert!(error.contains("unsupported Rig tool proposal"));
+}
+
+#[test]
+fn mcp_title_metadata_does_not_change_tool_arguments() {
+    let alias = "mcp__echo";
+    let aliases = HashMap::from([(
+        alias.to_string(),
+        MCPToolTarget {
+            server_id: None,
+            name: "echo".to_string(),
+            title_parameter: Some("_galaxy_tool_title_".to_string()),
+        },
+    )]);
+    let arguments = serde_json::json!({
+        "message": "hello",
+        "_galaxy_tool_title": "a real server argument",
+        "_galaxy_tool_title_": "Check the echo service"
+    });
+    let action = action_from_tool_call(
+        "task-1",
+        &call(alias, arguments),
+        &SkillPathOrigin::Local,
+        &aliases,
+    )
+    .unwrap();
+    assert!(
+        matches!(action.action, AIAgentActionType::CallMCPTool { input, .. }
+        if input == serde_json::json!({"message": "hello", "_galaxy_tool_title": "a real server argument"}))
+    );
 }

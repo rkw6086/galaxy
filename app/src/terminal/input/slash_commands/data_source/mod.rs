@@ -679,7 +679,7 @@ impl InlineItem {
                 name: skill.name.clone(),
             },
             icon_path: icon.into(),
-            name: format!("/{}", &skill.name),
+            name: format!("/{}", skill.name),
             description: Some(skill.description.clone()),
             font_family: appearance.monospace_font_family(),
             name_match_result: None,
