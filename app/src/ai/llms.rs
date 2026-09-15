@@ -2688,8 +2688,10 @@ fn get_new_agent_mode_choices(
         .collect()
 }
 
-#[cfg(not(target_family = "wasm"))]
-fn openai_model_context_size(model: &OpenAIModelConfig, provider_kind: OpenAIProviderKind) -> u32 {
+pub(crate) fn openai_model_context_size(
+    model: &OpenAIModelConfig,
+    provider_kind: OpenAIProviderKind,
+) -> u32 {
     let input_limit = model
         .max_input_tokens
         .unwrap_or(model.context_size)
@@ -2972,9 +2974,6 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
             let default_context_size = u32_from_json_any(model, &["context_window"])
                 .or_else(|| u32_from_json_any(model, &["max_context_window"]))
                 .unwrap_or(DEFAULT_DISCOVERED_MODEL_CONTEXT_SIZE);
-            let max_context_size = u32_from_json_any(model, &["max_context_window"])
-                .unwrap_or(default_context_size)
-                .max(default_context_size);
             let effective_context_percent = model["effective_context_window_percent"]
                 .as_u64()
                 .and_then(|value| u32::try_from(value).ok())
@@ -2984,10 +2983,13 @@ fn chatgpt_models_from_codex_response(body: &serde_json::Value) -> Vec<OpenAIMod
                 u32::try_from(u64::from(context_size) * u64::from(effective_context_percent) / 100)
                     .unwrap_or(context_size)
             };
-            let default_context_size = Some(effective_context_size(default_context_size));
+            // Store the supported session window, not the optional long-context
+            // maximum. Catalog consumers must not mistake that maximum for an
+            // enabled subscription budget.
+            let context_size = effective_context_size(default_context_size);
+            let default_context_size = Some(context_size);
             let max_input_tokens =
                 u32_from_json_any(model, &["max_input_tokens"]).map(effective_context_size);
-            let context_size = effective_context_size(max_context_size);
 
             let vision_supported = model["input_modalities"]
                 .as_array()

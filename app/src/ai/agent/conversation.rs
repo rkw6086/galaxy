@@ -17,6 +17,7 @@ use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::color::ColorU;
 use galaxyui::{AppContext, EntityId, ModelContext, SingletonEntity};
 use itertools::Itertools as _;
+use persistence::model::LocalAgentGroup;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use vec1::{Size0Error, Vec1};
@@ -232,6 +233,7 @@ pub struct AIConversation {
 
     /// Opaque, versioned snapshot of the active direct-provider run.
     active_provider_run_json: Option<String>,
+    local_agent_groups: Vec<LocalAgentGroup>,
 
     /// The server-generated unique "token" for this conversation.
     ///
@@ -386,6 +388,7 @@ impl AIConversation {
             conversation_usage_metadata: ConversationUsageMetadata::default(),
             agent_backend,
             active_provider_run_json: None,
+            local_agent_groups: Vec::new(),
             server_conversation_token: None,
             task_id: None,
             forked_from_server_conversation_token: None,
@@ -544,6 +547,10 @@ impl AIConversation {
             (task_store, todo_lists, status)
         };
 
+        let local_agent_groups = conversation_data
+            .as_ref()
+            .map(|data| data.local_agent_groups.clone())
+            .unwrap_or_default();
         let (
             agent_backend,
             active_provider_run_json,
@@ -674,6 +681,7 @@ impl AIConversation {
             conversation_usage_metadata,
             agent_backend,
             active_provider_run_json,
+            local_agent_groups,
             server_conversation_token,
             task_id: run_id.as_deref().and_then(|id| id.parse().ok()),
             forked_from_server_conversation_token,
@@ -715,6 +723,14 @@ impl AIConversation {
 
     pub fn agent_backend(&self) -> &AgentBackend {
         &self.agent_backend
+    }
+
+    pub(crate) fn local_agent_groups(&self) -> &[LocalAgentGroup] {
+        &self.local_agent_groups
+    }
+
+    pub(crate) fn set_local_agent_groups(&mut self, groups: Vec<LocalAgentGroup>) {
+        self.local_agent_groups = groups;
     }
 
     pub(crate) fn active_provider_run_json(&self) -> Option<&str> {
@@ -4033,6 +4049,7 @@ impl AIConversation {
             conversation_data: AgentConversationData {
                 agent_backend: self.agent_backend.clone(),
                 active_provider_run_json: self.active_provider_run_json.clone(),
+                local_agent_groups: self.local_agent_groups.clone(),
                 server_conversation_token: self
                     .server_conversation_token
                     .clone()

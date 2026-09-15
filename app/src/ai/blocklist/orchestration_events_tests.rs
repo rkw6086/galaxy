@@ -391,3 +391,65 @@ fn local_follow_up_is_delivered_once_and_acknowledged_without_server_echo() {
     assert_eq!(awaiting[0].event_id, "hosted-1");
     assert!(!service.has_pending_local_message(conversation_id));
 }
+
+#[test]
+fn local_group_waits_for_every_child_and_invalidates_results_after_restart() {
+    galaxyui::App::test((), |mut app| async move {
+        crate::test_util::settings::initialize_history_persistence_for_tests(&mut app);
+        let surface = galaxyui::EntityId::new();
+        let history = app.add_singleton_model(|_| BlocklistAIHistoryModel::new_for_test());
+        let service = app.add_singleton_model(OrchestrationEventService::new);
+        let (parent, first, second) = history.update(&mut app, |history, ctx| {
+            let parent = history.start_new_conversation(surface, false, false, false, ctx);
+            let first =
+                history.start_new_child_conversation(surface, "one".to_string(), parent, None, ctx);
+            let second =
+                history.start_new_child_conversation(surface, "two".to_string(), parent, None, ctx);
+            (parent, first, second)
+        });
+        service.update(&mut app, |service, ctx| {
+            service.begin_local_group(parent, "group-1", ctx);
+            service.register_local_group_child(parent, "group-1", first, ctx);
+            service.register_local_group_child(parent, "group-1", second, ctx);
+            service.seal_local_group(parent, "group-1", Vec::new(), ctx);
+        });
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(surface, first, ConversationStatus::Success, ctx)
+        });
+        service.read(&app, |service, _| {
+            assert!(!service.has_pending_events(parent))
+        });
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(surface, second, ConversationStatus::Error, ctx)
+        });
+        let old_event = service.read(&app, |service, _| {
+            assert_eq!(service.pending_events[&parent].len(), 1);
+            service.pending_events[&parent][0].event_id.clone()
+        });
+        // A user restarts the failed child before the parent has consumed the result.
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(surface, second, ConversationStatus::InProgress, ctx)
+        });
+        service.read(&app, |service, _| {
+            assert!(!service.has_pending_events(parent))
+        });
+        history.update(&mut app, |history, ctx| {
+            history.update_conversation_status(surface, second, ConversationStatus::Success, ctx)
+        });
+        service.update(&mut app, |service, ctx| {
+            assert_eq!(service.pending_events[&parent].len(), 1);
+            assert_ne!(service.pending_events[&parent][0].event_id, old_event);
+            service.drain_and_convert_events(parent);
+            service.confirm_local_delivery(parent, ctx);
+            service.reconcile_local_groups(parent, ctx);
+            assert!(!service.has_pending_events(parent));
+        });
+        history.read(&app, |history, _| {
+            let groups = history.conversation(&parent).unwrap().local_agent_groups();
+            assert!(groups[0].notified);
+            let restored: persistence::model::LocalAgentGroup =
+                serde_json::from_str(&serde_json::to_string(&groups[0]).unwrap()).unwrap();
+            assert_eq!(&restored, &groups[0]);
+        });
+    });
+}

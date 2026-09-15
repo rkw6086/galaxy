@@ -805,7 +805,7 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
     assert_eq!(models[0].model_id, "gpt-5.6-sol");
     assert_eq!(models[0].display_name, "GPT-5.6-Sol");
     assert!(models[0].vision_supported);
-    assert_eq!(models[0].context_size, 828_400);
+    assert_eq!(models[0].context_size, 258_400);
     assert_eq!(models[0].max_input_tokens, None);
     assert_eq!(models[0].default_context_size, Some(258_400));
     assert_eq!(models[0].reasoning_efforts, ["low", "xhigh", "ultra"]);
@@ -829,10 +829,10 @@ fn chatgpt_codex_models_parse_visible_catalog_entries() {
 
     let fixed =
         openai_model_context_window(&models[0], crate::settings::OpenAIProviderKind::LiteLLM);
-    assert!(fixed.is_configurable);
+    assert!(!fixed.is_configurable);
     assert_eq!(fixed.min, 258_400);
-    assert_eq!(fixed.default_max, 828_400);
-    assert_eq!(fixed.max, 828_400);
+    assert_eq!(fixed.default_max, 258_400);
+    assert_eq!(fixed.max, 258_400);
 }
 
 #[test]

@@ -138,6 +138,7 @@ fn agent_conversation_data_roundtrips_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -241,6 +242,7 @@ fn agent_conversation_data_roundtrips_remote_child_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -269,6 +271,7 @@ fn agent_conversation_data_roundtrips_optimistic_root_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -309,6 +312,7 @@ fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -339,6 +343,7 @@ fn agent_conversation_data_roundtrips_pinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,
@@ -367,6 +372,7 @@ fn agent_conversation_data_skips_serializing_unpinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
         active_provider_run_json: None,
+        local_agent_groups: Vec::new(),
         server_conversation_token: None,
         conversation_usage_metadata: None,
         reverted_action_ids: None,

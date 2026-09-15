@@ -13,8 +13,7 @@ use crate::ai::agent::{
     AskUserQuestionOption, AskUserQuestionType, CreateDocumentsRequest, DocumentDiff,
     DocumentToCreate, EditDocumentsRequest, FileEdit, FileLocations, ReadDocumentsRequest,
     ReadFilesRequest, ReadSkillRequest, RunAgentsAgentRunConfig, RunAgentsExecutionMode,
-    RunAgentsRequest, SearchCodebaseRequest, ShellCommandDelay, StartAgentExecutionMode,
-    StartAgentVersion,
+    RunAgentsRequest, SearchCodebaseRequest, ShellCommandDelay,
 };
 use crate::ai::document::ai_document_model::AIDocumentId;
 
@@ -188,13 +187,23 @@ pub(crate) fn action_from_tool_call(
                 plan_id: optional_string(input, "plan_id")?.unwrap_or_default(),
                 harness_auth_secret_name: None,
             }),
-            "start_agent" => AIAgentActionType::StartAgent {
-                version: StartAgentVersion::V1,
-                name: required_nonempty_string(input, "name")?,
-                prompt: required_nonempty_string(input, "prompt")?,
-                execution_mode: StartAgentExecutionMode::local_with_defaults(),
-                lifecycle_subscription: None,
-            },
+            // Direct-provider single-child delegation uses the same durable group lifecycle.
+            "start_agent" => AIAgentActionType::RunAgents(RunAgentsRequest {
+                summary: required_nonempty_string(input, "name")?,
+                base_prompt: String::new(),
+                skills: Vec::new(),
+                model_id: String::new(),
+                harness_type: String::new(),
+                execution_mode: RunAgentsExecutionMode::Local,
+                agent_run_configs: vec![RunAgentsAgentRunConfig {
+                    name: required_nonempty_string(input, "name")?,
+                    prompt: required_nonempty_string(input, "prompt")?,
+                    title: String::new(),
+                    model_id: String::new(),
+                }],
+                plan_id: String::new(),
+                harness_auth_secret_name: None,
+            }),
             "send_message_to_agent" => AIAgentActionType::SendMessageToAgent {
                 addresses: vec![required_string(input, "agent_id")?],
                 subject: String::new(),

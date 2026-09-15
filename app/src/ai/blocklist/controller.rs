@@ -3949,8 +3949,8 @@ impl BlocklistAIController {
         }
 
         if has_piggybacked_events && result.is_ok() {
-            OrchestrationEventService::handle(ctx).update(ctx, |svc, _| {
-                svc.confirm_local_messages(conversation_id);
+            OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
+                svc.confirm_local_delivery(conversation_id, ctx);
             });
         }
         self.pending_passive_follow_ups.remove(&conversation_id);
@@ -4371,8 +4371,8 @@ impl BlocklistAIController {
                 svc.requeue_awaiting_events(conversation_id, ctx);
             });
         } else {
-            OrchestrationEventService::handle(ctx).update(ctx, |svc, _| {
-                svc.confirm_local_messages(conversation_id);
+            OrchestrationEventService::handle(ctx).update(ctx, |svc, ctx| {
+                svc.confirm_local_delivery(conversation_id, ctx);
             });
         }
     }
@@ -7321,6 +7321,13 @@ impl BlocklistAIController {
         slot: &mut ActiveProviderRunSlot,
         run: &mut ActiveProviderRun,
     ) -> Result<ProviderBoundaryDisposition, String> {
+        // A launch yield can complete the run as its tool batch commits. Once the
+        // action projection is committed, drive terminal cleanup rather than parking it.
+        if run.coordinator.run().is_terminal() && slot.committed_provider_batch.is_none() {
+            return Ok(ProviderBoundaryDisposition::Advance {
+                completed_block_id: None,
+            });
+        }
         let state = run.coordinator.run().state();
         let phase = provider_boundary_phase(state);
         let intent = provider_boundary_intent(
@@ -8192,16 +8199,23 @@ impl BlocklistAIController {
         ctx: &mut ModelContext<Self>,
     ) {
         let history_model = BlocklistAIHistoryModel::handle(ctx);
+        let status = if OrchestrationEventService::as_ref(ctx)
+            .has_waiting_local_groups(conversation_id, ctx)
+        {
+            ConversationStatus::WaitingForEvents
+        } else {
+            ConversationStatus::Success
+        };
         let should_finalize = history_model
             .as_ref(ctx)
             .conversation_status(&conversation_id)
-            .is_some_and(|status| status != &ConversationStatus::Success);
+            .is_some_and(|current| current != &status);
         if should_finalize {
             history_model.update(ctx, |history_model, ctx| {
                 history_model.update_conversation_status(
                     self.terminal_surface_id,
                     conversation_id,
-                    ConversationStatus::Success,
+                    status,
                     ctx,
                 );
             });
@@ -8397,6 +8411,9 @@ impl BlocklistAIController {
         });
         self.maybe_refresh_ai_overages(ctx);
         self.start_next_queued_provider_run(conversation_id, ctx);
+        OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+            service.reconcile_local_groups_for_child(conversation_id, ctx);
+        });
         // Status notifications may arrive before the stream releases its slot.
         // Retry queued child messages now that terminal cleanup is complete.
         self.handle_pending_events_ready(conversation_id, ctx);

@@ -1261,9 +1261,26 @@ impl ProviderRun {
             });
         };
         let next_epoch = self.next_epoch()?;
+        let yielded_to_children = batch.calls.iter().any(|pending| {
+            is_local_agent_launch(&pending.call)
+                && pending
+                    .state
+                    .result()
+                    .is_some_and(|result| result.status == ToolResultStatus::Success)
+        });
         self.transcript.push(tool_result_message(results));
         self.epoch = next_epoch;
-        self.state = ProviderRunState::ReadyToCallModel;
+        // Launch acknowledgement is a yield, not an invitation to issue more tools.
+        // The client persists child membership and supplies a new input once the group finishes.
+        self.state = if yielded_to_children {
+            ProviderRunState::Done {
+                completion: ProviderRunCompletion {
+                    stop_reason: StopReason::Completed,
+                },
+            }
+        } else {
+            ProviderRunState::ReadyToCallModel
+        };
         Ok(())
     }
 
@@ -1382,12 +1399,25 @@ impl ProviderRun {
 
     fn build_tool_batch(&self, turn: &CompletedModelTurn) -> PendingToolBatch {
         let policy = ToolPolicy::from_names(turn.advertised_tools.iter().cloned());
+        let has_launch = turn.tool_calls.iter().any(|call| {
+            is_local_agent_launch(call)
+                && call.arguments.is_object()
+                && turn.advertised_tools.contains(&call.name)
+        });
         let calls = turn
             .tool_calls
             .iter()
             .cloned()
             .map(|call| {
-                let state = if !call.arguments.is_object() {
+                let state = if has_launch && !is_local_agent_launch(&call) {
+                    PendingToolCallState::Resolved {
+                        result: ToolResult {
+                            call_id: call.id.clone(),
+                            content: "Not executed: launching a child group yields this turn. Wait for the group's completion before scheduling dependent work.".to_string(),
+                            status: ToolResultStatus::Error,
+                        },
+                    }
+                } else if !call.arguments.is_object() {
                     PendingToolCallState::Resolved {
                         result: ToolResult {
                             call_id: call.id.clone(),
@@ -1624,6 +1654,11 @@ fn usage_contains(total: &Usage, part: &Usage) -> bool {
         && total.output_tokens >= part.output_tokens
         && total.cached_input_tokens >= part.cached_input_tokens
         && total.cache_creation_input_tokens >= part.cache_creation_input_tokens
+}
+
+fn is_local_agent_launch(call: &ToolCall) -> bool {
+    // Galaxy normalizes direct-provider delegation to local child execution.
+    matches!(call.name.as_str(), "run_agents" | "start_agent")
 }
 
 fn validate_model_turn(turn: &CompletedModelTurn) -> Result<(), ProviderRunProtocolError> {

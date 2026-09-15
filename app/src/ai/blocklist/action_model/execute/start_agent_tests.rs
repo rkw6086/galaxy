@@ -559,7 +559,7 @@ fn execute_resolves_error_when_request_linkage_happens_after_child_already_faile
         assert!(matches!(
             result,
             AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, version })
-                if error == "'codex' CLI not found on your machine."
+                if error.contains("'codex' CLI not found on your machine.") && error.contains("send_message_to_agent")
                     && version == StartAgentVersion::V1
         ));
 
@@ -906,7 +906,7 @@ fn direct_provider_nonterminal_states_remain_pending_until_cancelled() {
         assert!(matches!(
             state.dispatch.receiver.try_recv(),
             Ok(StartAgentOutcome::Error(error))
-                if error == "Child agent was cancelled by the user."
+                if error.contains("Child agent was cancelled by the user.") && error.contains("send_message_to_agent")
         ));
         state.executor.read(&app, |executor, _| {
             assert!(executor.pending.is_empty());
@@ -933,7 +933,7 @@ fn direct_provider_error_preserves_child_for_inspection() {
 
         assert!(matches!(
             state.dispatch.receiver.try_recv(),
-            Ok(StartAgentOutcome::Error(error)) if error == "Child execution failed"
+            Ok(StartAgentOutcome::Error(error)) if error.contains("Child execution failed") && error.contains("send_message_to_agent")
         ));
         state.captured_cleanup.read(&app, |captured, _| {
             assert!(captured.0.is_empty());
@@ -1369,7 +1369,7 @@ fn execute_returns_detailed_error_when_child_startup_fails_before_initialization
         assert!(matches!(
             result,
             AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, version })
-                if error == "Failed to resolve child agent skills: review-comments"
+                if error.contains("Failed to resolve child agent skills: review-comments") && error.contains("send_message_to_agent")
                     && version == StartAgentVersion::V1
         ));
     });
@@ -1739,7 +1739,7 @@ fn parallel_pendings_each_resolve_independently_via_recorded_child_id() {
         assert!(matches!(
             result_b,
             AIAgentActionResultType::StartAgent(StartAgentResult::Error { error, .. })
-                if error == "Agent B init failed"
+                if error.contains("Agent B init failed") && error.contains("send_message_to_agent")
         ));
 
         executor.read(&app, |executor, _| {

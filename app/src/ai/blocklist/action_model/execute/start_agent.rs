@@ -18,6 +18,7 @@ use crate::ai::agent::{
     StartAgentExecutionMode, StartAgentResult,
 };
 use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer;
+use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
 use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
@@ -42,6 +43,8 @@ pub enum StartAgentOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StartAgentWaitPolicy {
     Startup,
+    /// A local child has been linked; its persistent group owns completion.
+    LocalStartup,
     Completion,
 }
 
@@ -227,6 +230,20 @@ impl StartAgentExecutor {
             }
         };
 
+        if let Some(pending) = self.pending.get(&request_id) {
+            if matches!(pending.wait_policy, StartAgentWaitPolicy::LocalStartup) {
+                let parent = pending.parent_conversation_id;
+                let group_id = pending.action_id.to_string();
+                OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                    service.register_local_group_child(
+                        parent,
+                        &group_id,
+                        child_conversation_id,
+                        ctx,
+                    );
+                });
+            }
+        }
         if let Some(event) = child_link_event {
             ctx.emit(event);
         }
@@ -373,6 +390,14 @@ impl StartAgentExecutor {
                 | ConversationStatus::Blocked { .. }
                 | ConversationStatus::WaitingForEvents => {}
             },
+            Some(StartAgentWaitPolicy::LocalStartup) => {
+                // Membership is durable before launch acknowledgement reaches the parent.
+                if let Some(pending) = self.pending.remove(&request_id) {
+                    let _ = pending.sender.try_send(StartAgentOutcome::Started {
+                        agent_id: child_conversation_id.to_string(),
+                    });
+                }
+            }
             Some(StartAgentWaitPolicy::Startup) => {
                 if let Some(error_msg) = start_agent_startup_error_message_for_status(
                     conversation.status(),
@@ -681,6 +706,15 @@ impl StartAgentExecutor {
                 }
             }
         })
+    }
+
+    pub(super) fn yield_after_local_start(&mut self, dispatch: &mut StartAgentDispatch) {
+        if matches!(dispatch.wait_policy, StartAgentWaitPolicy::Completion) {
+            dispatch.wait_policy = StartAgentWaitPolicy::LocalStartup;
+            if let Some(pending) = self.pending.get_mut(&dispatch.request_id) {
+                pending.wait_policy = StartAgentWaitPolicy::LocalStartup;
+            }
+        }
     }
 
     /// Dispatch a pre-validated StartAgent request. Returns a receiver

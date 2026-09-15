@@ -1206,20 +1206,20 @@ fn restore_normalization_preserves_selected_executing_tools_for_recovery() {
         &mut run,
         tool_turn(
             vec![
-                tool_call("run-agents", "run_agents"),
+                tool_call("command", "run_command"),
                 tool_call("read", "read_files"),
             ],
-            &["run_agents", "read_files"],
+            &["run_command", "read_files"],
         ),
     );
-    run.start_tool(&batch.work_id, "run-agents").unwrap();
+    run.start_tool(&batch.work_id, "command").unwrap();
     run.start_tool(&batch.work_id, "read").unwrap();
 
     let normalization = run
-        .normalize_after_restore_with_recoverable_calls(&HashSet::from(["run-agents".to_string()]))
+        .normalize_after_restore_with_recoverable_calls(&HashSet::from(["command".to_string()]))
         .unwrap();
 
-    assert_eq!(normalization.recovery_call_ids, vec!["run-agents"]);
+    assert_eq!(normalization.recovery_call_ids, vec!["command"]);
     assert_eq!(normalization.interrupted_call_ids, vec!["read"]);
     let ProviderRunState::AwaitingTools { batch } = run.state() else {
         panic!("recovered tool batch should remain pending");
@@ -1252,7 +1252,7 @@ fn recovery_pending_tool_survives_another_restore_and_completes_once() {
     restored
         .complete_tool(
             &batch.work_id,
-            successful_result("run-agents", "children completed"),
+            successful_result("run-agents", "children launched"),
         )
         .unwrap();
     assert!(matches!(
@@ -1263,7 +1263,7 @@ fn recovery_pending_tool_survives_another_restore_and_completes_once() {
         Err(ProviderRunProtocolError::DuplicateToolUpdate { .. })
     ));
     restored.commit_tool_batch(&batch.work_id).unwrap();
-    assert_eq!(restored.state().phase(), ProviderRunPhase::ReadyToCallModel);
+    assert_eq!(restored.state().phase(), ProviderRunPhase::Done);
 }
 
 #[test]
@@ -1464,4 +1464,59 @@ fn multipart_archive_is_not_multiplied_and_legacy_duplicates_are_repaired() {
     // A repeated compaction callback must not grow the archive either.
     archive_tool_results(&mut archive, transcript);
     assert_eq!(archive, expected);
+}
+
+#[test]
+fn local_child_launch_yields_and_does_not_execute_batched_follow_up_tools() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(
+            vec![
+                tool_call("children", "run_agents"),
+                tool_call("edit", "apply_file_diffs"),
+            ],
+            &["run_agents", "apply_file_diffs"],
+        ),
+    );
+    assert!(matches!(
+        batch.calls[0].state,
+        PendingToolCallState::Proposed
+    ));
+    assert!(
+        matches!(&batch.calls[1].state, PendingToolCallState::Resolved { result }
+        if result.status == ToolResultStatus::Error)
+    );
+    run.complete_tool(
+        &batch.work_id,
+        successful_result("children", "Children launched"),
+    )
+    .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert!(matches!(run.state(), ProviderRunState::Done { .. }));
+    assert_serialization_round_trip(&run);
+    assert!(matches!(
+        run.next_step().unwrap(),
+        Some(ProviderRunStep::Done(_))
+    ));
+}
+
+#[test]
+fn failed_child_launch_allows_a_corrective_model_turn() {
+    let mut run = run();
+    let batch = accept_tool_turn(
+        &mut run,
+        tool_turn(vec![tool_call("children", "run_agents")], &["run_agents"]),
+    );
+    run.complete_tool(
+        &batch.work_id,
+        ToolResult {
+            call_id: "children".to_string(),
+            content: "Launch failed".to_string(),
+            status: ToolResultStatus::Error,
+        },
+    )
+    .unwrap();
+    run.commit_tool_batch(&batch.work_id).unwrap();
+    assert!(matches!(run.state(), ProviderRunState::ReadyToCallModel));
 }

@@ -1075,6 +1075,17 @@ pub struct AcpConversationData {
 }
 
 // Serializes to `conversation_data` column in `agent_conversations`.
+/// Durable membership and delivery revision for one local delegation group.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LocalAgentGroup {
+    pub id: String,
+    pub children: Vec<String>,
+    pub launch_errors: Vec<String>,
+    pub sealed: bool,
+    pub revision: u64,
+    pub notified: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentConversationData {
     #[serde(default, skip_serializing_if = "AgentBackend::is_provider")]
@@ -1082,6 +1093,9 @@ pub struct AgentConversationData {
     /// Versioned application-owned snapshot for an active direct-provider run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_provider_run_json: Option<String>,
+    /// Local child groups outlive the parent generation that launched them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub local_agent_groups: Vec<LocalAgentGroup>,
     pub server_conversation_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_usage_metadata: Option<ConversationUsageMetadata>,

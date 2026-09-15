@@ -73,8 +73,8 @@ use crate::ai::execution_profiles::{
     ActionPermission, WriteToPtyPermission,
 };
 use crate::ai::llms::{
-    is_using_api_key_for_provider, LLMContextWindow, LLMId, LLMPreferences, LLMPreferencesEvent,
-    LLMProvider,
+    is_using_api_key_for_provider, openai_model_context_size, LLMContextWindow, LLMId,
+    LLMPreferences, LLMPreferencesEvent, LLMProvider,
 };
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::paths::host_native_absolute_path;
@@ -7236,13 +7236,26 @@ impl ProviderSettingsWidget {
         }
     }
 
-    fn format_openai_model_details(model: &OpenAIModelConfig) -> String {
+    fn format_openai_model_details(
+        model: &OpenAIModelConfig,
+        provider: &OpenAIProviderConfig,
+    ) -> String {
+        let context_size = if provider.kind == OpenAIProviderKind::ChatGPTSubscription {
+            // Use the same limit as requests, including for older saved catalogs
+            // that still contain the optional long-context maximum.
+            openai_model_context_size(model, provider.kind)
+        } else {
+            model.context_size
+        };
         let mut details = vec![
             if model.enabled { "Enabled" } else { "Disabled" }.to_string(),
-            format!("Context: {}", model.context_size),
+            format!("Context: {context_size}"),
         ];
 
-        if let Some(default_context_size) = model.default_context_size {
+        if let Some(default_context_size) = model
+            .default_context_size
+            .filter(|_| provider.kind != OpenAIProviderKind::ChatGPTSubscription)
+        {
             details.push(format!("Default context: {default_context_size}"));
         }
         if let Some(max_input_tokens) = model.max_input_tokens {
@@ -7338,7 +7351,7 @@ impl ProviderSettingsWidget {
                 Self::render_model_row(
                     model.display_name.clone(),
                     model.model_id.clone(),
-                    Self::format_openai_model_details(model),
+                    Self::format_openai_model_details(model, provider),
                     appearance,
                 )
             })

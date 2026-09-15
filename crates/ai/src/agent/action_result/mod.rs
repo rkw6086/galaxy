@@ -1766,7 +1766,7 @@ impl RunAgentsResult {
                     "instruction": if children_completed {
                         "Child agents reached terminal states. Use their structured outputs and errors to complete the task."
                     } else {
-                        "Child agents have only been launched, not completed. Wait for child-agent updates before repeating this work or reporting final results."
+                        "Child agents are running independently. This turn yields automatically; the user may continue talking to the orchestrator. One group-completion message will arrive after every child finishes. Do not repeat delegated work or report final results before that message."
                     },
                     "model_id": model_id,
                     "harness_type": harness_type,

@@ -458,12 +458,12 @@ fn recovered_run_agents_reattaches_existing_child_and_launches_only_missing_chil
         assert_eq!(agents.len(), 2);
         assert!(matches!(
             &agents[0].kind,
-            RunAgentsAgentOutcomeKind::Completed { agent_id, .. }
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
                 if agent_id == &existing_child_id.to_string()
         ));
         assert!(matches!(
             &agents[1].kind,
-            RunAgentsAgentOutcomeKind::Completed { agent_id, .. }
+            RunAgentsAgentOutcomeKind::Launched { agent_id }
                 if agent_id == &missing_child_id.to_string()
         ));
     });
@@ -698,6 +698,7 @@ fn initialize_run_agents_test(app: &mut App, mode: ExecutionMode) -> RunAgentsTe
     let global_resource_handles = GlobalResourceHandles::mock(app);
     app.add_singleton_model(|_| GlobalResourceHandlesProvider::new(global_resource_handles));
     let history = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
+    app.add_singleton_model(OrchestrationEventService::new);
     app.add_singleton_model(|_| CLIAgentSessionsModel::new());
     app.add_singleton_model(|_| ActiveAgentViewsModel::new());
     app.add_singleton_model(AgentNotificationsModel::new);

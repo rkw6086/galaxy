@@ -1960,7 +1960,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "run_agents".to_string(),
-            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and the configured terminal model. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string(),
+            description: "Start one or more child agents that share run-wide configuration. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Omitted run-wide fields use the embedded local child runtime and the configured terminal model. Local launch automatically yields this turn. Do not batch other tools with run_agents. The user can keep talking to you while children work independently. Each group sends one combined update after all children finish; wait for that update before processing their results. User follow-ups do not cancel the group, and must not cause duplicate children or repeated delegated work.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

@@ -389,6 +389,7 @@ fn persisted_remote_child_conversation(
             conversation_data: serde_json::to_string(&AgentConversationData {
                 agent_backend: Default::default(),
                 active_provider_run_json: None,
+                local_agent_groups: Vec::new(),
                 server_conversation_token: Some("restored-child-token".to_string()),
                 conversation_usage_metadata: None,
                 reverted_action_ids: None,

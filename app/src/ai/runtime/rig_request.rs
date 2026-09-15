@@ -116,7 +116,7 @@ pub(crate) fn add_orchestration_model_options(
         required.push(serde_json::Value::String("model_id".to_string()));
     }
 
-    tool.description = "Start one or more child agents. Assign each child the best-fit, cost-effective model from its required model_id choices, prioritizing capability and likelihood of success over price. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. After launch, call wait_for_events when you need child-agent results instead of repeating their work yourself.".to_string();
+    tool.description = "Start one or more child agents. Assign each child the best-fit, cost-effective model from its required model_id choices, prioritizing capability and likelihood of success over price. Use independent, uniquely named tasks and do not launch duplicate agents for follow-up work. Local launch automatically yields this turn. Do not batch other tools with run_agents. The user can keep talking to you while children work independently. Each group sends one combined update after all children finish; wait for that update before processing their results. User follow-ups do not cancel the group, and must not cause duplicate children or repeated delegated work.".to_string();
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]

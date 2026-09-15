@@ -34,6 +34,7 @@ use crate::ai::agent::{
 };
 use crate::ai::auth_secret_types::auth_secret_types_for_harness;
 use crate::ai::blocklist::inline_action::orchestration_controls::OrchestrationEditState;
+use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
 use crate::ai::blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions};
 use crate::ai::cloud_agent_settings::CloudAgentSettings;
 use crate::ai::document::plan_publication::{
@@ -180,6 +181,9 @@ impl RunAgentsExecutor {
             "RunAgents cancellation detached {detached_dispatches} pending child dispatch(es) for action {action_id}"
         );
         if self.pending.remove(&action_key).is_some() {
+            OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                service.seal_local_group(conversation_id, &action_id.to_string(), Vec::new(), ctx);
+            });
             ctx.emit(RunAgentsExecutorEvent::SpawningFinished {
                 conversation_id,
                 action_id: action_id.clone(),
@@ -423,15 +427,30 @@ impl RunAgentsExecutor {
             }),
         );
 
+        if matches!(run_execution_mode, RunAgentsExecutionMode::Local) {
+            OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                service.begin_local_group(parent_conversation_id, &action_id.to_string(), ctx);
+            });
+        }
         let mut slots: Vec<ChildSlot> = Vec::with_capacity(agent_run_configs.len());
         let wait_policy = match &run_execution_mode {
-            RunAgentsExecutionMode::Local => StartAgentWaitPolicy::Completion,
+            RunAgentsExecutionMode::Local => StartAgentWaitPolicy::LocalStartup,
             RunAgentsExecutionMode::Remote { .. } => StartAgentWaitPolicy::Startup,
         };
         for cfg in &agent_run_configs {
             let normalized_name = normalize_agent_name(&cfg.name)
                 .expect("validated RunAgents requests have non-empty agent names");
             if let Some(child_conversation_id) = recovery_children.remove(&normalized_name) {
+                if matches!(run_execution_mode, RunAgentsExecutionMode::Local) {
+                    OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                        service.register_local_group_child(
+                            parent_conversation_id,
+                            &action_id.to_string(),
+                            child_conversation_id,
+                            ctx,
+                        );
+                    });
+                }
                 let dispatch = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
                     executor.reattach(
                         action_id.clone(),
@@ -509,7 +528,7 @@ impl RunAgentsExecutor {
                 }),
             );
             let dispatch = self.start_agent_executor.update(ctx, |executor, exec_ctx| {
-                executor.dispatch(
+                let mut dispatch = executor.dispatch(
                     action_id.clone(),
                     cfg.name.clone(),
                     prompt,
@@ -518,7 +537,11 @@ impl RunAgentsExecutor {
                     parent_conversation_id,
                     parent_run_id.clone(),
                     exec_ctx,
-                )
+                );
+                if matches!(run_execution_mode, RunAgentsExecutionMode::Local) {
+                    executor.yield_after_local_start(&mut dispatch);
+                }
+                dispatch
             });
             slots.push(ChildSlot::Pending(dispatch));
         }
@@ -583,6 +606,16 @@ impl RunAgentsExecutor {
                     })
                     .collect();
                 me.record_launched_agents(parent_conversation_id_for_result, &agents);
+                if matches!(run_execution_mode_for_aggr, RunAgentsExecutionMode::Local) {
+                    let errors = agents.iter().filter_map(|agent| match &agent.kind {
+                        RunAgentsAgentOutcomeKind::Failed { error } => Some(format!("{}: {error}", agent.name)),
+                        RunAgentsAgentOutcomeKind::Launched { .. } | RunAgentsAgentOutcomeKind::Completed { .. } => None,
+                    }).collect();
+                    OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
+                        service.seal_local_group(parent_conversation_id_for_result, &action_id_for_aggr.to_string(), errors, ctx);
+                    });
+                }
+
                 #[cfg(not(target_family = "wasm"))]
                 log_run_agents_event(
                     ctx,
@@ -838,7 +871,9 @@ async fn resolve_child_slot_with_timeout(
     let request_id = dispatch.request_id;
 
     let outcome = match dispatch.wait_policy {
-        StartAgentWaitPolicy::Completion => dispatch.receiver.recv().await.ok(),
+        StartAgentWaitPolicy::Completion | StartAgentWaitPolicy::LocalStartup => {
+            dispatch.receiver.recv().await.ok()
+        }
         StartAgentWaitPolicy::Startup => {
             let timeout = warpui::r#async::Timer::after(spawn_timeout);
             match futures::future::select(Box::pin(dispatch.receiver.recv()), Box::pin(timeout))

@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+#[path = "local_agent_groups.rs"]
+mod local_agent_groups;
+
 use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
@@ -146,6 +149,9 @@ impl OrchestrationEventService {
                 for conversation_id in conversation_ids {
                     self.sync_conversation_status(*conversation_id, ctx);
                 }
+                for conversation_id in conversation_ids {
+                    self.reconcile_local_groups(*conversation_id, ctx);
+                }
             }
             BlocklistAIHistoryEvent::RemoveConversation {
                 conversation_id, ..
@@ -157,6 +163,7 @@ impl OrchestrationEventService {
                 self.awaiting_server_echo_events.remove(conversation_id);
                 self.conversation_statuses.remove(conversation_id);
                 self.restarted_children.remove(conversation_id);
+                self.reconcile_local_groups_for_child(*conversation_id, ctx);
             }
             _ => {}
         }
@@ -196,7 +203,10 @@ impl OrchestrationEventService {
         let previous = self
             .conversation_statuses
             .insert(conversation_id, current_status.clone());
-        if !is_restored && previous.as_ref() != Some(&current_status) {
+        if !is_restored
+            && previous.as_ref() != Some(&current_status)
+            && !self.reconcile_local_groups_for_child(conversation_id, ctx)
+        {
             self.report_restarted_child(conversation_id, previous.as_ref(), &current_status, ctx);
         }
         let has_pending = self
@@ -231,6 +241,23 @@ impl OrchestrationEventService {
     }
 
     /// Local providers commit the input directly and do not emit a hosted message echo.
+    pub(crate) fn confirm_local_delivery(
+        &mut self,
+        parent: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let ids = self
+            .awaiting_server_echo_events
+            .get(&parent)
+            .into_iter()
+            .flatten()
+            .filter(|event| matches!(event.detail, PendingEventDetail::LocalMessage { .. }))
+            .map(|event| event.event_id.clone())
+            .collect::<Vec<_>>();
+        self.confirm_group_messages(parent, &ids, ctx);
+        self.confirm_local_messages(parent);
+    }
+
     pub fn confirm_local_messages(&mut self, conversation_id: AIConversationId) {
         if let Some(events) = self.awaiting_server_echo_events.get_mut(&conversation_id) {
             events.retain(|event| !matches!(event.detail, PendingEventDetail::LocalMessage { .. }));
