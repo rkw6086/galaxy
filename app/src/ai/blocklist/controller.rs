@@ -7646,6 +7646,24 @@ impl BlocklistAIController {
             .collect::<HashMap<_, _>>();
         let (mut converted_actions, invalid_results) =
             convert_provider_tool_batch(&run.action_context, &batch);
+        // Seed each worker from the current durable transcript, including discoveries
+        // made in this run that have not reached the persisted conversation yet.
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        if let Some(parent) = history.conversation(&conversation_id) {
+            for (action, is_recovery) in &mut converted_actions {
+                if *is_recovery {
+                    continue;
+                }
+                if let AIAgentActionType::RunAgents(request) = &mut action.action {
+                    crate::ai::runtime::add_parent_context(
+                        request,
+                        run.coordinator.run().transcript(),
+                        parent.tool_result_archive(),
+                        parent.progressive_summary(),
+                    );
+                }
+            }
+        }
         for result in &invalid_results {
             if let Err(error) = run
                 .coordinator

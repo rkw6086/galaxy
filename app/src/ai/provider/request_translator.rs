@@ -1560,7 +1560,7 @@ pub fn extract_system_prompt(
     let has_tool = |name: &str| tool_names.iter().any(|tool_name| tool_name == name);
     if has_tool("search_codebase") {
         prompt.push_str(
-            "- For source-code discovery, semantic questions, or finding an unfamiliar implementation, MUST use `search_codebase` first. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
+            "- Reuse relevant parent handoff findings and known paths before doing discovery. If a file or symbol location is already known, read it directly; do not search again to rediscover it. For an unresolved semantic question or an unfamiliar implementation, use `search_codebase` to consult the shared project index. Never use `grep` to discover or search source code when `search_codebase` is available; reserve `grep` for exact known text in non-code files. Use `file_glob` only to locate filenames and `read_files` for focused follow-up context. Start with one concise search query using distinctive terms; avoid parallel rephrasings over the same scope. Search returns at most eight bounded excerpts, not an exhaustive audit. Read the relevant files next and only broaden or narrow the search when the results leave a specific gap.\n",
         );
     }
     if [
@@ -1814,7 +1814,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "search_codebase".to_string(),
-            description: "Primary tool for discovering relevant source code across the indexed codebase. MUST use this first for all source-code discovery and conceptual, semantic, or structural searches such as authentication logic or database error handling. Never use grep to search source code when this tool is available.".to_string(),
+            description: "Primary tool for discovering relevant source code across the indexed codebase. Use this for unresolved conceptual, semantic, or structural questions such as authentication logic or database error handling. Reuse parent findings and read known file paths directly instead of rediscovering them. Never use grep to search source code when this tool is available.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -1995,7 +1995,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
                             "type": "object",
                             "properties": {
                                 "name": { "type": "string", "description": "Unique child name" },
-                                "prompt": { "type": "string", "default": "", "description": "Child-specific instructions" },
+                                "prompt": { "type": "string", "default": "", "description": "Child-specific assignment. Include known file paths and symbols, established findings, existing changes to preserve, the concrete next change, and unresolved questions. Reuse discoveries; do not tell a child to restart repository exploration. For follow-up changes, message the original child instead of launching another." },
                                 "title": { "type": "string", "default": "", "description": "Optional display title" }
                             },
                             "required": ["name", "prompt"]

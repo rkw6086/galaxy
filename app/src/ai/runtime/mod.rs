@@ -1,9 +1,11 @@
+mod child_context;
 mod event_translator;
 mod provider_run_coordinator;
 mod rig;
 mod rig_request;
 mod rig_tool;
 
+pub(crate) use child_context::add_parent_context;
 pub(crate) use event_translator::{
     ProviderRunResponseProjector, RuntimeResponseConfig, RuntimeResponseTranslator,
 };

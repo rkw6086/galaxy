@@ -125,7 +125,7 @@ fn bedrock_prompt_prioritizes_semantic_code_search_over_regex_search() {
     };
 
     let prompt = extract_system_prompt(&request, &[]).expect("system prompt");
-    assert!(prompt.contains("MUST use `search_codebase` first"));
+    assert!(prompt.contains("read it directly; do not search again to rediscover it"));
     assert!(prompt.contains("Never use `grep` to discover or search source code"));
 
     let tools = extract_tools(&request);
@@ -137,7 +137,9 @@ fn bedrock_prompt_prioritizes_semantic_code_search_over_regex_search() {
         .iter()
         .find(|tool| tool.name == "grep")
         .expect("grep tool");
-    assert!(search_codebase.description.contains("MUST use this first"));
+    assert!(search_codebase
+        .description
+        .contains("read known file paths directly"));
     assert!(grep.description.contains("non-code files"));
 }
 

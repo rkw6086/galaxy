@@ -427,17 +427,6 @@ fn participant_display_names(participants: &[OrchestrationParticipant]) -> Strin
         .join(", ")
 }
 
-fn participant_for_agent_ids(
-    agent_ids: &[String],
-    orchestrator_agent_id: Option<&str>,
-    app: &AppContext,
-) -> Vec<OrchestrationParticipant> {
-    agent_ids
-        .iter()
-        .map(|agent_id| participant_for_agent_id(agent_id, orchestrator_agent_id, app))
-        .collect()
-}
-
 fn render_transcript_row_with_spacing(
     data: TranscriptRowData<'_>,
     props: Props,
@@ -457,6 +446,36 @@ pub(super) fn render_send_message(
     message_id: &MessageId,
     app: &AppContext,
 ) -> Box<dyn Element> {
+    let message_row =
+        render_send_message_body(props, action_id, address, subject, message, message_id, app);
+    let Some(panel) = props.state_handles.subagent_panel_states.get(action_id) else {
+        return message_row;
+    };
+    Flex::column()
+        .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .with_child(message_row)
+        .with_child(
+            crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+                panel,
+                action_id,
+                props.terminal_view_id,
+                app,
+            )
+            .with_agent_output_item_spacing(app)
+            .finish(),
+        )
+        .finish()
+}
+
+fn render_send_message_body(
+    props: Props,
+    action_id: &AIAgentActionId,
+    address: &[String],
+    subject: &str,
+    message: &str,
+    message_id: &MessageId,
+    app: &AppContext,
+) -> Box<dyn Element> {
     let appearance = Appearance::as_ref(app);
     let theme = appearance.theme();
     let status = props
@@ -467,8 +486,17 @@ pub(super) fn render_send_message(
         .model
         .conversation(app)
         .and_then(|conversation| orchestrator_agent_id_for_conversation(conversation, app));
-    let recipient_participants =
-        participant_for_agent_ids(address, orchestrator_agent_id.as_deref(), app);
+    let recipient_participants: Vec<_> = address
+        .iter()
+        .map(|agent_id| {
+            participant_for_agent_id_in_orchestration(
+                agent_id,
+                orchestrator_agent_id.as_deref(),
+                props.conversation_id,
+                app,
+            )
+        })
+        .collect();
     let recipients = participant_display_names(&recipient_participants);
 
     if let Some(AIActionStatus::Finished(result)) = &status {

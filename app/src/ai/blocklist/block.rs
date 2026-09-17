@@ -2222,6 +2222,31 @@ impl AIBlock {
                     .or_default();
             }
 
+            if let AIAgentActionType::SendMessageToAgent { addresses, .. } = &action.action {
+                if let [address] = addresses.as_slice() {
+                    let history = BlocklistAIHistoryModel::as_ref(ctx);
+                    let child_id = history
+                        .child_conversations_of(self.client_ids.conversation_id)
+                        .into_iter()
+                        .find(|child| {
+                            child.id().to_string() == *address
+                                || child.orchestration_agent_id().as_deref()
+                                    == Some(address.as_str())
+                        })
+                        .map(|child| child.id());
+                    if let Some(child_id) = child_id {
+                        self.state_handles
+                            .subagent_panel_states
+                            .entry(action.id.clone())
+                            .or_insert_with(|| {
+                                super::agent_view::subagent_inline_panel::SubagentPanelState::new(
+                                    child_id,
+                                )
+                            });
+                    }
+                }
+            }
+
             if let AIAgentActionType::RunAgents(req) = &action.action {
                 self.ensure_run_agents_card_view(&action.id, req, ctx);
             }

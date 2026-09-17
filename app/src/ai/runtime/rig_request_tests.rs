@@ -173,7 +173,7 @@ fn system_prompt_prioritizes_semantic_code_search_over_regex_search() {
     );
     let prompt = prepared.request.system_prompt.expect("system prompt");
 
-    assert!(prompt.contains("MUST use `search_codebase` first"));
+    assert!(prompt.contains("read it directly; do not search again to rediscover it"));
     assert!(prompt.contains("Never use `grep` to discover or search source code"));
     assert!(
         prompt.contains("Prefer `file_glob` for filenames and `read_files` for focused content")
