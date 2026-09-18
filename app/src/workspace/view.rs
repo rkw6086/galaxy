@@ -98,6 +98,7 @@ use galaxyui::{
     AppContext, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity, TypedActionView,
     UpdateModel, UpdateView, View, ViewAsRef, ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
+use instant::Instant;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 pub(crate) use onboarding::OnboardingTutorial;
@@ -630,6 +631,7 @@ pub(crate) const TOGGLE_CONVERSATION_LIST_VIEW_BINDING_NAME: &str =
 pub(crate) const NEW_TAB_BINDING_NAME: &str = "workspace:new_tab";
 pub(crate) const NEW_TERMINAL_TAB_BINDING_NAME: &str = "workspace:new_terminal_tab";
 pub(crate) const NEW_FILE_BINDING_NAME: &str = "workspace:new_file";
+pub(crate) const NEW_WINDOW_BINDING_NAME: &str = "workspace:new_window";
 pub(crate) const NEW_AGENT_TAB_BINDING_NAME: &str = "workspace:new_agent_tab";
 pub(crate) const NEW_AMBIENT_AGENT_TAB_BINDING_NAME: &str = "workspace:new_ambient_agent_tab";
 pub(crate) const TOGGLE_TAB_CONFIGS_MENU_BINDING_NAME: &str = "workspace:toggle_tab_configs_menu";
@@ -1034,6 +1036,7 @@ pub struct Workspace {
     import_modal: ViewHandle<ImportModal>,
     theme_chooser_view: ViewHandle<ThemeChooser>,
     previous_theme: Option<ThemeKind>,
+    background_image_animation_start_time: Instant,
     reward_modal: ViewHandle<Modal<RewardView>>,
     reward_modal_pending: Option<RewardKind>,
     pub(crate) current_workspace_state: WorkspaceState,
@@ -1462,10 +1465,15 @@ impl Workspace {
             .is_any_tab_group_being_renamed()
         {
             match event {
-                EditorEvent::Blurred | EditorEvent::Enter => {
+                EditorEvent::Enter => {
                     self.finish_tab_group_rename(ctx);
                 }
-                EditorEvent::Escape => {
+                // Blur discards rather than commits. Focus can leave this editor without
+                // the user ever ending the rename — #14241 is one such case — and
+                // committing then writes a half-typed fragment as the group's real,
+                // persisted name. Discarding loses nothing the user cannot retype, and
+                // Enter remains the way to confirm.
+                EditorEvent::Blurred | EditorEvent::Escape => {
                     self.cancel_tab_group_rename(ctx);
                 }
                 _ => {}
@@ -3354,6 +3362,7 @@ impl Workspace {
             ctrl_tab_palette,
             mouse_states: Default::default(),
             previous_theme: None,
+            background_image_animation_start_time: Instant::now(),
             settings_pane,
             theme_chooser_view,
             reward_modal,
@@ -7128,6 +7137,18 @@ impl Workspace {
         if let Some(group) = self.tab_groups.get_mut(&group_id) {
             group.collapsed = false;
             ctx.notify();
+        }
+    }
+
+    pub(crate) fn is_inline_rename_editor_focused(&self, ctx: &AppContext) -> bool {
+        match ctx.focused_view_id(self.window_id) {
+            Some(id) if id == self.tab_rename_editor.id() => {
+                self.current_workspace_state.is_tab_being_renamed()
+            }
+            Some(id) if id == self.tab_group_rename_editor.id() => self
+                .current_workspace_state
+                .is_any_tab_group_being_renamed(),
+            _ => false,
         }
     }
 
@@ -27101,6 +27122,9 @@ impl View for Workspace {
                         .cover()
                         .with_opacity(opacity_ratio)
                         .with_corner_radius(window_corner_radius)
+                        .enable_animation_with_start_time(
+                            self.background_image_animation_start_time,
+                        )
                         .finish(),
                 )
                 .finish(),

@@ -11,7 +11,7 @@ pub(crate) mod orchestration_conversation_links;
 pub mod orchestration_pill_bar;
 pub mod orchestration_pill_bar_model;
 pub mod shortcuts;
-pub(crate) mod subagent_inline_panel;
+pub(crate) mod subagent_link;
 mod zero_state_block;
 
 use std::sync::LazyLock;

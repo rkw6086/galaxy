@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use anyhow::{anyhow, Result};
-use chrono::{Local, TimeDelta};
+use chrono::{DateTime, Local, TimeDelta};
 use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext};
 use history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use session_sharing_protocol::common::ParticipantId;
@@ -15,6 +15,7 @@ use crate::ai::agent::{
 use crate::ai::blocklist::history_model;
 use crate::ai::blocklist::model::{AIRequestType, PassiveRequestType};
 use crate::ai::llms::LLMId;
+use crate::util::time_format::is_trustworthy_message_timestamp;
 
 /// Standard [`AIBlock`] impl for live outputs corresponding to an `OutputStream`.
 pub struct AIBlockModelImpl<V> {
@@ -144,6 +145,13 @@ where
                 None
             }
         }
+    }
+
+    fn query_sent_at(&self, app: &AppContext) -> Option<DateTime<Local>> {
+        self.exchange(app)
+            .ok()
+            .map(|exchange| exchange.start_time)
+            .filter(is_trustworthy_message_timestamp)
     }
 
     fn base_model<'a>(&'a self, app: &'a AppContext) -> Option<&'a LLMId> {

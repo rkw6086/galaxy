@@ -1,13 +1,16 @@
 //! Rendering functions for orchestration-related output items (messaging & agent management).
 
 use galaxyui::elements::{
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex, FormattedTextElement,
-    Hoverable, MouseStateHandle, ParentElement, Radius, Shrinkable, Text,
+    ChildAnchor, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Empty, Flex,
+    FormattedTextElement, Hoverable, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack, Text,
 };
 use galaxyui::platform::Cursor;
+use galaxyui::ui_components::components::UiComponent;
 use galaxyui::{AppContext, Element, SingletonEntity};
 use markdown_parser::{FormattedText, FormattedTextFragment, FormattedTextLine};
 use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 
 use super::common::render_scrollable_collapsible_content;
 use super::output::{action_icon, Props};
@@ -24,6 +27,7 @@ use crate::ai::blocklist::agent_view::orchestration_avatar::OrchestrationAvatar;
 use crate::ai::blocklist::agent_view::orchestration_conversation_links::{
     conversation_id_for_agent_id, conversation_id_for_agent_id_in_orchestration,
     conversation_navigation_card_with_icon, dispatch_focus_or_open_child_agent_pane,
+    is_conversation_open_in_other_visible_view,
 };
 use crate::ai::blocklist::block::model::AIBlockModelHelper;
 use crate::ai::blocklist::block::{
@@ -197,6 +201,20 @@ fn transcript_metadata(recipients: &[OrchestrationParticipant], subject: &str) -
     }
 }
 
+/// Hover tooltip copy for the clickable child-agent avatar in an
+/// orchestration transcript row. The avatar is a bare letter disc, so
+/// without this the click affordance (open/focus the child's pane) is
+/// undiscoverable. Wording mirrors the pill bar's overflow-menu copy
+/// ("Open in new pane" / "Focus pane") so the same navigation reads the
+/// same way everywhere.
+fn transcript_avatar_tooltip(display_name: &str, is_open_in_other_pane: bool) -> String {
+    if is_open_in_other_pane {
+        format!("Focus {display_name}'s pane")
+    } else {
+        format!("Open {display_name} in a new pane")
+    }
+}
+
 struct TranscriptRowData<'a> {
     participant: &'a OrchestrationParticipant,
     recipients: &'a [OrchestrationParticipant],
@@ -330,17 +348,40 @@ fn render_transcript_row(
         // open a new pane.
         let mouse_state = mouse_state.clone();
         let self_terminal_view_id = props.terminal_view_id;
-        Hoverable::new(mouse_state, move |_| avatar)
-            .with_cursor(Cursor::PointingHand)
-            .on_click(move |ctx, app, _| {
-                dispatch_focus_or_open_child_agent_pane(
-                    conversation_id,
-                    self_terminal_view_id,
-                    ctx,
-                    app,
+        let tooltip_label = transcript_avatar_tooltip(
+            &data.participant.display_name,
+            is_conversation_open_in_other_visible_view(conversation_id, self_terminal_view_id, app),
+        );
+        let ui_builder = appearance.ui_builder().clone();
+        Hoverable::new(mouse_state, move |state| {
+            // Tooltip overlay, positioned above the avatar on hover. Same
+            // pattern as `render_force_refresh_inline` in `common.rs`; the
+            // overlay layer keeps it from being clipped by the scrollable
+            // transcript content.
+            let mut stack = Stack::new().with_child(avatar);
+            if state.is_hovered() {
+                stack.add_positioned_overlay_child(
+                    ui_builder.tool_tip(tooltip_label).build().finish(),
+                    OffsetPositioning::offset_from_parent(
+                        vec2f(0., -4.),
+                        ParentOffsetBounds::WindowByPosition,
+                        ParentAnchor::TopLeft,
+                        ChildAnchor::BottomLeft,
+                    ),
                 );
-            })
-            .finish()
+            }
+            stack.finish()
+        })
+        .with_cursor(Cursor::PointingHand)
+        .on_click(move |ctx, app, _| {
+            dispatch_focus_or_open_child_agent_pane(
+                conversation_id,
+                self_terminal_view_id,
+                ctx,
+                app,
+            );
+        })
+        .finish()
     } else {
         avatar
     };
@@ -448,16 +489,15 @@ pub(super) fn render_send_message(
 ) -> Box<dyn Element> {
     let message_row =
         render_send_message_body(props, action_id, address, subject, message, message_id, app);
-    let Some(panel) = props.state_handles.subagent_panel_states.get(action_id) else {
+    let Some(panel) = props.state_handles.subagent_link_states.get(action_id) else {
         return message_row;
     };
     Flex::column()
         .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
         .with_child(message_row)
         .with_child(
-            crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+            crate::ai::blocklist::agent_view::subagent_link::render_subagent_link(
                 panel,
-                action_id,
                 props.terminal_view_id,
                 app,
             )
@@ -716,11 +756,10 @@ pub(super) fn render_start_agent(
                 column.add_child(body);
             }
         }
-        if let Some(panel_state) = props.state_handles.subagent_panel_states.get(action_id) {
+        if let Some(panel_state) = props.state_handles.subagent_link_states.get(action_id) {
             column.add_child(
-                crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+                crate::ai::blocklist::agent_view::subagent_link::render_subagent_link(
                     panel_state,
-                    action_id,
                     props.terminal_view_id,
                     app,
                 ),
@@ -810,11 +849,10 @@ pub(super) fn render_start_agent(
             column.add_child(body);
         }
     }
-    if let Some(panel_state) = props.state_handles.subagent_panel_states.get(action_id) {
+    if let Some(panel_state) = props.state_handles.subagent_link_states.get(action_id) {
         column.add_child(
-            crate::ai::blocklist::agent_view::subagent_inline_panel::render_subagent_inline_panel(
+            crate::ai::blocklist::agent_view::subagent_link::render_subagent_link(
                 panel_state,
-                action_id,
                 props.terminal_view_id,
                 app,
             ),

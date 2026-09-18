@@ -27,7 +27,7 @@ use std::sync::Arc;
 
 use ai::agent::action::{AskUserQuestionItem, InsertReviewComment, RunAgentsRequest};
 use base64::Engine as _;
-use chrono::Duration;
+use chrono::{DateTime, Duration, Local};
 use cli_controller::{CLISubagentController, CLISubagentEvent, LongRunningCommandControlState};
 use find::FindState;
 use galaxy_agent_core::RuntimeActivityStatus;
@@ -197,6 +197,7 @@ use crate::ui_components::icons::Icon;
 use crate::util::link_detection::*;
 #[cfg(feature = "local_fs")]
 use crate::util::openable_file_type::{is_supported_image_file, FileTarget};
+use crate::util::time_format::format_message_timestamp;
 use crate::view_components::action_button::{
     ActionButton, ActionButtonTheme, ButtonSize, KeystrokeSource, NakedTheme, PrimaryTheme,
     SecondaryTheme,
@@ -465,6 +466,7 @@ pub(super) struct AIBlockStateHandles {
 
     /// Mouse state handle for the overflow menu button
     overflow_menu_handle: MouseStateHandle,
+    query_timestamp_tooltip_handle: MouseStateHandle,
 
     menu_accept_button_handle: MouseStateHandle,
     menu_reject_button_handle: MouseStateHandle,
@@ -485,8 +487,8 @@ pub(super) struct AIBlockStateHandles {
     /// multiple skill banners in the same block don't share hover/click state.
     skill_button_handles: HashMap<AIAgentActionId, MouseStateHandle>,
     usage_button_handle: MouseStateHandle,
-    subagent_panel_states:
-        HashMap<AIAgentActionId, super::agent_view::subagent_inline_panel::SubagentPanelState>,
+    subagent_link_states:
+        HashMap<AIAgentActionId, super::agent_view::subagent_link::SubagentLinkState>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -1404,13 +1406,13 @@ impl AIBlock {
             |me, _, event, ctx| {
                 if me
                     .state_handles
-                    .subagent_panel_states
+                    .subagent_link_states
                     .values()
                     .any(|state| history_event_affects_conversation(event, state.conversation_id))
                 {
                     // Child conversations live on a different terminal
                     // surface, so they bypass the parent block's normal
-                    // terminal-surface filter. Repaint the inline transcript
+                    // terminal-surface filter. Repaint the conversation link
                     // and status whenever one of those children changes.
                     ctx.notify();
                 }
@@ -2236,12 +2238,10 @@ impl AIBlock {
                         .map(|child| child.id());
                     if let Some(child_id) = child_id {
                         self.state_handles
-                            .subagent_panel_states
+                            .subagent_link_states
                             .entry(action.id.clone())
                             .or_insert_with(|| {
-                                super::agent_view::subagent_inline_panel::SubagentPanelState::new(
-                                    child_id,
-                                )
+                                super::agent_view::subagent_link::SubagentLinkState::new(child_id)
                             });
                     }
                 }
@@ -4727,6 +4727,10 @@ impl AIBlock {
         self.model.status(app)
     }
 
+    pub fn query_sent_at(&self, app: &AppContext) -> Option<DateTime<Local>> {
+        self.model.query_sent_at(app)
+    }
+
     /// Returns `true` if this AI block contains user input.
     pub fn has_user_input(&self, app: &AppContext) -> bool {
         self.model
@@ -4952,7 +4956,7 @@ impl AIBlock {
                         });
                     }
 
-                    // Create subagent panel state for finished StartAgent actions
+                    // Create subagent link state for finished StartAgent actions
                     if let Some(AIActionStatus::Finished(result)) =
                         action_model
                             .as_ref(ctx)
@@ -4962,13 +4966,13 @@ impl AIBlock {
                             crate::ai::agent::StartAgentResult::Success { agent_id, .. },
                         ) = &result.result
                         {
-                            if !me.state_handles.subagent_panel_states.contains_key(action_id) {
+                            if !me.state_handles.subagent_link_states.contains_key(action_id) {
                                 if let Some(conversation_id) =
                                     crate::ai::blocklist::agent_view::orchestration_conversation_links::conversation_id_for_agent_id(agent_id, ctx)
                                 {
-                                    me.state_handles.subagent_panel_states.insert(
+                                    me.state_handles.subagent_link_states.insert(
                                         action_id.clone(),
-                                        super::agent_view::subagent_inline_panel::SubagentPanelState::new(conversation_id),
+                                        super::agent_view::subagent_link::SubagentLinkState::new(conversation_id),
                                     );
                                 }
                             }
@@ -5117,7 +5121,7 @@ impl AIBlock {
     }
 
     /// Registers the direct-provider child linkage needed to render a live
-    /// StartAgent panel while the action is still waiting for child output.
+    /// StartAgent conversation link while the action is still waiting for child output.
     fn register_start_agent_executor_subscription(
         action_model: &ModelHandle<BlocklistAIActionModel>,
         ctx: &mut ViewContext<Self>,
@@ -5139,12 +5143,10 @@ impl AIBlock {
             }
 
             me.state_handles
-                .subagent_panel_states
+                .subagent_link_states
                 .entry(action_id.clone())
                 .or_insert_with(|| {
-                    super::agent_view::subagent_inline_panel::SubagentPanelState::new(
-                        *child_conversation_id,
-                    )
+                    super::agent_view::subagent_link::SubagentLinkState::new(*child_conversation_id)
                 });
             ctx.notify();
         });
@@ -6643,6 +6645,7 @@ pub enum AIBlockAction {
     /// Copy the content from the previous user query.
     /// Note that this block may not have the user query.
     CopyQuery,
+    CopyTimestamp,
     /// Copy all AI output from the previous user query to the next user query.
     /// Note that this contains more than just this block, since from the user perspective everything after the user query appears like one block.
     CopyOutput,
@@ -6696,9 +6699,6 @@ pub enum AIBlockAction {
     OpenCommentInGitHub {
         url: String,
     },
-    ToggleSubagentPanel {
-        action_id: AIAgentActionId,
-    },
     ToggleIsUsageFooterExpanded,
 }
 
@@ -6710,12 +6710,6 @@ impl TypedActionView for AIBlock {
             AIBlockAction::ToggleIsUsageFooterExpanded => {
                 self.is_usage_footer_expanded = !self.is_usage_footer_expanded;
                 ctx.notify();
-            }
-            AIBlockAction::ToggleSubagentPanel { action_id } => {
-                if let Some(state) = self.state_handles.subagent_panel_states.get_mut(action_id) {
-                    state.is_expanded = !state.is_expanded;
-                    ctx.notify();
-                }
             }
             AIBlockAction::SetCollapsibleBlockPinnedToBottom {
                 message_id,
@@ -7118,6 +7112,14 @@ impl TypedActionView for AIBlock {
                 let prompt_text = self.get_preceding_user_query(ctx);
                 ctx.clipboard()
                     .write(ClipboardContent::plain_text(prompt_text));
+            }
+            AIBlockAction::CopyTimestamp => {
+                if let Some(timestamp) = self.query_sent_at(ctx) {
+                    ctx.clipboard()
+                        .write(ClipboardContent::plain_text(format_message_timestamp(
+                            &timestamp,
+                        )));
+                }
             }
             AIBlockAction::CopyOutput => {
                 // Copy all AI output from preceding user query until the next user query

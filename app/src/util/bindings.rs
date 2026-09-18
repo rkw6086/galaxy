@@ -383,7 +383,6 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
 
-        // This is one of the app's hardcoded keybindings.
         CustomAction::AddWindow => Keystroke::parse(cmd_or_ctrl_shift("n")).ok(),
         CustomAction::ToggleGalaxyDrive => {
             if OperatingSystem::get().is_mac() {

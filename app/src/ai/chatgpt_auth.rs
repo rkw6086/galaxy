@@ -61,6 +61,13 @@ impl ChatGPTAuthModel {
         Self { state }
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_for_test() -> Self {
+        Self {
+            state: ChatGPTAuthState::NotConnected,
+        }
+    }
+
     pub(crate) fn state(&self) -> &ChatGPTAuthState {
         &self.state
     }

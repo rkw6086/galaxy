@@ -2,12 +2,15 @@
 //!
 //! Queries are not rendered in blocks corresponding to requested command or requested action responses.
 
+use chrono::{DateTime, Local};
 use galaxy_core::features::FeatureFlag;
 use galaxy_core::ui::theme::color::internal_colors;
 use pathfinder_color::ColorU;
+use pathfinder_geometry::vector::vec2f;
 use warpui::elements::{
-    Container, CornerRadius, DispatchEventResult, EventHandler, Flex, MainAxisAlignment,
-    MainAxisSize, ParentElement, Radius, Shrinkable, Wrap,
+    ChildAnchor, Container, CornerRadius, DispatchEventResult, EventHandler, Flex,
+    MainAxisAlignment, MainAxisSize, MouseStateHandle, ParentAnchor, ParentElement, Radius,
+    Shrinkable, Wrap,
 };
 use warpui::fonts::{Properties, Style, Weight};
 use warpui::ui_components::chip::Chip;
@@ -21,6 +24,7 @@ use crate::ai::blocklist::AttachmentType;
 use crate::appearance::Appearance;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
+use crate::util::time_format::format_message_timestamp;
 
 /// Data required to render the AI block query component.
 #[derive(Copy, Clone, Debug)]
@@ -28,6 +32,8 @@ pub(super) struct Props<'a> {
     pub(super) user_display_name: &'a String,
     pub(super) profile_image_path: Option<&'a String>,
     pub(super) avatar_color: Option<ColorU>,
+    pub(super) query_sent_at: Option<DateTime<Local>>,
+    pub(super) query_timestamp_tooltip_handle: &'a MouseStateHandle,
     pub(super) query_and_index: Option<(&'a str, usize)>,
     pub(super) query_prefix_highlight_len: Option<usize>,
     pub(super) detected_links_state: &'a DetectedLinksState,
@@ -45,6 +51,8 @@ pub(super) fn maybe_render(props: Props, app: &AppContext) -> Option<Box<dyn Ele
             props.user_display_name,
             props.profile_image_path,
             props.avatar_color,
+            props.query_sent_at,
+            Some(props.query_timestamp_tooltip_handle.clone()),
             props.detected_links_state,
             props.secret_redaction_state,
             input_index,
@@ -64,6 +72,8 @@ pub(crate) fn render_query(
     user_display_name: &str,
     profile_image_path: Option<&String>,
     avatar_color: Option<ColorU>,
+    query_sent_at: Option<DateTime<Local>>,
+    query_timestamp_tooltip_handle: Option<MouseStateHandle>,
     detected_links_state: &DetectedLinksState,
     secret_redaction_state: &SecretRedactionState,
     input_index: usize,
@@ -74,14 +84,29 @@ pub(crate) fn render_query(
     find_context: Option<FindContext>,
     app: &AppContext,
 ) -> Box<dyn Element> {
+    let appearance = Appearance::as_ref(app);
     let avatar = Container::new(render_user_avatar(
         user_display_name,
         profile_image_path,
         avatar_color,
         app,
     ))
-    .with_margin_right(16.)
     .finish();
+    let avatar = if let Some((timestamp, tooltip_handle)) =
+        query_sent_at.zip(query_timestamp_tooltip_handle)
+    {
+        appearance.ui_builder().overlay_tool_tip_on_element(
+            format!("Message sent {}", format_message_timestamp(&timestamp)),
+            tooltip_handle,
+            avatar,
+            ParentAnchor::TopLeft,
+            ChildAnchor::BottomLeft,
+            vec2f(0., -8.),
+        )
+    } else {
+        avatar
+    };
+    let avatar = Container::new(avatar).with_margin_right(16.).finish();
 
     let properties = Properties {
         style: Style::Normal,
@@ -103,7 +128,6 @@ pub(crate) fn render_query(
         app,
     );
 
-    let appearance = Appearance::as_ref(app);
     let mut query = Flex::column().with_child(text_element.finish());
 
     if FeatureFlag::ImageAsContext.is_enabled() {

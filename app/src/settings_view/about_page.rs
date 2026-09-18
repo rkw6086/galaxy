@@ -5,7 +5,9 @@ use galaxyui::elements::{
 };
 use galaxyui::fonts::Weight;
 use galaxyui::text_layout::TextAlignment;
-use galaxyui::{AppContext, Entity, SingletonEntity, View, ViewContext, ViewHandle};
+use galaxyui::{
+    AppContext, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+};
 use warpui::assets::asset_cache::AssetSource;
 
 use super::settings_page::{
@@ -30,6 +32,9 @@ impl AboutPageView {
 
 impl Entity for AboutPageView {
     type Event = SettingsPageEvent;
+}
+impl TypedActionView for AboutPageView {
+    type Action = ();
 }
 
 impl View for AboutPageView {
