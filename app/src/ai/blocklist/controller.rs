@@ -3206,6 +3206,27 @@ impl BlocklistAIController {
         );
     }
 
+    /// Starts a newly created child on its root task. Shell initialization may still be
+    /// finishing when the bootstrap event arrives; it is not a command to monitor.
+    pub(crate) fn send_initial_child_agent_query(
+        &mut self,
+        query: String,
+        conversation_id: AIConversationId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.send_user_query_in_conversation_internal(
+            query,
+            conversation_id,
+            None,
+            RunningCommandDetection::Skip,
+            HashMap::new(),
+            EntrypointType::AgentInitiated,
+            false,
+            None,
+            ctx,
+        );
+    }
+
     /// Sends one non-preemptive final assessment to the root task after a CLI monitor completes.
     ///
     /// This deliberately bypasses `send_query`: command completion must not cancel
@@ -8339,8 +8360,11 @@ impl BlocklistAIController {
                     });
                 }
             },
-            // Failed outcomes are finalized by the projected InternalError event.
-            ProviderRunOutcome::Failed(_) => {}
+            ProviderRunOutcome::Failed(failure) => {
+                // Projection itself can fail before an exchange can display InternalError.
+                // The durable outcome must still release parents waiting for this child.
+                self.finalize_failed_provider_conversation(conversation_id, failure.message, ctx);
+            }
             ProviderRunOutcome::Cancelled { .. } => {
                 let cancellation_reason =
                     self.active_provider_runs[&conversation_id].cancellation_reason;
@@ -8373,6 +8397,28 @@ impl BlocklistAIController {
         self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
     }
 
+    fn finalize_failed_provider_conversation(
+        &self,
+        conversation_id: AIConversationId,
+        message: String,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            if history_model
+                .conversation_status(&conversation_id)
+                .is_some_and(|status| status != &ConversationStatus::Error)
+            {
+                history_model.update_conversation_status_with_error(
+                    self.terminal_surface_id,
+                    conversation_id,
+                    ConversationStatus::Error,
+                    Some(RenderableAIError::other(message, false)),
+                    ctx,
+                );
+            }
+        });
+    }
+
     fn fail_provider_startup(
         &mut self,
         conversation_id: AIConversationId,
@@ -8391,7 +8437,7 @@ impl BlocklistAIController {
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
             history_model.mark_response_stream_completed_with_error(
                 RenderableAIError::Other {
-                    error_message: message,
+                    error_message: message.clone(),
                     will_attempt_resume: false,
                     waiting_for_network: false,
                     is_user_error: false,
@@ -8403,6 +8449,7 @@ impl BlocklistAIController {
                 ctx,
             );
         });
+        self.finalize_failed_provider_conversation(conversation_id, message, ctx);
         self.cleanup_active_provider_run(conversation_id, &stream_id, &response_stream, ctx);
     }
 
@@ -10361,7 +10408,7 @@ fn get_running_command_for_conversation(
     conversation_id: AIConversationId,
 ) -> Option<RunningCommand> {
     let active_block = terminal_model.block_list().active_block();
-    if !active_block.is_active_and_long_running() {
+    if !active_block.bootstrap_stage().is_done() || !active_block.is_active_and_long_running() {
         return None;
     }
     if active_block.is_agent_monitoring()

@@ -3445,7 +3445,7 @@ impl AIConversation {
                 };
 
                 let current_comment_state = self.code_review.as_ref().cloned();
-                task.add_messages(
+                let add_result = task.add_messages(
                     messages,
                     exchange_id,
                     TaskMessageContext {
@@ -3459,9 +3459,11 @@ impl AIConversation {
                     // to mimic the normal conversation flow. (If this is not a shared session, the
                     // exchange inputs will already be populated).
                     self.is_viewing_shared_session,
-                )?;
+                );
 
+                // Keep the task available for failure reporting even if message projection fails.
                 self.task_store.insert(task);
+                add_result?;
                 if !added_exchanges
                     .iter()
                     .any(|new_exchange_info| new_exchange_info.exchange_id == exchange_id)

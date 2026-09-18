@@ -16279,7 +16279,7 @@ impl TerminalView {
             return;
         }
         self.ai_controller.update(ctx, |controller, ctx| {
-            controller.send_agent_query_in_conversation(prompt, conversation_id, ctx);
+            controller.send_initial_child_agent_query(prompt, conversation_id, ctx);
         });
     }
     pub fn has_pending_command_or_awaiting_completion(&self, ctx: &AppContext) -> bool {

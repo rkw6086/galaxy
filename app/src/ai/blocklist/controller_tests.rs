@@ -35,6 +35,8 @@ use crate::ai::remote_logging::RemoteLogLevel;
 use crate::ai::runtime::ProviderRunProjection;
 use crate::persistence::model::{AcpConversationData, AgentBackend};
 use crate::terminal::model::block::{BlockId, BlockState};
+use crate::terminal::model::bootstrap::BootstrapStage;
+use crate::terminal::model::test_utils::TestBlockBuilder;
 use crate::test_util::settings::initialize_history_persistence_for_tests;
 use crate::test_util::terminal::{add_window_with_terminal, initialize_app_for_terminal_view};
 
@@ -3811,4 +3813,80 @@ fn progressive_summary_keeps_retained_tool_results_paired() {
     ];
     let budget = super::estimated_history_tokens(&messages[2..]);
     assert_eq!(super::progressive_summary_split_point(&messages, budget), 1);
+}
+
+#[test]
+fn shell_bootstrap_is_never_a_command_monitor_target() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |terminal, _ctx| {
+            let mut model = terminal.model.lock();
+            let conversation_id = AIConversationId::new();
+            for stage in [
+                BootstrapStage::WarpInput,
+                BootstrapStage::ScriptExecution,
+                BootstrapStage::Bootstrapped,
+                BootstrapStage::PostBootstrapPrecmd,
+            ] {
+                *model.block_list_mut().active_block_mut() =
+                    TestBlockBuilder::new().with_bootstrap_stage(stage).build();
+                model.simulate_long_running_block("sleep 100", "shell startup output");
+                assert!(model
+                    .block_list()
+                    .active_block()
+                    .is_active_and_long_running());
+                assert_eq!(
+                    super::get_running_command_for_conversation(&model, conversation_id).is_some(),
+                    stage == BootstrapStage::PostBootstrapPrecmd,
+                    "bootstrap stage {stage:?}",
+                );
+            }
+        });
+    });
+}
+
+#[test]
+fn failed_child_without_an_exchange_reaches_terminal_error() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        terminal.update(&mut app, |terminal, ctx| {
+            let terminal_id = terminal.id();
+            let children = BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                let parent = history.start_new_conversation(terminal_id, false, false, false, ctx);
+                ["stakeholder", "architect", "developer"].map(|name| {
+                    history.start_new_child_conversation(
+                        terminal_id,
+                        name.to_owned(),
+                        parent,
+                        None,
+                        ctx,
+                    )
+                })
+            });
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                for child in [children[0], children[2]] {
+                    controller.finalize_failed_provider_conversation(
+                        child,
+                        "projection failed: ExchangeNotFound".to_owned(),
+                        ctx,
+                    );
+                }
+            });
+            let history = BlocklistAIHistoryModel::as_ref(ctx);
+            for child in [children[0], children[2]] {
+                let conversation = history.conversation(&child).unwrap();
+                assert_eq!(conversation.status(), &ConversationStatus::Error);
+                assert!(conversation
+                    .status_error_message()
+                    .unwrap()
+                    .contains("ExchangeNotFound"));
+            }
+            assert_eq!(
+                history.conversation(&children[1]).unwrap().status(),
+                &ConversationStatus::InProgress
+            );
+        });
+    });
 }
