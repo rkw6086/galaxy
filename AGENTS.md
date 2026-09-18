@@ -48,6 +48,51 @@ Environment variables:
   - Per-event Bedrock diagnostic logs written to `bedrock-diagnostics.log` in the active Warp log directory
 - Set `GALAXY_TOOL_DIAGNOSTICS=1` to enable verbose local tool queue/execution debug logs and cancellation backtraces. These diagnostics are disabled during routine operation.
 
+### Remote Logging: Pulling Galaxy Logs
+
+When investigating Galaxy behavior, retrieve recent remote logs from
+`https://logging.ryserve.net/api/logs`. Authenticate with the `x-api-key` header using
+`RYSERVE_LOGGING_KEY`, which is defined in `~/.zshrc`. A non-interactive shell may not
+load that file automatically; source it explicitly. Never print the key or commit
+it or downloaded logs to the repository.
+
+Fetch the latest events into a temporary file rather than dumping full payloads
+into the agent's context:
+
+```bash
+zsh -lc '
+  source ~/.zshrc >/dev/null 2>&1
+  : "${RYSERVE_LOGGING_KEY:?RYSERVE_LOGGING_KEY is not configured}"
+  curl -fsS --max-time 30 --get "https://logging.ryserve.net/api/logs" \
+    -H "x-api-key: ${RYSERVE_LOGGING_KEY}" \
+    --data-urlencode "limit=1000" \
+    --data-urlencode "offset=0" \
+    -o /tmp/galaxy-remote-logs.json
+'
+```
+
+- The response contains `logs`, `total`, `limit`, and `offset`. Events are returned
+  newest first. The server caps a page at 1,000 events; increase `offset` using the
+  returned page size to retrieve older history.
+- To narrow a request, add `--data-urlencode "level=error"` and/or
+  `--data-urlencode "search=database"` before the output option. Replace the search
+  term as needed. Start without an error filter when investigating wasted turns,
+  tool loops, or subagent behavior: the relevant events are usually informational.
+- Correlate `context.conversation_id`, `stream_id`, `provider_run_id`, and
+  `provider_epoch`. Tool events carry their owning conversation and action IDs in
+  `context.tool`; launch outcomes map child names to `agent_id` and identify the
+  `parent_conversation_id`. Compare tool sequences and timestamps before drawing
+  conclusions about retries or repeated discovery.
+- Inspect `context.app.source_commit` and `source_modified` to identify the running
+  build. Remote events may come from another machine or an older build.
+- `raw_model_request` events can include prompts, history, and tool data in
+  `context.raw_payload.payload`. Check `truncated` and the accompanying size fields
+  before parsing or treating missing content as evidence. These are Galaxy request
+  snapshots, not necessarily the exact upstream HTTP payload.
+- For upstream LiteLLM/server failures that need Kubernetes logs, use the
+  `ryserve-k3s` context explicitly (for example, `kubectl --context ryserve-k3s ...`).
+  Discover the current namespace/pod rather than reusing an old pod name.
+
 ### AI Provider Architecture
 
 Galaxy supports session-owned ACP backends and direct model providers. Direct-provider selection is
