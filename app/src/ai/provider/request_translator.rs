@@ -1718,7 +1718,7 @@ pub fn default_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in the user's actual shell and environment. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
+            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in this conversation's persistent shell and environment, starting in the supplied working directory. Successful cd commands affect subsequent calls in this shell; subshell directory changes do not. Avoid prefixing commands with cd to the directory you are already in, and use pwd only when the current location is uncertain. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

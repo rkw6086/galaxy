@@ -771,6 +771,9 @@ fn build_system_prompt(
     prompt.push_str(
         "## Task Tracking\nUse task tracking only for substantial work with multiple concrete steps, after planning has established those steps or when the user provides an actionable plan. Skip it for simple requests, questions, and exploratory planning. Each task must name a specific change or deliverable with a clear completion condition. Do not create generic workflow items such as 'research the request', 'critique the plan', 'execute the plan', or 'verify the result'. Update tasks only when their actual work is complete; a tool call or model turn alone is not evidence of completion.\n\n",
     );
+    prompt.push_str(
+        "## Shell Working Directory\nShell commands run in this conversation's persistent terminal session. The supplied working directory is the shell's location when the request was prepared. Start there without a redundant `cd` or `pwd`. Track successful directory changes across tool calls; do not assume later commands reset to the project root. Use `cd` only when the next command needs a different directory, and use `pwd` only when the location is missing or uncertain. A `cd` inside a subshell or separate script does not change the parent shell's directory. Each sub-agent has its own terminal; never assume it shares another agent's directory changes.\n\n",
+    );
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;
