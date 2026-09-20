@@ -5,19 +5,23 @@ use galaxyui::{AppContext, ModelHandle, SingletonEntity};
 use parking_lot::FairMutex;
 
 use crate::persistence::{ModelEvent, StartedCommandMetadata};
+use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::Sessions;
 use crate::terminal::view::ExecuteCommandEvent;
 use crate::terminal::{History, HistoryEntry, TerminalModel};
 
 pub fn update_command_history(
     event: &ExecuteCommandEvent,
+    block_id: &BlockId,
     model: &Arc<FairMutex<TerminalModel>>,
     model_event_sender: Option<&SyncSender<ModelEvent>>,
     sessions: &ModelHandle<Sessions>,
     ctx: &mut AppContext,
 ) {
     let model = model.lock();
-    let active_block = model.block_list().active_block();
+    let Some(active_block) = model.block_list().block_with_id(block_id) else {
+        return;
+    };
     let session_id = event.session_id;
     let Some(session) = sessions.as_ref(ctx).get(session_id) else {
         return;

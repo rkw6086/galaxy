@@ -2457,6 +2457,7 @@ fn test_histignorespace_support_in_zsh() {
             (terminal.model.clone(), terminal.sessions_model().clone())
         });
 
+        let block_id = model.lock().active_block_id().clone();
         app.update(|ctx| {
             update_command_history(
                 &ExecuteCommandEvent {
@@ -2467,6 +2468,7 @@ fn test_histignorespace_support_in_zsh() {
                     should_add_command_to_history: true,
                     source: CommandExecutionSource::User,
                 },
+                &block_id,
                 &model,
                 None,
                 &sessions,
@@ -2482,6 +2484,7 @@ fn test_histignorespace_support_in_zsh() {
                     should_add_command_to_history: true,
                     source: CommandExecutionSource::User,
                 },
+                &block_id,
                 &model,
                 None,
                 &sessions,

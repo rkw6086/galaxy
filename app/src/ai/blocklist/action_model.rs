@@ -2455,6 +2455,16 @@ impl BlocklistAIActionModel {
         let permission_denied = self
             .denied_permissions
             .remove(&(conversation_id, action_result.id.clone()));
+        if execution_ref.is_some() {
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                    if let Err(error) = conversation.save_provider_tool_result(&action_result, ctx)
+                    {
+                        log::error!("Failed to save provider tool result: {error}");
+                    }
+                }
+            });
+        }
         let tool_result = domain_tool_result(&action_result, permission_denied);
         if execution_ref.is_none() {
             self.finished_tool_results

@@ -359,7 +359,13 @@ impl ConvertToExchanges for &api::Task {
             let task_id = TaskId::new(api_message.task_id.clone());
             // Check if request_id has changed - if so, create an exchange from accumulated messages
             let message_request_id = if api_message.request_id.is_empty() {
-                None
+                // Older local snapshots omitted request IDs. A user query still
+                // gives us an unambiguous boundary; keep following output with it.
+                if matches!(message, api::message::Message::UserQuery(_)) {
+                    Some(api_message.id.clone())
+                } else {
+                    current_request_id.clone()
+                }
             } else {
                 Some(api_message.request_id.clone())
             };
@@ -466,12 +472,18 @@ impl ConvertToExchanges for &api::Task {
                 }
                 api::message::Message::ToolCallResult(tool_call_result) => {
                     // Try to convert tool call result - returns None for ServerToolCalls
-                    if let Some(input) = convert_tool_call_result_to_input(
+                    if let Some(mut input) = convert_tool_call_result_to_input(
                         &task_id,
                         tool_call_result,
                         &tool_call_map,
                         &mut document_versions,
                     ) {
+                        crate::ai::agent::provider_history::restore_result_details(
+                            &mut input,
+                            &api_message.server_message_data,
+                            message_map.get(tool_call_result.tool_call_id.as_str())
+                                .map(|proposal| proposal.server_message_data.as_str()),
+                        );
                         // Add tool call result as input
                         current_inputs.push(input);
                     }
@@ -1867,15 +1879,19 @@ fn create_exchange_from_messages(
                 _ => None,
             })
         })
-        // Fall back to any timestamp from the messages in this exchange
+        // Message IDs are a set, so choose the earliest timestamp rather than
+        // whichever message happens to be visited first.
         .or_else(|| {
-            message_ids.iter().find_map(|message_id| {
-                message_map.get(message_id.as_str()).and_then(|message| {
-                    message.timestamp.as_ref().map(|timestamp| {
-                        proto_timestamp_to_local_datetime(timestamp.seconds, timestamp.nanos)
+            message_ids
+                .iter()
+                .filter_map(|message_id| {
+                    message_map.get(message_id.as_str()).and_then(|message| {
+                        message.timestamp.as_ref().map(|timestamp| {
+                            proto_timestamp_to_local_datetime(timestamp.seconds, timestamp.nanos)
+                        })
                     })
                 })
-            })
+                .min()
         })
         .unwrap_or_default();
 

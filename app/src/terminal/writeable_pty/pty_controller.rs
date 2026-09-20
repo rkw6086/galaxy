@@ -10,10 +10,11 @@ use parking_lot::FairMutex;
 use thiserror::Error;
 
 use super::Message;
-use crate::ai::agent::AIAgentPtyWriteMode;
+use crate::ai::agent::{AIAgentActionId, AIAgentPtyWriteMode};
 use crate::terminal::input::CommandExecutionSource;
 use crate::terminal::line_editor_status::{LineEditorStatus, LineEditorStatusEvent};
 use crate::terminal::model::ansi::Handler;
+use crate::terminal::model::block::BlockId;
 use crate::terminal::model::completions::ShellCompletion;
 use crate::terminal::model::escape_sequences;
 use crate::terminal::model::session::{
@@ -21,7 +22,7 @@ use crate::terminal::model::session::{
 };
 use crate::terminal::model_events::{AnsiHandlerEvent, ModelEvent, ModelEventDispatcher};
 use crate::terminal::shell::ShellType;
-use crate::terminal::view::LINEFEED_REGEX;
+use crate::terminal::view::{ExecuteCommandEvent, LINEFEED_REGEX};
 #[cfg(not(target_family = "wasm"))]
 use crate::terminal::writeable_pty::bootstrap_file::{permanent_bootstrap_file, TempBootstrapFile};
 use crate::terminal::{bootstrap, SizeUpdate, TerminalModel};
@@ -46,6 +47,7 @@ enum PtyWrite {
         in_band_command_id: Option<String>,
         /// If 'some', the given callback is called right before the bytes are written to the PTY.
         before_write_fn: Option<Box<dyn Fn() + Send + 'static>>,
+        execution: Option<Box<ExecuteCommandEvent>>,
     },
     Bytes {
         /// The bytes to be written.
@@ -298,7 +300,17 @@ impl<T: EventLoopSender> PtyController<T> {
         cancel_tx: Sender<InBandCommandCancelledEvent>,
         ctx: &mut ModelContext<Self>,
     ) {
-        if self.is_user_command_executing {
+        if self.is_user_command_executing
+            || self.pending_writes.iter().any(|write| {
+                matches!(
+                    write,
+                    PtyWrite::Command {
+                        execution: Some(_),
+                        ..
+                    }
+                )
+            })
+        {
             // Send blocking should be okay b/c this is an unbound channel
             if let Err(err) = block_on(cancel_tx.send(InBandCommandCancelledEvent { command_id })) {
                 log::warn!("Pty Controller failed to cancel in band command: {err:?}");
@@ -311,6 +323,7 @@ impl<T: EventLoopSender> PtyController<T> {
             command: command.to_owned(),
             shell_type,
             in_band_command_id: Some(command_id),
+            execution: None,
             before_write_fn: Some(Box::new(move || {
                 let mut terminal_model = terminal_model.lock();
                 terminal_model
@@ -510,47 +523,19 @@ impl<T: EventLoopSender> PtyController<T> {
     /// sequences.
     pub fn write_command(
         &mut self,
-        command: &str,
+        event: &ExecuteCommandEvent,
         shell_type: ShellType,
-        source: CommandExecutionSource,
         ctx: &mut ModelContext<Self>,
     ) {
-        {
-            let mut model = self.terminal_model.lock();
-
-            // Explicitly start the block now that the command is executed.
-            match source {
-                CommandExecutionSource::AI { metadata } => {
-                    model.start_command_execution_with_ai_metadata(metadata)
-                }
-                CommandExecutionSource::SharedSession {
-                    participant_id,
-                    ai_metadata,
-                    ..
-                } => model.start_command_execution_for_shared_session(participant_id, ai_metadata),
-                CommandExecutionSource::User | CommandExecutionSource::QueuedCommand => {
-                    model.start_command_execution()
-                }
-                CommandExecutionSource::EnvVarCollection { metadata } => {
-                    model.start_command_execution_from_env_var_collection(metadata)
-                }
-            }
-
-            // Ensure that the `TerminalModel` doesn't interpret any of the PTY output from the
-            // following commands as in-band command output. If the in-band command output is not
-            // currently being received by the `TerminalModel`, this is a no-op.
-            model.end_in_band_command_output(false);
-        }
-
         self.pending_writes.clear();
-        self.is_user_command_executing = true;
 
         // Send the write to the PTY event loop.
         let write = PtyWrite::Command {
-            command: command.to_owned(),
+            command: event.command.clone(),
             shell_type,
             in_band_command_id: None,
             before_write_fn: None,
+            execution: Some(Box::new(event.clone())),
         };
         if self.can_write_to_pty(ctx) {
             // Cancel the async writer task and clear the async write queue.
@@ -559,6 +544,28 @@ impl<T: EventLoopSender> PtyController<T> {
         } else {
             self.pending_writes.push_back(write);
         }
+    }
+
+    /// Cancel only a command that has not yet been dispatched to the shell.
+    pub fn cancel_queued_agent_command(&mut self, action_id: &AIAgentActionId) {
+        self.pending_writes.retain(|write| {
+            let PtyWrite::Command {
+                execution: Some(event),
+                ..
+            } = write
+            else {
+                return true;
+            };
+            let metadata = match &event.source {
+                CommandExecutionSource::AI { metadata } => Some(metadata),
+                CommandExecutionSource::SharedSession { ai_metadata, .. } => ai_metadata.as_ref(),
+                CommandExecutionSource::User
+                | CommandExecutionSource::QueuedCommand
+                | CommandExecutionSource::EnvVarCollection { .. } => None,
+            };
+            !metadata
+                .is_some_and(|metadata| metadata.requested_command_action_id() == Some(action_id))
+        });
     }
 
     /// Synchronously writes the EOT (End-of-Transmission) char to the PTY.
@@ -630,11 +637,12 @@ impl<T: EventLoopSender> PtyController<T> {
     /// If the write corresponds to a command, this also calls
     /// [`LineEditorStatus::did_execute_command()`].
     fn send_write_to_event_loop(&mut self, write: PtyWrite, ctx: &mut ModelContext<Self>) {
-        let (bytes_to_write, is_for_command, on_write_fn) = match write {
+        let (bytes_to_write, is_for_command, on_write_fn, execution) = match write {
             PtyWrite::Command {
                 command,
                 shell_type,
                 before_write_fn: on_write_fn,
+                execution,
                 ..
             } => (
                 Cow::Owned(bytes_to_execute_command(
@@ -644,13 +652,14 @@ impl<T: EventLoopSender> PtyController<T> {
                 )),
                 true,
                 on_write_fn,
+                execution,
             ),
             PtyWrite::AgentInput { bytes, mode } => {
                 let decorated_bytes =
                     mode.decorate_bytes(bytes.into_owned(), self.is_bracketed_paste_enabled);
-                (decorated_bytes.into(), false, None)
+                (decorated_bytes.into(), false, None, None)
             }
-            PtyWrite::Bytes { bytes } => (bytes, false, None),
+            PtyWrite::Bytes { bytes } => (bytes, false, None, None),
             PtyWrite::RunNativeShellCompletions(state) => {
                 self.in_flight_native_completions_state = Some(state);
 
@@ -658,7 +667,7 @@ impl<T: EventLoopSender> PtyController<T> {
                 // then wait for an OSC-based signal from the shell before we
                 // send the text that needs to be completed.
                 let bytes = vec![0x19_u8];
-                (bytes.into(), false, None)
+                (bytes.into(), false, None, None)
             }
         };
 
@@ -672,6 +681,41 @@ impl<T: EventLoopSender> PtyController<T> {
                 .update(ctx, |line_editor_status, ctx| {
                     line_editor_status.did_execute_command(ctx)
                 });
+        }
+
+        // A queued command must not claim the block still owned by the previous command
+        // or an in-band request. Attach its identity only once the shell accepts this write.
+        if let Some(event) = execution {
+            let block_id = {
+                let mut model = self.terminal_model.lock();
+                match &event.source {
+                    CommandExecutionSource::AI { metadata } => {
+                        model.start_command_execution_with_ai_metadata(metadata.clone());
+                    }
+                    CommandExecutionSource::SharedSession {
+                        participant_id,
+                        ai_metadata,
+                        ..
+                    } => model.start_command_execution_for_shared_session(
+                        participant_id.clone(),
+                        ai_metadata.clone(),
+                    ),
+                    CommandExecutionSource::User | CommandExecutionSource::QueuedCommand => {
+                        model.start_command_execution();
+                    }
+                    CommandExecutionSource::EnvVarCollection { metadata } => {
+                        model.start_command_execution_from_env_var_collection(metadata.clone());
+                    }
+                }
+                model
+                    .block_list_mut()
+                    .active_block_mut()
+                    .set_cloud_workflow_state(event.workflow_id);
+                model.end_in_band_command_output(false);
+                model.active_block_id().clone()
+            };
+            self.is_user_command_executing = true;
+            ctx.emit(PtyControllerEvent::CommandStarted { event, block_id });
         }
 
         if let Some(on_write_fn) = on_write_fn {
@@ -718,6 +762,11 @@ impl<T: EventLoopSender> PtyController<T> {
 }
 
 pub enum PtyControllerEvent {
+    /// The command has acquired its terminal block and is being written to the shell.
+    CommandStarted {
+        event: Box<ExecuteCommandEvent>,
+        block_id: BlockId,
+    },
     /// Emitted when the event loop thread has exited.
     PtyDisconnected,
 }
@@ -789,6 +838,10 @@ fn wrap_bytes_in_bracketed_paste(bytes: impl IntoIterator<Item = u8>) -> impl It
         .chain(bytes)
         .chain(escape_sequences::BRACKETED_PASTE_END.iter().copied())
 }
+
+#[cfg(test)]
+#[path = "pty_controller_queue_tests.rs"]
+mod queue_tests;
 
 #[cfg(test)]
 #[path = "pty_controller_command_bytes_tests.rs"]

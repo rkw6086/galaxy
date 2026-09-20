@@ -83,6 +83,33 @@ impl ProviderActionContext {
             .filter(|title| !title.is_empty())
     }
 
+    pub(crate) fn history_compatibility_call(&self, call: &ToolCall) -> ToolCall {
+        let mut compatible = call.clone();
+        if let Some(target) = self.mcp_tool_aliases.get(&call.name) {
+            let server = target
+                .server_id
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            compatible.name = format!("mcp__{server}__{}", target.name);
+            if let (Some(arguments), Some(parameter)) = (
+                compatible.arguments.as_object_mut(),
+                target.title_parameter.as_ref(),
+            ) {
+                arguments.remove(parameter);
+            }
+        }
+        compatible
+    }
+
+    pub(crate) fn restored_action_from_tool_call(
+        &self,
+        call: &ToolCall,
+    ) -> Result<AIAgentAction, String> {
+        let mut context = self.clone();
+        context.skill_path_origin = ai::skills::SkillPathOrigin::RestoredDisplayOnly;
+        context.action_from_tool_call(call)
+    }
+
     pub(crate) fn action_from_tool_call(&self, call: &ToolCall) -> Result<AIAgentAction, String> {
         action_from_tool_call(
             &self.task_id,

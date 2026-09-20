@@ -277,8 +277,16 @@ impl ShellCommandExecutor {
                     move |result, ctx| {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, _| {
+                            handle.update(ctx, |me, ctx| {
                                 me.prune_closed_senders(&block_selector);
+                                if matches!(
+                                    result,
+                                    ActionResult::BlockNotFound | ActionResult::Cancelled
+                                ) {
+                                    ctx.emit(ShellCommandExecutorEvent::CancelExecution {
+                                        action_id: action_id.clone(),
+                                    });
+                                }
                             });
                         }
 
@@ -659,11 +667,9 @@ impl ShellCommandExecutor {
         };
         // Cancelling the wait future alone would report cancellation while the process keeps
         // running. Terminate the exact requested command before resolving the action as cancelled.
-        if requested_block_is_running {
-            ctx.emit(ShellCommandExecutorEvent::CancelExecution {
-                action_id: id.clone(),
-            });
-        }
+        ctx.emit(ShellCommandExecutorEvent::CancelExecution {
+            action_id: id.clone(),
+        });
         if !requested_block_is_running {
             self.block_finished_senders.remove(&selector);
             self.force_refresh_senders.remove(&selector);

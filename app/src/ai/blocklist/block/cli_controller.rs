@@ -295,6 +295,20 @@ impl CLISubagentController {
         });
 
         ctx.subscribe_to_model(model_event_dispatcher, |me, _, event, ctx| {
+            if let ModelEvent::AfterBlockStarted { block_id, .. } = event {
+                let identity = {
+                    let model = me.terminal_model.lock();
+                    model.block_list().block_with_id(block_id).and_then(|block| {
+                        Some((
+                            block.ai_conversation_id()?,
+                            block.requested_command_action_id()?.clone(),
+                        ))
+                    })
+                };
+                if let Some((conversation_id, action_id)) = identity {
+                    me.track_requested_command(block_id, conversation_id, &action_id);
+                }
+            }
             if let ModelEvent::BlockCompleted(block_completed_event) = event {
                 let terminal_model = me.terminal_model.lock();
                 let Some(block) = terminal_model
@@ -654,11 +668,10 @@ impl CLISubagentController {
             .and_then(|state| state.last_snapshot_at)
     }
 
-    /// Begins tracking an agent-requested command before its shell event is dispatched.
-    ///
-    /// The placeholder lets command completion and action-result events arrive in either order
-    /// without losing the completion that a subsequently-created CLI monitor needs.
-    pub fn track_requested_command(
+    /// Tracks the block assigned when an agent-requested command actually starts in the shell.
+    /// This must not use the active block from when the command was queued: that block may still
+    /// belong to a previous command. The placeholder preserves completion before a monitor exists.
+    fn track_requested_command(
         &mut self,
         block_id: &BlockId,
         conversation_id: AIConversationId,

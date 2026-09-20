@@ -5,7 +5,7 @@ use async_channel::Sender;
 use warpui::AppContext;
 use warpui::{Entity, ViewContext};
 
-use crate::ai::agent::AIAgentPtyWriteMode;
+use crate::ai::agent::{AIAgentActionId, AIAgentPtyWriteMode};
 #[cfg(unix)]
 use crate::terminal::event::AfterBlockCompletedEvent;
 use crate::terminal::model::completions::ShellCompletion;
@@ -30,6 +30,7 @@ pub enum PtyIntent {
     },
     Resize(SizeUpdate),
     ExecuteCommand(ExecuteCommandEvent),
+    CancelQueuedAgentCommand(AIAgentActionId),
     RunNativeShellCompletions {
         buffer_text: String,
         results_tx: Sender<Vec<ShellCompletion>>,

@@ -1763,6 +1763,7 @@ pub enum Event {
         size_update: SizeUpdate,
     },
     ExecuteCommand(ExecuteCommandEvent),
+    CancelQueuedAgentCommand(AIAgentActionId),
     BlockStarted {
         is_for_in_band_command: bool,
     },
@@ -7695,16 +7696,7 @@ impl TerminalView {
                         }
                     }
                 }
-                let block_id = model.active_block_id().clone();
                 drop(model);
-
-                self.cli_subagent_controller.update(ctx, |controller, _| {
-                    controller.track_requested_command(
-                        &block_id,
-                        parent_conversation_id,
-                        action_id,
-                    );
-                });
 
                 ctx.emit(Event::ExecuteCommand(ExecuteCommandEvent {
                     command,
@@ -7721,8 +7713,6 @@ impl TerminalView {
                     });
                 }
 
-                self.schedule_command_monitor_start(block_id, ctx);
-
                 if let Some(metadata) = workflow_telem_metadata {
                     send_telemetry_from_ctx!(TelemetryEvent::WorkflowExecuted(metadata), ctx);
                 }
@@ -7732,6 +7722,7 @@ impl TerminalView {
                 self.write_agent_bytes_to_pty(input.to_vec(), mode, ctx);
             }
             ShellCommandExecutorEvent::CancelExecution { action_id } => {
+                ctx.emit(Event::CancelQueuedAgentCommand(action_id.clone()));
                 // We need to manually invoke ctrl-c to terminate the running command because the
                 // user's ctrl-c was directed to the AIBlock instead of the command's shell block.
                 let is_exact_active_command = self
@@ -12185,6 +12176,15 @@ impl TerminalView {
                     return;
                 }
                 self.did_notify_long_running = false;
+                let is_agent_command = self
+                    .model
+                    .lock()
+                    .block_list()
+                    .block_with_id(block_id)
+                    .is_some_and(|block| block.requested_command_action_id().is_some());
+                if is_agent_command {
+                    self.schedule_command_monitor_start(block_id.clone(), ctx);
+                }
 
                 // Snapshot the prompt state as of when the command began executing.
                 // Commands may themselves affect the prompt (if running `git checkout`), for
@@ -26257,6 +26257,9 @@ impl PtyIntentEvent for Event {
             }),
             Event::Resize { size_update } => Some(PtyIntent::Resize(*size_update)),
             Event::ExecuteCommand(event) => Some(PtyIntent::ExecuteCommand(event.clone())),
+            Event::CancelQueuedAgentCommand(action_id) => {
+                Some(PtyIntent::CancelQueuedAgentCommand(action_id.clone()))
+            }
             Event::RunNativeShellCompletions {
                 buffer_text,
                 results_tx,

@@ -2558,7 +2558,23 @@ impl BlocklistAIController {
                 terminal_surface_id,
                 conversation_ids,
             } if *terminal_surface_id == me.terminal_surface_id => {
-                me.schedule_restored_provider_runs(conversation_ids, ctx);
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    for conversation_id in conversation_ids {
+                        if history
+                            .conversation(conversation_id)
+                            .is_some_and(|conversation| {
+                                conversation.active_provider_run_json().is_some()
+                            })
+                        {
+                            history.update_conversation_status(
+                                me.terminal_surface_id,
+                                *conversation_id,
+                                ConversationStatus::Cancelled,
+                                ctx,
+                            );
+                        }
+                    }
+                });
             }
             BlocklistAIHistoryEvent::UpdatedConversationStatus { new_status, .. }
                 if new_status.is_done() =>
@@ -4124,6 +4140,13 @@ impl BlocklistAIController {
             );
             return false;
         };
+        // A saved checkpoint is dormant until the user explicitly resumes. In particular,
+        // child completion or late terminal events must not wake a restored conversation.
+        if conversation.active_provider_run_json().is_some()
+            && !self.active_provider_runs.contains_key(&conversation_id)
+        {
+            return false;
+        }
         // WaitingForEvents is treated as Success here: pending events
         // drain via the next outbound request and the server-side
         // supersede emits the resume signal.
@@ -4463,6 +4486,12 @@ impl BlocklistAIController {
             log::error!("Tried to resume non-existent conversation: {conversation_id:?}");
             return;
         };
+        if conversation.active_provider_run_json().is_some()
+            && !self.active_provider_runs.contains_key(&conversation_id)
+        {
+            self.schedule_restored_provider_runs(&[conversation_id], ctx);
+            return;
+        }
         let task_id = {
             let terminal_model = self.terminal_model.lock();
             let active_block = terminal_model.block_list().active_block();
@@ -5573,7 +5602,8 @@ impl BlocklistAIController {
         self.restoring_provider_runs
             .extend(conversation_ids.iter().copied());
 
-        // RestoredConversations is emitted before terminal views finish rebuilding their blocks.
+        // Resume only after the caller releases its view/model borrows. Merely loading a
+        // conversation never reaches this path; the user must explicitly request Resume.
         let _ = ctx.spawn(async {}, move |me, _, ctx| {
             for conversation_id in conversation_ids {
                 me.restore_active_provider_run(conversation_id, ctx);
@@ -7664,6 +7694,7 @@ impl BlocklistAIController {
         else {
             return;
         };
+        let action_context = run.action_context.clone();
         let tool_titles = batch
             .calls
             .iter()
@@ -7818,6 +7849,32 @@ impl BlocklistAIController {
                     self.fail_active_provider_run(
                         conversation_id,
                         format!("failed to attach provider tool proposal: {error:?}"),
+                        ctx,
+                    );
+                    return;
+                }
+            }
+            if let Some(pending) = batch
+                .calls
+                .iter()
+                .find(|pending| pending.call.id == action.id.to_string())
+            {
+                let saved = BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    let conversation = history
+                        .conversation_mut(&conversation_id)
+                        .ok_or_else(|| anyhow::anyhow!("missing provider conversation"))?;
+                    conversation.save_provider_tool(
+                        &stream_id,
+                        &action_context,
+                        &pending.call,
+                        &action,
+                        ctx,
+                    )
+                });
+                if let Err(error) = saved {
+                    self.fail_active_provider_run(
+                        conversation_id,
+                        format!("failed to save provider tool history: {error}"),
                         ctx,
                     );
                     return;

@@ -2430,6 +2430,61 @@ impl AIConversation {
         Ok(())
     }
 
+    pub(crate) fn save_provider_tool(
+        &mut self,
+        stream_id: &ResponseStreamId,
+        context: &crate::ai::runtime::ProviderActionContext,
+        call: &galaxy_agent_core::ToolCall,
+        action: &AIAgentAction,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> anyhow::Result<()> {
+        let task_id = TaskId::new(context.task_id().to_owned());
+        let exchange_id = self
+            .added_exchanges_by_response
+            .get(stream_id)
+            .and_then(|exchanges| {
+                exchanges
+                    .iter()
+                    .find(|exchange| exchange.task_id == task_id)
+            })
+            .map(|exchange| exchange.exchange_id)
+            .ok_or_else(|| anyhow::anyhow!("missing provider tool exchange"))?;
+        let message = super::provider_history::tool_message(context, call, action)?;
+        self.task_store
+            .modify_task(&task_id, |task| {
+                task.save_display_message(message, exchange_id.to_string())
+            })
+            .ok_or_else(|| anyhow::anyhow!("missing provider tool task"))??;
+        self.write_updated_conversation_state(ctx);
+        Ok(())
+    }
+
+    pub(crate) fn save_provider_tool_result(
+        &mut self,
+        result: &super::AIAgentActionResult,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) -> anyhow::Result<()> {
+        let request_id = self
+            .get_task(&result.task_id)
+            .and_then(|task| {
+                task.messages()
+                    .find(|message| message.id == result.id.to_string())
+            })
+            .map(|message| message.request_id.clone());
+        // Hosted/session-owned tools already persist their results through API messages.
+        let Some(request_id) = request_id else {
+            return Ok(());
+        };
+        let message = super::provider_history::result_message(result)?;
+        self.task_store
+            .modify_task(&result.task_id, |task| {
+                task.save_display_message(message, request_id)
+            })
+            .ok_or_else(|| anyhow::anyhow!("missing provider result task"))??;
+        self.write_updated_conversation_state(ctx);
+        Ok(())
+    }
+
     fn ensure_response_exchange_for_task(
         &mut self,
         stream_id: &ResponseStreamId,

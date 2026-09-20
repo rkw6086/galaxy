@@ -3890,3 +3890,57 @@ fn failed_child_without_an_exchange_reaches_terminal_error() {
         });
     });
 }
+
+#[test]
+fn restored_provider_checkpoint_waits_for_explicit_resume() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let conversation_id = terminal.update(&mut app, |terminal, ctx| {
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                let conversation_id =
+                    history.start_new_conversation(terminal.id(), false, false, false, ctx);
+                history
+                    .persist_active_provider_run_json(
+                        conversation_id,
+                        Some("unparsed saved checkpoint".to_owned()),
+                        ctx,
+                    )
+                    .unwrap();
+                ctx.emit(
+                    crate::ai::blocklist::BlocklistAIHistoryEvent::RestoredConversations {
+                        terminal_surface_id: terminal.id(),
+                        conversation_ids: vec![conversation_id],
+                    },
+                );
+                conversation_id
+            })
+        });
+        terminal.update(&mut app, |terminal, ctx| {
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .unwrap();
+            assert_eq!(conversation.status(), &ConversationStatus::Cancelled);
+            assert_eq!(
+                conversation.active_provider_run_json(),
+                Some("unparsed saved checkpoint")
+            );
+            terminal.ai_controller().update(ctx, |controller, ctx| {
+                assert!(!controller
+                    .restoring_provider_runs
+                    .contains(&conversation_id));
+                assert!(!controller
+                    .active_provider_runs
+                    .contains_key(&conversation_id));
+                assert!(!controller.conversation_ready_for_pending_events(conversation_id, ctx));
+                controller.resume_conversation(conversation_id, Vec::new(), ctx);
+                assert!(controller
+                    .restoring_provider_runs
+                    .contains(&conversation_id));
+                // A second click must not schedule another restoration.
+                controller.resume_conversation(conversation_id, Vec::new(), ctx);
+                assert_eq!(controller.restoring_provider_runs.len(), 1);
+            });
+        });
+    });
+}

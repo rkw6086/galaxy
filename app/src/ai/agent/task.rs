@@ -691,15 +691,58 @@ impl Task {
         Ok(source)
     }
 
+    /// Append display-only records without replaying tools or changing the live exchange.
+    pub(super) fn save_display_message(
+        &mut self,
+        mut message: api::Message,
+        request_id: String,
+    ) -> Result<(), UpdateTaskError> {
+        message.request_id = request_id;
+        if message.timestamp.is_none() {
+            let now = chrono::Utc::now();
+            message.timestamp = Some(prost_types::Timestamp {
+                seconds: now.timestamp(),
+                nanos: now.timestamp_subsec_nanos() as i32,
+            });
+        }
+        let source = self.try_get_source_mut()?;
+        if let Some(existing) = source
+            .messages
+            .iter_mut()
+            .find(|existing| existing.id == message.id)
+        {
+            message.request_id.clone_from(&existing.request_id);
+            message.timestamp = existing.timestamp.or(message.timestamp);
+            *existing = message;
+        } else {
+            source.messages.push(message);
+        }
+        Ok(())
+    }
+
     pub(super) fn add_messages(
         &mut self,
-        messages: Vec<api::Message>,
+        mut messages: Vec<api::Message>,
         exchange_id: AIAgentExchangeId,
         message_context: TaskMessageContext<'_>,
         should_convert_input_messages: bool,
     ) -> Result<(), UpdateTaskError> {
         if self.source().is_none() {
             return Err(UpdateTaskError::TaskNotInitialized);
+        }
+        // Locally projected provider messages have no server request identity.
+        // Persist their actual exchange identity so restart preserves turn boundaries.
+        for message in &mut messages {
+            if message.request_id.is_empty() {
+                message.request_id = exchange_id.to_string();
+            }
+            if message.timestamp.is_none() {
+                let now = chrono::Utc::now();
+                message.timestamp = Some(prost_types::Timestamp {
+                    seconds: now.timestamp(),
+                    nanos: now.timestamp_subsec_nanos() as i32,
+                });
+            }
         }
         self.update_exchange_from_messages(
             messages.clone(),

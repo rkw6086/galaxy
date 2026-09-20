@@ -37,8 +37,8 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
 {
     let controller_weak_handle = pty_controller.downgrade();
     let surface_weak_handle = surface.downgrade();
-    let model_clone = model.clone();
 
+    let command_sessions = sessions.clone();
     ctx.subscribe_to_view(surface, move |_surface, event, ctx| {
         // NOTE: we cannot simply use the strong reference (the model handle argument to this wire_up fn)
         // because it'll create a reference cycle with the `subscribe_to_model` usage below. Instead,
@@ -79,7 +79,7 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
                 });
             }
             PtyIntent::ExecuteCommand(event) => {
-                let Some(shell_type) = sessions
+                let Some(shell_type) = command_sessions
                     .as_ref(ctx)
                     .get(event.session_id)
                     .map(|s| s.shell().shell_type())
@@ -88,20 +88,14 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
                     return;
                 };
 
-                model_clone.lock().block_list_mut().active_block_mut().set_cloud_workflow_state(event.workflow_id);
                 controller.update(ctx, |controller, ctx| {
-                    controller.write_command(&event.command, shell_type, event.source.clone(), ctx)
+                    controller.write_command(&event, shell_type, ctx)
                 });
-
-                if event.should_add_command_to_history {
-                    update_command_history(
-                        &event,
-                        &model_clone,
-                        model_event_sender.as_ref(),
-                        &sessions,
-                        ctx,
-                    );
-                }
+            }
+            PtyIntent::CancelQueuedAgentCommand(action_id) => {
+                controller.update(ctx, |controller, _| {
+                    controller.cancel_queued_agent_command(&action_id);
+                });
             }
             PtyIntent::RunNativeShellCompletions {
                 buffer_text,
@@ -120,6 +114,18 @@ pub fn wire_up_pty_controller_with_surface<T: EventLoopSender, S: TerminalSurfac
         };
 
         match event {
+            PtyControllerEvent::CommandStarted { event, block_id } => {
+                if event.should_add_command_to_history {
+                    update_command_history(
+                        event,
+                        block_id,
+                        &model,
+                        model_event_sender.as_ref(),
+                        &sessions,
+                        ctx,
+                    );
+                }
+            }
             PtyControllerEvent::PtyDisconnected => surface.update(ctx, |_, _| {
                 model.lock().exit(ExitReason::PtyDisconnected);
             }),

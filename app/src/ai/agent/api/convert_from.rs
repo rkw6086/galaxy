@@ -215,6 +215,8 @@ fn convert_start_agent_v2_execution_mode(
 /// Unexpected errors when trying to convert an [`api::Message`] to an [`AIAgentOutputMessage`].
 #[derive(Debug, thiserror::Error)]
 pub enum MessageToAIAgentOutputMessageError {
+    #[error("Invalid saved provider tool: {0}")]
+    SavedProviderTool(String),
     #[error("Missing expected message")]
     MissingMessage,
     #[error("Error converting tool to action: {0:?}")]
@@ -262,6 +264,16 @@ impl ConvertAPIMessageToClientOutputMessage for api::Message {
         self,
         params: ConversionParams,
     ) -> Result<MaybeAIAgentOutputMessage, MessageToAIAgentOutputMessageError> {
+        if let Some(action) =
+            crate::ai::agent::provider_history::restore_tool(&self.server_message_data)
+        {
+            return Ok(MaybeAIAgentOutputMessage::Message(
+                AIAgentOutputMessage::action(
+                    MessageId::new(self.id),
+                    action.map_err(MessageToAIAgentOutputMessageError::SavedProviderTool)?,
+                ),
+            ));
+        }
         let Some(message) = self.message else {
             // In shared-session streams we can receive skeleton placeholder task messages without payloads.
             // Treat them as having no client representation rather than erroring and aborting ingestion entirely.

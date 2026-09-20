@@ -3022,7 +3022,10 @@ impl ansi::Handler for TerminalModel {
                 self.is_receiving_in_band_command_output = IsReceivingInBandCommandOutput::No;
             }
             IsReceivingInBandCommandOutput::No => {
-                log::warn!("Received 'end_in_band_command_output' while not expecting to read in-band command output.");
+                // Command dispatch calls this defensively even when no in-band output is active.
+                if from_osc_sequence {
+                    log::warn!("Received 'end_in_band_command_output' while not expecting to read in-band command output.");
+                }
             }
         }
 
