@@ -1086,8 +1086,19 @@ pub struct LocalAgentGroup {
     pub notified: bool,
 }
 
+/// Exact provider history, independent of terminal scrollback and UI task projections.
+/// `None` on AgentConversationData denotes a legacy row requiring reconstruction;
+/// an explicitly empty history must stay empty after restoration.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ProviderConversationContext {
+    pub messages: Vec<galaxy_agent_core::ConversationMessage>,
+    pub tool_result_archive: Vec<galaxy_agent_core::ConversationMessage>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct AgentConversationData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_context: Option<ProviderConversationContext>,
     /// Display-only tool intent, scoped to this conversation and keyed by call ID.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub tool_titles: HashMap<String, String>,

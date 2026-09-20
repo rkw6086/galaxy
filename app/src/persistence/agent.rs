@@ -204,6 +204,7 @@ pub(super) fn select_conversations_to_evict(
 
 pub(super) fn read_agent_conversations(
     conn: &mut SqliteConnection,
+    errors: &mut Vec<String>,
 ) -> Result<Vec<AgentConversation>, diesel::result::Error> {
     let mut conversations_by_id = HashMap::<String, AgentConversation>::from_iter(
         agent_conversations::table
@@ -242,7 +243,27 @@ pub(super) fn read_agent_conversations(
         }
     }
 
-    conversations_by_id.retain(|c_id, _| !invalid_conversation_ids.contains(c_id));
+    for conversation_id in &invalid_conversation_ids {
+        errors.push(format!(
+            "Failed to restore conversation {conversation_id}: invalid task data"
+        ));
+    }
+    conversations_by_id.retain(|id, _| !invalid_conversation_ids.contains(id));
+    // Keep healthy conversations available, but mark the restore incomplete so
+    // invalid metadata can never be replaced with empty defaults on disk.
+    conversations_by_id.retain(|id, conversation| {
+        match serde_json::from_str::<AgentConversationData>(
+            &conversation.conversation.conversation_data,
+        ) {
+            Ok(_) => true,
+            Err(error) => {
+                let message = format!("Failed to restore conversation {id} metadata: {error}");
+                log::error!("{message}");
+                errors.push(message);
+                false
+            }
+        }
+    });
 
     Ok(conversations_by_id.into_values().collect())
 }

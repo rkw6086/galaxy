@@ -73,6 +73,7 @@ pub fn convert_conversation_data_to_ai_conversation(
     let agent_conversation_data = match restoration_mode {
         RestorationMode::Fork => AgentConversationData {
             agent_backend: Default::default(),
+            provider_context: None,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
             tool_titles: Default::default(),
@@ -99,6 +100,7 @@ pub fn convert_conversation_data_to_ai_conversation(
         },
         RestorationMode::Continue => AgentConversationData {
             agent_backend: Default::default(),
+            provider_context: None,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
             tool_titles: Default::default(),

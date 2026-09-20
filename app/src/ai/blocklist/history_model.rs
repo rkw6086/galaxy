@@ -1703,6 +1703,7 @@ impl BlocklistAIHistoryModel {
 
         let conversation_data = AgentConversationData {
             agent_backend: source_conversation.agent_backend().for_fork(),
+            provider_context: None,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
             tool_titles: source_conversation.tool_titles().clone(),
@@ -1870,6 +1871,7 @@ impl BlocklistAIHistoryModel {
         // be recomputed based on the retained exchanges in a follow-up.
         let conversation_data = AgentConversationData {
             agent_backend: conversation.agent_backend().for_fork(),
+            provider_context: None,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
             tool_titles: conversation.tool_titles().clone(),
@@ -2898,6 +2900,7 @@ fn merged_remote_child_placeholder_conversation_data(
     cloud_conversation: &AIConversation,
 ) -> AgentConversationData {
     AgentConversationData {
+        provider_context: None,
         // Placeholder authoritative.
         agent_backend: placeholder.agent_backend().clone(),
 

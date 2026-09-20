@@ -137,6 +137,7 @@ fn is_restorable_accepts_empty_and_single_task_conversations() {
 fn agent_conversation_data_roundtrips_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),
@@ -242,6 +243,7 @@ fn agent_conversation_data_omits_default_provider_backend() {
 fn agent_conversation_data_roundtrips_remote_child_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),
@@ -272,6 +274,7 @@ fn agent_conversation_data_roundtrips_remote_child_marker() {
 fn agent_conversation_data_roundtrips_optimistic_root_marker() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),
@@ -314,6 +317,7 @@ fn agent_conversation_data_deserializes_legacy_payload_without_last_event_sequen
 fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),
@@ -346,6 +350,7 @@ fn agent_conversation_data_skips_serializing_none_last_event_sequence() {
 fn agent_conversation_data_roundtrips_pinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),
@@ -376,6 +381,7 @@ fn agent_conversation_data_roundtrips_pinned() {
 fn agent_conversation_data_skips_serializing_unpinned() {
     let data = AgentConversationData {
         agent_backend: Default::default(),
+        provider_context: None,
         active_provider_run_json: None,
         local_agent_groups: Vec::new(),
         tool_titles: Default::default(),

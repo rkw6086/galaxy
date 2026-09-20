@@ -2829,6 +2829,24 @@ fn launch(ctx: &mut galaxyui::AppContext, app_state: Option<AppState>, launch_mo
                 timer.mark_interval_end("WINDOWS_CREATED");
             });
 
+            #[cfg(feature = "local_fs")]
+            if matches!(launch_mode, LaunchMode::App { .. })
+                && PersistenceWriter::as_ref(ctx).sender().is_none()
+            {
+                let windows: Vec<_> = ctx.window_ids().collect();
+                for window_id in windows {
+                    ToastStack::handle(ctx).update(ctx, |toasts, ctx| {
+                        toasts.add_persistent_toast(
+                            DismissibleToast::error(
+                                "Galaxy could not restore all local data. Saving is disabled to protect existing data. Check the logs and restart after resolving the problem.".to_string(),
+                            ),
+                            window_id,
+                            ctx,
+                        );
+                    });
+                }
+            }
+
             // TODO(ben): We should skip this for LaunchMode::Test.
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             {

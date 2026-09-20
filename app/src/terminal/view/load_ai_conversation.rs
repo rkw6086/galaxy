@@ -943,6 +943,7 @@ impl TerminalView {
 
         let conversation_data = AgentConversationData {
             agent_backend: Default::default(),
+            provider_context: None,
             active_provider_run_json: None,
             local_agent_groups: Vec::new(),
             tool_titles: Default::default(),

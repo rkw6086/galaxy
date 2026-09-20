@@ -136,7 +136,10 @@ pub fn initialize(
     let database_path = database_file_path_for_scope(&scope);
     match init_db(&scope) {
         Ok(mut conn) => {
-            let persisted_data = read_persisted_data(&mut conn, ctx);
+            let (persisted_data, restore_complete) = read_persisted_data(&mut conn, ctx);
+            if !restore_complete {
+                return (Some(persisted_data), None);
+            }
 
             let writer_handles = match start_writer(conn, database_path.clone()) {
                 Ok(writer_handles) => Some(writer_handles),
@@ -149,7 +152,7 @@ pub fn initialize(
                     None
                 }
             };
-            (persisted_data, writer_handles)
+            (Some(persisted_data), writer_handles)
         }
         Err(err) => {
             send_telemetry_from_app_ctx!(
@@ -165,16 +168,14 @@ pub fn initialize(
 fn read_persisted_data(
     conn: &mut SqliteConnection,
     ctx: &mut AppContext,
-) -> Option<Box<PersistedData>> {
+) -> (Box<PersistedData>, bool) {
     let user_uid = AuthStateProvider::as_ref(ctx).get().user_id();
-    match read_sqlite_data(conn, user_uid) {
-        Ok(app_state) => Some(Box::new(app_state)),
-        Err(err) => {
-            send_telemetry_from_app_ctx!(TelemetryEvent::DatabaseReadError(err.to_string()), ctx);
-            report_error!(anyhow::Error::new(err).context("Failed to read persisted data"));
-            None
-        }
+    let (data, errors) = read_sqlite_data_with_recovery(conn, user_uid);
+    if !errors.is_empty() {
+        send_telemetry_from_app_ctx!(TelemetryEvent::DatabaseReadError(errors.join("; ")), ctx);
+        report_error!(anyhow!("Incomplete SQLite restore; database writes are disabled for this launch to preserve existing data: {}", errors.join("; ")));
     }
+    (Box::new(data), errors.is_empty())
 }
 
 /// Returns a read-only connection to the sqlite database.
@@ -466,6 +467,7 @@ fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<Writer
     let handle = thread::Builder::new()
         .name("SQLite Writer".into())
         .spawn(move || {
+            let mut last_saved_snapshot = None;
             loop {
                 let events = match rx.recv() {
                     Ok(event) => {
@@ -490,6 +492,15 @@ fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<Writer
                             log::info!("Shutting down SQLite writer thread");
                             return;
                         }
+                        ModelEvent::Snapshot(app_state) => {
+                            if let Err(err) = save_snapshot_if_changed(
+                                &mut current_conn,
+                                app_state,
+                                &mut last_saved_snapshot,
+                            ) {
+                                report_db_error("session snapshot", err, &database_path);
+                            }
+                        }
                         event => {
                             if let Err(err) = handle_model_event(event, &mut current_conn) {
                                 report_db_error("Model", err, &database_path);
@@ -500,6 +511,43 @@ fn start_writer(conn: SqliteConnection, database_path: PathBuf) -> Result<Writer
             }
         })?;
     Ok(WriterHandles { handle, sender: tx })
+}
+
+/// Only committed snapshots may suppress a later save, including the shutdown save.
+fn save_snapshot_if_changed(
+    conn: &mut SqliteConnection,
+    snapshot: AppState,
+    last_saved: &mut Option<AppState>,
+) -> Result<()> {
+    if last_saved.as_ref() == Some(&snapshot) {
+        return Ok(());
+    }
+    retry_sqlite_write(|| save_app_state(conn, &snapshot))?;
+    *last_saved = Some(snapshot);
+    Ok(())
+}
+
+/// Retry transactional, idempotent saves on transient SQLite contention. Permanent
+/// failures remain errors, and must never be recorded as committed state.
+fn retry_sqlite_write<T>(mut write: impl FnMut() -> Result<T>) -> Result<T> {
+    for attempt in 0..3 {
+        match write() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                let busy = error.chain().any(|cause| {
+                    cause.downcast_ref::<Error>().is_some_and(|error| {
+                        matches!(error, Error::DatabaseError(_, info)
+                            if info.message().contains("locked") || info.message().contains("busy"))
+                    })
+                });
+                if !busy || attempt == 2 {
+                    return Err(error);
+                }
+                thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1)));
+            }
+        }
+    }
+    unreachable!("the last write attempt always returns")
 }
 
 /// Handles a single [`ModelEvent`] by dispatching to an event-specific function.
@@ -636,13 +684,15 @@ fn handle_model_event(event: ModelEvent, connection: &mut SqliteConnection) -> a
             conversation_id,
             updated_tasks,
             conversation_data,
-        } => upsert_agent_conversation(
-            connection,
-            &conversation_id,
-            &updated_tasks,
-            conversation_data,
-        )
-        .map_err(anyhow::Error::from),
+        } => retry_sqlite_write(|| {
+            upsert_agent_conversation(
+                connection,
+                &conversation_id,
+                &updated_tasks,
+                conversation_data.clone(),
+            )
+            .map_err(anyhow::Error::from)
+        }),
         ModelEvent::DeleteMultiAgentConversations { conversation_ids } => {
             delete_agent_conversations(connection, conversation_ids)
                 .map_err(anyhow::Error::from)
@@ -2355,19 +2405,200 @@ fn box_persisted_generic_string_object(
     }
 }
 
-/// This is not in a transaction. The interface for a transaction is a bit awkward,
-/// and makes it invalid to write the logic recursively. It's ok it's not in a
-/// transaction because we should be the only connection using the database.
-///
-/// One notable exception is the case where there may be two warp apps running
-/// in the same bundle. In this case, we may read some garbage, but all that will
-/// happen is the user won't have session restoration.
-///
-/// In the future, the awkwardness of the transaction interface is resolved in diesel 2.0.0.
+/// Use a consistent SQLite snapshot even when another Galaxy process is writing.
+/// A failed domain is reported independently; incomplete restoration disables writes.
+fn read_sqlite_data_with_recovery(
+    conn: &mut SqliteConnection,
+    current_user_id: Option<UserUid>,
+) -> (PersistedData, Vec<String>) {
+    match conn.transaction::<_, Error, _>(|conn| Ok(read_sqlite_domains(conn, current_user_id))) {
+        Ok(result) => result,
+        Err(error) => (
+            PersistedData::default(),
+            vec![format!("Failed to read SQLite snapshot: {error}")],
+        ),
+    }
+}
+
+fn read_sqlite_domains(
+    conn: &mut SqliteConnection,
+    current_user_id: Option<UserUid>,
+) -> (PersistedData, Vec<String>) {
+    let mut errors = Vec::new();
+    let layout = read_session_layout(conn, &mut errors);
+    let (windows, active_window_index) = recover_read("session layout", layout, &mut errors);
+    let cloud_objects = recover_read(
+        "local objects",
+        read_cloud_objects(conn, current_user_id),
+        &mut errors,
+    );
+    let (workspaces, current_workspace_uid) =
+        recover_read("workspaces", read_workspaces(conn), &mut errors);
+    let commands = recover_read(
+        "commands",
+        (|| -> Result<_, Error> {
+            let commands = schema::commands::dsl::commands
+                // Ensure the commands come into memory sorted chronologically.
+                .order(schema::commands::columns::id.desc())
+                .load_iter::<model::Command, DefaultLoadingMode>(conn)?
+                .filter_map(|command| command.ok())
+                .map(PersistedCommand::from)
+                .collect();
+
+            Ok(commands)
+        })(),
+        &mut errors,
+    );
+    let user_profiles = recover_read(
+        "user_profiles",
+        (|| -> Result<_, Error> {
+            let user_profiles = schema::user_profiles::dsl::user_profiles
+                .load_iter::<model::UserProfile, DefaultLoadingMode>(conn)?
+                .filter_map(|user_profile| user_profile.ok())
+                .map(user_profile_from_persistence)
+                .collect();
+
+            Ok(user_profiles)
+        })(),
+        &mut errors,
+    );
+    let object_actions = recover_read(
+        "object_actions",
+        (|| -> Result<_, Error> {
+            let object_actions: Vec<ObjectAction> = schema::object_actions::dsl::object_actions
+                .load_iter::<model::PersistedObjectAction, DefaultLoadingMode>(conn)?
+                .filter_map(|object_action| object_action.ok()) // parse into PersistedObjectAction
+                .filter_map(|action| object_action_from_persisted(action).ok())
+                .collect();
+
+            Ok(object_actions)
+        })(),
+        &mut errors,
+    );
+    let server_experiments = recover_read(
+        "server_experiments",
+        (|| -> Result<_, Error> {
+            let server_experiments = schema::server_experiments::dsl::server_experiments
+                .load_iter::<model::ServerExperiment, DefaultLoadingMode>(conn)?
+                .filter_map(|server_experiment| server_experiment.ok())
+                .filter_map(|server_experiment| {
+                    ServerExperiment::from_string(server_experiment.experiment).ok()
+                })
+                .collect();
+
+            Ok(server_experiments)
+        })(),
+        &mut errors,
+    );
+    let restored_blocks = recover_read(
+        "restored_blocks",
+        get_all_restored_blocks(conn),
+        &mut errors,
+    );
+    let running_mcp_servers = recover_read(
+        "running_mcp_servers",
+        load_active_mcp_servers(conn),
+        &mut errors,
+    );
+    let time_of_next_force_object_refresh = recover_read(
+        "time_of_next_force_object_refresh",
+        read_time_of_next_force_object_refresh(conn),
+        &mut errors,
+    );
+    let ai_queries = recover_read("ai_queries", read_ai_queries(conn), &mut errors);
+    let codebase_indices = recover_read(
+        "codebase_indices",
+        get_all_codebase_index_metadata(conn),
+        &mut errors,
+    );
+    let workspace_language_servers = recover_read(
+        "workspace_language_servers",
+        get_all_workspace_language_servers_by_workspace(conn),
+        &mut errors,
+    );
+    let conversations = read_agent_conversations(conn, &mut errors);
+    let multi_agent_conversations =
+        recover_read("multi_agent_conversations", conversations, &mut errors);
+    let projects = recover_read("projects", get_all_projects(conn), &mut errors);
+    let project_rules = recover_read("project_rules", get_all_project_rules(conn), &mut errors);
+    let ignored_suggestions = recover_read(
+        "ignored_suggestions",
+        get_all_ignored_suggestions(conn),
+        &mut errors,
+    );
+    let mcp_server_installations = recover_read(
+        "mcp_server_installations",
+        get_all_mcp_server_installations(conn),
+        &mut errors,
+    );
+    let mcp_servers_to_restore = recover_read(
+        "mcp_servers_to_restore",
+        get_mcp_servers_to_restore(conn),
+        &mut errors,
+    );
+    let app_state = AppState {
+        windows,
+        active_window_index,
+        block_lists: Arc::new(restored_blocks),
+        running_mcp_servers,
+    };
+    (
+        PersistedData {
+            app_state,
+            cloud_objects,
+            workspaces,
+            current_workspace_uid,
+            command_history: commands,
+            user_profiles,
+            time_of_next_force_object_refresh,
+            object_actions,
+            experiments: server_experiments,
+            ai_queries,
+            codebase_indices,
+            workspace_language_servers,
+            multi_agent_conversations,
+            projects,
+            project_rules,
+            ignored_suggestions,
+            mcp_server_installations,
+            mcp_servers_to_restore,
+        },
+        errors,
+    )
+}
+
+fn recover_read<T: Default, E: std::fmt::Display>(
+    domain: &str,
+    result: Result<T, E>,
+    errors: &mut Vec<String>,
+) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => {
+            let message = format!("Failed to restore {domain}: {error}");
+            log::error!("{message}");
+            errors.push(message);
+            T::default()
+        }
+    }
+}
+
+#[cfg(test)]
 fn read_sqlite_data(
     conn: &mut SqliteConnection,
     current_user_id: Option<UserUid>,
-) -> Result<PersistedData, Error> {
+) -> Result<PersistedData> {
+    let (data, errors) = read_sqlite_data_with_recovery(conn, current_user_id);
+    if !errors.is_empty() {
+        bail!("{}", errors.join("; "));
+    }
+    Ok(data)
+}
+
+fn read_session_layout(
+    conn: &mut SqliteConnection,
+    errors: &mut Vec<String>,
+) -> Result<(Vec<WindowSnapshot>, Option<usize>), Error> {
     use schema::windows::dsl::*;
 
     let active_window_id = schema::app::dsl::app
@@ -2427,7 +2658,18 @@ fn read_sqlite_data(
                 let saved_tabs: Vec<_> = tabs_for_window
                     .into_iter()
                     .filter_map(|tab| {
-                        let root = read_root_node(conn, tab.id).ok()?;
+                        let root = match read_root_node(conn, tab.id) {
+                            Ok(root) => root,
+                            Err(error) => {
+                                let message = format!(
+                                    "Failed to restore session layout tab {}: {error}",
+                                    tab.id
+                                );
+                                log::error!("{message}");
+                                errors.push(message);
+                                return None;
+                            }
+                        };
                         let panel = db_panels.get(&tab.id);
 
                         let left_panel = panel
@@ -2560,6 +2802,13 @@ fn read_sqlite_data(
         )
         .collect();
 
+    Ok((saved_windows, active_window_index))
+}
+
+fn read_cloud_objects(
+    conn: &mut SqliteConnection,
+    current_user_id: Option<UserUid>,
+) -> Result<Vec<Box<dyn CloudObject>>, Error> {
     let read_context = load_cloud_object_read_context(conn, current_user_id)?;
     let mut cloud_objects: Vec<Box<dyn CloudObject>> = Vec::new();
     cloud_objects.extend(
@@ -2583,6 +2832,12 @@ fn read_sqlite_data(
             .map(box_persisted_generic_string_object),
     );
 
+    Ok(cloud_objects)
+}
+
+fn read_workspaces(
+    conn: &mut SqliteConnection,
+) -> Result<(Vec<WorkspaceMetadata>, Option<WorkspaceUid>), Error> {
     let db_teams: Vec<model::Team> = schema::teams::dsl::teams.load(conn)?;
 
     let team_member_rows: Vec<model::TeamMemberRow> =
@@ -2671,79 +2926,7 @@ fn read_sqlite_data(
         .optional()?
         .map(|uid| uid.into());
 
-    let commands = schema::commands::dsl::commands
-        // Ensure the commands come into memory sorted chronologically.
-        .order(schema::commands::columns::id.desc())
-        .load_iter::<model::Command, DefaultLoadingMode>(conn)?
-        .filter_map(|command| command.ok())
-        .map(PersistedCommand::from)
-        .collect();
-
-    let user_profiles = schema::user_profiles::dsl::user_profiles
-        .load_iter::<model::UserProfile, DefaultLoadingMode>(conn)?
-        .filter_map(|user_profile| user_profile.ok())
-        .map(user_profile_from_persistence)
-        .collect();
-
-    let object_actions: Vec<ObjectAction> = schema::object_actions::dsl::object_actions
-        .load_iter::<model::PersistedObjectAction, DefaultLoadingMode>(conn)?
-        .filter_map(|object_action| object_action.ok()) // parse into PersistedObjectAction
-        .filter_map(|action| object_action_from_persisted(action).ok())
-        .collect();
-
-    let server_experiments = schema::server_experiments::dsl::server_experiments
-        .load_iter::<model::ServerExperiment, DefaultLoadingMode>(conn)?
-        .filter_map(|server_experiment| server_experiment.ok())
-        .filter_map(|server_experiment| {
-            ServerExperiment::from_string(server_experiment.experiment).ok()
-        })
-        .collect();
-
-    let restored_blocks = get_all_restored_blocks(conn)?;
-
-    // Load active MCP servers from database
-    let running_mcp_servers = load_active_mcp_servers(conn)?;
-
-    let app_state = AppState {
-        windows: saved_windows,
-        active_window_index,
-        block_lists: Arc::new(restored_blocks),
-        running_mcp_servers,
-    };
-
-    let time_of_next_force_object_refresh = read_time_of_next_force_object_refresh(conn)?;
-
-    let ai_queries = read_ai_queries(conn)?;
-
-    let codebase_indices = get_all_codebase_index_metadata(conn)?;
-    let workspace_language_servers = get_all_workspace_language_servers_by_workspace(conn)?;
-    let multi_agent_conversations = read_agent_conversations(conn)?;
-    let projects = get_all_projects(conn)?;
-    let project_rules = get_all_project_rules(conn)?;
-    let ignored_suggestions = get_all_ignored_suggestions(conn)?;
-    let mcp_server_installations = get_all_mcp_server_installations(conn)?;
-    let mcp_servers_to_restore = get_mcp_servers_to_restore(conn)?;
-
-    Ok(PersistedData {
-        app_state,
-        cloud_objects,
-        workspaces,
-        current_workspace_uid,
-        command_history: commands,
-        user_profiles,
-        time_of_next_force_object_refresh,
-        object_actions,
-        experiments: server_experiments,
-        ai_queries,
-        codebase_indices,
-        workspace_language_servers,
-        multi_agent_conversations,
-        projects,
-        project_rules,
-        ignored_suggestions,
-        mcp_server_installations,
-        mcp_servers_to_restore,
-    })
+    Ok((workspaces, current_workspace_uid))
 }
 
 impl From<StartedCommandMetadata> for model::NewCommand {

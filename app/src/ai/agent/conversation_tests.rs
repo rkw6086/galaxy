@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use galaxy_agent_core::{ContentPart, ConversationMessage, MessageContent, MessageRole};
 use galaxy_core::features::FeatureFlag;
 use warp_multi_agent_api as api;
 
@@ -8,7 +9,9 @@ use super::{
     ConversationStatus, RestoreConversationError,
 };
 use crate::ai::artifacts::Artifact;
-use crate::persistence::model::{AcpConversationData, AgentBackend, AgentConversationData};
+use crate::persistence::model::{
+    AcpConversationData, AgentBackend, AgentConversationData, ProviderConversationContext,
+};
 
 fn restored_conversation(conversation_data: Option<AgentConversationData>) -> AIConversation {
     AIConversation::new_restored(
@@ -705,4 +708,63 @@ fn fetched_memories_dedupes_keeping_first_position_and_latest_data() {
             fetched_memory("m1", "same memory id different store", "store-2", None),
         ]
     );
+}
+
+#[test]
+fn restored_provider_context_preserves_compacted_history_and_tool_archive() {
+    let context = ProviderConversationContext {
+        messages: vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiPart(vec![
+                ContentPart::Reasoning {
+                    text: "retained reasoning".into(),
+                    signature: Some("signature".into()),
+                },
+                ContentPart::Text("retained response".into()),
+            ]),
+        }],
+        tool_result_archive: vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old-tool".into(),
+                content: "original output".into(),
+                is_error: false,
+            },
+        }],
+    };
+    let data = AgentConversationData {
+        provider_context: Some(context.clone()),
+        progressive_summary: Some("Older history".into()),
+        ..Default::default()
+    };
+    let data = serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+    let restored = restored_conversation(Some(data));
+    assert_eq!(restored.provider_context(), context);
+    assert_eq!(restored.progressive_summary(), Some("Older history"));
+    assert!(restored.active_provider_run_json().is_none());
+}
+
+#[test]
+fn explicit_empty_provider_context_does_not_reconstruct_old_task_messages() {
+    let data = AgentConversationData {
+        provider_context: Some(ProviderConversationContext {
+            messages: Vec::new(),
+            tool_result_archive: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    let task = api::Task {
+        id: "root-task".into(),
+        messages: vec![user_query_message("query", "request", "old query")],
+        dependencies: None,
+        description: String::new(),
+        summary: String::new(),
+        server_data: String::new(),
+    };
+    let legacy =
+        AIConversation::new_restored(AIConversationId::new(), vec![task.clone()], None).unwrap();
+    assert!(!legacy.bedrock_message_history().is_empty());
+    let restored =
+        AIConversation::new_restored(AIConversationId::new(), vec![task], Some(data)).unwrap();
+    assert!(restored.bedrock_message_history().is_empty());
 }

@@ -33,6 +33,7 @@ use input_context::{input_context_for_request, parse_context_attachments};
 use itertools::Itertools;
 use parking_lot::FairMutex;
 use pending_response_streams::PendingResponseStreams;
+use persistence::model::ProviderConversationContext;
 use session_sharing_protocol::common::ParticipantId;
 use settings::Setting;
 pub use slash_command::*;
@@ -6519,9 +6520,16 @@ impl BlocklistAIController {
             Err(error) => return Err(error),
         };
         snapshot.queued_follow_ups = queued_follow_ups;
+        let context = ProviderConversationContext {
+            messages: snapshot.run.transcript()[snapshot.persistence_offset..].to_vec(),
+            tool_result_archive: snapshot.run.tool_result_archive().to_vec(),
+        };
         let json = serde_json::to_string(&snapshot)
             .map_err(|error| format!("failed to serialize active provider run: {error}"))?;
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history_model, ctx| {
+            if let Some(conversation) = history_model.conversation_mut(&conversation_id) {
+                conversation.set_provider_context(context);
+            }
             history_model
                 .persist_active_provider_run_json(conversation_id, Some(json), ctx)
                 .map_err(|error| format!("failed to persist active provider run: {error:?}"))
@@ -8290,6 +8298,20 @@ impl BlocklistAIController {
             let offset = run.persistence_offset.min(transcript.len());
             *messages_sent = transcript[offset..].to_vec();
         }
+        // Retain the exact context before terminal projection clears the active checkpoint.
+        // UI task messages are a lossy representation of tool/reasoning messages.
+        let transcript = run.coordinator.run().transcript();
+        let offset = run.persistence_offset.min(transcript.len());
+        let context = ProviderConversationContext {
+            messages: transcript[offset..].to_vec(),
+            tool_result_archive: run.coordinator.run().tool_result_archive().to_vec(),
+        };
+        BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+            if let Some(conversation) = history.conversation_mut(&conversation_id) {
+                conversation.set_provider_context(context);
+                conversation.write_updated_conversation_state(ctx);
+            }
+        });
         let aggregate_usage = run.coordinator.run().usage().clone();
         let events = match run.projector.finish(&outcome, &aggregate_usage) {
             Ok(events) => events,

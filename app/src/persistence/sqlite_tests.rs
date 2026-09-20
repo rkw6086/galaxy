@@ -5,6 +5,7 @@ use ai::workspace::WorkspaceMetadata;
 use chrono::Utc;
 use cloud_object_persistence::to_cloud_object_permissions;
 use diesel::connection::SimpleConnection;
+use galaxy_agent_core::{ConversationMessage, MessageContent, MessageRole};
 use galaxy_core::features::FeatureFlag;
 use galaxy_graphql::scalars::time::ServerTimestamp;
 use pathfinder_geometry::rect::RectF;
@@ -15,6 +16,7 @@ use super::{
     encode_path, get_all_codebase_index_metadata, read_sqlite_data, save_app_state,
     save_codebase_index_metadata, setup_database, start_writer, GALAXY_SQLITE_FILE_NAME,
 };
+use crate::ai::agent::conversation::{AIConversation, AIConversationId};
 use crate::ai::facts::{AIFact, AIMemory, CloudAIFact};
 use crate::app_state::{
     AppState, CodePaneSnapShot, CodePaneTabSnapshot, LeafContents, LeafSnapshot, PaneNodeSnapshot,
@@ -23,7 +25,10 @@ use crate::app_state::{
 use crate::cloud_object::{CloudObjectPermissions, Owner};
 use crate::code::editor_management::CodeSource;
 use crate::notebooks::{CloudNotebook, CloudNotebookModel};
-use crate::persistence::model::ObjectPermissions;
+use crate::persistence::agent::upsert_agent_conversation;
+use crate::persistence::model::{
+    AgentConversationData, ObjectPermissions, ProviderConversationContext,
+};
 use crate::persistence::{BlockCompleted, ModelEvent, PersistenceScope};
 use crate::server::ids::{ClientId, SyncId};
 use crate::tab::SelectedTabColor;
@@ -1124,4 +1129,145 @@ fn test_sqlite_drops_too_small_bounds_on_read() {
         restored.windows[0].bounds.is_none(),
         "tiny persisted bounds must be discarded on read so users recover from a corrupt DB"
     );
+}
+
+#[test]
+fn failed_snapshot_is_not_cached_and_can_be_retried() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();
+    let snapshot = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Vec::new(),
+    };
+    conn.batch_execute("CREATE TRIGGER reject_window BEFORE INSERT ON windows BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;").unwrap();
+    let mut last_saved = None;
+    assert!(super::save_snapshot_if_changed(&mut conn, snapshot.clone(), &mut last_saved).is_err());
+    assert!(last_saved.is_none());
+    conn.batch_execute("DROP TRIGGER reject_window;").unwrap();
+    super::save_snapshot_if_changed(&mut conn, snapshot.clone(), &mut last_saved).unwrap();
+    assert_eq!(last_saved, Some(snapshot));
+    assert_eq!(
+        read_sqlite_data(&mut conn, None)
+            .unwrap()
+            .app_state
+            .windows
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn sqlite_busy_writes_retry_but_permanent_failures_do_not() {
+    let mut attempts = 0;
+    super::retry_sqlite_write(|| {
+        attempts += 1;
+        if attempts < 3 {
+            return Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::Unknown,
+                Box::new("database is locked".to_owned()),
+            )
+            .into());
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(attempts, 3);
+    attempts = 0;
+    assert!(super::retry_sqlite_write(|| -> anyhow::Result<()> {
+        attempts += 1;
+        anyhow::bail!("permanent failure")
+    })
+    .is_err());
+    assert_eq!(attempts, 1);
+}
+
+#[test]
+fn incomplete_restore_keeps_independent_domains_and_reports_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();
+    let snapshot = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Vec::new(),
+    };
+    save_app_state(&mut conn, &snapshot).unwrap();
+    conn.batch_execute("DROP TABLE ignored_suggestions;")
+        .unwrap();
+    let (restored, errors) = super::read_sqlite_data_with_recovery(&mut conn, None);
+    assert_eq!(restored.app_state.windows.len(), 1);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].contains("ignored_suggestions"));
+}
+
+#[test]
+fn corrupt_tab_is_reported_instead_of_silently_replacing_saved_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();
+    let snapshot = AppState {
+        windows: vec![test_terminal_window_snapshot(false)],
+        active_window_index: Some(0),
+        block_lists: Default::default(),
+        running_mcp_servers: Vec::new(),
+    };
+    save_app_state(&mut conn, &snapshot).unwrap();
+    conn.batch_execute("DELETE FROM terminal_panes;").unwrap();
+    let (_, errors) = super::read_sqlite_data_with_recovery(&mut conn, None);
+    assert!(!errors.is_empty());
+    assert!(errors.iter().any(|error| error.contains("session layout")));
+    // Reading alone must leave the recoverable tab record in place.
+    conn.batch_execute("CREATE TRIGGER require_saved_tab BEFORE DELETE ON tabs BEGIN SELECT RAISE(ABORT, 'must retain tab'); END;").unwrap();
+    assert!(save_app_state(&mut conn, &snapshot).is_err());
+}
+
+#[test]
+fn provider_context_round_trips_through_sqlite_without_terminal_blocks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut conn = setup_database(&dir.path().join("galaxy.sqlite")).unwrap();
+    let id = AIConversationId::new();
+    let context = ProviderConversationContext {
+        messages: vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::Text("Most recent response".into()),
+        }],
+        tool_result_archive: vec![ConversationMessage {
+            role: MessageRole::User,
+            content: MessageContent::ToolResult {
+                tool_use_id: "old-call".into(),
+                content: "archived output".into(),
+                is_error: false,
+            },
+        }],
+    };
+    upsert_agent_conversation(
+        &mut conn,
+        &id.to_string(),
+        &[],
+        AgentConversationData {
+            provider_context: Some(context.clone()),
+            progressive_summary: Some("Earlier conversation".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    conn.batch_execute("INSERT INTO agent_conversations (conversation_id, conversation_data) VALUES ('corrupt', 'not-json');").unwrap();
+    let (healthy, errors) = super::read_sqlite_data_with_recovery(&mut conn, None);
+    assert_eq!(healthy.multi_agent_conversations.len(), 1);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].contains("corrupt"));
+    conn.batch_execute("DELETE FROM agent_conversations WHERE conversation_id = 'corrupt';")
+        .unwrap();
+    let mut data = read_sqlite_data(&mut conn, None).unwrap();
+    assert!(data.app_state.block_lists.is_empty());
+    let saved = data.multi_agent_conversations.pop().unwrap();
+    let restored = AIConversation::new_restored_synthesizing_on_empty(
+        id,
+        saved.tasks,
+        Some(serde_json::from_str(&saved.conversation.conversation_data).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(restored.provider_context(), context);
+    assert_eq!(restored.progressive_summary(), Some("Earlier conversation"));
 }

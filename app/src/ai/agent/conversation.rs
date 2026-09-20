@@ -17,7 +17,7 @@ use galaxy_core::ui::theme::GalaxyTheme;
 use galaxyui::color::ColorU;
 use galaxyui::{AppContext, EntityId, ModelContext, SingletonEntity};
 use itertools::Itertools as _;
-use persistence::model::LocalAgentGroup;
+use persistence::model::{LocalAgentGroup, ProviderConversationContext};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use vec1::{Size0Error, Vec1};
@@ -69,7 +69,6 @@ use crate::persistence::model::{
 };
 use crate::persistence::ModelEvent;
 use crate::server::ids::ServerId;
-use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::model::block::{
     AgentInteractionMetadata, AgentViewVisibility, BlockId, SerializedAIMetadata, SerializedBlock,
 };
@@ -453,11 +452,27 @@ impl AIConversation {
         tasks: Vec<api::Task>,
         conversation_data: Option<AgentConversationData>,
     ) -> Result<Self, RestoreConversationError> {
-        let bedrock_message_history: Vec<crate::ai::provider::convert::ConversationMessage> = tasks
-            .iter()
-            .flat_map(|task| task.messages.iter())
-            .filter_map(crate::ai::provider::request_translator::convert_proto_message)
-            .collect();
+        let provider_context = conversation_data
+            .as_ref()
+            .and_then(|data| data.provider_context.clone());
+        let (bedrock_message_history, tool_result_archive) = match provider_context {
+            Some(context) => (context.messages, context.tool_result_archive),
+            None => {
+                // Legacy rows have only UI task messages. Preserve that fallback, but
+                // do not use it for new rows, whose provider context may be compacted.
+                let messages: Vec<_> = tasks
+                    .iter()
+                    .flat_map(|task| task.messages.iter())
+                    .filter_map(crate::ai::provider::request_translator::convert_proto_message)
+                    .collect();
+                // Legacy UI messages do not share provider-message indices. Do not
+                // truncate them using a provider compaction count: retain everything
+                // recoverable and rebuild recall from the available tool messages.
+                let mut archive = Vec::new();
+                galaxy_agent_core::archive_tool_results(&mut archive, messages.clone());
+                (messages, archive)
+            }
+        };
 
         let (task_store, todo_lists, status) = if tasks.is_empty() {
             // Bypass `derive_status_from_root_task`: it would return `Success`
@@ -575,7 +590,6 @@ impl AIConversation {
             last_event_sequence,
             pinned,
             progressive_summary,
-            messages_summarized_up_to,
         ) = if let Some(data) = conversation_data {
             let server_conversation_token = data
                 .server_conversation_token
@@ -626,7 +640,6 @@ impl AIConversation {
                 data.last_event_sequence,
                 data.pinned,
                 data.progressive_summary.clone(),
-                data.messages_summarized_up_to,
             )
         } else {
             (
@@ -647,7 +660,6 @@ impl AIConversation {
                 None,
                 false,
                 None,
-                0,
             )
         };
 
@@ -715,9 +727,10 @@ impl AIConversation {
             orchestration_configs: HashMap::new(),
             pinned,
             bedrock_message_history,
-            tool_result_archive: Vec::new(),
+            tool_result_archive,
             progressive_summary,
-            messages_summarized_up_to,
+            // The previous response stream no longer exists; its drain count cannot apply.
+            messages_summarized_up_to: 0,
             current_context_tokens: 0,
             latest_model_call_usage: ProviderUsage::default(),
             has_pending_progressive_summary: false,
@@ -839,6 +852,19 @@ impl AIConversation {
         &mut self,
     ) -> &mut Vec<crate::ai::provider::convert::ConversationMessage> {
         &mut self.bedrock_message_history
+    }
+
+    pub(crate) fn provider_context(&self) -> ProviderConversationContext {
+        ProviderConversationContext {
+            messages: self.bedrock_message_history.clone(),
+            tool_result_archive: self.tool_result_archive.clone(),
+        }
+    }
+
+    pub(crate) fn set_provider_context(&mut self, context: ProviderConversationContext) {
+        self.bedrock_message_history = context.messages;
+        self.tool_result_archive = context.tool_result_archive;
+        self.messages_summarized_up_to = 0;
     }
 
     pub fn tool_result_archive(&self) -> &[crate::ai::provider::convert::ConversationMessage] {
@@ -4016,10 +4042,8 @@ impl AIConversation {
             return;
         }
 
-        // Check if session restoration is enabled before writing any state.
-        if !*GeneralSettings::as_ref(ctx).restore_session
-            || !AppExecutionMode::as_ref(ctx).can_save_session()
-        {
+        // Conversation history is durable even when automatic session reopening is disabled.
+        if !AppExecutionMode::as_ref(ctx).can_save_session() {
             return;
         }
 
@@ -4064,6 +4088,7 @@ impl AIConversation {
                 .filter_map(|task| task.source_for_persistence())
                 .collect(),
             conversation_data: AgentConversationData {
+                provider_context: Some(self.provider_context()),
                 agent_backend: self.agent_backend.clone(),
                 active_provider_run_json: self.active_provider_run_json.clone(),
                 local_agent_groups: self.local_agent_groups.clone(),
@@ -4097,14 +4122,9 @@ impl AIConversation {
                 messages_summarized_up_to: self.messages_summarized_up_to,
             },
         };
-        ctx.spawn(
-            async move {
-                if let Err(e) = sqlite_sender.send(event) {
-                    log::warn!("Failed to send updated AI tasks to sqlite writer thread: {e:?}");
-                }
-            },
-            |_, _, _| {},
-        );
+        if let Err(e) = sqlite_sender.send(event) {
+            log::error!("Failed to send updated AI tasks to sqlite writer thread: {e:?}");
+        }
     }
 
     pub fn rollback_transaction(&mut self, response_stream_id: &ResponseStreamId) {

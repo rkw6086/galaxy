@@ -9,6 +9,7 @@ license.workspace = true
 local_fs = []
 
 [dependencies]
+galaxy_agent_core.workspace = true
 chrono.workspace = true
 diesel = { workspace = true, features = [
     "chrono",

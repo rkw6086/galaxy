@@ -1,3 +1,22 @@
+# Saving and restoring local data
+
+On macOS, Galaxy stores its local database at `~/.galaxy/galaxy.sqlite`.
+`general.restore_session` controls automatic reopening of the previous session;
+conversation history and session snapshots continue to be saved when it is off.
+Terminal scrollback retention does not limit persisted provider conversation context.
+
+New conversation records store the provider message history and tool-result archive
+alongside the progressive summary. Older records fall back to reconstructing the
+available task messages; provider details omitted by those older saves cannot be
+recovered exactly.
+
+Startup reads use a consistent SQLite snapshot and recover independent data domains.
+If a domain or saved tab/conversation cannot be read, Galaxy logs the failure, shows a persistent startup warning, and
+leaves database writing disabled for that launch so partial in-memory state cannot
+overwrite the original records. Repair the underlying problem and restart to resume
+saving. Snapshot deduplication happens only after a successful database commit;
+transactional snapshot and conversation saves retry transient database contention.
+
 # How to perform migrations
 
 ## How do migrations work?
@@ -27,20 +46,20 @@ This will create a new folder with an up.sql and down.sql.
 ## Step 3: Run the migration + generate the schema
 ```
 cd <repo root>
-diesel migration run --database-url="/Users/$USER/.galaxy-local/galaxy.sqlite"
+diesel migration run --database-url="/Users/$USER/.galaxy/galaxy.sqlite"
 ```
 This will run the migration on the same warp that runs when you run the app locally. This automatically generates or updates the `crates/persistence/src/schema.rs`. We do not make manual edits to `schema.rs`.
 
 You can also print the schema from a database that already has the migration with:
 ```
-diesel print-schema --database-url="/Users/$USER/.galaxy-local/galaxy.sqlite"
+diesel print-schema --database-url="/Users/$USER/.galaxy/galaxy.sqlite"
 ```
 
 ## Reverting/redo-ing migrations
 As you are writing features and changing branches, you'll want to undo migrations to fix your database and make it compatible with older code. Redo-ing can also be helpful as you are iterating on your schema.
 ```
-diesel migration revert --database-url="/Users/$USER/.galaxy-local/galaxy.sqlite"
-diesel migration redo --database-url="/Users/$USER/.galaxy-local/galaxy.sqlite"
+diesel migration revert --database-url="/Users/$USER/.galaxy/galaxy.sqlite"
+diesel migration redo --database-url="/Users/$USER/.galaxy/galaxy.sqlite"
 ```
 
 # Schema style

@@ -49,7 +49,6 @@ use crate::server::server_api::ai::{SpawnAgentRequest, UserQueryMode};
 use crate::server::server_api::ServerApiProvider;
 use crate::session_management::SessionNavigationData;
 use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
-use crate::terminal::general_settings::GeneralSettings;
 use crate::terminal::shared_session::manager::{Manager, ManagerEvent};
 use crate::terminal::shared_session::role_change_modal::RoleChangeOpenSource;
 #[cfg(not(target_family = "wasm"))]
@@ -493,6 +492,13 @@ impl PaneContent for TerminalPane {
 
         // Capture the current input_config from the AI input model
         let current_input_config = view.input_config(app.as_ref());
+        let transcript_task_id = {
+            let model = view.model.lock();
+            model
+                .is_conversation_transcript_viewer()
+                .then(|| model.ambient_agent_task_id())
+                .flatten()
+        };
 
         if view.model.lock().shared_session_status().is_viewer() {
             // We save and restore ambient agent sessions
@@ -530,33 +536,13 @@ impl PaneContent for TerminalPane {
                 uuid: self.uuid.clone(),
                 task_id: Some(task_id),
             })
-        } else if view.model.lock().is_conversation_transcript_viewer() {
-            // Conversation transcript viewers (opened from the conversation list)
-            // can be restored via the ambient agent task if one exists.
-            let task_id = view.model.lock().ambient_agent_task_id();
-            if task_id.is_some() {
-                log::trace!("[session-snapshot] pane=transcript/ambient task_id={task_id:?}");
-                LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
-                    uuid: self.uuid.clone(),
-                    task_id,
-                })
-            } else {
-                let cwd = view.pwd_if_local(app);
-                log::trace!("[session-snapshot] pane=transcript cwd={cwd:?} is_active={is_active}");
-                LeafContents::Terminal(TerminalPaneSnapshot {
-                    uuid: self.uuid.clone(),
-                    cwd,
-                    is_active,
-                    is_read_only: false,
-                    shell_launch_data: None,
-                    input_config: None,
-                    llm_model_override: None,
-                    active_profile_id: None,
-                    conversation_ids_to_restore: vec![],
-                    active_conversation_id: None,
-                })
-            }
+        } else if let Some(task_id) = transcript_task_id {
+            LeafContents::AmbientAgent(AmbientAgentPaneSnapshot {
+                uuid: self.uuid.clone(),
+                task_id: Some(task_id),
+            })
         } else {
+            // Local transcript viewers retain their conversation links just like live panes.
             let llm_model_override =
                 LLMPreferences::as_ref(app).get_base_llm_override(self.terminal_view(app).id());
 
@@ -1038,9 +1024,7 @@ fn handle_terminal_view_event(
             Event::BlockCompleted { block, is_local } => {
                 match group.terminal_session_by_id(pane_id) {
                     Some(pane) => {
-                        if *GeneralSettings::as_ref(ctx).restore_session
-                            && AppExecutionMode::as_ref(ctx).can_save_session()
-                        {
+                        if AppExecutionMode::as_ref(ctx).can_save_session() {
                             if let Some(sender) = &group.model_event_sender {
                                 let block_completed_event = ModelEvent::SaveBlock(BlockCompleted {
                                     pane_id: pane.session_uuid(),
@@ -2249,10 +2233,8 @@ fn handle_ai_history_event(
             is_hidden,
             ..
         } => {
-            // Check if session restoration is enabled.
-            if !*GeneralSettings::as_ref(ctx).restore_session
-                || !AppExecutionMode::as_ref(ctx).can_save_session()
-            {
+            // Save query history independently of automatic session reopening.
+            if !AppExecutionMode::as_ref(ctx).can_save_session() {
                 return;
             }
 

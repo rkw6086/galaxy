@@ -83,7 +83,14 @@ pub fn convert_persisted_conversation_to_ai_conversation_with_metadata(
         }
     };
 
-    let conversation_data = serde_json::from_str::<AgentConversationData>(&conversation_data).ok();
+    let conversation_data = match serde_json::from_str::<AgentConversationData>(&conversation_data)
+    {
+        Ok(data) => Some(data),
+        Err(error) => {
+            log::error!("Failed to restore conversation {conversation_id} metadata: {error}");
+            return None;
+        }
+    };
 
     // Local-DB restore: an empty `agent_tasks` row is the normal shape of a
     // child conversation persisted before its first server response, so

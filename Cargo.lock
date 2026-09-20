@@ -11612,6 +11612,7 @@ dependencies = [
  "chrono",
  "diesel",
  "diesel_migrations",
+ "galaxy_agent_core",
  "serde",
  "serde_json",
  "warp_multi_agent_api",

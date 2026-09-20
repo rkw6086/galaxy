@@ -150,6 +150,7 @@ impl SingletonEntity for PersistenceWriter {}
 ///
 /// This data belongs to the local installation rather than an inherited Warp
 /// account, so logging out of a legacy account must not clear it.
+#[derive(Default)]
 pub struct PersistedData {
     /// Session restoration data
     pub app_state: AppState,

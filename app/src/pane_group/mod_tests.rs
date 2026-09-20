@@ -388,6 +388,7 @@ fn persisted_remote_child_conversation(
             conversation_id: conversation_id.to_string(),
             conversation_data: serde_json::to_string(&AgentConversationData {
                 agent_backend: Default::default(),
+                provider_context: None,
                 active_provider_run_json: None,
                 local_agent_groups: Vec::new(),
                 tool_titles: Default::default(),
@@ -3543,6 +3544,38 @@ fn test_auto_hiding_completed_child_preserves_parent_focus_and_reopen() {
                 .pane_ids()
                 .into_iter()
                 .all(|pane_id| panes.has_pane_id(pane_id)));
+        });
+    });
+}
+
+#[test]
+fn local_transcript_snapshot_retains_conversation_links() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let pane_group = mock_pane_group(&mut app, Default::default());
+        pane_group.update(&mut app, |panes, ctx| {
+            let pane_id = get_newly_created_pane_id(panes, &[]);
+            let terminal = panes.terminal_view_from_pane_id(pane_id, ctx).unwrap();
+            let conversation_id =
+                BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                    history.start_new_conversation(terminal.id(), false, false, false, ctx)
+                });
+            terminal
+                .as_ref(ctx)
+                .model
+                .lock()
+                .set_conversation_transcript_viewer_status(Some(
+                    ConversationTranscriptViewerStatus::ViewingLocalConversation,
+                ));
+            let PaneNodeSnapshot::Leaf(leaf) = panes.snapshot(ctx) else {
+                panic!("expected a terminal leaf");
+            };
+            let LeafContents::Terminal(snapshot) = leaf.contents else {
+                panic!("expected a terminal snapshot");
+            };
+            assert!(snapshot
+                .conversation_ids_to_restore
+                .contains(&conversation_id));
         });
     });
 }

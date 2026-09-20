@@ -10,13 +10,12 @@ use galaxyui::{AppContext, Entity, ModelContext, SingletonEntity, TypedActionVie
 
 use crate::ai::agent::conversation::AIConversationId;
 use crate::ai::agent::AIAgentExchangeId;
-use crate::app_state::{get_app_state, AppState};
+use crate::app_state::get_app_state;
 use crate::network::NetworkStatus;
 use crate::persistence::ModelEvent;
 use crate::root_view::OpenPath;
 use crate::server::server_api::ServerApiProvider;
 use crate::terminal::alt_screen_reporting::AltScreenReporting;
-use crate::terminal::general_settings::GeneralSettings;
 use crate::undo_close::UndoCloseStack;
 use crate::workspace::cross_window_tab_drag::CrossWindowTabDrag;
 use crate::workspace::{Workspace, WorkspaceAction};
@@ -25,7 +24,6 @@ use crate::{auth, GlobalResourceHandlesProvider};
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub(crate) struct SessionSaveCoordinator {
-    last_enqueued_state: Option<AppState>,
     pending_save: bool,
     timer_generation: u64,
     timer: Option<SpawnedFutureHandle>,
@@ -34,7 +32,6 @@ pub(crate) struct SessionSaveCoordinator {
 impl SessionSaveCoordinator {
     pub(crate) fn new() -> Self {
         Self {
-            last_enqueued_state: None,
             pending_save: false,
             timer_generation: 0,
             timer: None,
@@ -47,7 +44,7 @@ impl SessionSaveCoordinator {
         }
 
         if self.timer.is_none() {
-            self.save_if_changed(ctx);
+            self.enqueue_snapshot(ctx);
         } else {
             self.pending_save = true;
         }
@@ -62,7 +59,7 @@ impl SessionSaveCoordinator {
         self.pending_save = false;
 
         if session_save_is_enabled(ctx) {
-            self.save_if_changed(ctx);
+            self.enqueue_snapshot(ctx);
         }
     }
 
@@ -80,13 +77,13 @@ impl SessionSaveCoordinator {
                 }
                 coordinator.timer = None;
                 if std::mem::take(&mut coordinator.pending_save) {
-                    coordinator.save_if_changed(ctx);
+                    coordinator.enqueue_snapshot(ctx);
                 }
             },
         ));
     }
 
-    fn save_if_changed(&mut self, ctx: &mut ModelContext<Self>) {
+    fn enqueue_snapshot(&mut self, ctx: &mut ModelContext<Self>) {
         let Some(model_event_sender) = GlobalResourceHandlesProvider::as_ref(ctx)
             .get()
             .model_event_sender
@@ -95,14 +92,9 @@ impl SessionSaveCoordinator {
             return;
         };
         let app_state = get_app_state(ctx);
-        if self.last_enqueued_state.as_ref() == Some(&app_state) {
-            return;
-        }
-        if let Err(err) = model_event_sender.send(ModelEvent::Snapshot(app_state.clone())) {
+        if let Err(err) = model_event_sender.send(ModelEvent::Snapshot(app_state)) {
             log::error!("Error trying to send model event {err:?}");
-            return;
         }
-        self.last_enqueued_state = Some(app_state);
     }
 }
 
@@ -113,9 +105,7 @@ impl Entity for SessionSaveCoordinator {
 impl SingletonEntity for SessionSaveCoordinator {}
 
 fn session_save_is_enabled(ctx: &AppContext) -> bool {
-    AppExecutionMode::as_ref(ctx).can_save_session()
-        && *GeneralSettings::as_ref(ctx).restore_session
-        && !CrossWindowTabDrag::as_ref(ctx).is_active()
+    AppExecutionMode::as_ref(ctx).can_save_session() && !CrossWindowTabDrag::as_ref(ctx).is_active()
 }
 
 /// Specifies where a forked conversation should be opened.
