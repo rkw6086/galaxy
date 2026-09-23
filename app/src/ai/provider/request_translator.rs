@@ -1463,6 +1463,7 @@ pub fn extract_system_prompt(
         }
     }
 
+    prompt.push_str(SHELL_EXECUTION_GUIDANCE);
     prompt.push_str("## Operating Contract\n");
     prompt.push_str(
         "- If the user asks for a change, carry it through inspection, implementation, and \
@@ -1714,11 +1715,14 @@ pub(crate) fn tool_name_is_supported(name: &str, supported: &HashSet<api::ToolTy
     }
 }
 
+/// Shared by direct-provider prompts and compatibility/background request prompts.
+pub(crate) const SHELL_EXECUTION_GUIDANCE: &str = "## Shell Execution\nCommands use a persistent terminal. Never exit, log out of, replace with exec, or kill that shell or Galaxy. Do not append `exit $status` to a command to report its result; let the command's exit status be returned naturally. If a script needs exit, run it in an explicit child shell such as `sh -c '...'`. Stop a running agent command with interrupt_shell_command, not broad kill/pkill commands.\nRun builds, tests, installs, and workspace checks as separate shell tool calls so each has its own output and exit status. Keep stdout and stderr live: do not hide them in subprocess capture_output/PIPE, redirect everything to a file, or buffer a whole validation suite and print only its final tail. If a log file is needed, stream through tee while preserving the original command's exit status. Use non-interactive, non-watch modes and disable pagers. For intentionally quiet commands, explain what is running before starting; silence alone is not evidence of a hang. If repeated snapshots show no progress, investigate whether the command is waiting for input, watching, or buffering; do not blindly poll forever or start duplicate commands. Interrupt and correct an unintended watcher or blocked command before retrying.\n\n";
+
 pub fn default_tool_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "run_shell_command".to_string(),
-            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in this conversation's persistent shell and environment, starting in the supplied working directory. Successful cd commands affect subsequent calls in this shell; subshell directory changes do not. Avoid prefixing commands with cd to the directory you are already in, and use pwd only when the current location is uncertain. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
+            description: "Execute a shell command in the user's terminal and return its output. Use for builds, tests, git, package managers, and other shell work. Commands run in this conversation's persistent shell and environment, starting in the supplied working directory. Successful cd commands affect subsequent calls in this shell; subshell directory changes do not. Avoid prefixing commands with cd to the directory you are already in, and use pwd only when the current location is uncertain. Never exit, log out of, replace, or kill this persistent shell. Run each build/test/install separately and keep its output live; avoid buffered subprocess wrappers and redirecting all output to files. Set wait_until_complete=false for commands that might run longer than a few seconds; Galaxy will return a command_id that can be monitored with read_shell_command_output.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {

@@ -150,7 +150,7 @@ pub struct TerminalGridSnapshotElement {
 impl TerminalGridSnapshotElement {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        grid: &GridHandler,
+        grid: GridHandler,
         row_count: usize,
         colors: color::List,
         override_colors: color::OverrideList,
@@ -181,7 +181,7 @@ impl TerminalGridSnapshotElement {
         .with_rows_and_columns(row_count, grid.columns());
 
         Self {
-            grid: grid.clone(),
+            grid,
             row_count,
             colors,
             override_colors,

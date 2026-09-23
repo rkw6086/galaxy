@@ -598,8 +598,6 @@ fn init_internal(
         // noisy pre-submission decision trail from full-session logs.
         .filter(Some(INPUT_CLASSIFIER_LOG_TARGET), LevelFilter::Warn)
         // Local classifier diagnostics contain labels/timing only, never typed input.
-        .filter(Some("galaxy::local_inference"), LevelFilter::Info)
-        .filter(Some("local_inference::engine"), LevelFilter::Info)
         // notify logs every platform event and the debouncer logs every raw event at TRACE. A
         // repository index can generate hundreds of thousands of these records, multiplying the
         // underlying filesystem work with synchronous formatting and log-file writes. Keep

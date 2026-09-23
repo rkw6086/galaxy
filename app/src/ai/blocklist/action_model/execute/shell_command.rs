@@ -77,8 +77,64 @@ impl ShellCommandExecutor {
         &mut self,
         _: ModelHandle<ModelEventDispatcher>,
         event: &ModelEvent,
-        _ctx: &mut ModelContext<Self>,
+        ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(not(target_family = "wasm"))]
+        if let ModelEvent::Exit { reason } = event {
+            let context = {
+                let model = self.terminal_model.lock();
+                let block = model.block_list().active_block();
+                serde_json::json!({
+                    "event": "shell_terminal_exited",
+                    "reason": format!("{reason:?}"),
+                    "block_id": block.id().to_string(),
+                    "conversation_id": block.ai_conversation_id().map(|id| id.to_string()),
+                    "action_id": block.requested_command_action_id().map(|id| id.to_string()),
+                    "completion_waiter_groups": self.block_finished_senders.len(),
+                    "refresh_waiter_groups": self.force_refresh_senders.len(),
+                })
+            };
+            crate::ai::remote_logging::log_model_event(
+                ctx,
+                crate::ai::remote_logging::RemoteLogRecord {
+                    level: crate::ai::remote_logging::RemoteLogLevel::Info,
+                    message: "Shell terminal exited".to_string(),
+                    context,
+                },
+            );
+        }
+        // Log definitive terminal completion independently of tool-result delivery.
+        #[cfg(not(target_family = "wasm"))]
+        if let ModelEvent::BlockCompleted(completed) = event {
+            let context = {
+                let model = self.terminal_model.lock();
+                model
+                    .block_list()
+                    .block_with_id(&completed.block_id)
+                    .and_then(|block| {
+                        block.requested_command_action_id().map(|action_id| serde_json::json!({
+                        "event": "shell_command_terminal_completed",
+                        "conversation_id": block.ai_conversation_id().map(|id| id.to_string()),
+                        "action_id": action_id.to_string(),
+                        "block_id": block.id().to_string(),
+                        "exit_code": block.exit_code().value(),
+                        "start_ts": block.start_ts(),
+                        "completed_ts": block.completed_ts(),
+                        "output_rows": block.output_grid().len_displayed(),
+                    }))
+                    })
+            };
+            if let Some(context) = context {
+                crate::ai::remote_logging::log_model_event(
+                    ctx,
+                    crate::ai::remote_logging::RemoteLogRecord {
+                        level: crate::ai::remote_logging::RemoteLogLevel::Info,
+                        message: "Shell command terminal completed".to_string(),
+                        context,
+                    },
+                );
+            }
+        }
         // Precmd provides fresh CWD metadata, while BlockCompleted is definitive completion
         // evidence for shells that never deliver a subsequent precmd.
         if matches!(
@@ -217,6 +273,8 @@ impl ShellCommandExecutor {
 
         // Determine the action we want to take based on the input.
         let action_id = input.action.id.clone();
+        let diagnostic_action_id = action_id.clone();
+        let conversation_id = input.conversation_id;
 
         let handle = ctx.handle();
         match &input.action.action {
@@ -278,6 +336,12 @@ impl ShellCommandExecutor {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
                             handle.update(ctx, |me, ctx| {
+                                log_shell_wait_result(
+                                    conversation_id,
+                                    &diagnostic_action_id,
+                                    &result,
+                                    ctx,
+                                );
                                 me.prune_closed_senders(&block_selector);
                                 if matches!(
                                     result,
@@ -313,16 +377,17 @@ impl ShellCommandExecutor {
                     let exit_code = block.exit_code();
                     let start_ts = block.start_ts().cloned();
                     let completed_ts = block.completed_ts().cloned();
+                    let result = ActionResult::CommandFinished {
+                        block_id: block.id().clone(),
+                        output,
+                        exit_code,
+                        start_ts,
+                        completed_ts,
+                    };
+                    drop(model);
+                    log_shell_wait_result(conversation_id, &action_id, &result, ctx);
                     return ActionExecution::Sync(
-                        AIAgentActionResultType::WriteToLongRunningShellCommand(
-                            WriteToLongRunningShellCommandResult::CommandFinished {
-                                block_id: block.id().clone(),
-                                output,
-                                exit_code,
-                                start_ts,
-                                completed_ts,
-                            },
-                        ),
+                        action_result_for_write_to_long_running_shell_command(result),
                     );
                 }
                 // Drop immutable borrow.
@@ -348,7 +413,13 @@ impl ShellCommandExecutor {
                     move |result, ctx| {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, _| {
+                            handle.update(ctx, |me, ctx| {
+                                log_shell_wait_result(
+                                    conversation_id,
+                                    &diagnostic_action_id,
+                                    &result,
+                                    ctx,
+                                );
                                 me.prune_closed_senders(&block_selector);
                             });
                         }
@@ -369,15 +440,17 @@ impl ShellCommandExecutor {
                     let exit_code = block.exit_code();
                     let start_ts = block.start_ts().cloned();
                     let completed_ts = block.completed_ts().cloned();
-                    return ActionExecution::Sync(AIAgentActionResultType::ReadShellCommandOutput(
-                        ReadShellCommandOutputResult::CommandFinished {
-                            command,
-                            block_id: block_id.clone(),
-                            output,
-                            exit_code,
-                            start_ts,
-                            completed_ts,
-                        },
+                    let result = ActionResult::CommandFinished {
+                        block_id: block_id.clone(),
+                        output,
+                        exit_code,
+                        start_ts,
+                        completed_ts,
+                    };
+                    drop(model);
+                    log_shell_wait_result(conversation_id, &action_id, &result, ctx);
+                    return ActionExecution::Sync(action_result_for_read_shell_command_output(
+                        command, result,
                     ));
                 }
                 let command = block.command_with_secrets_unobfuscated(false);
@@ -389,7 +462,13 @@ impl ShellCommandExecutor {
                     move |result, ctx| {
                         // Remove the senders from the maps.
                         if let Some(handle) = handle.upgrade(ctx) {
-                            handle.update(ctx, |me, _| {
+                            handle.update(ctx, |me, ctx| {
+                                log_shell_wait_result(
+                                    conversation_id,
+                                    &diagnostic_action_id,
+                                    &result,
+                                    ctx,
+                                );
                                 me.prune_closed_senders(&block_selector);
                             });
                         }
@@ -487,6 +566,7 @@ impl ShellCommandExecutor {
                                                 cursor: CURSOR_MARKER,
                                                 is_alt_screen_active: model.is_alt_screen_active(),
                                                 is_preempted: false,
+                                                wake_reason: "control_handed_back",
                                             }
                                         }
                                     }
@@ -501,7 +581,13 @@ impl ShellCommandExecutor {
                 ActionExecution::new_async(transfer_future, move |result, ctx| {
                     // Clean up.
                     if let Some(handle) = handle.upgrade(ctx) {
-                        handle.update(ctx, |me, _| {
+                        handle.update(ctx, |me, ctx| {
+                            log_shell_wait_result(
+                                conversation_id,
+                                &diagnostic_action_id,
+                                &result,
+                                ctx,
+                            );
                             me.prune_closed_senders(&block_selector);
                             me.control_handback_sender = None;
                         });
@@ -640,6 +726,11 @@ impl ShellCommandExecutor {
                             cursor: CURSOR_MARKER,
                             is_alt_screen_active: selected_block_owns_alt_screen,
                             is_preempted,
+                            wake_reason: match wake_reason {
+                                WakeReason::BlockFinished => "block_finished",
+                                WakeReason::Timeout => "timeout",
+                                WakeReason::ForceRefresh => "force_refresh",
+                            },
                         }
                     }
                 }
@@ -704,29 +795,29 @@ impl ShellCommandExecutor {
         let terminal_model = self.terminal_model.lock();
         // Find every pending poll whose selector resolves to this block. Multiple provider polls
         // may legitimately wait on the same command and must be refreshed together.
-        let matching_selector = self
+        let matching_selectors = self
             .force_refresh_senders
             .keys()
-            .find(|selector| {
+            .filter(|selector| {
                 selector.get_block(&terminal_model).is_some_and(|block| {
                     block.id() == block_id
                         && block.is_active_and_long_running()
                         && !block.finished()
                 })
             })
-            .cloned();
+            .cloned()
+            .collect::<Vec<_>>();
         drop(terminal_model);
 
-        if let Some(selector) = matching_selector {
+        let mut refreshed = false;
+        for selector in matching_selectors {
             if let Some(senders) = self.force_refresh_senders.remove(&selector) {
-                let mut refreshed = false;
                 for sender in senders {
                     refreshed |= sender.send(()).is_ok();
                 }
-                return refreshed;
             }
         }
-        false
+        refreshed
     }
 
     pub(super) fn preprocess_action(
@@ -735,6 +826,57 @@ impl ShellCommandExecutor {
         _ctx: &mut ModelContext<Self>,
     ) -> BoxFuture<'static, ()> {
         futures::future::ready(()).boxed()
+    }
+}
+
+fn log_shell_wait_result(
+    conversation_id: crate::AIConversationId,
+    action_id: &AIAgentActionId,
+    result: &ActionResult,
+    ctx: &mut ModelContext<ShellCommandExecutor>,
+) {
+    crate::ai::remote_logging::log_model_event(
+        ctx,
+        crate::ai::remote_logging::RemoteLogRecord {
+            level: crate::ai::remote_logging::RemoteLogLevel::Info,
+            message: "Shell command wait resolved".to_string(),
+            context: serde_json::json!({
+                "event": "shell_command_wait_resolved",
+                "conversation_id": conversation_id.to_string(),
+                "action_id": action_id.to_string(),
+                "result": shell_result_diagnostics(result),
+            }),
+        },
+    );
+}
+
+fn shell_result_diagnostics(result: &ActionResult) -> serde_json::Value {
+    match result {
+        ActionResult::CommandFinished {
+            block_id,
+            output,
+            exit_code,
+            start_ts,
+            completed_ts,
+        } => serde_json::json!({
+            "state": "finished", "block_id": block_id.to_string(),
+            "exit_code": exit_code.value(), "output_bytes": output.len(),
+            "start_ts": start_ts, "completed_ts": completed_ts,
+        }),
+        ActionResult::LongRunningCommandSnapshot {
+            block_id,
+            grid_contents,
+            is_alt_screen_active,
+            is_preempted,
+            wake_reason,
+            ..
+        } => serde_json::json!({
+            "state": "running", "block_id": block_id.to_string(),
+            "snapshot_bytes": grid_contents.len(), "alt_screen": is_alt_screen_active,
+            "preempted": is_preempted, "wake_reason": wake_reason,
+        }),
+        ActionResult::Cancelled => serde_json::json!({"state": "cancelled"}),
+        ActionResult::BlockNotFound => serde_json::json!({"state": "block_not_found"}),
     }
 }
 
@@ -863,6 +1005,7 @@ fn action_result_for_write_to_long_running_shell_command(
             cursor,
             is_alt_screen_active,
             is_preempted,
+            ..
         } => AIAgentActionResultType::WriteToLongRunningShellCommand(
             WriteToLongRunningShellCommandResult::Snapshot {
                 block_id,
@@ -909,6 +1052,7 @@ fn action_result_for_read_shell_command_output(
             cursor,
             is_alt_screen_active,
             is_preempted,
+            ..
         } => AIAgentActionResultType::ReadShellCommandOutput(
             ReadShellCommandOutputResult::LongRunningCommandSnapshot {
                 command,
@@ -954,6 +1098,7 @@ fn action_result_for_transfer_shell_command_control_to_user(
             cursor,
             is_alt_screen_active,
             is_preempted,
+            ..
         } => AIAgentActionResultType::TransferShellCommandControlToUser(
             TransferShellCommandControlToUserResult::Snapshot {
                 block_id,
@@ -1020,6 +1165,7 @@ enum ActionResult {
         cursor: &'static str,
         is_alt_screen_active: bool,
         is_preempted: bool,
+        wake_reason: &'static str,
     },
     Cancelled,
     BlockNotFound,

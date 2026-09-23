@@ -23,6 +23,7 @@ use crate::terminal::model::session::Sessions;
 use crate::terminal::model::terminal_model::{BlockIndex, TerminalModel};
 use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
 use crate::terminal::shell::ShellType;
+use crate::test_util::settings::initialize_settings_for_tests;
 use crate::AIConversationId;
 
 #[test]
@@ -178,16 +179,43 @@ fn force_refresh_block_reports_and_resolves_matching_poll() {
             )
         });
 
+        let action_id = AIAgentActionId::from("refresh-command".to_string());
+        terminal_model
+            .lock()
+            .block_list_mut()
+            .active_block_mut()
+            .set_agent_interaction_mode_for_requested_command(
+                action_id.clone(),
+                None,
+                AIConversationId::new(),
+            );
         let (tx, mut rx) = oneshot::channel();
+        let (action_tx, mut action_rx) = oneshot::channel();
+        let (second_tx, mut second_rx) = oneshot::channel();
+        let (unrelated_tx, mut unrelated_rx) = oneshot::channel();
+        let unrelated_selector = BlockSelector::Id(BlockId::new());
         executor.update(&mut app, |executor, _| {
             executor
                 .force_refresh_senders
                 .insert(BlockSelector::Id(block_id.clone()), vec![tx]);
+            executor.force_refresh_senders.insert(
+                BlockSelector::RequestedCommandId(action_id),
+                vec![action_tx, second_tx],
+            );
+            executor
+                .force_refresh_senders
+                .insert(unrelated_selector.clone(), vec![unrelated_tx]);
             assert!(executor.force_refresh_block(&block_id));
+            assert!(executor
+                .force_refresh_senders
+                .contains_key(&unrelated_selector));
             assert!(!executor.force_refresh_block(&block_id));
         });
 
         assert!(matches!(rx.try_recv(), Ok(Some(()))));
+        assert!(matches!(action_rx.try_recv(), Ok(Some(()))));
+        assert!(matches!(second_rx.try_recv(), Ok(Some(()))));
+        assert!(matches!(unrelated_rx.try_recv(), Ok(None)));
 
         let (tx, _rx) = oneshot::channel();
         executor.update(&mut app, |executor, _| {
@@ -205,6 +233,7 @@ fn force_refresh_block_reports_and_resolves_matching_poll() {
 #[test]
 fn requested_command_waiter_survives_early_metadata_and_resolves_after_association() {
     App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
         let terminal_view_id = EntityId::new();
         let sessions = app.add_model(|_| Sessions::new_for_test());
         let (_model_events_tx, model_events_rx) = unbounded();
@@ -392,4 +421,21 @@ fn force_refresh_wakes_on_completion_poll_with_preempted_snapshot() {
             } if result_block_id == block_id
         ));
     });
+}
+
+#[test]
+fn shell_diagnostics_report_snapshot_reason_without_output_contents() {
+    let result = ActionResult::LongRunningCommandSnapshot {
+        block_id: BlockId::new(),
+        grid_contents: "private terminal output".to_string(),
+        cursor: "cursor",
+        is_alt_screen_active: false,
+        is_preempted: true,
+        wake_reason: "force_refresh",
+    };
+    let metadata = super::shell_result_diagnostics(&result);
+    assert_eq!(metadata["state"], "running");
+    assert_eq!(metadata["wake_reason"], "force_refresh");
+    assert_eq!(metadata["snapshot_bytes"], "private terminal output".len());
+    assert!(!metadata.to_string().contains("private terminal output"));
 }

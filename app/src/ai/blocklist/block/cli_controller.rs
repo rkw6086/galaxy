@@ -698,6 +698,19 @@ impl CLISubagentController {
         let block_id = block_id.clone();
         let refreshed =
             executor_handle.update(ctx, |executor, _| executor.force_refresh_block(&block_id));
+        #[cfg(not(target_family = "wasm"))]
+        crate::ai::remote_logging::log_model_event(
+            ctx,
+            crate::ai::remote_logging::RemoteLogRecord {
+                level: crate::ai::remote_logging::RemoteLogLevel::Info,
+                message: "Shell command refresh requested".to_string(),
+                context: serde_json::json!({
+                    "event": "shell_command_refresh_requested",
+                    "block_id": block_id.to_string(),
+                    "refreshed": refreshed,
+                }),
+            },
+        );
         if refreshed {
             self.active_subagents_by_block.entry(block_id).or_default();
         }

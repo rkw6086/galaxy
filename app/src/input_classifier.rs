@@ -1,71 +1,73 @@
-use std::sync::Arc;
+//! Deterministic input detection using the shell's existing completion inventory and history.
+//! Never executes the input or invokes a model.
+use galaxy_completer::completer::CompletionContext;
+use galaxy_completer::parsers::simple::top_level_command;
+use galaxy_completer::ParsedTokensSnapshot;
+use galaxy_core::command::ExitCode;
+use galaxy_util::path::EscapeChar;
+use input_classifier::InputType;
 
-use galaxyui::{Entity, ModelContext, SingletonEntity};
-use input_classifier::{HeuristicClassifier, InputClassifier};
-#[cfg(any(
-    feature = "nld_classifier_v1",
-    feature = "nld_classifier_v2",
-    feature = "nld_classifier_v3"
-))]
-use input_classifier::{OnnxClassifier, OnnxModel};
-
-pub struct InputClassifierModel {
-    pub classifier: Arc<dyn InputClassifier>,
+/// Unknown outcomes and interrupted/failed input are not evidence that a command exists.
+/// Do not use `was_successful`: it also accepts interruptions for terminal UI purposes.
+pub(crate) fn is_verified_history_command(exit_code: Option<ExitCode>) -> bool {
+    exit_code.is_some_and(|code| code.value() == 0)
 }
 
-impl InputClassifierModel {
-    pub fn new(_ctx: &mut ModelContext<Self>) -> Self {
-        #[cfg(feature = "nld_classifier_v1")]
-        {
-            match OnnxClassifier::new(OnnxModel::BertTinyV1) {
-                Ok(classifier) => {
-                    log::info!("Loaded onnx classifier bert_tiny_v1.onnx");
-                    return Self {
-                        classifier: Arc::new(classifier),
-                    };
-                }
-                Err(e) => log::warn!("Failed to load onnx classifier bert_tiny_v1.onnx: {e:#}"),
-            }
+pub(crate) fn detect_input_type(
+    input: &ParsedTokensSnapshot,
+    context: &impl CompletionContext,
+    history: &[String],
+    current: InputType,
+) -> InputType {
+    let escape = context.escape_char();
+    let Some(command) = top_level_command(&input.buffer_text, escape) else {
+        return current;
+    };
+    let matches = |candidate: &str| {
+        if matches!(escape, EscapeChar::Backtick) {
+            candidate.eq_ignore_ascii_case(&command)
+        } else {
+            candidate == command
         }
-
-        #[cfg(feature = "nld_classifier_v2")]
-        {
-            match OnnxClassifier::new(OnnxModel::BertTinyV2) {
-                Ok(classifier) => {
-                    log::info!("Loaded onnx classifier bert_tiny_v2.onnx");
-                    return Self {
-                        classifier: Arc::new(classifier),
-                    };
-                }
-                Err(e) => log::warn!("Failed to load onnx classifier bert_tiny_v2.onnx: {e:#}"),
-            }
-        }
-
-        #[cfg(feature = "nld_classifier_v3")]
-        {
-            match OnnxClassifier::new(OnnxModel::BertTinyV3) {
-                Ok(classifier) => {
-                    log::info!("Loaded onnx classifier bert_tiny_v3.onnx");
-                    return Self {
-                        classifier: Arc::new(classifier),
-                    };
-                }
-                Err(e) => log::warn!("Failed to load onnx classifier bert_tiny_v3.onnx: {e:#}"),
-            }
-        }
-
-        Self {
-            classifier: Arc::new(HeuristicClassifier),
-        }
+    };
+    let known = context.top_level_commands().any(matches)
+        || context.aliases().any(|(name, _)| matches(name))
+        || context
+            .functions()
+            .is_some_and(|names| names.iter().any(|name| matches(name)))
+        || context
+            .builtins()
+            .is_some_and(|names| names.iter().any(|name| matches(name)))
+        || context
+            .abbreviations()
+            .is_some_and(|names| names.keys().any(|name| matches(name)))
+        || history
+            .iter()
+            .filter_map(|entry| top_level_command(entry, escape))
+            .any(|name| matches(&name));
+    // Explicit paths and shell constructs indicate command intent even while incomplete.
+    if known
+        || command.starts_with(['/', '~'])
+        || command.starts_with("./")
+        || command.starts_with("../")
+        || matches!(
+            command.as_str(),
+            "if" | "for" | "while" | "until" | "case" | "function" | "begin" | "{"
+        )
+    {
+        return InputType::Shell;
     }
-
-    pub fn classifier(&self) -> Arc<dyn InputClassifier> {
-        self.classifier.clone()
+    if !input.buffer_text.contains(char::is_whitespace)
+        && context
+            .top_level_commands()
+            .chain(context.aliases().map(|(name, _)| name))
+            .any(|name| name.starts_with(&command))
+    {
+        return current;
     }
+    InputType::AI
 }
 
-impl Entity for InputClassifierModel {
-    type Event = ();
-}
-
-impl SingletonEntity for InputClassifierModel {}
+#[cfg(test)]
+#[path = "input_classifier_tests.rs"]
+mod tests;

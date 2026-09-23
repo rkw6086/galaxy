@@ -1235,17 +1235,6 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.input.ai_command_denylist",
         description: "Commands to exclude from AI natural language autodetection.",
     }
-    // Use SmolLM2-135M for input classification instead of legacy heuristics.
-    // The model is downloaded once and inference stays on the device.
-    use_local_model: UseLocalModel {
-        type: bool,
-        default: true,
-        supported_platforms: SupportedPlatforms::DESKTOP,
-        sync_to_cloud: SyncToCloud::Never,
-        private: false,
-        toml_path: "agents.warp_agent.input.use_local_model",
-        description: "Use a locally downloaded AI model to distinguish commands from agent messages instead of legacy heuristics.",
-    },
     // This field should not be referenced directly to lookup intelligent autosuggestion enablement
     // -- use the `is_intelligent_autosuggestions_enabled()` getter.
     intelligent_autosuggestions_enabled_internal: IntelligentAutosuggestionsEnabled {
@@ -2514,10 +2503,6 @@ impl AISettings {
 
     pub fn is_code_suggestions_enabled(&self, app: &galaxyui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.code_suggestions_enabled_internal
-    }
-
-    pub fn should_use_local_model(&self) -> bool {
-        *self.use_local_model
     }
 
     pub fn is_natural_language_autosuggestions_enabled(&self, app: &galaxyui::AppContext) -> bool {

@@ -1419,7 +1419,7 @@ impl RequestedCommandView {
             }
             Some(AIActionStatus::RunningAsync) if self.action_type.is_requested_command() => {
                 config = config.with_interaction_mode(InteractionMode::ManuallyExpandable(
-                    self.get_expansion_config(requested_command_block, app),
+                    self.get_expansion_config(app),
                 ));
             }
             Some(AIActionStatus::Finished(result)) => {
@@ -1447,7 +1447,7 @@ impl RequestedCommandView {
 
                 if should_be_expandable {
                     config = config.with_interaction_mode(InteractionMode::ManuallyExpandable(
-                        self.get_expansion_config(requested_command_block, app),
+                        self.get_expansion_config(app),
                     ));
                 } else {
                     // Commands cancelled before execution should be right clickable only.
@@ -1471,7 +1471,7 @@ impl RequestedCommandView {
                 // for this action, the command ran and the header should be expandable.
                 if requested_command_block.is_some_and(|block| block.finished()) {
                     config = config.with_interaction_mode(InteractionMode::ManuallyExpandable(
-                        self.get_expansion_config(requested_command_block, app),
+                        self.get_expansion_config(app),
                     ));
                 }
             }
@@ -1487,11 +1487,7 @@ impl RequestedCommandView {
         }
     }
 
-    fn get_expansion_config(
-        &self,
-        requested_command_block: Option<&Block>,
-        app: &AppContext,
-    ) -> ExpandedConfig {
+    fn get_expansion_config(&self, app: &AppContext) -> ExpandedConfig {
         let command_text_for_callback = self.command_text().to_string();
         let mut expansion_config =
             ExpandedConfig::new(self.is_header_expanded, self.header_mouse_state.clone())
@@ -1499,15 +1495,10 @@ impl RequestedCommandView {
                     ctx.dispatch_typed_action(AIBlockAction::StoreRightClickedCommand {
                         command: command_text_for_callback.clone(),
                     });
+                })
+                .with_toggle_callback(|ctx| {
+                    ctx.dispatch_typed_action(RequestedCommandViewAction::ToggleExpanded);
                 });
-
-        let is_active_agent_monitored_command = requested_command_block
-            .is_some_and(|block| block.is_agent_monitoring() && !block.finished());
-        if !is_active_agent_monitored_command {
-            expansion_config = expansion_config.with_toggle_callback(|ctx| {
-                ctx.dispatch_typed_action(RequestedCommandViewAction::ToggleExpanded);
-            });
-        }
 
         if InputModeSettings::as_ref(app).is_pinned_to_top()
             && self.action_type.is_requested_command()
@@ -1723,7 +1714,7 @@ impl View for RequestedCommandView {
             command_output_grid
         {
             let mut output_grid = TerminalGridSnapshotElement::new(
-                &grid,
+                grid,
                 row_count,
                 colors,
                 override_colors,

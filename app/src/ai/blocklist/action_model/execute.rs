@@ -1010,6 +1010,17 @@ impl BlocklistAIActionExecutor {
                         .async_executing_actions
                         .remove(conversation_id, &action_id)
                     else {
+                        #[cfg(not(target_family = "wasm"))]
+                        crate::ai::remote_logging::log_model_event(ctx, crate::ai::remote_logging::RemoteLogRecord {
+                            level: crate::ai::remote_logging::RemoteLogLevel::Info,
+                            message: "Async tool result discarded after action removal".to_string(),
+                            context: serde_json::json!({
+                                "event": "tool_result_discarded",
+                                "conversation_id": conversation_id.to_string(),
+                                "action_id": action_id.to_string(),
+                                "reason": "action_no_longer_running",
+                            }),
+                        });
                         log::warn!("try_to_execute_action: async action completed but not found in executing map, conversation_id={conversation_id}, action_id={action_id:?}");
                         return;
                     };

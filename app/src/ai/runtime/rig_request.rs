@@ -20,6 +20,7 @@ use crate::ai::openai::client::OpenAIClientConfig;
 use crate::ai::openai::request_translator::sanitize_messages_for_openai;
 use crate::ai::provider::request_translator::{
     default_tool_definitions, sanitize_messages_for_bedrock, tool_name_is_supported,
+    SHELL_EXECUTION_GUIDANCE,
 };
 use crate::ai::provider::types::flatten_tool_history_for_no_tools_turn;
 
@@ -774,6 +775,7 @@ fn build_system_prompt(
     prompt.push_str(
         "## Shell Working Directory\nShell commands run in this conversation's persistent terminal session. The supplied working directory is the shell's location when the request was prepared. Start there without a redundant `cd` or `pwd`. Track successful directory changes across tool calls; do not assume later commands reset to the project root. Use `cd` only when the next command needs a different directory, and use `pwd` only when the location is missing or uncertain. A `cd` inside a subshell or separate script does not change the parent shell's directory. Each sub-agent has its own terminal; never assume it shares another agent's directory changes.\n\n",
     );
+    prompt.push_str(SHELL_EXECUTION_GUIDANCE);
     let contexts = inputs.iter().filter_map(AIAgentInput::context).flatten();
     let mut environment = Vec::new();
     let mut request_time = None;

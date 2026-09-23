@@ -70,8 +70,6 @@ mod interval_timer;
 mod linear;
 #[cfg(feature = "local_fs")]
 mod local_control;
-#[cfg(not(target_family = "wasm"))]
-mod local_inference;
 mod local_object_repository;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod login_item;
@@ -2291,8 +2289,6 @@ pub(crate) fn initialize_app(
         )
     });
     ctx.add_singleton_model(move |_| persistence_writer);
-
-    ctx.add_singleton_model(input_classifier::InputClassifierModel::new);
 
     ctx.add_singleton_model(move |_| IgnoredSuggestionsModel::new(persisted_ignored_suggestions));
 

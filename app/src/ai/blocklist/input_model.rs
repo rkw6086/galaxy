@@ -11,7 +11,6 @@ use futures::stream::AbortHandle;
 use galaxy_completer::completer::CompletionContext;
 use galaxy_core::features::FeatureFlag;
 use galaxyui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity};
-use input_classifier::util::{is_agent_follow_up_input, is_one_off_natural_language_word};
 pub use input_classifier::{InputClassifierDecisionSource, InputType};
 use instant::Instant;
 use parking_lot::FairMutex;
@@ -90,19 +89,14 @@ use super::agent_view::AgentViewEntryOrigin;
 use super::context_model::BlocklistAIContextModel;
 use super::telemetry_banner::should_collect_ai_ugc_telemetry;
 use super::{ConversationSelectionEvent, ConversationSelectionHandle};
-use crate::input_classifier::InputClassifierModel;
 use crate::settings::{AISettings, AISettingsChangedEvent, InputBoxType, InputSettings};
 use crate::terminal::cli_agent_sessions::{
     CLIAgentInputState, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
 use crate::terminal::input::decorations::ParsedTokensSnapshot;
-use crate::terminal::model::rich_content::RichContentType;
 use crate::terminal::model::session::SessionId;
 use crate::terminal::{History, TerminalModel};
 use crate::{report_if_error, send_telemetry_from_ctx, PrivacySettings, TelemetryEvent};
-
-/// Cutoff score for deciding an user input matches a history command entry.
-const HISTORY_ENTRY_MATCH_CUTOFF: f32 = 0.9;
 
 /// Duration to temporarily disable autodetection during operations like history selection.
 const AUTODETECTION_DISABLE_DURATION_MS: u64 = 250;
@@ -696,7 +690,7 @@ impl BlocklistAIInputModel {
     /// nothing.
     ///
     /// When `session_id` is `Some`, history matching is performed. The `completion_context`
-    /// is always used for alias expansion (callers without a live session should pass an
+    /// supplies the shell command inventory (callers without a live session should pass an
     /// `EmptyCompletionContext`).
     pub fn detect_and_set_input_type<C: CompletionContext + Clone + Send + 'static>(
         &mut self,
@@ -760,10 +754,7 @@ impl BlocklistAIInputModel {
                 .into_iter()
                 .flatten()
                 .filter_map(|entry| {
-                    if entry
-                        .exit_code
-                        .is_some_and(|code| code.was_command_not_found())
-                    {
+                    if !crate::input_classifier::is_verified_history_command(entry.exit_code) {
                         return None;
                     }
                     Some(entry.command.to_string())
@@ -771,105 +762,27 @@ impl BlocklistAIInputModel {
                 .collect::<Vec<String>>()
         });
 
-        let buffer_cloned = input.buffer_text.clone();
-        let other_buffer_cloned = buffer_cloned.clone();
+        let other_buffer_cloned = input.buffer_text.clone();
         let current_input_type = self.input_type();
 
         let is_udi_enabled = InputSettings::as_ref(ctx).is_universal_developer_input_enabled(ctx);
 
-        // Determine if the input is a follow-up to an AI block.
-        let is_agent_follow_up = {
-            let model = self.model.lock();
-            let block_list = model.block_list();
-            let block_index = block_list.last_non_hidden_block_by_index();
-            match block_list.last_non_hidden_rich_content_block_after_block(block_index) {
-                Some((_, content)) => content.content_type == Some(RichContentType::AIBlock),
-                _ => false,
-            }
-        };
-
-        let classifier = InputClassifierModel::as_ref(ctx).classifier();
         let generation = self.autodetection_generation;
-        #[cfg(not(target_family = "wasm"))]
-        let use_local_model = AISettings::as_ref(ctx).should_use_local_model();
         let handle = ctx
             .spawn(
                 async move {
-                    #[cfg(not(target_family = "wasm"))]
-                    if use_local_model {
-                        // A cancelled debounce never starts inference. The local worker
-                        // also cancels obsolete requests already queued or generating.
-                        warpui::r#async::Timer::after(std::time::Duration::from_millis(100)).await;
-                        let result = crate::local_inference::classify(
-                            buffer_cloned.to_string(),
-                            history_entries.as_deref().unwrap_or_default(),
-                            is_agent_follow_up,
-                        )
-                        .await;
-                        return match result {
-                            Some(input_type) => (
-                                input_type,
-                                InputClassifierDecisionSource::LocalLanguageModel.into(),
-                            ),
-                            None => (
-                                current_input_type,
-                                InputClassifierDecisionSource::InputClassifierFallbackCurrentInput
-                                    .into(),
-                            ),
-                        };
-                    }
-                    // First check if the token is a natural language word, if current input type is AI
-                    if matches!(current_input_type, InputType::AI)
-                        && is_one_off_natural_language_word(first_token_str.to_lowercase().as_str())
-                    {
-                        return (
-                            InputType::AI,
-                            InputClassifierDecisionSource::NaturalLanguageOneOffAllowlist.into(),
-                        );
-                    }
-
-                    // If this is clearly intended to be a follow-up to an AI block, classify it as AI.
-                    if is_agent_follow_up
-                        && is_agent_follow_up_input(&buffer_cloned.trim().to_lowercase())
-                    {
-                        return (
-                            InputType::AI,
-                            InputTypeAutoDetectionSource::NaturalLanguageAgentFollowUpAllowList,
-                        );
-                    }
-
-                    // If we have history entries (i.e., a live session), check for
-                    // close matches to short-circuit as shell input.
-                    if let Some(history_entries) = history_entries {
-                        if has_any_close_matches(
-                            &buffer_cloned,
-                            history_entries.iter().map(AsRef::as_ref),
-                            HISTORY_ENTRY_MATCH_CUTOFF,
-                        )
-                        .await
-                        {
-                            return (InputType::Shell, InputTypeAutoDetectionSource::HistoryMatch);
-                        }
-                    }
-
-                    // Yield so that an attempt to abort the classification is handled.  We do this periodically
-                    // so that we can skip doing additional expensive work if the classification is aborted.
-                    futures_lite::future::yield_now().await;
-
-                    let input =
-                        galaxy_completer::util::expand_aliases(input, &completion_context).await;
-
-                    futures_lite::future::yield_now().await;
-
-                    let context = input_classifier::Context {
+                    // Coalesce keystrokes; aborting this task prevents obsolete decisions.
+                    warpui::r#async::Timer::after(std::time::Duration::from_millis(100)).await;
+                    let input_type = crate::input_classifier::detect_input_type(
+                        &input,
+                        &completion_context,
+                        history_entries.as_deref().unwrap_or_default(),
                         current_input_type,
-                        is_agent_follow_up,
-                    };
-                    let classification =
-                        classifier.detect_input_type(input.clone(), &context).await;
-
-                    futures_lite::future::yield_now().await;
-                    (classification.input_type, classification.source.into())
+                    );
+                    (
+                        input_type,
+                        InputClassifierDecisionSource::ShellCommandLookup.into(),
+                    )
                 },
                 move |me, (new_input_type, decision_source), ctx| {
                     // In theory, we shouldn't need to check this, as we only run autodetection if the input
@@ -957,42 +870,4 @@ impl BlocklistAIInputEvent {
 
 impl Entity for BlocklistAIInputModel {
     type Event = BlocklistAIInputEvent;
-}
-
-/// Returns whether the set of possibilities contains any close matches
-/// to the provided word, using the given similarity threshold.
-///
-/// Adapted from [`difflib::get_close_matches`], but an async function with
-/// periodic yields such that the operation can be aborted if necessary.  Also,
-/// unlike the original function, this returns as soon as it finds any match
-/// above the threshold, instead of finding _all_ matches above the threshold
-/// and returning the top N matches.
-async fn has_any_close_matches<'a>(
-    word: &str,
-    possibilities: impl Iterator<Item = &'a str>,
-    cutoff: f32,
-) -> bool {
-    const BATCH_SIZE: usize = 50;
-
-    if !(0.0..=1.0).contains(&cutoff) {
-        panic!("Cutoff must be greater than 0.0 and lower than 1.0");
-    }
-    let mut matcher = difflib::sequencematcher::SequenceMatcher::new("", word);
-    for (idx, i) in possibilities.enumerate() {
-        // Periodically, yield to the executor so this task can be aborted if
-        // requested.
-        if idx % BATCH_SIZE == 0 {
-            futures_lite::future::yield_now().await;
-        }
-
-        matcher.set_first_seq(i);
-        // The fast ratio computations produce an upper bound on the value of
-        // ratio, so if a faster check fails, the slower checks are guaranteed
-        // to also fail.
-        if matcher.real_quick_ratio() >= cutoff && matcher.ratio() >= cutoff {
-            return true;
-        }
-    }
-
-    false
 }

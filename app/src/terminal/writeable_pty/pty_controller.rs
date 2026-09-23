@@ -715,6 +715,27 @@ impl<T: EventLoopSender> PtyController<T> {
                 model.active_block_id().clone()
             };
             self.is_user_command_executing = true;
+            #[cfg(not(target_family = "wasm"))]
+            if let CommandExecutionSource::AI { metadata }
+            | CommandExecutionSource::SharedSession {
+                ai_metadata: Some(metadata),
+                ..
+            } = &event.source
+            {
+                crate::ai::remote_logging::log_model_event(
+                    ctx,
+                    crate::ai::remote_logging::RemoteLogRecord {
+                        level: crate::ai::remote_logging::RemoteLogLevel::Info,
+                        message: "Agent command dispatched to PTY".to_string(),
+                        context: serde_json::json!({
+                            "event": "shell_command_pty_dispatched",
+                            "conversation_id": metadata.conversation_id().to_string(),
+                            "action_id": metadata.requested_command_action_id().map(|id| id.to_string()),
+                            "block_id": block_id.to_string(),
+                        }),
+                    },
+                );
+            }
             ctx.emit(PtyControllerEvent::CommandStarted { event, block_id });
         }
 
