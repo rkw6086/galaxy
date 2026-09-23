@@ -6395,6 +6395,20 @@ impl BlocklistAIController {
         request_params: api::RequestParams,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider transition milestone".to_string(),
+                context: serde_json::json!({
+                    "event": "provider_transition_milestone",
+                    "phase": "preparation_started",
+                    "conversation_id": conversation_id,
+                    "stream_id": stream_id.as_str(),
+                }),
+            },
+        );
         let orchestration_models = LLMPreferences::as_ref(ctx)
             .get_base_llm_choices_for_agent_mode(ctx)
             .filter(|model| model.disable_reason.is_none())
@@ -6444,6 +6458,20 @@ impl BlocklistAIController {
                 return;
             }
         };
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider transition milestone".to_string(),
+                context: serde_json::json!({
+                    "event": "provider_transition_milestone",
+                    "phase": "preparation_completed",
+                    "conversation_id": conversation_id,
+                    "stream_id": stream_id.as_str(),
+                }),
+            },
+        );
         let PreparedProviderRun {
             base_profile,
             cli_monitor_profile,
@@ -7355,7 +7383,32 @@ impl BlocklistAIController {
                         );
                     });
                 }
-                let _ = acknowledgement.send(result);
+                let model_turn_requested = lifecycle.as_ref().is_some_and(|lifecycle| {
+                    matches!(lifecycle.phase, ProviderLlmLifecyclePhase::Requested)
+                });
+                let projection_succeeded = result.is_ok();
+                let acknowledged = acknowledgement.send(result).is_ok();
+                if model_turn_requested {
+                    log::debug!(
+                        "Provider model request projection: conversation={conversation_id:?} stream={stream_id:?} succeeded={projection_succeeded} acknowledged={acknowledged}"
+                    );
+                    #[cfg(not(target_family = "wasm"))]
+                    remote_logging::log_model_event(
+                        ctx,
+                        RemoteLogRecord {
+                            level: RemoteLogLevel::Info,
+                            message: "Provider transition milestone".to_string(),
+                            context: serde_json::json!({
+                                "event": "provider_transition_milestone",
+                                "phase": "model_request_projection_acknowledged",
+                                "conversation_id": conversation_id,
+                                "stream_id": stream_id.as_str(),
+                                "projection_succeeded": projection_succeeded,
+                                "acknowledged": acknowledged,
+                            }),
+                        },
+                    );
+                }
             }
             ProviderDriveMessage::Checkpoint {
                 checkpoint,
@@ -8571,6 +8624,20 @@ impl BlocklistAIController {
             request_usage_model.refresh_request_usage_async(ctx);
         });
         self.maybe_refresh_ai_overages(ctx);
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider transition milestone".to_string(),
+                context: serde_json::json!({
+                    "event": "provider_transition_milestone",
+                    "phase": "cleanup_completed",
+                    "conversation_id": conversation_id,
+                    "stream_id": stream_id.as_str(),
+                }),
+            },
+        );
         self.start_next_queued_provider_run(conversation_id, ctx);
         OrchestrationEventService::handle(ctx).update(ctx, |service, ctx| {
             service.reconcile_local_groups_for_child(conversation_id, ctx);
@@ -8604,6 +8671,20 @@ impl BlocklistAIController {
         let Some(next) = next else {
             return;
         };
+        #[cfg(not(target_family = "wasm"))]
+        remote_logging::log_model_event(
+            ctx,
+            RemoteLogRecord {
+                level: RemoteLogLevel::Info,
+                message: "Provider transition milestone".to_string(),
+                context: serde_json::json!({
+                    "event": "provider_transition_milestone",
+                    "phase": "queued_follow_up_dequeued",
+                    "conversation_id": conversation_id,
+                    "stream_id": next.slot.stream_id.as_str(),
+                }),
+            },
+        );
         let mut request_params = next.request_params;
         if let Some(conversation) =
             BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)

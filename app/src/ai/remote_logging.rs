@@ -189,7 +189,7 @@ pub(crate) fn sanitize_error(error: impl std::fmt::Display) -> String {
 
 pub(crate) fn raw_model_payload_context<M>(
     ctx: &ModelContext<M>,
-    raw_payload: impl AsRef<str>,
+    build_payload: impl FnOnce(usize) -> Value,
 ) -> Option<Value>
 where
     M: Entity,
@@ -203,10 +203,7 @@ where
     }
 
     let max_chars = (*settings.remote_logging_model_payload_max_chars.value()).max(1);
-    Some(tail_limited_payload_context(
-        raw_payload.as_ref(),
-        max_chars,
-    ))
+    Some(build_payload(max_chars))
 }
 
 fn enrich_context(mut context: Value) -> Value {
@@ -290,7 +287,59 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     truncated
 }
 
-fn tail_limited_payload_context(payload: &str, max_chars: usize) -> Value {
+/// Serialize directly into a bounded UTF-8 tail instead of materializing the full
+/// request and its archive as a JSON Value and then another large String.
+pub(crate) fn bounded_payload_context(
+    max_chars: usize,
+    serialize: impl FnOnce(&mut dyn std::io::Write) -> serde_json::Result<()>,
+) -> Value {
+    struct TailWriter {
+        bytes: std::collections::VecDeque<u8>,
+        max_bytes: usize,
+        total_chars: usize,
+    }
+
+    impl std::io::Write for TailWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.total_chars += bytes.iter().filter(|byte| **byte & 0xc0 != 0x80).count();
+            let retained = &bytes[bytes.len().saturating_sub(self.max_bytes)..];
+            let discard = (self.bytes.len() + retained.len()).saturating_sub(self.max_bytes);
+            self.bytes.drain(..discard);
+            self.bytes.extend(retained);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = TailWriter {
+        bytes: std::collections::VecDeque::new(),
+        max_bytes: max_chars.saturating_mul(4),
+        total_chars: 0,
+    };
+    if let Err(error) = serialize(&mut writer) {
+        return json!({ "serialization_error": sanitize_error(error) });
+    }
+    // A byte-limited tail can begin in the middle of a multibyte character.
+    while writer.bytes.front().is_some_and(|byte| byte & 0xc0 == 0x80) {
+        writer.bytes.pop_front();
+    }
+    let bytes = writer.bytes.into_iter().collect::<Vec<_>>();
+    let payload = String::from_utf8_lossy(&bytes);
+    let mut context = tail_limited_payload_context(&payload, max_chars);
+    context["payload_total_chars"] = json!(writer.total_chars);
+    context["truncated"] = json!(writer.total_chars > max_chars);
+    context["truncation_strategy"] = json!(if writer.total_chars > max_chars {
+        Some("tail")
+    } else {
+        None
+    });
+    context
+}
+
+pub(crate) fn tail_limited_payload_context(payload: &str, max_chars: usize) -> Value {
     let total_chars = payload.chars().count();
     let truncated = total_chars > max_chars;
     let payload = if truncated {

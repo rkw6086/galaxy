@@ -313,9 +313,9 @@ impl ResponseStream {
                 }),
             },
         );
-        if let Some(raw_payload) =
-            remote_logging::raw_model_payload_context(ctx, raw_model_request_payload(params))
-        {
+        if let Some(raw_payload) = remote_logging::raw_model_payload_context(ctx, |max_chars| {
+            raw_model_request_payload(params, max_chars)
+        }) {
             remote_logging::log_model_event(
                 ctx,
                 RemoteLogRecord {
@@ -448,9 +448,9 @@ impl ResponseStream {
         raw_payload: impl AsRef<str>,
         ctx: &mut ModelContext<Self>,
     ) {
-        let Some(raw_payload) =
-            remote_logging::raw_model_payload_context(ctx, raw_payload.as_ref())
-        else {
+        let Some(raw_payload) = remote_logging::raw_model_payload_context(ctx, |max_chars| {
+            remote_logging::tail_limited_payload_context(raw_payload.as_ref(), max_chars)
+        }) else {
             return;
         };
         let mut context = self.common_remote_log_context("raw_model_response", request_id);
@@ -1073,46 +1073,65 @@ impl ResponseStream {
 }
 
 #[cfg(not(target_family = "wasm"))]
-fn raw_model_request_payload(params: &api::RequestParams) -> String {
-    let payload = serde_json::json!({
-        "model_id": params.model.as_str(),
-        "coding_model_id": params.coding_model.as_str(),
-        "cli_agent_model_id": params.cli_agent_model.as_str(),
-        "computer_use_model_id": params.computer_use_model.as_str(),
-        "input": format!("{:#?}", params.input),
-        "tool_results": format!("{:#?}", params.tool_results),
-        "tasks": format!("{:#?}", params.tasks),
-        "message_history": serde_json::to_value(&params.message_history)
-            .unwrap_or_else(|_| serde_json::json!(format!("{:#?}", params.message_history))),
-        "progressive_summary": &params.progressive_summary,
-        "tool_result_archive": serde_json::to_value(&params.tool_result_archive)
-            .unwrap_or_else(|_| serde_json::json!(format!("{:#?}", params.tool_result_archive))),
-        "global_rules": &params.global_rules,
-        "mcp_context": format!("{:#?}", params.mcp_context),
-        "session": {
-            "is_remote": params.session_context.is_remote(),
-        },
-        "features": {
-            "memory_enabled": params.is_memory_enabled,
-            "warp_drive_context_enabled": params.warp_drive_context_enabled,
-            "planning_enabled": params.planning_enabled,
-            "web_search_enabled": params.web_search_enabled,
-            "computer_use_enabled": params.computer_use_enabled,
-            "ask_user_question_enabled": params.ask_user_question_enabled,
-            "research_agent_enabled": params.research_agent_enabled,
-            "orchestration_enabled": params.orchestration_enabled,
-        },
-        "autonomy_level": format!("{:?}", params.autonomy_level),
-        "isolation_level": format!("{:?}", params.isolation_level),
-        "supported_tools_override": format!("{:#?}", params.supported_tools_override),
-        "context_window_limit": params.context_window_limit,
-        "omitted_sensitive_fields": [
-            "api_keys",
-            "custom_model_providers",
-            "custom_model_routers",
-        ],
-    });
-    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| format!("{payload:#?}"))
+fn raw_model_request_payload(params: &api::RequestParams, max_chars: usize) -> serde_json::Value {
+    use serde::ser::{SerializeMap, Serializer};
+
+    // collect_str writes debug output directly through serde_json's escaping
+    // writer, without format! allocating another copy of potentially large input.
+    struct DebugPayload<T>(T);
+    impl<T: std::fmt::Debug> serde::Serialize for DebugPayload<T> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(&format_args!("{:#?}", self.0))
+        }
+    }
+
+    remote_logging::bounded_payload_context(max_chars, |writer| {
+        let mut serializer = serde_json::Serializer::pretty(writer);
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("model_id", &params.model.as_str())?;
+        map.serialize_entry("coding_model_id", &params.coding_model.as_str())?;
+        map.serialize_entry("cli_agent_model_id", &params.cli_agent_model.as_str())?;
+        map.serialize_entry("computer_use_model_id", &params.computer_use_model.as_str())?;
+        map.serialize_entry("input", &DebugPayload(&params.input))?;
+        map.serialize_entry("tool_results", &DebugPayload(&params.tool_results))?;
+        map.serialize_entry("tasks", &DebugPayload(&params.tasks))?;
+        map.serialize_entry("message_history", &params.message_history)?;
+        map.serialize_entry("progressive_summary", &params.progressive_summary)?;
+        map.serialize_entry("tool_result_archive", &params.tool_result_archive)?;
+        map.serialize_entry("global_rules", &params.global_rules)?;
+        map.serialize_entry("mcp_context", &DebugPayload(&params.mcp_context))?;
+        map.serialize_entry("autonomy_level", &DebugPayload(&params.autonomy_level))?;
+        map.serialize_entry("isolation_level", &DebugPayload(&params.isolation_level))?;
+        map.serialize_entry(
+            "supported_tools_override",
+            &DebugPayload(&params.supported_tools_override),
+        )?;
+        map.serialize_entry("context_window_limit", &params.context_window_limit)?;
+        map.serialize_entry(
+            "session",
+            &serde_json::json!({
+                "is_remote": params.session_context.is_remote(),
+            }),
+        )?;
+        map.serialize_entry(
+            "features",
+            &serde_json::json!({
+                "memory_enabled": params.is_memory_enabled,
+                "warp_drive_context_enabled": params.warp_drive_context_enabled,
+                "planning_enabled": params.planning_enabled,
+                "web_search_enabled": params.web_search_enabled,
+                "computer_use_enabled": params.computer_use_enabled,
+                "ask_user_question_enabled": params.ask_user_question_enabled,
+                "research_agent_enabled": params.research_agent_enabled,
+                "orchestration_enabled": params.orchestration_enabled,
+            }),
+        )?;
+        map.serialize_entry(
+            "omitted_sensitive_fields",
+            &["api_keys", "custom_model_providers", "custom_model_routers"],
+        )?;
+        map.end()
+    })
 }
 
 #[cfg(not(target_family = "wasm"))]

@@ -38,3 +38,29 @@ fn raw_payload_cap_keeps_tail() {
         })
     );
 }
+
+#[test]
+fn streamed_payload_matches_existing_tail_for_unicode_and_split_writes() {
+    let payload = "start \"escaped\" é日本🙂 ending".repeat(100);
+    for limit in [0, 1, 3, 17, payload.chars().count(), payload.len()] {
+        for chunk_size in [1, 2, 7, payload.len()] {
+            let actual = super::bounded_payload_context(limit, |writer| {
+                for chunk in payload.as_bytes().chunks(chunk_size) {
+                    writer.write_all(chunk).unwrap();
+                }
+                Ok(())
+            });
+            assert_eq!(actual, tail_limited_payload_context(&payload, limit));
+        }
+    }
+}
+
+#[test]
+fn streamed_json_matches_serialized_payload_without_materializing_the_archive() {
+    let payload = json!({ "archive": ["large tool output".repeat(1000)], "input": "steer 🙂" });
+    let expected = serde_json::to_string_pretty(&payload).unwrap();
+    let actual = super::bounded_payload_context(100, |writer| {
+        serde_json::to_writer_pretty(writer, &payload)
+    });
+    assert_eq!(actual, tail_limited_payload_context(&expected, 100));
+}
